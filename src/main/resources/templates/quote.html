@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <title>Offerte {order.number}</title>
+  <style>
+    @page { size: A4; margin: 18mm 15mm; }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #1a1614; }
+    h1 { font-size: 20pt; margin: 0; letter-spacing: 2px; font-family: "DejaVu Sans", Georgia, serif; }
+    h1 { color: #b01f3f; }
+    .head { border-bottom: 2px solid #1a1614; padding-bottom: 10px; }
+    .head td { vertical-align: top; }
+    .meta { text-align: right; font-size: 8.5pt; }
+    .meta b { display: block; font-size: 10pt; }
+    .label { font-size: 7pt; letter-spacing: 1px; text-transform: uppercase; color: #8a807a; }
+    .parties { margin: 16px 0; width: 100%; }
+    .parties td { vertical-align: top; width: 50%; padding-right: 20px; }
+    table.lines { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    table.lines th { text-align: left; font-size: 7pt; letter-spacing: 0.6px; text-transform: uppercase;
+                     border-bottom: 1px solid #1a1614; padding: 5px 4px; color: #4a423e; }
+    table.lines td { padding: 6px 4px; border-bottom: 1px solid #e9e3de; }
+    .r { text-align: right; }
+    .totals { width: 46%; margin-left: 54%; margin-top: 12px; border-collapse: collapse; }
+    .totals td { padding: 3px 4px; }
+    .totals .sum td { border-top: 1px solid #d8d0c9; font-weight: bold; }
+    .totals .grand td { border-top: 2px solid #1a1614; font-size: 12pt; font-weight: bold; padding-top: 6px; }
+    .muted { color: #8a807a; }
+    .cta { margin-top: 22px; padding: 12px 14px; background: #fbecef; border: 1px solid #f0d2d9; }
+    .vat-note { margin-top: 16px; padding: 9px 11px; border: 1px solid #d8d0c9;
+                background: #fcfaf8; font-size: 8.5pt; }
+    .foot { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e9e3de; font-size: 7.5pt; color: #8a807a; }
+  </style>
+</head>
+<body>
+
+<table class="head" width="100%">
+  <tr>
+    <td>
+      {#if logo}<img src="{logo}" alt="Enrosed" style="height:30px"/>{#else}<h1>ENROSED</h1>{/if}
+      <div class="muted" style="font-size:8pt;margin-top:4px">
+        <b>{company.name}</b><br/>
+        {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
+        {#if company.vatNumber}{t.vatNumber} {company.vatNumber}{/if}
+        {#if company.email} · {company.email}{/if}
+      </div>
+    </td>
+    <td class="meta">
+      <span class="label">{t.quote}</span><b>{order.number}</b>
+      <span class="label" style="margin-top:6px;display:block">{t.date}</span>{orderDateText}
+      <span class="label" style="margin-top:6px;display:block">{t.validUntil}</span>{validUntilText}
+      <span class="label" style="margin-top:6px;display:block">{t.incoterm}</span>{order.incoterm}
+    </td>
+  </tr>
+</table>
+
+<table class="parties">
+  <tr>
+    <td>
+      <div class="label">{t.customer}</div>
+      {#if customer}
+        <b>{customer.company}</b><br/>
+        {#if customer.contact}{customer.contact}<br/>{/if}
+        {#if customer.address}{customer.address}<br/>{/if}
+        {customer.postalCode ?: ''} {customer.city ?: ''}<br/>
+        {#if customer.vatNumber}<span class="muted">{t.vatNumber} {customer.vatNumber}</span>{/if}
+      {#else}
+        <span class="muted">{t.noCustomer}</span>
+      {/if}
+    </td>
+    <td>
+      <div class="label">{t.delivery}</div>
+      {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
+      {t.pallets}: <b>{priced.totals.palletsStrict}</b><br/>
+      {t.cartons}: {priced.totals.cartons} · {priced.totals.weightKg.amount} kg<br/>
+      {#if customer && customer.paymentTerms}{t.payment}: {customer.paymentTerms}{/if}
+    </td>
+  </tr>
+</table>
+
+<table class="lines">
+  <thead>
+  <tr>
+    <th>{t.sku}</th>
+    <th>{t.description}</th>
+    <th class="r">{t.quantity}</th>
+    <th class="r">{t.cartons}</th>
+    <th class="r">{t.pallets}</th>
+    <th class="r">{t.unitPrice}</th>
+    <th class="r">{t.discount}</th>
+    <th>{t.delivery}</th>
+    <th class="r">{t.total}</th>
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in priced.lines}
+    <tr>
+      <td class="muted">{line.sku}</td>
+      <td>{line.customerDescription}</td>
+      <td class="r">{line.quantity}</td>
+      <td class="r">{line.cartons}</td>
+      <td class="r">{line.pallets}</td>
+      <td class="r">{line.unitPrice.unit}</td>
+      <td class="r">{#if line.discountPct.isPositive}{line.discountPct.pct}{#else}-{/if}</td>
+      <td class="muted" style="font-size:7.5pt">{deliveryTexts.get(line.productId)}</td>
+      <td class="r"><b>{line.net.eur}</b></td>
+    </tr>
+  {/for}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr><td>{t.subtotal}</td><td class="r">{priced.totals.subtotal.eur}</td></tr>
+  {#if priced.totals.orderDiscountAmount.isPositive}
+    <tr><td>{t.orderDiscount} {priced.totals.orderDiscountPercent.pct}</td>
+        <td class="r">- {priced.totals.orderDiscountAmount.eur}</td></tr>
+  {/if}
+  <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
+  <tr><td>{t.freight} ({priced.totals.palletsStrict} {t.pallets})</td>
+      <td class="r">{#if freightPending}{t.freightToBeDetermined}{#else}{priced.totals.freight.eur}{/if}</td></tr>
+  <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
+  <tr class="grand"><td>{t.total}</td><td class="r">{priced.totals.total.eur}</td></tr>
+  {#if priced.totals.vatTreatment.isExempt()}
+    <tr class="muted"><td>{t.vat}</td><td class="r">0,00 EUR</td></tr>
+  {#else}
+    <tr class="muted"><td>{t.vat} {priced.totals.vatRatePct.pct}</td>
+        <td class="r">{priced.totals.vatAmount.eur}</td></tr>
+    <tr class="muted"><td>{t.totalInclVat}</td>
+        <td class="r">{priced.totals.totalInclVat.eur}</td></tr>
+  {/if}
+</table>
+
+{#if order.notes}
+  <p style="margin-top:18px"><b>{t.note}:</b> {order.notes}</p>
+{/if}
+
+{#if portalUrl}
+  <div class="cta">
+    <b>{t.portalTitle}</b><br/>
+    {t.portalText}<br/>
+    <span style="font-size:8pt">{portalUrl}</span>
+  </div>
+{/if}
+
+{#if vatMention}
+  <div class="vat-note">
+    <b>{vatLabel}</b><br/>
+    {vatMention}
+    {#if customer && customer.vatNumber}<br/>{t.buyerVatNumber}: {customer.vatNumber}{/if}
+  </div>
+{/if}
+
+<div class="foot">
+  {t.footer}
+  {validUntilSentence}
+  {t.termsSentence}
+</div>
+
+</body>
+</html>

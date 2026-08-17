@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <title>{title}</title>
+  <style>
+    /* Beurscatalogus: twee kolommen, weinig marge, veel beeld. Papier is duur
+       en op een stand blader je met een klant mee — dan wil je zoveel mogelijk
+       artikelen per pagina zonder dat het gedrang wordt. */
+    @page {
+      size: A4;
+      margin: 12mm 10mm 14mm;
+      @bottom-center { content: counter(page) " / " counter(pages); font-size: 7pt; color: #8a807a; }
+    }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8.5pt; color: #1a1614; margin: 0; }
+
+    .cover { border-bottom: 3px solid #b01f3f; padding-bottom: 8px; margin-bottom: 10px; }
+    .cover table { width: 100%; }
+    .cover td { vertical-align: bottom; }
+    .cover img { height: 30px; }
+    .cover h1 { font-size: 17pt; margin: 6px 0 1px; letter-spacing: -0.2px; }
+    .cover .sub { font-size: 8pt; color: #8a807a; }
+    .cover .co { text-align: right; font-size: 7.5pt; color: #4a423e; line-height: 1.35; }
+    .intro { font-size: 8.5pt; margin-bottom: 9px; padding: 6px 8px; background: #fbecef; }
+
+    /* Twee kolommen via een tabel: openhtmltopdf breekt daar netjes op af. */
+    table.grid { width: 100%; border-collapse: separate; border-spacing: 6px 6px; }
+    table.grid td.cell { width: 50%; vertical-align: top; border: 1px solid #e0d8d2; padding: 0; }
+
+    .card { padding: 0; }
+    .hero { text-align: center; background: #faf7f5; padding: 4px; }
+    .hero img { max-height: 112px; max-width: 100%; }
+    .strip { padding: 2px 4px 0; }
+    .strip img { max-height: 30px; max-width: 30px; border: 1px solid #e9e3de; margin-right: 2px; }
+    .body { padding: 5px 8px 7px; }
+
+    .sku { font-size: 6.5pt; letter-spacing: 0.7px; color: #8a807a; text-transform: uppercase; }
+    .name { font-size: 10.5pt; font-weight: bold; line-height: 1.15; margin: 1px 0 2px; }
+    .spec { font-size: 7.5pt; color: #4a423e; line-height: 1.35; }
+    .spec b { color: #1a1614; }
+    .bc { font-family: monospace; font-size: 6.5pt; color: #8a807a; margin-top: 1px; }
+    .price {
+      font-size: 12pt; font-weight: bold; color: #b01f3f;
+      margin-top: 3px; padding-top: 3px; border-top: 1px solid #efe7e2;
+    }
+    .price small { font-size: 7pt; color: #8a807a; font-weight: normal; }
+    .nostock { color: #a85e10; font-size: 7pt; }
+
+    .foot { margin-top: 8px; padding-top: 5px; border-top: 1px solid #e9e3de;
+            font-size: 7pt; color: #8a807a; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <table>
+    <tr>
+      <td>
+        {#if logo}<img src="{logo}" alt="{company.name}"/>{#else}<div class="name">{company.name}</div>{/if}
+        <h1>{title}</h1>
+        <div class="sub">{today.be} · {items.size} artikel(en)</div>
+      </td>
+      <td class="co">
+        <b>{company.name}</b><br/>
+        {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
+        {#if company.vatNumber}BTW {company.vatNumber}<br/>{/if}
+        {#if company.email}{company.email}{/if}
+        {#if company.phone} · {company.phone}{/if}
+        {#if company.website}<br/>{company.website}{/if}
+      </td>
+    </tr>
+  </table>
+</div>
+
+{#if intro}<div class="intro">{intro}</div>{/if}
+
+<table class="grid">
+  {#for row in rows}
+    <tr>
+    {#for it in row}
+    <td class="cell">
+      <div class="card">
+        {#if it.photoDataUri}
+          <div class="hero"><img src="{it.photoDataUri}" alt="{it.name}"/></div>
+          {#if it.extraPhotos.size > 0}
+            <div class="strip">
+              {#for extra in it.extraPhotos}<img src="{extra}" alt=""/>{/for}
+            </div>
+          {/if}
+        {/if}
+        <div class="body">
+          <div class="sku">{it.sku}{#if it.category} · {it.category}{/if}</div>
+          <div class="name">{it.name}</div>
+          <div class="spec">
+            {#if it.size}<b>{it.size}</b>{/if}{#if it.colour} · {it.colour}{/if}<br/>
+            {it.piecesPerCarton} per doos{#if it.cartonSize} · omdoos {it.cartonSize}{/if}
+          </div>
+          {#if it.barcodeInner || it.barcodeOuter}
+            <div class="bc">
+              {#if it.barcodeInner}{it.barcodeInner}{/if}{#if it.barcodeOuter} · {it.barcodeOuter}{/if}
+            </div>
+          {/if}
+          {#if it.priceLabel}
+            <div class="price">{it.priceLabel} <small>per stuk</small></div>
+          {/if}
+          {#if it.stockQuantity <= 0}
+            <div class="nostock">op bestelling</div>
+          {/if}
+        </div>
+      </div>
+    </td>
+    {/for}
+    {#if row.size == 1}<td class="cell" style="border:0;background:transparent"></td>{/if}
+    </tr>
+  {/for}
+</table>
+
+<div class="foot">
+  Prijzen per stuk in euro, exclusief BTW en vracht, onder voorbehoud van wijziging.
+  Artikelen zonder voorraad worden op bestelling geproduceerd; de levertermijn spreken we
+  samen af.
+  {#if company.documentFooter}<br/>{company.documentFooter}{/if}
+</div>
+
+</body>
+</html>

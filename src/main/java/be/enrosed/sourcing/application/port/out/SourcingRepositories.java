@@ -1,0 +1,24 @@
+package be.enrosed.sourcing.application.port.out;
+
+import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.Supplier;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface SourcingRepositories {
+
+    interface Suppliers {
+        List<Supplier> findAll();
+        Optional<Supplier> findById(long id);
+        Supplier save(Supplier supplier);
+        void deleteById(long id);
+    }
+
+    interface PurchaseOrders {
+        List<PurchaseOrder> findAll();
+        Optional<PurchaseOrder> findById(long id);
+        PurchaseOrder save(PurchaseOrder order);
+        void deleteById(long id);
+    }
+}

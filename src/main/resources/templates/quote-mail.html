@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head><meta charset="utf-8"/></head>
+<body style="font-family:Helvetica,Arial,sans-serif;color:#1a1614;font-size:15px;line-height:1.55">
+
+  <p style="font-family:Georgia,serif;font-size:22px;letter-spacing:2px;margin:0 0 18px">
+    ENR<span style="color:#b01f3f">O</span>SED
+  </p>
+
+  <p>{t.mailGreeting}{#if customer.contact} {customer.contact}{/if},</p>
+
+  {#if termsJustAdded}
+    <div style="margin:0 0 18px;padding:14px 16px;border-left:3px solid #2e7d4f;background:#f2f8f4">
+      <p style="margin:0 0 4px;font-weight:600;color:#2e7d4f">{t.mailTermsAddedTitle}</p>
+      <p style="margin:0;font-size:14px">{t.mailTermsAddedText}</p>
+    </div>
+  {/if}
+
+  {#if freightPending}
+    <div style="margin:0 0 18px;padding:14px 16px;border-left:3px solid #a85e10;background:#fdf7f0">
+      <p style="margin:0 0 4px;font-weight:600;color:#a85e10">{t.freight}</p>
+      <p style="margin:0;font-size:14px">{t.mailFreightPending}</p>
+    </div>
+  {/if}
+
+  {#if personalMessage}
+    <p>{personalMessage}</p>
+  {#else}
+    <p>{intro}</p>
+  {/if}
+
+  {#if deliveryLines && deliveryLines.size > 0}
+    <div style="margin:22px 0;padding:14px 16px;border:1px solid #e9e3de;background:#fcfaf8">
+      <p style="margin:0 0 8px;font-weight:600">
+        {#if allDeliveryKnown && !termsJustAdded}{t.mailDeliveryTitle}{#else}{t.mailDeliveryPerItem}{/if}
+      </p>
+      {#for line in deliveryLines}
+        <div style="font-size:14px;padding:3px 0">
+          {line.description} —
+          {#if line.known}
+            <b>{line.term}</b>
+          {#else}
+            <span style="color:#a85e10">{line.term}</span>
+          {/if}
+        </div>
+      {/for}
+      {#if !allDeliveryKnown}
+        <p style="margin:10px 0 0;font-size:13px;color:#a85e10">{t.mailDeliveryPending}</p>
+      {/if}
+    </div>
+  {/if}
+
+  <p>{t.portalText}</p>
+
+  <p style="margin:26px 0">
+    <a href="{portalUrl}"
+       style="background:#b01f3f;color:#ffffff;text-decoration:none;padding:13px 22px;
+              border-radius:8px;font-weight:600;display:inline-block">
+      {t.mailButton}
+    </a>
+  </p>
+
+  <p style="color:#8a807a;font-size:13px">
+    {portalUrl}
+  </p>
+
+  <p style="color:#8a807a;font-size:13px">
+    {validUntilSentence}
+  </p>
+
+  <p>{t.mailClosing},<br/>Enrosed</p>
+
+</body>
+</html>
