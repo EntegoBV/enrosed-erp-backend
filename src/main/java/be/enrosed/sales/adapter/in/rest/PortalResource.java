@@ -222,6 +222,37 @@ public class PortalResource {
     /* --------------------------------------------------------- mapping */
 
     /**
+     * What the customer gets to see about a proposal's progress.
+     *
+     * Clicking "take over" on our side fills the numbers into our editor, but
+     * nothing has been decided towards the customer until the amended quote
+     * actually leaves. Until that re-send, an approved proposal still reads as
+     * "being handled" - announcing "processed" while we may still be editing
+     * would be confirming something that does not exist yet.
+     */
+    private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {
+        boolean takenOverButNotResent = revision.status() == RevisionStatus.GOEDGEKEURD
+                && (order.sentAt() == null
+                    || (revision.handledAt() != null && order.sentAt().isBefore(revision.handledAt())));
+        return takenOverButNotResent
+                ? RevisionStatus.IN_AFWACHTING.name()
+                : revision.status().name();
+    }
+
+    /**
+     * The order status as the customer should read it.
+     *
+     * While we are editing (CONCEPT after taking over a proposal or reopening),
+     * the honest message is "your change is being handled", not "awaiting your
+     * response" - there is nothing for the customer to respond to yet.
+     */
+    private static String customerFacingOrderStatus(SalesOrder order) {
+        return order.status() == QuoteStatus.CONCEPT
+                ? QuoteStatus.WIJZIGING_GEVRAAGD.name()
+                : order.status().name();
+    }
+
+    /**
      * Doosinhoud van een product.
      *
      * Bewust opgezocht en niet afgeleid uit aantal gedeeld door dozen: dat klopt
@@ -277,13 +308,13 @@ public class PortalResource {
 
         List<PendingProposal> proposals = quotes.revisionsFor(order.id()).stream()
                 .map(revision -> new PendingProposal(
-                        revision.status().name(),
+                        customerFacingStatus(order, revision),
                         revision.proposedAt() == null ? null : revision.proposedAt().toString(),
                         revision.message(), revision.responseMessage()))
                 .toList();
 
         return new QuoteView(
-                order.number(), order.status().name(),
+                order.number(), customerFacingOrderStatus(order),
                 String.valueOf(order.orderDate()), String.valueOf(order.validUntil()),
                 order.incoterm(), order.notes(),
                 customer == null ? null : customer.company(),
