@@ -48,7 +48,8 @@
       <span class="label" style="display:block">Inkoopcalculatie</span><b>{order.number}</b><br/>
       <span class="label" style="margin-top:5px;display:block">Datum</span>{orderDate}<br/>
       <span class="label" style="margin-top:5px;display:block">Leverancier</span>{supplierName}<br/>
-      <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType}
+      <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType}<br/>
+      <span class="label" style="margin-top:5px;display:block">Bestemming</span>{order.destinationPort}
       {#if showRevenue}
         <div style="margin-top:6px"><span class="stamp">Intern</span></div>
       {/if}
@@ -56,6 +57,7 @@
   </tr>
 </table>
 
+{#if showRevenue}
 <table class="lines">
   <thead>
   <tr>
@@ -92,7 +94,37 @@
   {/for}
   </tbody>
 </table>
+{#else}
+<!-- Customer view: only the landed price per piece, which already carries the
+     desired margin inside it. No component columns - a breakdown that does not
+     add up to its own total invites exactly the arithmetic we want to avoid. -->
+<table class="lines">
+  <thead>
+  <tr>
+    <th>Product</th>
+    <th class="r">Stuks</th>
+    <th class="r">Dozen</th>
+    <th class="r">CBM</th>
+    <th class="r">Per stuk</th>
+    <th class="r">Totaal</th>
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in costing.lines}
+    <tr>
+      <td>{line.productName}</td>
+      <td class="r">{line.quantity}</td>
+      <td class="r">{line.cartons}</td>
+      <td class="r">{line.cbm.amount}</td>
+      <td class="r"><b>{line.landedUnitEur.unit}</b></td>
+      <td class="r"><b>{line.totalEur.eur}</b></td>
+    </tr>
+  {/for}
+  </tbody>
+</table>
+{/if}
 
+{#if showRevenue}
 <table class="totals">
   <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
   <tr><td>Kosten oorsprong</td><td class="r">{costing.totals.originEur.eur}</td></tr>
@@ -100,28 +132,31 @@
   <tr class="sum"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
   <tr><td>Invoerrechten ({costing.totals.effectiveDutyPct.pct} gemiddeld)</td>
       <td class="r">{costing.totals.dutyEur.eur}</td></tr>
-  <tr><td>Kosten bestemming</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
-  {#if showRevenue}
-    <tr><td>Gewenste extra opbrengst</td>
-        <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
-  {#else}
-    <!-- Zonder deze regel telt de kolom niet op tot het totaal, en dat valt op.
-         Liever een neutrale post dan een klant die zelf het verschil uitrekent. -->
-    <tr><td>Toeslagen en afronding</td>
-        <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
-  {/if}
+  <tr><td>Kosten tot {order.destinationPort}</td>
+      <td class="r">{costing.totals.destinationEur.eur}</td></tr>
+  <tr><td>Gewenste extra opbrengst</td>
+      <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
   <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
   <tr><td class="muted">Gemiddeld per stuk</td>
       <td class="r muted">{costing.totals.averageUnitEur.unit}</td></tr>
 </table>
+{#else}
+<table class="totals">
+  <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
+  <tr><td class="muted">Gemiddeld per stuk</td>
+      <td class="r muted">{costing.totals.averageUnitEur.unit}</td></tr>
+</table>
+{/if}
 
 <div class="foot">
   {#if showRevenue}
     Interne calculatie: bevat de gewenste extra opbrengst als aparte regel. Niet bedoeld
     om buiten het bedrijf te delen - gebruik daarvoor de klantweergave.
+    Koersen: 1 USD = {order.usdToEurGoods.amount} EUR (goederen),
+    {order.usdToEurTransport.amount} EUR (transport){#if order.cnyToUsd},
+    1 CNY = {order.cnyToUsd.amount} USD{/if}.
   {/if}
-  Alle bedragen in euro. Koersen: 1 USD = {order.usdToEurGoods.amount} EUR (goederen),
-  {order.usdToEurTransport.amount} EUR (transport){#if order.cnyToUsd}, 1 CNY = {order.cnyToUsd.amount} USD{/if}.
+  Alle bedragen in euro, inclusief transport, invoerrechten en lokale kosten.
 </div>
 
 </body>

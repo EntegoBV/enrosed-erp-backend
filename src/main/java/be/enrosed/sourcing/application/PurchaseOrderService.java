@@ -68,7 +68,7 @@ public class PurchaseOrderService {
                 BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
                 defaultDutyRatePct, BigDecimal.ZERO,
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "", List.of()));
+                "Rotterdam", "", List.of()));
     }
 
     /**
@@ -91,30 +91,33 @@ public class PurchaseOrderService {
                 source.freightUsd(), source.originCosts(), source.originCurrency(),
                 source.destinationCostsEur(), source.defaultDutyRatePct(), source.extraRevenueEur(),
                 source.allocFreight(), source.allocOrigin(), source.allocDestination(),
-                source.allocExtra(), source.notes(),
+                source.allocExtra(), source.destinationPort(), source.notes(),
                 source.lines().stream()
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost()))
                         .toList()));
     }
 
-    /** Wat er aan een ingetikt aantal is bijgesteld om op volle dozen uit te komen. */
+    /**
+     * A quantity that is not a whole number of cartons.
+     *
+     * Reported, never corrected: a supplier can perfectly well ship a
+     * three-piece sample, and silently inflating an order to a supplier costs
+     * real money. {@code adjusted} carries the nearest full carton as a
+     * suggestion for the screen.
+     */
     public record CartonAdjustment(long productId, String productName, int requested,
                                    int adjusted, int piecesPerCarton) {}
 
     public record UpdateResult(PurchaseOrder order, List<CartonAdjustment> adjustments) {}
 
     /**
-     * Werkt de inkooporder bij.
+     * Updates the purchase order.
      *
-     * Aantallen worden ingetikt in stuks, want zo praat je met een leverancier.
-     * Ze worden hier naar boven afgerond op een volle doos: vraag je 5 stuks van
-     * iets dat per 6 verpakt zit, dan komen er 6. Half gevulde dozen bestaan niet
-     * en een order die dat wel veronderstelt klopt verderop nergens meer - niet in
-     * het volume, niet in de vracht, niet in de kostprijs.
-     *
-     * Wat er bijgesteld is komt terug in het antwoord, zodat de gebruiker het ziet
-     * in plaats van dat het stilletjes gebeurt.
+     * Quantities are entered in pieces, because that is how you talk to a
+     * supplier. Quantities that do not fill whole cartons are flagged in the
+     * response but saved exactly as entered — unlike sales, purchasing never
+     * rounds. Only the user knows whether "3 pieces" is a typo or a sample.
      */
     @Transactional
     public UpdateResult update(long id, PurchaseOrder changes) {
@@ -122,23 +125,24 @@ public class PurchaseOrderService {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
 
-        List<CartonAdjustment> adjustments = new ArrayList<>();
-        List<PurchaseOrderLine> snapped = new ArrayList<>();
+        List<CartonAdjustment> warnings = new ArrayList<>();
+        List<PurchaseOrderLine> lines = new ArrayList<>();
 
         for (PurchaseOrderLine line : changes.lines()) {
             Product product = byId.get(line.productId());
-            if (product == null) { snapped.add(line); continue; }
+            if (product == null) { lines.add(line); continue; }
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
             int perCarton = Math.max(1, carton.piecesPerCarton());
             int requested = Math.max(0, line.quantity());
-            int rounded = carton.cartonsFor(requested) * perCarton;
+            int fullCartons = carton.cartonsFor(requested) * perCarton;
 
-            if (rounded != requested) {
-                adjustments.add(new CartonAdjustment(
-                        product.id(), product.describe(), requested, rounded, perCarton));
+            if (fullCartons != requested) {
+                warnings.add(new CartonAdjustment(
+                        product.id(), product.describe(), requested, fullCartons, perCarton));
             }
-            snapped.add(new PurchaseOrderLine(line.id(), line.productId(), rounded,
+            /* Saved as entered; the warning is the whole intervention. */
+            lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     line.exwPrice(), line.exwCurrency(), line.extraUnitCost()));
         }
 
@@ -149,10 +153,10 @@ public class PurchaseOrderService {
                 changes.freightUsd(), changes.originCosts(), changes.originCurrency(),
                 changes.destinationCostsEur(), changes.defaultDutyRatePct(), changes.extraRevenueEur(),
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
-                changes.allocExtra(), changes.notes(), snapped));
+                changes.allocExtra(), changes.destinationPort(), changes.notes(), lines));
 
         bookStockOnReceipt(current, saved);
-        return new UpdateResult(saved, adjustments);
+        return new UpdateResult(saved, warnings);
     }
 
     /**

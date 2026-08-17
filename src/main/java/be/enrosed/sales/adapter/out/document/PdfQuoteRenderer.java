@@ -45,6 +45,10 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     private final CompanyProfileService company;
     private final PdfFonts fonts;
 
+    /** Base URL of the portal; the public terms page lives under it. */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
+    String portalBaseUrl;
+
     public PdfQuoteRenderer(@Location("quote.html") Template quoteTemplate, Brand brand,
                             CompanyProfileService company, PdfFonts fonts) {
         this.quoteTemplate = quoteTemplate;
@@ -93,6 +97,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))
                 .data("vatMention", priced.totals().vatTreatment().legalMentionIn(language))
+                .data("termsUrl", portalBaseUrl + "/voorwaarden")
                 .render();
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {

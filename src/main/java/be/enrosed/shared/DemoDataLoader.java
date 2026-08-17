@@ -248,7 +248,7 @@ public class DemoDataLoader {
                 new BigDecimal(freightUsd), new BigDecimal(originCosts), originCurrency,
                 new BigDecimal(destinationEur), new BigDecimal("10"), new BigDecimal(extraRevenue),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                notes, lines));
+                "Rotterdam", notes, lines));
     }
 
     private void country(String code, String name, String minOrder, String perPallet,

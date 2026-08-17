@@ -43,10 +43,23 @@ public record PurchaseOrder(
         Allocation allocDestination,
         Allocation allocExtra,
 
+        /**
+         * Port of arrival (Rotterdam, Amsterdam, Antwerp, ...).
+         *
+         * Drives the label of the destination costs on screen and on the PDF.
+         * The costs themselves do not change with the port; only where they
+         * start counting does.
+         */
+        String destinationPort,
+
         String notes,
         List<PurchaseOrderLine> lines
 ) {
     public List<PurchaseOrderLine> lines() {
         return lines == null ? List.of() : lines;
+    }
+
+    public String destinationPort() {
+        return destinationPort == null || destinationPort.isBlank() ? "Rotterdam" : destinationPort;
     }
 }

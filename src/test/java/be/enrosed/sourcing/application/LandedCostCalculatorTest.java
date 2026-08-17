@@ -58,7 +58,7 @@ class LandedCostCalculatorTest {
                 new BigDecimal("10"),
                 new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "", List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null)));
+                "Rotterdam", "", List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null)));
     }
 
     @Test
@@ -99,7 +99,7 @@ class LandedCostCalculatorTest {
                 new BigDecimal("1000"), Currency.EUR,
                 base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                base.notes(), base.lines());
+                "Rotterdam", base.notes(), base.lines());
 
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 withOrigin, Map.of(1L, preservedRose()));
@@ -121,7 +121,7 @@ class LandedCostCalculatorTest {
                 base.destinationCostsEur().add(new BigDecimal("1000")),
                 base.defaultDutyRatePct(), base.extraRevenueEur(),
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                base.notes(), base.lines());
+                "Rotterdam", base.notes(), base.lines());
 
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 extraDestination, Map.of(1L, preservedRose()));
