@@ -221,7 +221,8 @@ public class QuoteService {
         SalesOrder accepted = orders.save(new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), order.validUntil(), QuoteStatus.GEACCEPTEERD,
-                order.incoterm(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.incoterm(), order.paymentTerms(), order.notes(),
+                order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 Instant.now(), signedByName.trim(), message, order.internalNotes(),
@@ -242,7 +243,8 @@ public class QuoteService {
         SalesOrder rejected = orders.save(new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), order.validUntil(), QuoteStatus.AFGEWEZEN,
-                order.incoterm(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.incoterm(), order.paymentTerms(), order.notes(),
+                order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 Instant.now(), null, message, order.internalNotes(),
@@ -449,7 +451,8 @@ public class QuoteService {
         return orders.save(new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), LocalDate.now().plusDays(30), QuoteStatus.CONCEPT,
-                order.incoterm(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.incoterm(), order.paymentTerms(), order.notes(),
+                order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, order.customerMessage(), order.internalNotes(),
@@ -564,7 +567,8 @@ public class QuoteService {
                                          Instant decidedAt, String signedBy, String customerMessage,
                                          DeliveryTermsState deliveryTerms, FreightState freight) {
         return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
-                order.orderDate(), order.validUntil(), status, order.incoterm(), order.notes(),
+                order.orderDate(), order.validUntil(), status, order.incoterm(),
+                order.paymentTerms(), order.notes(),
                 order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 token, sentAt, viewedAt, viewCount, decidedAt, signedBy, customerMessage,

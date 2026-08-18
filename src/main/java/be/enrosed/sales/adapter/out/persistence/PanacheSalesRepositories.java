@@ -209,8 +209,9 @@ public final class PanacheSalesRepositories {
 
         @Override
         public List<QuoteEvent> findByOrder(long salesOrderId) {
-            /* Oudste eerst: een geschiedenis lees je van boven naar beneden. */
-            return dao.list("salesOrderId = ?1 order by at asc, id asc", salesOrderId)
+            /* Newest first: the question is always "what just happened",
+               not "how did this start". */
+            return dao.list("salesOrderId = ?1 order by at desc, id desc", salesOrderId)
                     .stream().map(SalesMapper::toDomain).toList();
         }
 

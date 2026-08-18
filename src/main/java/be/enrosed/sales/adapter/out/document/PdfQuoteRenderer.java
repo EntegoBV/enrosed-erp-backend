@@ -89,6 +89,10 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
                 .data("footerText", company.get().footerFor(language))
+                /* The order's own terms win; the customer's are the default. */
+                .data("paymentText", be.enrosed.shared.PaymentTermsNames.translate(
+                        order.paymentTermsOr(customer == null ? null : customer.paymentTerms()),
+                        language))
                 .data("t", text)
                 .data("orderDateText", DocumentText.date(order.orderDate(), language))
                 .data("validUntilText", DocumentText.date(order.validUntil(), language))

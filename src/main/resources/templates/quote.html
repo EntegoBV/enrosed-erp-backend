@@ -72,7 +72,7 @@
       {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
       {t.pallets}: <b>{priced.totals.palletsStrict}</b><br/>
       {t.cartons}: {priced.totals.cartons} · {priced.totals.weightKg.amount} kg<br/>
-      {#if customer && customer.paymentTerms}{t.payment}: {customer.paymentTerms}{/if}
+      {#if paymentText}{t.payment}: {paymentText}{/if}
     </td>
   </tr>
 </table>

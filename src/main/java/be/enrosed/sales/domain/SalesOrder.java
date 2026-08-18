@@ -21,6 +21,12 @@ public record SalesOrder(
         LocalDate validUntil,
         QuoteStatus status,
         String incoterm,
+        /**
+         * Payment terms for this specific order; empty means the customer's
+         * default applies. A fair deal sometimes needs its own terms without
+         * rewriting the customer record.
+         */
+        String paymentTerms,
         String notes,
 
         MarkupMode markupMode,
@@ -74,6 +80,11 @@ public record SalesOrder(
 
     public DeliveryTermsState deliveryTerms() {
         return deliveryTerms == null ? DeliveryTermsState.VOLLEDIG : deliveryTerms;
+    }
+
+    /** The terms that actually apply: the order's own, or the customer's. */
+    public String paymentTermsOr(String customerDefault) {
+        return paymentTerms == null || paymentTerms.isBlank() ? customerDefault : paymentTerms;
     }
 
     public FreightState freight() {

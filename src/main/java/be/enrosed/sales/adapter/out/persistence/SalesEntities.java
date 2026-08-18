@@ -90,6 +90,8 @@ public final class SalesEntities {
         @Enumerated(EnumType.STRING)
         public QuoteStatus status = QuoteStatus.CONCEPT;
         public String incoterm;
+        /** Order-specific payment terms; empty means the customer's default. */
+        public String paymentTerms;
         @Column(length = 2000)
         public String notes;
 

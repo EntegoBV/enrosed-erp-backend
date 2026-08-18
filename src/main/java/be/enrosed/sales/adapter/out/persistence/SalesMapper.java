@@ -71,7 +71,8 @@ final class SalesMapper {
                     line.unitPriceEur, line.manualDiscountPct, line.deliveryWeek));
         }
         return new SalesOrder(entity.id, entity.number, entity.customerId, entity.countryCode,
-                entity.orderDate, entity.validUntil, entity.status, entity.incoterm, entity.notes,
+                entity.orderDate, entity.validUntil, entity.status, entity.incoterm,
+                entity.paymentTerms, entity.notes,
                 entity.markupMode, entity.orderMarkupPct,
                 entity.extraDiscountPct, entity.extraDiscountLabel,
                 entity.portalToken, entity.sentAt, entity.viewedAt, entity.viewCount,
@@ -88,6 +89,7 @@ final class SalesMapper {
         entity.validUntil = order.validUntil();
         entity.status = order.status();
         entity.incoterm = order.incoterm();
+        entity.paymentTerms = order.paymentTerms();
         entity.notes = order.notes();
         entity.markupMode = order.markupMode();
         entity.orderMarkupPct = order.orderMarkupPct();

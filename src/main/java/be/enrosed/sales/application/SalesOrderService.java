@@ -85,7 +85,7 @@ public class SalesOrderService {
         LocalDate today = LocalDate.now();
         SalesOrder created = orders.save(new SalesOrder(
                 null, nextNumber(), customerId, countryCode, today, today.plusDays(30),
-                QuoteStatus.CONCEPT, incoterm == null ? "DAP" : incoterm, "",
+                QuoteStatus.CONCEPT, incoterm == null ? "DAP" : incoterm, null, "",
                 MarkupMode.PRODUCT, settings.defaultMarkupPct(),
                 null, null,
                 null, null, null, 0, null, null, null, null,
@@ -111,7 +111,7 @@ public class SalesOrderService {
                 changes.orderDate(), changes.validUntil(),
                 /* De status wordt door de offerteworkflow gestuurd, niet door een gewone update. */
                 current.status(),
-                changes.incoterm(), changes.notes(),
+                changes.incoterm(), changes.paymentTerms(), changes.notes(),
                 changes.markupMode() == null ? current.markupMode() : changes.markupMode(),
                 changes.orderMarkupPct() == null ? current.orderMarkupPct() : changes.orderMarkupPct(),
                 changes.extraDiscountPct(), changes.extraDiscountLabel(),
@@ -165,7 +165,8 @@ public class SalesOrderService {
         LocalDate today = LocalDate.now();
         return orders.save(new SalesOrder(
                 null, nextNumber(), source.customerId(), source.countryCode(),
-                today, today.plusDays(30), QuoteStatus.CONCEPT, source.incoterm(), source.notes(),
+                today, today.plusDays(30), QuoteStatus.CONCEPT, source.incoterm(),
+                source.paymentTerms(), source.notes(),
                 source.markupMode(), source.orderMarkupPct(),
                 source.extraDiscountPct(), source.extraDiscountLabel(),
                 null, null, null, 0, null, null, null, source.internalNotes(),
