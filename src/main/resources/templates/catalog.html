@@ -15,20 +15,25 @@
     }
     body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8.5pt; color: #1a1614; margin: 0; }
 
-    .cover { border-bottom: 3px solid #b01f3f; padding-bottom: 8px; margin-bottom: 10px; }
+    .cover { border-bottom: 3px solid #b01f3f; padding-bottom: 12px; margin-bottom: 12px; }
     .cover table { width: 100%; }
     .cover td { vertical-align: bottom; }
-    .cover img { height: 30px; }
-    .cover h1 { font-size: 17pt; margin: 6px 0 1px; letter-spacing: -0.2px; }
-    .cover .sub { font-size: 8pt; color: #8a807a; }
-    .cover .co { text-align: right; font-size: 7.5pt; color: #4a423e; line-height: 1.35; }
-    .intro { font-size: 8.5pt; margin-bottom: 9px; padding: 6px 8px; background: #fbecef; }
+    .cover img { height: 34px; }
+    .cover h1 { font-size: 24pt; margin: 10px 0 2px; letter-spacing: -0.3px; }
+    .cover .sub {
+      font-size: 8pt; color: #b01f3f; letter-spacing: 2.2px; text-transform: uppercase;
+    }
+    .cover .co { text-align: right; font-size: 7.5pt; color: #4a423e; line-height: 1.4; }
+    .intro {
+      font-size: 9pt; margin-bottom: 11px; padding: 8px 10px;
+      background: #fbecef; border-left: 3px solid #b01f3f;
+    }
 
     /* Chapter header per category. */
     .chapter { margin: 10px 0 4px; page-break-after: avoid; }
     .chapter h2 {
-      font-size: 12.5pt; margin: 0 0 1px; letter-spacing: 0.2px;
-      border-bottom: 2px solid #b01f3f; display: inline-block; padding-bottom: 1px;
+      font-size: 13pt; margin: 0 0 1px; letter-spacing: 1px; text-transform: uppercase;
+      border-bottom: 2px solid #b01f3f; display: inline-block; padding-bottom: 2px;
     }
     .chapter .desc { font-size: 8pt; color: #4a423e; margin-top: 2px; max-width: 150mm; }
 
@@ -37,11 +42,19 @@
     table.grid td.cell { width: 33.33%; vertical-align: top; border: 1px solid #e0d8d2; padding: 0; }
     table.grid td.empty { border: 0; }
 
-    /* Square photo cell. CSS tables centre the image both ways; images keep
-       their proportions and are letterboxed on white - never distorted. */
+    /* Photo cells. CSS tables centre the image both ways; images keep their
+       proportions and are letterboxed on white - never distorted. With two
+       photos they sit side by side, both fully visible: at a fair the second
+       angle sells the product as much as the first. */
     .hero { display: table; width: 100%; height: 150px; background: #ffffff; }
     .hero .in { display: table-cell; vertical-align: middle; text-align: center; }
     .hero img { max-height: 142px; max-width: 94%; }
+    table.duo { width: 100%; border-collapse: collapse; }
+    table.duo td { width: 50%; padding: 0; }
+    .half { display: table; width: 100%; height: 118px; background: #ffffff; }
+    .half .in { display: table-cell; vertical-align: middle; text-align: center; }
+    .half img { max-height: 112px; max-width: 94%; }
+    td.sep { border-left: 1px solid #f3ede9; }
     .strip { padding: 2px 4px 0; border-top: 1px solid #f3ede9; }
     .strip img { max-height: 26px; max-width: 26px; border: 1px solid #e9e3de; margin-right: 2px; }
     .body { padding: 5px 7px 7px; }
@@ -102,7 +115,14 @@
       <td class="cell">
         <div class="card">
           {#if it.photoDataUri}
-            <div class="hero"><div class="in"><img src="{it.photoDataUri}" alt="{it.name}"/></div></div>
+            {#if it.secondPhotoDataUri}
+              <table class="duo"><tr>
+                <td><div class="half"><div class="in"><img src="{it.photoDataUri}" alt="{it.name}"/></div></div></td>
+                <td class="sep"><div class="half"><div class="in"><img src="{it.secondPhotoDataUri}" alt=""/></div></div></td>
+              </tr></table>
+            {#else}
+              <div class="hero"><div class="in"><img src="{it.photoDataUri}" alt="{it.name}"/></div></div>
+            {/if}
             {#if it.extraPhotos.size > 0}
               <div class="strip">
                 {#for extra in it.extraPhotos}<img src="{extra}" alt=""/>{/for}

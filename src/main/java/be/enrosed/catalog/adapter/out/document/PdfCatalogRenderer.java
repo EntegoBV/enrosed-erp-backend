@@ -65,8 +65,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
                        String priceLabel, Integer stockQuantity,
-                       /** Main photo large, the rest as small thumbnails. */
-                       String photoDataUri, List<String> extraPhotos) {}
+                       /**
+                        * First two photos render full size side by side; at a
+                        * fair the second angle sells the product as much as
+                        * the first. Anything beyond becomes a thumbnail.
+                        */
+                       String photoDataUri, String secondPhotoDataUri,
+                       List<String> extraPhotos) {}
 
     /**
      * A category with its cards, three per row.
@@ -154,6 +159,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 request.includePrices() ? priceLabel(product) : null,
                 product.stockQuantity(),
                 request.includePhotos() ? photoDataUri(product.primaryPhoto()) : null,
+                request.includePhotos() ? photoAt(product, 1, request) : null,
                 request.includePhotos() ? extraPhotos(product, request) : List.of());
     }
 
@@ -176,13 +182,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     /** Bijbeelden na de hoofdfoto; standaard maximaal drie, anders wordt het rommelig. */
-    private List<String> extraPhotos(Product product, CatalogExportService.Request request) {
-        int limit = request.photosPerProduct() == null ? 3 : Math.max(0, request.photosPerProduct() - 1);
-        if (limit == 0) return List.of();
+    /** The photo at the given position, when the export allows that many. */
+    private String photoAt(Product product, int index, CatalogExportService.Request request) {
+        int allowed = request.photosPerProduct() == null ? 4 : request.photosPerProduct();
+        if (index >= allowed || index >= product.photos().size()) return null;
+        return photoDataUri(product.photos().get(index));
+    }
 
+    /** Photos three and up, as thumbnails under the pair. */
+    private List<String> extraPhotos(Product product, CatalogExportService.Request request) {
+        int allowed = request.photosPerProduct() == null ? 4 : request.photosPerProduct();
         List<String> extras = new ArrayList<>();
         List<Photo> photos = product.photos();
-        for (int i = 1; i < photos.size() && extras.size() < limit; i++) {
+        for (int i = 2; i < photos.size() && i < allowed; i++) {
             String uri = photoDataUri(photos.get(i));
             if (uri != null) extras.add(uri);
         }
