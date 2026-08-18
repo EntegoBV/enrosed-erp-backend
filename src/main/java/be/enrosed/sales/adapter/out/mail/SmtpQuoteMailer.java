@@ -5,6 +5,7 @@ import be.enrosed.sales.application.port.out.QuoteMailer;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.SalesOrder;
 
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 
@@ -40,6 +41,9 @@ public class SmtpQuoteMailer implements QuoteMailer {
     /** Staat de mailer in testmodus? Dan wordt er niets verstuurd. */
     @ConfigProperty(name = "quarkus.mailer.mock", defaultValue = "false")
     boolean mock;
+
+    @ConfigProperty(name = "quarkus.mailer.host", defaultValue = "")
+    String host;
 
     public SmtpQuoteMailer(Mailer mailer, @Location("quote-mail.html") Template quoteMailTemplate) {
         this.mailer = mailer;
@@ -85,7 +89,26 @@ public class SmtpQuoteMailer implements QuoteMailer {
         Mail mail = Mail.withHtml(customer.email(), subject, body)
                 .addAttachment(document.filename(), document.content(), document.contentType());
 
-        mailer.send(mail);
+        /* Zonder ingevulde mailserver is elke poging kansloos. Dan liever één
+           duidelijke zin op het scherm dan een stacktrace in de log - en de
+           offerte blijft onverstuurd, dus niets lijkt verzonden dat het niet is. */
+        if (!mock && (host.isBlank() || host.endsWith("example.com"))) {
+            throw new BusinessRuleException(
+                    "De mailserver is nog niet ingesteld, dus deze offerte kan nog niet gemaild"
+                    + " worden. Vul op de server de variabelen SMTP_HOST, SMTP_USERNAME,"
+                    + " SMTP_PASSWORD en SMTP_FROM in. Tot dan: download de PDF en verstuur"
+                    + " hem zelf.");
+        }
+
+        try {
+            mailer.send(mail);
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "Mail naar %s via %s mislukt", customer.email(), host);
+            throw new BusinessRuleException(
+                    "De mail kon niet verzonden worden: mailserver \"" + host + "\" is"
+                    + " onbereikbaar of weigert de aanmelding. Controleer de SMTP-gegevens;"
+                    + " de offerte staat nog klaar en is niet als verzonden gemarkeerd.");
+        }
 
         if (mock) {
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN mail naar %s. De offerte %s is"
@@ -100,7 +123,14 @@ public class SmtpQuoteMailer implements QuoteMailer {
 
     @Override
     public void notifyInternal(String subject, String body) {
-        mailer.send(Mail.withText(internalRecipient, subject, body));
-        LOG.infof("Interne melding: %s", subject);
+        /* Deze melding vertrekt terwijl een KLANT in het portaal bezig is. Een
+           haperende mailserver mag diens actie niet blokkeren - de gebeurtenis
+           staat toch al in de geschiedenis van de offerte. */
+        try {
+            mailer.send(Mail.withText(internalRecipient, subject, body));
+            LOG.infof("Interne melding: %s", subject);
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "Interne melding \"%s\" kon niet gemaild worden", subject);
+        }
     }
 }
