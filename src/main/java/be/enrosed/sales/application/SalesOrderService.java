@@ -90,7 +90,7 @@ public class SalesOrderService {
                 null, null,
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
-                List.of()));
+                List.of(), List.of()));
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), null, false, "Offerte opgemaakt", null));
@@ -127,7 +127,7 @@ public class SalesOrderService {
                    sent along, what was there stays. */
                 changes.freightOrNull() == null ? current.freight() : changes.freight(),
                 changes.manualFreightEur(),
-                changes.lines()));
+                changes.lines(), changes.pallets()));
     }
 
     /**
@@ -175,6 +175,9 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
+                        .toList(),
+                source.pallets().stream()
+                        .map(pallet -> new OrderPallet(null, pallet.label(), pallet.items()))
                         .toList()));
     }
 

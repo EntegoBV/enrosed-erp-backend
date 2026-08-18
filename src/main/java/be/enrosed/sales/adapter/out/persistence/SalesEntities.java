@@ -141,6 +141,39 @@ public final class SalesEntities {
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")
         public List<SalesOrderLineEntity> lines = new ArrayList<>();
+
+        @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+        @OrderBy("position ASC")
+        public List<SalesPalletEntity> pallets = new ArrayList<>();
+    }
+
+    /** One hand-built pallet; position keeps the seller's ordering. */
+    @Entity
+    @Table(name = "sales_pallet")
+    public static class SalesPalletEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "order_id")
+        public SalesOrderEntity order;
+        public int position;
+        public String label;
+
+        @OneToMany(mappedBy = "pallet", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+        @OrderBy("id ASC")
+        public List<SalesPalletItemEntity> items = new ArrayList<>();
+    }
+
+    @Entity
+    @Table(name = "sales_pallet_item")
+    public static class SalesPalletItemEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "pallet_id")
+        public SalesPalletEntity pallet;
+        public Long productId;
+        public int cartons;
     }
 
     /**

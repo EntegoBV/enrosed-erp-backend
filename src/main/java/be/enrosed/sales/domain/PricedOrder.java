@@ -56,6 +56,10 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             int cartons,
             int palletsStrict,
             int palletsOptimised,
+            /** Hand-built pallets; 0 means the calculator's stacking applies. */
+            int palletsManual,
+            /** Cartons not on any hand-built pallet; only meaningful when palletsManual > 0. */
+            int unassignedCartons,
             BigDecimal cbm,
             BigDecimal weightKg,
 

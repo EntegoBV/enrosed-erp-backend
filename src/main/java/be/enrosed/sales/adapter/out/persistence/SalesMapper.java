@@ -70,6 +70,13 @@ final class SalesMapper {
             lines.add(new SalesOrderLine(line.id, line.productId, line.quantity,
                     line.unitPriceEur, line.manualDiscountPct, line.deliveryWeek));
         }
+        List<OrderPallet> pallets = new ArrayList<>();
+        for (SalesEntities.SalesPalletEntity pallet : entity.pallets) {
+            pallets.add(new OrderPallet(pallet.id, pallet.label,
+                    pallet.items.stream()
+                            .map(item -> new OrderPallet.Item(item.productId, item.cartons))
+                            .toList()));
+        }
         return new SalesOrder(entity.id, entity.number, entity.customerId, entity.countryCode,
                 entity.orderDate, entity.validUntil, entity.status, entity.incoterm,
                 entity.paymentTerms, entity.notes,
@@ -78,7 +85,7 @@ final class SalesMapper {
                 entity.portalToken, entity.sentAt, entity.viewedAt, entity.viewCount,
                 entity.decidedAt, entity.signedByName, entity.customerMessage,
                 entity.internalNotes, entity.deliveryTerms, entity.freight,
-                entity.manualFreightEur, lines);
+                entity.manualFreightEur, lines, pallets);
     }
 
     static void apply(SalesOrder order, SalesOrderEntity entity) {
@@ -126,6 +133,25 @@ final class SalesMapper {
             target.unitPriceEur = line.unitPriceEur();
             target.manualDiscountPct = line.manualDiscountPct();
             target.deliveryWeek = line.deliveryWeek();
+        }
+
+        /* Pallets carry no outside references, so wipe-and-rebuild is the
+           simplest correct thing - unlike lines, whose ids feed revisions. */
+        entity.pallets.clear();
+        int position = 0;
+        for (OrderPallet pallet : order.pallets()) {
+            SalesEntities.SalesPalletEntity target = new SalesEntities.SalesPalletEntity();
+            target.order = entity;
+            target.position = position++;
+            target.label = pallet.label();
+            for (OrderPallet.Item item : pallet.items()) {
+                SalesEntities.SalesPalletItemEntity row = new SalesEntities.SalesPalletItemEntity();
+                row.pallet = target;
+                row.productId = item.productId();
+                row.cartons = item.cartons();
+                target.items.add(row);
+            }
+            entity.pallets.add(target);
         }
     }
 

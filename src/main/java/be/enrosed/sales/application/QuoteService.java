@@ -444,7 +444,8 @@ public class QuoteService {
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, order.customerMessage(), order.internalNotes(),
-                order.deliveryTerms(), order.freight(), order.manualFreightEur(), updated));
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(), updated,
+                order.pallets()));
     }
 
     /**
@@ -561,7 +562,7 @@ public class QuoteService {
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 token, sentAt, viewedAt, viewCount, decidedAt, signedBy, customerMessage,
                 order.internalNotes(), deliveryTerms, freight, order.manualFreightEur(),
-                order.lines());
+                order.lines(), order.pallets());
     }
 
     private static QuoteRevision handled(QuoteRevision revision, RevisionStatus status,

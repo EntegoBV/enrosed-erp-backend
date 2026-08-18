@@ -156,13 +156,26 @@ public class SalesPricingCalculator {
         PalletCalculator.OrderPallets palletCounts = pallets.forOrder(palletInput);
         Country country = context.country();
 
+        /* Hand-built pallets take over the freight count the moment they
+           exist: the seller laid out the load and knows better than the
+           formula. Cartons left off any pallet are reported, not silently
+           re-added - the warning on screen is the guard rail. */
+        int manualPallets = order.pallets().size();
+        int assignedCartons = order.pallets().stream()
+                .flatMap(pallet -> pallet.items().stream())
+                .mapToInt(be.enrosed.sales.domain.OrderPallet.Item::cartons)
+                .sum();
+        int unassignedCartons = manualPallets == 0 ? 0
+                : Math.max(0, cartonsTotal - assignedCartons);
+        int palletsForFreight = manualPallets > 0 ? manualPallets : palletCounts.strict();
+
         BigDecimal freight = BigDecimal.ZERO;
         BigDecimal handling = BigDecimal.ZERO;
         boolean freightIsMinimum = false;
 
-        if (country != null && palletCounts.strict() > 0) {
+        if (country != null && palletsForFreight > 0) {
             BigDecimal byPallet = Money.nz(country.freightPerPallet())
-                    .multiply(BigDecimal.valueOf(palletCounts.strict()));
+                    .multiply(BigDecimal.valueOf(palletsForFreight));
             BigDecimal minimum = Money.nz(country.minFreight());
             freight = byPallet.max(minimum);
             freightIsMinimum = freight.compareTo(byPallet) > 0;
@@ -201,6 +214,7 @@ public class SalesPricingCalculator {
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
+                manualPallets, unassignedCartons,
                 cbmTotal.setScale(3, RoundingMode.HALF_UP), weightTotal.setScale(1, RoundingMode.HALF_UP),
                 Money.money(gross), Money.money(lineDiscountTotal), Money.money(subtotal),
                 orderTierPct, Money.money(orderDiscount),

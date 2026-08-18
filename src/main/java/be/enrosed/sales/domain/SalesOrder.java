@@ -72,10 +72,20 @@ public record SalesOrder(
          */
         BigDecimal manualFreightEur,
 
-        List<SalesOrderLine> lines
+        List<SalesOrderLine> lines,
+
+        /**
+         * Hand-built pallet layout; empty means the calculator's stacking
+         * applies. Once pallets exist the freight counts them instead.
+         */
+        List<OrderPallet> pallets
 ) {
     public List<SalesOrderLine> lines() {
         return lines == null ? List.of() : lines;
+    }
+
+    public List<OrderPallet> pallets() {
+        return pallets == null ? List.of() : pallets;
     }
 
     public DeliveryTermsState deliveryTerms() {
