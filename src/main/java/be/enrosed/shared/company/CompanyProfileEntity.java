@@ -36,4 +36,13 @@ public class CompanyProfileEntity {
     /** General terms and conditions, plain text. */
     @Column(length = 20000)
     public String termsAndConditions;
+
+    @Column(length = 20000)
+    public String termsAndConditionsEn;
+
+    @Column(length = 20000)
+    public String privacyPolicy;
+
+    @Column(length = 20000)
+    public String privacyPolicyEn;
 }

@@ -96,6 +96,7 @@ public final class PanacheSourcingRepositories {
             if (entity == null) entity = new PurchaseOrderEntity();
 
             entity.number = order.number();
+            entity.alias = order.alias();
             entity.supplierId = order.supplierId();
             entity.orderDate = order.orderDate();
             entity.status = order.status();
@@ -154,7 +155,8 @@ public final class PanacheSourcingRepositories {
                         line.exwPrice, line.exwCurrency, line.extraUnitCost,
                         line.orderedQuantity));
             }
-            return new PurchaseOrder(entity.id, entity.number, entity.supplierId, entity.orderDate,
+            return new PurchaseOrder(entity.id, entity.number, entity.alias,
+                    entity.supplierId, entity.orderDate,
                     entity.status, ContainerType.fromCode(entity.containerType),
                     entity.cnyToUsd, entity.usdToEurGoods, entity.usdToEurTransport,
                     entity.freightUsd, entity.originCosts, entity.originCurrency,

@@ -242,7 +242,7 @@ public class DemoDataLoader {
                           String notes) {
         PurchaseOrder created = purchaseOrders.create(supplierId, CNY_TO_USD, USD_TO_EUR, new BigDecimal("10"));
         purchaseOrders.update(created.id(), new PurchaseOrder(
-                created.id(), created.number(), supplierId, created.orderDate(),
+                created.id(), created.number(), null, supplierId, created.orderDate(),
                 PurchaseOrderStatus.ONTVANGEN, ContainerType.FORTY_HQ,
                 CNY_TO_USD, USD_TO_EUR, USD_TO_EUR,
                 new BigDecimal(freightUsd), new BigDecimal(originCosts), originCurrency,

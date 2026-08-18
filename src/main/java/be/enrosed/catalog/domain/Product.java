@@ -91,10 +91,17 @@ public record Product(
         return text == null || isBlank(text.name()) ? name : text.name();
     }
 
-    /** Kleur in deze taal, met terugval op de basiskleur. */
+    /**
+     * Colour in the given language.
+     *
+     * A product-specific translation wins; otherwise standard colours
+     * translate themselves through the shared dictionary, and anything
+     * unknown stays as typed.
+     */
     public String colourIn(Language language) {
         ProductText text = textIn(language);
-        return text == null || isBlank(text.colour()) ? colour : text.colour();
+        if (text != null && !isBlank(text.colour())) return text.colour();
+        return be.enrosed.shared.ColourNames.translate(colour, language);
     }
 
     /** Beschrijving in deze taal, met terugval op de basisbeschrijving. */

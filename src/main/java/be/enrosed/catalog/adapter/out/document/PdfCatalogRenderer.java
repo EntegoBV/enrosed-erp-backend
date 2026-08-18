@@ -115,8 +115,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String html = template
                 .data("sections", sections)
                 .data("itemCount", selection.size())
-                .data("title", request.title() == null || request.title().isBlank()
-                        ? "Productcatalogus" : request.title())
+                /* The title is universal and follows the language; a manually
+                   typed title would not be translated and drifts per export. */
+                .data("title", text.get("catalogTitle"))
                 .data("intro", request.intro())
                 .data("todayText", DocumentText.date(LocalDate.now(), language))
                 .data("logo", brand.logoDataUri())

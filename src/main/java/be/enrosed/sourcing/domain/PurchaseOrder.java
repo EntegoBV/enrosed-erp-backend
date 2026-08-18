@@ -21,6 +21,13 @@ import java.util.List;
 public record PurchaseOrder(
         Long id,
         String number,
+        /**
+         * Free-text nickname next to the number, e.g. "voor Frans".
+         *
+         * Duplicated calculations exist to compare variants, and "PO-2026-008"
+         * against "PO-2026-009" says nothing about which is which.
+         */
+        String alias,
         Long supplierId,
         LocalDate orderDate,
         PurchaseOrderStatus status,

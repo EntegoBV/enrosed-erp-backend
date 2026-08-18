@@ -97,7 +97,10 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))
                 .data("vatMention", priced.totals().vatTreatment().legalMentionIn(language))
-                .data("termsUrl", portalBaseUrl + "/voorwaarden")
+                /* Dutch documents link to the Dutch terms; every other
+                   language gets English - the only other version we maintain. */
+                .data("termsUrl", portalBaseUrl + "/voorwaarden"
+                        + (language == Language.NL ? "" : "?lang=en"))
                 .render();
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {

@@ -47,7 +47,7 @@ class LandedCostCalculatorTest {
 
     private PurchaseOrder excelOrder() {
         return new PurchaseOrder(
-                1L, "PO-2026-002", 1L, LocalDate.of(2026, 7, 3),
+                1L, "PO-2026-002", null, 1L, LocalDate.of(2026, 7, 3),
                 PurchaseOrderStatus.ONDERWEG, ContainerType.FORTY_HQ,
                 new BigDecimal("0.1385"), RATE, RATE,
                 new BigDecimal("3717"),
@@ -93,7 +93,7 @@ class LandedCostCalculatorTest {
     void originCostsAreDutiable() {
         PurchaseOrder base = excelOrder();
         PurchaseOrder withOrigin = new PurchaseOrder(
-                base.id(), base.number(), base.supplierId(), base.orderDate(), base.status(),
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
                 base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
                 base.freightUsd(),
                 new BigDecimal("1000"), Currency.EUR,
@@ -115,7 +115,7 @@ class LandedCostCalculatorTest {
     void destinationCostsAreNotDutiable() {
         PurchaseOrder base = excelOrder();
         PurchaseOrder extraDestination = new PurchaseOrder(
-                base.id(), base.number(), base.supplierId(), base.orderDate(), base.status(),
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
                 base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
                 base.freightUsd(), base.originCosts(), base.originCurrency(),
                 base.destinationCostsEur().add(new BigDecimal("1000")),

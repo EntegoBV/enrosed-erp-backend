@@ -62,7 +62,7 @@ public class PurchaseOrderService {
     public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                 BigDecimal defaultDutyRatePct) {
         return orders.save(new PurchaseOrder(
-                null, nextNumber(), supplierId, LocalDate.now(),
+                null, nextNumber(), null, supplierId, LocalDate.now(),
                 PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
                 cnyToUsd, usdToEur, usdToEur,
                 BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
@@ -82,8 +82,10 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseOrder duplicate(long id) {
         PurchaseOrder source = get(id);
+        String alias = source.alias() == null || source.alias().isBlank()
+                ? null : source.alias() + " (kopie)";
         return orders.save(new PurchaseOrder(
-                null, nextNumber(), source.supplierId(), LocalDate.now(),
+                null, nextNumber(), alias, source.supplierId(), LocalDate.now(),
                 /* Altijd concept: anders zou een kopie van een ontvangen order de
                    voorraad een tweede keer bijboeken. */
                 PurchaseOrderStatus.CONCEPT, source.containerType(),
@@ -148,7 +150,8 @@ public class PurchaseOrderService {
         }
 
         PurchaseOrder saved = orders.save(new PurchaseOrder(
-                current.id(), numberFor(current, changes), changes.supplierId(), changes.orderDate(),
+                current.id(), numberFor(current, changes), changes.alias(),
+                changes.supplierId(), changes.orderDate(),
                 changes.status(), changes.containerType(),
                 changes.cnyToUsd(), changes.usdToEurGoods(), changes.usdToEurTransport(),
                 changes.freightUsd(), changes.originCosts(), changes.originCurrency(),

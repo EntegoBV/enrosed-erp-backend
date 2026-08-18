@@ -35,52 +35,42 @@ public record CompanyProfile(
          * customer portal link to them. Starts as a sensible draft for a
          * Belgian wholesale business so there is never a dead link.
          */
-        String termsAndConditions
+        String termsAndConditions,
+        /** English terms; every non-Dutch document links to these. */
+        String termsAndConditionsEn,
+        /** GDPR privacy statement, Dutch. */
+        String privacyPolicy,
+        /** GDPR privacy statement, English. */
+        String privacyPolicyEn
 ) {
     public static CompanyProfile empty() {
-        return new CompanyProfile("Enrosed", "", "", "",
-                "", "", "", "BE", "", "", "", "", "", "", DEFAULT_TERMS);
+        /* Seeded with the real company identity: a fresh install should print
+           correct documents before anyone has opened the settings screen. */
+        return new CompanyProfile("Enrosed BV", "Enrosed BV", "BE 1034.273.386", "",
+                "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "",
+                null, null, null, null);
     }
 
-    /** Draft terms for a Belgian wholesaler; meant to be reviewed and edited. */
-    public static final String DEFAULT_TERMS = """
-Artikel 1 — Toepassing
-Deze algemene voorwaarden gelden voor alle offertes, orderbevestigingen en leveringen van Enrosed. Afwijkingen gelden alleen wanneer ze schriftelijk zijn overeengekomen. Voorwaarden van de koper zijn niet van toepassing, ook niet aanvullend.
+    /** Dutch terms, falling back to the built-in draft. */
+    public String termsNl() {
+        return orDefault(termsAndConditions, DefaultLegalTexts.TERMS_NL);
+    }
 
-Artikel 2 — Offertes en prijzen
-Offertes zijn vrijblijvend en geldig tot de datum die erop vermeld staat. Prijzen zijn in euro en exclusief BTW, tenzij anders vermeld. Kennelijke vergissingen of verschrijvingen binden ons niet.
+    /** English terms, falling back to the built-in draft. */
+    public String termsEn() {
+        return orDefault(termsAndConditionsEn, DefaultLegalTexts.TERMS_EN);
+    }
 
-Artikel 3 — Bestelling en aanvaarding
-Een overeenkomst komt tot stand zodra de koper de offerte aanvaardt en wij die aanvaarding bevestigen. Aanvullingen of wijzigingen door de koper gelden pas na onze schriftelijke bevestiging.
+    public String privacyNl() {
+        return orDefault(privacyPolicy, DefaultLegalTexts.PRIVACY_NL);
+    }
 
-Artikel 4 — Levering
-Leverdata en leverweken zijn indicatief en gaan in vanaf onze bevestiging, onder voorbehoud van tussentijdse verkoop. Artikelen zonder voorraad worden op bestelling geproduceerd; de meegedeelde termijn wordt bevestigd zodra de productie is ingepland. Vertraging geeft geen recht op schadevergoeding of ontbinding, behalve na een schriftelijke ingebrekestelling waarbij een redelijke termijn van minstens dertig dagen is verstreken.
+    public String privacyEn() {
+        return orDefault(privacyPolicyEn, DefaultLegalTexts.PRIVACY_EN);
+    }
 
-Artikel 5 — Vervoer en risico
-Levering gebeurt volgens de incoterm op de offerte. Het risico gaat over op de koper op het ogenblik bepaald door die incoterm. Zichtbare transportschade moet bij ontvangst op de vrachtbrief worden genoteerd.
-
-Artikel 6 — Eigendomsvoorbehoud
-Geleverde goederen blijven onze eigendom tot volledige betaling van hoofdsom, kosten en interesten. Tot dan mag de koper ze niet verpanden of tot zekerheid overdragen; doorverkoop in de normale bedrijfsvoering is toegestaan.
-
-Artikel 7 — Betaling
-Facturen zijn betaalbaar binnen dertig dagen na factuurdatum, tenzij anders overeengekomen. Bij laattijdige betaling is van rechtswege en zonder ingebrekestelling een interest verschuldigd conform de wet van 2 augustus 2002 betreffende de betalingsachterstand bij handelstransacties, vermeerderd met een forfaitaire schadevergoeding van 10% van het factuurbedrag met een minimum van 125 euro.
-
-Artikel 8 — Klachten
-Klachten over zichtbare gebreken of over de conformiteit van de levering moeten schriftelijk gemeld worden binnen acht dagen na ontvangst. Verwerking of doorverkoop van de goederen geldt als aanvaarding. Natuurlijke producten zoals gepreserveerde bloemen kunnen onderling licht verschillen in kleur en vorm; zulke verschillen zijn geen gebrek.
-
-Artikel 9 — Aansprakelijkheid
-Onze aansprakelijkheid is beperkt tot het factuurbedrag van de betrokken levering. Wij zijn niet aansprakelijk voor onrechtstreekse schade zoals winstderving of imagoschade.
-
-Artikel 10 — Overmacht
-Gevallen van overmacht — waaronder productie- of transportonderbrekingen, havencongestie, uitvoer- of invoerbeperkingen — schorten onze verplichtingen op zolang ze duren, zonder recht op schadevergoeding.
-
-Artikel 11 — Toepasselijk recht
-Op alle overeenkomsten is het Belgisch recht van toepassing, met uitsluiting van het Weens Koopverdrag. Geschillen behoren tot de uitsluitende bevoegdheid van de rechtbanken van het gerechtelijk arrondissement Antwerpen.""";
-
-    /** The stored terms, or the draft when nothing has been saved yet. */
-    public String termsOrDefault() {
-        return termsAndConditions == null || termsAndConditions.isBlank()
-                ? DEFAULT_TERMS : termsAndConditions;
+    private static String orDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     /** Adres als één regel, voor in de kop van een document. */

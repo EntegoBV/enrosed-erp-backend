@@ -4,15 +4,16 @@ import jakarta.annotation.security.PermitAll;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
 import java.util.Map;
 
 /**
- * The general terms and conditions, readable without logging in.
+ * Terms and privacy statement, readable without logging in.
  *
- * The quote PDF and the customer portal link here. Terms that require an
- * account to read are not terms anyone agreed to.
+ * Dutch and English are maintained; every other language gets English.
+ * Maintaining eight legal translations would mean seven silently rotting.
  */
 @Path("/api/public/terms")
 @PermitAll
@@ -26,10 +27,13 @@ public class PublicTermsResource {
     }
 
     @GET
-    public Map<String, String> terms() {
+    public Map<String, String> terms(@QueryParam("lang") String lang) {
         CompanyProfile profile = company.get();
+        boolean dutch = lang == null || lang.isBlank() || lang.equalsIgnoreCase("nl");
         return Map.of(
-                "companyName", profile.name() == null ? "Enrosed" : profile.name(),
-                "text", profile.termsOrDefault());
+                "companyName", profile.name() == null ? "Enrosed BV" : profile.name(),
+                "language", dutch ? "nl" : "en",
+                "terms", dutch ? profile.termsNl() : profile.termsEn(),
+                "privacy", dutch ? profile.privacyNl() : profile.privacyEn());
     }
 }

@@ -41,6 +41,8 @@ public final class SourcingEntities {
         public Long id;
         @Column(unique = true)
         public String number;
+        /** Nickname next to the number, e.g. "voor Frans". */
+        public String alias;
         public Long supplierId;
         public LocalDate orderDate;
         @Enumerated(EnumType.STRING)
