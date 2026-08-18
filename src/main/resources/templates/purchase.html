@@ -128,11 +128,11 @@
 <table class="totals">
   <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
   <tr><td>Kosten oorsprong</td><td class="r">{costing.totals.originEur.eur}</td></tr>
-  <tr><td>Zeevracht</td><td class="r">{costing.totals.freightEur.eur}</td></tr>
+  <tr><td>Zeevracht tot {order.destinationPort}</td><td class="r">{costing.totals.freightEur.eur}</td></tr>
   <tr class="sum"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
   <tr><td>Invoerrechten ({costing.totals.effectiveDutyPct.pct} gemiddeld)</td>
       <td class="r">{costing.totals.dutyEur.eur}</td></tr>
-  <tr><td>Kosten tot {order.destinationPort}</td>
+  <tr><td>Lokale kosten {order.destinationPort} → magazijn</td>
       <td class="r">{costing.totals.destinationEur.eur}</td></tr>
   <tr><td>Gewenste extra opbrengst</td>
       <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
