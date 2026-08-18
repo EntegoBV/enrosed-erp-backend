@@ -6,7 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
-import java.util.Locale;
 
 /**
  * Schat wanneer een regel geleverd kan worden.

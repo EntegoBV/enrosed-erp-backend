@@ -10,11 +10,4 @@ public record Barcodes(String inner, String outer) {
         return new Barcodes(null, null);
     }
 
-    public boolean hasInner() {
-        return inner != null && !inner.isBlank();
-    }
-
-    public boolean hasOuter() {
-        return outer != null && !outer.isBlank();
-    }
 }

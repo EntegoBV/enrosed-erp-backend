@@ -30,9 +30,6 @@ public class Brand {
         return logoDataUri;
     }
 
-    public boolean hasLogo() {
-        return logoDataUri != null && !logoDataUri.isBlank();
-    }
 
     private String load() {
         try (InputStream in = Brand.class.getResourceAsStream(RESOURCE)) {

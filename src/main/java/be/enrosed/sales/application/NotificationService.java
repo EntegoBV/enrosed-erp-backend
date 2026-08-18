@@ -1,11 +1,9 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.sales.application.port.out.SalesRepositories;
-import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.DeliveryTermsState;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.QuoteStatus;
-import be.enrosed.sales.domain.RevisionStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import jakarta.enterprise.context.ApplicationScoped;
 

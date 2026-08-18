@@ -15,8 +15,4 @@ public record Photo(
         Integer heightPx,
         int position
 ) {
-    public String dimensionLabel() {
-        if (widthPx == null || heightPx == null) return "";
-        return widthPx + " x " + heightPx + " px";
-    }
 }
