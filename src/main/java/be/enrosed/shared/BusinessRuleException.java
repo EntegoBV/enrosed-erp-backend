@@ -1,9 +1,9 @@
 package be.enrosed.shared;
 
 /**
- * Gegooid wanneer een actie botst met een regel uit het domein - een offerte
- * versturen zonder regels, een voorstel goedkeuren dat al behandeld is.
- * De mapper vertaalt dit naar een 409.
+ * Thrown when an action collides with a domain rule - sending a quote
+ * without lines, approving a proposal already handled. The mapper turns
+ * this into a 409.
  */
 public class BusinessRuleException extends RuntimeException {
     public BusinessRuleException(String message) {

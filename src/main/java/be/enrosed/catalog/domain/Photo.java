@@ -1,9 +1,9 @@
 package be.enrosed.catalog.domain;
 
 /**
- * Een productfoto. Het bestand blijft in volle kwaliteit op de opslag staan -
- * er wordt niets herschaald of hercomprimeerd, zodat de foto ook weer
- * bruikbaar uit het systeem komt voor drukwerk of een webshop.
+ * A product photo. The file stays in storage at full quality - nothing is
+ * rescaled or recompressed, so the photo comes back out of the system
+ * usable for print or a webshop.
  */
 public record Photo(
         Long id,

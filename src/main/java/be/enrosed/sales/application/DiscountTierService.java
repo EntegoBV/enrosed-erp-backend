@@ -9,7 +9,7 @@ import jakarta.transaction.Transactional;
 import java.util.Comparator;
 import java.util.List;
 
-/** Beheert de kortingsstaffels; de twee stapelen bij het doorrekenen. */
+/** Manages the discount tiers; the two stack during pricing. */
 @ApplicationScoped
 public class DiscountTierService {
 

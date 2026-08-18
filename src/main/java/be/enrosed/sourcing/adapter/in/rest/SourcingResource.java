@@ -118,12 +118,12 @@ public class SourcingResource {
     }
 
     /**
-     * De calculatie als PDF.
+     * The calculation as a PDF.
      *
-     * @param showRevenue of de gewenste extra opbrengst als eigen regel op het blad
-     *                    komt. Standaard niet: dan is het blad veilig om te laten
-     *                    zien, en het totaal klopt nog steeds. Het scherm stuurt
-     *                    hier de stand van de dubbelklikschakelaar naartoe.
+     * @param showRevenue whether the desired extra revenue appears as its own
+     *                    line on the sheet. Off by default: the sheet is then
+     *                    safe to show, and the total still holds. The screen
+     *                    sends the state of the double-tap switch here.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -142,7 +142,7 @@ public class SourcingResource {
                 .build();
     }
 
-    /** Kopieert de calculatie om er snel een variant van door te rekenen. */
+    /** Copies the calculation to price a variant quickly. */
     @POST
     @Path("/purchase-orders/{id}/duplicate")
     public PurchaseOrderView duplicatePurchaseOrder(@PathParam("id") long id) {
@@ -150,7 +150,7 @@ public class SourcingResource {
         return new PurchaseOrderView(copy, purchaseOrders.calculate(copy), List.of());
     }
 
-    /** Legt de berekende kostprijzen vast op de producten. */
+    /** Writes the calculated cost prices onto the products. */
     @POST
     @Path("/purchase-orders/{id}/apply")
     public LandedCost applyToProducts(@PathParam("id") long id) {

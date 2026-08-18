@@ -3,9 +3,8 @@ package be.enrosed.catalog.domain;
 import java.math.BigDecimal;
 
 /**
- * Afmeting in centimeter. Wordt zowel voor het product zelf gebruikt als
- * voor de omdoos - het zijn twee verschillende dingen die vroeger door
- * elkaar liepen.
+ * Dimensions in centimetres. Used both for the product itself and for the
+ * outer carton - two different things that used to blur together.
  */
 public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {
 
@@ -24,7 +23,7 @@ public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal hei
                 .divide(BigDecimal.valueOf(1_000_000), 8, java.math.RoundingMode.HALF_UP);
     }
 
-    /** "15 x 30 x 12 cm", of leeg wanneer er niets ingevuld is. */
+    /** "15 x 30 x 12 cm", or empty when nothing is filled in. */
     public String label() {
         if (isBlank()) return "";
         return strip(lengthCm) + " x " + strip(widthCm) + " x " + strip(heightCm) + " cm";

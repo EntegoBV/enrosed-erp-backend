@@ -17,10 +17,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Verkooporders opstellen en doorrekenen.
+ * Drafting and pricing sales orders.
  *
- * Het versturen, de klantweergave en de wijzigingsvoorstellen zitten in
- * {@link QuoteService}; hier blijft alleen het samenstellen van de order.
+ * Sending, the customer view and the change proposals live in
+ * {@link QuoteService}; only composing the order stays here.
  */
 @ApplicationScoped
 public class SalesOrderService {
@@ -59,7 +59,7 @@ public class SalesOrderService {
         return orders.findById(id).orElseThrow(() -> new NotFoundException("Verkooporder", id));
     }
 
-    /** Rekent een order door met de actuele prijzen, staffels en tarieven. */
+    /** Prices an order with the current prices, tiers and rates. */
     public PricedOrder price(SalesOrder order) {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -75,7 +75,7 @@ public class SalesOrderService {
                 vat.determine(country, customer)));
     }
 
-    /** Prijs die deze order voor dit product hanteert; ook het portaal gebruikt die. */
+    /** Price this order uses for this product; the portal uses it too. */
     public BigDecimal unitPriceFor(be.enrosed.catalog.domain.Product product, SalesOrder order) {
         return pricing.unitPriceFor(product, order, null);
     }
@@ -109,7 +109,7 @@ public class SalesOrderService {
                 current.id(), numberFor(current, changes),
                 changes.customerId(), changes.countryCode(),
                 changes.orderDate(), changes.validUntil(),
-                /* De status wordt door de offerteworkflow gestuurd, niet door een gewone update. */
+                /* The status is driven by the quote workflow, not by a plain update. */
                 current.status(),
                 changes.incoterm(), changes.paymentTerms(), changes.notes(),
                 changes.markupMode() == null ? current.markupMode() : changes.markupMode(),
@@ -117,27 +117,27 @@ public class SalesOrderService {
                 changes.extraDiscountPct(), changes.extraDiscountLabel(),
                 current.portalToken(), current.sentAt(), current.viewedAt(), current.viewCount(),
                 current.decidedAt(), current.signedByName(), current.customerMessage(),
-                /* Interne notities komen wél van het formulier. */
+                /* Internal notes DO come from the form. */
                 changes.internalNotes(),
-                /* De stand van de levertermijnen stuurt de offerteworkflow: die
-                   volgt uit wat er verstuurd is, niet uit wat er ingevuld staat. */
+                /* The delivery-terms state is driven by the quote workflow: it
+                   follows from what was sent, not from what is filled in. */
                 current.deliveryTerms(),
-                /* De vrachtstand zetten wij zelf op het scherm ("wordt later
-                   bepaald"), dus die komt wél van het formulier. Wordt hij niet
-                   meegestuurd, dan blijft staan wat er stond. */
+                /* The freight state is ours to set on screen ("to be
+                   determined later"), so it DOES come from the form. When not
+                   sent along, what was there stays. */
                 changes.freightOrNull() == null ? current.freight() : changes.freight(),
                 changes.manualFreightEur(),
                 changes.lines()));
     }
 
     /**
-     * Het ordernummer zoals het na een update moet worden.
+     * The order number as it should be after an update.
      *
-     * Zelf een nummer kunnen zetten is nodig: bij een overstap uit een ander
-     * systeem loopt de nummering door, en soms hoort een offerte bij een
-     * bestaand dossier. Maar twee orders met hetzelfde nummer maakt elke
-     * verwijzing dubbelzinnig - in een mail, op een factuur, in de boekhouding -
-     * dus dat wordt geweigerd. Leeg laten betekent: laat staan wat er stond.
+     * Being able to set a number by hand matters: numbering carries on after
+     * migrating from another system, and sometimes a quote belongs to an
+     * existing file. But two orders with the same number make every reference
+     * ambiguous - in a mail, on an invoice, in the books - so that is
+     * refused. Leaving it empty means: keep what was there.
      */
     private String numberFor(SalesOrder current, SalesOrder changes) {
         String wanted = changes.number() == null ? null : changes.number().trim();
@@ -170,7 +170,7 @@ public class SalesOrderService {
                 source.markupMode(), source.orderMarkupPct(),
                 source.extraDiscountPct(), source.extraDiscountLabel(),
                 null, null, null, 0, null, null, null, source.internalNotes(),
-                /* Een kopie begint schoon: die offerte is nog niet vertrokken. */
+                /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),

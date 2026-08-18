@@ -19,15 +19,15 @@ public class ProductEntity {
     public String sku;
     public String name;
 
-    /* Afmeting van het product zelf. */
+    /* Dimensions of the product itself. */
     public BigDecimal productLengthCm;
     public BigDecimal productWidthCm;
     public BigDecimal productHeightCm;
 
-    /* Sleutel zoals kleur. */
+    /* A key, like colour. */
     public String colour;
 
-    /** Verkoopstekst voor op de offerte en in de catalogus. */
+    /** Sales copy for the quote and the catalogue. */
     @Column(length = 2000)
     public String description;
 
@@ -39,7 +39,7 @@ public class ProductEntity {
     public String barcodeOuter;
     public String hsCode;
 
-    /* Afmeting van de omdoos. */
+    /* Dimensions of the outer carton. */
     public BigDecimal cartonLengthCm;
     public BigDecimal cartonWidthCm;
     public BigDecimal cartonHeightCm;

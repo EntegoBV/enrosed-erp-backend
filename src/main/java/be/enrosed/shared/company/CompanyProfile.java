@@ -1,11 +1,11 @@
 package be.enrosed.shared.company;
 
 /**
- * Onze eigen bedrijfsgegevens.
+ * Our own company details.
  *
- * Staan in de database en niet in de configuratie: een adreswijziging of een
- * nieuw rekeningnummer hoort geen herstart van de server te vragen. Deze
- * gegevens komen op elke offerte, factuur en catalogus.
+ * In the database, not in configuration: an address change or a new bank
+ * account should not require a server restart. These details appear on
+ * every quote, invoice and catalogue.
  */
 public record CompanyProfile(
         String name,
@@ -88,7 +88,7 @@ public record CompanyProfile(
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    /** Adres als één regel, voor in de kop van een document. */
+    /** Address as one line, for a document header. */
     public String addressOneLine() {
         StringBuilder text = new StringBuilder();
         append(text, addressLine, ", ");

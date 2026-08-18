@@ -8,16 +8,16 @@ import java.time.LocalDate;
 import java.time.temporal.WeekFields;
 
 /**
- * Schat wanneer een regel geleverd kan worden.
+ * Estimates when a line can be delivered.
  *
- * Er wordt gerekend in werkdagen: vanaf de eerstvolgende werkdag, plus de
- * transittijd van het bestemmingsland. Zaterdag en zondag tellen niet mee,
- * want er rijdt dan niets.
+ * The count runs in working days: from the next working day, plus the
+ * destination country's transit time. Saturday and Sunday do not count,
+ * because nothing drives then.
  *
- * Staat er niet genoeg op voorraad, dan komt er geen datum uit. Een schatting
- * verzinnen voor iets dat nog uit China moet komen is erger dan geen
- * schatting: de klant rekent erop. In dat geval vult de verkoper zelf een
- * leverweek in, of laat hij het veld leeg tot de container geboekt is.
+ * With insufficient stock, no date comes out. Inventing an estimate for
+ * something still on its way from China is worse than no estimate: the
+ * customer counts on it. In that case the seller fills in a delivery week
+ * by hand, or leaves the field empty until the container is booked.
  */
 @ApplicationScoped
 public class DeliveryCalculator {
@@ -50,7 +50,7 @@ public class DeliveryCalculator {
                         + "Vul zelf een leverweek in zodra de container geboekt is.");
     }
 
-    /** Vandaag als het een werkdag is, anders de eerstvolgende maandag. */
+    /** Today when it is a working day, otherwise the next Monday. */
     public LocalDate nextWorkingDay(LocalDate from) {
         LocalDate date = from.plusDays(1);
         while (isWeekend(date)) {
@@ -69,7 +69,7 @@ public class DeliveryCalculator {
         return date;
     }
 
-    /** ISO-weeknotatie, zoals "2026-W34"; zo praat de logistiek. */
+    /** ISO week notation, like "2026-W34"; that is how logistics talks. */
     public String weekOf(LocalDate date) {
         if (date == null) return null;
         WeekFields weekFields = WeekFields.ISO;

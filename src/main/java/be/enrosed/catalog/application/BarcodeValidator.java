@@ -3,11 +3,11 @@ package be.enrosed.catalog.application;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
- * Controleert het controlecijfer van EAN-13 en ITF-14.
+ * Validates the check digit of EAN-13 and ITF-14.
  *
- * Een barcode mag leeg zijn - dat is geen fout maar een keuze. Staat er wel
- * iets, dan moet het kloppen, want een barcode met een fout controlecijfer
- * wordt in het magazijn van de klant gewoon niet gelezen.
+ * A barcode may be empty - that is a choice, not an error. When something
+ * is there it has to be right, because a barcode with a wrong check digit
+ * simply does not scan in the customer's warehouse.
  */
 @ApplicationScoped
 public class BarcodeValidator {
@@ -36,7 +36,7 @@ public class BarcodeValidator {
         return Result.ok(value.length() == 13 ? "geldige EAN-13" : "geldige ITF-14");
     }
 
-    /** Modulo-10 met gewichten 3 en 1, van rechts naar links. */
+    /** Modulo-10 with weights 3 and 1, right to left. */
     private int checkDigit(String digits) {
         int sum = 0;
         for (int i = digits.length() - 1, weightIndex = 0; i >= 0; i--, weightIndex++) {

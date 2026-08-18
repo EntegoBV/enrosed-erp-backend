@@ -8,11 +8,11 @@ import java.io.InputStream;
 import java.util.Base64;
 
 /**
- * Het logo, klaar om in een PDF of e-mail te zetten.
+ * The logo, ready to drop into a PDF or e-mail.
  *
- * openhtmltopdf kan geen bestanden van het klassenpad halen, dus wordt het
- * logo een keer ingelezen en als data-URI in het sjabloon gezet. Een keer,
- * niet per document: het bestand verandert niet tussen twee offertes.
+ * openhtmltopdf cannot fetch files from the classpath, so the logo is read
+ * once and placed in the template as a data URI. Once, not per document:
+ * the file does not change between two quotes.
  */
 @ApplicationScoped
 public class Brand {

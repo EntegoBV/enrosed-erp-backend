@@ -2,6 +2,6 @@ package be.enrosed.sales.domain;
 
 import java.math.BigDecimal;
 
-/** Staffel: vanaf dit aantal stuks geldt dit kortingspercentage. */
+/** Tier: from this piece count onwards, this discount percentage applies. */
 public record DiscountTier(Long id, TierScope scope, int minQuantity, BigDecimal percent) {
 }

@@ -8,7 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.util.List;
 import java.util.Optional;
 
-/** De poortadapters van de verkoopkant naar Panache. */
+/** The sales-side port adapters onto Panache. */
 public final class PanacheSalesRepositories {
 
     private PanacheSalesRepositories() {}
@@ -197,7 +197,7 @@ public final class PanacheSalesRepositories {
         }
     }
 
-    /** De geschiedenis van een offerte: alleen toevoegen en lezen. */
+    /** The history of a quote: append and read only. */
     @ApplicationScoped
     public static class EventAdapter implements SalesRepositories.Events {
 

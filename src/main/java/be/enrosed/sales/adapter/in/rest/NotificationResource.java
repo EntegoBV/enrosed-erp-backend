@@ -8,7 +8,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
-/** Wat er op ons ligt te wachten, voor het belletje rechtsboven. */
+/** What is waiting on us, for the bell in the top right. */
 @Path("/api/notifications")
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 @Produces(MediaType.APPLICATION_JSON)

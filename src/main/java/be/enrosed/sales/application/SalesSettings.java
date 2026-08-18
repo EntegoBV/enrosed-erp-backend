@@ -7,10 +7,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.math.BigDecimal;
 
 /**
- * Instellingen van de verkoopkant.
+ * Settings of the sales side.
  *
- * Staat los van de database omdat het configuratie is en geen gegevens: de
- * palletmaat verandert niet per order.
+ * Kept out of the database because this is configuration, not data: the
+ * pallet size does not change per order.
  */
 @ApplicationScoped
 public class SalesSettings {

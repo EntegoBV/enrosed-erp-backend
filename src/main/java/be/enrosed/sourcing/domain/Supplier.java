@@ -2,7 +2,7 @@ package be.enrosed.sourcing.domain;
 
 import be.enrosed.shared.Currency;
 
-/** Leverancier. De munt bepaalt waarin nieuwe producten geprijsd worden. */
+/** Supplier. The currency decides what new products are priced in. */
 public record Supplier(
         Long id,
         String name,

@@ -26,12 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * De uitwisseling met het vertaalbestand.
+ * The exchange with the translation file.
  *
- * Het gevaar zit niet in de gewone gevallen maar in de randen: een puntkomma in
- * een beschrijving trekt het bestand uit elkaar, en een export die je zonder
- * wijzigingen weer inleest hoort niets te doen in plaats van elke taal met de
- * Nederlandse tekst te vullen.
+ * The danger is not in the ordinary cases but at the edges: a semicolon in
+ * a description tears the file apart, and an export read back in unchanged
+ * must do nothing instead of filling every language with the Dutch text.
  */
 class ProductTranslationCsvTest {
 
@@ -66,7 +65,7 @@ class ProductTranslationCsvTest {
         String text = new String(csv.export(), StandardCharsets.UTF_8);
         assertTrue(text.contains("\"Groot; met doos\""), text);
 
-        /* En het komt er ook weer heel uit. */
+        /* And it comes back out intact. */
         csv.importFrom(new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
         assertEquals("Groot; met doos", products.get("ENR-P01").description());
     }
@@ -106,11 +105,11 @@ class ProductTranslationCsvTest {
         assertEquals("Rouge", saved.colourIn(Language.FR));
         assertEquals("Handmade", saved.descriptionIn(Language.EN));
 
-        /* De Engelse naam was gelijk aan de basisnaam, dus die telt niet als vertaling. */
+        /* The English name equalled the base name, so it does not count as a translation. */
         ProductText english = saved.textIn(Language.EN);
         assertNull(english.name());
 
-        /* Waar niets staat valt het terug op de basis. */
+        /* Where nothing is set, it falls back to the base. */
         assertEquals("Glass flower", saved.nameIn(Language.DE));
     }
 
@@ -158,7 +157,7 @@ class ProductTranslationCsvTest {
                 null, null, BigDecimal.ZERO, null, 0, List.of(), List.of());
     }
 
-    /** Genoeg repository om de uitwisseling te testen zonder database. */
+    /** Just enough repository to test the exchange without a database. */
     private static final class FakeProducts implements ProductRepository {
         private final Map<String, Product> bySku = new LinkedHashMap<>();
 

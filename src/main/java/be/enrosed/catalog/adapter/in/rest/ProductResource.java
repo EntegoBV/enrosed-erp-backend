@@ -54,7 +54,7 @@ public class ProductResource {
         return ProductDto.from(products.update(id, dto.toDomain(id)));
     }
 
-    /** Kopieert een product, meestal om dezelfde stijl in een andere kleur te zetten. */
+    /** Copies a product, usually to make the same style in another colour. */
     @POST
     @Path("/{id}/duplicate")
     public Response duplicate(@PathParam("id") long id, DuplicateRequest request) {
@@ -71,7 +71,7 @@ public class ProductResource {
         return Response.noContent().build();
     }
 
-    /** Controleert een barcode zonder op te slaan - voor directe feedback in het formulier. */
+    /** Validates a barcode without saving - for instant feedback in the form. */
     @GET
     @Path("/barcode-check")
     public BarcodeValidator.Result checkBarcode(@QueryParam("value") String value) {
@@ -81,8 +81,8 @@ public class ProductResource {
     /* ------------------------------------------------------------ fotos */
 
     /**
-     * Laadt een foto op. Geen aantalbeperking en geen herschaling: het bestand
-     * wordt bewaard zoals het binnenkomt.
+     * Uploads a photo. No count limit and no rescaling: the file is kept
+     * exactly as it arrives.
      */
     @POST
     @Path("/{id}/photos")
@@ -97,7 +97,7 @@ public class ProductResource {
         }
     }
 
-    /** Toont de foto in de browser, in originele kwaliteit. */
+    /** Shows the photo in the browser, in original quality. */
     @GET
     @Path("/{id}/photos/{photoId}")
     @Produces(MediaType.WILDCARD)
@@ -110,7 +110,7 @@ public class ProductResource {
                 .build();
     }
 
-    /** Downloadt de foto onder zijn oorspronkelijke bestandsnaam. */
+    /** Downloads the photo under its original file name. */
     @GET
     @Path("/{id}/photos/{photoId}/download")
     @Produces(MediaType.WILDCARD)
@@ -128,7 +128,7 @@ public class ProductResource {
         return ProductDto.from(products.removePhoto(id, photoId));
     }
 
-    /** Zet de fotoreeks in de meegegeven volgorde; de eerste wordt de hoofdfoto. */
+    /** Orders the photo series as given; the first becomes the primary photo. */
     @PUT
     @Path("/{id}/photos/order")
     public ProductDto reorderPhotos(@PathParam("id") long id, List<Long> photoIdsInOrder) {

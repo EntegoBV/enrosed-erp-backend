@@ -3,8 +3,8 @@ package be.enrosed.sales.domain;
 import java.math.BigDecimal;
 
 /**
- * Verkoopland. Verkoop gaat over de weg op pallets, dus de vracht hangt aan
- * het aantal palletplaatsen en niet aan het volume.
+ * Sales country. Sales ships by road on pallets, so freight hangs on the
+ * number of pallet positions, not on the volume.
  */
 public record Country(
         String code,
@@ -15,6 +15,6 @@ public record Country(
         BigDecimal handling,
         BigDecimal vatRatePct,
         int transitDays,
-        /** Lidstaat van de EU? Bepaalt of een levering intracommunautair kan zijn. */
+        /** EU member state? Decides whether a delivery can be intra-community. */
         boolean euMember
 ) {}

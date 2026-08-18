@@ -15,29 +15,29 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Rekent de kostprijs per stuk van een container uit.
+ * Calculates the landed cost per piece of a container.
  *
- * De opbouw volgt de weg die de goederen afleggen:
+ * The build-up follows the road the goods travel:
  *
- *   1. GOEDEREN      aantal x (EXW prijs + extra kost per stuk), in USD of RMB
- *   2. ORIGIN        fabriek -> Chinese haven: voorvervoer, exportdocumenten,
- *                    THC origin, verzekering
- *   3. ZEEVRACHT     laadhaven -> loshaven
- *   ---------------------------------------------------------- EU-grens
- *   4. INVOERRECHT   over de douanewaarde (1 + 2 + 3), tegen het percentage
- *                    van de HS-code van dat product
- *   5. DESTINATION   loshaven -> magazijn: THC destination, inklaring,
- *                    wegtransport, lossen - gebeurt na de invoer en wordt
- *                    dus niet belast
- *   6. EXTRA         gewenste opbrengst die mee in de kostprijs verrekend wordt
+ *   1. GOODS         quantity x (EXW price + extra cost per piece), USD or RMB
+ *   2. ORIGIN        factory -> Chinese port: pre-carriage, export documents,
+ *                    origin THC, insurance
+ *   3. SEA FREIGHT   port of loading -> port of discharge
+ *   ---------------------------------------------------------- EU border
+ *   4. IMPORT DUTY   over the customs value (1 + 2 + 3), at the rate of
+ *                    that product's HS code
+ *   5. DESTINATION   port of discharge -> warehouse: destination THC,
+ *                    clearance, road transport, unloading - happens after
+ *                    import and is therefore not taxed
+ *   6. EXTRA         desired revenue folded into the cost price
  *
- * Dat onderscheid tussen origin en destination is geen boekhoudkundige
- * finesse: alles voor de grens wordt mee belast, alles erna niet. In de
- * verkeerde bak zetten kost of te veel of te weinig invoerrecht.
+ * The origin/destination distinction is no bookkeeping nicety: everything
+ * before the border is taxed along, everything after is not. Sorting a cost
+ * into the wrong bin costs either too much or too little duty.
  *
- * De invoerrechten worden niet verdeeld zoals de andere containerkosten:
- * elke regel rekent zijn eigen HS-code over zijn eigen deel van de
- * douanewaarde, want een container kan meerdere tarieven bevatten.
+ * Import duties are not spread like the other container costs: each line
+ * applies its own HS code to its own share of the customs value, because
+ * one container can carry several rates.
  */
 @ApplicationScoped
 public class LandedCostCalculator {
@@ -118,7 +118,7 @@ public class LandedCostCalculator {
             row.destinationEur = destinationEurTotal.multiply(shareFor(row, order.allocDestination()));
             row.extraEur = extraEurTotal.multiply(shareFor(row, order.allocExtra()));
 
-            /* Douanewaarde aan de EU-grens. */
+            /* Customs value at the EU border. */
             row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
             row.dutyEur = Money.percentOf(row.customsValueEur, row.dutyRatePct);
 
@@ -187,7 +187,7 @@ public class LandedCostCalculator {
         };
     }
 
-    /** Tussenstand per regel tijdens het rekenen. */
+    /** Per-line running state during the calculation. */
     private static final class Working {
         Product product;
         int quantity;

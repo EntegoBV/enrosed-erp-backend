@@ -21,20 +21,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Vertalingen uitwisselen via CSV.
+ * Exchanging translations through CSV.
  *
- * Vertalen gebeurt niet in dit scherm maar in een spreadsheet, vaak door iemand
- * anders. Daarom één bestand eruit, met per product een rij per taal, en
- * hetzelfde bestand er weer in.
+ * Translating happens in a spreadsheet, often by someone else, not in this
+ * screen. Hence one file out, with one row per language per product, and the
+ * same file back in.
  *
- * Alleen naam, beschrijving en kleur staan erin. De rest van een product is
- * universeel; die kolommen in het bestand zetten nodigt uit tot wijzigen, en
- * een vertaler hoort geen doosafmetingen te kunnen aanpassen.
+ * Only name, description and colour are in it. The rest of a product is
+ * universal; putting those columns in the file invites editing, and a
+ * translator should not be able to change carton dimensions.
  *
- * Twee dingen die het bestand robuust maken in Excel:
- *  - een UTF-8 BOM, anders maakt Excel van "Rosé" iets anders
- *  - puntkomma als scheidingsteken, want dat verwacht Excel in het Nederlandse
- *    en Franse taalgebied
+ * Two things that make the file robust in Excel:
+ *  - a UTF-8 BOM, otherwise Excel turns "Rosé" into something else
+ *  - semicolon as separator, because that is what Excel expects in the Dutch
+ *    and French locales
  */
 @ApplicationScoped
 public class ProductTranslationCsv {
@@ -48,17 +48,17 @@ public class ProductTranslationCsv {
         this.products = products;
     }
 
-    /** Wat een import opgeleverd heeft; per regel gemeld in plaats van stil geslikt. */
+    /** What an import produced; reported per row instead of swallowed silently. */
     public record ImportResult(int updatedProducts, int updatedRows, List<String> problems) {}
 
     /* ------------------------------------------------------------- eruit */
 
     /**
-     * Alle producten met per taal een rij.
+     * All products with one row per language.
      *
-     * Ook talen die nog niet vertaald zijn krijgen een rij, met de basiswaarden
-     * als vertrekpunt. Een vertaler die een leeg bestand krijgt weet niet waar
-     * hij moet beginnen; nu staat er wat het is en overschrijft hij het.
+     * Languages not yet translated get a row too, with the base values as a
+     * starting point. A translator handed an empty file has no idea where to
+     * begin; this way the file says what it is and they overwrite it.
      */
     public byte[] export() {
         StringBuilder out = new StringBuilder(Csv.BOM);
@@ -86,15 +86,15 @@ public class ProductTranslationCsv {
     /* -------------------------------------------------------------- erin */
 
     /**
-     * Leest het bestand terug in.
+     * Reads the file back in.
      *
-     * Onbekende SKU's en talen worden gemeld en overgeslagen, niet stil
-     * genegeerd: een vertaalbestand met een typfout in de SKU levert anders een
-     * import op die "gelukt" zegt terwijl er niets veranderd is.
+     * Unknown SKUs and languages are reported and skipped, not silently
+     * ignored: a translation file with a typo in the SKU would otherwise
+     * produce an import that says "done" while nothing changed.
      *
-     * Een rij die exact gelijk is aan de basiswaarden telt als "niet vertaald".
-     * Zo blijft een export-zonder-wijzigingen die je weer inleest zonder effect,
-     * in plaats van elke taal te vullen met de Nederlandse tekst.
+     * A row exactly equal to the base values counts as "not translated".
+     * That keeps an export-without-changes read back in without effect,
+     * instead of filling every language with the Dutch text.
      */
     @Transactional
     public ImportResult importFrom(InputStream input) {
@@ -170,10 +170,10 @@ public class ProductTranslationCsv {
     }
 
     /**
-     * Velden die gelijk zijn aan de basiswaarde tellen niet als vertaling.
+     * Fields equal to the base value do not count as a translation.
      *
-     * Anders staat na de eerste import in elke taal de Nederlandse naam, en dan
-     * lijkt alles vertaald terwijl er niets vertaald is.
+     * Otherwise the first import leaves the Dutch name in every language,
+     * and everything looks translated while nothing is.
      */
     private static ProductText withoutBaseValues(Product product, ProductText text) {
         return new ProductText(

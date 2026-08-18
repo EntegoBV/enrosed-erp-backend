@@ -5,11 +5,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 
 /**
- * Beheert onze bedrijfsgegevens.
+ * Manages our company details.
  *
- * Er is altijd precies één profiel; ontbreekt het, dan komt er een leeg terug
- * in plaats van null. Zo hoeft geen enkele documentsjabloon zich af te vragen
- * of het bestaat.
+ * There is always exactly one profile; when missing, an empty one comes
+ * back instead of null. No document template ever has to wonder whether
+ * it exists.
  */
 @ApplicationScoped
 public class CompanyProfileService {

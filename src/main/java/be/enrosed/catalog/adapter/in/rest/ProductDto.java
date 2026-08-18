@@ -8,10 +8,10 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Product zoals het over de lijn gaat.
+ * Product as it goes over the wire.
  *
- * Afmeting van het product, colour (kleur) en de omdoos zijn hier drie
- * aparte dingen - net als in het domein.
+ * Product dimensions, colour and the outer carton are three separate things
+ * here - just like in the domain.
  */
 public record ProductDto(
         Long id,
@@ -36,9 +36,9 @@ public record ProductDto(
         BigDecimal fixedSalesPriceEur,
         Integer stockQuantity,
         List<PhotoDto> photos,
-        /** Naam, beschrijving en kleur per taal; de rest blijft universeel. */
+        /** Name, description and colour per language; the rest stays universal. */
         List<TextDto> texts,
-        /* afgeleid, alleen uitgaand */
+        /* derived, outbound only */
         String describedAs,
         BigDecimal cartonCbm,
         BigDecimal pieceCbm

@@ -5,18 +5,18 @@ import be.enrosed.sales.domain.SalesOrder;
 
 import java.util.List;
 
-/** Uitgaande poort die de offerte naar de klant stuurt. */
+/** Outbound port sending the quote to the customer. */
 public interface QuoteMailer {
 
-    /** Levertermijn per regel, zoals hij in de mail komt te staan. */
+    /** Per-line delivery term, as it will appear in the mail. */
     record DeliveryLine(String description, String term, boolean known) {}
 
     /**
-     * Waarom deze mail vertrekt, in plaats van een rij losse ja-neevlaggen.
+     * Why this mail leaves, instead of a row of loose yes/no flags.
      *
-     * De klant moet bovenaan lezen wat er veranderd is: een tweede zending die
-     * er hetzelfde uitziet als de eerste leest als een dubbele mail, en dan
-     * kijkt niemand meer of er iets bij staat.
+     * The customer must read at the top what changed: a second sending that
+     * looks identical to the first reads as a duplicate mail, and then
+     * nobody checks whether anything was added.
      */
     record Notice(boolean deliveryTermsAdded, boolean freightPending, boolean freightAdded) {
 
@@ -24,7 +24,7 @@ public interface QuoteMailer {
             return new Notice(false, false, false);
         }
 
-        /** Is er iets bijzonders te melden, of is dit een gewone offerte? */
+        /** Anything special to report, or is this a plain quote? */
         public boolean isPlain() {
             return !deliveryTermsAdded && !freightPending && !freightAdded;
         }
@@ -34,6 +34,6 @@ public interface QuoteMailer {
                    QuoteDocumentRenderer.Document document, String personalMessage,
                    List<DeliveryLine> deliveryLines, Notice notice);
 
-    /** Bericht aan onszelf wanneer de klant iets doet met de offerte. */
+    /** Message to ourselves when the customer acts on the quote. */
     void notifyInternal(String subject, String body);
 }

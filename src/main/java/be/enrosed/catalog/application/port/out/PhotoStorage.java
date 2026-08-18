@@ -3,10 +3,10 @@ package be.enrosed.catalog.application.port.out;
 import java.io.InputStream;
 
 /**
- * Uitgaande poort voor de fotobestanden.
+ * Outbound port for the photo files.
  *
- * De bytes gaan er ongewijzigd in en ongewijzigd weer uit: geen herschaling,
- * geen hercompressie. Wat de leverancier stuurt is wat je terugkrijgt.
+ * Bytes go in unchanged and come out unchanged: no rescaling, no
+ * recompression. What the supplier sends is what you get back.
  */
 public interface PhotoStorage {
 

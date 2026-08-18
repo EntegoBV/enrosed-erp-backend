@@ -54,11 +54,11 @@ public final class SourcingEntities {
         @Column(precision = 19, scale = 6) public BigDecimal usdToEurTransport;
 
         @Column(precision = 19, scale = 2) public BigDecimal freightUsd;
-        /* Kosten tot aan het schip in China - tellen mee in de douanewaarde. */
+        /* Costs up to the ship in China - count towards the customs value. */
         @Column(precision = 19, scale = 2) public BigDecimal originCosts;
         @Enumerated(EnumType.STRING)
         public Currency originCurrency = Currency.USD;
-        /* Kosten vanaf de loshaven - vallen buiten de douanewaarde. */
+        /* Costs from the port of discharge - fall outside the customs value. */
         @Column(precision = 19, scale = 2) public BigDecimal destinationCostsEur;
 
         @Column(precision = 19, scale = 4) public BigDecimal defaultDutyRatePct;

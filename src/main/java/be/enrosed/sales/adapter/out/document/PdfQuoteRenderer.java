@@ -18,20 +18,19 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Maakt het offertedocument: Qute rendert de HTML, openhtmltopdf zet die om
- * naar PDF.
+ * Builds the quote document: Qute renders the HTML, openhtmltopdf turns it
+ * into a PDF.
  *
- * Bewust via HTML en niet via een PDF-bibliotheek met tekenopdrachten: de
- * lay-out blijft dan gewoon een sjabloon dat je kan aanpassen zonder Java te
- * schrijven.
+ * Deliberately through HTML rather than a PDF library with draw calls: the
+ * layout stays a plain template you can adjust without writing Java.
  *
- * Het document vertrekt in de taal van de klant. De teksten komen uit
- * {@link DocumentText}, de productnamen uit de vertalingen bij het product
- * zelf. Wat niet vertaald is valt terug op onze eigen tekst - liever de
- * basisnaam op een Franse offerte dan een leeg vak.
+ * The document leaves in the customer's language. The texts come from
+ * {@link DocumentText}, the product names from the translations on the
+ * product itself. Whatever is untranslated falls back to our own text -
+ * better the base name on a French quote than an empty box.
  *
- * Wat er niet in staat is even belangrijk als wat er wel in staat: kostprijs
- * en marge blijven eruit. Dit document gaat naar de klant.
+ * What is absent matters as much as what is present: cost price and margin
+ * stay out. This document goes to the customer.
  */
 @ApplicationScoped
 public class PdfQuoteRenderer implements QuoteDocumentRenderer {
@@ -59,9 +58,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
 
     /**
-     * @param override taal waarin het document moet vertrekken, of null voor de
-     *                 taal van de klant. Handig om even een Engelse versie mee te
-     *                 geven aan iemand die de offerte intern moet doorgeven.
+     * @param override language the document should leave in, or null for the
+     *                 customer's. Handy for handing an English copy to
+     *                 someone who needs to pass the quote around internally.
      */
     public Document render(SalesOrder order, PricedOrder priced, Customer customer,
                            String portalUrl, Language override) {
@@ -69,9 +68,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 : customer == null ? Language.NL : customer.language();
         Map<String, String> text = DocumentText.of(language);
 
-        /* De levertermijn per regel wordt hier al tot tekst gemaakt: de keuze
-           tussen een datum, een week of "in overleg" hangt van de taal af en
-           hoort niet in het sjabloon thuis. */
+        /* The per-line delivery term is turned into text right here: the
+           choice between a date, a week or "to be agreed" depends on the
+           language and does not belong in the template. */
         Map<Long, String> deliveryTexts = new LinkedHashMap<>();
         for (PricedOrder.Line line : priced.lines()) {
             deliveryTexts.put(line.productId(), deliveryTextOf(line, language, text));

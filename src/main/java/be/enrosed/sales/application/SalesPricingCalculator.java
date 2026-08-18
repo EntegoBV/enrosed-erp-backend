@@ -15,15 +15,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Rekent een verkooporder door.
+ * Prices a sales order.
  *
- * De prijs vertrekt van de kostprijs uit de inkoopcalculatie plus een opslag.
- * Die opslag komt van het product zelf, of - als de order dat zo instelt -
- * van een percentage over de hele order. Daarna komen de staffelkortingen:
- * eerst per regel op het aantal van dat product, dan op het ordertotaal.
+ * The price starts from the cost price out of the purchase calculation plus
+ * a markup. That markup comes from the product itself, or - when the order
+ * says so - from a percentage over the whole order. Then the tier discounts:
+ * first per line on that product's quantity, then on the order total.
  *
- * Vracht wordt per pallet gerekend, niet per kubieke meter: verkoop gaat over
- * de weg en de vervoerder rekent per palletplaats.
+ * Freight is charged per pallet, not per cubic metre: sales ships by road
+ * and the carrier charges per pallet position.
  */
 @ApplicationScoped
 public class SalesPricingCalculator {
@@ -65,9 +65,9 @@ public class SalesPricingCalculator {
             if (product == null) continue;
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
-            /* Aantallen worden in stuks ingegeven maar in volle dozen verscheept.
-               Hier wordt er meteen naar boven afgerond, zodat wat je op het scherm
-               ziet ook is wat er de deur uit gaat. */
+            /* Quantities are entered in pieces but shipped in full cartons.
+               Rounding up happens right here, so what you see on screen is
+               what actually goes out the door. */
             int requested = Math.max(0, line.quantity());
             int cartons = carton.cartonsFor(requested);
             int quantity = cartons * Math.max(1, carton.piecesPerCarton());
@@ -95,17 +95,17 @@ public class SalesPricingCalculator {
 
             DiscountTier next = nextTier(context.lineTiers(), quantity);
 
-            /* Levertermijn: uit voorraad rekenen we vanaf de eerstvolgende werkdag
-               plus de transittijd; anders geen datum, alleen wat er tekort is. */
+            /* Delivery term: from stock we count from the next working day
+               plus transit time; otherwise no date, only what is short. */
             DeliveryCalculator.Estimate estimate =
                     delivery.estimate(context.country(), quantity, product.stockQuantity());
             String manualWeek = line.deliveryWeek();
 
             lines.add(new PricedOrder.Line(
                     product.id(), product.sku(), product.describe(),
-                    /* Dezelfde regel in de taal van de klant; die gaat naar de
-                       offerte en het portaal, terwijl onze schermen de eigen
-                       omschrijving blijven tonen. */
+                    /* The same line in the customer's language; that goes to
+                       the quote and the portal, while our screens keep showing
+                       our own description. */
                     product.describeIn(context.customer() == null
                             ? Language.NL : context.customer().language()),
                     product.primaryPhoto() == null ? null
@@ -146,8 +146,8 @@ public class SalesPricingCalculator {
         BigDecimal orderDiscount = Money.percentOf(subtotal, orderTierPct);
         BigDecimal afterOrderTier = subtotal.subtract(orderDiscount);
 
-        /* Extra korting komt ná de staffel en rekent over wat er dan nog staat,
-           zodat de twee niet dubbel over hetzelfde bedrag lopen. */
+        /* The extra discount comes after the tier and computes over what is
+           left, so the two never run double over the same amount. */
         BigDecimal extraPct = Money.nz(order.extraDiscountPct());
         BigDecimal extraDiscount = Money.percentOf(afterOrderTier, extraPct);
         BigDecimal goodsTotal = afterOrderTier.subtract(extraDiscount);
@@ -169,17 +169,17 @@ public class SalesPricingCalculator {
             handling = Money.nz(country.handling());
         }
 
-        /* Vracht die wij zelf invullen gaat voor op het landtarief: een
-           bestemming buiten de gewone tarieven of een klant die zelf laat
-           ophalen past niet in een tabel per pallet. */
+        /* Freight we fill in ourselves wins over the country rate: a
+           destination outside the usual rates, or a customer arranging their
+           own pickup, does not fit a per-pallet table. */
         if (order.manualFreightEur() != null) {
             freight = Money.money(order.manualFreightEur());
             freightIsMinimum = false;
         }
 
-        /* Staat de vracht op "nog te bepalen", dan telt er nog niets mee. Een
-           bedrag verzinnen en later corrigeren is erger dan een open post: de
-           klant rekent op het totaal dat er stond. */
+        /* While the freight is "to be determined", nothing counts yet.
+           Inventing an amount and correcting later is worse than an open
+           item: the customer counts on the total that was shown. */
         if (order.freight() == FreightState.TE_BEPALEN) {
             freight = BigDecimal.ZERO;
             freightIsMinimum = false;
@@ -188,8 +188,8 @@ public class SalesPricingCalculator {
         BigDecimal shipping = freight.add(handling);
         BigDecimal total = goodsTotal.add(shipping);
 
-        /* Het BTW-tarief komt uit het regime, niet rechtstreeks uit het land:
-           bij een intracommunautaire levering of uitvoer staat het op nul. */
+        /* The VAT rate comes from the regime, not directly from the country:
+           for an intra-community supply or export it is zero. */
         BigDecimal vatRate = context.vat() == null
                 ? (country == null ? BigDecimal.ZERO : Money.nz(country.vatRatePct()))
                 : context.vat().ratePct();
@@ -226,11 +226,11 @@ public class SalesPricingCalculator {
     }
 
     /**
-     * Prijs van een regel voor korting.
+     * Price of a line before discount.
      *
-     * Een handmatige prijs op de regel gaat voor. Daarna een vaste
-     * catalogusprijs op het product - die is bewust vastgezet en blijft ook
-     * gelden bij een opslag op ordertotaal. Anders: kostprijs plus opslag.
+     * A manual price on the line wins. Then a fixed catalogue price on the
+     * product - deliberately pinned, and it keeps holding under an
+     * order-total markup. Otherwise: cost price plus markup.
      */
     public BigDecimal unitPriceFor(Product product, SalesOrder order, BigDecimal manualPrice) {
         if (manualPrice != null && manualPrice.signum() > 0) return manualPrice;
@@ -244,7 +244,7 @@ public class SalesPricingCalculator {
         return Money.addPercent(cost, markup).setScale(2, RoundingMode.HALF_UP);
     }
 
-    /** Hoogste staffel waarvan de drempel gehaald is. */
+    /** Highest tier whose threshold has been reached. */
     private BigDecimal tierPercentFor(List<DiscountTier> tiers, int quantity) {
         if (tiers == null) return BigDecimal.ZERO;
         return tiers.stream()
@@ -255,7 +255,7 @@ public class SalesPricingCalculator {
                 .orElse(BigDecimal.ZERO);
     }
 
-    /** Eerstvolgende staffel, voor de "nog zoveel stuks tot"-hint. */
+    /** Next tier up, for the "this many pieces to go" hint. */
     private DiscountTier nextTier(List<DiscountTier> tiers, int quantity) {
         if (tiers == null) return null;
         return tiers.stream()

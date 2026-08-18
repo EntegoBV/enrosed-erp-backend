@@ -5,7 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** Eén rij; het bedrijf heeft maar één profiel. */
+/** One row; the company has only one profile. */
 @Entity
 @Table(name = "company_profile")
 public class CompanyProfileEntity {

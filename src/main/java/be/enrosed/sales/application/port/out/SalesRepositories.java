@@ -5,7 +5,7 @@ import be.enrosed.sales.domain.*;
 import java.util.List;
 import java.util.Optional;
 
-/** De uitgaande poorten van de verkoopkant, bij elkaar gehouden. */
+/** The sales side's outbound ports, kept together. */
 public interface SalesRepositories {
 
     interface Customers {
@@ -43,7 +43,7 @@ public interface SalesRepositories {
         QuoteRevision save(QuoteRevision revision);
     }
 
-    /** De geschiedenis van een offerte. Alleen toevoegen en lezen. */
+    /** The history of a quote. Append and read only. */
     interface Events {
         List<QuoteEvent> findByOrder(long salesOrderId);
         QuoteEvent add(QuoteEvent event);

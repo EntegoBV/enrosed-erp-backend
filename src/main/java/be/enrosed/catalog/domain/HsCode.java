@@ -3,10 +3,10 @@ package be.enrosed.catalog.domain;
 import java.math.BigDecimal;
 
 /**
- * Douanetariefcode met het bijhorende invoerrecht.
+ * Customs tariff code with its import duty.
  *
- * De percentages horen nagekeken te worden in de TARIC-databank van de EU;
- * wat hier staat is configuratie, geen douaneadvies.
+ * The percentages should be checked in the EU's TARIC database; what is
+ * here is configuration, not customs advice.
  */
 public record HsCode(Long id, String code, String description, BigDecimal dutyRatePct) {
 }

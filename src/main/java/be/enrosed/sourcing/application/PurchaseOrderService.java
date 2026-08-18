@@ -21,11 +21,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Inkooporders beheren en doorrekenen.
+ * Managing and pricing purchase orders.
  *
- * De uitkomst wordt niet automatisch op de producten gezet: dat gebeurt pas
- * wanneer iemand de calculatie bewust toepast. Zo verandert de verkoopprijs
- * niet zomaar omdat er ergens een concept staat te rekenen.
+ * The outcome is not written onto the products automatically: that only
+ * happens when someone applies the calculation deliberately. That way the
+ * sales price never shifts just because a draft is computing somewhere.
  */
 @ApplicationScoped
 public class PurchaseOrderService {
@@ -72,12 +72,12 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Maakt een kopie van een inkoopcalculatie.
+     * Makes a copy of a purchase calculation.
      *
-     * Bedoeld om snel een variant door te rekenen: een andere containermaat, een
-     * andere koers, een leverancier die zijn prijs aanpast. Alles komt mee
-     * behalve de status en het nummer - een kopie is een nieuw concept, geen
-     * tweede exemplaar van een order die al besteld is.
+     * Meant to price a variant quickly: another container size, another
+     * exchange rate, a supplier adjusting their price. Everything comes along
+     * except the status and the number - a copy is a new draft, not a second
+     * instance of an order already placed.
      */
     @Transactional
     public PurchaseOrder duplicate(long id) {
@@ -86,8 +86,8 @@ public class PurchaseOrderService {
                 ? null : source.alias() + " (kopie)";
         return orders.save(new PurchaseOrder(
                 null, nextNumber(), alias, source.supplierId(), LocalDate.now(),
-                /* Altijd concept: anders zou een kopie van een ontvangen order de
-                   voorraad een tweede keer bijboeken. */
+                /* Always a draft: otherwise a copy of a received order would
+                   book the stock a second time. */
                 PurchaseOrderStatus.CONCEPT, source.containerType(),
                 source.cnyToUsd(), source.usdToEurGoods(), source.usdToEurTransport(),
                 source.freightUsd(), source.originCosts(), source.originCurrency(),
@@ -213,11 +213,11 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Boekt de voorraad bij zodra een container binnen is.
+     * Books the stock the moment a container is in.
      *
-     * Alleen bij de overgang naar ONTVANGEN, en maar een keer: bij elke volgende
-     * bewaring van een reeds ontvangen order gebeurt er niets meer. Anders telt de
-     * voorraad op bij elke keer dat iemand het scherm opslaat.
+     * Only on the transition to ONTVANGEN, and only once: every later save of
+     * an already received order does nothing more. Otherwise the stock grows
+     * every time someone saves the screen.
      */
     private void bookStockOnReceipt(PurchaseOrder before, PurchaseOrder after) {
         boolean justReceived = before.status() != PurchaseOrderStatus.ONTVANGEN
@@ -237,8 +237,8 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Legt de berekende kostprijzen vast op de producten. Vanaf dat moment
-     * rekent de verkoopkant ermee.
+     * Writes the calculated cost prices onto the products. From that moment
+     * the sales side computes with them.
      */
     @Transactional
     public LandedCost applyToProducts(long id) {

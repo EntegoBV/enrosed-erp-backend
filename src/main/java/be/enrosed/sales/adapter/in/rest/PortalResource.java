@@ -20,14 +20,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * De klantkant van de offerte.
+ * The customer side of the quote.
  *
- * Bereikbaar met alleen een portaltoken, zonder account: wie de link uit de
- * mail heeft mag de offerte zien en erop reageren.
+ * Reachable with only a portal token, no account: whoever has the link from
+ * the mail may view the quote and respond to it.
  *
- * Let op wat hier <b>niet</b> uitgaat: kostprijs, marge en het verschil tussen
- * strikte en gemengde pallets blijven binnen. De klant krijgt zijn eigen
- * weergave, niet de onze met een filter erop.
+ * Mind what does <b>not</b> leave through here: cost price, margin and the
+ * difference between strict and mixed pallets stay inside. The customer gets
+ * their own view, not ours with a filter on top.
  */
 @Path("/api/portal")
 @Produces(MediaType.APPLICATION_JSON)
@@ -53,11 +53,11 @@ public class PortalResource {
     public record CustomerLine(
             Long productId, String sku, String description, String photoUrl,
             int quantity, int cartons, int pallets,
-            /** Doosinhoud, zodat het portaal aantallen op volle dozen kan afronden. */
+            /** Carton content, so the portal can round quantities to full cartons. */
             int piecesPerCarton,
             BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
-            /* Levering. Het exacte voorraadaantal blijft binnen; de klant hoeft
-               alleen te weten of het leverbaar is en wanneer. */
+            /* Delivery. The exact stock count stays inside; the customer only
+               needs to know whether it is available and when. */
             boolean inStock, String deliveryDate, String deliveryWeek) {}
 
     public record CustomerTotals(
@@ -69,9 +69,9 @@ public class PortalResource {
             String vatTreatment, String vatLegalMention) {}
 
     /**
-     * Wat de klant ziet. Bewust een eigen record: interne notities, kostprijs en
-     * marge zitten er niet in, ook niet als iemand ze later aan SalesOrder
-     * toevoegt.
+     * What the customer sees. Deliberately its own record: internal notes,
+     * cost price and margin are not in it, and will not be even when someone
+     * later adds them to SalesOrder.
      */
     public record QuoteView(
             String number, String status, String orderDate, String validUntil, String incoterm,
@@ -79,31 +79,31 @@ public class PortalResource {
             List<CustomerLine> lines, CustomerTotals totals,
             boolean canRespond, String signedByName, List<PendingProposal> proposals,
             /**
-             * Stand van de levertermijnen: VOLLEDIG, TE_BEPALEN of AANGEVULD. Bij
-             * AANGEVULD krijgt de klant bovenaan te zien dat wij de termijn die hij
-             * miste hebben ingevuld.
+             * State of the delivery terms: VOLLEDIG, TE_BEPALEN or AANGEVULD.
+             * With AANGEVULD the customer sees a banner that we filled in the
+             * term they were missing.
              */
             String deliveryTerms,
-            /** Stand van de vracht: BEREKEND, TE_BEPALEN of AANGEVULD. */
+            /** State of the freight: BEREKEND, TE_BEPALEN or AANGEVULD. */
             String freight,
-            /** Taalcode van de klant, zodat het portaal in zijn taal opent. */
+            /** The customer's language code, so the portal opens in their language. */
             String language,
             /**
-             * De vertaalde teksten voor dit portaal.
+             * The translated texts for this portal.
              *
-             * Ze komen van de server in plaats van uit de Angular-bundel: dan
-             * staan de offerte, de PDF, de mail en dit scherm gegarandeerd in
-             * dezelfde woorden, en hoeft een nieuwe taal maar op één plaats
-             * toegevoegd te worden.
+             * They come from the server rather than from the Angular bundle:
+             * that way the quote, the PDF, the mail and this screen are
+             * guaranteed to use the same words, and a new language only has
+             * to be added in one place.
              */
             Map<String, String> text) {}
 
     public record PendingProposal(String status, String proposedAt, String message, String responseMessage) {}
 
-    /** Product dat de klant kan bijbestellen; zonder kostprijs, uiteraard. */
+    /** Product the customer can add; without cost price, obviously. */
     public record CatalogItem(Long productId, String sku, String description, String photoUrl,
                               int piecesPerCarton, BigDecimal unitPrice,
-                              /* Leverbaar uit voorraad, of moeten we het eerst bestellen? */
+                              /* Available from stock, or do we need to order it first? */
                               boolean inStock) {}
 
     public record AcceptRequest(String signedByName, String message) {}
@@ -112,10 +112,10 @@ public class PortalResource {
     public record ProposeRequest(String proposedBy, String message, List<ProposalLine> lines) {}
 
     /**
-     * Wat de klant er nog bij kan zetten.
+     * What the customer can still add.
      *
-     * Het token is hier de sleutel: alleen wie de offertelink heeft ziet deze
-     * lijst, en dan nog zonder kostprijs of marge.
+     * The token is the key here: only whoever has the quote link sees this
+     * list, and even then without cost price or margin.
      */
     @GET
     @Path("/{token}/products")
@@ -135,7 +135,7 @@ public class PortalResource {
                 .toList();
     }
 
-    /** Productfoto voor het portaal; bereikbaar met het token in plaats van een aanmelding. */
+    /** Product photo for the portal; reachable with the token instead of a login. */
     @GET
     @Path("/{token}/products/{productId}/photo")
     @Produces(MediaType.WILDCARD)
@@ -172,7 +172,7 @@ public class PortalResource {
 
     /* -------------------------------------------------------- reageren */
 
-    /** De klant tekent voor akkoord; de ingetikte naam is de handtekening. */
+    /** The customer signs for approval; the typed name is the signature. */
     @POST
     @Path("/{token}/accept")
     public QuoteView accept(@PathParam("token") String token, AcceptRequest request) {
@@ -188,10 +188,10 @@ public class PortalResource {
     }
 
     /**
-     * De klant trekt zijn voorstel weer in.
+     * The customer withdraws their proposal.
      *
-     * Het voorstel blijft in de geschiedenis staan; alleen ligt de offerte weer
-     * bij hem in plaats van bij ons.
+     * The proposal stays in the history; the quote simply lies with them
+     * again instead of with us.
      */
     @POST
     @Path("/{token}/withdraw")
@@ -200,8 +200,8 @@ public class PortalResource {
     }
 
     /**
-     * De klant stelt wijzigingen voor. Dit verandert de offerte niet - het is
-     * een voorstel dat bij ons ter goedkeuring komt.
+     * The customer proposes changes. This does not alter the quote - it is a
+     * proposal that comes to us for approval.
      */
     @POST
     @Path("/{token}/propose")
@@ -253,11 +253,11 @@ public class PortalResource {
     }
 
     /**
-     * Doosinhoud van een product.
+     * Carton content of a product.
      *
-     * Bewust opgezocht en niet afgeleid uit aantal gedeeld door dozen: dat klopt
-     * alleen zolang het aantal een volle doos is, en juist bij de regels die dat
-     * niet zijn heb je het getal nodig.
+     * Deliberately looked up rather than derived from quantity divided by
+     * cartons: that only holds while the quantity is a full carton, and it is
+     * exactly the lines where it is not that need the number.
      */
     private int piecesPerCarton(Long productId) {
         if (productId == null) return 1;
@@ -274,11 +274,12 @@ public class PortalResource {
     }
 
     /**
-     * @param preferred taal die de klant zelf koos in het portaal, of null voor de
-     *                  taal die bij hem hoort. Zijn keuze verandert niets aan de
-     *                  klantfiche: de volgende offerte vertrekt gewoon weer in de
-     *                  taal die wij afgesproken hebben. Wie in Frankrijk zit maar
-     *                  liever Engels leest hoeft daarvoor niet te bellen.
+     * @param preferred language the customer picked in the portal themselves,
+     *                  or null for the language on record. Their pick changes
+     *                  nothing on the customer file: the next quote simply
+     *                  leaves in the agreed language again. Whoever sits in
+     *                  France but prefers reading English should not have to
+     *                  call us for that.
      */
     private QuoteView view(SalesOrder order, String preferred) {
         PricedOrder priced = salesOrders.price(order);

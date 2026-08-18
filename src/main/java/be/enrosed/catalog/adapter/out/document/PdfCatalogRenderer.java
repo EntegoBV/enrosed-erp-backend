@@ -28,11 +28,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Bouwt de catalogus-PDF.
+ * Builds the catalogue PDF.
  *
- * De foto's worden als data-URI meegegeven: openhtmltopdf haalt geen
- * afbeeldingen op achter een aanmelding, en een catalogus zonder foto's is
- * geen catalogus.
+ * Photos travel as data URIs: openhtmltopdf fetches no images from behind a
+ * login, and a catalogue without photos is no catalogue.
  */
 @ApplicationScoped
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
@@ -168,7 +167,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return DocumentFormat.eur(Money.money(price));
     }
 
-    /** Bijbeelden na de hoofdfoto; standaard maximaal drie, anders wordt het rommelig. */
+    /** Secondary images after the primary; three at most by default, or it gets messy. */
     /** The photo at the given position, when the export allows that many. */
     private String photoAt(Product product, int index, CatalogExportService.Request request) {
         int allowed = request.photosPerProduct() == null ? 4 : request.photosPerProduct();

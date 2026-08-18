@@ -10,16 +10,16 @@ import java.math.BigDecimal;
 import java.util.Locale;
 
 /**
- * Bepaalt welk BTW-regime op een levering van toepassing is.
+ * Determines which VAT regime applies to a delivery.
  *
- * De regel is eenvoudig zolang je hem als beslisboom leest: eigen land is
- * binnenland, andere EU-lidstaat met een geldig BTW-nummer van de klant is
- * vrijgesteld, buiten de EU is uitvoer. Zonder BTW-nummer blijft het belast,
- * want dan is het geen intracommunautaire levering.
+ * The rule is simple as long as you read it as a decision tree: own country
+ * is domestic, another EU state with a valid customer VAT number is exempt,
+ * outside the EU is export. Without a VAT number it stays taxed, because
+ * then it is no intra-community supply.
  *
- * Het BTW-nummer wordt hier alleen op vorm gecontroleerd, niet bij VIES
- * opgevraagd. Voor een echte vrijstelling moet je het nummer geldig laten
- * verklaren - dat is een aparte koppeling die hier nog niet in zit.
+ * The VAT number is only checked on shape here, not queried at VIES. For a
+ * real exemption the number must be declared valid - a separate integration
+ * that is not in here yet.
  */
 @ApplicationScoped
 public class VatCalculator {
@@ -57,8 +57,8 @@ public class VatCalculator {
     }
 
     /**
-     * Vormcontrole op het BTW-nummer: twee letters landcode gevolgd door
-     * cijfers of letters. Geen VIES-controle, dus geen bewijs van geldigheid.
+     * Shape check on the VAT number: two letters of country code followed by
+     * digits or letters. No VIES check, so no proof of validity.
      */
     public boolean hasVatNumber(Customer customer) {
         if (customer == null) return false;

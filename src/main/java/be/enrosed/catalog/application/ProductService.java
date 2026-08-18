@@ -18,11 +18,11 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Alles wat er met een product gebeurt.
+ * Everything that happens to a product.
  *
- * De fotoreeks hangt hier ook aan: het bestand gaat naar de opslag, de
- * volgorde en de metadata blijven bij het product. De eerste foto is de
- * hoofdfoto en verschijnt op lijsten en documenten.
+ * The photo series hangs off it too: the file goes to storage, the order and
+ * the metadata stay with the product. The first photo is the primary one and
+ * appears on lists and documents.
  */
 @ApplicationScoped
 public class ProductService {
@@ -65,7 +65,7 @@ public class ProductService {
     public Product update(long id, Product changes) {
         Product current = get(id);
         validate(changes);
-        /* De fotoreeks wordt via de fotomethodes beheerd, niet via een update. */
+        /* The photo series is managed through the photo methods, not an update. */
         Product merged = new Product(
                 current.id(),
                 changes.sku() == null || changes.sku().isBlank() ? current.sku() : changes.sku(),
@@ -86,23 +86,23 @@ public class ProductService {
                 current.landedCostSource(),
                 changes.markupPct(),
                 changes.fixedSalesPriceEur(),
-                /* Voorraad hangt aan de inkoop, niet aan een productupdate. */
+                /* Stock belongs to purchasing, not to a product update. */
                 current.stockQuantity(),
                 current.photos(),
-                /* Vertalingen komen van het formulier mee; is het veld niet
-                   meegestuurd, dan blijft staan wat er stond. */
+                /* Translations travel with the form; when the field is not
+                   sent along, what was there stays. */
                 changes.texts().isEmpty() ? current.texts() : changes.texts());
         return products.save(merged);
     }
 
     /**
-     * Maakt een kopie van een product.
+     * Makes a copy of a product.
      *
-     * Bedoeld voor hetzelfde artikel in een andere kleur: alle maten, prijzen en
-     * verpakkingsgegevens komen mee, de foto's en barcodes niet. Die zijn per
-     * kleur verschillend, en een gekopieerde barcode is erger dan geen barcode -
-     * twee artikelen met dezelfde EAN geeft in het magazijn van de klant een
-     * probleem dat niemand meteen ziet.
+     * Meant for the same article in another colour: all sizes, prices and
+     * packaging data come along, the photos and barcodes do not. Those differ
+     * per colour, and a copied barcode is worse than none - two articles with
+     * the same EAN cause a problem in the customer's warehouse that nobody
+     * spots right away.
      */
     @Transactional
     public Product duplicate(long id, String newColour) {
@@ -116,11 +116,11 @@ public class ProductService {
                 source.exwPrice(), source.exwCurrency(), source.extraUnitCost(),
                 source.landedCostEur(), source.landedCostSource(),
                 source.markupPct(), source.fixedSalesPriceEur(),
-                /* Voorraad start op nul: dit is een nieuw artikel. */
+                /* Stock starts at zero: this is a new article. */
                 0, List.of(),
-                /* De vertaalde namen en beschrijvingen gaan mee; de kleur per taal
-                   niet, want die is hier net gewijzigd en zou anders in elke taal
-                   de oude kleur blijven noemen. */
+                /* Translated names and descriptions come along; the per-language
+                   colour does not, because it was just changed here and would
+                   otherwise keep naming the old colour in every language. */
                 source.texts().stream()
                         .map(text -> new ProductText(text.language(), text.name(),
                                 text.description(), null))
@@ -136,8 +136,8 @@ public class ProductService {
     }
 
     /**
-     * Legt de kostprijs vast die uit een inkoopcalculatie komt. Wordt door de
-     * sourcing-kant aangeroepen zodra een calculatie toegepast wordt.
+     * Records the cost price coming out of a purchase calculation. Called by
+     * the sourcing side whenever a calculation is applied.
      */
     @Transactional
     public void applyLandedCost(long productId, BigDecimal landedCostEur, String source) {
@@ -145,12 +145,12 @@ public class ProductService {
     }
 
     /**
-     * Boekt voorraad bij of af.
+     * Books stock in or out.
      *
-     * Positief bij het ontvangen van een inkooporder, negatief wanneer een
-     * verkooporder de deur uit gaat. De voorraad mag onder nul zakken - dat is een
-     * signaal dat er iets niet klopt in de administratie, en dat verberg je beter
-     * niet door stilletjes op nul af te kappen.
+     * Positive when a purchase order is received, negative when a sales order
+     * goes out the door. Stock may sink below zero - that is a signal the
+     * bookkeeping is off, and hiding it by silently clamping to zero helps
+     * nobody.
      */
     @Transactional
     public void adjustStock(long productId, int delta) {
@@ -161,8 +161,8 @@ public class ProductService {
     /* ------------------------------------------------------------ fotos */
 
     /**
-     * Voegt een foto toe. Er is bewust geen maximum en er wordt niets
-     * herschaald - de originele bytes gaan naar de opslag.
+     * Adds a photo. Deliberately no maximum and no rescaling - the original
+     * bytes go to storage.
      */
     @Transactional
     public Product addPhoto(long productId, String filename, String contentType, InputStream data) {
@@ -190,7 +190,7 @@ public class ProductService {
         return products.save(product.withPhotos(renumber(photos)));
     }
 
-    /** Zet de reeks in de volgorde van de meegegeven id's; de eerste is de hoofdfoto. */
+    /** Orders the series by the given ids; the first becomes the primary photo. */
     @Transactional
     public Product reorderPhotos(long productId, List<Long> photoIdsInOrder) {
         Product product = get(productId);
@@ -203,7 +203,7 @@ public class ProductService {
                     .findFirst()
                     .ifPresent(photo -> { ordered.add(photo); });
         }
-        /* Wat niet genoemd is behoudt zijn relatieve volgorde achteraan. */
+        /* Whatever is not named keeps its relative order at the back. */
         photos.stream().filter(photo -> !ordered.contains(photo)).forEach(ordered::add);
 
         return products.save(product.withPhotos(renumber(ordered)));

@@ -4,12 +4,12 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Wijzigingsvoorstel van de klant.
+ * The customer's change proposal.
  *
- * De klant past de offerte niet rechtstreeks aan - dat zou betekenen dat een
- * verzonden document onder onze handen verandert. In plaats daarvan legt hij
- * een voorstel neer dat wij goedkeuren, aanpassen of afwijzen. Pas bij
- * goedkeuring gaan de regels over naar de order.
+ * The customer does not edit the quote directly - that would mean a sent
+ * document changing under our hands. Instead they put down a proposal that
+ * we approve, adjust or reject. Only on approval do the lines move onto
+ * the order.
  */
 public record QuoteRevision(
         Long id,

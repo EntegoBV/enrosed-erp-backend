@@ -29,28 +29,28 @@ public final class DocumentText {
     }
 
     /**
-     * De datum in de vorm die bij de taal past.
+     * The date in the shape that fits the language.
      *
-     * Nederlands, Frans en Duits schrijven dag-maand-jaar; Engels krijgt de
-     * maand voluit, want 03/04 leest een Britse en een Amerikaanse lezer
-     * verschillend en bij een levertermijn wil je daar geen twijfel over.
+     * Dutch, French and German write day-month-year; English gets the month
+     * spelled out, because a British and an American reader read 03/04
+     * differently, and a delivery term leaves no room for that doubt.
      */
     public static String date(LocalDate date, Language language) {
         if (date == null) return "";
         return switch (language) {
-            /* Het grootste deel van Europa schrijft dag-maand-jaar. */
+            /* Most of Europe writes day-month-year. */
             case NL, FR, DE, ES, PT, TR -> DocumentFormat.be(date);
-            /* Polen schrijft met punten: 25.05.2026. */
+            /* Poland writes with dots: 25.05.2026. */
             case PL -> date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"));
-            /* Engels krijgt de maand voluit: 05/25 en 25/05 lezen aan weerszijden
-               van de oceaan anders, en bij een levertermijn wil je daar geen
-               twijfel over. */
+            /* English gets the month spelled out: 05/25 and 25/05 read
+               differently on either side of the ocean, and a delivery term
+               leaves no room for that doubt. */
             case EN -> date.format(java.time.format.DateTimeFormatter
                     .ofPattern("d MMMM yyyy", java.util.Locale.UK));
         };
     }
 
-    /** Bedrag met het scheidingsteken dat bij de taal hoort. */
+    /** Amount with the separator that belongs to the language. */
     public static String money(java.math.BigDecimal amount, Language language) {
         if (amount == null) return "";
         java.text.NumberFormat format = java.text.NumberFormat.getNumberInstance(language.locale());
@@ -60,10 +60,10 @@ public final class DocumentText {
     }
 
     /**
-     * Een leverweek uitgeschreven: "week 42 (12/10 - 18/10/2026)".
+     * A delivery week written out: "week 42 (12/10 - 18/10/2026)".
      *
-     * De weeknummering zelf is overal gelijk; alleen het woord ervoor en de
-     * datumopmaak verschillen.
+     * The week numbering itself is the same everywhere; only the word in
+     * front and the date format differ.
      */
     public static String week(String isoWeek, Language language) {
         if (isoWeek == null || isoWeek.isBlank()) return "";

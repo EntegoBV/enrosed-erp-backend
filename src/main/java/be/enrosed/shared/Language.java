@@ -3,16 +3,16 @@ package be.enrosed.shared;
 import java.util.Locale;
 
 /**
- * De talen waarin wij naar een klant communiceren.
+ * The languages we communicate to a customer in.
  *
- * Een Duitse of Franse klant een Nederlandstalige offerte sturen leest als
- * slordigheid, ook als het bedrag klopt. De taal hangt daarom aan de klant en
- * niet aan ons scherm: wij blijven intern in het Nederlands werken terwijl het
- * document in zijn taal vertrekt.
+ * Sending a German or French customer a Dutch quote reads as sloppiness,
+ * even when the amount is right. The language therefore hangs on the
+ * customer, not on our screen: we keep working in Dutch internally while
+ * the document leaves in theirs.
  *
- * Bewust een korte lijst in plaats van elke locale die Java kent. Elke taal die
- * erbij komt moet ook echt vertaald worden - een halfvertaalde offerte is
- * slechter dan een Engelse.
+ * Deliberately a short list instead of every locale Java knows. Every added
+ * language must actually be translated - a half-translated quote is worse
+ * than an English one.
  */
 public enum Language {
 
@@ -35,28 +35,28 @@ public enum Language {
         this.localeTag = localeTag;
     }
 
-    /** Tweeletterige code zoals ze in de database en de CSV staat. */
+    /** Two-letter code as stored in the database and the CSV. */
     public String code() {
         return code;
     }
 
-    /** Hoe wij de taal intern noemen, in het Nederlands. */
+    /** What we call the language internally, in Dutch. */
     public String label() {
         return label;
     }
 
     /**
-     * Locale voor getallen en datums.
+     * Locale for numbers and dates.
      *
-     * Let op: dit stuurt alleen de opmaak van bedragen. Duizendtallen met een
-     * punt en decimalen met een komma zijn in het grootste deel van Europa
-     * gelijk; een Engelse klant krijgt het omgekeerd, zoals hij het verwacht.
+     * Note: this only drives the formatting of amounts. Thousands with a dot
+     * and decimals with a comma are the same across most of Europe; an
+     * English customer gets the reverse, as they expect.
      */
     public Locale locale() {
         return Locale.forLanguageTag(localeTag);
     }
 
-    /** Onbekend of leeg valt terug op Nederlands. */
+    /** Unknown or empty falls back to Dutch. */
     public static Language of(String code) {
         if (code == null || code.isBlank()) return NL;
         String wanted = code.trim().toLowerCase(Locale.ROOT);

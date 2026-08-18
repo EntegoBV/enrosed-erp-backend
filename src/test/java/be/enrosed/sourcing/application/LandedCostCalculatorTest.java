@@ -17,10 +17,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Regressietest op de kostprijsberekening.
+ * Regression test on the landed-cost calculation.
  *
- * De cijfers komen uit de Excel "Kostprijs Berekening" van de klant. Wijkt
- * deze test af, dan is de rekenmotor stuk - niet de test.
+ * The figures come from the user's "Kostprijs Berekening" Excel. When this
+ * test deviates, the calculation engine is broken - not the test.
  */
 class LandedCostCalculatorTest {
 
@@ -51,9 +51,9 @@ class LandedCostCalculatorTest {
                 PurchaseOrderStatus.ONDERWEG, ContainerType.FORTY_HQ,
                 new BigDecimal("0.1385"), RATE, RATE,
                 new BigDecimal("3717"),
-                /* FOB-leverancier: geen kosten aan onze kant in China. */
+                /* FOB supplier: no costs on our side in China. */
                 BigDecimal.ZERO, Currency.USD,
-                /* "Lokale kosten Rotterdam/magazijn" uit de Excel. */
+                /* "Local costs Rotterdam/warehouse" from the Excel. */
                 new BigDecimal("1155"),
                 new BigDecimal("10"),
                 new BigDecimal("2000"),
@@ -104,9 +104,9 @@ class LandedCostCalculatorTest {
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 withOrigin, Map.of(1L, preservedRose()));
 
-        /* Douanewaarde stijgt met de volle 1000 ... */
+        /* Customs value rises by the full 1000 ... */
         assertEquals(new BigDecimal("38813.07"), result.totals().customsValueEur());
-        /* ... en het invoerrecht dus met 100. */
+        /* ... and the import duty therefore by 100. */
         assertEquals(new BigDecimal("3881.31"), result.totals().dutyEur());
     }
 
@@ -129,7 +129,7 @@ class LandedCostCalculatorTest {
         /* Douanewaarde en invoerrecht blijven staan waar ze stonden ... */
         assertEquals(new BigDecimal("37813.07"), result.totals().customsValueEur());
         assertEquals(new BigDecimal("3781.31"), result.totals().dutyEur());
-        /* ... alleen het eindtotaal stijgt met precies die 1000. */
+        /* ... only the grand total rises by exactly that 1000. */
         assertEquals(new BigDecimal("45749.38"), result.totals().totalEur());
     }
 }

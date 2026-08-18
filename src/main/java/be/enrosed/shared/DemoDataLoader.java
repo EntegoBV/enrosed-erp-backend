@@ -26,17 +26,17 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Startdata.
+ * Seed data.
  *
- * De negen rozenproducten komen uit de leverancierslijst; de "Preserved rose
- * with stem" komt uit de Excel-kostprijsberekening en dient als controlepunt:
- * inkooporder PO-2026-002 hoort exact op EUR 22,7385 per set uit te komen.
+ * The nine rose products come from the supplier list; the "Preserved rose
+ * with stem" comes from the Excel cost calculation and serves as a control
+ * point: purchase order PO-2026-002 must land exactly on EUR 22.7385 per set.
  *
- * LET OP - af te stemmen met echte cijfers:
- *  - EXW-prijzen van P01..P10 zijn afgeleid van de oude EUR-lijst
- *  - kartongewichten zijn schattingen; ze bepalen mee hoeveel dozen op een pallet gaan
- *  - palletvracht en minimum orderwaardes per land zijn richttarieven
- *  - invoerrechtpercentages horen nagekeken in de TARIC-databank van de EU
+ * CAUTION - to be reconciled with real figures:
+ *  - EXW prices of P01..P10 derive from the old EUR list
+ *  - carton weights are estimates; they help decide cartons per pallet
+ *  - pallet freight and minimum order values per country are indicative
+ *  - import duty percentages should be checked in the EU's TARIC database
  */
 @ApplicationScoped
 public class DemoDataLoader {
@@ -75,7 +75,7 @@ public class DemoDataLoader {
         }
         LOG.info("Startdata laden");
 
-        /* ---- categorieen: vaste lijst in plaats van vrije tekst --------- */
+        /* ---- categories: a fixed list instead of free text -------------- */
         Category preserved = categories.create(new Category(null, "PRESERVED", "Preserved", "Geconserveerde bloemen", 1));
         Category glass = categories.create(new Category(null, "GLASS", "Glas", "Glazen stolpen en vazen", 2));
         Category acrylic = categories.create(new Category(null, "ACRYLIC", "Acryl", "Acryl boxen", 3));
@@ -96,11 +96,11 @@ public class DemoDataLoader {
                 "CN", "Yiwu", "Frank Wu", "frank@rosegift-yiwu.cn", "+86 579 8532 1180",
                 Currency.CNY, "EXW", "Ningbo", 35, "Quoteert in RMB, EXW fabriek."));
 
-        /* ---- producten --------------------------------------------------
-           Afmetingen komen uit de productnamen op het containeroverzicht.
-           Daar staan er twee ("11*11cm"), dus de derde is een aanname: bij
-           ronde en vierkante artikelen is lengte gelijk aan breedte genomen.
-           Nameten voor de echte catalogus. ------------------------------- */
+        /* ---- products ---------------------------------------------------
+           Dimensions come from the product names on the container overview.
+           Those carry two ("11*11cm"), so the third is an assumption: for
+           round and square articles length is taken equal to width.
+           Measure before the real catalogue. ----------------------------- */
         Product p01 = product("Acryl box", dim("11", "11", "11"), "Rood", acrylic.id(), yiwu.id(),
                 "5401234001002", "5401234011001", "3926.40.00",
                 "24", "24", "24", 16, "6", "24.84", Currency.CNY, "0.6", "45");
@@ -129,13 +129,13 @@ public class DemoDataLoader {
                 null, null, "7013.99.00",
                 "36", "39", "25", 40, "8", "6.82", Currency.CNY, "0.25", "55");
 
-        /* Het product uit de Excel-kostprijsberekening. */
+        /* The product from the Excel cost calculation. */
         Product p11 = product("Preserved rose with stem", dim("31.5", "23.3", "36.5"), "Rood",
                 preserved.id(), culinan.id(),
                 "6153402529533", "6153432789709", "0603.90.00",
                 "68", "50", "40", 4, "10", "19.2", Currency.USD, "0.5", "35");
 
-        /* Foto's uit het containeroverzicht van de leverancier. */
+        /* Photos from the supplier's container overview. */
         attachPhoto(p01, "P01.jpg");
         attachPhoto(p03, "P03.jpg");
         attachPhoto(p04, "P04.jpg");
@@ -147,14 +147,14 @@ public class DemoDataLoader {
         attachPhoto(p10, "P10.jpg");
 
         /* ---- inkooporders ---------------------------------------------- */
-        /* Yiwu levert EXW: wij betalen fabriek -> haven Ningbo. */
+        /* Yiwu delivers EXW: we pay factory -> port of Ningbo. */
         purchase(yiwu.id(), "4200", "850", Currency.USD, "1480", "0",
                 List.of(line(p01.id(), 512), line(p03.id(), 1902), line(p04.id(), 306),
                         line(p05.id(), 150), line(p06.id(), 348), line(p07.id(), 504),
                         line(p08.id(), 500), line(p09.id(), 3984), line(p10.id(), 10000)),
                 "Referentiecontainer uit de leverancierslijst.");
 
-        /* Culinan levert FOB: origin zit al in hun prijs. Dit is de Excel. */
+        /* Culinan delivers FOB: origin is already in their price. This is the Excel. */
         purchase(culinan.id(), "3717", "0", Currency.USD, "1155", "2000",
                 List.of(line(p11.id(), 1968)),
                 "Reproduceert de Excel: EUR 22,7385 per set.");
@@ -169,7 +169,7 @@ public class DemoDataLoader {
         country("ES", "Spanje", "3000", "130", "320", "45", "21", 4);
         country("IT", "Italie", "3000", "135", "330", "45", "22", 4);
         country("PL", "Polen", "2500", "115", "280", "40", "23", 3);
-        /* Sinds de brexit geen EU-lidstaat: leveringen daarheen zijn uitvoer. */
+        /* No longer an EU member since Brexit: deliveries there are exports. */
         country("GB", "Verenigd Koninkrijk", "3500", "130", "350", "95", "20", 4, false);
         country("CH", "Zwitserland", "4000", "150", "380", "120", "8.1", 3, false);
 
@@ -202,11 +202,11 @@ public class DemoDataLoader {
     }
 
     /**
-     * Hangt de meegeleverde foto aan een product.
+     * Attaches the bundled photo to a product.
      *
-     * De bestanden zitten in src/main/resources/seed-images en komen uit het
-     * containeroverzicht van de leverancier. Ontbreekt er een, dan gaat het
-     * product gewoon zonder foto door - dat mag geen opstartfout worden.
+     * The files live in src/main/resources/seed-images and come from the
+     * supplier's container overview. When one is missing the product simply
+     * goes on without a photo - that must not become a startup failure.
      */
     private void attachPhoto(Product product, String imageName) {
         String resource = "/seed-images/" + imageName;

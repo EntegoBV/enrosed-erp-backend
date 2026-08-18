@@ -13,19 +13,19 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Wat er op ons ligt te wachten.
+ * What is waiting on us.
  *
- * Twee soorten meldingen, en het onderscheid is belangrijker dan het lijkt:
- *  - **wij zijn aan zet**: een klant wacht op iets van ons (een levertermijn,
- *    een vrachtbedrag, een voorstel dat beoordeeld moet worden)
- *  - **de klant heeft iets gedaan**: getekend, afgewezen, of gewoon gekeken
+ * Two kinds of notifications, and the distinction matters more than it seems:
+ *  - **our move**: a customer is waiting on something from us (a delivery
+ *    term, a freight amount, a proposal to review)
+ *  - **the customer did something**: signed, rejected, or simply looked
  *
- * Het eerste soort is werk, het tweede is nieuws. Ze door elkaar tonen maakt
- * dat je het werk mist tussen de meldingen dat er weer iemand gekeken heeft.
+ * The first kind is work, the second is news. Mixing them means missing the
+ * work between notifications that yet another person had a look.
  *
- * Bewust berekend uit de orders en niet in een aparte tabel bijgehouden: er is
- * niets om bij te houden dat niet al in de orderstatus staat, en een tweede
- * plaats waar dezelfde waarheid staat gaat vroeg of laat uit elkaar lopen.
+ * Deliberately computed from the orders rather than kept in a separate
+ * table: there is nothing to keep that is not already in the order status,
+ * and a second place holding the same truth drifts apart sooner or later.
  */
 @ApplicationScoped
 public class NotificationService {
@@ -42,19 +42,19 @@ public class NotificationService {
         this.customers = customers;
     }
 
-    /** Wat voor melding het is; stuurt het icoon en de kleur in het scherm. */
+    /** What kind of notification it is; drives the icon and colour on screen. */
     public enum Kind {
-        /** Een klant wacht op een levertermijn van ons. */
+        /** A customer is waiting on a delivery term from us. */
         LEVERTERMIJN,
-        /** Een klant wacht op een vrachtbedrag van ons. */
+        /** A customer is waiting on a freight amount from us. */
         VRACHT,
-        /** Een wijzigingsvoorstel ligt ter beoordeling. */
+        /** A change proposal awaits review. */
         VOORSTEL,
-        /** De klant heeft getekend. */
+        /** The customer signed. */
         GETEKEND,
-        /** De klant heeft afgewezen. */
+        /** The customer rejected. */
         AFGEWEZEN,
-        /** De klant heeft de offerte bekeken. */
+        /** The customer viewed the quote. */
         BEKEKEN
     }
 
@@ -65,7 +65,7 @@ public class NotificationService {
             String customer,
             String title,
             String detail,
-            /** Moeten wij iets doen, of is dit alleen nieuws? */
+            /** Do we need to act, or is this just news? */
             boolean actionNeeded,
             Instant at
     ) {}
@@ -78,7 +78,7 @@ public class NotificationService {
         for (SalesOrder order : orders.findAll()) {
             String who = customerName(order);
 
-            /* ---- wij zijn aan zet ---------------------------------------- */
+            /* ---- our move ------------------------------------------------ */
 
             if (order.status().isOpenForCustomer()
                     && order.deliveryTerms() == DeliveryTermsState.TE_BEPALEN) {
@@ -95,7 +95,7 @@ public class NotificationService {
                         true, order.sentAt()));
             }
 
-            /* ---- nieuws van de klant ------------------------------------- */
+            /* ---- news from the customer ---------------------------------- */
 
             if (order.status() == QuoteStatus.GEACCEPTEERD && order.decidedAt() != null) {
                 items.add(new Notification(Kind.GETEKEND, order.id(), order.number(), who,
@@ -122,7 +122,7 @@ public class NotificationService {
             }
         }
 
-        /* Voorstellen die op beoordeling wachten: die staan los van de orderstatus. */
+        /* Proposals awaiting review: those live apart from the order status. */
         revisions.findPending().forEach(revision -> {
             SalesOrder order = orders.findById(revision.salesOrderId()).orElse(null);
             if (order == null) return;
@@ -135,8 +135,8 @@ public class NotificationService {
                     true, revision.proposedAt()));
         });
 
-        /* Nieuwste eerst; meldingen zonder tijdstip achteraan in plaats van
-           bovenaan - een null hoort niet als "zopas" te lezen. */
+        /* Newest first; notifications without a timestamp go to the back
+           instead of the top - a null should not read as "just now". */
         items.sort(Comparator.comparing(Notification::at,
                 Comparator.nullsLast(Comparator.reverseOrder())));
 
@@ -149,8 +149,8 @@ public class NotificationService {
         try {
             return customers.get(order.customerId()).company();
         } catch (RuntimeException e) {
-            /* Klant intussen verwijderd: dan is de melding nog steeds bruikbaar,
-               alleen zonder naam erbij. */
+            /* Customer deleted in the meantime: the notification is still
+               useful, just without a name attached. */
             return null;
         }
     }

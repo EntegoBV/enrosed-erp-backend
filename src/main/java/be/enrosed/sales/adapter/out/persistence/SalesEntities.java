@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
-/** De JPA-entiteiten van de verkoopkant. */
+/** The JPA entities of the sales side. */
 public final class SalesEntities {
 
     private SalesEntities() {}
@@ -27,13 +27,13 @@ public final class SalesEntities {
         public String vatNumber;
         public String countryCode;
         /**
-         * Taal waarin deze klant zijn offerte en mail krijgt.
+         * Language this customer receives their quote and mail in.
          *
-         * columnDefinition staat er met opzet: zonder die zet Hibernate een
-         * CHECK-constraint op de kolom met precies de talen die op dat moment
-         * bestaan. Bij een nieuwe taal weigert de database dan de waarde, en
-         * "update" als schemastrategie verbreedt zo'n constraint niet. De
-         * toegestane waarden bewaakt de enum hier al.
+         * columnDefinition is there on purpose: without it Hibernate puts a
+         * CHECK constraint on the column with exactly the languages that
+         * exist at that moment. A new language then gets refused by the
+         * database, and "update" as schema strategy does not widen such a
+         * constraint. The enum here already guards the allowed values.
          */
         @Enumerated(EnumType.STRING)
         @Column(columnDefinition = "varchar(4)")
@@ -60,7 +60,7 @@ public final class SalesEntities {
         @Column(precision = 19, scale = 2) public BigDecimal handling;
         @Column(precision = 19, scale = 2) public BigDecimal vatRatePct;
         public int transitDays;
-        /** Lidstaat van de EU? Bepaalt het BTW-regime op een levering. */
+        /** EU member state? Determines the VAT regime on a delivery. */
         public boolean euMember = true;
     }
 
@@ -100,40 +100,40 @@ public final class SalesEntities {
         @Column(precision = 19, scale = 4)
         public BigDecimal orderMarkupPct;
 
-        /** Extra korting bovenop de staffels, bv. een beurskorting. Optioneel. */
+        /** Extra discount on top of the tiers, e.g. a fair discount. Optional. */
         @Column(precision = 19, scale = 4)
         public BigDecimal extraDiscountPct;
         public String extraDiscountLabel;
 
-        /** Sleutel waarmee de klant de offerte opent, zonder account. */
+        /** Key the customer opens the quote with, no account needed. */
         @Column(unique = true, length = 64)
         public String portalToken;
         public Instant sentAt;
         public Instant viewedAt;
-        /** Hoe vaak de klant de offerte geopend heeft. */
+        /** How many times the customer opened the quote. */
         public int viewCount;
         public Instant decidedAt;
         public String signedByName;
         @Column(length = 4000)
         public String customerMessage;
 
-        /** Notities voor onszelf; komen nooit op het klantdocument. */
+        /** Notes for ourselves; never appear on the customer document. */
         @Column(length = 4000)
         public String internalNotes;
 
-        /** Of er nog een levertermijn moest komen, en of die intussen ingevuld is. */
+        /** Whether a delivery term was still owed, and whether it has been filled in. */
         @Enumerated(EnumType.STRING)
         @Column(length = 20)
         public DeliveryTermsState deliveryTerms = DeliveryTermsState.VOLLEDIG;
 
-        /** Of de vracht nog bepaald moest worden, en of dat intussen gebeurd is. */
+        /** Whether the freight still had to be determined, and whether that happened. */
         @Enumerated(EnumType.STRING)
         @Column(length = 20)
         public FreightState freight = FreightState.BEREKEND;
 
         /**
-         * Vracht die wij zelf invullen in plaats van het landtarief te gebruiken.
-         * Leeg betekent: reken het tarief.
+         * Freight we fill in ourselves instead of using the country rate.
+         * Empty means: charge the rate.
          */
         @Column(precision = 19, scale = 2)
         public java.math.BigDecimal manualFreightEur;
@@ -144,12 +144,12 @@ public final class SalesEntities {
     }
 
     /**
-     * Eén stap in het leven van een offerte.
+     * One step in the life of a quote.
      *
-     * Losse tabel en geen kind van de order: gebeurtenissen worden alleen
-     * toegevoegd en nooit samen met de order herschreven. Als kind zou elke
-     * bewaring van de order de hele reeks opnieuw wegschrijven, en dan is één
-     * fout genoeg om de geschiedenis kwijt te zijn.
+     * A separate table, not a child of the order: events are only appended
+     * and never rewritten along with the order. As a child, every save of the
+     * order would rewrite the whole series, and then one mistake is enough to
+     * lose the history.
      */
     @Entity
     @Table(name = "quote_event", indexes = @Index(columnList = "salesOrderId"))
@@ -186,7 +186,7 @@ public final class SalesEntities {
         public int quantity;
         @Column(precision = 19, scale = 4) public BigDecimal unitPriceEur;
         @Column(precision = 19, scale = 4) public BigDecimal manualDiscountPct;
-        /** Zelf ingevulde leverweek, bv. "2026-W34". Optioneel. */
+        /** Hand-picked delivery week, e.g. "2026-W34". Optional. */
         public String deliveryWeek;
     }
 

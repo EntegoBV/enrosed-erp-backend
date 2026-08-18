@@ -11,13 +11,13 @@ import java.math.RoundingMode;
 import java.util.List;
 
 /**
- * Rekent uit hoeveel dozen er op een pallet gaan.
+ * Calculates how many cartons fit on a pallet.
  *
- * Bewust een echte stapeling en geen volumedeling: er wordt gekeken hoeveel
- * dozen er per laag op het palletvlak passen - in beide orientaties, de beste
- * wint - en hoeveel lagen er onder de maximale hoogte en het maximale gewicht
- * blijven. Een volumedeling geeft altijd te veel, want dozen laten zich niet
- * vloeibaar over een pallet verdelen.
+ * Deliberately a real stacking, not a volume division: it checks how many
+ * cartons fit per layer on the pallet face - both orientations, best wins -
+ * and how many layers stay under the maximum height and weight. A volume
+ * division always gives too many, because cartons do not spread over a
+ * pallet like a liquid.
  */
 @ApplicationScoped
 public class PalletCalculator {
@@ -58,7 +58,7 @@ public class PalletCalculator {
         return new Fit(perLayer, layers, perLayer * layers, limitedBy);
     }
 
-    /** Aantal pallets voor een aantal dozen. */
+    /** Number of pallets for a number of cartons. */
     public int palletsFor(int cartons, int cartonsPerPallet) {
         if (cartons <= 0 || cartonsPerPallet <= 0) return 0;
         return (cartons + cartonsPerPallet - 1) / cartonsPerPallet;
@@ -67,11 +67,11 @@ public class PalletCalculator {
     public record OrderPallets(int strict, int optimised) {}
 
     /**
-     * Pallets voor een hele order.
+     * Pallets for a whole order.
      *
-     * {@code strict} telt elk product apart; dat is wat je offreert, want het
-     * magazijn belooft geen gemengde pallets. {@code optimised} legt de
-     * restanten samen en laat zien wat dat zou schelen.
+     * {@code strict} counts each product separately; that is what you quote,
+     * because the warehouse promises no mixed pallets. {@code optimised}
+     * merges the remainders and shows what that would save.
      */
     public OrderPallets forOrder(List<int[]> cartonsAndPerPallet) {
         int strict = 0;

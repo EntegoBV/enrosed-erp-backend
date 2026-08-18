@@ -3,17 +3,17 @@ package be.enrosed.catalog.adapter.out.storage;
 import jakarta.persistence.*;
 
 /**
- * De ruwe bytes van een foto, in de database.
+ * The raw bytes of a photo, in the database.
  *
- * Aparte tabel en niet als kolom op de foto zelf: zo haalt een productlijst
- * nooit per ongeluk megabytes aan beeld op. Je leest een blob alleen wanneer
- * je hem echt nodig hebt.
+ * A separate table, not a column on the photo itself: that way a product
+ * list never accidentally pulls megabytes of image. You only read a blob
+ * when you really need it.
  */
 @Entity
 @Table(name = "photo_blob")
 public class PhotoBlobEntity {
 
-    /** Zelfde sleutel als op de foto staat. */
+    /** Same key as on the photo. */
     @Id
     @Column(length = 80)
     public String storageKey;

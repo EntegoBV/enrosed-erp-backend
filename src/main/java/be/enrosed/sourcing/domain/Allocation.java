@@ -1,14 +1,14 @@
 package be.enrosed.sourcing.domain;
 
 /**
- * Verdeelsleutel voor kosten die alleen op containerniveau bekend zijn.
- * Bij een container met een product maakt de keuze niets uit.
+ * Allocation key for costs only known at container level.
+ * For a single-product container the choice makes no difference.
  */
 public enum Allocation {
-    /** Naar volume - volume vult de container. */
+    /** By volume - volume is what fills the container. */
     CBM,
     /** Naar goederenwaarde. */
     VALUE,
-    /** Naar aantal stuks. */
+    /** By piece count. */
     PIECES
 }

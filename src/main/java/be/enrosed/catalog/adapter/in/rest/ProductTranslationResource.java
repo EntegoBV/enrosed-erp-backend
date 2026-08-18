@@ -20,11 +20,11 @@ import java.nio.file.Files;
 import java.time.LocalDate;
 
 /**
- * Vertalingen als CSV eruit en er weer in.
+ * Translations as CSV, out and back in.
  *
- * Vertalen gebeurt in een spreadsheet, vaak door iemand buiten het bedrijf. Het
- * bestand eruit halen, laten invullen en terugzetten is daarvoor handiger dan
- * een scherm waarin je product per product moet klikken.
+ * Translating happens in a spreadsheet, often by someone outside the
+ * company. Taking the file out, having it filled in and putting it back is
+ * handier for that than a screen where you click product by product.
  */
 @Path("/api/products/translations")
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)

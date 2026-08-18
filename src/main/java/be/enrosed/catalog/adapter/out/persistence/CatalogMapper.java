@@ -9,10 +9,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Vertaalt tussen de JPA-entiteiten en de domeinrecords.
+ * Translates between the JPA entities and the domain records.
  *
- * Bewust met de hand: het domein mag niet vastzitten aan Hibernate, en zo
- * blijft zichtbaar welk databaseveld waar terechtkomt.
+ * Deliberately by hand: the domain must not be welded to Hibernate, and
+ * this keeps visible which database field ends up where.
  */
 final class CatalogMapper {
 
@@ -93,11 +93,11 @@ final class CatalogMapper {
     }
 
     /**
-     * Werkt de vertalingen bij: één rij per taal, lege rijen verdwijnen.
+     * Updates the translations: one row per language, empty rows disappear.
      *
-     * Een taal waarvan alle velden leeggemaakt zijn wordt geschrapt in plaats
-     * van als lege rij te blijven staan - anders groeit de tabel aan met rijen
-     * die niets zeggen en telt de vertaalstatus verkeerd.
+     * A language whose fields were all cleared is dropped rather than left
+     * as an empty row - otherwise the table grows rows that say nothing and
+     * the translation status counts wrong.
      */
     static void applyTexts(Product product, ProductEntity entity) {
         Map<Language, ProductText> wanted = new LinkedHashMap<>();
@@ -127,7 +127,7 @@ final class CatalogMapper {
         }
     }
 
-    /** Werkt de fotoreeks bij: nieuwe erbij, verdwenen eruit, volgorde gelijk. */
+    /** Updates the photo series: new ones in, vanished ones out, order kept. */
     static void applyPhotos(Product product, ProductEntity entity) {
         List<Photo> wanted = product.photos();
 

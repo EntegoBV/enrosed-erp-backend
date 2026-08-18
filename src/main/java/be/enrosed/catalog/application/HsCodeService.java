@@ -12,10 +12,10 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Beheert de douanetarieven.
+ * Manages the customs tariffs.
  *
- * Het invoerrecht hangt aan de tariefcode, niet aan het product: bij een
- * tariefwijziging pas je een regel aan in plaats van tientallen producten.
+ * The import duty hangs on the tariff code, not on the product: a tariff
+ * change means editing one row instead of dozens of products.
  */
 @ApplicationScoped
 public class HsCodeService {
@@ -36,7 +36,7 @@ public class HsCodeService {
         return hsCodes.findByCode(code).orElseThrow(() -> new NotFoundException("HS-code", code));
     }
 
-    /** Tarief voor een code; leeg of onbekend geeft het meegegeven terugvalpercentage. */
+    /** Rate for a code; empty or unknown yields the given fallback percentage. */
     public BigDecimal dutyRateFor(String code, BigDecimal fallbackPct) {
         if (code == null || code.isBlank()) return fallbackPct;
         return hsCodes.findByCode(code).map(HsCode::dutyRatePct).orElse(fallbackPct);

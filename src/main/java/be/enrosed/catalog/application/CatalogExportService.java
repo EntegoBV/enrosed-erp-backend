@@ -12,11 +12,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Stelt een catalogus samen om als PDF mee te geven of door te sturen.
+ * Composes a catalogue to hand over or forward as a PDF.
  *
- * Je kiest zelf welke producten erin gaan: een klant die alleen glaswerk koopt
- * heeft niets aan tien pagina's acryl. Prijzen zijn optioneel, want zonder
- * prijzen is het een productblad dat je aan iedereen kan geven.
+ * You pick which products go in: a customer who only buys glassware has no
+ * use for ten pages of acrylic. Prices are optional, because without prices
+ * it is a product sheet you can give to anyone.
  */
 @ApplicationScoped
 public class CatalogExportService {
@@ -33,8 +33,8 @@ public class CatalogExportService {
     }
 
     /**
-     * @param photosPerProduct hoeveel foto's per product mee mogen (1 = alleen de
-     *                         hoofdfoto). Leeg betekent maximaal vier.
+     * @param photosPerProduct how many photos may come along per product
+     *                         (1 = primary only). Empty means four at most.
      */
     public record Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
                           Integer photosPerProduct, String title, String intro,

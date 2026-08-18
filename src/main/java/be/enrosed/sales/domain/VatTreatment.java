@@ -1,30 +1,30 @@
 package be.enrosed.sales.domain;
 
 /**
- * Hoe de BTW op een levering behandeld wordt.
+ * How VAT on a delivery is treated.
  *
- * Wij zitten in België, dus:
- *  - binnenland          -> Belgische BTW
- *  - andere EU-lidstaat  -> vrijgesteld als de klant een geldig BTW-nummer
- *                           heeft; de klant verlegt de heffing zelf
- *  - buiten de EU        -> uitvoer, vrijgesteld
+ * We are based in Belgium, so:
+ *  - domestic            -> Belgian VAT
+ *  - other EU state      -> exempt when the customer has a valid VAT number;
+ *                           the customer reverse-charges the tax
+ *  - outside the EU      -> export, exempt
  *
- * LET OP: de wetsartikelen hieronder zijn de gangbare verwijzingen, maar
- * BTW-regels hangen af van de concrete levering en veranderen. Laat de
- * teksten een keer nakijken door je boekhouder voor je ze op echte facturen
- * zet. De app zorgt dat de vermelding er staat; of ze juist is voor jouw
- * situatie, is een vraag voor een accountant.
+ * CAUTION: the legal articles below are the customary references, but VAT
+ * rules depend on the concrete delivery and they change. Have the texts
+ * checked once by your accountant before they go on real invoices. The app
+ * makes sure the mention is there; whether it is right for your situation
+ * is a question for an accountant.
  */
 public enum VatTreatment {
 
-    /** Levering binnen België: gewoon Belgisch tarief. */
+    /** Delivery within Belgium: plain Belgian rate. */
     BINNENLAND(
             "Binnenlandse levering",
             null),
 
     /**
-     * Intracommunautaire levering naar een BTW-plichtige in een andere
-     * EU-lidstaat. Nultarief; de afnemer verlegt de heffing.
+     * Intra-community supply to a VAT-registered customer in another EU
+     * member state. Zero rate; the buyer reverse-charges the tax.
      */
     INTRACOMMUNAUTAIR(
             "Intracommunautaire levering",
@@ -33,15 +33,15 @@ public enum VatTreatment {
                     + "BTW te voldoen door de afnemer."),
 
     /**
-     * EU-klant zonder geldig BTW-nummer. Dan is het geen intracommunautaire
-     * levering en blijft er BTW verschuldigd - welke, hangt af van de
-     * afstandsverkoopregels. Bewust niet automatisch op nul gezet.
+     * EU customer without a valid VAT number. Then it is not an
+     * intra-community supply and VAT remains due - which VAT depends on the
+     * distance-selling rules. Deliberately not zeroed automatically.
      */
     EU_ZONDER_BTW_NUMMER(
             "EU-levering zonder BTW-nummer",
             null),
 
-    /** Levering buiten de EU. */
+    /** Delivery outside the EU. */
     UITVOER(
             "Uitvoer buiten de EU",
             "Vrijstelling van BTW - uitvoer. "
@@ -57,17 +57,17 @@ public enum VatTreatment {
 
     public String label() { return label; }
 
-    /** Zin die op de offerte en de factuur hoort te staan; null bij gewone BTW. */
+    /** Sentence that belongs on the quote and invoice; null for regular VAT. */
     public String legalMention() { return legalMention; }
 
     /**
-     * Hetzelfde in de taal van de klant.
+     * The same in the customer's language.
      *
-     * De wetsartikelen blijven staan zoals ze heten - Art. 39bis W.BTW is geen
-     * vertaalbare tekst maar een verwijzing - maar de zin eromheen hoort in de
-     * taal van de klant. Een Franse klant die "Vrijstelling van BTW" leest weet
-     * niet of hij BTW moet betalen, en dat is precies wat de vermelding moet
-     * duidelijk maken.
+     * The legal articles stay as they are named - Art. 39bis W.BTW is a
+     * reference, not translatable text - but the sentence around them belongs
+     * in the customer's language. A French customer reading "Vrijstelling van
+     * BTW" does not know whether they owe VAT, and that is exactly what the
+     * mention must make clear.
      */
     public String labelIn(be.enrosed.shared.Language language) {
         return switch (this) {
@@ -114,7 +114,7 @@ public enum VatTreatment {
         };
     }
 
-    /** De wettelijke vermelding in de taal van de klant; null bij gewone BTW. */
+    /** The legal mention in the customer's language; null for regular VAT. */
     public String legalMentionIn(be.enrosed.shared.Language language) {
         return switch (this) {
             case INTRACOMMUNAUTAIR -> switch (language) {

@@ -8,12 +8,12 @@ import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * De opmaak die op de offerte terechtkomt.
+ * The formatting that lands on the quote.
  *
- * Datums en weken zijn precies het soort ding dat stil fout gaat: een
- * Amerikaanse maand-eerst notatie leest een klant verkeerd zonder het te
- * merken, en de weeknummering rond nieuwjaar klopt in de meeste zelfgeschreven
- * varianten niet. Vandaar dat het hier vastligt.
+ * Dates and weeks are exactly the kind of thing that fails silently: an
+ * American month-first notation gets misread without anyone noticing, and
+ * week numbering around New Year is wrong in most home-grown variants.
+ * Hence pinning it down here.
  */
 class DocumentFormatTest {
 
@@ -37,9 +37,9 @@ class DocumentFormatTest {
     }
 
     /**
-     * ISO-week 1 is de week met de eerste donderdag van het jaar. Daardoor
-     * begint week 1 van 2026 nog in december 2025, en heeft 2026 een week 53
-     * die doorloopt tot in januari 2027.
+     * ISO week 1 is the week holding the year's first Thursday. That is why
+     * week 1 of 2026 starts back in December 2025, and 2026 has a week 53
+     * running into January 2027.
      */
     @Test
     @DisplayName("weken rond nieuwjaar lopen over het jaareinde")

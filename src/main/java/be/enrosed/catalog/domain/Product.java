@@ -7,13 +7,13 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Artikel in de catalogus.
+ * Article in the catalogue.
  *
- * Let op het onderscheid tussen drie dingen die makkelijk door elkaar lopen:
- *  - {@code dimensions} is het product zelf (15 x 30 cm)
- *  - {@code colour} is de kleur ("Rood", "Roze"), de eerste van wat later
- *    een reeks productopties kan worden
- *  - {@code carton} is de omdoos waarin het verscheept wordt
+ * Mind the distinction between three things that easily blur together:
+ *  - {@code dimensions} is the product itself (15 x 30 cm)
+ *  - {@code colour} is the colour ("Rood", "Roze"), the first of what may
+ *    later become a set of product options
+ *  - {@code carton} is the outer box it ships in
  */
 public record Product(
         Long id,
@@ -21,18 +21,19 @@ public record Product(
         String name,
         Dimensions dimensions,
         /**
-         * Kleur van het artikel.
+         * Colour of the article.
          *
-         * Eerste van wat later een reeks productopties kan worden (maat,
-         * afwerking). Daarom staat de waarde apart en niet verwerkt in de
-         * productnaam: zodra er een tweede optie bijkomt hoef je bestaande
-         * gegevens niet uit elkaar te pluizen.
+         * First of what may later become a set of product options (size,
+         * finish). That is why the value stands apart instead of being baked
+         * into the product name: when a second option arrives, existing data
+         * does not have to be picked apart.
          */
         String colour,
         /**
-         * Verkoopstekst voor op de offerte en in de catalogus.
+         * Sales copy for the quote and the catalogue.
          *
-         * Optioneel; zonder beschrijving valt alles terug op naam en afmeting.
+         * Optional; without a description everything falls back to name and
+         * dimensions.
          */
         String description,
         Long categoryId,
@@ -54,17 +55,17 @@ public record Product(
         BigDecimal markupPct,
         BigDecimal fixedSalesPriceEur,
 
-        /** Aantal stuks op voorraad; groeit bij een ontvangen inkooporder. */
+        /** Pieces in stock; grows when a purchase order is received. */
         int stockQuantity,
 
         List<Photo> photos,
 
         /**
-         * Naam, beschrijving en kleur in andere talen.
+         * Name, description and colour in other languages.
          *
-         * De velden hierboven blijven de basis: wat niet vertaald is valt daarop
-         * terug. Zo blijft een product bruikbaar zolang de vertaling er nog niet
-         * is, in plaats van als leeg vak op een offerte te belanden.
+         * The fields above remain the base: whatever is untranslated falls
+         * back to them. That keeps a product usable while its translation is
+         * still missing, instead of landing as an empty box on a quote.
          */
         List<ProductText> texts
 ) {
@@ -77,7 +78,7 @@ public record Product(
         return texts == null ? List.of() : texts;
     }
 
-    /** De tekst in deze taal, of null als ze er niet is. */
+    /** The text in this language, or null when there is none. */
     public ProductText textIn(Language language) {
         return texts().stream()
                 .filter(text -> text.language() == language)
@@ -85,7 +86,7 @@ public record Product(
                 .orElse(null);
     }
 
-    /** Naam in deze taal, met terugval op de basisnaam. */
+    /** Name in this language, falling back to the base name. */
     public String nameIn(Language language) {
         ProductText text = textIn(language);
         return text == null || isBlank(text.name()) ? name : text.name();
@@ -104,7 +105,7 @@ public record Product(
         return be.enrosed.shared.ColourNames.translate(colour, language);
     }
 
-    /** Beschrijving in deze taal, met terugval op de basisbeschrijving. */
+    /** Description in this language, falling back to the base description. */
     public String descriptionIn(Language language) {
         ProductText text = textIn(language);
         return text == null || isBlank(text.description()) ? description : text.description();
@@ -114,21 +115,21 @@ public record Product(
         return value == null || value.isBlank();
     }
 
-    /** Hoofdfoto: de eerste in de reeks. */
+    /** Primary photo: the first in the series. */
     public Photo primaryPhoto() {
         return photos().isEmpty() ? null : photos().get(0);
     }
 
-    /** Volledige omschrijving voor op een offerte, in onze eigen taal. */
+    /** Full description for a quote, in our own language. */
     public String describe() {
         return describeIn(Language.NL);
     }
 
     /**
-     * Volledige omschrijving in de taal van de klant.
+     * Full description in the customer's language.
      *
-     * De afmeting blijft in cijfers staan; die is in elke taal hetzelfde en
-     * hoort niet in een vertaalbestand thuis.
+     * The dimensions stay numeric; they are identical in every language and
+     * do not belong in a translation file.
      */
     public String describeIn(Language language) {
         String naam = nameIn(language);

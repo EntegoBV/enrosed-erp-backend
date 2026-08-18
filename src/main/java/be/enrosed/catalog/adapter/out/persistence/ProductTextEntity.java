@@ -4,12 +4,12 @@ import be.enrosed.shared.Language;
 import jakarta.persistence.*;
 
 /**
- * Naam, beschrijving en kleur van een product in één taal.
+ * Name, description and colour of a product in one language.
  *
- * Eén rij per product en taal. De unieke sleutel daarop is er niet voor de
- * netheid: zonder die sleutel maakt een tweede import van hetzelfde
- * vertaalbestand er stilletjes dubbele rijen bij, en dan is het toeval welke
- * vertaling op de offerte belandt.
+ * One row per product and language. The unique key on that is not for
+ * tidiness: without it a second import of the same translation file
+ * silently adds duplicate rows, and then it is luck which translation
+ * lands on the quote.
  */
 @Entity
 @Table(name = "product_text",
@@ -25,9 +25,9 @@ public class ProductTextEntity {
     public ProductEntity product;
 
     /*
-     * Geen CHECK-constraint op deze kolom: Hibernate zou er de talen in zetten
-     * die vandaag bestaan, en bij een nieuwe taal weigert de database de rij.
-     * De enum bewaakt de toegestane waarden al.
+     * No CHECK constraint on this column: Hibernate would bake in the
+     * languages that exist today, and a new language would get its row
+     * refused by the database. The enum already guards the allowed values.
      */
     @Enumerated(EnumType.STRING)
     @Column(columnDefinition = "varchar(4)", nullable = false)

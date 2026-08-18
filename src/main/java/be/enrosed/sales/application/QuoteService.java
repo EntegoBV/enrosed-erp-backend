@@ -18,17 +18,17 @@ import java.util.Base64;
 import java.util.List;
 
 /**
- * De offerteworkflow: versturen, laten bekijken, en wijzigingen van de klant
- * terugkrijgen.
+ * The quote workflow: sending, being viewed, and receiving change requests
+ * from the customer.
  *
- * De belangrijkste regel zit in {@link #proposeRevision}: de klant wijzigt de
- * offerte niet zelf. Hij legt een voorstel neer en wij keuren het goed, passen
- * het aan of wijzen het af. Een verzonden document mag niet onder onze handen
- * veranderen - anders weet niemand meer welke versie er getekend is.
+ * The most important rule lives in {@link #proposeRevision}: the customer
+ * never edits the quote directly. They put down a proposal and we approve,
+ * adjust or reject it. A sent document must not change under our hands -
+ * otherwise nobody knows which version was signed.
  *
- * De klant komt binnen met een portaltoken in plaats van een account. Wie de
- * link heeft mag de offerte zien en erop reageren; de link staat alleen in de
- * mail aan dat adres.
+ * The customer enters with a portal token instead of an account. Whoever has
+ * the link may view the quote and respond to it; the link only exists in the
+ * mail to that address.
  */
 @ApplicationScoped
 public class QuoteService {
@@ -62,11 +62,11 @@ public class QuoteService {
         this.events = events;
     }
 
-    /* ============================================================ versturen */
+    /* ============================================================= sending */
 
     /**
-     * Verstuurt de offerte naar de klant: maakt de PDF, zet er een portallink
-     * bij en mailt het geheel.
+     * Sends the quote to the customer: builds the PDF, adds a portal link
+     * and mails the whole thing.
      */
     @Transactional
     public SalesOrder send(long orderId, String personalMessage) {
@@ -91,16 +91,16 @@ public class QuoteService {
                             + priced.validation().shortfall() + " EUR");
         }
 
-        /* Token blijft staan bij een tweede verzending: de klant heeft de link al. */
+        /* The token survives a second sending: the customer already has the link. */
         String token = order.portalToken() == null ? newToken() : order.portalToken();
         String portalUrl = portalUrl(token);
 
         QuoteDocumentRenderer.Document document = renderer.render(order, priced, customer, portalUrl);
 
-        /* De levertermijnen gaan mee in de mail. Staat er voor elke regel een
-           datum of een week, dan is dat het antwoord waar een klant die eerder
-           een wijziging vroeg op wachtte - dat hoort hij niet pas in de PDF te
-           ontdekken. */
+        /* The delivery terms travel along in the mail. When every line has a
+           date or a week, that is the answer a customer who asked for a change
+           has been waiting for - they should not have to discover it in the
+           PDF. */
         List<QuoteMailer.DeliveryLine> deliveryLines = priced.lines().stream()
                 .map(line -> new QuoteMailer.DeliveryLine(
                         line.description(),
@@ -108,10 +108,9 @@ public class QuoteService {
                         line.inStock() || (line.deliveryWeek() != null && !line.deliveryWeek().isBlank())))
                 .toList();
 
-        /* Stand van zaken rond de levertermijnen bijhouden. Vertrekt er een
-           offerte met een regel zonder termijn, dan weet de klant dat wij nog
-           moeten laten weten wanneer we leveren. Is die termijn er bij een
-           volgende zending wel, dan is dát het nieuws van deze mail. */
+        /* Track where the delivery terms stand. When a quote leaves with a
+           line without a term, the customer knows we still owe them a date.
+           When a later sending does have it, that is the news of that mail. */
         boolean allKnown = deliveryLines.stream().allMatch(QuoteMailer.DeliveryLine::known);
         DeliveryTermsState terms = !allKnown
                 ? DeliveryTermsState.TE_BEPALEN
@@ -119,8 +118,8 @@ public class QuoteService {
                         ? DeliveryTermsState.AANGEVULD
                         : order.deliveryTerms();
 
-        /* Dezelfde weg voor de vracht: vertrekt ze als open post, dan weet de
-           klant dat wij het bedrag nog laten weten. */
+        /* Same road for the freight: when it leaves as an open item, the
+           customer knows the amount is still to follow. */
         FreightState freightState = order.freight() == FreightState.TE_BEPALEN
                 ? FreightState.TE_BEPALEN
                 : order.freight() == FreightState.AANGEVULD
@@ -149,17 +148,17 @@ public class QuoteService {
                 null, null, order.customerMessage(), terms, freightState));
     }
 
-    /** De PDF opnieuw opbouwen, bijvoorbeeld om zelf na te kijken of te downloaden. */
+    /** Rebuild the PDF, for instance to review or download it ourselves. */
     public QuoteDocumentRenderer.Document document(long orderId) {
         return document(orderId, null);
     }
 
     /**
-     * Dezelfde PDF in een zelfgekozen taal.
+     * The same PDF in a language of choice.
      *
-     * Standaard die van de klant - dat is wat er bij het versturen gebeurt. Bij
-     * het downloaden mag je er even van afwijken: soms wil je een Engelse versie
-     * om intern door te geven, zonder daarvoor de taal van de klant te wijzigen.
+     * Default is the customer's - that is what sending uses. A download may
+     * deviate for a moment: sometimes you want an English copy to pass around
+     * internally, without changing the customer's language for it.
      */
     public QuoteDocumentRenderer.Document document(long orderId, be.enrosed.shared.Language language) {
         SalesOrder order = salesOrders.get(orderId);
@@ -172,14 +171,16 @@ public class QuoteService {
         return renderer.render(order, salesOrders.price(order), customer, portalUrl);
     }
 
-    /* ============================================================ klantkant */
+    /* ======================================================= customer side */
 
     /**
-     * Haalt de offerte op via de portallink en houdt bij dat de klant gekeken heeft.
+     * Fetches the quote through the portal link and records that the customer
+     * looked at it.
      *
-     * De teller loopt op bij elke opening, ook als de offerte al bekeken was: dat
-     * een klant er drie keer op terugkomt zegt iets, en dat wil je zien voor je
-     * belt. De status springt alleen de eerste keer van verzonden naar bekeken.
+     * The counter increases on every opening, even when the quote was already
+     * viewed: a customer coming back three times tells you something, and you
+     * want to see that before you call. The status only jumps from sent to
+     * viewed the first time.
      */
     @Transactional
     public SalesOrder openByToken(String token) {
@@ -190,9 +191,9 @@ public class QuoteService {
                 ? QuoteStatus.BEKEKEN
                 : order.status();
 
-        /* Alleen de eerste opening komt in de geschiedenis. Elke keer vastleggen
-           maakt van het spoor een logboek waarin het echte nieuws verdwijnt; het
-           aantal keer staat al op de order. */
+        /* Only the first opening enters the history. Recording every one turns
+           the trail into a log where the real news drowns; the count is already
+           on the order. */
         if (order.status() == QuoteStatus.VERZONDEN) {
             record(order, QuoteEvent.Type.BEKEKEN, true, null, "Klant heeft de offerte geopend", null);
         }
@@ -208,8 +209,8 @@ public class QuoteService {
     }
 
     /**
-     * De klant tekent voor akkoord. De ingetikte naam is de handtekening;
-     * samen met het tijdstip is dat het bewijs van aanvaarding.
+     * The customer signs for approval. The typed name is the signature;
+     * together with the timestamp it is the proof of acceptance.
      */
     @Transactional
     public SalesOrder acceptByCustomer(String token, String signedByName, String message) {
@@ -247,10 +248,10 @@ public class QuoteService {
     }
 
     /**
-     * De klant stelt wijzigingen voor.
+     * The customer proposes changes.
      *
-     * Dit past de offerte niet aan. Het legt een voorstel neer dat bij ons ter
-     * beoordeling komt; de order zelf blijft staan zoals hij verstuurd is.
+     * This does not touch the quote. It puts down a proposal that comes to us
+     * for review; the order itself stays exactly as it was sent.
      */
     @Transactional
     public QuoteRevision proposeRevision(String token, List<QuoteRevision.Line> proposedLines,
@@ -261,11 +262,11 @@ public class QuoteService {
             throw new BusinessRuleException("Geef aan wat er moet wijzigen");
         }
 
-        /* Aantallen van de klant naar boven op een volle doos. Wij doen dat op
-           onze eigen regels ook; het hoort hier net zo goed te gebeuren, want
-           een halve doos bestaat niet en anders belandt "13 stuks" op de order
-           en klopt verderop niets meer - niet het volume, niet de pallets, niet
-           de vracht. Server-side, want een klant kan het scherm omzeilen. */
+        /* Round the customer's quantities up to a full carton. We do it on our
+           own lines too; it belongs here just as much, because half a carton
+           does not exist and otherwise "13 pieces" lands on the order and
+           nothing downstream adds up - not the volume, not the pallets, not
+           the freight. Server-side, because a customer can bypass the screen. */
         List<QuoteRevision.Line> rounded = roundToCartons(proposedLines);
 
         QuoteRevision revision = revisions.save(new QuoteRevision(
@@ -288,12 +289,11 @@ public class QuoteService {
     }
 
     /**
-     * Wat de klant precies voorstelt, in gewone taal.
+     * What exactly the customer proposes, in plain words.
      *
-     * De aantallen staan ook in de revisie zelf, maar die verdwijnt uit beeld
-     * zodra ze afgehandeld is. In de geschiedenis wil je een half jaar later nog
-     * kunnen lezen wat er gevraagd werd zonder een tweede tabel te moeten
-     * openslaan.
+     * The quantities also live in the revision itself, but that disappears
+     * from view once handled. In the history you want to read, half a year
+     * later, what was asked without opening a second table.
      */
     private String describe(SalesOrder order, List<QuoteRevision.Line> lines, String message) {
         StringBuilder text = new StringBuilder();
@@ -321,22 +321,22 @@ public class QuoteService {
         return text.isEmpty() ? null : text.toString();
     }
 
-    /** Legt een stap vast in de geschiedenis van een offerte. */
+    /** Records one step in the history of a quote. */
     private void record(SalesOrder order, QuoteEvent.Type type, boolean byCustomer,
                         String actor, String summary, String detail) {
         events.add(new QuoteEvent(null, order.id(), type, Instant.now(),
                 actor, byCustomer, summary, detail));
     }
 
-    /** De geschiedenis van een offerte, oudste eerst. */
+    /** The history of a quote, oldest first. */
     public List<QuoteEvent> history(long orderId) {
         return events.findByOrder(orderId);
     }
 
     /**
-     * Rondt elk voorgesteld aantal naar boven af op een volle doos.
+     * Rounds every proposed quantity up to a full carton.
      *
-     * Nul blijft nul: dat betekent "deze regel mag eruit" en is geen aantal.
+     * Zero stays zero: it means "drop this line" and is not a quantity.
      */
     private List<QuoteRevision.Line> roundToCartons(List<QuoteRevision.Line> lines) {
         if (lines == null || lines.isEmpty()) return List.of();
@@ -356,11 +356,11 @@ public class QuoteService {
     }
 
     /**
-     * De klant trekt zijn voorstel weer in.
+     * The customer withdraws their proposal.
      *
-     * Het voorstel wordt niet gewist maar op ingetrokken gezet: dat het er even
-     * gestaan heeft hoort bij het verhaal van deze offerte. De offerte gaat
-     * terug naar bekeken, want ze ligt weer bij de klant.
+     * The proposal is not deleted but marked withdrawn: that it existed for a
+     * while belongs to the story of this quote. The quote returns to viewed,
+     * because it is back in the customer's court.
      */
     @Transactional
     public SalesOrder withdrawRevision(String token) {
@@ -383,7 +383,7 @@ public class QuoteService {
                 null, null, order.customerMessage()));
     }
 
-    /* ========================================================= onze kant */
+    /* ============================================================ our side */
 
     public List<QuoteRevision> pendingRevisions() {
         return revisions.findPending();
@@ -394,11 +394,11 @@ public class QuoteService {
     }
 
     /**
-     * Wij nemen het voorstel over.
+     * We adopt the proposal.
      *
-     * De aantallen van de klant gaan naar de order; regels die de klant op nul
-     * zet verdwijnen. De offerte gaat terug naar concept zodat we hem nog
-     * kunnen bijsturen - prijzen, korting - voor hij opnieuw de deur uit gaat.
+     * The customer's quantities go onto the order; lines the customer zeroes
+     * disappear. The quote returns to concept so we can still steer it -
+     * prices, discount - before it goes out the door again.
      */
     @Transactional
     public SalesOrder approveRevision(long revisionId, String handledBy, String responseMessage) {
@@ -419,10 +419,10 @@ public class QuoteService {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
                         line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()));
             }
-            /* aantal 0 betekent: deze regel mag eruit */
+            /* quantity 0 means: drop this line */
         }
 
-        /* Producten die er nog niet op stonden maar die de klant erbij wil. */
+        /* Products not yet on the quote that the customer wants added. */
         for (QuoteRevision.Line proposal : revision.lines()) {
             boolean known = order.lines().stream()
                     .anyMatch(line -> line.productId().equals(proposal.productId()));
@@ -448,16 +448,16 @@ public class QuoteService {
     }
 
     /**
-     * Zet een afgewezen of verlopen offerte terug op concept.
+     * Puts a rejected or expired quote back on concept.
      *
-     * Een "nee" van de klant is zelden het einde: meestal was het te duur of
-     * kwam de levertermijn niet uit. Dan wil je dezelfde offerte bijsturen en
-     * opnieuw sturen, met dezelfde nummering en dezelfde geschiedenis, in
-     * plaats van een nieuwe te moeten opbouwen.
+     * A "no" from the customer is rarely the end: usually it was too expensive
+     * or the delivery date did not suit. Then you want to adjust that same
+     * quote and send it again, with the same number and the same history,
+     * instead of building a new one.
      *
-     * De portallink blijft staan zodat de klant hem niet twee keer krijgt. De
-     * beslissing en de handtekening worden gewist: die hoorden bij de vorige
-     * ronde en mogen niet blijven staan alsof er nog voor getekend is.
+     * The portal link stays so the customer does not receive it twice. The
+     * decision and the signature are wiped: they belonged to the previous
+     * round and must not linger as if it were still signed.
      */
     @Transactional
     public SalesOrder reopen(long orderId) {
@@ -474,15 +474,15 @@ public class QuoteService {
         record(order, QuoteEvent.Type.HEROPEND, false, null,
                 "Offerte heropend om bij te sturen", null);
 
-        /* Een nieuwe geldigheidsdatum: de oude is meestal net de reden dat ze
-           verlopen is, en een offerte die vandaag vertrekt met een datum van
-           vorige maand leest als slordigheid. */
+        /* A fresh validity date: the old one is usually the very reason the
+           quote expired, and a quote leaving today with last month's date
+           reads as sloppiness. */
         return orders.save(withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, null));
     }
 
-    /** Wij nemen het voorstel niet over; de offerte blijft zoals hij was. */
+    /** We do not adopt the proposal; the quote stays as it was. */
     @Transactional
     public SalesOrder rejectRevision(long revisionId, String handledBy, String responseMessage) {
         QuoteRevision revision = revision(revisionId);
@@ -500,7 +500,7 @@ public class QuoteService {
 
     /* ============================================================ helpers */
 
-    /** Levertermijn als leesbare tekst, in Belgische datumnotatie. */
+    /** Delivery term as readable text, in Belgian date notation. */
     private static String deliveryTermOf(PricedOrder.Line line) {
         if (line.inStock() && line.deliveryDate() != null) {
             return "leverbaar vanaf " + be.enrosed.shared.DocumentFormat.beDate(line.deliveryDate());
@@ -536,7 +536,7 @@ public class QuoteService {
         return portalBaseUrl.replaceAll("/+$", "") + "/offerte/" + token;
     }
 
-    /** 32 willekeurige bytes: te lang om te raden, kort genoeg voor een link. */
+    /** 32 random bytes: too long to guess, short enough for a link. */
     private static String newToken() {
         byte[] bytes = new byte[24];
         RANDOM.nextBytes(bytes);

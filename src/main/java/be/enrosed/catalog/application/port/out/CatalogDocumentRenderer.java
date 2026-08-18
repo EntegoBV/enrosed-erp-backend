@@ -7,7 +7,7 @@ import be.enrosed.catalog.domain.Product;
 import java.util.List;
 import java.util.Map;
 
-/** Uitgaande poort die van een productselectie een catalogus-PDF maakt. */
+/** Outbound port turning a product selection into a catalogue PDF. */
 public interface CatalogDocumentRenderer {
 
     record Document(String filename, byte[] content, String contentType) {}

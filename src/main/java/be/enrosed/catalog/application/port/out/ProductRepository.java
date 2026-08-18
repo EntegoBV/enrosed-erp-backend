@@ -5,7 +5,7 @@ import be.enrosed.catalog.domain.Product;
 import java.util.List;
 import java.util.Optional;
 
-/** Uitgaande poort naar de opslag van producten. */
+/** Outbound port to product storage. */
 public interface ProductRepository {
     List<Product> findAll();
     List<Product> findBySupplier(long supplierId);

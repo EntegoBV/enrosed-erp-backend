@@ -13,11 +13,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * De vertaalbundels.
+ * The translation bundles.
  *
- * De belangrijkste test is de eerste: een ontbrekende sleutel geeft geen fout
- * maar een leeg vak op een offerte die al bij de klant ligt. Daarom moet elke
- * taal exact dezelfde sleutels hebben.
+ * The most important test is the first: a missing key raises no error but
+ * leaves an empty box on a quote already with a customer. Hence every
+ * language must carry exactly the same keys.
  */
 class DocumentTextTest {
 
@@ -73,8 +73,9 @@ class DocumentTextTest {
         assertEquals("25/05/2026", DocumentText.date(date, Language.NL));
         assertEquals("25/05/2026", DocumentText.date(date, Language.FR));
         assertEquals("25/05/2026", DocumentText.date(date, Language.DE));
-        /* Engels krijgt de maand voluit: 05/25 en 25/05 lezen anders aan weerszijden
-           van de oceaan, en bij een levertermijn wil je daar geen twijfel over. */
+        /* English gets the month spelled out: 05/25 and 25/05 read
+           differently on either side of the ocean, and a delivery term
+           leaves no room for that doubt. */
         assertEquals("25 May 2026", DocumentText.date(date, Language.EN));
     }
 

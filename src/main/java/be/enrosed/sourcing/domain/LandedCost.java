@@ -4,11 +4,11 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Uitkomst van de kostprijsberekening van een container.
+ * Outcome of a container's landed-cost calculation.
  *
- * De volgorde van de velden volgt de weg die de goederen afleggen:
- * goederen, origin, zeevracht - samen de douanewaarde - dan het invoerrecht,
- * en pas daarna de kosten aan deze kant.
+ * The field order follows the road the goods travel: goods, origin, sea
+ * freight - together the customs value - then the import duty, and only
+ * after that the costs on this side.
  */
 public record LandedCost(List<Line> lines, Totals totals, ContainerFill containerFill) {
 

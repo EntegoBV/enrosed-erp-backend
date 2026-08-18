@@ -12,21 +12,20 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 
 /**
- * De inkoopcalculatie als PDF, om te bewaren of aan tafel te laten zien.
+ * The purchase calculation as a PDF, to file away or to show at the table.
  *
- * Twee weergaven van hetzelfde blad:
+ * Two views of the same sheet:
  *
- *  - **intern** — alles erop, inclusief de gewenste extra opbrengst als eigen
- *    regel. Dat is het blad dat je bewaart.
- *  - **klantweergave** — diezelfde calculatie zonder die regel. Het bedrag zit
- *    wél in het totaal verrekend, zodat de kostprijs per stuk klopt met wat wij
- *    hanteren. Een klant die meekijkt ziet dus waar wij op uitkomen, niet hoeveel
- *    marge daarin zit.
+ *  - **internal** — everything on it, including the desired extra revenue as
+ *    its own line. That is the sheet you keep.
+ *  - **customer view** — the same calculation without that line. The amount
+ *    IS folded into the total, so the cost per piece matches what we use. A
+ *    customer looking along sees where we land, not how much margin is in it.
  *
- * Welke van de twee je krijgt hangt af van de stand van de dubbelklikschakelaar
- * op het scherm. Dat is bewust dezelfde knop: één stand die bepaalt wat er te
- * zien is, op het scherm én op papier. Twee losse instellingen betekent vroeg of
- * laat dat je het scherm afdekt maar het verkeerde blad uitprint.
+ * Which of the two you get follows the double-tap switch on screen. That is
+ * deliberately the same control: one state deciding what is visible, on
+ * screen AND on paper. Two separate settings mean that sooner or later you
+ * cover the screen but print the wrong sheet.
  */
 @ApplicationScoped
 public class PdfPurchaseRenderer {
@@ -47,8 +46,8 @@ public class PdfPurchaseRenderer {
     public record Document(String filename, byte[] content, String contentType) {}
 
     /**
-     * @param showRevenue toont de gewenste extra opbrengst als eigen regel. Staat
-     *                    hij uit, dan blijft ze in het totaal maar niet in beeld.
+     * @param showRevenue shows the desired extra revenue as its own line.
+     *                    Off, it stays in the total but out of sight.
      */
     public Document render(PurchaseOrder order, LandedCost costing, String supplierName,
                            boolean showRevenue) {

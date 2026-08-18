@@ -7,10 +7,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.math.BigDecimal;
 
 /**
- * Rekent bedragen om tussen RMB, dollar en euro.
+ * Converts amounts between RMB, dollar and euro.
  *
- * RMB gaat altijd via de dollar: zo werkt de handel ook, en zo hoeft er maar
- * een koers bijgehouden te worden per stap.
+ * RMB always goes through the dollar: that is how the trade works too, and
+ * it keeps one rate to maintain per step.
  */
 @ApplicationScoped
 public class CurrencyConverter {

@@ -8,10 +8,10 @@ import java.text.NumberFormat;
 import java.util.Locale;
 
 /**
- * Opmaakhulpjes voor het offertesjabloon.
+ * Formatting helpers for the quote template.
  *
- * Een klantdocument hoort er Belgisch uit te zien: punt als duizendtal, komma
- * als decimaal. En percentages met een decimaal, niet met vier.
+ * A customer document should look Belgian: dot for thousands, comma for
+ * decimals. And percentages with one decimal, not four.
  */
 @TemplateExtension
 public class DocumentFormat {
@@ -28,7 +28,7 @@ public class DocumentFormat {
         return format.format(value == null ? BigDecimal.ZERO : value) + " EUR";
     }
 
-    /** Stukprijs met drie decimalen; die staan zo in de inkooplijst. */
+    /** Piece price with three decimals; that is how the purchase list has them. */
     public static String unit(BigDecimal value) {
         NumberFormat format = NumberFormat.getNumberInstance(LOCALE);
         format.setMinimumFractionDigits(2);
@@ -36,7 +36,7 @@ public class DocumentFormat {
         return format.format(value == null ? BigDecimal.ZERO : value) + " EUR";
     }
 
-    /** Percentage zonder overbodige nullen: 6 %, 6,5 %. */
+    /** Percentage without superfluous zeroes: 6 %, 6.5 %. */
     public static String pct(BigDecimal value) {
         if (value == null) return "0 %";
         BigDecimal rounded = value.setScale(1, RoundingMode.HALF_UP).stripTrailingZeros();
@@ -56,7 +56,7 @@ public class DocumentFormat {
         return date == null ? "" : date.format(DATE);
     }
 
-    /** Werkt ook op de datums die als tekst binnenkomen. */
+    /** Also works on the dates that arrive as text. */
     public static String beDate(String isoDate) {
         if (isoDate == null || isoDate.isBlank()) return "";
         try {
@@ -67,10 +67,10 @@ public class DocumentFormat {
     }
 
     /**
-     * Zet 2026-W42 om naar "week 42 (12/10 - 18/10/2026)".
+     * Turns 2026-W42 into "week 42 (12/10 - 18/10/2026)".
      *
-     * De ruwe notatie staat goed in een veld maar niet op een offerte: een klant
-     * moet niet zelf gaan opzoeken wanneer week 42 valt.
+     * The raw notation is fine in a field but not on a quote: a customer
+     * should not have to look up when week 42 falls.
      */
     public static String week(String isoWeek) {
         if (isoWeek == null || isoWeek.isBlank()) return "";

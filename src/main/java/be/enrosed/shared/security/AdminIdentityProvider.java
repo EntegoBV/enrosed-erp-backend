@@ -15,17 +15,16 @@ import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Controleert de aanmelding van het personeel.
+ * Checks staff sign-in.
  *
- * Het wachtwoord staat als bcrypt-hash in de configuratie, nooit als leesbare
- * tekst: wie de repository of een configmap in handen krijgt heeft daarmee nog
- * geen toegang. De hash maak je met
- * {@code BcryptUtil.bcryptHash("nieuwwachtwoord")}.
+ * The password sits in configuration as a bcrypt hash, never as readable
+ * text: getting hold of the repository or a config map yields no access.
+ * Make a new hash with {@code BcryptUtil.bcryptHash("newpassword")}.
  *
- * Dit is bewust klein gehouden - een gebruiker, een rol. Zodra er meerdere
- * mensen met verschillende rechten bijkomen hoort hier een gebruikerstabel of
- * een OIDC-provider te staan; de rest van de beveiliging verandert daar niet
- * van, want die hangt aan de rol en niet aan deze klasse.
+ * Deliberately kept small - one user, one role. The moment several people
+ * with different rights arrive, a user table or an OIDC provider belongs
+ * here; the rest of the security does not change for it, because it hangs
+ * on the role and not on this class.
  */
 @ApplicationScoped
 public class AdminIdentityProvider implements IdentityProvider<UsernamePasswordAuthenticationRequest> {
@@ -49,9 +48,9 @@ public class AdminIdentityProvider implements IdentityProvider<UsernamePasswordA
         String username = request.getUsername();
         String password = new String(request.getPassword().getPassword());
 
-        /* De gebruikersnaam in constante tijd vergelijken, zodat het antwoord
-           niet verraadt of de naam bestond. Bcrypt doet dat voor het wachtwoord
-           al uit zichzelf. */
+        /* Compare the username in constant time, so the answer does not
+           betray whether the name existed. Bcrypt already does this for the
+           password by itself. */
         boolean userMatches = MessageDigest.isEqual(
                 adminUsername.getBytes(StandardCharsets.UTF_8),
                 username == null ? new byte[0] : username.getBytes(StandardCharsets.UTF_8));

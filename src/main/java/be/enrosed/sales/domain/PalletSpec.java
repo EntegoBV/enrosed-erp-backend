@@ -2,7 +2,7 @@ package be.enrosed.sales.domain;
 
 import java.math.BigDecimal;
 
-/** Afmetingen en grenzen van de pallet waarop we verzenden. */
+/** Dimensions and limits of the pallet we ship on. */
 public record PalletSpec(
         String name,
         BigDecimal lengthCm,

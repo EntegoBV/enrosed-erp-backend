@@ -11,7 +11,7 @@ import jakarta.transaction.Transactional;
 import java.util.Comparator;
 import java.util.List;
 
-/** Beheert de vaste lijst met productcategorieen. */
+/** Manages the fixed list of product categories. */
 @ApplicationScoped
 public class CategoryService {
 

@@ -15,21 +15,21 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * Het lettertype voor onze PDF's.
+ * The typeface for our PDFs.
  *
- * Zonder ingesloten lettertype valt openhtmltopdf terug op de ingebouwde
- * PDF-fonts. Die kennen alleen West-Europees schrift: een Poolse offerte toont
- * dan "P#atno##" in plaats van "Płatność" en een Turkse "numaras#" in plaats
- * van "numarası". Dat merk je niet bij het bouwen - alleen de klant ziet het,
- * op het document dat hij moet tekenen.
+ * Without an embedded font, openhtmltopdf falls back to the built-in PDF
+ * fonts. Those only know Western European script: a Polish quote then shows
+ * "P#atno##" instead of "Płatność" and a Turkish one "numaras#" instead of
+ * "numarası". You never notice at build time - only the customer sees it,
+ * on the document they are asked to sign.
  *
- * DejaVu Sans dekt Latijns uitgebreid A en B, dus Pools, Turks, Tsjechisch en
- * de Baltische talen. Het staat in de jar zodat het overal werkt en niet
- * afhangt van wat er toevallig op de server geïnstalleerd is.
+ * DejaVu Sans covers Latin Extended A and B, so Polish, Turkish, Czech and
+ * the Baltic languages. It ships inside the jar so it works everywhere and
+ * does not depend on whatever happens to be installed on the server.
  *
- * Licentie: DejaVu is vrij te gebruiken en te herdistribueren, ook commercieel
- * (zie fonts/LICENSE.txt). Vandaar bewust dit lettertype en niet een systeemfont
- * van de ontwikkelmachine - die zijn zelden vrij mee te leveren.
+ * Licence: DejaVu is free to use and redistribute, commercially included
+ * (see fonts/LICENSE.txt). Hence deliberately this typeface and not a system
+ * font from the development machine - those are rarely free to ship.
  */
 @ApplicationScoped
 public class PdfFonts {
@@ -40,11 +40,11 @@ public class PdfFonts {
     private Path bold;
 
     /**
-     * Hangt de lettertypes aan een renderer.
+     * Attaches the typefaces to a renderer.
      *
-     * openhtmltopdf wil een bestand op schijf, geen stream uit de jar, dus
-     * worden ze één keer uitgepakt naar een tijdelijk bestand dat blijft staan
-     * zolang het proces draait.
+     * openhtmltopdf wants a file on disk, not a stream from the jar, so they
+     * are unpacked once into a temporary file that lives as long as the
+     * process does.
      */
     public void applyTo(PdfRendererBuilder builder) {
         ensureExtracted();
@@ -54,7 +54,7 @@ public class PdfFonts {
                 PdfRendererBuilder.FontStyle.NORMAL, true);
     }
 
-    /** De naam zoals de sjablonen hem in font-family gebruiken. */
+    /** The name as the templates use it in font-family. */
     public String family() {
         return FAMILY;
     }

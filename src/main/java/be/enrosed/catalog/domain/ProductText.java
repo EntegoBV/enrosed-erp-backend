@@ -3,15 +3,15 @@ package be.enrosed.catalog.domain;
 import be.enrosed.shared.Language;
 
 /**
- * De tekst van een product in één taal.
+ * A product's text in one language.
  *
- * Alleen naam, beschrijving en kleur staan hierin. De rest van een product -
- * afmetingen, barcodes, HS-code, doosinhoud - is universeel en blijft in het
- * Engels staan: die gegevens vertalen levert niets op en verdubbelt wel de kans
- * op tegenstrijdigheden.
+ * Only name, description and colour live here. The rest of a product -
+ * dimensions, barcodes, HS code, carton content - is universal: translating
+ * that data gains nothing and doubles the chance of contradictions.
  *
- * Een leeg veld betekent "nog niet vertaald" en valt terug op het product zelf.
- * Dat is bewust: liever de basisnaam op een Franse offerte dan een leeg vak.
+ * An empty field means "not translated yet" and falls back to the product
+ * itself. Deliberate: better the base name on a French quote than an empty
+ * box.
  */
 public record ProductText(
         Language language,
@@ -20,7 +20,7 @@ public record ProductText(
         String colour
 ) {
 
-    /** Is er iets ingevuld? Een rij met enkel lege velden hoeft niet bewaard. */
+    /** Anything filled in? A row of only empty fields needs no saving. */
     public boolean isEmpty() {
         return blank(name) && blank(description) && blank(colour);
     }

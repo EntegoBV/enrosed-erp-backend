@@ -1,17 +1,17 @@
 package be.enrosed.sales.domain;
 
 public enum RevisionStatus {
-    /** Ligt bij ons ter beoordeling. */
+    /** With us for review. */
     IN_AFWACHTING,
-    /** Overgenomen op de order. */
+    /** Adopted onto the order. */
     GOEDGEKEURD,
     /** Niet overgenomen. */
     AFGEWEZEN,
     /**
-     * Door de klant zelf ingetrokken voor wij eraan toekwamen.
+     * Withdrawn by the customer before we got to it.
      *
-     * Bewust niet verwijderd: dat er even een voorstel gelegen heeft hoort bij
-     * het verhaal van de offerte, ook als het weer weggehaald is.
+     * Deliberately not deleted: that a proposal lay there for a while
+     * belongs to the quote's story, even after it was taken away again.
      */
     INGETROKKEN
 }

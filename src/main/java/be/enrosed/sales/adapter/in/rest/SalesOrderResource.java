@@ -17,7 +17,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Map;
 
-/** Onze eigen kant van de verkooporder - inclusief kostprijs en marge. */
+/** Our own side of the sales order - cost price and margin included. */
 @Path("/api/sales-orders")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -80,9 +80,9 @@ public class SalesOrderResource {
         return Response.noContent().build();
     }
 
-    /* ---------------------------------------------------------- offerte */
+    /* ------------------------------------------------------------ quote */
 
-    /** Maakt de PDF, mailt ze naar de klant en zet de offerte op verzonden. */
+    /** Builds the PDF, mails it to the customer and marks the quote sent. */
     @POST
     @Path("/{id}/send")
     public OrderView send(@PathParam("id") long id, SendRequest request) {
@@ -90,14 +90,14 @@ public class SalesOrderResource {
         return new OrderView(sent, salesOrders.price(sent));
     }
 
-    /** De geschiedenis van een offerte, oudste stap eerst. */
+    /** The history of a quote, oldest step first. */
     @GET
     @Path("/{id}/history")
     public List<QuoteEvent> history(@PathParam("id") long id) {
         return quotes.history(id);
     }
 
-    /** Zet een afgewezen of verlopen offerte terug op concept om bij te sturen. */
+    /** Puts a rejected or expired quote back on concept for adjusting. */
     @POST
     @Path("/{id}/reopen")
     public OrderView reopen(@PathParam("id") long id) {
@@ -139,7 +139,7 @@ public class SalesOrderResource {
         return quotes.pendingRevisions();
     }
 
-    /** Wij nemen het voorstel van de klant over. */
+    /** We adopt the customer's proposal. */
     @POST
     @Path("/revisions/{revisionId}/approve")
     public OrderView approveRevision(@PathParam("revisionId") long revisionId, RevisionDecision decision) {
@@ -149,7 +149,7 @@ public class SalesOrderResource {
         return new OrderView(order, salesOrders.price(order));
     }
 
-    /** Wij nemen het niet over; de offerte blijft zoals verstuurd. */
+    /** We do not adopt it; the quote stays as sent. */
     @POST
     @Path("/revisions/{revisionId}/reject")
     public OrderView rejectRevision(@PathParam("revisionId") long revisionId, RevisionDecision decision) {

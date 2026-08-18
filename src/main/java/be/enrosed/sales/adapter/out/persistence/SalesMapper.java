@@ -6,12 +6,12 @@ import be.enrosed.sales.domain.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Vertaalt tussen JPA-entiteiten en domeinrecords. */
+/** Translates between JPA entities and domain records. */
 final class SalesMapper {
 
     private SalesMapper() {}
 
-    /* ------------------------------------------------------------ klant */
+    /* --------------------------------------------------------- customer */
 
     static Customer toDomain(CustomerEntity entity) {
         return new Customer(entity.id, entity.company, entity.contact, entity.email, entity.phone,

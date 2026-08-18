@@ -1,8 +1,8 @@
 package be.enrosed.sales.domain;
 
 public enum TierScope {
-    /** Korting per productregel, op het aantal stuks van dat product. */
+    /** Discount per product line, on that product's piece count. */
     LINE,
-    /** Extra korting op het ordertotaal, op het totaal aantal stuks. */
+    /** Extra discount on the order total, on the total piece count. */
     ORDER
 }

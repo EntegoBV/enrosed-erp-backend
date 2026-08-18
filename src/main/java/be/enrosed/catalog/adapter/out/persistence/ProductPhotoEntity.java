@@ -14,7 +14,7 @@ public class ProductPhotoEntity {
     @JoinColumn(name = "product_id")
     public ProductEntity product;
 
-    /** Naam van het bestand in de opslag. */
+    /** Name of the file in storage. */
     public String storageKey;
     public String originalFilename;
     public String contentType;

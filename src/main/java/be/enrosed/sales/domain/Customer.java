@@ -13,11 +13,11 @@ public record Customer(
         String vatNumber,
         String countryCode,
         /**
-         * Taal waarin deze klant zijn offerte en mail krijgt.
+         * Language this customer receives their quote and mail in.
          *
-         * Hangt aan de klant en niet aan het land: een Belgische klant kan
-         * Frans of Nederlands willen, en een inkoper bij een Duits bedrijf
-         * werkt soms liever in het Engels.
+         * Hangs on the customer, not the country: a Belgian customer may
+         * want French or Dutch, and a buyer at a German company sometimes
+         * prefers working in English.
          */
         Language language,
         String address,

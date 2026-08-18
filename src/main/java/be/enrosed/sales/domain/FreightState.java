@@ -1,25 +1,26 @@
 package be.enrosed.sales.domain;
 
 /**
- * Waar de vrachtkosten van een offerte staan in het heen en weer met de klant.
+ * Where a quote's freight cost stands in the back-and-forth with the
+ * customer.
  *
- * Dezelfde weg als de levertermijn: soms weet je bij het opmaken nog niet wat
- * het transport kost - een bestemming buiten de gewone tarieven, een order die
- * net over een pallet gaat, of een klant die zelf laat ophalen. Dan vertrekt de
- * offerte met de vracht als open post, komt ze terug naar ons, vullen wij het
- * bedrag in en gaat ze opnieuw naar de klant.
+ * The same road as the delivery term: sometimes at drafting time you do not
+ * know yet what transport costs - a destination outside the usual rates, an
+ * order just over one pallet, or a customer arranging their own pickup. Then
+ * the quote leaves with the freight as an open item, comes back to us, we
+ * fill in the amount and it goes to the customer again.
  *
- * Het alternatief - een bedrag verzinnen en later corrigeren - is erger: de
- * klant rekent op het totaal dat er stond.
+ * The alternative - inventing an amount and correcting later - is worse:
+ * the customer counts on the total that was shown.
  */
 public enum FreightState {
 
-    /** Het berekende tarief geldt; er is niets bijzonders te melden. */
+    /** The calculated rate applies; nothing special to report. */
     BEREKEND,
 
-    /** De offerte vertrok met de vracht als open post. */
+    /** The quote left with the freight as an open item. */
     TE_BEPALEN,
 
-    /** De vracht is intussen ingevuld en de offerte is opnieuw vertrokken. */
+    /** The freight has since been filled in and the quote left again. */
     AANGEVULD
 }

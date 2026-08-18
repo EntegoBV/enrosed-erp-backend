@@ -11,7 +11,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
-/** Catalogus als PDF, met een zelfgekozen productselectie. */
+/** The catalogue as a PDF, with a hand-picked product selection. */
 @Path("/api/catalog")
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class CatalogExportResource {

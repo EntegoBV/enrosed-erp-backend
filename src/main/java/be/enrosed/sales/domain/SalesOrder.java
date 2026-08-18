@@ -6,11 +6,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Verkooporder, tevens het offertedocument dat naar de klant gaat.
+ * Sales order, doubling as the quote document that goes to the customer.
  *
- * {@code portalToken} is de sleutel waarmee de klant de offerte opent zonder
- * account. Hij wordt pas aangemaakt bij het versturen en is lang en willekeurig;
- * wie hem heeft mag de offerte zien, wijzigen voorstellen en tekenen.
+ * {@code portalToken} is the key the customer opens the quote with, no
+ * account needed. It is only created on sending and is long and random;
+ * whoever holds it may view the quote, propose changes and sign.
  */
 public record SalesOrder(
         Long id,
@@ -33,42 +33,42 @@ public record SalesOrder(
         BigDecimal orderMarkupPct,
 
         /**
-         * Extra korting bovenop de staffels, bijvoorbeeld een beurskorting.
-         * Optioneel: leeg of nul betekent geen extra korting.
+         * Extra discount on top of the tiers, for instance a fair discount.
+         * Optional: empty or zero means no extra discount.
          */
         BigDecimal extraDiscountPct,
-        /** Waarom die korting er is; verschijnt zo op de offerte. */
+        /** Why that discount exists; appears verbatim on the quote. */
         String extraDiscountLabel,
 
         String portalToken,
         Instant sentAt,
         Instant viewedAt,
-        /** Hoe vaak de klant de offerte geopend heeft. */
+        /** How many times the customer opened the quote. */
         int viewCount,
         Instant decidedAt,
-        /* Naam die de klant intikt bij het accepteren - de handtekening. */
+        /* Name the customer types when accepting - the signature. */
         String signedByName,
         String customerMessage,
-        /** Notities voor onszelf; komen nooit op het klantdocument. */
+        /** Notes for ourselves; never appear on the customer document. */
         String internalNotes,
 
         /**
-         * Of er nog een levertermijn moest komen, en of die intussen ingevuld is.
-         * Bepaalt wat de klant in het portaal en in de mail te lezen krijgt.
+         * Whether a delivery term was still owed, and whether it has been
+         * filled in. Drives what the customer reads in the portal and mail.
          */
         DeliveryTermsState deliveryTerms,
 
         /**
-         * Of de vracht nog bepaald moet worden, en of dat intussen gebeurd is.
-         * Werkt net als {@link #deliveryTerms}.
+         * Whether the freight still has to be determined, and whether that
+         * happened. Works just like {@link #deliveryTerms}.
          */
         FreightState freight,
 
         /**
-         * Vracht die wij zelf invullen in plaats van het landtarief te gebruiken.
+         * Freight we fill in ourselves instead of using the country rate.
          *
-         * Leeg betekent: reken het tarief van het bestemmingsland. Staat de
-         * vracht op "nog te bepalen", dan telt er nog niets mee in het totaal.
+         * Empty means: charge the destination country's rate. While the
+         * freight is "to be determined", nothing counts towards the total.
          */
         BigDecimal manualFreightEur,
 
@@ -92,10 +92,10 @@ public record SalesOrder(
     }
 
     /**
-     * De opgeslagen waarde zonder terugval.
+     * The stored value without fallback.
      *
-     * Nodig bij het bijwerken: null betekent daar "het formulier stuurde dit
-     * veld niet mee", en dat is iets anders dan "zet het op berekend".
+     * Needed on update: there, null means "the form did not send this
+     * field", which is different from "set it to calculated".
      */
     public FreightState freightOrNull() {
         return freight;

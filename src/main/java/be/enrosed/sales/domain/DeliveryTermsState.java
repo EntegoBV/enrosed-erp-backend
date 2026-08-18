@@ -1,22 +1,23 @@
 package be.enrosed.sales.domain;
 
 /**
- * Waar de levertermijnen van een offerte staan in het heen en weer met de klant.
+ * Where a quote's delivery terms stand in the back-and-forth with the
+ * customer.
  *
- * Een artikel zonder voorraad vertrekt met "levertermijn nog te bepalen". De
- * offerte moet dan terug naar ons: wij vullen de leverweek in en sturen ze
- * opnieuw. De klant moet bij die tweede zending meteen zien dat dat het is wat
- * er veranderd is - vandaar dat we het onthouden in plaats van het achteraf uit
- * de regels af te leiden.
+ * An article without stock leaves with "delivery term to be determined".
+ * The quote then has to come back to us: we fill in the delivery week and
+ * send it again. On that second sending the customer must see right away
+ * that this is what changed - hence remembering it instead of deriving it
+ * from the lines afterwards.
  */
 public enum DeliveryTermsState {
 
-    /** Alles kon meteen beloofd worden; er is niets bijzonders te melden. */
+    /** Everything could be promised right away; nothing special to report. */
     VOLLEDIG,
 
-    /** Er vertrok een offerte met minstens één regel zonder termijn. */
+    /** A quote left with at least one line without a term. */
     TE_BEPALEN,
 
-    /** Die termijnen zijn intussen ingevuld en de offerte is opnieuw vertrokken. */
+    /** Those terms have since been filled in and the quote left again. */
     AANGEVULD
 }

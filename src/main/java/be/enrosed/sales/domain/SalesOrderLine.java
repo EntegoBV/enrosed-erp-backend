@@ -3,10 +3,10 @@ package be.enrosed.sales.domain;
 import java.math.BigDecimal;
 
 /**
- * Offerteregel.
+ * Quote line.
  *
- * {@code unitPriceEur} en {@code manualDiscountPct} zijn handmatige ingrepen;
- * blijven ze leeg, dan rekent de prijsmotor ze zelf uit.
+ * {@code unitPriceEur} and {@code manualDiscountPct} are manual overrides;
+ * left empty, the pricing engine computes them itself.
  */
 public record SalesOrderLine(
         Long id,
@@ -16,8 +16,8 @@ public record SalesOrderLine(
         BigDecimal manualDiscountPct,
 
         /**
-         * Zelf ingevulde leverweek, bv. "2026-W34". Optioneel: staat er niets,
-         * dan wordt de schatting uit de voorraad en de transittijd gebruikt.
+         * Hand-picked delivery week, e.g. "2026-W34". Optional: when empty,
+         * the estimate from stock and transit time is used.
          */
         String deliveryWeek
 ) {}

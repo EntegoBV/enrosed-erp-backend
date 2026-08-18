@@ -4,11 +4,11 @@ import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
- * De Panache-repositories.
+ * The Panache repositories.
  *
- * Ze staan bewust apart van de poortadapters: Panache brengt zelf al
- * findAll() en findById() mee, met andere returntypes dan onze poorten.
- * Compositie in plaats van overerving houdt beide kanten leesbaar.
+ * Deliberately separate from the port adapters: Panache ships its own
+ * findAll() and findById(), with return types different from our ports.
+ * Composition instead of inheritance keeps both sides readable.
  */
 public final class CatalogDaos {
 

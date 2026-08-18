@@ -12,11 +12,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Aanmeldstatus.
+ * Sign-in status.
  *
- * Er is geen apart login-endpoint nodig: de client stuurt zijn gegevens mee als
- * HTTP Basic en gebruikt {@code /me} om te controleren of ze kloppen. Lukt dat,
- * dan bewaart de app de sleutel en zet hij hem op elke volgende oproep.
+ * No separate login endpoint is needed: the client sends its credentials as
+ * HTTP Basic and uses {@code /me} to check they are right. On success the
+ * app keeps the key and attaches it to every following call.
  */
 @Path("/api/auth")
 @Produces(MediaType.APPLICATION_JSON)
@@ -28,7 +28,7 @@ public class AuthResource {
         this.identity = identity;
     }
 
-    /** Geeft 200 met de gebruiker bij geldige gegevens, 401 zonder. */
+    /** Returns 200 with the user on valid credentials, 401 without. */
     @GET
     @Path("/me")
     @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
@@ -38,7 +38,7 @@ public class AuthResource {
                 "roles", List.copyOf(identity.getRoles()));
     }
 
-    /** Openbaar; laat de aanmeldpagina weten dat de server bereikbaar is. */
+    /** Public; lets the login page know the server is reachable. */
     @GET
     @Path("/ping")
     @PermitAll

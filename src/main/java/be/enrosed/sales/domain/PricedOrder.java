@@ -9,11 +9,11 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
     public record Line(
             Long productId,
             String sku,
-            /** Omschrijving in onze eigen taal, voor de schermen hier. */
+            /** Description in our own language, for the screens here. */
             String description,
             /**
-             * Dezelfde omschrijving in de taal van de klant, voor de offerte en
-             * het portaal. Zonder vertaling is dit gewoon hetzelfde.
+             * The same description in the customer's language, for the quote
+             * and the portal. Without a translation it is simply identical.
              */
             String customerDescription,
             String photoUrl,
@@ -33,7 +33,7 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal net,
             BigDecimal netUnitPrice,
 
-            /* Interne kant - hoort niet op het klantdocument. */
+            /* Internal side - does not belong on the customer document. */
             BigDecimal landedUnitCost,
             BigDecimal costTotal,
             BigDecimal marginEur,
@@ -64,7 +64,7 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal subtotal,
             BigDecimal orderDiscountPercent,
             BigDecimal orderDiscountAmount,
-            /* Losse extra korting, bv. een beurskorting. */
+            /* Loose extra discount, e.g. a fair discount. */
             BigDecimal extraDiscountPercent,
             String extraDiscountLabel,
             BigDecimal extraDiscountAmount,
@@ -78,7 +78,7 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal vatRatePct,
             BigDecimal vatAmount,
             BigDecimal totalInclVat,
-            /* BTW-regime en de zin die daarbij op het document hoort. */
+            /* VAT regime and the sentence that belongs with it on the document. */
             VatTreatment vatTreatment,
             String vatLegalMention,
             String vatReason,

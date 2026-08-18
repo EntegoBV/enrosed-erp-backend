@@ -1,9 +1,9 @@
 package be.enrosed.sales.domain;
 
-/** Waar de opslag op de kostprijs vandaan komt. */
+/** Where the markup on the cost price comes from. */
 public enum MarkupMode {
-    /** Elk product gebruikt zijn eigen opslag uit de catalogus. */
+    /** Each product uses its own markup from the catalogue. */
     PRODUCT,
-    /** Een percentage over de hele order. */
+    /** One percentage over the whole order. */
     ORDER
 }

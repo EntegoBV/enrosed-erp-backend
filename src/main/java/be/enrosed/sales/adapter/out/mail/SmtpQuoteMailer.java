@@ -31,18 +31,18 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Stuurt de offerte per mail, met de PDF als bijlage en de portallink in de
- * tekst.
+ * Sends the quote by mail, with the PDF attached and the portal link in the
+ * body.
  *
- * Twee routes naar buiten:
- *  - staat er een Brevo-sleutel (BREVO_API_KEY), dan gaat de mail via hun
- *    HTTPS-API. Dat is gewoon webverkeer, en dus de enige route die werkt op
- *    hosting die uitgaand SMTP blokkeert - Railway doet dat onder het Pro-plan;
- *  - anders klassiek SMTP via de Quarkus-mailer.
+ * Two routes out:
+ *  - with a Brevo key (BREVO_API_KEY) the mail goes through their HTTPS
+ *    API. That is plain web traffic, and therefore the only route that works
+ *    on hosting that blocks outbound SMTP - Railway does below the Pro plan;
+ *  - otherwise classic SMTP through the Quarkus mailer.
  *
- * In ontwikkeling staat quarkus.mailer.mock aan: er vertrekt niets, de mail
- * komt in de log. Zo kan de flow getest worden zonder dat er per ongeluk post
- * naar een echte klant gaat.
+ * In development quarkus.mailer.mock is on: nothing leaves, the mail lands
+ * in the log. That lets the flow be tested without accidental post to a
+ * real customer.
  */
 @ApplicationScoped
 public class SmtpQuoteMailer implements QuoteMailer {
@@ -61,16 +61,16 @@ public class SmtpQuoteMailer implements QuoteMailer {
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
 
-    /** Staat de mailer in testmodus? Dan wordt er niets verstuurd. */
+    /** Is the mailer in mock mode? Then nothing is sent. */
     @ConfigProperty(name = "quarkus.mailer.mock", defaultValue = "false")
     boolean mock;
 
     @ConfigProperty(name = "quarkus.mailer.host", defaultValue = "")
     String host;
 
-    /* Optional, niet String: een lege ${BREVO_API_KEY:} wordt door SmallRye
-       als null gelezen en een kale String-injectie laat de app dan niet eens
-       opstarten. Leeg betekent gewoon: verstuur via SMTP. */
+    /* Optional, not String: an empty ${BREVO_API_KEY:} is read as null by
+       SmallRye, and a bare String injection then stops the app from even
+       starting. Empty simply means: send through SMTP. */
     @ConfigProperty(name = "enrosed.mail.brevo-api-key")
     Optional<String> brevoApiKey;
 
@@ -90,7 +90,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
 
         boolean allKnown = deliveryLines.stream().allMatch(DeliveryLine::known);
 
-        /* De mail vertrekt in de taal van de klant, net als de PDF. */
+        /* The mail leaves in the customer's language, just like the PDF. */
         Language language = customer.language();
         Map<String, String> text = DocumentText.of(language);
 
@@ -112,9 +112,9 @@ public class SmtpQuoteMailer implements QuoteMailer {
                         .formatted(DocumentText.date(order.validUntil(), language)))
                 .render();
 
-        /* Het onderwerp zegt meteen waarom deze mail er is. Bij een tweede
-           zending met de ingevulde levertermijn is dát het nieuws, niet de
-           offerte zelf - anders lijkt het een dubbele mail. */
+        /* The subject says right away why this mail exists. On a second
+           sending with the delivery term filled in, that is the news - not
+           the quote itself - or it reads like a duplicate mail. */
         String subject = (notice.deliveryTermsAdded()
                 ? text.get("mailSubjectTermsAdded") : text.get("mailSubject"))
                 .formatted(order.number());
@@ -143,9 +143,9 @@ public class SmtpQuoteMailer implements QuoteMailer {
             return;
         }
 
-        /* Zonder ingevulde mailserver is elke poging kansloos. Dan liever een
-           duidelijke zin op het scherm dan een stacktrace in de log - en de
-           offerte blijft onverstuurd, dus niets lijkt verzonden dat het niet is. */
+        /* Without a configured mail server every attempt is hopeless. Better
+           one clear sentence on screen than a stack trace in the log - and
+           the quote stays unsent, so nothing looks sent that is not. */
         if (host.isBlank() || host.endsWith("example.com")) {
             throw new BusinessRuleException(
                     "Er is nog geen mailroute ingesteld. Zet op de server BREVO_API_KEY"
@@ -171,9 +171,9 @@ public class SmtpQuoteMailer implements QuoteMailer {
 
     @Override
     public void notifyInternal(String subject, String body) {
-        /* Deze melding vertrekt terwijl een KLANT in het portaal bezig is. Een
-           haperende mailserver mag diens actie niet blokkeren - de gebeurtenis
-           staat toch al in de geschiedenis van de offerte. */
+        /* This notification fires while a CUSTOMER is busy in the portal. A
+           faltering mail server must not block their action - the event is
+           already in the quote's history anyway. */
         try {
             if (!mock && !brevoApiKey.orElse("").isBlank()) {
                 sendViaBrevo(internalRecipient, subject, null, body, null);
@@ -187,10 +187,10 @@ public class SmtpQuoteMailer implements QuoteMailer {
     }
 
     /**
-     * Een mail door de Brevo-API duwen.
+     * Pushes one mail through the Brevo API.
      *
-     * Bewust zonder aparte client-bibliotheek: het is een enkele POST met een
-     * JSON-lijf, en elke extra afhankelijkheid is er een die kan breken.
+     * Deliberately without a client library: it is a single POST with a JSON
+     * body, and every extra dependency is one more thing that can break.
      */
     private void sendViaBrevo(String to, String subject, String html, String text,
                               QuoteDocumentRenderer.Document attachment) throws Exception {
@@ -220,8 +220,8 @@ public class SmtpQuoteMailer implements QuoteMailer {
 
         HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 300) {
-            /* Brevo legt in de body uit wat er schort ("sender not valid",
-               quota op); dat is precies wat de beheerder moet lezen. */
+            /* Brevo explains in the body what is wrong ("sender not valid",
+               quota exhausted); exactly what the administrator needs to read. */
             String detail = response.body() == null ? "" : response.body();
             throw new IllegalStateException(
                     "maildienst antwoordde " + response.statusCode()

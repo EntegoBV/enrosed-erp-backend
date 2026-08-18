@@ -18,17 +18,17 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * Bewaart fotobestanden in de database.
+ * Stores photo files in the database.
  *
- * De bytes gaan er ongewijzigd in en ongewijzigd weer uit: geen herschaling,
- * geen hercompressie. Een foto die de leverancier op 4000 px aanlevert komt er
- * ook zo weer uit, bruikbaar voor drukwerk.
+ * The bytes go in unchanged and come out unchanged: no rescaling, no
+ * recompression. A photo the supplier delivers at 4000 px comes back out
+ * that way, usable for print.
  *
- * Alles in de database houden betekent één back-up en één plek om te
- * beveiligen, wat het beheer eenvoudig houdt. De keerzijde is dat de database
- * hard groeit en dat blobs niet door een CDN gecachet worden. Loopt dat op,
- * dan schrijf je een S3-variant naast deze klasse: de poort {@link PhotoStorage}
- * verandert dan niet, alleen deze implementatie.
+ * Keeping everything in the database means one backup and one place to
+ * secure, which keeps operations simple. The flip side is that the database
+ * grows fast and blobs are not cached by a CDN. When that bites, write an
+ * S3 variant next to this class: the {@link PhotoStorage} port stays the
+ * same, only this implementation changes.
  */
 @ApplicationScoped
 public class DatabasePhotoStorage implements PhotoStorage {
@@ -85,7 +85,7 @@ public class DatabasePhotoStorage implements PhotoStorage {
         return blobs.findById(storageKey) != null;
     }
 
-    /** Leest breedte en hoogte uit de header, zonder de foto te decoderen. */
+    /** Reads width and height from the header, without decoding the photo. */
     private int[] readDimensions(byte[] bytes) {
         try (ImageInputStream stream = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
             if (stream == null) return new int[] { 0, 0 };

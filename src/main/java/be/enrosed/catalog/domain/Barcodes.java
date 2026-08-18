@@ -1,8 +1,8 @@
 package be.enrosed.catalog.domain;
 
 /**
- * Barcodes van een product. Allebei optioneel: niet elk artikel krijgt een
- * eigen code, en displaydozen hebben er soms alleen een op de omdoos.
+ * A product's barcodes. Both optional: not every article gets its own code,
+ * and display boxes sometimes only carry one on the outer carton.
  */
 public record Barcodes(String inner, String outer) {
 

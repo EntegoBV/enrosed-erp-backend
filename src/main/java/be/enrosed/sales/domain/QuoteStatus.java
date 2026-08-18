@@ -1,14 +1,14 @@
 package be.enrosed.sales.domain;
 
 /**
- * Levensloop van een offerte.
+ * Life cycle of a quote.
  *
  * CONCEPT -> VERZONDEN -> BEKEKEN -> GEACCEPTEERD
- *                              \-> WIJZIGING_GEVRAAGD -> (wij passen aan) -> VERZONDEN
+ *                              \-> WIJZIGING_GEVRAAGD -> (we adjust) -> VERZONDEN
  *                              \-> AFGEWEZEN
  *
- * De klant kan zelf niets definitief maken behalve accepteren of afwijzen;
- * een wijziging is altijd een voorstel dat wij nog moeten goedkeuren.
+ * The customer can make nothing final except accepting or rejecting; a
+ * change is always a proposal we still have to approve.
  */
 public enum QuoteStatus {
     CONCEPT,
@@ -28,13 +28,13 @@ public enum QuoteStatus {
     }
 
     /**
-     * Kan deze offerte terug naar concept?
+     * Can this quote go back to concept?
      *
-     * Een afgewezen of verlopen offerte is vaak geen eindpunt maar een
-     * onderhandeling: de klant vond het te duur, wij passen de prijs aan en
-     * sturen opnieuw. Een aanvaarde offerte niet - daar is voor getekend, en
-     * die achteraf openbreken maakt onduidelijk waar de handtekening bij hoort.
-     * Daarvoor maak je een nieuwe offerte.
+     * A rejected or expired quote is often no endpoint but a negotiation:
+     * the customer found it too expensive, we adjust the price and send
+     * again. An accepted one is different - it was signed, and breaking it
+     * open afterwards blurs what the signature belongs to. For that you
+     * make a new quote.
      */
     public boolean canReopen() {
         return this == AFGEWEZEN || this == VERLOPEN;
