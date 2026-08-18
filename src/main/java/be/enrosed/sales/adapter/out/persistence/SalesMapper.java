@@ -72,7 +72,7 @@ final class SalesMapper {
         }
         List<OrderPallet> pallets = new ArrayList<>();
         for (SalesEntities.SalesPalletEntity pallet : entity.pallets) {
-            pallets.add(new OrderPallet(pallet.id, pallet.label, pallet.palletType,
+            pallets.add(new OrderPallet(pallet.id, pallet.label, pallet.palletType, pallet.heightCm,
                     pallet.items.stream()
                             .map(item -> new OrderPallet.Item(item.productId, item.cartons))
                             .toList()));
@@ -145,6 +145,7 @@ final class SalesMapper {
             target.position = position++;
             target.label = pallet.label();
             target.palletType = pallet.type();
+            target.heightCm = pallet.heightCm();
             for (OrderPallet.Item item : pallet.items()) {
                 SalesEntities.SalesPalletItemEntity row = new SalesEntities.SalesPalletItemEntity();
                 row.pallet = target;

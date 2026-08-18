@@ -178,7 +178,7 @@ public class SalesOrderService {
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
-                                pallet.items()))
+                                pallet.heightCm(), pallet.items()))
                         .toList()));
     }
 

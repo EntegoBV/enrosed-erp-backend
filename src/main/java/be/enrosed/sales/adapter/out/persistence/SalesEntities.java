@@ -160,6 +160,8 @@ public final class SalesEntities {
         public String label;
         /** Pallet type; "Europallet" unless the seller picked another. */
         public String palletType;
+        /** Stacked height in cm; the transporter asks for it on every booking. */
+        public Integer heightCm;
 
         @OneToMany(mappedBy = "pallet", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")

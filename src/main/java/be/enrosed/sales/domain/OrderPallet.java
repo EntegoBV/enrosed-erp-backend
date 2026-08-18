@@ -27,6 +27,13 @@ public record OrderPallet(
          * know what to expect on the truck.
          */
         String type,
+        /**
+         * Stacked height in centimetres, hand-measured or estimated.
+         *
+         * The truck has a ceiling and so does double-stacking; the
+         * transporter asks for this number on every booking.
+         */
+        Integer heightCm,
         List<Item> items
 ) {
     public record Item(long productId, int cartons) {}
