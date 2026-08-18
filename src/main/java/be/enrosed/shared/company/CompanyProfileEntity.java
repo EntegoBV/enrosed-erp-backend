@@ -33,6 +33,9 @@ public class CompanyProfileEntity {
     @Column(length = 2000)
     public String documentFooter;
 
+    @Column(length = 2000)
+    public String documentFooterEn;
+
     /** General terms and conditions, plain text. */
     @Column(length = 20000)
     public String termsAndConditions;

@@ -25,8 +25,10 @@ public record CompanyProfile(
         String iban,
         String bic,
 
-        /** Verschijnt onderaan op documenten, bv. verwijzing naar de voorwaarden. */
+        /** Appears at the bottom of documents, e.g. a note about the terms. */
         String documentFooter,
+        /** The same footer in English; non-Dutch documents use this one. */
+        String documentFooterEn,
 
         /**
          * The general terms and conditions, as plain text.
@@ -47,8 +49,21 @@ public record CompanyProfile(
         /* Seeded with the real company identity: a fresh install should print
            correct documents before anyone has opened the settings screen. */
         return new CompanyProfile("Enrosed BV", "Enrosed BV", "BE 1034.273.386", "",
-                "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "",
+                "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "", "",
                 null, null, null, null);
+    }
+
+    /**
+     * The footer in the document's language.
+     *
+     * Dutch documents get the Dutch text; every other language gets the
+     * English one, like the legal texts. An empty English footer falls back
+     * to Dutch: a Dutch line is better than a silent gap under a document.
+     */
+    public String footerFor(be.enrosed.shared.Language language) {
+        if (language == be.enrosed.shared.Language.NL) return documentFooter;
+        return documentFooterEn == null || documentFooterEn.isBlank()
+                ? documentFooter : documentFooterEn;
     }
 
     /** Dutch terms, falling back to the built-in draft. */

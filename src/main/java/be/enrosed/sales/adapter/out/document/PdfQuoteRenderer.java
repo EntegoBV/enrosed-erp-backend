@@ -88,6 +88,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("portalUrl", portalUrl)
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
+                .data("footerText", company.get().footerFor(language))
                 .data("t", text)
                 .data("orderDateText", DocumentText.date(order.orderDate(), language))
                 .data("validUntilText", DocumentText.date(order.validUntil(), language))

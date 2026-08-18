@@ -50,6 +50,7 @@ public class CompanyProfileService {
         entity.iban = profile.iban();
         entity.bic = profile.bic();
         entity.documentFooter = profile.documentFooter();
+        entity.documentFooterEn = profile.documentFooterEn();
         entity.termsAndConditions = profile.termsAndConditions();
         entity.termsAndConditionsEn = profile.termsAndConditionsEn();
         entity.privacyPolicy = profile.privacyPolicy();
@@ -63,7 +64,8 @@ public class CompanyProfileService {
                 entity.name, entity.legalName, entity.vatNumber, entity.registrationNumber,
                 entity.addressLine, entity.postalCode, entity.city, entity.countryCode,
                 entity.email, entity.phone, entity.website,
-                entity.iban, entity.bic, entity.documentFooter, entity.termsAndConditions,
+                entity.iban, entity.bic, entity.documentFooter, entity.documentFooterEn,
+                entity.termsAndConditions,
                 entity.termsAndConditionsEn, entity.privacyPolicy, entity.privacyPolicyEn);
     }
 }

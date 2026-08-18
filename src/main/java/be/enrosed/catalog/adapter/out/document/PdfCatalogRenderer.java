@@ -127,6 +127,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("todayText", DocumentText.date(LocalDate.now(), language))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
+                .data("footerText", company.get().footerFor(language))
                 .data("t", text)
                 .render();
 
