@@ -234,7 +234,7 @@ public class DemoDataLoader {
     }
 
     private PurchaseOrderLine line(Long productId, int quantity) {
-        return new PurchaseOrderLine(null, productId, quantity, null, null, null);
+        return new PurchaseOrderLine(null, productId, quantity, null, null, null, quantity);
     }
 
     private void purchase(Long supplierId, String freightUsd, String originCosts, Currency originCurrency,

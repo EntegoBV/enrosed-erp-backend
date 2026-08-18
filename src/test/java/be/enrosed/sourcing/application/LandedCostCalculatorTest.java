@@ -58,7 +58,7 @@ class LandedCostCalculatorTest {
                 new BigDecimal("10"),
                 new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", "", List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null)));
+                "Rotterdam", "", List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null, 1968)));
     }
 
     @Test

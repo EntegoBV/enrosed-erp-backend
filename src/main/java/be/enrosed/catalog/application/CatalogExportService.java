@@ -37,7 +37,9 @@ public class CatalogExportService {
      *                         hoofdfoto). Leeg betekent maximaal vier.
      */
     public record Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
-                          Integer photosPerProduct, String title, String intro) {}
+                          Integer photosPerProduct, String title, String intro,
+                          /** Language of the catalogue; empty means Dutch. */
+                          String language) {}
 
     public CatalogDocumentRenderer.Document export(Request request) {
         List<Product> all = products.list();

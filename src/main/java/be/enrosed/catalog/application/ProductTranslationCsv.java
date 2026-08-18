@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.Csv;
 import be.enrosed.shared.Language;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -38,12 +39,6 @@ import java.util.Map;
 @ApplicationScoped
 public class ProductTranslationCsv {
 
-    /** Puntkomma: wat Excel hier verwacht. */
-    private static final char SEPARATOR = ';';
-
-    /** Zodat Excel het bestand als UTF-8 opent in plaats van als Latin-1. */
-    private static final String BOM = "﻿";
-
     private static final List<String> HEADERS =
             List.of("sku", "taal", "naam", "beschrijving", "kleur");
 
@@ -66,8 +61,8 @@ public class ProductTranslationCsv {
      * hij moet beginnen; nu staat er wat het is en overschrijft hij het.
      */
     public byte[] export() {
-        StringBuilder out = new StringBuilder(BOM);
-        writeRow(out, HEADERS);
+        StringBuilder out = new StringBuilder(Csv.BOM);
+        Csv.writeRow(out, HEADERS);
 
         List<Product> all = new ArrayList<>(products.findAll());
         all.sort(java.util.Comparator.comparing(product ->
@@ -76,7 +71,7 @@ public class ProductTranslationCsv {
         for (Product product : all) {
             for (Language language : Language.values()) {
                 ProductText text = product.textIn(language);
-                writeRow(out, List.of(
+                Csv.writeRow(out, List.of(
                         nullToBlank(product.sku()),
                         language.code(),
                         text == null || isBlank(text.name()) ? nullToBlank(product.name()) : text.name(),
@@ -121,7 +116,7 @@ public class ProductTranslationCsv {
                 lineNumber++;
                 if (line.isBlank()) continue;
 
-                List<String> cells = parseRow(line);
+                List<String> cells = Csv.parseRow(line);
                 if (cells.size() < 2) {
                     problems.add("Regel " + lineNumber + ": te weinig kolommen");
                     continue;
@@ -202,7 +197,7 @@ public class ProductTranslationCsv {
     /* ------------------------------------------------------------ csv */
 
     private static void requireHeader(String header) {
-        List<String> cells = parseRow(header.startsWith(BOM) ? header.substring(1) : header);
+        List<String> cells = Csv.parseRow(Csv.stripBom(header));
         if (cells.size() < 2
                 || !cells.get(0).trim().equalsIgnoreCase("sku")
                 || !cells.get(1).trim().equalsIgnoreCase("taal")) {
@@ -221,60 +216,8 @@ public class ProductTranslationCsv {
         return null;
     }
 
-    private static void writeRow(StringBuilder out, List<String> cells) {
-        for (int i = 0; i < cells.size(); i++) {
-            if (i > 0) out.append(SEPARATOR);
-            out.append(quote(cells.get(i)));
-        }
-        /* CRLF: wat Excel op Windows verwacht. */
-        out.append("\r\n");
-    }
 
-    /**
-     * Zet een cel tussen aanhalingstekens zodra ze een scheidingsteken, een
-     * aanhalingsteken of een regeleinde bevat. Een beschrijving met een
-     * puntkomma erin zou het bestand anders uit elkaar trekken.
-     */
-    private static String quote(String value) {
-        String text = nullToBlank(value);
-        boolean needed = text.indexOf(SEPARATOR) >= 0 || text.indexOf('"') >= 0
-                || text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0;
-        if (!needed) return text;
-        return '"' + text.replace("\"", "\"\"") + '"';
-    }
 
-    /** Leest één regel met aanhalingstekens zoals Excel ze schrijft. */
-    private static List<String> parseRow(String line) {
-        List<String> cells = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inQuotes = false;
-
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (inQuotes) {
-                if (c == '"') {
-                    /* Twee aanhalingstekens op rij is er één in de tekst. */
-                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
-                        current.append('"');
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    current.append(c);
-                }
-            } else if (c == '"') {
-                inQuotes = true;
-            } else if (c == SEPARATOR) {
-                cells.add(current.toString());
-                current.setLength(0);
-            } else {
-                current.append(c);
-            }
-        }
-        cells.add(current.toString());
-        return cells;
-    }
 
     private static String cell(List<String> cells, int index) {
         return index < cells.size() ? cells.get(index).trim() : null;

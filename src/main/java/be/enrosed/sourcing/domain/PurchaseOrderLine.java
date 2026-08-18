@@ -5,8 +5,8 @@ import be.enrosed.shared.Currency;
 import java.math.BigDecimal;
 
 /**
- * Regel op een inkooporder. De prijsvelden mogen leeg zijn; dan geldt de
- * prijs die op het product staat.
+ * Line on a purchase order. Price fields may be empty; the product's own
+ * price then applies.
  */
 public record PurchaseOrderLine(
         Long id,
@@ -14,5 +14,14 @@ public record PurchaseOrderLine(
         int quantity,
         BigDecimal exwPrice,
         Currency exwCurrency,
-        BigDecimal extraUnitCost
+        BigDecimal extraUnitCost,
+        /**
+         * The quantity at the moment the order was placed with the supplier.
+         *
+         * Snapshotted when the status leaves concept. Containers regularly
+         * arrive with less than was ordered; from then on the line can say
+         * "ordered 96, received 90" instead of silently forgetting what was
+         * agreed. Null for lines added after ordering.
+         */
+        Integer orderedQuantity
 ) {}

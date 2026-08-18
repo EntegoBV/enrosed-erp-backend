@@ -48,7 +48,7 @@
       <span class="label" style="display:block">Inkoopcalculatie</span><b>{order.number}</b><br/>
       <span class="label" style="margin-top:5px;display:block">Datum</span>{orderDate}<br/>
       <span class="label" style="margin-top:5px;display:block">Leverancier</span>{supplierName}<br/>
-      <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType}<br/>
+      <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType.label}<br/>
       <span class="label" style="margin-top:5px;display:block">Bestemming</span>{order.destinationPort}
       {#if showRevenue}
         <div style="margin-top:6px"><span class="stamp">Intern</span></div>

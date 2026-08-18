@@ -88,6 +88,8 @@ public final class SourcingEntities {
         public PurchaseOrderEntity order;
         public Long productId;
         public int quantity;
+        /** Quantity at the moment of ordering; null for lines added later. */
+        public Integer orderedQuantity;
         @Column(precision = 19, scale = 6) public BigDecimal exwPrice;
         @Enumerated(EnumType.STRING) public Currency exwCurrency;
         @Column(precision = 19, scale = 6) public BigDecimal extraUnitCost;

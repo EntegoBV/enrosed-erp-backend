@@ -94,7 +94,7 @@ public class PurchaseOrderService {
                 source.allocExtra(), source.destinationPort(), source.notes(),
                 source.lines().stream()
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
-                                line.exwPrice(), line.exwCurrency(), line.extraUnitCost()))
+                                line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null))
                         .toList()));
     }
 
@@ -143,7 +143,8 @@ public class PurchaseOrderService {
             }
             /* Saved as entered; the warning is the whole intervention. */
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
-                    line.exwPrice(), line.exwCurrency(), line.extraUnitCost()));
+                    line.exwPrice(), line.exwCurrency(), line.extraUnitCost(),
+                    orderedQuantityFor(current, changes, line, requested)));
         }
 
         PurchaseOrder saved = orders.save(new PurchaseOrder(
@@ -167,6 +168,33 @@ public class PurchaseOrderService {
      * orders met hetzelfde nummer wordt geweigerd: elke verwijzing ernaar zou
      * dan dubbelzinnig zijn. Leeg laten betekent: laat staan wat er stond.
      */
+    /**
+     * What the line's ordered-quantity snapshot should be after this update.
+     *
+     * The moment the order leaves concept it has been placed with the
+     * supplier; from then on the quantity as ordered is a fact worth keeping.
+     * Containers regularly arrive short, and "ordered 96, received 90" is the
+     * difference between an explainable order and a mystery. Lines added
+     * after ordering never get a snapshot: nothing was agreed for them.
+     */
+    private Integer orderedQuantityFor(PurchaseOrder current, PurchaseOrder changes,
+                                       PurchaseOrderLine line, int requested) {
+        boolean placingNow = current.status() == PurchaseOrderStatus.CONCEPT
+                && changes.status() != PurchaseOrderStatus.CONCEPT;
+        if (placingNow) {
+            /* This save confirms the order: these are the agreed quantities. */
+            return requested;
+        }
+        if (current.status() == PurchaseOrderStatus.CONCEPT) {
+            /* Not ordered yet: nothing has been agreed, so nothing to keep. */
+            return null;
+        }
+        /* Past ordering: the snapshot is history and never changes. Lines
+           added after ordering stay without one - nothing was agreed for
+           them. */
+        return line.orderedQuantity();
+    }
+
     private String numberFor(PurchaseOrder current, PurchaseOrder changes) {
         String wanted = changes.number() == null ? null : changes.number().trim();
         if (wanted == null || wanted.isBlank() || wanted.equals(current.number())) {

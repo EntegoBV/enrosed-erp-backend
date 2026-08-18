@@ -131,6 +131,7 @@ public final class PanacheSourcingRepositories {
                 }
                 target.productId = line.productId();
                 target.quantity = line.quantity();
+                target.orderedQuantity = line.orderedQuantity();
                 target.exwPrice = line.exwPrice();
                 target.exwCurrency = line.exwCurrency();
                 target.extraUnitCost = line.extraUnitCost();
@@ -150,7 +151,8 @@ public final class PanacheSourcingRepositories {
             List<PurchaseOrderLine> lines = new ArrayList<>();
             for (PurchaseOrderLineEntity line : entity.lines) {
                 lines.add(new PurchaseOrderLine(line.id, line.productId, line.quantity,
-                        line.exwPrice, line.exwCurrency, line.extraUnitCost));
+                        line.exwPrice, line.exwCurrency, line.extraUnitCost,
+                        line.orderedQuantity));
             }
             return new PurchaseOrder(entity.id, entity.number, entity.supplierId, entity.orderDate,
                     entity.status, ContainerType.fromCode(entity.containerType),

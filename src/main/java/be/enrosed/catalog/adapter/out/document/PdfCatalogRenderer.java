@@ -7,6 +7,8 @@ import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
+import be.enrosed.shared.DocumentText;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
@@ -24,6 +26,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,56 +60,68 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.fonts = fonts;
     }
 
-    /** Eén productregel, klaar voor het sjabloon. */
-    public record Item(String sku, String name, String size, String colour, String category,
+    /** One product card, ready for the template. */
+    public record Item(String sku, String name, String description, String size, String colour,
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
                        String priceLabel, Integer stockQuantity,
-                       /** Hoofdfoto groot, de rest als kleine bijbeelden. */
+                       /** Main photo large, the rest as small thumbnails. */
                        String photoDataUri, List<String> extraPhotos) {}
+
+    /**
+     * A category with its cards, three per row.
+     *
+     * The catalogue reads as chapters: the category name and its description
+     * open a section, the products follow. At a fair that is how people
+     * browse - "show me the glass domes" - not alphabetically across
+     * everything at once.
+     */
+    public record Section(String name, String description, List<List<Item>> rows) {}
 
     @Override
     public Document render(List<Product> selection, Map<Long, Category> categoriesById,
                            CatalogExportService.Request request) {
 
-        List<Item> items = new ArrayList<>();
-        for (Product product : selection) {
-            Category category = product.categoryId() == null
-                    ? null : categoriesById.get(product.categoryId());
+        Language language = Language.of(request.language());
+        Map<String, String> text = DocumentText.of(language);
 
-            items.add(new Item(
-                    product.sku(),
-                    product.name(),
-                    product.dimensions() == null ? "" : product.dimensions().label(),
-                    product.colour(),
-                    category == null ? "" : category.name(),
-                    product.barcodes() == null ? null : product.barcodes().inner(),
-                    product.barcodes() == null ? null : product.barcodes().outer(),
-                    product.carton() == null ? 0 : product.carton().piecesPerCarton(),
-                    product.carton() == null || product.carton().dimensions() == null
-                            ? "" : product.carton().dimensions().label(),
-                    request.includePrices() ? priceLabel(product) : null,
-                    product.stockQuantity(),
-                    request.includePhotos() ? photoDataUri(product.primaryPhoto()) : null,
-                    request.includePhotos() ? extraPhotos(product, request) : List.of()));
+        /* Group per category, keeping the configured category order. */
+        Map<Long, List<Item>> byCategory = new LinkedHashMap<>();
+        List<Category> ordered = categoriesById.values().stream()
+                .sorted(Comparator.comparingInt(Category::position))
+                .toList();
+        for (Category category : ordered) {
+            byCategory.put(category.id(), new ArrayList<>());
+        }
+        List<Item> uncategorised = new ArrayList<>();
+
+        for (Product product : selection) {
+            Item item = toItem(product, language, request);
+            List<Item> bucket = product.categoryId() == null
+                    ? uncategorised : byCategory.get(product.categoryId());
+            (bucket == null ? uncategorised : bucket).add(item);
         }
 
-        /* De sjabloontaal kan geen modulo, dus de rijen worden hier al gevormd.
-           Twee kaarten per rij; de laatste rij krijgt eventueel een lege cel. */
-        List<List<Item>> rows = new ArrayList<>();
-        for (int i = 0; i < items.size(); i += 2) {
-            rows.add(items.subList(i, Math.min(i + 2, items.size())));
+        List<Section> sections = new ArrayList<>();
+        for (Category category : ordered) {
+            List<Item> items = byCategory.get(category.id());
+            if (items.isEmpty()) continue;
+            sections.add(new Section(category.name(), category.description(), chunk(items)));
+        }
+        if (!uncategorised.isEmpty()) {
+            sections.add(new Section(null, null, chunk(uncategorised)));
         }
 
         String html = template
-                .data("items", items)
-                .data("rows", rows)
+                .data("sections", sections)
+                .data("itemCount", selection.size())
                 .data("title", request.title() == null || request.title().isBlank()
                         ? "Productcatalogus" : request.title())
                 .data("intro", request.intro())
-                .data("today", LocalDate.now())
+                .data("todayText", DocumentText.date(LocalDate.now(), language))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
+                .data("t", text)
                 .render();
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -119,6 +135,34 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         } catch (IOException e) {
             throw new UncheckedIOException("Kan de catalogus-PDF niet opbouwen", e);
         }
+    }
+
+    private Item toItem(Product product, Language language,
+                        CatalogExportService.Request request) {
+        return new Item(
+                product.sku(),
+                product.nameIn(language),
+                product.descriptionIn(language),
+                product.dimensions() == null ? "" : product.dimensions().label(),
+                product.colourIn(language),
+                product.barcodes() == null ? null : product.barcodes().inner(),
+                product.barcodes() == null ? null : product.barcodes().outer(),
+                product.carton() == null ? 0 : product.carton().piecesPerCarton(),
+                product.carton() == null || product.carton().dimensions() == null
+                        ? "" : product.carton().dimensions().label(),
+                request.includePrices() ? priceLabel(product) : null,
+                product.stockQuantity(),
+                request.includePhotos() ? photoDataUri(product.primaryPhoto()) : null,
+                request.includePhotos() ? extraPhotos(product, request) : List.of());
+    }
+
+    /** The template language has no modulo, so rows of three are built here. */
+    private static List<List<Item>> chunk(List<Item> items) {
+        List<List<Item>> rows = new ArrayList<>();
+        for (int i = 0; i < items.size(); i += 3) {
+            rows.add(items.subList(i, Math.min(i + 3, items.size())));
+        }
+        return rows;
     }
 
     private String priceLabel(Product product) {
