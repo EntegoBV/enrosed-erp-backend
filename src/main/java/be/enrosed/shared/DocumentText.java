@@ -161,7 +161,7 @@ public final class DocumentText {
                     + " die kunnen bevestigen. U krijgt dan een aangepaste offerte in uw mailbox.",
             "mailFreightPending", "De vrachtkosten worden nog bepaald. Zodra ze vastliggen sturen"
                     + " wij u een aangepaste offerte.",
-            "mailButton", "Offerte online bekijken",
+            "mailButton", "Offerte digitaal tekenen",
             "mailClosing", "Met vriendelijke groeten",
             /* portaal */
             "portalYourQuote", "Uw offerte",
@@ -294,7 +294,7 @@ public final class DocumentText {
                     + " nous pouvons le confirmer. Vous recevrez alors une offre adaptée.",
             "mailFreightPending", "Les frais de transport restent à déterminer. Dès qu'ils seront"
                     + " fixés, nous vous enverrons une offre adaptée.",
-            "mailButton", "Consulter l'offre en ligne",
+            "mailButton", "Signer l'offre numériquement",
             "mailClosing", "Cordialement",
             "portalYourQuote", "Votre offre",
             "portalStatusOpen", "En attente",
@@ -424,7 +424,7 @@ public final class DocumentText {
                     + " can confirm one. You will then receive an amended quotation.",
             "mailFreightPending", "Freight charges are still to be determined. As soon as they are"
                     + " settled we will send you an amended quotation.",
-            "mailButton", "View quotation online",
+            "mailButton", "Sign the quotation digitally",
             "mailClosing", "Kind regards",
             "portalYourQuote", "Your quotation",
             "portalStatusOpen", "Awaiting your response",
@@ -557,7 +557,7 @@ public final class DocumentText {
                     + " bestätigen können. Sie erhalten dann ein angepasstes Angebot.",
             "mailFreightPending", "Die Frachtkosten werden noch ermittelt. Sobald sie feststehen,"
                     + " senden wir Ihnen ein angepasstes Angebot.",
-            "mailButton", "Angebot online ansehen",
+            "mailButton", "Angebot digital unterzeichnen",
             "mailClosing", "Mit freundlichen Grüßen",
             "portalYourQuote", "Ihr Angebot",
             "portalStatusOpen", "Zur Prüfung",
@@ -689,7 +689,7 @@ public final class DocumentText {
                     + " confirmarlo. Recibirá entonces un presupuesto actualizado.",
             "mailFreightPending", "Los gastos de transporte están por determinar. En cuanto se fijen le"
                     + " enviaremos un presupuesto actualizado.",
-            "mailButton", "Ver el presupuesto en línea",
+            "mailButton", "Firmar el presupuesto digitalmente",
             "mailClosing", "Un cordial saludo",
             "portalYourQuote", "Su presupuesto",
             "portalStatusOpen", "Pendiente de respuesta",
@@ -826,7 +826,7 @@ public final class DocumentText {
                     + " zaktualizowaną ofertę.",
             "mailFreightPending", "Koszty transportu są jeszcze do ustalenia. Gdy tylko zostaną"
                     + " ustalone, prześlemy Państwu zaktualizowaną ofertę.",
-            "mailButton", "Zobacz ofertę online",
+            "mailButton", "Podpisz ofertę cyfrowo",
             "mailClosing", "Z poważaniem",
             "portalYourQuote", "Państwa oferta",
             "portalStatusOpen", "Oczekuje na odpowiedź",
@@ -961,7 +961,7 @@ public final class DocumentText {
                     + " possamos confirmar. Receberá então um orçamento atualizado.",
             "mailFreightPending", "Os custos de transporte estão ainda por determinar. Assim que"
                     + " estiverem definidos enviaremos um orçamento atualizado.",
-            "mailButton", "Ver o orçamento online",
+            "mailButton", "Assinar o orçamento digitalmente",
             "mailClosing", "Com os melhores cumprimentos",
             "portalYourQuote", "O seu orçamento",
             "portalStatusOpen", "A aguardar resposta",
@@ -1099,7 +1099,7 @@ public final class DocumentText {
                     + " alacaksınız.",
             "mailFreightPending", "Navlun bedeli henüz belirlenmedi. Netleştiği anda size güncellenmiş"
                     + " bir teklif göndereceğiz.",
-            "mailButton", "Teklifi çevrimiçi görüntüle",
+            "mailButton", "Teklifi dijital olarak imzalayın",
             "mailClosing", "Saygılarımızla",
             "portalYourQuote", "Teklifiniz",
             "portalStatusOpen", "Yanıtınız bekleniyor",

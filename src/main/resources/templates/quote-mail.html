@@ -3,9 +3,6 @@
 <head><meta charset="utf-8"/></head>
 <body style="font-family:Helvetica,Arial,sans-serif;color:#1a1614;font-size:15px;line-height:1.55">
 
-  <p style="font-family:Georgia,serif;font-size:22px;letter-spacing:2px;margin:0 0 18px">
-    ENR<span style="color:#b01f3f">O</span>SED
-  </p>
 
   <p>{t.mailGreeting}{#if customer.contact} {customer.contact}{/if},</p>
 
@@ -68,7 +65,20 @@
     {validUntilSentence}
   </p>
 
-  <p>{t.mailClosing},<br/>Enrosed</p>
+  <p style="margin:26px 0 0">{t.mailClosing},</p>
+
+  <!-- Handtekening: het woordmerk als tekst, geen afbeelding - beeldblokkering
+       in mailprogramma's kan er dan niets aan stukmaken. -->
+  <p style="font-family:Georgia,serif;font-size:20px;letter-spacing:2px;margin:16px 0 2px">
+    ENR<span style="color:#b01f3f">O</span>SED
+  </p>
+  <p style="margin:0 0 12px;color:#8a807a;font-size:12.5px">Advice | Sales &amp; Support</p>
+
+  <p style="margin:0;font-size:13px;color:#5b534e;line-height:1.75">
+    T: <a href="tel:+32470024207" style="color:#5b534e;text-decoration:none">+32 4 70 02 42 07</a><br/>
+    M: <a href="mailto:hello@enrosed.com" style="color:#5b534e;text-decoration:none">hello@enrosed.com</a><br/>
+    W: <a href="https://enrosed.com" style="color:#5b534e;text-decoration:none">enrosed.com</a>
+  </p>
 
 </body>
 </html>
