@@ -96,4 +96,16 @@ public final class SourcingEntities {
         @Enumerated(EnumType.STRING) public Currency exwCurrency;
         @Column(precision = 19, scale = 6) public BigDecimal extraUnitCost;
     }
+    /** One forwarder quote on a China -> Rotterdam route; feeds the dashboard. */
+    @Entity
+    @Table(name = "freight_rate")
+    public static class FreightRateEntity extends io.quarkus.hibernate.orm.panache.PanacheEntityBase {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        public String route;
+        public java.time.LocalDate quotedOn;
+        @Column(precision = 19, scale = 2)
+        public java.math.BigDecimal usdPerContainer;
+    }
+
 }
