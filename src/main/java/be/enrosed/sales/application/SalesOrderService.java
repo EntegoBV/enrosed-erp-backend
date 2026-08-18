@@ -177,7 +177,8 @@ public class SalesOrderService {
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
                         .toList(),
                 source.pallets().stream()
-                        .map(pallet -> new OrderPallet(null, pallet.label(), pallet.items()))
+                        .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
+                                pallet.items()))
                         .toList()));
     }
 

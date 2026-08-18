@@ -158,6 +158,8 @@ public final class SalesEntities {
         public SalesOrderEntity order;
         public int position;
         public String label;
+        /** Pallet type; "Europallet" unless the seller picked another. */
+        public String palletType;
 
         @OneToMany(mappedBy = "pallet", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")

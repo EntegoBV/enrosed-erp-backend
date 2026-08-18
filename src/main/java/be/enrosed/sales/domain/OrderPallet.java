@@ -19,9 +19,22 @@ public record OrderPallet(
         Long id,
         /** Free label, e.g. "Pallet 1 - glas" or a customer reference. */
         String label,
+        /**
+         * Pallet type, e.g. "Europallet" or "Blokpallet 100×120".
+         *
+         * Informational: freight counts pallet positions regardless of the
+         * wood underneath, but the transporter and the warehouse want to
+         * know what to expect on the truck.
+         */
+        String type,
         List<Item> items
 ) {
     public record Item(long productId, int cartons) {}
+
+    /** The default is the standard of European road freight. */
+    public String type() {
+        return type == null || type.isBlank() ? "Europallet" : type;
+    }
 
     public List<Item> items() {
         return items == null ? List.of() : items;
