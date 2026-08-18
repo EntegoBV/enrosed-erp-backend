@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <title>Pakbon {slip.order.number}</title>
+  <style>
+    @page { size: A4; margin: 18mm 15mm; }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #1a1614; }
+    h1 { font-size: 20pt; margin: 0; letter-spacing: 2px; color: #b01f3f; }
+    .head { border-bottom: 2px solid #1a1614; padding-bottom: 10px; }
+    .head td { vertical-align: top; }
+    .meta { text-align: right; font-size: 8.5pt; }
+    .meta b { display: block; font-size: 10pt; }
+    .label { font-size: 7pt; letter-spacing: 1px; text-transform: uppercase; color: #8a807a; }
+    .parties { margin: 14px 0; width: 100%; }
+    .parties td { vertical-align: top; width: 50%; padding-right: 20px; }
+    .pallet { margin-top: 14px; border: 1px solid #d8d0c9; }
+    .pallet-head { background: #f6f1ec; padding: 6px 10px; font-weight: bold;
+                   border-bottom: 1px solid #d8d0c9; }
+    .pallet-head .sub { font-weight: normal; color: #8a807a; font-size: 8pt; }
+    table.items { width: 100%; border-collapse: collapse; }
+    table.items th { text-align: left; font-size: 7pt; letter-spacing: 0.6px;
+                     text-transform: uppercase; color: #4a423e;
+                     padding: 5px 10px; border-bottom: 1px solid #e9e3de; }
+    table.items td { padding: 5px 10px; border-bottom: 1px solid #f0ebe6; }
+    table.items tr:last-child td { border-bottom: 0; }
+    .r { text-align: right; }
+    .totals { margin-top: 14px; padding: 9px 12px; background: #fcfaf8;
+              border: 1px solid #d8d0c9; font-weight: bold; }
+    .sign { margin-top: 28px; width: 100%; }
+    .sign td { width: 50%; padding-right: 24px; vertical-align: bottom; }
+    .sign .line { border-top: 1px solid #1a1614; margin-top: 34px; padding-top: 4px;
+                  font-size: 7.5pt; color: #8a807a; }
+  </style>
+</head>
+<body>
+
+  <table class="head" style="width:100%">
+    <tr>
+      <td>
+        {#if logo}<img src="{logo}" style="height:34px"/>{#else}<h1>ENROSED</h1>{/if}
+        <div style="font-size:8pt;color:#8a807a;margin-top:4px">{company.name} · {company.addressLine}</div>
+      </td>
+      <td class="meta">
+        <span class="label">Pakbon</span>
+        <b>{slip.order.number}</b>
+        {date}
+      </td>
+    </tr>
+  </table>
+
+  <table class="parties">
+    <tr>
+      <td>
+        <span class="label">Leveradres</span><br/>
+        {#if slip.customer}
+          <b>{slip.customer.company}</b><br/>
+          {#if slip.customer.contact}{slip.customer.contact}<br/>{/if}
+          {#if slip.customer.address}{slip.customer.address}<br/>{/if}
+          {#if slip.customer.city}{slip.customer.postalCode} {slip.customer.city}{/if}
+          {#if slip.customer.countryCode} ({slip.customer.countryCode}){/if}
+        {#else}—{/if}
+      </td>
+      <td>
+        <span class="label">Levering</span><br/>
+        {slip.order.incoterm}
+        {#if slip.pallets}
+          <br/><span class="label" style="margin-top:6px">Pallets</span><br/>
+          {slip.pallets.size} stuks
+        {/if}
+      </td>
+    </tr>
+  </table>
+
+  {#for pallet in slip.pallets}
+    <div class="pallet">
+      <div class="pallet-head">
+        {pallet.label}
+        <span class="sub"> — {pallet.type}{#if pallet.heightCm} · {pallet.heightCm} cm hoog{/if}</span>
+      </div>
+      <table class="items">
+        <tr><th>Product</th><th class="r">Dozen</th><th class="r">Stuks</th></tr>
+        {#for item in pallet.items}
+          <tr>
+            <td>{item.description}</td>
+            <td class="r">{item.cartons}</td>
+            <td class="r">{item.pieces}</td>
+          </tr>
+        {/for}
+      </table>
+    </div>
+  {/for}
+
+  {#if slip.loose}
+    <div class="pallet">
+      <div class="pallet-head">
+        {#if slip.pallets}Niet op een pallet{#else}Inhoud{/if}
+      </div>
+      <table class="items">
+        <tr><th>Product</th><th class="r">Dozen</th><th class="r">Stuks</th></tr>
+        {#for item in slip.loose}
+          <tr>
+            <td>{item.description}</td>
+            <td class="r">{item.cartons}</td>
+            <td class="r">{item.pieces}</td>
+          </tr>
+        {/for}
+      </table>
+    </div>
+  {/if}
+
+  <div class="totals">
+    Totaal: {slip.totalCartons} dozen · {slip.totalPieces} stuks{#if slip.pallets} · {slip.pallets.size} pallet(s){/if}
+  </div>
+
+  <table class="sign">
+    <tr>
+      <td><div class="line">Geladen door / datum</div></td>
+      <td><div class="line">Ontvangen door / datum</div></td>
+    </tr>
+  </table>
+
+</body>
+</html>

@@ -36,6 +36,7 @@ import java.util.Map;
 public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     private final Template quoteTemplate;
+    private final Template packingSlipTemplate;
     private final Brand brand;
     private final CompanyProfileService company;
     private final PdfFonts fonts;
@@ -44,9 +45,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
     String portalBaseUrl;
 
-    public PdfQuoteRenderer(@Location("quote.html") Template quoteTemplate, Brand brand,
+    public PdfQuoteRenderer(@Location("quote.html") Template quoteTemplate,
+                            @Location("packing-slip.html") Template packingSlipTemplate,
+                            Brand brand,
                             CompanyProfileService company, PdfFonts fonts) {
         this.quoteTemplate = quoteTemplate;
+        this.packingSlipTemplate = packingSlipTemplate;
         this.brand = brand;
         this.company = company;
         this.fonts = fonts;
@@ -118,4 +122,16 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         }
         return text.get("toBeAgreed");
     }
+    @Override
+    public Document packingSlip(PackingSlip slip) {
+        String html = packingSlipTemplate
+                .data("slip", slip)
+                .data("logo", brand.logoDataUri())
+                .data("company", company.get())
+                .data("date", be.enrosed.shared.DocumentFormat.be(java.time.LocalDate.now()))
+                .render();
+        return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
+                "application/pdf");
+    }
+
 }

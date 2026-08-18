@@ -62,6 +62,57 @@ public class QuoteService {
         this.events = events;
     }
 
+    /**
+     * The packing slip: pallets as laid out by hand, or simply the lines
+     * when no pallets exist - pallets are never a requirement, the paper
+     * adapts to how far the planning got.
+     */
+    public QuoteDocumentRenderer.Document packingSlip(long orderId) {
+        SalesOrder order = salesOrders.get(orderId);
+        Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+
+        java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
+        java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
+        for (int i = 0; i < order.pallets().size(); i++) {
+            OrderPallet pallet = order.pallets().get(i);
+            java.util.List<QuoteDocumentRenderer.PackingItem> items = new java.util.ArrayList<>();
+            for (OrderPallet.Item item : pallet.items()) {
+                var product = products.get(item.productId());
+                int per = product.carton() == null ? 1
+                        : Math.max(1, product.carton().piecesPerCarton());
+                items.add(new QuoteDocumentRenderer.PackingItem(
+                        product.describe(), item.cartons(), item.cartons() * per));
+                assigned.merge(item.productId(), item.cartons(), Integer::sum);
+            }
+            String label = pallet.label() == null || pallet.label().isBlank()
+                    ? "Pallet " + (i + 1) : pallet.label();
+            pallets.add(new QuoteDocumentRenderer.PackingPallet(
+                    label, pallet.type(), pallet.heightCm(), items));
+        }
+
+        /* Lines not (fully) on a pallet: the loose rest. Without any manual
+           pallets this simply lists the whole order. */
+        java.util.List<QuoteDocumentRenderer.PackingItem> loose = new java.util.ArrayList<>();
+        int totalCartons = 0;
+        int totalPieces = 0;
+        for (var line : order.lines()) {
+            var product = products.get(line.productId());
+            int per = product.carton() == null ? 1
+                    : Math.max(1, product.carton().piecesPerCarton());
+            int cartons = (line.quantity() + per - 1) / per;
+            totalCartons += cartons;
+            totalPieces += line.quantity();
+            int left = cartons - assigned.getOrDefault(line.productId(), 0);
+            if (left > 0) {
+                loose.add(new QuoteDocumentRenderer.PackingItem(
+                        product.describe(), left, left * per));
+            }
+        }
+
+        return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
+                order, customer, pallets, loose, totalCartons, totalPieces));
+    }
+
     /* ============================================================= sending */
 
     /**

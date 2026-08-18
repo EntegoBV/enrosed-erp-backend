@@ -105,6 +105,17 @@ public class SalesOrderResource {
         return new OrderView(reopened, salesOrders.price(reopened));
     }
 
+    /** The packing slip: pallets when laid out, plain lines otherwise. */
+    @GET
+    @Path("/{id}/packing-slip")
+    @Produces("application/pdf")
+    public Response packingSlip(@PathParam("id") long id) {
+        QuoteDocumentRenderer.Document document = quotes.packingSlip(id);
+        return Response.ok(document.content())
+                .header("Content-Disposition", "inline; filename=" + document.filename())
+                .build();
+    }
+
     @GET
     @Path("/{id}/pdf")
     @Produces("application/pdf")
