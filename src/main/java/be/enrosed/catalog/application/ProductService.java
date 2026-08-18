@@ -53,7 +53,7 @@ public class ProductService {
     public Product create(Product product) {
         validate(product);
         Product withSku = product.sku() == null || product.sku().isBlank()
-                ? withSku(product, nextSku())
+                ? product.withSku(nextSku())
                 : product;
         products.findBySku(withSku.sku()).ifPresent(existing -> {
             throw new BusinessRuleException("SKU " + withSku.sku() + " bestaat al");
@@ -141,16 +141,7 @@ public class ProductService {
      */
     @Transactional
     public void applyLandedCost(long productId, BigDecimal landedCostEur, String source) {
-        Product current = get(productId);
-        products.save(new Product(
-                current.id(), current.sku(), current.name(), current.dimensions(), current.colour(),
-                current.description(),
-                current.categoryId(), current.supplierId(), current.active(),
-                current.barcodes(), current.hsCode(), current.carton(),
-                current.exwPrice(), current.exwCurrency(), current.extraUnitCost(),
-                landedCostEur, source,
-                current.markupPct(), current.fixedSalesPriceEur(),
-                current.stockQuantity(), current.photos(), current.texts()));
+        products.save(get(productId).withLandedCost(landedCostEur, source));
     }
 
     /**
@@ -164,15 +155,7 @@ public class ProductService {
     @Transactional
     public void adjustStock(long productId, int delta) {
         Product current = get(productId);
-        products.save(new Product(
-                current.id(), current.sku(), current.name(), current.dimensions(), current.colour(),
-                current.description(),
-                current.categoryId(), current.supplierId(), current.active(),
-                current.barcodes(), current.hsCode(), current.carton(),
-                current.exwPrice(), current.exwCurrency(), current.extraUnitCost(),
-                current.landedCostEur(), current.landedCostSource(),
-                current.markupPct(), current.fixedSalesPriceEur(),
-                current.stockQuantity() + delta, current.photos(), current.texts()));
+        products.save(current.withStockQuantity(current.stockQuantity() + delta));
     }
 
     /* ------------------------------------------------------------ fotos */
@@ -190,7 +173,7 @@ public class ProductService {
         photos.add(new Photo(null, stored.storageKey(), filename, contentType,
                 stored.sizeBytes(), stored.widthPx(), stored.heightPx(), photos.size()));
 
-        return products.save(withPhotos(product, photos));
+        return products.save(product.withPhotos(photos));
     }
 
     @Transactional
@@ -204,7 +187,7 @@ public class ProductService {
         List<Photo> photos = new ArrayList<>(product.photos());
         photos.remove(target);
         photoStorage.delete(target.storageKey());
-        return products.save(withPhotos(product, renumber(photos)));
+        return products.save(product.withPhotos(renumber(photos)));
     }
 
     /** Zet de reeks in de volgorde van de meegegeven id's; de eerste is de hoofdfoto. */
@@ -223,7 +206,7 @@ public class ProductService {
         /* Wat niet genoemd is behoudt zijn relatieve volgorde achteraan. */
         photos.stream().filter(photo -> !ordered.contains(photo)).forEach(ordered::add);
 
-        return products.save(withPhotos(product, renumber(ordered)));
+        return products.save(product.withPhotos(renumber(ordered)));
     }
 
     public Photo photo(long productId, long photoId) {
@@ -279,26 +262,5 @@ public class ProductService {
         return result;
     }
 
-    private static Product withPhotos(Product product, List<Photo> photos) {
-        return new Product(product.id(), product.sku(), product.name(), product.dimensions(),
-                product.colour(), product.description(),
-                product.categoryId(), product.supplierId(), product.active(),
-                product.barcodes(), product.hsCode(), product.carton(),
-                product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
-                product.landedCostEur(), product.landedCostSource(),
-                product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
-                photos.stream().sorted(Comparator.comparingInt(Photo::position)).toList(),
-                product.texts());
-    }
 
-    private static Product withSku(Product product, String sku) {
-        return new Product(product.id(), sku, product.name(), product.dimensions(),
-                product.colour(), product.description(),
-                product.categoryId(), product.supplierId(), product.active(),
-                product.barcodes(), product.hsCode(), product.carton(),
-                product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
-                product.landedCostEur(), product.landedCostSource(),
-                product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
-                product.photos(), product.texts());
-    }
 }

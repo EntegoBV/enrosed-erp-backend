@@ -218,15 +218,9 @@ public class QuoteService {
         if (signedByName == null || signedByName.isBlank()) {
             throw new BusinessRuleException("Vul je naam in om te tekenen");
         }
-        SalesOrder accepted = orders.save(new SalesOrder(
-                order.id(), order.number(), order.customerId(), order.countryCode(),
-                order.orderDate(), order.validUntil(), QuoteStatus.GEACCEPTEERD,
-                order.incoterm(), order.paymentTerms(), order.notes(),
-                order.markupMode(), order.orderMarkupPct(),
-                order.extraDiscountPct(), order.extraDiscountLabel(),
+        SalesOrder accepted = orders.save(withStatus(order, QuoteStatus.GEACCEPTEERD,
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
-                Instant.now(), signedByName.trim(), message, order.internalNotes(),
-                order.deliveryTerms(), order.freight(), order.manualFreightEur(), order.lines()));
+                Instant.now(), signedByName.trim(), message));
 
         record(order, QuoteEvent.Type.GETEKEND, true, signedByName.trim(),
                 "Offerte aanvaard en getekend", message);
@@ -240,15 +234,9 @@ public class QuoteService {
     public SalesOrder rejectByCustomer(String token, String message) {
         SalesOrder order = byToken(token);
         requireOpen(order);
-        SalesOrder rejected = orders.save(new SalesOrder(
-                order.id(), order.number(), order.customerId(), order.countryCode(),
-                order.orderDate(), order.validUntil(), QuoteStatus.AFGEWEZEN,
-                order.incoterm(), order.paymentTerms(), order.notes(),
-                order.markupMode(), order.orderMarkupPct(),
-                order.extraDiscountPct(), order.extraDiscountLabel(),
+        SalesOrder rejected = orders.save(withStatus(order, QuoteStatus.AFGEWEZEN,
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
-                Instant.now(), null, message, order.internalNotes(),
-                order.deliveryTerms(), order.freight(), order.manualFreightEur(), order.lines()));
+                Instant.now(), null, message));
 
         record(order, QuoteEvent.Type.AFGEWEZEN, true, null, "Offerte afgewezen door de klant",
                 message);

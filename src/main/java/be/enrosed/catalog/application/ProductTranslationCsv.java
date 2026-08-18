@@ -162,7 +162,7 @@ public class ProductTranslationCsv {
                 }
             }
 
-            products.save(replaceTexts(product, texts));
+            products.save(product.withTexts(texts));
             updatedProducts++;
         }
 
@@ -183,16 +183,6 @@ public class ProductTranslationCsv {
                 sameAs(text.colour(), product.colour()) ? null : blankToNull(text.colour()));
     }
 
-    private static Product replaceTexts(Product product, List<ProductText> texts) {
-        return new Product(product.id(), product.sku(), product.name(), product.dimensions(),
-                product.colour(), product.description(),
-                product.categoryId(), product.supplierId(), product.active(),
-                product.barcodes(), product.hsCode(), product.carton(),
-                product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
-                product.landedCostEur(), product.landedCostSource(),
-                product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
-                product.photos(), texts);
-    }
 
     /* ------------------------------------------------------------ csv */
 

@@ -139,4 +139,46 @@ public record Product(
         if (kleur != null && !kleur.isBlank()) text.append(" - ").append(kleur);
         return text.toString();
     }
+
+    /* Copy-methods: one aspect changes, everything else is carried over.
+       Services used to re-list all twenty fields for every small change;
+       one forgotten field in one of those lists silently wiped data. */
+
+    public Product withSku(String newSku) {
+        return new Product(id, newSku, name, dimensions, colour, description, categoryId,
+                supplierId, active, barcodes, hsCode, carton, exwPrice, exwCurrency,
+                extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                stockQuantity, photos, texts);
+    }
+
+    /** Photos in gallery order; sorting lives here so no caller can forget it. */
+    public Product withPhotos(List<Photo> newPhotos) {
+        List<Photo> ordered = newPhotos == null ? List.of() : newPhotos.stream()
+                .sorted(java.util.Comparator.comparingInt(Photo::position)).toList();
+        return new Product(id, sku, name, dimensions, colour, description, categoryId,
+                supplierId, active, barcodes, hsCode, carton, exwPrice, exwCurrency,
+                extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                stockQuantity, ordered, texts);
+    }
+
+    public Product withStockQuantity(int newStock) {
+        return new Product(id, sku, name, dimensions, colour, description, categoryId,
+                supplierId, active, barcodes, hsCode, carton, exwPrice, exwCurrency,
+                extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                newStock, photos, texts);
+    }
+
+    public Product withLandedCost(BigDecimal newLandedCostEur, String source) {
+        return new Product(id, sku, name, dimensions, colour, description, categoryId,
+                supplierId, active, barcodes, hsCode, carton, exwPrice, exwCurrency,
+                extraUnitCost, newLandedCostEur, source, markupPct, fixedSalesPriceEur,
+                stockQuantity, photos, texts);
+    }
+
+    public Product withTexts(List<ProductText> newTexts) {
+        return new Product(id, sku, name, dimensions, colour, description, categoryId,
+                supplierId, active, barcodes, hsCode, carton, exwPrice, exwCurrency,
+                extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                stockQuantity, photos, newTexts);
+    }
 }

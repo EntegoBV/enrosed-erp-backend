@@ -10,14 +10,10 @@ import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -108,17 +104,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         + (language == Language.NL ? "" : "?lang=en"))
                 .render();
 
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            PdfRendererBuilder builder = new PdfRendererBuilder();
-            builder.useFastMode();
-            fonts.applyTo(builder);
-            builder.withHtmlContent(html, null);
-            builder.toStream(out);
-            builder.run();
-            return new Document(order.number() + ".pdf", out.toByteArray(), "application/pdf");
-        } catch (IOException e) {
-            throw new UncheckedIOException("Kan de offerte-PDF niet opbouwen", e);
-        }
+        return new Document(order.number() + ".pdf", fonts.render(html), "application/pdf");
     }
 
     /** "vanaf 19/08/2026", "week 42 (12/10 - 18/10/2026)" of "in overleg". */

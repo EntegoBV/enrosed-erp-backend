@@ -1,6 +1,10 @@
 package be.enrosed.shared;
 
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.io.IOException;
@@ -73,6 +77,27 @@ public class PdfFonts {
             return target;
         } catch (IOException e) {
             throw new UncheckedIOException("Kan lettertype " + resource + " niet uitpakken", e);
+        }
+    }
+
+    /**
+     * Renders HTML to a PDF with the embedded fonts applied.
+     *
+     * Every document in the system goes through this one method, so the
+     * builder setup (fast mode, fonts) cannot drift apart between the
+     * quote, the catalogue and the purchase sheet.
+     */
+    public byte[] render(String html) {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PdfRendererBuilder builder = new PdfRendererBuilder();
+            builder.useFastMode();
+            applyTo(builder);
+            builder.withHtmlContent(html, null);
+            builder.toStream(out);
+            builder.run();
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not build the PDF", e);
         }
     }
 }

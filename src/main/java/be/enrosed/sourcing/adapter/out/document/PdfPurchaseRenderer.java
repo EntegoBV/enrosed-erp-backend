@@ -6,14 +6,10 @@ import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 
 /**
  * De inkoopcalculatie als PDF, om te bewaren of aan tafel te laten zien.
@@ -66,19 +62,8 @@ public class PdfPurchaseRenderer {
                 .data("showRevenue", showRevenue)
                 .render();
 
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            PdfRendererBuilder builder = new PdfRendererBuilder();
-            builder.useFastMode();
-            fonts.applyTo(builder);
-            builder.withHtmlContent(html, null);
-            builder.toStream(out);
-            builder.run();
-
-            String suffix = showRevenue ? "" : "-klantweergave";
-            return new Document(order.number() + suffix + ".pdf", out.toByteArray(),
-                    "application/pdf");
-        } catch (IOException e) {
-            throw new UncheckedIOException("Kan de inkoop-PDF niet opbouwen", e);
-        }
+        String suffix = showRevenue ? "" : "-klantweergave";
+        return new Document(order.number() + suffix + ".pdf", fonts.render(html),
+                "application/pdf");
     }
 }

@@ -164,14 +164,6 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Het ordernummer zoals het na een update moet worden.
-     *
-     * Zelf een nummer kunnen zetten is nodig bij een overstap uit een ander
-     * systeem of om aan te sluiten bij de nummering van de leverancier. Twee
-     * orders met hetzelfde nummer wordt geweigerd: elke verwijzing ernaar zou
-     * dan dubbelzinnig zijn. Leeg laten betekent: laat staan wat er stond.
-     */
-    /**
      * What the line's ordered-quantity snapshot should be after this update.
      *
      * The moment the order leaves concept it has been placed with the
@@ -198,6 +190,14 @@ public class PurchaseOrderService {
         return line.orderedQuantity();
     }
 
+    /**
+     * The order number as it should be after an update.
+     *
+     * Setting a number by hand matters when migrating from another system or
+     * matching the supplier's numbering. Two orders with the same number are
+     * refused: every reference to it would be ambiguous. Empty means: keep
+     * what was there.
+     */
     private String numberFor(PurchaseOrder current, PurchaseOrder changes) {
         String wanted = changes.number() == null ? null : changes.number().trim();
         if (wanted == null || wanted.isBlank() || wanted.equals(current.number())) {

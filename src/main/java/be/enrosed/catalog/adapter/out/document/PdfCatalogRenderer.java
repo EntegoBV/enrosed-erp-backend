@@ -12,16 +12,12 @@ import be.enrosed.shared.Language;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -131,17 +127,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("t", text)
                 .render();
 
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            PdfRendererBuilder builder = new PdfRendererBuilder();
-            builder.useFastMode();
-            fonts.applyTo(builder);
-            builder.withHtmlContent(html, null);
-            builder.toStream(out);
-            builder.run();
-            return new Document("enrosed-catalogus.pdf", out.toByteArray(), "application/pdf");
-        } catch (IOException e) {
-            throw new UncheckedIOException("Kan de catalogus-PDF niet opbouwen", e);
-        }
+        return new Document("enrosed-catalogus.pdf", fonts.render(html), "application/pdf");
     }
 
     private Item toItem(Product product, Language language,
