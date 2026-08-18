@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home", "mvn", "quarkus:dev"],
+      "port": 8080
+    }
+  ]
+}

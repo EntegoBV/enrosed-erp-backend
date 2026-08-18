@@ -19,6 +19,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.mailer.Mail;
@@ -67,9 +68,11 @@ public class SmtpQuoteMailer implements QuoteMailer {
     @ConfigProperty(name = "quarkus.mailer.host", defaultValue = "")
     String host;
 
-    /** Sleutel van de Brevo HTTPS-API; leeg betekent: verstuur via SMTP. */
-    @ConfigProperty(name = "enrosed.mail.brevo-api-key", defaultValue = "")
-    String brevoApiKey;
+    /* Optional, niet String: een lege ${BREVO_API_KEY:} wordt door SmallRye
+       als null gelezen en een kale String-injectie laat de app dan niet eens
+       opstarten. Leeg betekent gewoon: verstuur via SMTP. */
+    @ConfigProperty(name = "enrosed.mail.brevo-api-key")
+    Optional<String> brevoApiKey;
 
     /** Afzender, als "Naam <adres>" of kaal adres; gedeeld door beide routes. */
     @ConfigProperty(name = "quarkus.mailer.from", defaultValue = "offertes@enrosed.be")
@@ -125,7 +128,8 @@ public class SmtpQuoteMailer implements QuoteMailer {
             return;
         }
 
-        if (!brevoApiKey.isBlank()) {
+        String brevoKey = brevoApiKey.orElse("").trim();
+        if (!brevoKey.isEmpty()) {
             try {
                 sendViaBrevo(customer.email(), subject, body, null, document);
             } catch (Exception e) {
@@ -171,7 +175,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
            haperende mailserver mag diens actie niet blokkeren - de gebeurtenis
            staat toch al in de geschiedenis van de offerte. */
         try {
-            if (!mock && !brevoApiKey.isBlank()) {
+            if (!mock && !brevoApiKey.orElse("").isBlank()) {
                 sendViaBrevo(internalRecipient, subject, null, body, null);
             } else {
                 mailer.send(Mail.withText(internalRecipient, subject, body));
@@ -207,7 +211,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
 
         HttpRequest request = HttpRequest.newBuilder(BREVO_ENDPOINT)
                 .timeout(Duration.ofSeconds(25))
-                .header("api-key", brevoApiKey)
+                .header("api-key", brevoApiKey.orElse(""))
                 .header("content-type", "application/json")
                 .header("accept", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(
