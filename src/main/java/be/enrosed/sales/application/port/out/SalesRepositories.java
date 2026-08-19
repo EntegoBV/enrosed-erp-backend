@@ -47,5 +47,6 @@ public interface SalesRepositories {
     interface Events {
         List<QuoteEvent> findByOrder(long salesOrderId);
         QuoteEvent add(QuoteEvent event);
+        void deleteByOrder(long salesOrderId);
     }
 }

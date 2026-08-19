@@ -12,7 +12,6 @@ import javax.imageio.stream.ImageInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.UUID;
@@ -44,14 +43,7 @@ public class DatabasePhotoStorage implements PhotoStorage {
 
     @Override
     @Transactional
-    public Stored store(String originalFilename, String contentType, InputStream data) {
-        byte[] bytes;
-        try {
-            bytes = data.readAllBytes();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Kan de foto niet inlezen", e);
-        }
-
+    public Stored store(String originalFilename, String contentType, byte[] bytes) {
         PhotoBlobEntity entity = new PhotoBlobEntity();
         entity.storageKey = UUID.randomUUID() + extensionOf(originalFilename);
         entity.data = bytes;

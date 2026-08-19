@@ -1,0 +1,213 @@
+package be.enrosed.sourcing.application;
+
+import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.Barcodes;
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Product;
+import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.Currency;
+import be.enrosed.sourcing.application.port.out.SourcingRepositories;
+import be.enrosed.sourcing.domain.Allocation;
+import be.enrosed.sourcing.domain.ContainerType;
+import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseOrderLine;
+import be.enrosed.sourcing.domain.PurchaseOrderStatus;
+import be.enrosed.sourcing.domain.Supplier;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class PurchaseOrderServiceTest {
+
+    @Test
+    void lifecycleOnlyMovesForwardIncludingLegacyUnderwayPath() {
+        assertDoesNotThrow(() -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.CONCEPT, PurchaseOrderStatus.BESTELD));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.CONCEPT, PurchaseOrderStatus.ONDERWEG));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONTVANGEN));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.ONDERWEG, PurchaseOrderStatus.ONTVANGEN));
+
+        assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.CONCEPT, PurchaseOrderStatus.ONTVANGEN));
+        assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.CONCEPT));
+        assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireForwardTransition(
+                PurchaseOrderStatus.ONTVANGEN, PurchaseOrderStatus.ONDERWEG));
+    }
+
+    @Test
+    void receivingBooksStockExactlyOnce() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        RecordingProducts products = new RecordingProducts();
+        PurchaseOrderService service = service(orders, products);
+
+        PurchaseOrder received = service.update(10L,
+                order(PurchaseOrderStatus.ONTVANGEN, 6, 999)).order();
+        assertEquals(6, products.stockDelta);
+        assertEquals(6, received.lines().getFirst().orderedQuantity());
+
+        service.update(10L, received);
+        assertEquals(6, products.stockDelta, "a repeated received save must not book again");
+    }
+
+    @Test
+    void storedOrderedQuantityWinsOverClientValueAfterPlacement() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        PurchaseOrder saved = service.update(10L,
+                order(PurchaseOrderStatus.BESTELD, 9, 999)).order();
+
+        assertEquals(9, saved.lines().getFirst().quantity());
+        assertEquals(6, saved.lines().getFirst().orderedQuantity());
+    }
+
+    @Test
+    void receivedLinesCannotChangeAndReceivedOrderCannotBeDeleted() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.ONTVANGEN, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        assertThrows(BusinessRuleException.class,
+                () -> service.update(10L, order(PurchaseOrderStatus.ONTVANGEN, 7, 6)));
+        assertThrows(BusinessRuleException.class, () -> service.delete(10L));
+        assertFalse(orders.deleted);
+    }
+
+    @Test
+    void invalidReferencesAndNegativeCommercialValuesAreBusinessRules() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, null));
+        PurchaseOrderService missingSupplier = new PurchaseOrderService(
+                orders, new FixedSuppliers(false), new RecordingProducts(), null);
+
+        assertThrows(BusinessRuleException.class, () -> missingSupplier.update(
+                10L, order(PurchaseOrderStatus.CONCEPT, 6, null)));
+
+        PurchaseOrder base = order(PurchaseOrderStatus.CONCEPT, 6, null);
+        PurchaseOrder negativeFreight = new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
+                new BigDecimal("-1"), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.destinationPort(), base.notes(), base.lines());
+        assertThrows(BusinessRuleException.class,
+                () -> service(orders, new RecordingProducts()).update(10L, negativeFreight));
+    }
+
+    private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
+        return new PurchaseOrderService(orders, new FixedSuppliers(true), products, null);
+    }
+
+    private static PurchaseOrder order(PurchaseOrderStatus status, int quantity,
+                                       Integer orderedQuantity) {
+        return new PurchaseOrder(10L, "PO-TEST", null, 7L, LocalDate.now(), status,
+                ContainerType.FORTY_HQ, new BigDecimal("0.14"), new BigDecimal("0.90"),
+                new BigDecimal("0.90"), BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD,
+                BigDecimal.ZERO, new BigDecimal("5"), BigDecimal.ZERO,
+                Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
+                "Rotterdam", null,
+                List.of(new PurchaseOrderLine(100L, 1L, quantity,
+                        new BigDecimal("4"), Currency.USD, BigDecimal.ZERO, orderedQuantity)));
+    }
+
+    private static Product product() {
+        return new Product(1L, "SKU-1", "Testproduct", Dimensions.empty(), null, null,
+                1L, 7L, true, Barcodes.none(), null,
+                new Carton(Dimensions.empty(), 6, BigDecimal.ONE),
+                new BigDecimal("4"), Currency.USD, BigDecimal.ZERO,
+                null, null, BigDecimal.ZERO, null, 0, List.of(), List.of());
+    }
+
+    private static final class RecordingProducts extends ProductService {
+        private int stockDelta;
+
+        private RecordingProducts() {
+            super(null, null, null);
+        }
+
+        @Override
+        public List<Product> list() {
+            return List.of(product());
+        }
+
+        @Override
+        public void adjustStock(long productId, int delta) {
+            assertEquals(1L, productId);
+            stockDelta += delta;
+        }
+    }
+
+    private static final class FixedSuppliers implements SourcingRepositories.Suppliers {
+        private final boolean exists;
+
+        private FixedSuppliers(boolean exists) {
+            this.exists = exists;
+        }
+
+        @Override
+        public List<Supplier> findAll() {
+            return exists ? List.of(supplier()) : List.of();
+        }
+
+        @Override
+        public Optional<Supplier> findById(long id) {
+            return exists && id == 7L ? Optional.of(supplier()) : Optional.empty();
+        }
+
+        @Override
+        public Supplier save(Supplier supplier) {
+            return supplier;
+        }
+
+        @Override
+        public void deleteById(long id) {}
+
+        private static Supplier supplier() {
+            return new Supplier(7L, "Leverancier", "CN", null, null, null, null,
+                    Currency.USD, "FOB", "Shanghai", 30, null);
+        }
+    }
+
+    private static final class InMemoryOrders implements SourcingRepositories.PurchaseOrders {
+        private PurchaseOrder current;
+        private boolean deleted;
+
+        private InMemoryOrders(PurchaseOrder current) {
+            this.current = current;
+        }
+
+        @Override
+        public List<PurchaseOrder> findAll() {
+            return current == null ? List.of() : List.of(current);
+        }
+
+        @Override
+        public Optional<PurchaseOrder> findById(long id) {
+            return current != null && current.id() == id ? Optional.of(current) : Optional.empty();
+        }
+
+        @Override
+        public PurchaseOrder save(PurchaseOrder order) {
+            current = order;
+            return order;
+        }
+
+        @Override
+        public void deleteById(long id) {
+            deleted = true;
+            current = null;
+        }
+    }
+}

@@ -37,6 +37,11 @@ public class PanacheProductRepository implements ProductRepository {
     }
 
     @Override
+    public Optional<Product> findByPublicHandle(String publicHandle) {
+        return dao.find("publicHandle", publicHandle).firstResultOptional().map(CatalogMapper::toDomain);
+    }
+
+    @Override
     public Product save(Product product) {
         ProductEntity entity = product.id() == null ? null : dao.findById(product.id());
         if (entity == null) entity = new ProductEntity();
@@ -48,6 +53,12 @@ public class PanacheProductRepository implements ProductRepository {
         if (entity.id == null) dao.persist(entity);
         dao.flush();
         return CatalogMapper.toDomain(entity);
+    }
+
+    /** A single SQL update avoids lost stock when separate orders arrive together. */
+    @Override
+    public boolean adjustStock(long productId, int delta) {
+        return dao.update("stockQuantity = stockQuantity + ?1 where id = ?2", delta, productId) == 1;
     }
 
     @Override

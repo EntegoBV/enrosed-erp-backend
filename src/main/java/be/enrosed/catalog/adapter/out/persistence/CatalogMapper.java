@@ -38,6 +38,10 @@ final class CatalogMapper {
                 entity.categoryId,
                 entity.supplierId,
                 entity.active,
+                entity.familyKey,
+                entity.publicHandle,
+                entity.websiteStatus == null ? PublicationState.DRAFT : entity.websiteStatus,
+                entity.orderAppStatus == null ? PublicationState.DRAFT : entity.orderAppStatus,
                 new Barcodes(entity.barcodeInner, entity.barcodeOuter),
                 entity.hsCode,
                 new Carton(new Dimensions(entity.cartonLengthCm, entity.cartonWidthCm, entity.cartonHeightCm),
@@ -68,6 +72,10 @@ final class CatalogMapper {
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();
         entity.active = product.active();
+        entity.familyKey = blankToNull(product.familyKey());
+        entity.publicHandle = blankToNull(product.publicHandle());
+        entity.websiteStatus = product.publicationState(CatalogChannel.WEBSITE);
+        entity.orderAppStatus = product.publicationState(CatalogChannel.ORDER_APP);
 
         Barcodes codes = product.barcodes() == null ? Barcodes.none() : product.barcodes();
         entity.barcodeInner = blankToNull(codes.inner());
@@ -79,7 +87,7 @@ final class CatalogMapper {
         entity.cartonLengthCm = cartonSize.lengthCm();
         entity.cartonWidthCm = cartonSize.widthCm();
         entity.cartonHeightCm = cartonSize.heightCm();
-        entity.piecesPerCarton = Math.max(1, carton.piecesPerCarton());
+        entity.piecesPerCarton = carton.piecesPerCarton();
         entity.cartonWeightKg = carton.weightKg();
 
         entity.exwPrice = product.exwPrice();

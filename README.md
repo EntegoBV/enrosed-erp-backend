@@ -270,6 +270,34 @@ bedrijfsgegevens en logo staan in de kop.
 De knop **PDF maken** staat in de balk onderaan. Die balk blijft nu ook op desktop staan;
 hem daar verbergen betekende dat de hoofdactie van een pagina nergens stond.
 
+## ERP als bron voor website en bestelapp
+
+Een product blijft de voorraad dragende SKU. Verwante kleuren of uitvoeringen kunnen via
+de optionele `familyKey` als merchandisingfamilie bij elkaar horen. De `publicHandle` is
+de unieke, stabiele URL-identiteit; hij wordt niet uit een veranderlijke productnaam afgeleid.
+
+Website en bestelapp hebben elk hun eigen status: `DRAFT`, `READY` of `PUBLISHED`. Nieuwe
+en bestaande producten beginnen veilig als `DRAFT`. Bij het product levert de beheer-API
+`publicationIssues` terug met concrete Nederlandse aandachtspunten. Publiceren wordt door
+de server geweigerd zolang het product niet actief is of SKU, naam, categorie, beschrijving,
+foto, verkoopprijs, geldige omdoos of publieke handle ontbreken.
+
+De openbare, alleen-lezen contracten zijn:
+
+- `GET /api/v1/public/catalog?channel=WEBSITE&language=EN` — taal valt terug op `NL`;
+- `GET /api/v1/public/catalog/products/{productId}/photos/{photoId}` — alleen voor een
+  product dat op minstens één publiek kanaal gepubliceerd staat.
+
+De catalogus geeft uitsluitend actieve, voor dat kanaal gepubliceerde SKU's terug. Het is
+een aparte DTO en bevat dus nooit leverancier, EXW, landed cost, opslag/marge, HS-code,
+interne bron of exacte voorraad. Beschikbaarheid is alleen `IN_STOCK` of
+`AVAILABLE_ON_ORDER`. Naam, beschrijving en kleur zijn al in de gevraagde taal opgelost;
+consumenten hoeven de interne vertalingstabel niet te kennen.
+
+De masterdata-CSV bevat achteraan ook `family_key`, `public_handle`, `website_status` en
+`order_app_status`. Oude bestanden zonder die vier kolommen blijven bruikbaar: lege of
+ontbrekende cellen laten de huidige waarde staan.
+
 ## Levertermijn per regel
 
 Elke verkooporderregel krijgt automatisch een leverdatum: vanaf de eerstvolgende **werkdag**
@@ -515,10 +543,11 @@ server te vragen — en verschijnen op elke offerte, factuur en catalogus.
 
 ## Foto's
 
-Onbeperkt, in volle kwaliteit, downloadbaar. De bytes gaan ongewijzigd de database in en
-komen er ongewijzigd weer uit — geen herschaling, geen hercompressie — zodat een foto die
-de leverancier op 4000 px aanlevert bruikbaar blijft voor drukwerk of een webshop. De
-eerste foto is de hoofdfoto en verschijnt in lijsten en op orderregels.
+Onbeperkt in aantal, in volle kwaliteit en downloadbaar. Eén bestand mag maximaal 25 MB
+zijn en moet werkelijk JPEG, PNG, GIF of WebP zijn. De bytes gaan daarna ongewijzigd de
+database in en komen er ongewijzigd weer uit — geen herschaling, geen hercompressie — zodat
+een foto die de leverancier op 4000 px aanlevert bruikbaar blijft voor drukwerk of een
+webshop. De eerste foto is de hoofdfoto en verschijnt in lijsten en op orderregels.
 
 Alles in de database houden betekent één back-up en één plek om te beveiligen. De keerzijde
 is dat de database hard groeit en dat blobs niet door een CDN gecachet worden. Loopt dat

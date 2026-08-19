@@ -229,5 +229,10 @@ public final class PanacheSalesRepositories {
             dao.flush();
             return SalesMapper.toDomain(entity);
         }
+
+        @Override
+        public void deleteByOrder(long salesOrderId) {
+            dao.delete("salesOrderId", salesOrderId);
+        }
     }
 }

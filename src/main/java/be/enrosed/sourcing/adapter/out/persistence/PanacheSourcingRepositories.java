@@ -5,6 +5,7 @@ import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.*;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,6 +89,12 @@ public final class PanacheSourcingRepositories {
         @Override
         public Optional<PurchaseOrder> findById(long id) {
             return Optional.ofNullable(dao.findById(id)).map(PurchaseOrderAdapter::toDomain);
+        }
+
+        @Override
+        public Optional<PurchaseOrder> findByIdForUpdate(long id) {
+            return Optional.ofNullable(dao.findById(id, LockModeType.PESSIMISTIC_WRITE))
+                    .map(PurchaseOrderAdapter::toDomain);
         }
 
         @Override

@@ -93,7 +93,7 @@ public class ProductResource {
             throw new BadRequestException("Geen bestand meegestuurd");
         }
         try (InputStream data = Files.newInputStream(file.uploadedFile())) {
-            return ProductDto.from(products.addPhoto(id, file.fileName(), file.contentType(), data));
+            return ProductDto.from(products.addPhoto(id, file.fileName(), data));
         }
     }
 
@@ -103,9 +103,9 @@ public class ProductResource {
     @Produces(MediaType.WILDCARD)
     public Response viewPhoto(@PathParam("id") long id, @PathParam("photoId") long photoId) {
         Photo photo = products.photo(id, photoId);
-        return Response.ok(products.photoData(photo.storageKey()))
-                .type(photo.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM : photo.contentType())
-                .header("Content-Disposition", "inline; filename=\"" + photo.originalFilename() + "\"")
+        return PhotoResponses.inline(
+                        products.photoData(photo.storageKey()),
+                        photo.contentType(), photo.originalFilename())
                 .header("Cache-Control", "public, max-age=31536000, immutable")
                 .build();
     }
@@ -116,9 +116,9 @@ public class ProductResource {
     @Produces(MediaType.WILDCARD)
     public Response downloadPhoto(@PathParam("id") long id, @PathParam("photoId") long photoId) {
         Photo photo = products.photo(id, photoId);
-        return Response.ok(products.photoData(photo.storageKey()))
-                .type(photo.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM : photo.contentType())
-                .header("Content-Disposition", "attachment; filename=\"" + photo.originalFilename() + "\"")
+        return PhotoResponses.attachment(
+                        products.photoData(photo.storageKey()),
+                        photo.contentType(), photo.originalFilename())
                 .build();
     }
 

@@ -23,6 +23,10 @@ public record ProductDto(
         Long categoryId,
         Long supplierId,
         Boolean active,
+        String familyKey,
+        String publicHandle,
+        PublicationState websiteStatus,
+        PublicationState orderAppStatus,
         String barcodeInner,
         String barcodeOuter,
         String hsCode,
@@ -39,6 +43,7 @@ public record ProductDto(
         /** Name, description and colour per language; the rest stays universal. */
         List<TextDto> texts,
         /* derived, outbound only */
+        List<String> publicationIssues,
         String describedAs,
         BigDecimal cartonCbm,
         BigDecimal pieceCbm
@@ -76,6 +81,9 @@ public record ProductDto(
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
                 product.colour(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
+                product.familyKey(), product.publicHandle(),
+                product.publicationState(CatalogChannel.WEBSITE),
+                product.publicationState(CatalogChannel.ORDER_APP),
                 codes.inner(), codes.outer(), product.hsCode(),
                 new CartonDto(cartonSize.lengthCm(), cartonSize.widthCm(), cartonSize.heightCm(),
                         carton.piecesPerCarton(), carton.weightKg()),
@@ -83,6 +91,7 @@ public record ProductDto(
                 product.landedCostEur(), product.landedCostSource(),
                 product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
                 photos, texts,
+                product.publicationIssues(),
                 product.describe(), carton.cbm(), carton.pieceCbm());
     }
 
@@ -96,6 +105,7 @@ public record ProductDto(
                 id, sku, name,
                 new Dimensions(size.lengthCm(), size.widthCm(), size.heightCm()),
                 colour, description, categoryId, supplierId, active == null || active,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 new Barcodes(barcodeInner, barcodeOuter), hsCode,
                 new Carton(new Dimensions(box.lengthCm(), box.widthCm(), box.heightCm()),
                         box.piecesPerCarton() == null ? 1 : box.piecesPerCarton(), box.weightKg()),

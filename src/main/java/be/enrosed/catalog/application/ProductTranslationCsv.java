@@ -39,7 +39,7 @@ import java.util.Map;
 @ApplicationScoped
 public class ProductTranslationCsv {
 
-    private static final List<String> HEADERS =
+    static final List<String> HEADERS =
             List.of("sku", "taal", "naam", "beschrijving", "kleur");
 
     private final ProductRepository products;
@@ -64,6 +64,16 @@ public class ProductTranslationCsv {
         StringBuilder out = new StringBuilder(Csv.BOM);
         Csv.writeRow(out, HEADERS);
 
+        for (List<String> row : exportRows()) {
+            Csv.writeRow(out, row);
+        }
+        return out.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** The canonical translation rows used by both CSV compatibility and Excel. */
+    public List<List<String>> exportRows() {
+        List<List<String>> rows = new ArrayList<>();
+
         List<Product> all = new ArrayList<>(products.findAll());
         all.sort(java.util.Comparator.comparing(product ->
                 product.sku() == null ? "" : product.sku()));
@@ -71,7 +81,7 @@ public class ProductTranslationCsv {
         for (Product product : all) {
             for (Language language : Language.values()) {
                 ProductText text = product.textIn(language);
-                Csv.writeRow(out, List.of(
+                rows.add(List.of(
                         nullToBlank(product.sku()),
                         language.code(),
                         text == null || isBlank(text.name()) ? nullToBlank(product.name()) : text.name(),
@@ -80,7 +90,7 @@ public class ProductTranslationCsv {
                         text == null || isBlank(text.colour()) ? nullToBlank(product.colour()) : text.colour()));
             }
         }
-        return out.toString().getBytes(StandardCharsets.UTF_8);
+        return rows;
     }
 
     /* -------------------------------------------------------------- erin */
@@ -98,8 +108,7 @@ public class ProductTranslationCsv {
      */
     @Transactional
     public ImportResult importFrom(InputStream input) {
-        List<String> problems = new ArrayList<>();
-        Map<String, Map<Language, ProductText>> perSku = new LinkedHashMap<>();
+        List<List<String>> rows = new ArrayList<>();
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(input, StandardCharsets.UTF_8))) {
@@ -111,36 +120,49 @@ public class ProductTranslationCsv {
             requireHeader(header);
 
             String line;
-            int lineNumber = 1;
             while ((line = reader.readLine()) != null) {
-                lineNumber++;
-                if (line.isBlank()) continue;
-
-                List<String> cells = Csv.parseRow(line);
-                if (cells.size() < 2) {
-                    problems.add("Regel " + lineNumber + ": te weinig kolommen");
-                    continue;
-                }
-
-                String sku = cells.get(0).trim();
-                if (sku.isEmpty()) {
-                    problems.add("Regel " + lineNumber + ": geen SKU");
-                    continue;
-                }
-
-                String languageCode = cells.get(1).trim();
-                Language language = parseLanguage(languageCode);
-                if (language == null) {
-                    problems.add("Regel " + lineNumber + ": onbekende taal '" + languageCode + "'");
-                    continue;
-                }
-
-                perSku.computeIfAbsent(sku, key -> new LinkedHashMap<>())
-                        .put(language, new ProductText(language,
-                                cell(cells, 2), cell(cells, 3), cell(cells, 4)));
+                rows.add(line.isBlank() ? List.of() : Csv.parseRow(line));
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Kan het bestand niet lezen", e);
+        }
+
+        return importRows(rows);
+    }
+
+    /** Imports canonical column rows; list index zero corresponds to spreadsheet row 2. */
+    @Transactional
+    public ImportResult importRows(List<List<String>> rows) {
+        List<String> problems = new ArrayList<>();
+        Map<String, Map<Language, ProductText>> perSku = new LinkedHashMap<>();
+
+        for (int index = 0; index < rows.size(); index++) {
+            int lineNumber = index + 2;
+            List<String> cells = rows.get(index);
+            if (cells == null || cells.stream().allMatch(value -> value == null || value.isBlank())) {
+                continue;
+            }
+            if (cells.size() < 2) {
+                problems.add("Regel " + lineNumber + ": te weinig kolommen");
+                continue;
+            }
+
+            String sku = cells.get(0).trim();
+            if (sku.isEmpty()) {
+                problems.add("Regel " + lineNumber + ": geen SKU");
+                continue;
+            }
+
+            String languageCode = cells.get(1).trim();
+            Language language = parseLanguage(languageCode);
+            if (language == null) {
+                problems.add("Regel " + lineNumber + ": onbekende taal '" + languageCode + "'");
+                continue;
+            }
+
+            perSku.computeIfAbsent(sku, key -> new LinkedHashMap<>())
+                    .put(language, new ProductText(language,
+                            cell(cells, 2), cell(cells, 3), cell(cells, 4)));
         }
 
         int updatedProducts = 0;
@@ -167,6 +189,78 @@ public class ProductTranslationCsv {
         }
 
         return new ImportResult(updatedProducts, updatedRows, problems);
+    }
+
+    /**
+     * Validates the complete Excel exchange before either workbook sheet writes.
+     *
+     * CSV compatibility deliberately still permits a translator to upload a
+     * partial file. The combined workbook is different: it is exported with
+     * every language row, so an absent or duplicate row almost always means an
+     * accidental deletion that must not replace the stored translation set.
+     */
+    List<String> validateCompleteWorkbookRows(List<List<String>> rows) {
+        List<String> problems = new ArrayList<>();
+        Map<String, Product> existingBySku = new LinkedHashMap<>();
+        for (Product product : products.findAll()) {
+            if (product.sku() != null && !product.sku().isBlank()) {
+                existingBySku.put(product.sku(), product);
+            }
+        }
+
+        Map<WorkbookRowKey, Integer> seen = new LinkedHashMap<>();
+        for (int index = 0; index < rows.size(); index++) {
+            List<String> cells = rows.get(index);
+            if (cells == null || cells.stream().allMatch(value -> value == null || value.isBlank())) {
+                continue;
+            }
+
+            int lineNumber = index + 2;
+            String sku = cell(cells, 0);
+            String languageCode = cell(cells, 1);
+            if (sku == null) {
+                problems.add("Vertalingen regel " + lineNumber + ": geen SKU");
+                continue;
+            }
+            if (languageCode == null) {
+                problems.add("Vertalingen regel " + lineNumber + ": geen taal");
+                continue;
+            }
+
+            Language language = parseLanguage(languageCode);
+            if (language == null) {
+                problems.add("Vertalingen regel " + lineNumber
+                        + ": onbekende taal '" + languageCode + "'");
+                continue;
+            }
+            if (!existingBySku.containsKey(sku)) {
+                problems.add("Vertalingen regel " + lineNumber + ": SKU " + sku + " bestaat niet");
+                continue;
+            }
+
+            WorkbookRowKey key = new WorkbookRowKey(sku, language);
+            Integer firstLine = seen.putIfAbsent(key, lineNumber);
+            if (firstLine != null) {
+                problems.add("Vertalingen regel " + lineNumber + ": " + sku + " / "
+                        + language.code() + " staat dubbel (eerste keer op regel " + firstLine + ")");
+            }
+        }
+
+        if (!problems.isEmpty()) return List.copyOf(problems);
+
+        for (String sku : existingBySku.keySet()) {
+            List<String> missing = new ArrayList<>();
+            for (Language language : Language.values()) {
+                if (!seen.containsKey(new WorkbookRowKey(sku, language))) {
+                    missing.add(language.code());
+                }
+            }
+            if (!missing.isEmpty()) {
+                problems.add("Vertalingen: SKU " + sku + " mist "
+                        + (missing.size() == 1 ? "taal " : "talen ") + String.join(", ", missing));
+            }
+        }
+        return List.copyOf(problems);
     }
 
     /**
@@ -210,7 +304,9 @@ public class ProductTranslationCsv {
 
 
     private static String cell(List<String> cells, int index) {
-        return index < cells.size() ? cells.get(index).trim() : null;
+        if (index >= cells.size() || cells.get(index) == null) return null;
+        String value = cells.get(index).trim();
+        return value.isEmpty() ? null : value;
     }
 
     private static boolean sameAs(String value, String base) {
@@ -228,4 +324,6 @@ public class ProductTranslationCsv {
     private static String nullToBlank(String value) {
         return value == null ? "" : value;
     }
+
+    private record WorkbookRowKey(String sku, Language language) {}
 }

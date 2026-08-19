@@ -1,5 +1,6 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
+import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Currency;
 import jakarta.persistence.*;
 
@@ -34,6 +35,19 @@ public class ProductEntity {
     public Long categoryId;
     public Long supplierId;
     public boolean active = true;
+
+    /** Optional stable grouping key shared by related stock-bearing SKUs. */
+    public String familyKey;
+
+    /** Stable public URL identity; deliberately independent from name and SKU. */
+    @Column(unique = true)
+    public String publicHandle;
+
+    @Enumerated(EnumType.STRING)
+    public PublicationState websiteStatus = PublicationState.DRAFT;
+
+    @Enumerated(EnumType.STRING)
+    public PublicationState orderAppStatus = PublicationState.DRAFT;
 
     public String barcodeInner;
     public String barcodeOuter;

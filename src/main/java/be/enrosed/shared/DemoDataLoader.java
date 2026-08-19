@@ -215,7 +215,7 @@ public class DemoDataLoader {
                 LOG.warnf("Geen startfoto %s voor %s", resource, product.sku());
                 return;
             }
-            products.addPhoto(product.id(), imageName, "image/jpeg", in);
+            products.addPhoto(product.id(), imageName, in);
         } catch (Exception e) {
             LOG.warnf("Startfoto %s kon niet geladen worden: %s", resource, e.getMessage());
         }
@@ -241,14 +241,25 @@ public class DemoDataLoader {
                           String destinationEur, String extraRevenue, List<PurchaseOrderLine> lines,
                           String notes) {
         PurchaseOrder created = purchaseOrders.create(supplierId, CNY_TO_USD, USD_TO_EUR, new BigDecimal("10"));
-        purchaseOrders.update(created.id(), new PurchaseOrder(
+        /* Seed through the real lifecycle as well. Apart from keeping demo
+           data honest, this gives the placement save a chance to assign line
+           ids and snapshot ordered quantities before receipt books stock. */
+        PurchaseOrder placed = purchaseOrders.update(created.id(), new PurchaseOrder(
                 created.id(), created.number(), null, supplierId, created.orderDate(),
-                PurchaseOrderStatus.ONTVANGEN, ContainerType.FORTY_HQ,
+                PurchaseOrderStatus.BESTELD, ContainerType.FORTY_HQ,
                 CNY_TO_USD, USD_TO_EUR, USD_TO_EUR,
                 new BigDecimal(freightUsd), new BigDecimal(originCosts), originCurrency,
                 new BigDecimal(destinationEur), new BigDecimal("10"), new BigDecimal(extraRevenue),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", notes, lines));
+                "Rotterdam", notes, lines)).order();
+        purchaseOrders.update(placed.id(), new PurchaseOrder(
+                placed.id(), placed.number(), placed.alias(), placed.supplierId(), placed.orderDate(),
+                PurchaseOrderStatus.ONTVANGEN, placed.containerType(),
+                placed.cnyToUsd(), placed.usdToEurGoods(), placed.usdToEurTransport(),
+                placed.freightUsd(), placed.originCosts(), placed.originCurrency(),
+                placed.destinationCostsEur(), placed.defaultDutyRatePct(), placed.extraRevenueEur(),
+                placed.allocFreight(), placed.allocOrigin(), placed.allocDestination(), placed.allocExtra(),
+                placed.destinationPort(), placed.notes(), placed.lines()));
     }
 
     private void country(String code, String name, String minOrder, String perPallet,

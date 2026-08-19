@@ -11,8 +11,11 @@ import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -32,6 +35,7 @@ public class SalesOrderService {
     private final SalesPricingCalculator pricing;
     private final SalesSettings settings;
     private final SalesRepositories.Events events;
+    private final SalesRepositories.Revisions revisions;
     private final CustomerService customers;
     private final VatCalculator vat;
 
@@ -39,7 +43,8 @@ public class SalesOrderService {
                              CountryService countries, DiscountTierService tiers,
                              SalesPricingCalculator pricing, SalesSettings settings,
                              CustomerService customers, VatCalculator vat,
-                             SalesRepositories.Events events) {
+                             SalesRepositories.Events events,
+                             SalesRepositories.Revisions revisions) {
         this.orders = orders;
         this.products = products;
         this.countries = countries;
@@ -48,6 +53,7 @@ public class SalesOrderService {
         this.settings = settings;
         this.customers = customers;
         this.events = events;
+        this.revisions = revisions;
         this.vat = vat;
     }
 
@@ -83,14 +89,16 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder create(long customerId, String countryCode, String incoterm) {
         LocalDate today = LocalDate.now();
-        SalesOrder created = orders.save(new SalesOrder(
+        SalesOrder draft = new SalesOrder(
                 null, nextNumber(), customerId, countryCode, today, today.plusDays(30),
                 QuoteStatus.CONCEPT, incoterm == null ? "DAP" : incoterm, null, "",
                 MarkupMode.PRODUCT, settings.defaultMarkupPct(),
                 null, null,
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
-                List.of(), List.of()));
+                List.of(), List.of());
+        validateForSave(draft);
+        SalesOrder created = orders.save(draft);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), null, false, "Offerte opgemaakt", null));
@@ -100,12 +108,12 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder update(long id, SalesOrder changes) {
         SalesOrder current = get(id);
-        if (current.status().isFinal()) {
-            throw new BusinessRuleException(
-                    "Offerte " + current.number() + " is " + current.status().name().toLowerCase()
-                            + " en kan niet meer gewijzigd worden");
+        SalesLifecycle.requireEditable(current);
+        if (changes == null) {
+            throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         }
-        return orders.save(new SalesOrder(
+
+        SalesOrder updated = new SalesOrder(
                 current.id(), numberFor(current, changes),
                 changes.customerId(), changes.countryCode(),
                 changes.orderDate(), changes.validUntil(),
@@ -127,7 +135,73 @@ public class SalesOrderService {
                    sent along, what was there stays. */
                 changes.freightOrNull() == null ? current.freight() : changes.freight(),
                 changes.manualFreightEur(),
-                changes.lines(), changes.pallets()));
+                changes.lines(), changes.pallets());
+        validateForSave(updated);
+        return orders.save(updated);
+    }
+
+    /** One line whose promised delivery week may be filled in separately. */
+    public record DeliveryWeekChange(Long productId, String deliveryWeek) {}
+
+    /**
+     * Narrow update for a promise that was left open on a sent quotation.
+     * Prices, quantities, customer data and every other field stay untouched.
+     */
+    @Transactional
+    public SalesOrder updateDeliveryWeeks(long id, List<DeliveryWeekChange> requested) {
+        SalesOrder current = get(id);
+        SalesLifecycle.requireTermsEditable(current);
+        if (requested == null || requested.isEmpty()) {
+            throw new BusinessRuleException("Geef minstens een levertermijn mee");
+        }
+
+        Map<Long, String> weeks = new HashMap<>();
+        Set<Long> seen = new HashSet<>();
+        Set<Long> productsOnOrder = current.lines().stream()
+                .map(SalesOrderLine::productId)
+                .collect(Collectors.toSet());
+        for (DeliveryWeekChange change : requested) {
+            if (change == null || change.productId() == null) {
+                throw new BusinessRuleException("Elke levertermijn moet bij een product horen");
+            }
+            if (!productsOnOrder.contains(change.productId())) {
+                throw new BusinessRuleException(
+                        "Product " + change.productId() + " staat niet op deze offerte");
+            }
+            if (!seen.add(change.productId())) {
+                throw new BusinessRuleException(
+                        "Product " + change.productId() + " staat dubbel in de levertermijnen");
+            }
+            weeks.put(change.productId(), clean(change.deliveryWeek()));
+        }
+
+        List<SalesOrderLine> lines = current.lines().stream()
+                .map(line -> weeks.containsKey(line.productId())
+                        ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
+                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()))
+                        : line)
+                .toList();
+        return orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(), lines));
+    }
+
+    /**
+     * Narrow freight update for a sent quotation. Moving away from an open
+     * freight item records AANGEVULD so the following mail can announce it.
+     */
+    @Transactional
+    public SalesOrder updateFreight(long id, FreightState requestedState, BigDecimal manualFreightEur) {
+        SalesOrder current = get(id);
+        SalesLifecycle.requireTermsEditable(current);
+        if (requestedState == null) {
+            throw new BusinessRuleException("Kies of de vracht berekend of nog te bepalen is");
+        }
+        requireNonNegative(manualFreightEur, "Handmatige vracht");
+
+        FreightState state = current.freight() == FreightState.TE_BEPALEN
+                && requestedState != FreightState.TE_BEPALEN
+                ? FreightState.AANGEVULD
+                : requestedState;
+        return orders.save(copyWithTerms(current, state, manualFreightEur, current.lines()));
     }
 
     /**
@@ -155,7 +229,10 @@ public class SalesOrderService {
 
     @Transactional
     public void delete(long id) {
-        get(id);
+        SalesOrder order = get(id);
+        boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
+        SalesLifecycle.requireDeletable(order, hasRevisions);
+        events.deleteByOrder(id);
         orders.deleteById(id);
     }
 
@@ -163,7 +240,7 @@ public class SalesOrderService {
     public SalesOrder duplicate(long id) {
         SalesOrder source = get(id);
         LocalDate today = LocalDate.now();
-        return orders.save(new SalesOrder(
+        SalesOrder duplicate = new SalesOrder(
                 null, nextNumber(), source.customerId(), source.countryCode(),
                 today, today.plusDays(30), QuoteStatus.CONCEPT, source.incoterm(),
                 source.paymentTerms(), source.notes(),
@@ -179,7 +256,133 @@ public class SalesOrderService {
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
-                        .toList()));
+                        .toList());
+        validateForSave(duplicate);
+        return orders.save(duplicate);
+    }
+
+    /** Rechecks an existing draft/open quotation before a document leaves. */
+    public void validateForSend(SalesOrder order) {
+        validateForSave(order);
+    }
+
+    private void validateForSave(SalesOrder order) {
+        if (order == null) {
+            throw new BusinessRuleException("Geen offertegegevens meegestuurd");
+        }
+        if (order.customerId() == null || order.customerId() <= 0) {
+            throw new BusinessRuleException("Koppel een geldige klant aan de offerte");
+        }
+        try {
+            customers.get(order.customerId());
+        } catch (NotFoundException exception) {
+            throw new BusinessRuleException("De gekozen klant bestaat niet meer");
+        }
+        if (order.countryCode() == null || order.countryCode().isBlank()
+                || countries.find(order.countryCode()) == null) {
+            throw new BusinessRuleException("Kies een geldig bestemmingsland");
+        }
+        if (order.orderDate() == null || order.validUntil() == null) {
+            throw new BusinessRuleException("Orderdatum en geldigheidsdatum zijn verplicht");
+        }
+        if (order.validUntil().isBefore(order.orderDate())) {
+            throw new BusinessRuleException("De geldigheidsdatum kan niet vóór de orderdatum liggen");
+        }
+        if (order.incoterm() == null || order.incoterm().isBlank()) {
+            throw new BusinessRuleException("Incoterm is verplicht");
+        }
+        if (order.markupMode() == null) {
+            throw new BusinessRuleException("Kies hoe de opslag wordt berekend");
+        }
+        requireNonNegative(order.orderMarkupPct(), "Opslagpercentage");
+        requirePercentage(order.extraDiscountPct(), "Extra korting");
+        requireNonNegative(order.manualFreightEur(), "Handmatige vracht");
+
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        Set<Long> seen = new HashSet<>();
+        for (SalesOrderLine line : order.lines()) {
+            if (line == null || line.productId() == null) {
+                throw new BusinessRuleException("Elke offerteregel moet bij een product horen");
+            }
+            if (!seen.add(line.productId())) {
+                throw new BusinessRuleException("Product " + line.productId() + " staat dubbel op de offerte");
+            }
+            if (!byId.containsKey(line.productId())) {
+                throw new BusinessRuleException("Product " + line.productId() + " bestaat niet meer");
+            }
+            if (line.quantity() < 0) {
+                throw new BusinessRuleException("Een productaantal kan niet negatief zijn");
+            }
+            requireNonNegative(line.unitPriceEur(), "Handmatige stukprijs");
+            requirePercentage(line.manualDiscountPct(), "Regelkorting");
+        }
+        validatePallets(order, byId);
+    }
+
+    private void validatePallets(SalesOrder order, Map<Long, Product> byId) {
+        Set<Long> productsOnOrder = order.lines().stream()
+                .map(SalesOrderLine::productId)
+                .collect(Collectors.toSet());
+        Map<Long, Integer> assigned = new HashMap<>();
+
+        for (OrderPallet pallet : order.pallets()) {
+            if (pallet == null) {
+                throw new BusinessRuleException("Een pallet mag niet leeg zijn");
+            }
+            if (pallet.heightCm() != null && pallet.heightCm() < 0) {
+                throw new BusinessRuleException("Pallethoogte kan niet negatief zijn");
+            }
+            for (OrderPallet.Item item : pallet.items()) {
+                if (item == null || item.productId() <= 0 || item.cartons() <= 0) {
+                    throw new BusinessRuleException("Elke palletregel moet een product en positief aantal dozen hebben");
+                }
+                if (!productsOnOrder.contains(item.productId()) || !byId.containsKey(item.productId())) {
+                    throw new BusinessRuleException(
+                            "Product " + item.productId() + " staat niet op deze offerte");
+                }
+                assigned.merge(item.productId(), item.cartons(), Integer::sum);
+            }
+        }
+
+        for (SalesOrderLine line : order.lines()) {
+            Product product = byId.get(line.productId());
+            int orderedCartons = product.carton() == null
+                    ? Math.max(0, line.quantity())
+                    : product.carton().cartonsFor(line.quantity());
+            if (assigned.getOrDefault(line.productId(), 0) > orderedCartons) {
+                throw new BusinessRuleException(
+                        "Er staan meer dozen van " + product.describe() + " op pallets dan op de offerte");
+            }
+        }
+    }
+
+    private static SalesOrder copyWithTerms(SalesOrder order, FreightState freight,
+                                            BigDecimal manualFreightEur,
+                                            List<SalesOrderLine> lines) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), freight, manualFreightEur, lines, order.pallets());
+    }
+
+    private static void requirePercentage(BigDecimal value, String label) {
+        if (value != null && (value.signum() < 0 || value.compareTo(BigDecimal.valueOf(100)) > 0)) {
+            throw new BusinessRuleException(label + " moet tussen 0 en 100% liggen");
+        }
+    }
+
+    private static void requireNonNegative(BigDecimal value, String label) {
+        if (value != null && value.signum() < 0) {
+            throw new BusinessRuleException(label + " kan niet negatief zijn");
+        }
+    }
+
+    private static String clean(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private String nextNumber() {

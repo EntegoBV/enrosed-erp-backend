@@ -5,6 +5,7 @@ import be.enrosed.sales.application.SalesOrderService;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteEvent;
+import be.enrosed.sales.domain.FreightState;
 import be.enrosed.shared.Language;
 import be.enrosed.sales.domain.QuoteRevision;
 import be.enrosed.sales.domain.SalesOrder;
@@ -16,6 +17,7 @@ import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 import java.util.Map;
+import java.math.BigDecimal;
 
 /** Our own side of the sales order - cost price and margin included. */
 @Path("/api/sales-orders")
@@ -35,6 +37,8 @@ public class SalesOrderResource {
     public record CreateRequest(long customerId, String countryCode, String incoterm) {}
     public record SendRequest(String message) {}
     public record RevisionDecision(String handledBy, String message) {}
+    public record DeliveryTermsRequest(List<SalesOrderService.DeliveryWeekChange> lines) {}
+    public record FreightRequest(FreightState state, BigDecimal manualFreightEur) {}
     public record OrderView(SalesOrder order, PricedOrder priced) {}
 
     @GET
@@ -63,6 +67,25 @@ public class SalesOrderResource {
     @Path("/{id}")
     public OrderView update(@PathParam("id") long id, SalesOrder order) {
         SalesOrder saved = salesOrders.update(id, order);
+        return new OrderView(saved, salesOrders.price(saved));
+    }
+
+    /** Fills in delivery weeks without reopening every field of a sent quote. */
+    @PUT
+    @Path("/{id}/delivery-terms")
+    public OrderView updateDeliveryTerms(@PathParam("id") long id, DeliveryTermsRequest request) {
+        SalesOrder saved = salesOrders.updateDeliveryWeeks(id,
+                request == null ? null : request.lines());
+        return new OrderView(saved, salesOrders.price(saved));
+    }
+
+    /** Updates only the open freight item on a sent quote. */
+    @PUT
+    @Path("/{id}/freight")
+    public OrderView updateFreight(@PathParam("id") long id, FreightRequest request) {
+        SalesOrder saved = salesOrders.updateFreight(id,
+                request == null ? null : request.state(),
+                request == null ? null : request.manualFreightEur());
         return new OrderView(saved, salesOrders.price(saved));
     }
 

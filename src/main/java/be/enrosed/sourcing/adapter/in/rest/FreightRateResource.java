@@ -47,6 +47,9 @@ public class FreightRateResource {
                 || rate.usdPerContainer() == null) {
             throw new BusinessRuleException("Route en tarief zijn verplicht");
         }
+        if (rate.usdPerContainer().signum() <= 0) {
+            throw new BusinessRuleException("Vrachttarief moet groter zijn dan nul");
+        }
         FreightRateEntity entity = new FreightRateEntity();
         entity.route = rate.route().trim().toUpperCase();
         entity.quotedOn = rate.quotedOn() == null ? LocalDate.now() : rate.quotedOn();

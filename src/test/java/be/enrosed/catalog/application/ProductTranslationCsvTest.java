@@ -185,6 +185,13 @@ class ProductTranslationCsvTest {
         }
 
         @Override
+        public Optional<Product> findByPublicHandle(String publicHandle) {
+            return bySku.values().stream()
+                    .filter(product -> java.util.Objects.equals(product.publicHandle(), publicHandle))
+                    .findFirst();
+        }
+
+        @Override
         public Product save(Product product) {
             bySku.put(product.sku(), product);
             return product;

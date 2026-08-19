@@ -1,6 +1,7 @@
 package be.enrosed.sales.adapter.in.rest;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.CustomerService;
@@ -119,14 +120,19 @@ public class PortalResource {
      */
     @GET
     @Path("/{token}/products")
-    public List<CatalogItem> catalog(@PathParam("token") String token) {
+    public List<CatalogItem> catalog(@PathParam("token") String token,
+                                     @QueryParam("language") String preferredLanguage) {
         SalesOrder order = quotes.byToken(token);
+        Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+        Language language = preferredLanguage != null && !preferredLanguage.isBlank()
+                ? Language.of(preferredLanguage)
+                : customer == null ? Language.NL : customer.language();
         return products.list().stream()
                 .filter(Product::active)
                 .map(product -> new CatalogItem(
                         product.id(),
                         product.sku(),
-                        product.describe(),
+                        product.describeIn(language),
                         product.primaryPhoto() == null ? null
                                 : "/api/portal/" + token + "/products/" + product.id() + "/photo",
                         product.carton() == null ? 1 : product.carton().piecesPerCarton(),
@@ -141,10 +147,11 @@ public class PortalResource {
     @Produces(MediaType.WILDCARD)
     public Response photo(@PathParam("token") String token, @PathParam("productId") long productId) {
         quotes.byToken(token);
-        Photo photo = products.get(productId).primaryPhoto();
+        Product product = products.get(productId);
+        if (!product.active()) return Response.status(Response.Status.NOT_FOUND).build();
+        Photo photo = product.primaryPhoto();
         if (photo == null) return Response.status(Response.Status.NOT_FOUND).build();
-        return Response.ok(products.photoData(photo.storageKey()))
-                .type(photo.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM : photo.contentType())
+        return PhotoResponses.inline(products.photoData(photo.storageKey()), photo.contentType())
                 .header("Cache-Control", "public, max-age=86400")
                 .build();
     }
@@ -316,7 +323,8 @@ public class PortalResource {
 
         return new QuoteView(
                 order.number(), customerFacingOrderStatus(order),
-                String.valueOf(order.orderDate()), String.valueOf(order.validUntil()),
+                order.orderDate() == null ? null : order.orderDate().toString(),
+                order.validUntil() == null ? null : order.validUntil().toString(),
                 order.incoterm(), order.notes(),
                 customer == null ? null : customer.company(),
                 customer == null ? null : customer.contact(),

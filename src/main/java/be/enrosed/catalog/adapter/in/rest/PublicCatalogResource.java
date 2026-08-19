@@ -1,0 +1,96 @@
+package be.enrosed.catalog.adapter.in.rest;
+
+import be.enrosed.catalog.application.CategoryService;
+import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.CatalogChannel;
+import be.enrosed.catalog.domain.Category;
+import be.enrosed.catalog.domain.Photo;
+import be.enrosed.catalog.domain.Product;
+import be.enrosed.shared.Language;
+import jakarta.annotation.security.PermitAll;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
+
+import java.util.Comparator;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/** Public, read-only catalogue contract for the website and future order app. */
+@Path("/api/v1/public/catalog")
+@Produces(MediaType.APPLICATION_JSON)
+@PermitAll
+public class PublicCatalogResource {
+
+    private final ProductService products;
+    private final CategoryService categories;
+
+    public PublicCatalogResource(ProductService products, CategoryService categories) {
+        this.products = products;
+        this.categories = categories;
+    }
+
+    @GET
+    public Response catalog(
+            @QueryParam("channel") @DefaultValue("WEBSITE") CatalogChannel channel,
+            @QueryParam("language") @DefaultValue("NL") String languageCode,
+            @Context UriInfo uriInfo) {
+        Language language = Language.of(languageCode);
+        Map<Long, Category> categoryById = categories.list().stream()
+                .collect(Collectors.toMap(Category::id, Function.identity()));
+
+        Comparator<Product> order = Comparator
+                .comparingInt((Product product) -> {
+                    Category category = categoryById.get(product.categoryId());
+                    return category == null ? Integer.MAX_VALUE : category.position();
+                })
+                .thenComparing(product -> safe(product.nameIn(language)), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(product -> safe(product.sku()), String.CASE_INSENSITIVE_ORDER);
+
+        var publicProducts = products.list().stream()
+                .filter(product -> product.isPublishedTo(channel))
+                .sorted(order)
+                .map(product -> PublicCatalogDto.product(
+                        product, categoryById.get(product.categoryId()), language,
+                        uriInfo.getBaseUri().toString()))
+                .toList();
+
+        return Response.ok(new PublicCatalogDto(channel, language, publicProducts))
+                .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+                .build();
+    }
+
+    /**
+     * Serves original photo bytes only while their product is public somewhere.
+     * A 404 avoids exposing whether a private product or photo exists.
+     */
+    @GET
+    @Path("/products/{productId}/photos/{photoId}")
+    @Produces(MediaType.WILDCARD)
+    public Response photo(@PathParam("productId") long productId,
+                          @PathParam("photoId") long photoId) {
+        Product product = products.get(productId);
+        if (!product.isPublishedToAnyPublicChannel()) throw new NotFoundException();
+
+        Photo photo = product.photos().stream()
+                .filter(candidate -> candidate.id() != null && candidate.id() == photoId)
+                .findFirst()
+                .orElseThrow(NotFoundException::new);
+        return PhotoResponses.inline(products.photoData(photo.storageKey()), photo.contentType())
+                .header("Cache-Control", "public, max-age=31536000, immutable")
+                .build();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+}

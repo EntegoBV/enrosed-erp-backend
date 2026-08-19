@@ -15,7 +15,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The quote workflow: sending, being viewed, and receiving change requests
@@ -122,6 +124,8 @@ public class QuoteService {
     @Transactional
     public SalesOrder send(long orderId, String personalMessage) {
         SalesOrder order = salesOrders.get(orderId);
+        SalesLifecycle.requireSendable(order);
+        salesOrders.validateForSend(order);
 
         if (order.lines().isEmpty()) {
             throw new BusinessRuleException("Een offerte zonder regels kan niet verstuurd worden");
@@ -255,8 +259,10 @@ public class QuoteService {
     }
 
     public SalesOrder byToken(String token) {
-        return orders.findByPortalToken(token)
+        SalesOrder order = orders.findByPortalToken(token)
                 .orElseThrow(() -> new NotFoundException("Offertelink", token));
+        SalesLifecycle.requirePortalVisible(order);
+        return order;
     }
 
     /**
@@ -270,6 +276,10 @@ public class QuoteService {
         if (signedByName == null || signedByName.isBlank()) {
             throw new BusinessRuleException("Vul je naam in om te tekenen");
         }
+        if (signedByName.trim().length() > 255) {
+            throw new BusinessRuleException("De naam bij de handtekening is te lang");
+        }
+        requireMessageLength(message);
         SalesOrder accepted = orders.save(withStatus(order, QuoteStatus.GEACCEPTEERD,
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 Instant.now(), signedByName.trim(), message));
@@ -286,6 +296,7 @@ public class QuoteService {
     public SalesOrder rejectByCustomer(String token, String message) {
         SalesOrder order = byToken(token);
         requireOpen(order);
+        requireMessageLength(message);
         SalesOrder rejected = orders.save(withStatus(order, QuoteStatus.AFGEWEZEN,
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 Instant.now(), null, message));
@@ -312,13 +323,24 @@ public class QuoteService {
         if ((proposedLines == null || proposedLines.isEmpty()) && (message == null || message.isBlank())) {
             throw new BusinessRuleException("Geef aan wat er moet wijzigen");
         }
+        if (revisions.findByOrder(order.id()).stream()
+                .anyMatch(revision -> revision.status() == RevisionStatus.IN_AFWACHTING)) {
+            throw new BusinessRuleException(
+                    "Er staat al een wijzigingsvoorstel open. Trek dat eerst in of wacht op verwerking.");
+        }
+        if (message != null && message.length() > 4000) {
+            throw new BusinessRuleException("Het bericht bij het voorstel is te lang (maximaal 4000 tekens)");
+        }
+        if (proposedBy != null && proposedBy.trim().length() > 255) {
+            throw new BusinessRuleException("De naam bij het voorstel is te lang");
+        }
 
         /* Round the customer's quantities up to a full carton. We do it on our
            own lines too; it belongs here just as much, because half a carton
            does not exist and otherwise "13 pieces" lands on the order and
            nothing downstream adds up - not the volume, not the pallets, not
            the freight. Server-side, because a customer can bypass the screen. */
-        List<QuoteRevision.Line> rounded = roundToCartons(proposedLines);
+        List<QuoteRevision.Line> rounded = roundToCartons(order, proposedLines);
 
         QuoteRevision revision = revisions.save(new QuoteRevision(
                 null, order.id(), RevisionStatus.IN_AFWACHTING, Instant.now(),
@@ -389,14 +411,39 @@ public class QuoteService {
      *
      * Zero stays zero: it means "drop this line" and is not a quantity.
      */
-    private List<QuoteRevision.Line> roundToCartons(List<QuoteRevision.Line> lines) {
+    private List<QuoteRevision.Line> roundToCartons(SalesOrder order,
+                                                    List<QuoteRevision.Line> lines) {
         if (lines == null || lines.isEmpty()) return List.of();
 
         List<QuoteRevision.Line> result = new ArrayList<>(lines.size());
+        Set<Long> seen = new HashSet<>();
         for (QuoteRevision.Line line : lines) {
+            if (line == null || line.productId() == null) {
+                throw new BusinessRuleException("Elke voorgestelde regel moet bij een product horen");
+            }
+            if (!seen.add(line.productId())) {
+                throw new BusinessRuleException(
+                        "Product " + line.productId() + " staat dubbel in het voorstel");
+            }
             int quantity = line.quantity();
-            if (quantity > 0 && line.productId() != null) {
-                int per = products.get(line.productId()).carton().piecesPerCarton();
+            if (quantity < 0) {
+                throw new BusinessRuleException("Een voorgesteld aantal kan niet negatief zijn");
+            }
+            if (quantity > 0) {
+                be.enrosed.catalog.domain.Product product;
+                try {
+                    product = products.get(line.productId());
+                } catch (NotFoundException exception) {
+                    throw new BusinessRuleException(
+                            "Product " + line.productId() + " bestaat niet meer");
+                }
+                boolean alreadyQuoted = order.lines().stream()
+                        .anyMatch(existing -> existing.productId().equals(line.productId()));
+                if (!alreadyQuoted && !product.active()) {
+                    throw new BusinessRuleException(
+                            "Product " + product.describe() + " is niet beschikbaar om toe te voegen");
+                }
+                int per = product.carton() == null ? 1 : product.carton().piecesPerCarton();
                 if (per > 1) {
                     quantity = (int) Math.ceil((double) quantity / per) * per;
                 }
@@ -529,9 +576,10 @@ public class QuoteService {
         /* A fresh validity date: the old one is usually the very reason the
            quote expired, and a quote leaving today with last month's date
            reads as sloppiness. */
-        return orders.save(withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
+        SalesOrder reopened = withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(),
-                null, null, null));
+                null, null, null);
+        return orders.save(withValidity(reopened, LocalDate.now().plusDays(30)));
     }
 
     /** We do not adopt the proposal; the quote stays as it was. */
@@ -627,5 +675,22 @@ public class QuoteService {
         return new QuoteRevision(revision.id(), revision.salesOrderId(), status,
                 revision.proposedAt(), revision.proposedBy(), revision.message(),
                 Instant.now(), handledBy, responseMessage, revision.lines());
+    }
+
+    private static void requireMessageLength(String message) {
+        if (message != null && message.length() > 4000) {
+            throw new BusinessRuleException("Het bericht is te lang (maximaal 4000 tekens)");
+        }
+    }
+
+    private static SalesOrder withValidity(SalesOrder order, LocalDate validUntil) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), validUntil, order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.lines(), order.pallets());
     }
 }

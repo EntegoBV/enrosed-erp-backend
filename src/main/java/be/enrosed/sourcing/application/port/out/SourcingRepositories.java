@@ -18,6 +18,16 @@ public interface SourcingRepositories {
     interface PurchaseOrders {
         List<PurchaseOrder> findAll();
         Optional<PurchaseOrder> findById(long id);
+        /**
+         * Locks one order for a lifecycle-changing transaction.
+         *
+         * The fallback keeps in-memory adapters simple; persistent adapters
+         * override this with a database row lock so two receipt requests
+         * cannot both observe the order as not yet received.
+         */
+        default Optional<PurchaseOrder> findByIdForUpdate(long id) {
+            return findById(id);
+        }
         PurchaseOrder save(PurchaseOrder order);
         void deleteById(long id);
     }

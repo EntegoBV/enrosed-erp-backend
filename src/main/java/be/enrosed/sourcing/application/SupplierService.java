@@ -31,8 +31,14 @@ public class SupplierService {
 
     @Transactional
     public Supplier save(Supplier supplier) {
+        if (supplier == null) {
+            throw new BusinessRuleException("Geen leveranciersgegevens meegestuurd");
+        }
         if (supplier.name() == null || supplier.name().isBlank()) {
             throw new BusinessRuleException("Naam is verplicht");
+        }
+        if (supplier.leadTimeDays() < 0) {
+            throw new BusinessRuleException("Levertijd kan niet negatief zijn");
         }
         return suppliers.save(supplier);
     }

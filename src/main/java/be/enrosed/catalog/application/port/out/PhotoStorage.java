@@ -12,7 +12,7 @@ public interface PhotoStorage {
 
     record Stored(String storageKey, long sizeBytes, Integer widthPx, Integer heightPx) {}
 
-    Stored store(String originalFilename, String contentType, InputStream data);
+    Stored store(String originalFilename, String contentType, byte[] data);
 
     InputStream read(String storageKey);
 

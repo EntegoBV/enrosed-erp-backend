@@ -107,10 +107,19 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   ITF-14), HS code, EXW price + currency, landed cost + source, markup or
   fixed sales price, stock, photos (stored IN the database as blobs -
   survives Railway redeploys; port `PhotoStorage` allows an S3 later).
-- CSV master-data export/import, and a separate translations CSV
-  (8 languages) the owner edits in Excel.
+- Native Excel master-data and translations exchange in one guided workbook
+  (8 languages); the older CSV endpoints remain available for compatibility.
 - Catalogue PDF: language choice, chapters per category with
   descriptions, two full photos per product card.
+- Product remains the stock-bearing SKU. Optional `familyKey` groups variants;
+  unique `publicHandle` is the stable public identity. WEBSITE and ORDER_APP
+  each have DRAFT/READY/PUBLISHED state; legacy and new rows default DRAFT.
+- `Product.publicationIssues()` is computed and publication is rejected until
+  active/content/category/photo/price/carton/handle requirements are complete.
+- Public consumers use `GET /api/v1/public/catalog?channel=WEBSITE&language=EN`.
+  It is a purpose-built safe DTO: no supplier, cost, margin, HS code, internal
+  source or exact stock. Public photo bytes have a separate PermitAll route and
+  remain inaccessible unless the SKU is published on at least one channel.
 
 ### Mail
 - Production sends via **Brevo HTTPS API** (`BREVO_API_KEY`); Railway
