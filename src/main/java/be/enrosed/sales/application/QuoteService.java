@@ -155,7 +155,7 @@ public class QuoteService {
         List<QuoteMailer.DeliveryLine> deliveryLines = priced.lines().stream()
                 .map(line -> new QuoteMailer.DeliveryLine(
                         line.description(),
-                        deliveryTermOf(line),
+                        deliveryTermOf(line, customer.language()),
                         line.inStock() || (line.deliveryWeek() != null && !line.deliveryWeek().isBlank())))
                 .toList();
 
@@ -553,14 +553,20 @@ public class QuoteService {
     /* ============================================================ helpers */
 
     /** Delivery term as readable text, in Belgian date notation. */
-    private static String deliveryTermOf(PricedOrder.Line line) {
+    /* The mail travels in the customer's language, so these fragments come
+       from the same bundle as the portal - hardcoded Dutch here leaked
+       "leverbaar vanaf" into translated mails. */
+    private static String deliveryTermOf(PricedOrder.Line line,
+                                         be.enrosed.shared.Language language) {
+        var text = be.enrosed.shared.DocumentText.of(language);
         if (line.inStock() && line.deliveryDate() != null) {
-            return "leverbaar vanaf " + be.enrosed.shared.DocumentFormat.beDate(line.deliveryDate());
+            return text.get("portalDeliverableFrom") + " " + be.enrosed.shared.DocumentText
+                    .date(java.time.LocalDate.parse(line.deliveryDate()), language);
         }
         if (line.deliveryWeek() != null && !line.deliveryWeek().isBlank()) {
-            return "levering in " + be.enrosed.shared.DocumentFormat.week(line.deliveryWeek());
+            return be.enrosed.shared.DocumentText.week(line.deliveryWeek(), language);
         }
-        return "levertermijn nog te bepalen";
+        return text.get("portalTermToBeDetermined");
     }
 
     private QuoteRevision revision(long id) {
