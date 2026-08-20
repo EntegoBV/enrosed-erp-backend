@@ -7,6 +7,22 @@ import java.util.Optional;
 
 /** Outbound port to product storage. */
 public interface ProductRepository {
+    /** Business records that keep a product part of the operational history. */
+    record ReferenceCounts(
+            long purchaseOrderLines,
+            long salesOrderLines,
+            long salesPalletItems,
+            long quoteRevisionLines) {
+
+        public static ReferenceCounts none() {
+            return new ReferenceCounts(0, 0, 0, 0);
+        }
+
+        public long total() {
+            return purchaseOrderLines + salesOrderLines + salesPalletItems + quoteRevisionLines;
+        }
+    }
+
     List<Product> findAll();
     List<Product> findBySupplier(long supplierId);
     Optional<Product> findById(long id);
@@ -32,6 +48,25 @@ public interface ProductRepository {
     }
 
     void deleteById(long id);
+
+    /**
+     * Counts operational references that must outlive a catalogue product.
+     *
+     * Pure domain adapters have no order graph, so their safe default is empty.
+     * Persistent adapters must override this and inspect every business graph.
+     */
+    default ReferenceCounts referenceCounts(long productId) {
+        return ReferenceCounts.none();
+    }
+
+    /** Active stock-bearing variants left on a canonical product family. */
+    default long countActiveByFamily(long familyId) {
+        return findAll().stream()
+                .filter(Product::active)
+                .filter(product -> product.familyId() != null && product.familyId() == familyId)
+                .count();
+    }
+
     long countByCategory(long categoryId);
     long countByHsCode(String hsCode);
     long countBySupplier(long supplierId);

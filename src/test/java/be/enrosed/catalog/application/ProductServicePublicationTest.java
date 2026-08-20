@@ -151,6 +151,36 @@ class ProductServicePublicationTest {
         assertNull(photoStorage.data);
     }
 
+    @Test
+    void refusesToDeleteAProductThatIsPartOfBusinessHistory() {
+        repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true));
+        repository.referenceCounts = new ProductRepository.ReferenceCounts(1, 2, 3, 4);
+
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> service.delete(1L));
+
+        assertTrue(error.getMessage().contains("ENR-P01"), error.getMessage());
+        assertTrue(error.getMessage().contains("1 inkooporderregel"), error.getMessage());
+        assertTrue(error.getMessage().contains("2 verkooporderregels"), error.getMessage());
+        assertTrue(error.getMessage().contains("3 palletregels"), error.getMessage());
+        assertTrue(error.getMessage().contains("4 offertevoorstelregels"), error.getMessage());
+        assertTrue(error.getMessage().contains("inactief"), error.getMessage());
+        assertTrue(repository.findById(1L).isPresent());
+        assertTrue(photoStorage.deleted.isEmpty());
+    }
+
+    @Test
+    void deletesAnUnreferencedProductAndItsPhoto() {
+        repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true));
+
+        service.delete(1L);
+
+        assertTrue(repository.findById(1L).isEmpty());
+        assertEquals(List.of("photo-key"), photoStorage.deleted);
+    }
+
     private static Product product(Long id, String sku, String description, String publicHandle,
                                    PublicationState website, PublicationState orderApp,
                                    boolean withPhoto) {
@@ -171,6 +201,7 @@ class ProductServicePublicationTest {
 
     private static final class FakeProducts implements ProductRepository {
         private final Map<String, Product> bySku = new LinkedHashMap<>();
+        private ReferenceCounts referenceCounts = ReferenceCounts.none();
 
         void add(Product product) {
             bySku.put(product.sku(), product);
@@ -212,7 +243,14 @@ class ProductServicePublicationTest {
         }
 
         @Override
-        public void deleteById(long id) {}
+        public void deleteById(long id) {
+            findById(id).ifPresent(product -> bySku.remove(product.sku()));
+        }
+
+        @Override
+        public ReferenceCounts referenceCounts(long productId) {
+            return referenceCounts;
+        }
 
         @Override
         public long countByCategory(long categoryId) { return 0; }
@@ -226,6 +264,7 @@ class ProductServicePublicationTest {
 
     private static final class FakePhotoStorage implements PhotoStorage {
         private byte[] data;
+        private final List<String> deleted = new ArrayList<>();
 
         @Override
         public Stored store(String originalFilename, String contentType, byte[] data) {
@@ -239,7 +278,9 @@ class ProductServicePublicationTest {
         }
 
         @Override
-        public void delete(String storageKey) {}
+        public void delete(String storageKey) {
+            deleted.add(storageKey);
+        }
 
         @Override
         public boolean exists(String storageKey) { return true; }

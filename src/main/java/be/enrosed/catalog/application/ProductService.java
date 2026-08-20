@@ -18,6 +18,7 @@ import jakarta.transaction.Transactional;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -175,7 +176,12 @@ public class ProductService {
     @Transactional
     public void delete(long id) {
         Product product = get(id);
+        ProductRepository.ReferenceCounts references = products.referenceCounts(id);
+        if (references.total() > 0) {
+            throw new BusinessRuleException(deleteBlockedMessage(product, references));
+        }
         products.deleteById(id);
+        draftEmptyFamily(product.familyId());
         product.photos().forEach(photo -> deleteBlob(photo.storageKey()));
     }
 
@@ -347,6 +353,41 @@ public class ProductService {
     private void deleteBlob(String storageKey) {
         if (photoReferences == null) photoStorage.delete(storageKey);
         else photoReferences.deleteIfUnreferenced(storageKey);
+    }
+
+    /** Preserve family content and media, but never leave an empty family publicly visible. */
+    private void draftEmptyFamily(Long familyId) {
+        if (familyId == null || families == null || products.countActiveByFamily(familyId) > 0) return;
+        ProductFamilyEntity family = families.findById(familyId);
+        if (family == null) return;
+        family.websiteStatus = PublicationState.DRAFT;
+        family.orderAppStatus = PublicationState.DRAFT;
+        family.catalogueStatus = PublicationState.DRAFT;
+        family.updatedAt = Instant.now();
+    }
+
+    private static String deleteBlockedMessage(
+            Product product, ProductRepository.ReferenceCounts references) {
+        List<String> reasons = new ArrayList<>();
+        addCount(reasons, references.purchaseOrderLines(), "inkooporderregel", "inkooporderregels");
+        addCount(reasons, references.salesOrderLines(), "verkooporderregel", "verkooporderregels");
+        addCount(reasons, references.salesPalletItems(), "palletregel", "palletregels");
+        addCount(reasons, references.quoteRevisionLines(),
+                "offertevoorstelregel", "offertevoorstelregels");
+        String identity = product.sku() == null || product.sku().isBlank()
+                ? product.name() : product.sku();
+        return "Product " + identity + " kan niet worden verwijderd omdat het nog voorkomt in "
+                + joinReasons(reasons) + ". Zet het product in plaats daarvan op inactief.";
+    }
+
+    private static void addCount(List<String> reasons, long count, String singular, String plural) {
+        if (count > 0) reasons.add(count + " " + (count == 1 ? singular : plural));
+    }
+
+    private static String joinReasons(List<String> reasons) {
+        if (reasons.size() == 1) return reasons.getFirst();
+        return String.join(", ", reasons.subList(0, reasons.size() - 1))
+                + " en " + reasons.getLast();
     }
 
 

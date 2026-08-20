@@ -3,6 +3,7 @@ package be.enrosed.catalog.adapter.out.persistence;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Product;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.EntityManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -11,9 +12,11 @@ import java.util.Optional;
 public class PanacheProductRepository implements ProductRepository {
 
     private final CatalogDaos.Products dao;
+    private final EntityManager entityManager;
 
-    public PanacheProductRepository(CatalogDaos.Products dao) {
+    public PanacheProductRepository(CatalogDaos.Products dao, EntityManager entityManager) {
         this.dao = dao;
+        this.entityManager = entityManager;
     }
 
     @Override
@@ -69,7 +72,46 @@ public class PanacheProductRepository implements ProductRepository {
 
     @Override
     public void deleteById(long id) {
+        deleteProductOwnedMetadata(id);
         dao.deleteById(id);
+    }
+
+    private void deleteProductOwnedMetadata(long productId) {
+        deleteByProductId("ProductExternalIdentifierEntity", productId);
+        deleteByProductId("ProductPriceObservationEntity", productId);
+        deleteByProductId("ProductProvenanceEntity", productId);
+        deleteByProductId("ProductDimensionObservationEntity", productId);
+        deleteByProductId("ProductPackageEntity", productId);
+    }
+
+    private void deleteByProductId(String entityName, long productId) {
+        entityManager.createQuery("delete from " + entityName + " item where item.productId = :productId")
+                .setParameter("productId", productId)
+                .executeUpdate();
+    }
+
+    @Override
+    public ReferenceCounts referenceCounts(long productId) {
+        return new ReferenceCounts(
+                count("select count(l) from PurchaseOrderLineEntity l where l.productId = :productId",
+                        productId),
+                count("select count(l) from SalesOrderLineEntity l where l.productId = :productId",
+                        productId),
+                count("select count(i) from SalesPalletItemEntity i where i.productId = :productId",
+                        productId),
+                count("select count(l) from QuoteRevisionLineEntity l where l.productId = :productId",
+                        productId));
+    }
+
+    private long count(String query, long productId) {
+        return entityManager.createQuery(query, Long.class)
+                .setParameter("productId", productId)
+                .getSingleResult();
+    }
+
+    @Override
+    public long countActiveByFamily(long familyId) {
+        return dao.count("familyId = ?1 and active = true", familyId);
     }
 
     @Override
