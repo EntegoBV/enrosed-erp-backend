@@ -2,7 +2,10 @@ package be.enrosed.sales.application;
 
 import be.enrosed.sales.domain.DeliveryTermsState;
 import be.enrosed.sales.domain.FreightState;
+import be.enrosed.sales.domain.FreightPricingStrategy;
+import be.enrosed.sales.domain.LoadMode;
 import be.enrosed.sales.domain.MarkupMode;
+import be.enrosed.sales.domain.PalletProfile;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.shared.BusinessRuleException;
@@ -73,6 +76,8 @@ class SalesLifecycleTest {
                 status, "DAP", null, null, MarkupMode.PRODUCT, BigDecimal.ZERO,
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null,
                 List.of(), List.of());
     }
 
@@ -83,6 +88,8 @@ class SalesLifecycleTest {
                 draft.paymentTerms(), draft.notes(), draft.markupMode(), draft.orderMarkupPct(),
                 draft.extraDiscountPct(), draft.extraDiscountLabel(), "existing-token", Instant.now(),
                 null, 0, null, null, null, null, draft.deliveryTerms(), draft.freight(),
-                draft.manualFreightEur(), draft.lines(), draft.pallets());
+                draft.manualFreightEur(), draft.loadMode(), draft.palletProfile(),
+                draft.maxPalletHeightCm(), draft.freightPricingStrategy(),
+                draft.freightRatePerCbmEur(), draft.lines(), draft.pallets());
     }
 }

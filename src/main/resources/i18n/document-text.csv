@@ -12,6 +12,7 @@ delivery;Levering;Livraison;Delivery;Lieferung;Entrega;Dostawa;Entrega;Teslimat
 destination;Bestemming;Destination;Destination;Bestimmungsland;Destino;Miejsce przeznaczenia;Destino;Varış ülkesi
 pallets;Pallets;Palettes;Pallets;Paletten;Palés;Palety;Paletes;Palet
 cartons;Dozen;Cartons;Cartons;Kartons;Cajas;Kartony;Caixas;Koli
+volume;Volume;Volume;Volume;Volumen;Volumen;Objętość;Volume;Hacim
 payment;Betaling;Paiement;Payment;Zahlung;Pago;Płatność;Pagamento;Ödeme
 sku;SKU;Réf.;SKU;Art.-Nr.;Ref.;Nr kat.;Ref.;Ürün kodu
 description;Omschrijving;Désignation;Description;Bezeichnung;Descripción;Opis;Descrição;Açıklama
@@ -24,6 +25,9 @@ orderDiscount;Orderkorting;Remise sur commande;Order discount;Auftragsrabatt;Des
 extraDiscount;Extra korting;Remise supplémentaire;Additional discount;Zusatzrabatt;Descuento adicional;Rabat dodatkowy;Desconto adicional;Ek indirim
 goodsValue;Goederenwaarde;Valeur des marchandises;Goods value;Warenwert;Valor de la mercancía;Wartość towaru;Valor da mercadoria;Mal bedeli
 freight;Vracht;Transport;Freight;Fracht;Transporte;Transport;Transporte;Navlun
+freightPerPallet;Vracht per pallet;Transport par palette;Freight per pallet;Fracht pro Palette;Transporte por palé;Transport za paletę;Transporte por palete;Palet başına navlun
+freightPerCbm;Vracht per m³;Transport par m³;Freight per m³;Fracht pro m³;Transporte por m³;Transport za m³;Transporte por m³;m³ başına navlun
+freightFixedAmount;Vast vrachtbedrag;Montant de transport fixe;Fixed freight amount;Fester Frachtbetrag;Importe fijo de transporte;Stała kwota transportu;Valor fixo de transporte;Sabit navlun tutarı
 handling;Administratie;Frais de dossier;Handling;Bearbeitung;Gastos de gestión;Obsługa;Encargos administrativos;İşlem ücreti
 totalInclVat;Totaal incl. BTW;Total TVA comprise;Total incl. VAT;Gesamt inkl. MwSt.;Total con IVA;Razem z VAT;Total com IVA;KDV dahil toplam
 note;Opmerking;Remarque;Note;Anmerkung;Observación;Uwaga;Observação;Not

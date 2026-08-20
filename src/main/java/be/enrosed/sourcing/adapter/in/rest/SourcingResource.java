@@ -57,9 +57,7 @@ public class SourcingResource {
     @Path("/suppliers/{id}")
     public Supplier updateSupplier(@PathParam("id") long id, Supplier supplier) {
         suppliers.get(id);
-        return suppliers.save(new Supplier(id, supplier.name(), supplier.country(), supplier.city(),
-                supplier.contact(), supplier.email(), supplier.phone(), supplier.currency(),
-                supplier.incoterm(), supplier.portOfLoading(), supplier.leadTimeDays(), supplier.notes()));
+        return suppliers.save(supplier.withId(id));
     }
 
     @DELETE
@@ -131,10 +129,10 @@ public class SourcingResource {
     public Response purchasePdf(@PathParam("id") long id,
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue) {
         PurchaseOrder order = purchaseOrders.get(id);
-        String supplierName = order.supplierId() == null ? null : suppliers.get(order.supplierId()).name();
+        Supplier supplier = order.supplierId() == null ? null : suppliers.get(order.supplierId());
 
         PdfPurchaseRenderer.Document document = purchasePdf.render(
-                order, purchaseOrders.calculate(order), supplierName, showRevenue);
+                order, purchaseOrders.calculate(order), supplier, showRevenue);
 
         return Response.ok(document.content())
                 .header("Content-Disposition",

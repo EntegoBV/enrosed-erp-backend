@@ -6,6 +6,7 @@ import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.FreightState;
+import be.enrosed.sales.domain.FreightPricingStrategy;
 import be.enrosed.shared.Language;
 import be.enrosed.sales.domain.QuoteRevision;
 import be.enrosed.sales.domain.SalesOrder;
@@ -38,7 +39,9 @@ public class SalesOrderResource {
     public record SendRequest(String message) {}
     public record RevisionDecision(String handledBy, String message) {}
     public record DeliveryTermsRequest(List<SalesOrderService.DeliveryWeekChange> lines) {}
-    public record FreightRequest(FreightState state, BigDecimal manualFreightEur) {}
+    public record FreightRequest(FreightState state, BigDecimal manualFreightEur,
+                                 FreightPricingStrategy freightPricingStrategy,
+                                 BigDecimal freightRatePerCbmEur) {}
     public record OrderView(SalesOrder order, PricedOrder priced) {}
 
     @GET
@@ -85,7 +88,9 @@ public class SalesOrderResource {
     public OrderView updateFreight(@PathParam("id") long id, FreightRequest request) {
         SalesOrder saved = salesOrders.updateFreight(id,
                 request == null ? null : request.state(),
-                request == null ? null : request.manualFreightEur());
+                request == null ? null : request.manualFreightEur(),
+                request == null ? null : request.freightPricingStrategy(),
+                request == null ? null : request.freightRatePerCbmEur());
         return new OrderView(saved, salesOrders.price(saved));
     }
 

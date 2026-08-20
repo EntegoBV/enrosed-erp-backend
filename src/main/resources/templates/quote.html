@@ -70,7 +70,11 @@
     <td>
       <div class="label">{t.delivery}</div>
       {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
-      {t.pallets}: <b>{priced.totals.palletsStrict}</b><br/>
+      {#if looseCartons}
+        {t.volume}: <b>{priced.totals.cbm} m³</b><br/>
+      {#else}
+        {t.pallets}: <b>{effectivePallets}</b><br/>
+      {/if}
       {t.cartons}: {priced.totals.cartons} · {priced.totals.weightKg.amount} kg<br/>
       {#if paymentText}{t.payment}: {paymentText}{/if}
     </td>
@@ -84,7 +88,7 @@
     <th>{t.description}</th>
     <th class="r">{t.quantity}</th>
     <th class="r">{t.cartons}</th>
-    <th class="r">{t.pallets}</th>
+    <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
     <th class="r">{t.unitPrice}</th>
     <th class="r">{t.discount}</th>
     <th>{t.delivery}</th>
@@ -98,7 +102,7 @@
       <td>{line.customerDescription}</td>
       <td class="r">{line.quantity}</td>
       <td class="r">{line.cartons}</td>
-      <td class="r">{line.pallets}</td>
+      <td class="r">{#if looseCartons}{line.cbm} m³{#else}{palletPositionsByProduct.get(line.productId)}{/if}</td>
       <td class="r">{line.unitPrice.unit}</td>
       <td class="r">{#if line.discountPct.isPositive}{line.discountPct.pct}{#else}-{/if}</td>
       <td class="muted" style="font-size:7.5pt">{deliveryTexts.get(line.productId)}</td>
@@ -115,7 +119,11 @@
         <td class="r">- {priced.totals.orderDiscountAmount.eur}</td></tr>
   {/if}
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
-  <tr><td>{t.freight} ({priced.totals.palletsStrict} {t.pallets})</td>
+  <tr><td>{t.freight}
+      {#if freightPending}
+      {#else if freightPerCbm}({priced.totals.cbm} m³)
+      {#else if freightFixed}({t.freightFixedAmount})
+      {#else}({effectivePallets} {t.pallets}){/if}</td>
       <td class="r">{#if freightPending}{t.freightToBeDetermined}{#else}{priced.totals.freight.eur}{/if}</td></tr>
   <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
   <tr class="grand"><td>{t.total}</td><td class="r">{priced.totals.total.eur}</td></tr>

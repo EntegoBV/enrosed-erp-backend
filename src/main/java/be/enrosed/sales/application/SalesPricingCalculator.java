@@ -1,6 +1,7 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Language;
@@ -22,8 +23,10 @@ import java.util.Map;
  * says so - from a percentage over the whole order. Then the tier discounts:
  * first per line on that product's quantity, then on the order total.
  *
- * Freight is charged per pallet, not per cubic metre: sales ships by road
- * and the carrier charges per pallet position.
+ * Freight follows the order's explicit strategy: the destination-country
+ * tariff per pallet, an own rate per cubic metre, or one fixed total.
+ * Physical packing stays separate: palletised and loose-carton loads both
+ * retain their outer-carton CBM.
  */
 @ApplicationScoped
 public class SalesPricingCalculator {
@@ -51,6 +54,8 @@ public class SalesPricingCalculator {
         List<PricedOrder.Line> lines = new ArrayList<>();
         List<int[]> palletInput = new ArrayList<>();
         List<String> withoutCost = new ArrayList<>();
+        List<String> withoutCartonDimensions = new ArrayList<>();
+        List<String> withoutPalletFit = new ArrayList<>();
 
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal lineDiscountTotal = BigDecimal.ZERO;
@@ -59,6 +64,7 @@ public class SalesPricingCalculator {
         BigDecimal weightTotal = BigDecimal.ZERO;
         int pieces = 0;
         int cartonsTotal = 0;
+        boolean palletised = order.loadMode() == LoadMode.PALLETS;
 
         for (SalesOrderLine line : order.lines()) {
             Product product = productsById.get(line.productId());
@@ -72,13 +78,30 @@ public class SalesPricingCalculator {
             int cartons = carton.cartonsFor(requested);
             int quantity = cartons * Math.max(1, carton.piecesPerCarton());
 
-            PalletCalculator.Fit fit = pallets.fit(carton, context.pallet());
-            int linePallets = pallets.palletsFor(cartons, fit.cartonsPerPallet());
-            palletInput.add(new int[] { cartons, fit.cartonsPerPallet() });
+            boolean validOuterCarton = hasValidOuterCarton(carton);
+            if (quantity > 0 && !validOuterCarton) withoutCartonDimensions.add(product.sku());
 
-            BigDecimal cbm = carton.cbm().multiply(BigDecimal.valueOf(cartons)).setScale(3, RoundingMode.HALF_UP);
-            BigDecimal weight = Money.nz(carton.weightKg()).multiply(BigDecimal.valueOf(cartons))
-                    .setScale(1, RoundingMode.HALF_UP);
+            PalletCalculator.Fit fit = palletised
+                    ? pallets.fit(carton, context.pallet())
+                    : PalletCalculator.Fit.none("losse dozen");
+            if (palletised && quantity > 0 && fit.cartonsPerPallet() <= 0) {
+                withoutPalletFit.add(product.sku());
+            }
+            int linePallets = palletised
+                    ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
+            if (palletised) palletInput.add(new int[] { cartons, fit.cartonsPerPallet() });
+            int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
+            BigDecimal calculatedPalletHeight = palletised
+                    ? calculatedPalletHeight(carton, context.pallet(), usedPalletLayers)
+                    : BigDecimal.ZERO;
+
+            /* Keep exact carton volume for totals and per-CBM freight. Only
+               the response field is rounded; rounding every line first can
+               underprice a load made from many small cartons. */
+            BigDecimal exactCbm = carton.cbm().multiply(BigDecimal.valueOf(cartons));
+            BigDecimal cbm = exactCbm.setScale(3, RoundingMode.HALF_UP);
+            BigDecimal exactWeight = Money.nz(carton.weightKg()).multiply(BigDecimal.valueOf(cartons));
+            BigDecimal weight = exactWeight.setScale(1, RoundingMode.HALF_UP);
 
             BigDecimal unitPrice = unitPriceFor(product, order, line.unitPriceEur());
             BigDecimal lineGross = unitPrice.multiply(BigDecimal.valueOf(quantity));
@@ -111,6 +134,7 @@ public class SalesPricingCalculator {
                     product.primaryPhoto() == null ? null
                             : "/api/products/" + product.id() + "/photos/" + product.primaryPhoto().id(),
                     quantity, cartons, fit.cartonsPerPallet(), linePallets,
+                    fit.perLayer(), usedPalletLayers, calculatedPalletHeight,
                     cbm, weight,
                     Money.unit(unitPrice), Money.money(lineGross),
                     tierPct, manualPct, discountPct, Money.money(discountAmount),
@@ -134,8 +158,8 @@ public class SalesPricingCalculator {
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);
             costTotal = costTotal.add(lineCost);
-            cbmTotal = cbmTotal.add(cbm);
-            weightTotal = weightTotal.add(weight);
+            cbmTotal = cbmTotal.add(exactCbm);
+            weightTotal = weightTotal.add(exactWeight);
             pieces += quantity;
             cartonsTotal += cartons;
         }
@@ -153,14 +177,15 @@ public class SalesPricingCalculator {
         BigDecimal goodsTotal = afterOrderTier.subtract(extraDiscount);
 
         /* ---- vracht per pallet ----------------------------------------- */
-        PalletCalculator.OrderPallets palletCounts = pallets.forOrder(palletInput);
+        PalletCalculator.OrderPallets palletCounts = palletised
+                ? pallets.forOrder(palletInput) : new PalletCalculator.OrderPallets(0, 0);
         Country country = context.country();
 
         /* Hand-built pallets take over the freight count the moment they
            exist: the seller laid out the load and knows better than the
            formula. Cartons left off any pallet are reported, not silently
            re-added - the warning on screen is the guard rail. */
-        int manualPallets = order.pallets().size();
+        int manualPallets = palletised ? order.pallets().size() : 0;
         int assignedCartons = order.pallets().stream()
                 .flatMap(pallet -> pallet.items().stream())
                 .mapToInt(be.enrosed.sales.domain.OrderPallet.Item::cartons)
@@ -173,21 +198,22 @@ public class SalesPricingCalculator {
         BigDecimal handling = BigDecimal.ZERO;
         boolean freightIsMinimum = false;
 
-        if (country != null && palletsForFreight > 0) {
-            BigDecimal byPallet = Money.nz(country.freightPerPallet())
-                    .multiply(BigDecimal.valueOf(palletsForFreight));
-            BigDecimal minimum = Money.nz(country.minFreight());
-            freight = byPallet.max(minimum);
-            freightIsMinimum = freight.compareTo(byPallet) > 0;
-            handling = Money.nz(country.handling());
-        }
+        boolean hasShipment = cartonsTotal > 0;
+        if (country != null && hasShipment) handling = Money.nz(country.handling());
 
-        /* Freight we fill in ourselves wins over the country rate: a
-           destination outside the usual rates, or a customer arranging their
-           own pickup, does not fit a per-pallet table. */
-        if (order.manualFreightEur() != null) {
-            freight = Money.money(order.manualFreightEur());
-            freightIsMinimum = false;
+        switch (order.freightPricingStrategy()) {
+            case COUNTRY_PALLET -> {
+                if (country != null && palletsForFreight > 0) {
+                    BigDecimal byPallet = Money.nz(country.freightPerPallet())
+                            .multiply(BigDecimal.valueOf(palletsForFreight));
+                    BigDecimal minimum = Money.nz(country.minFreight());
+                    freight = byPallet.max(minimum);
+                    freightIsMinimum = freight.compareTo(byPallet) > 0;
+                }
+            }
+            case PER_CBM -> freight = Money.money(
+                    cbmTotal.multiply(Money.nz(order.freightRatePerCbmEur())));
+            case FIXED -> freight = Money.money(order.manualFreightEur());
         }
 
         /* While the freight is "to be determined", nothing counts yet.
@@ -195,6 +221,7 @@ public class SalesPricingCalculator {
            item: the customer counts on the total that was shown. */
         if (order.freight() == FreightState.TE_BEPALEN) {
             freight = BigDecimal.ZERO;
+            handling = BigDecimal.ZERO;
             freightIsMinimum = false;
         }
 
@@ -215,6 +242,7 @@ public class SalesPricingCalculator {
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
                 manualPallets, unassignedCartons,
+                context.pallet().baseHeightCm(), context.pallet().maxHeightCm(),
                 cbmTotal.setScale(3, RoundingMode.HALF_UP), weightTotal.setScale(1, RoundingMode.HALF_UP),
                 Money.money(gross), Money.money(lineDiscountTotal), Money.money(subtotal),
                 orderTierPct, Money.money(orderDiscount),
@@ -234,9 +262,58 @@ public class SalesPricingCalculator {
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,
                 meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(goodsTotal)),
-                !lines.isEmpty(), country != null, withoutCost);
+                !lines.isEmpty(), country != null, withoutCost,
+                withoutCartonDimensions, withoutPalletFit,
+                freightPricingIssue(order));
 
         return new PricedOrder(lines, totals, validation);
+    }
+
+    private static boolean hasValidOuterCarton(Carton carton) {
+        if (carton == null || carton.piecesPerCarton() <= 0 || carton.dimensions() == null) {
+            return false;
+        }
+        Dimensions size = carton.dimensions();
+        return positive(size.lengthCm()) && positive(size.widthCm()) && positive(size.heightCm());
+    }
+
+    private static String freightPricingIssue(SalesOrder order) {
+        if (order.freight() == FreightState.TE_BEPALEN) return null;
+        if (order.loadMode() == LoadMode.LOOSE_CARTONS
+                && order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET) {
+            return "Kies bij losse dozen vracht per CBM of een vast vrachtbedrag";
+        }
+        if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
+                && (order.freightRatePerCbmEur() == null
+                    || order.freightRatePerCbmEur().signum() <= 0)) {
+            return "Vul een positief vrachttarief per CBM in";
+        }
+        if (order.freightPricingStrategy() == FreightPricingStrategy.FIXED
+                && order.manualFreightEur() == null) {
+            return "Vul het vaste vrachtbedrag in";
+        }
+        return null;
+    }
+
+    private static boolean positive(BigDecimal value) {
+        return value != null && value.signum() > 0;
+    }
+
+    private static int usedPalletLayers(PalletCalculator.Fit fit, int cartons) {
+        if (cartons <= 0 || fit.perLayer() <= 0 || fit.cartonsPerPallet() <= 0) return 0;
+        int onTallestPallet = Math.min(cartons, fit.cartonsPerPallet());
+        return (onTallestPallet + fit.perLayer() - 1) / fit.perLayer();
+    }
+
+    /** Tallest pallet needed by this line, not always a completely full pallet. */
+    private static BigDecimal calculatedPalletHeight(Carton carton, PalletSpec pallet,
+                                                     int usedLayers) {
+        if (usedLayers <= 0 || carton == null || carton.dimensions() == null
+                || !positive(carton.dimensions().heightCm())) {
+            return BigDecimal.ZERO;
+        }
+        return pallet.baseHeightCm().add(carton.dimensions().heightCm()
+                .multiply(BigDecimal.valueOf(usedLayers)));
     }
 
     /**

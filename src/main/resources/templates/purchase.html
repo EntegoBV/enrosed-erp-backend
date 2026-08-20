@@ -47,7 +47,10 @@
     <td class="meta">
       <span class="label" style="display:block">Inkoopcalculatie</span><b>{order.number}</b><br/>
       <span class="label" style="margin-top:5px;display:block">Datum</span>{orderDate}<br/>
-      <span class="label" style="margin-top:5px;display:block">Leverancier</span>{supplierName}<br/>
+      <span class="label" style="margin-top:5px;display:block">Leverancier</span>{supplierName}
+      {#if showRevenue}
+        {#for addressLine in supplierAddressLines}<br/><span class="muted">{addressLine}</span>{/for}
+      {/if}<br/>
       <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType.label}<br/>
       <span class="label" style="margin-top:5px;display:block">Bestemming</span>{order.destinationPort}
       {#if showRevenue}

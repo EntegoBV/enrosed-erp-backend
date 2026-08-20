@@ -1,6 +1,8 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
@@ -33,6 +35,7 @@ public class SalesOrderService {
     private final CountryService countries;
     private final DiscountTierService tiers;
     private final SalesPricingCalculator pricing;
+    private final PalletCalculator palletCalculator;
     private final SalesSettings settings;
     private final SalesRepositories.Events events;
     private final SalesRepositories.Revisions revisions;
@@ -41,7 +44,8 @@ public class SalesOrderService {
 
     public SalesOrderService(SalesRepositories.Orders orders, ProductService products,
                              CountryService countries, DiscountTierService tiers,
-                             SalesPricingCalculator pricing, SalesSettings settings,
+                             SalesPricingCalculator pricing, PalletCalculator palletCalculator,
+                             SalesSettings settings,
                              CustomerService customers, VatCalculator vat,
                              SalesRepositories.Events events,
                              SalesRepositories.Revisions revisions) {
@@ -50,6 +54,7 @@ public class SalesOrderService {
         this.countries = countries;
         this.tiers = tiers;
         this.pricing = pricing;
+        this.palletCalculator = palletCalculator;
         this.settings = settings;
         this.customers = customers;
         this.events = events;
@@ -75,7 +80,7 @@ public class SalesOrderService {
         return pricing.price(order, byId, new SalesPricingCalculator.Context(
                 country,
                 customer,
-                settings.pallet(),
+                settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
                 tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
                 vat.determine(country, customer)));
@@ -96,6 +101,8 @@ public class SalesOrderService {
                 null, null,
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null,
                 List.of(), List.of());
         validateForSave(draft);
         SalesOrder created = orders.save(draft);
@@ -112,6 +119,13 @@ public class SalesOrderService {
         if (changes == null) {
             throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         }
+
+        FreightPricingStrategy freightStrategy = freightStrategyForUpdate(current, changes);
+        BigDecimal manualFreight = freightStrategy == FreightPricingStrategy.FIXED
+                ? changes.manualFreightEur() : null;
+        BigDecimal cbmRate = freightStrategy == FreightPricingStrategy.PER_CBM
+                ? changes.freightRatePerCbmEur()
+                : null;
 
         SalesOrder updated = new SalesOrder(
                 current.id(), numberFor(current, changes),
@@ -134,7 +148,13 @@ public class SalesOrderService {
                    determined later"), so it DOES come from the form. When not
                    sent along, what was there stays. */
                 changes.freightOrNull() == null ? current.freight() : changes.freight(),
-                changes.manualFreightEur(),
+                manualFreight,
+                changes.loadModeOrNull() == null ? current.loadMode() : changes.loadMode(),
+                changes.palletProfileOrNull() == null
+                        ? current.palletProfile() : changes.palletProfile(),
+                /* Null deliberately means: return to the configured default. */
+                changes.maxPalletHeightCm(),
+                freightStrategy, cbmRate,
                 changes.lines(), changes.pallets());
         validateForSave(updated);
         return orders.save(updated);
@@ -181,7 +201,8 @@ public class SalesOrderService {
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()))
                         : line)
                 .toList();
-        return orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(), lines));
+        return orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(),
+                current.freightPricingStrategy(), current.freightRatePerCbmEur(), lines));
     }
 
     /**
@@ -190,18 +211,100 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder updateFreight(long id, FreightState requestedState, BigDecimal manualFreightEur) {
+        return updateFreight(id, requestedState, manualFreightEur, null, null);
+    }
+
+    /**
+     * Narrow freight update including its calculation basis. Older clients
+     * omit the two new fields: a supplied fixed amount keeps its old meaning.
+     */
+    @Transactional
+    public SalesOrder updateFreight(long id, FreightState requestedState, BigDecimal manualFreightEur,
+                                    FreightPricingStrategy requestedStrategy,
+                                    BigDecimal freightRatePerCbmEur) {
         SalesOrder current = get(id);
         SalesLifecycle.requireTermsEditable(current);
         if (requestedState == null) {
             throw new BusinessRuleException("Kies of de vracht berekend of nog te bepalen is");
         }
         requireNonNegative(manualFreightEur, "Handmatige vracht");
+        requireNonNegative(freightRatePerCbmEur, "CBM-vrachttarief");
 
         FreightState state = current.freight() == FreightState.TE_BEPALEN
                 && requestedState != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD
                 : requestedState;
-        return orders.save(copyWithTerms(current, state, manualFreightEur, current.lines()));
+        FreightPricingStrategy strategy = requestedStrategy;
+        if (strategy == null) {
+            if (manualFreightEur != null) strategy = FreightPricingStrategy.FIXED;
+            else if (current.freightPricingStrategy() == FreightPricingStrategy.FIXED) {
+                strategy = FreightPricingStrategy.COUNTRY_PALLET;
+            } else strategy = current.freightPricingStrategy();
+        }
+        BigDecimal fixedTotal = strategy == FreightPricingStrategy.FIXED
+                ? manualFreightEur : null;
+        BigDecimal cbmRate = strategy == FreightPricingStrategy.PER_CBM
+                ? (freightRatePerCbmEur == null
+                        ? current.freightRatePerCbmEur() : freightRatePerCbmEur)
+                : null;
+        SalesOrder updated = copyWithTerms(current, state, fixedTotal,
+                strategy, cbmRate, current.lines());
+        validateNarrowFreightUpdate(updated);
+        return orders.save(updated);
+    }
+
+    /**
+     * A sent legacy quote is commercially frozen. Filling its open freight
+     * item must therefore validate only the selected tariff basis, not newly
+     * reject historic pallet layouts or unrelated product data that the
+     * narrow endpoint cannot repair.
+     */
+    private void validateNarrowFreightUpdate(SalesOrder order) {
+        if (order.freight() == FreightState.TE_BEPALEN) return;
+
+        switch (order.freightPricingStrategy()) {
+            case FIXED -> {
+                if (order.manualFreightEur() == null) {
+                    throw new BusinessRuleException("Vul het vaste vrachtbedrag in");
+                }
+            }
+            case PER_CBM -> {
+                if (order.freightRatePerCbmEur() == null
+                        || order.freightRatePerCbmEur().signum() <= 0) {
+                    throw new BusinessRuleException("Vul een positief vrachttarief per CBM in");
+                }
+                requireOuterCartonsForFreight(order, false);
+            }
+            case COUNTRY_PALLET -> {
+                if (order.loadMode() == LoadMode.LOOSE_CARTONS) {
+                    throw new BusinessRuleException(
+                            "Kies bij losse dozen vracht per CBM of een vast vrachtbedrag");
+                }
+                /* A stored manual layout already supplies the billed number
+                   of positions. Do not reopen its historic assignments. */
+                if (order.pallets().isEmpty()) requireOuterCartonsForFreight(order, true);
+            }
+        }
+    }
+
+    private void requireOuterCartonsForFreight(SalesOrder order, boolean requirePalletFit) {
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        for (SalesOrderLine line : order.lines()) {
+            if (line == null || line.quantity() <= 0) continue;
+            Product product = byId.get(line.productId());
+            if (product == null || !hasValidOuterCarton(product.carton())) {
+                String description = product == null ? "product " + line.productId() : product.describe();
+                throw new BusinessRuleException(
+                        "Vul geldige omdoosafmetingen en stuks per doos in voor " + description);
+            }
+            if (requirePalletFit
+                    && palletCalculator.fit(product.carton(), palletSpec).cartonsPerPallet() <= 0) {
+                throw new BusinessRuleException(product.describe()
+                        + " past niet binnen het gekozen palletprofiel, de hoogte of het gewicht");
+            }
+        }
     }
 
     /**
@@ -249,6 +352,8 @@ public class SalesOrderService {
                 null, null, null, 0, null, null, null, source.internalNotes(),
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
+                source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
+                source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
@@ -264,6 +369,7 @@ public class SalesOrderService {
     /** Rechecks an existing draft/open quotation before a document leaves. */
     public void validateForSend(SalesOrder order) {
         validateForSave(order);
+        validateLogisticsReady(order);
     }
 
     private void validateForSave(SalesOrder order) {
@@ -297,6 +403,19 @@ public class SalesOrderService {
         requireNonNegative(order.orderMarkupPct(), "Opslagpercentage");
         requirePercentage(order.extraDiscountPct(), "Extra korting");
         requireNonNegative(order.manualFreightEur(), "Handmatige vracht");
+        requireNonNegative(order.freightRatePerCbmEur(), "CBM-vrachttarief");
+
+        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        if (order.maxPalletHeightCm() != null) {
+            if (order.maxPalletHeightCm().compareTo(palletSpec.baseHeightCm()) <= 0) {
+                throw new BusinessRuleException(
+                        "Maximale pallethoogte moet hoger zijn dan de palletbasis van "
+                                + palletSpec.baseHeightCm().stripTrailingZeros().toPlainString() + " cm");
+            }
+            if (order.maxPalletHeightCm().compareTo(BigDecimal.valueOf(300)) > 0) {
+                throw new BusinessRuleException("Maximale pallethoogte kan niet hoger zijn dan 300 cm");
+            }
+        }
 
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -317,10 +436,81 @@ public class SalesOrderService {
             requireNonNegative(line.unitPriceEur(), "Handmatige stukprijs");
             requirePercentage(line.manualDiscountPct(), "Regelkorting");
         }
-        validatePallets(order, byId);
+        validatePallets(order, byId, palletSpec);
     }
 
-    private void validatePallets(SalesOrder order, Map<Long, Product> byId) {
+    /**
+     * Draft autosave may be incomplete while a seller picks a strategy and
+     * then types its amount. A quote may only leave once logistics is fully
+     * priceable and every shipping carton can be measured.
+     */
+    private void validateLogisticsReady(SalesOrder order) {
+        if (order.freight() != FreightState.TE_BEPALEN) {
+            if (order.loadMode() == LoadMode.LOOSE_CARTONS
+                    && order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET) {
+                throw new BusinessRuleException(
+                        "Kies bij losse dozen vracht per CBM of een vast vrachtbedrag");
+            }
+            if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
+                    && (order.freightRatePerCbmEur() == null
+                        || order.freightRatePerCbmEur().signum() <= 0)) {
+                throw new BusinessRuleException("Vul een positief vrachttarief per CBM in");
+            }
+            if (order.freightPricingStrategy() == FreightPricingStrategy.FIXED
+                    && order.manualFreightEur() == null) {
+                throw new BusinessRuleException("Vul het vaste vrachtbedrag in");
+            }
+        }
+
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        for (SalesOrderLine line : order.lines()) {
+            if (line == null || line.quantity() <= 0) continue;
+            Product product = byId.get(line.productId());
+            if (product == null) continue; // validateForSave reports the clearer missing-product error.
+            if (!hasValidOuterCarton(product.carton())) {
+                throw new BusinessRuleException("Vul geldige omdoosafmetingen en stuks per doos in voor "
+                        + product.describe());
+            }
+            if (order.loadMode() == LoadMode.PALLETS
+                    && palletCalculator.fit(product.carton(), palletSpec).cartonsPerPallet() <= 0) {
+                throw new BusinessRuleException(product.describe()
+                        + " past niet binnen het gekozen palletprofiel, de hoogte of het gewicht");
+            }
+        }
+
+        if (order.loadMode() == LoadMode.PALLETS && !order.pallets().isEmpty()) {
+            Map<Long, Integer> assigned = new HashMap<>();
+            for (OrderPallet pallet : order.pallets()) {
+                if (pallet.items().isEmpty()) {
+                    throw new BusinessRuleException(
+                            "Verwijder lege pallets of zet er minstens één doos op");
+                }
+                for (OrderPallet.Item item : pallet.items()) {
+                    assigned.merge(item.productId(), item.cartons(), Integer::sum);
+                }
+            }
+            for (SalesOrderLine line : order.lines()) {
+                Product product = byId.get(line.productId());
+                if (product == null) continue;
+                int ordered = product.carton() == null
+                        ? Math.max(0, line.quantity())
+                        : product.carton().cartonsFor(line.quantity());
+                if (assigned.getOrDefault(line.productId(), 0) != ordered) {
+                    throw new BusinessRuleException("Verdeel alle " + ordered
+                            + " dozen van " + product.describe() + " over de pallets");
+                }
+            }
+        }
+    }
+
+    private void validatePallets(SalesOrder order, Map<Long, Product> byId, PalletSpec palletSpec) {
+        /* A loose-carton draft keeps its previous warehouse layout so the
+           seller can switch back without rebuilding it. While loose, that
+           hidden layout is deliberately ignored and may temporarily be stale. */
+        if (order.loadMode() == LoadMode.LOOSE_CARTONS) return;
+
         Set<Long> productsOnOrder = order.lines().stream()
                 .map(SalesOrderLine::productId)
                 .collect(Collectors.toSet());
@@ -330,8 +520,14 @@ public class SalesOrderService {
             if (pallet == null) {
                 throw new BusinessRuleException("Een pallet mag niet leeg zijn");
             }
-            if (pallet.heightCm() != null && pallet.heightCm() < 0) {
-                throw new BusinessRuleException("Pallethoogte kan niet negatief zijn");
+            if (pallet.heightCm() != null
+                    && BigDecimal.valueOf(pallet.heightCm()).compareTo(palletSpec.baseHeightCm()) < 0) {
+                throw new BusinessRuleException("Pallethoogte kan niet lager zijn dan de palletbasis");
+            }
+            if (pallet.heightCm() != null
+                    && BigDecimal.valueOf(pallet.heightCm()).compareTo(palletSpec.maxHeightCm()) > 0) {
+                throw new BusinessRuleException("Pallethoogte kan niet hoger zijn dan "
+                        + palletSpec.maxHeightCm().stripTrailingZeros().toPlainString() + " cm");
             }
             for (OrderPallet.Item item : pallet.items()) {
                 if (item == null || item.productId() <= 0 || item.cartons() <= 0) {
@@ -359,6 +555,8 @@ public class SalesOrderService {
 
     private static SalesOrder copyWithTerms(SalesOrder order, FreightState freight,
                                             BigDecimal manualFreightEur,
+                                            FreightPricingStrategy freightPricingStrategy,
+                                            BigDecimal freightRatePerCbmEur,
                                             List<SalesOrderLine> lines) {
         return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
@@ -366,7 +564,34 @@ public class SalesOrderService {
                 order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
                 order.signedByName(), order.customerMessage(), order.internalNotes(),
-                order.deliveryTerms(), freight, manualFreightEur, lines, order.pallets());
+                order.deliveryTerms(), freight, manualFreightEur,
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                freightPricingStrategy, freightRatePerCbmEur,
+                lines, order.pallets());
+    }
+
+    private static FreightPricingStrategy freightStrategyForUpdate(SalesOrder current,
+                                                                    SalesOrder changes) {
+        if (changes.freightPricingStrategyOrNull() != null) {
+            return changes.freightPricingStrategy();
+        }
+        if (changes.manualFreightEur() != null) return FreightPricingStrategy.FIXED;
+        if (current.freightPricingStrategy() == FreightPricingStrategy.FIXED) {
+            return FreightPricingStrategy.COUNTRY_PALLET;
+        }
+        return current.freightPricingStrategy();
+    }
+
+    private static boolean hasValidOuterCarton(Carton carton) {
+        if (carton == null || carton.piecesPerCarton() <= 0 || carton.dimensions() == null) {
+            return false;
+        }
+        Dimensions size = carton.dimensions();
+        return positive(size.lengthCm()) && positive(size.widthCm()) && positive(size.heightCm());
+    }
+
+    private static boolean positive(BigDecimal value) {
+        return value != null && value.signum() > 0;
     }
 
     private static void requirePercentage(BigDecimal value, String label) {

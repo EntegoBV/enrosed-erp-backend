@@ -53,7 +53,7 @@ public class PortalResource {
 
     public record CustomerLine(
             Long productId, String sku, String description, String photoUrl,
-            int quantity, int cartons, int pallets,
+            int quantity, int cartons, int pallets, BigDecimal cbm,
             /** Carton content, so the portal can round quantities to full cartons. */
             int piecesPerCarton,
             BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
@@ -62,7 +62,7 @@ public class PortalResource {
             boolean inStock, String deliveryDate, String deliveryWeek) {}
 
     public record CustomerTotals(
-            int pieces, int cartons, int pallets,
+            int pieces, int cartons, int pallets, BigDecimal cbm,
             BigDecimal subtotal, BigDecimal orderDiscountPercent, BigDecimal orderDiscountAmount,
             BigDecimal extraDiscountPercent, String extraDiscountLabel, BigDecimal extraDiscountAmount,
             BigDecimal goodsTotal, BigDecimal freight, BigDecimal handling,
@@ -87,6 +87,10 @@ public class PortalResource {
             String deliveryTerms,
             /** State of the freight: BEREKEND, TE_BEPALEN or AANGEVULD. */
             String freight,
+            /** PALLETS or LOOSE_CARTONS, for honest logistics labels. */
+            String loadMode,
+            /** COUNTRY_PALLET, PER_CBM or FIXED. */
+            String freightPricingStrategy,
             /** The customer's language code, so the portal opens in their language. */
             String language,
             /**
@@ -298,15 +302,18 @@ public class PortalResource {
         List<CustomerLine> lines = priced.lines().stream()
                 .map(line -> new CustomerLine(
                         line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
-                        line.quantity(), line.cartons(), line.pallets(),
+                        line.quantity(), line.cartons(),
+                        order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
                         piecesPerCarton(line.productId()),
                         line.unitPrice(), line.discountPct(), line.net(),
                         line.inStock(), line.deliveryDate(), line.deliveryWeek()))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();
+        int effectivePallets = totals.palletsManual() > 0
+                ? totals.palletsManual() : totals.palletsStrict();
         CustomerTotals customerTotals = new CustomerTotals(
-                totals.pieces(), totals.cartons(), totals.palletsStrict(),
+                totals.pieces(), totals.cartons(), effectivePallets, totals.cbm(),
                 totals.subtotal(), totals.orderDiscountPercent(), totals.orderDiscountAmount(),
                 totals.extraDiscountPercent(), totals.extraDiscountLabel(), totals.extraDiscountAmount(),
                 totals.goodsTotal(), totals.freight(), totals.handling(),
@@ -333,6 +340,8 @@ public class PortalResource {
                 order.status().isOpenForCustomer(), order.signedByName(), proposals,
                 order.deliveryTerms().name(),
                 order.freight().name(),
+                order.loadMode().name(),
+                order.freightPricingStrategy().name(),
                 language.code(),
                 DocumentText.of(language));
     }

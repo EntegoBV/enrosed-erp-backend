@@ -1,6 +1,7 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.sales.domain.PalletSpec;
+import be.enrosed.sales.domain.PalletProfile;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -9,8 +10,8 @@ import java.math.BigDecimal;
 /**
  * Settings of the sales side.
  *
- * Kept out of the database because this is configuration, not data: the
- * pallet size does not change per order.
+ * Provides operational defaults. An order may deliberately pick another
+ * footprint or lower total height, but a legacy order keeps these defaults.
  */
 @ApplicationScoped
 public class SalesSettings {
@@ -27,7 +28,8 @@ public class SalesSettings {
     @ConfigProperty(name = "enrosed.pallet.base-height-cm", defaultValue = "14.4")
     BigDecimal palletBaseHeightCm;
 
-    @ConfigProperty(name = "enrosed.pallet.max-height-cm", defaultValue = "180")
+    /** Total loading height, including the pallet base. */
+    @ConfigProperty(name = "enrosed.pallet.max-height-cm", defaultValue = "260")
     BigDecimal palletMaxHeightCm;
 
     @ConfigProperty(name = "enrosed.pallet.max-weight-kg", defaultValue = "700")
@@ -38,7 +40,20 @@ public class SalesSettings {
     }
 
     public PalletSpec pallet() {
-        return new PalletSpec("Euro-pallet", palletLengthCm, palletWidthCm,
-                palletBaseHeightCm, palletMaxHeightCm, palletMaxWeightKg);
+        return pallet(PalletProfile.EURO_120X80, null);
+    }
+
+    /** Pallet specification that actually applies to this order. */
+    public PalletSpec pallet(PalletProfile requestedProfile, BigDecimal maxHeightOverrideCm) {
+        PalletProfile profile = requestedProfile == null
+                ? PalletProfile.EURO_120X80 : requestedProfile;
+        BigDecimal length = profile == PalletProfile.EURO_120X80
+                ? palletLengthCm : profile.lengthCm();
+        BigDecimal width = profile == PalletProfile.EURO_120X80
+                ? palletWidthCm : profile.widthCm();
+        BigDecimal maxHeight = maxHeightOverrideCm == null
+                ? palletMaxHeightCm : maxHeightOverrideCm;
+        return new PalletSpec(profile.label(), length, width,
+                palletBaseHeightCm, maxHeight, palletMaxWeightKg);
     }
 }

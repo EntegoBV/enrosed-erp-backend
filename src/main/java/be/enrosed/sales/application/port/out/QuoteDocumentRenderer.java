@@ -27,7 +27,8 @@ public interface QuoteDocumentRenderer {
      */
     record PackingSlip(SalesOrder order, Customer customer,
                        List<PackingPallet> pallets, List<PackingItem> loose,
-                       int totalCartons, int totalPieces) {}
+                       int totalCartons, int totalPieces,
+                       boolean looseCartons) {}
 
     Document packingSlip(PackingSlip slip);
 }

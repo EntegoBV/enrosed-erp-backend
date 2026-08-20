@@ -44,9 +44,20 @@ public final class PanacheSourcingRepositories {
         public Supplier save(Supplier supplier) {
             SupplierEntity entity = supplier.id() == null ? null : dao.findById(supplier.id());
             if (entity == null) entity = new SupplierEntity();
+            apply(supplier, entity);
+            if (entity.id == null) dao.persist(entity);
+            dao.flush();
+            return toDomain(entity);
+        }
+
+        static void apply(Supplier supplier, SupplierEntity entity) {
             entity.name = supplier.name();
             entity.country = supplier.country();
             entity.city = supplier.city();
+            entity.addressLine1 = supplier.addressLine1();
+            entity.addressLine2 = supplier.addressLine2();
+            entity.postalCode = supplier.postalCode();
+            entity.region = supplier.region();
             entity.contact = supplier.contact();
             entity.email = supplier.email();
             entity.phone = supplier.phone();
@@ -55,9 +66,6 @@ public final class PanacheSourcingRepositories {
             entity.portOfLoading = supplier.portOfLoading();
             entity.leadTimeDays = supplier.leadTimeDays();
             entity.notes = supplier.notes();
-            if (entity.id == null) dao.persist(entity);
-            dao.flush();
-            return toDomain(entity);
         }
 
         @Override
@@ -65,10 +73,11 @@ public final class PanacheSourcingRepositories {
             dao.deleteById(id);
         }
 
-        private static Supplier toDomain(SupplierEntity entity) {
+        static Supplier toDomain(SupplierEntity entity) {
             return new Supplier(entity.id, entity.name, entity.country, entity.city, entity.contact,
                     entity.email, entity.phone, entity.currency, entity.incoterm,
-                    entity.portOfLoading, entity.leadTimeDays, entity.notes);
+                    entity.portOfLoading, entity.leadTimeDays, entity.notes,
+                    entity.addressLine1, entity.addressLine2, entity.postalCode, entity.region);
         }
     }
 

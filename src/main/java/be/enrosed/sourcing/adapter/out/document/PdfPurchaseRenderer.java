@@ -6,9 +6,12 @@ import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
+
+import java.util.List;
 
 
 /**
@@ -49,12 +52,13 @@ public class PdfPurchaseRenderer {
      * @param showRevenue shows the desired extra revenue as its own line.
      *                    Off, it stays in the total but out of sight.
      */
-    public Document render(PurchaseOrder order, LandedCost costing, String supplierName,
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
                            boolean showRevenue) {
         String html = template
                 .data("order", order)
                 .data("costing", costing)
-                .data("supplierName", supplierName == null ? "-" : supplierName)
+                .data("supplierName", supplier == null ? "-" : supplier.name())
+                .data("supplierAddressLines", visibleSupplierAddress(supplier, showRevenue))
                 .data("orderDate", DocumentFormat.be(order.orderDate()))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
@@ -64,5 +68,17 @@ public class PdfPurchaseRenderer {
         String suffix = showRevenue ? "" : "-klantweergave";
         return new Document(order.number() + suffix + ".pdf", fonts.render(html),
                 "application/pdf");
+    }
+
+    /**
+     * Factory details are internal data. The customer-safe calculation keeps
+     * showing the supplier name as it did historically, but gains no address.
+     *
+     * <p>The address is deliberately resolved live for this calculation PDF.
+     * If this document later becomes an issued purchase order, supplier name
+     * and address must be snapshotted at issue time.</p>
+     */
+    static List<String> visibleSupplierAddress(Supplier supplier, boolean showRevenue) {
+        return showRevenue && supplier != null ? supplier.documentAddressLines() : List.of();
     }
 }

@@ -75,7 +75,8 @@ public class QuoteService {
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
         java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
-        for (int i = 0; i < order.pallets().size(); i++) {
+        int visiblePallets = order.loadMode() == LoadMode.PALLETS ? order.pallets().size() : 0;
+        for (int i = 0; i < visiblePallets; i++) {
             OrderPallet pallet = order.pallets().get(i);
             java.util.List<QuoteDocumentRenderer.PackingItem> items = new java.util.ArrayList<>();
             for (OrderPallet.Item item : pallet.items()) {
@@ -103,7 +104,9 @@ public class QuoteService {
                     : Math.max(1, product.carton().piecesPerCarton());
             int cartons = (line.quantity() + per - 1) / per;
             totalCartons += cartons;
-            totalPieces += line.quantity();
+            /* Sales ships full outer cartons; the footer must match the row
+               (13 requested at 12/doos is 24 picked pieces, not 13). */
+            totalPieces += cartons * per;
             int left = cartons - assigned.getOrDefault(line.productId(), 0);
             if (left > 0) {
                 loose.add(new QuoteDocumentRenderer.PackingItem(
@@ -112,7 +115,8 @@ public class QuoteService {
         }
 
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
-                order, customer, pallets, loose, totalCartons, totalPieces));
+                order, customer, pallets, loose, totalCartons, totalPieces,
+                order.loadMode() == LoadMode.LOOSE_CARTONS));
     }
 
     /* ============================================================= sending */
@@ -542,7 +546,9 @@ public class QuoteService {
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, order.customerMessage(), order.internalNotes(),
-                order.deliveryTerms(), order.freight(), order.manualFreightEur(), updated,
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(), updated,
                 order.pallets()));
     }
 
@@ -667,6 +673,8 @@ public class QuoteService {
                 order.extraDiscountPct(), order.extraDiscountLabel(),
                 token, sentAt, viewedAt, viewCount, decidedAt, signedBy, customerMessage,
                 order.internalNotes(), deliveryTerms, freight, order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
                 order.lines(), order.pallets());
     }
 
@@ -691,6 +699,8 @@ public class QuoteService {
                 order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
                 order.signedByName(), order.customerMessage(), order.internalNotes(),
                 order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
                 order.lines(), order.pallets());
     }
 }

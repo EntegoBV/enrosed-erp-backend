@@ -85,7 +85,10 @@ final class SalesMapper {
                 entity.portalToken, entity.sentAt, entity.viewedAt, entity.viewCount,
                 entity.decidedAt, entity.signedByName, entity.customerMessage,
                 entity.internalNotes, entity.deliveryTerms, entity.freight,
-                entity.manualFreightEur, lines, pallets);
+                entity.manualFreightEur,
+                entity.loadMode, entity.palletProfile, entity.maxPalletHeightCm,
+                entity.freightPricingStrategy, entity.freightRatePerCbmEur,
+                lines, pallets);
     }
 
     static void apply(SalesOrder order, SalesOrderEntity entity) {
@@ -113,6 +116,11 @@ final class SalesMapper {
         entity.deliveryTerms = order.deliveryTerms();
         entity.freight = order.freight();
         entity.manualFreightEur = order.manualFreightEur();
+        entity.loadMode = order.loadMode();
+        entity.palletProfile = order.palletProfile();
+        entity.maxPalletHeightCm = order.maxPalletHeightCm();
+        entity.freightPricingStrategy = order.freightPricingStrategy();
+        entity.freightRatePerCbmEur = order.freightRatePerCbmEur();
 
         List<SalesOrderLine> wanted = order.lines();
         entity.lines.removeIf(existing -> wanted.stream()

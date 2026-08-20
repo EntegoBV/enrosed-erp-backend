@@ -72,6 +72,17 @@ public record SalesOrder(
          */
         BigDecimal manualFreightEur,
 
+        /** Palletised by default; loose cartons keep their outer-carton CBM but use no pallet positions. */
+        LoadMode loadMode,
+        /** Footprint used by the automatic stacking calculation. */
+        PalletProfile palletProfile,
+        /** Optional total pallet height override in cm, including the wooden pallet itself. */
+        BigDecimal maxPalletHeightCm,
+        /** Tariff basis underneath the optional {@link FreightState#TE_BEPALEN} overlay. */
+        FreightPricingStrategy freightPricingStrategy,
+        /** Own EUR/m3 rate when {@code freightPricingStrategy == PER_CBM}. */
+        BigDecimal freightRatePerCbmEur,
+
         List<SalesOrderLine> lines,
 
         /**
@@ -86,6 +97,57 @@ public record SalesOrder(
 
     public List<OrderPallet> pallets() {
         return pallets == null ? List.of() : pallets;
+    }
+
+    /**
+     * Customer-facing pallet positions containing one product. Automatic
+     * stacking is the fallback; once a manual layout exists, that physical
+     * layout is the truth. A mixed pallet may therefore count for more than
+     * one product row without increasing the order's total pallet positions.
+     */
+    public int palletPositionsForProduct(long productId, int calculatedPallets) {
+        if (loadMode() == LoadMode.LOOSE_CARTONS) return 0;
+        if (pallets().isEmpty()) return Math.max(0, calculatedPallets);
+        return (int) pallets().stream()
+                .filter(pallet -> pallet != null && pallet.items().stream()
+                        .anyMatch(item -> item != null && item.productId() == productId))
+                .count();
+    }
+
+    /** Existing rows and older clients predate an explicit load mode. */
+    public LoadMode loadMode() {
+        return loadMode == null ? LoadMode.PALLETS : loadMode;
+    }
+
+    /** Raw value lets update code distinguish an omitted legacy JSON field. */
+    public LoadMode loadModeOrNull() {
+        return loadMode;
+    }
+
+    /** Existing palletised orders used the 120 x 80 cm footprint. */
+    public PalletProfile palletProfile() {
+        return palletProfile == null ? PalletProfile.EURO_120X80 : palletProfile;
+    }
+
+    /** Raw value lets update code distinguish an omitted legacy JSON field. */
+    public PalletProfile palletProfileOrNull() {
+        return palletProfile;
+    }
+
+    /**
+     * Existing orders with an own total already behaved as fixed freight;
+     * all other legacy rows used the destination-country pallet tariff.
+     */
+    public FreightPricingStrategy freightPricingStrategy() {
+        if (freightPricingStrategy != null) return freightPricingStrategy;
+        return manualFreightEur != null
+                ? FreightPricingStrategy.FIXED
+                : FreightPricingStrategy.COUNTRY_PALLET;
+    }
+
+    /** Raw value lets update code distinguish an omitted legacy JSON field. */
+    public FreightPricingStrategy freightPricingStrategyOrNull() {
+        return freightPricingStrategy;
     }
 
     public DeliveryTermsState deliveryTerms() {

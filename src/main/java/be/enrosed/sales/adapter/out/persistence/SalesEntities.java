@@ -138,6 +138,28 @@ public final class SalesEntities {
         @Column(precision = 19, scale = 2)
         public java.math.BigDecimal manualFreightEur;
 
+        /** Null on legacy rows means PALLETS. */
+        @Enumerated(EnumType.STRING)
+        @Column(length = 24)
+        public LoadMode loadMode;
+
+        /** Null on legacy rows means EURO_120X80. */
+        @Enumerated(EnumType.STRING)
+        @Column(length = 24)
+        public PalletProfile palletProfile;
+
+        /** Total stack height, including the pallet base; null uses the configured default. */
+        @Column(precision = 8, scale = 2)
+        public BigDecimal maxPalletHeightCm;
+
+        /** Null on legacy rows resolves from manualFreightEur. */
+        @Enumerated(EnumType.STRING)
+        @Column(length = 24)
+        public FreightPricingStrategy freightPricingStrategy;
+
+        @Column(precision = 19, scale = 4)
+        public BigDecimal freightRatePerCbmEur;
+
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")
         public List<SalesOrderLineEntity> lines = new ArrayList<>();

@@ -21,6 +21,11 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             int cartons,
             int cartonsPerPallet,
             int pallets,
+            /** Explainable stacking result; zero for loose-carton transport. */
+            int cartonsPerLayer,
+            int palletLayers,
+            /** Tallest calculated pallet for this line, including the pallet base. */
+            BigDecimal calculatedPalletHeightCm,
             BigDecimal cbm,
             BigDecimal weightKg,
 
@@ -60,6 +65,9 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             int palletsManual,
             /** Cartons not on any hand-built pallet; only meaningful when palletsManual > 0. */
             int unassignedCartons,
+            /** Effective pallet limits used for this calculation. */
+            BigDecimal palletBaseHeightCm,
+            BigDecimal palletMaxHeightCm,
             BigDecimal cbm,
             BigDecimal weightKg,
 
@@ -99,6 +107,12 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal shortfall,
             boolean hasLines,
             boolean countrySelected,
-            List<String> productsWithoutCost
+            List<String> productsWithoutCost,
+            /** Products whose outer carton cannot produce weight/volume. */
+            List<String> productsWithoutCartonDimensions,
+            /** Palletised products that cannot fit within the selected profile and limits. */
+            List<String> productsWithoutPalletFit,
+            /** Empty when the selected freight strategy has every amount it needs. */
+            String freightPricingIssue
     ) {}
 }

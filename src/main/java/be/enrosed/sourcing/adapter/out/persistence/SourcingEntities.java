@@ -22,6 +22,14 @@ public final class SourcingEntities {
         public String name;
         public String country;
         public String city;
+        /** Nullable columns keep suppliers created before address support readable. */
+        @Column(name = "address_line_1")
+        public String addressLine1;
+        @Column(name = "address_line_2")
+        public String addressLine2;
+        @Column(name = "postal_code")
+        public String postalCode;
+        public String region;
         public String contact;
         public String email;
         public String phone;

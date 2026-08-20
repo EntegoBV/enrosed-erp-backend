@@ -76,8 +76,11 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
            choice between a date, a week or "to be agreed" depends on the
            language and does not belong in the template. */
         Map<Long, String> deliveryTexts = new LinkedHashMap<>();
+        Map<Long, Integer> palletPositionsByProduct = new LinkedHashMap<>();
         for (PricedOrder.Line line : priced.lines()) {
             deliveryTexts.put(line.productId(), deliveryTextOf(line, language, text));
+            palletPositionsByProduct.put(line.productId(),
+                    order.palletPositionsForProduct(line.productId(), line.pallets()));
         }
 
         String html = quoteTemplate
@@ -98,7 +101,15 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("validUntilSentence", text.get("validUntilSentence")
                         .formatted(DocumentText.date(order.validUntil(), language)))
                 .data("deliveryTexts", deliveryTexts)
+                .data("palletPositionsByProduct", palletPositionsByProduct)
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
+                .data("looseCartons", order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
+                .data("freightPerCbm", order.freightPricingStrategy()
+                        == be.enrosed.sales.domain.FreightPricingStrategy.PER_CBM)
+                .data("freightFixed", order.freightPricingStrategy()
+                        == be.enrosed.sales.domain.FreightPricingStrategy.FIXED)
+                .data("effectivePallets", priced.totals().palletsManual() > 0
+                        ? priced.totals().palletsManual() : priced.totals().palletsStrict())
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))
                 .data("vatMention", priced.totals().vatTreatment().legalMentionIn(language))
                 /* Dutch documents link to the Dutch terms; every other

@@ -3,8 +3,8 @@ package be.enrosed.sales.domain;
 import java.math.BigDecimal;
 
 /**
- * Sales country. Sales ships by road on pallets, so freight hangs on the
- * number of pallet positions, not on the volume.
+ * Sales country. Its standard road tariff is per pallet; an order may
+ * deliberately choose a per-CBM rate or a fixed freight total instead.
  */
 public record Country(
         String code,

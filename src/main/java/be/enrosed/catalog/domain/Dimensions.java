@@ -18,7 +18,9 @@ public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal hei
 
     /** Volume in kubieke meter. */
     public BigDecimal cbm() {
-        if (lengthCm == null || widthCm == null || heightCm == null) return BigDecimal.ZERO;
+        if (signum(lengthCm) <= 0 || signum(widthCm) <= 0 || signum(heightCm) <= 0) {
+            return BigDecimal.ZERO;
+        }
         return lengthCm.multiply(widthCm).multiply(heightCm)
                 .divide(BigDecimal.valueOf(1_000_000), 8, java.math.RoundingMode.HALF_UP);
     }

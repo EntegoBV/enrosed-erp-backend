@@ -22,9 +22,10 @@ import java.util.List;
 @ApplicationScoped
 public class PalletCalculator {
 
-    public record Fit(int perLayer, int layers, int cartonsPerPallet, String limitedBy) {
+    public record Fit(int perLayer, int layers, int cartonsPerPallet,
+                      BigDecimal fullPalletHeightCm, String limitedBy) {
         public static Fit none(String reason) {
-            return new Fit(0, 0, 0, reason);
+            return new Fit(0, 0, 0, BigDecimal.ZERO, reason);
         }
     }
 
@@ -35,27 +36,35 @@ public class PalletCalculator {
             return Fit.none("afmetingen ontbreken");
         }
 
-        int straight = floorDiv(pallet.lengthCm(), box.lengthCm()) * floorDiv(pallet.widthCm(), box.widthCm());
-        int rotated = floorDiv(pallet.lengthCm(), box.widthCm()) * floorDiv(pallet.widthCm(), box.lengthCm());
-        int perLayer = Math.max(straight, rotated);
+        /* A layer may mix both orientations. For example, 58.5 x 40 cm
+           cartons on a 120 x 100 pallet fit as one 40 cm deep row of two
+           plus one 58.5 cm deep rotated row of three: five, not four.
+           Enumerating guillotine rows in both pallet directions covers that
+           common warehouse pattern without pretending this is a generic
+           free-form rectangle-packing solver. */
+        int perLayer = Math.max(
+                bestRows(pallet.lengthCm(), pallet.widthCm(), box.lengthCm(), box.widthCm()),
+                bestRows(pallet.widthCm(), pallet.lengthCm(), box.lengthCm(), box.widthCm()));
         if (perLayer <= 0) return Fit.none("doos past niet op de pallet");
 
         BigDecimal usableHeight = pallet.maxHeightCm().subtract(pallet.baseHeightCm());
         int layersByHeight = Math.max(0, floorDiv(usableHeight, box.heightCm()));
 
+        int heightCapacity = perLayer * layersByHeight;
         BigDecimal weight = Money.nz(carton.weightKg());
-        int layersByWeight = Integer.MAX_VALUE;
-        if (weight.signum() > 0) {
-            BigDecimal layerWeight = weight.multiply(BigDecimal.valueOf(perLayer));
-            layersByWeight = floorDiv(pallet.maxWeightKg(), layerWeight);
-        }
-
-        int layers = Math.min(layersByHeight, layersByWeight);
-        String limitedBy = layers == 0
+        int weightCapacity = weight.signum() > 0
+                ? floorDiv(pallet.maxWeightKg(), weight)
+                : Integer.MAX_VALUE;
+        int cartonsPerPallet = Math.min(heightCapacity, weightCapacity);
+        int layers = cartonsPerPallet <= 0 ? 0
+                : (cartonsPerPallet + perLayer - 1) / perLayer;
+        String limitedBy = cartonsPerPallet == 0
                 ? "te hoog of te zwaar"
-                : (layersByWeight < layersByHeight ? "gewicht" : "hoogte");
+                : (weightCapacity < heightCapacity ? "gewicht" : "hoogte");
+        BigDecimal fullHeight = layers == 0 ? BigDecimal.ZERO
+                : pallet.baseHeightCm().add(box.heightCm().multiply(BigDecimal.valueOf(layers)));
 
-        return new Fit(perLayer, layers, perLayer * layers, limitedBy);
+        return new Fit(perLayer, layers, cartonsPerPallet, fullHeight, limitedBy);
     }
 
     /** Number of pallets for a number of cartons. */
@@ -98,6 +107,28 @@ public class PalletCalculator {
 
     private static boolean isBlank(BigDecimal value) {
         return value == null || value.signum() <= 0;
+    }
+
+    /**
+     * Best layer made from rows that may use either carton orientation.
+     * {@code primary} is the direction within one row; {@code secondary}
+     * is the direction in which rows are placed next to each other.
+     */
+    private static int bestRows(BigDecimal primary, BigDecimal secondary,
+                                BigDecimal boxLength, BigDecimal boxWidth) {
+        int best = 0;
+        int straightPerRow = floorDiv(primary, boxLength);
+        int rotatedPerRow = floorDiv(primary, boxWidth);
+        int maxStraightRows = floorDiv(secondary, boxWidth);
+
+        for (int straightRows = 0; straightRows <= maxStraightRows; straightRows++) {
+            BigDecimal used = boxWidth.multiply(BigDecimal.valueOf(straightRows));
+            BigDecimal remaining = secondary.subtract(used);
+            int rotatedRows = remaining.signum() < 0 ? 0 : floorDiv(remaining, boxLength);
+            int count = straightRows * straightPerRow + rotatedRows * rotatedPerRow;
+            best = Math.max(best, count);
+        }
+        return best;
     }
 
     private static int floorDiv(BigDecimal space, BigDecimal item) {

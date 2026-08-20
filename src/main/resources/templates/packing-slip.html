@@ -94,7 +94,7 @@
   {#if slip.loose}
     <div class="pallet">
       <div class="pallet-head">
-        {#if slip.pallets}Niet op een pallet{#else}Inhoud{/if}
+        {#if slip.looseCartons}Losse dozen{#else if slip.pallets}Niet op een pallet{#else}Inhoud{/if}
       </div>
       <table class="items">
         <tr><th>Product</th><th class="r">Dozen</th><th class="r">Stuks</th></tr>
