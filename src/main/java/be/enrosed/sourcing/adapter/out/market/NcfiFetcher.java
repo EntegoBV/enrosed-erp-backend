@@ -56,11 +56,13 @@ public class NcfiFetcher {
         long recent = FreightRateEntity.count("route = ?1 and quotedOn >= ?2", ROUTE, weekAgo);
         long total = FreightRateEntity.count("route = ?1", ROUTE);
         /* Weekly top-up once history exists; with a thin log (fresh install)
-           the walk below backfills up to ten weeks of reprints. */
-        if (recent > 0 && total >= 6) return;
+           the walk below backfills up to a year of dated reprints - the
+           trend horizons (3/6/12 months) need that depth. Holiday weeks
+           simply have no article and stay empty. */
+        if (recent > 0 && total >= 20) return;
 
         LocalDate friday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.FRIDAY));
-        for (int back = 0; back < 10; back++) {
+        for (int back = 0; back < 55; back++) {
             LocalDate week = friday.minusWeeks(back);
             if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, week) > 0) continue;
             String url = String.format(BASE,
