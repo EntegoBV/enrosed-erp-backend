@@ -25,15 +25,23 @@ import java.util.List;
 public class FreightRateResource {
 
     private final be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry;
+    private final be.enrosed.sourcing.adapter.out.market.CcfiFetcher ccfi;
+    private final be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi;
 
-    public FreightRateResource(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry) {
+    public FreightRateResource(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry,
+                               be.enrosed.sourcing.adapter.out.market.CcfiFetcher ccfi,
+                               be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi) {
         this.drewry = drewry;
+        this.ccfi = ccfi;
+        this.ncfi = ncfi;
     }
 
     @GET
     public List<FreightRate> list() {
-        /* Lazily tops up the weekly index; failures serve the cache. */
+        /* Lazily tops up the weekly indices; failures serve the cache. */
         drewry.refreshIfStale();
+        ccfi.refreshIfStale();
+        ncfi.refreshIfStale();
         return FreightRateEntity.<FreightRateEntity>list("order by quotedOn, id").stream()
                 .map(entity -> new FreightRate(entity.id, entity.route,
                         entity.quotedOn, entity.usdPerContainer))
