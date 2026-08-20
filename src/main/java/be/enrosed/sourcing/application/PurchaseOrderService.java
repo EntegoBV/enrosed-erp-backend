@@ -107,7 +107,7 @@ public class PurchaseOrderService {
                 /* Always a draft: otherwise a copy of a received order would
                    book the stock a second time. */
                 PurchaseOrderStatus.CONCEPT, source.containerType(),
-                source.cnyToUsd(), source.usdToEurGoods(), source.usdToEurTransport(),
+                source.cnyToUsd(), unifiedUsdToEur(source), unifiedUsdToEur(source),
                 source.freightUsd(), source.originCosts(), source.originCurrency(),
                 source.destinationCostsEur(), source.defaultDutyRatePct(), source.extraRevenueEur(),
                 source.allocFreight(), source.allocOrigin(), source.allocDestination(),
@@ -196,11 +196,12 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Een geplaatste inkooporder moet minstens één product bevatten");
         }
 
+        BigDecimal usdToEur = unifiedUsdToEur(changes);
         PurchaseOrder saved = orders.save(new PurchaseOrder(
                 current.id(), numberFor(current, changes), changes.alias(),
                 changes.supplierId(), changes.orderDate(),
                 changes.status(), changes.containerType(),
-                changes.cnyToUsd(), changes.usdToEurGoods(), changes.usdToEurTransport(),
+                changes.cnyToUsd(), usdToEur, usdToEur,
                 changes.freightUsd(), changes.originCosts(), changes.originCurrency(),
                 changes.destinationCostsEur(), changes.defaultDutyRatePct(), changes.extraRevenueEur(),
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
@@ -326,8 +327,7 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Kies een containertype");
         }
         requirePositive(order.cnyToUsd(), "CNY/USD-koers");
-        requirePositive(order.usdToEurGoods(), "USD/EUR-goederenkoers");
-        requirePositive(order.usdToEurTransport(), "USD/EUR-transportkoers");
+        requirePositive(unifiedUsdToEur(order), "USD/EUR-koers");
         requireNonNegative(order.freightUsd(), "Zeevracht");
         requireNonNegative(order.originCosts(), "Kosten aan de vertrekzijde");
         requireNonNegative(order.destinationCostsEur(), "Kosten aan de aankomstzijde");
@@ -346,6 +346,18 @@ public class PurchaseOrderService {
         if (supplierId <= 0 || suppliers.findById(supplierId).isEmpty()) {
             throw new BusinessRuleException("De gekozen leverancier bestaat niet meer");
         }
+    }
+
+    /**
+     * One rate for every new or changed order. Goods is authoritative for the
+     * legacy full-order payload; transport is the fallback for older clients
+     * that only populated that column. Persistence and the calculator still
+     * retain both fields so untouched historical orders keep their old maths.
+     */
+    static BigDecimal unifiedUsdToEur(PurchaseOrder order) {
+        if (order == null) return null;
+        return order.usdToEurGoods() != null
+                ? order.usdToEurGoods() : order.usdToEurTransport();
     }
 
     private static void requireReceivedLinesUnchanged(PurchaseOrder current,

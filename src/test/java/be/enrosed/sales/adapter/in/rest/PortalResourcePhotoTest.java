@@ -34,7 +34,8 @@ class PortalResourcePhotoTest {
                 BigDecimal.ZERO, BigDecimal.ZERO, 0, List.of(), List.of());
         when(products.get(41L)).thenReturn(inactive);
         PortalResource resource = new PortalResource(
-                quotes, mock(SalesOrderService.class), mock(CustomerService.class), products);
+                quotes, mock(SalesOrderService.class), mock(CustomerService.class), products,
+                mock(CustomerQuoteMapper.class));
 
         try (Response response = resource.photo("valid-token", 41L)) {
             assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());

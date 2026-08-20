@@ -106,6 +106,44 @@ class PurchaseOrderServiceTest {
                 () -> service(orders, new RecordingProducts()).update(10L, negativeFreight));
     }
 
+    @Test
+    void createWritesOneUsdRateToBothLegacyColumns() {
+        InMemoryOrders orders = new InMemoryOrders(null);
+        PurchaseOrder created = service(orders, new RecordingProducts()).create(
+                7L, new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("5"));
+
+        assertEquals(new BigDecimal("0.91"), created.usdToEurGoods());
+        assertEquals(created.usdToEurGoods(), created.usdToEurTransport());
+    }
+
+    @Test
+    void placingOrderSnapshotsQuantityAndUnifiesLegacyRates() {
+        PurchaseOrder concept = withRates(
+                order(PurchaseOrderStatus.CONCEPT, 6, null), "0.82", "0.94");
+        InMemoryOrders orders = new InMemoryOrders(concept);
+
+        PurchaseOrder placed = service(orders, new RecordingProducts())
+                .update(10L, withStatus(concept, PurchaseOrderStatus.BESTELD)).order();
+
+        assertEquals(PurchaseOrderStatus.BESTELD, placed.status());
+        assertEquals(6, placed.lines().getFirst().orderedQuantity());
+        assertEquals(new BigDecimal("0.82"), placed.usdToEurGoods());
+        assertEquals(placed.usdToEurGoods(), placed.usdToEurTransport());
+    }
+
+    @Test
+    void duplicateOfHistoricalOrderBecomesSingleRateDraft() {
+        PurchaseOrder historical = withRates(
+                order(PurchaseOrderStatus.BESTELD, 6, 6), "0.80", "0.93");
+        InMemoryOrders orders = new InMemoryOrders(historical);
+
+        PurchaseOrder copy = service(orders, new RecordingProducts()).duplicate(10L);
+
+        assertEquals(PurchaseOrderStatus.CONCEPT, copy.status());
+        assertEquals(new BigDecimal("0.80"), copy.usdToEurGoods());
+        assertEquals(copy.usdToEurGoods(), copy.usdToEurTransport());
+    }
+
     private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
         return new PurchaseOrderService(orders, new FixedSuppliers(true), products, null);
     }
@@ -120,6 +158,26 @@ class PurchaseOrderServiceTest {
                 "Rotterdam", null,
                 List.of(new PurchaseOrderLine(100L, 1L, quantity,
                         new BigDecimal("4"), Currency.USD, BigDecimal.ZERO, orderedQuantity)));
+    }
+
+    private static PurchaseOrder withRates(PurchaseOrder source, String goods, String transport) {
+        return new PurchaseOrder(source.id(), source.number(), source.alias(), source.supplierId(),
+                source.orderDate(), source.status(), source.containerType(), source.cnyToUsd(),
+                new BigDecimal(goods), new BigDecimal(transport), source.freightUsd(),
+                source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
+                source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
+                source.allocOrigin(), source.allocDestination(), source.allocExtra(),
+                source.destinationPort(), source.notes(), source.lines());
+    }
+
+    private static PurchaseOrder withStatus(PurchaseOrder source, PurchaseOrderStatus status) {
+        return new PurchaseOrder(source.id(), source.number(), source.alias(), source.supplierId(),
+                source.orderDate(), status, source.containerType(), source.cnyToUsd(),
+                source.usdToEurGoods(), source.usdToEurTransport(), source.freightUsd(),
+                source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
+                source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
+                source.allocOrigin(), source.allocDestination(), source.allocExtra(),
+                source.destinationPort(), source.notes(), source.lines());
     }
 
     private static Product product() {

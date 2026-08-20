@@ -84,10 +84,15 @@ final class SalesLifecycle {
      * customer an unsent draft. Fail closed until snapshots are introduced.
      */
     static void requirePortalVisible(SalesOrder order) {
-        if (order.status() == QuoteStatus.CONCEPT) {
+        if (!portalVisible(order)) {
             throw new BusinessRuleException(
                     "Deze offerte wordt momenteel bijgewerkt. De nieuwe versie is pas zichtbaar "
                             + "nadat Enrosed ze opnieuw heeft verstuurd.");
         }
+    }
+
+    /** Shared predicate for public lookup and the admin copy-link capability. */
+    static boolean portalVisible(SalesOrder order) {
+        return order != null && order.status() != null && order.status() != QuoteStatus.CONCEPT;
     }
 }

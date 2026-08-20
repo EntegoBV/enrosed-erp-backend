@@ -17,7 +17,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.List;
-import java.util.Map;
 import java.math.BigDecimal;
 
 /** Our own side of the sales order - cost price and margin included. */
@@ -29,10 +28,13 @@ public class SalesOrderResource {
 
     private final SalesOrderService salesOrders;
     private final QuoteService quotes;
+    private final CustomerQuoteMapper customerQuotes;
 
-    public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
+    public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes,
+                              CustomerQuoteMapper customerQuotes) {
         this.salesOrders = salesOrders;
         this.quotes = quotes;
+        this.customerQuotes = customerQuotes;
     }
 
     public record CreateRequest(long customerId, String countryCode, String incoterm) {}
@@ -43,6 +45,7 @@ public class SalesOrderResource {
                                  FreightPricingStrategy freightPricingStrategy,
                                  BigDecimal freightRatePerCbmEur) {}
     public record OrderView(SalesOrder order, PricedOrder priced) {}
+    public record PortalLink(boolean available, String status, String url) {}
 
     @GET
     public List<OrderView> list() {
@@ -157,11 +160,28 @@ public class SalesOrderResource {
 
     @GET
     @Path("/{id}/portal-link")
-    public Map<String, String> portalLink(@PathParam("id") long id) {
+    public PortalLink portalLink(@PathParam("id") long id) {
         SalesOrder order = salesOrders.get(id);
-        return order.portalToken() == null
-                ? Map.of("status", "nog niet verzonden")
-                : Map.of("token", order.portalToken());
+        var url = quotes.activePortalUrl(order);
+        if (url.isPresent()) {
+            return new PortalLink(true, "BESCHIKBAAR", url.get());
+        }
+        boolean reopenedDraft = order.status() == be.enrosed.sales.domain.QuoteStatus.CONCEPT
+                && order.portalToken() != null && !order.portalToken().isBlank()
+                && order.sentAt() != null;
+        return new PortalLink(false,
+                reopenedDraft ? "CONCEPT_IN_BEWERKING" : "NIET_VERSTUURD", null);
+    }
+
+    /**
+     * Customer-safe internal preview. This path remains under the resource's
+     * admin role and never creates/resolves a public token or records a view.
+     */
+    @GET
+    @Path("/{id}/customer-preview")
+    public CustomerQuoteView customerPreview(@PathParam("id") long id,
+                                             @QueryParam("language") String language) {
+        return customerQuotes.preview(salesOrders.get(id), language);
     }
 
     /* -------------------------------------------------- wijzigingen ---- */

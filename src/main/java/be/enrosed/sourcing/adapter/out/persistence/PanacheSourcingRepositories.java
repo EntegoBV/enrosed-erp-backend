@@ -164,7 +164,7 @@ public final class PanacheSourcingRepositories {
             dao.deleteById(id);
         }
 
-        private static PurchaseOrder toDomain(PurchaseOrderEntity entity) {
+        static PurchaseOrder toDomain(PurchaseOrderEntity entity) {
             List<PurchaseOrderLine> lines = new ArrayList<>();
             for (PurchaseOrderLineEntity line : entity.lines) {
                 lines.add(new PurchaseOrderLine(line.id, line.productId, line.quantity,

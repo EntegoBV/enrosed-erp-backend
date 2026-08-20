@@ -6,6 +6,7 @@ import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -54,11 +55,14 @@ public class PdfPurchaseRenderer {
      */
     public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
                            boolean showRevenue) {
+        PurchaseCostLabels costLabels = PurchaseCostLabels.forOrder(order, supplier);
         String html = template
                 .data("order", order)
                 .data("costing", costing)
                 .data("supplierName", supplier == null ? "-" : supplier.name())
                 .data("supplierAddressLines", visibleSupplierAddress(supplier, showRevenue))
+                .data("costLabels", costLabels)
+                .data("unifiedUsdToEur", sameRate(order))
                 .data("orderDate", DocumentFormat.be(order.orderDate()))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
@@ -80,5 +84,11 @@ public class PdfPurchaseRenderer {
      */
     static List<String> visibleSupplierAddress(Supplier supplier, boolean showRevenue) {
         return showRevenue && supplier != null ? supplier.documentAddressLines() : List.of();
+    }
+
+    static boolean sameRate(PurchaseOrder order) {
+        return order != null && order.usdToEurGoods() != null
+                && order.usdToEurTransport() != null
+                && order.usdToEurGoods().compareTo(order.usdToEurTransport()) == 0;
     }
 }

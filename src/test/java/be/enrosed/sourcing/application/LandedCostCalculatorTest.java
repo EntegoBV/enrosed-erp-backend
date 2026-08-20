@@ -132,4 +132,22 @@ class LandedCostCalculatorTest {
         /* ... only the grand total rises by exactly that 1000. */
         assertEquals(new BigDecimal("45749.38"), result.totals().totalEur());
     }
+
+    @Test
+    void untouchedHistoricalOrderKeepsDistinctGoodsAndTransportRates() {
+        PurchaseOrder base = excelOrder();
+        PurchaseOrder historical = new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                base.containerType(), base.cnyToUsd(), new BigDecimal("0.80"), new BigDecimal("0.90"),
+                base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), BigDecimal.ZERO,
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.destinationPort(), base.notes(), base.lines());
+
+        LandedCost result = calculator(new BigDecimal("10")).calculate(
+                historical, Map.of(1L, preservedRose()));
+
+        assertEquals(new BigDecimal("31015.68"), result.totals().goodsEur());
+        assertEquals(new BigDecimal("3345.30"), result.totals().freightEur());
+    }
 }

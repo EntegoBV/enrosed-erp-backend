@@ -5,6 +5,7 @@ import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
@@ -37,7 +38,8 @@ public class SourcingResource {
                                       BigDecimal defaultDutyRatePct) {}
 
     public record PurchaseOrderView(PurchaseOrder order, LandedCost costing,
-                                    List<PurchaseOrderService.CartonAdjustment> adjustments) {}
+                                    List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                    PurchaseCostLabels costLabels) {}
 
     /* ------------------------------------------------------ leveranciers */
 
@@ -79,7 +81,7 @@ public class SourcingResource {
     @Path("/purchase-orders")
     public List<PurchaseOrderView> listPurchaseOrders() {
         return purchaseOrders.list().stream()
-                .map(order -> new PurchaseOrderView(order, purchaseOrders.calculate(order), List.of()))
+                .map(order -> view(order, purchaseOrders.calculate(order), List.of()))
                 .toList();
     }
 
@@ -87,7 +89,7 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}")
     public PurchaseOrderView getPurchaseOrder(@PathParam("id") long id) {
         PurchaseOrder order = purchaseOrders.get(id);
-        return new PurchaseOrderView(order, purchaseOrders.calculate(order), List.of());
+        return view(order, purchaseOrders.calculate(order), List.of());
     }
 
     @POST
@@ -96,7 +98,7 @@ public class SourcingResource {
         PurchaseOrder created = purchaseOrders.create(request.supplierId(), request.cnyToUsd(),
                 request.usdToEur(), request.defaultDutyRatePct());
         return Response.status(Response.Status.CREATED)
-                .entity(new PurchaseOrderView(created, purchaseOrders.calculate(created), List.of()))
+                .entity(view(created, purchaseOrders.calculate(created), List.of()))
                 .build();
     }
 
@@ -104,8 +106,7 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}")
     public PurchaseOrderView updatePurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
         PurchaseOrderService.UpdateResult result = purchaseOrders.update(id, order);
-        return new PurchaseOrderView(result.order(), purchaseOrders.calculate(result.order()),
-                result.adjustments());
+        return view(result.order(), purchaseOrders.calculate(result.order()), result.adjustments());
     }
 
     @DELETE
@@ -129,7 +130,7 @@ public class SourcingResource {
     public Response purchasePdf(@PathParam("id") long id,
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue) {
         PurchaseOrder order = purchaseOrders.get(id);
-        Supplier supplier = order.supplierId() == null ? null : suppliers.get(order.supplierId());
+        Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
 
         PdfPurchaseRenderer.Document document = purchasePdf.render(
                 order, purchaseOrders.calculate(order), supplier, showRevenue);
@@ -145,7 +146,7 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}/duplicate")
     public PurchaseOrderView duplicatePurchaseOrder(@PathParam("id") long id) {
         PurchaseOrder copy = purchaseOrders.duplicate(id);
-        return new PurchaseOrderView(copy, purchaseOrders.calculate(copy), List.of());
+        return view(copy, purchaseOrders.calculate(copy), List.of());
     }
 
     /** Writes the calculated cost prices onto the products. */
@@ -153,5 +154,12 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}/apply")
     public LandedCost applyToProducts(@PathParam("id") long id) {
         return purchaseOrders.applyToProducts(id);
+    }
+
+    private PurchaseOrderView view(PurchaseOrder order, LandedCost costing,
+                                   List<PurchaseOrderService.CartonAdjustment> adjustments) {
+        Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
+        return new PurchaseOrderView(order, costing, adjustments,
+                PurchaseCostLabels.forOrder(order, supplier));
     }
 }

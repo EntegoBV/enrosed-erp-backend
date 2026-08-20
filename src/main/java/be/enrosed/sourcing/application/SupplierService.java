@@ -33,6 +33,11 @@ public class SupplierService {
         return suppliers.findById(id).orElseThrow(() -> new NotFoundException("Leverancier", id));
     }
 
+    /** Nullable lookup for historical purchase orders whose supplier vanished. */
+    public Supplier find(long id) {
+        return suppliers.findById(id).orElse(null);
+    }
+
     @Transactional
     public Supplier save(Supplier supplier) {
         if (supplier == null) {

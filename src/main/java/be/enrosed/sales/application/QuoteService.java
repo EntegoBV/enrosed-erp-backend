@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -222,7 +223,7 @@ public class QuoteService {
     public QuoteDocumentRenderer.Document document(long orderId, be.enrosed.shared.Language language) {
         SalesOrder order = salesOrders.get(orderId);
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
-        String portalUrl = order.portalToken() == null ? null : portalUrl(order.portalToken());
+        String portalUrl = activePortalUrl(order).orElse(null);
 
         if (renderer instanceof be.enrosed.sales.adapter.out.document.PdfQuoteRenderer pdf) {
             return pdf.render(order, salesOrders.price(order), customer, portalUrl, language);
@@ -267,6 +268,24 @@ public class QuoteService {
                 .orElseThrow(() -> new NotFoundException("Offertelink", token));
         SalesLifecycle.requirePortalVisible(order);
         return order;
+    }
+
+    /**
+     * Full, server-configured customer URL when a real sent portal is live.
+     *
+     * A reopened quote deliberately keeps its historical token, but that token
+     * must not become copyable while the aggregate contains unsent edits. The
+     * sent timestamp also prevents malformed or old draft data with a stray
+     * token from being advertised as a customer link.
+     */
+    public Optional<String> activePortalUrl(SalesOrder order) {
+        if (order == null
+                || order.portalToken() == null || order.portalToken().isBlank()
+                || order.sentAt() == null
+                || !SalesLifecycle.portalVisible(order)) {
+            return Optional.empty();
+        }
+        return Optional.of(portalUrl(order.portalToken()));
     }
 
     /**

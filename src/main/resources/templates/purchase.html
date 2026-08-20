@@ -130,12 +130,14 @@
 {#if showRevenue}
 <table class="totals">
   <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
-  <tr><td>Kosten oorsprong</td><td class="r">{costing.totals.originEur.eur}</td></tr>
-  <tr><td>Zeevracht tot {order.destinationPort}</td><td class="r">{costing.totals.freightEur.eur}</td></tr>
+  <tr><td>{costLabels.originCostsLabel} <span class="muted">({costLabels.originRoute})</span></td>
+      <td class="r">{costing.totals.originEur.eur}</td></tr>
+  <tr><td>{costLabels.seaFreightLabel} <span class="muted">({costLabels.seaFreightRoute})</span></td>
+      <td class="r">{costing.totals.freightEur.eur}</td></tr>
   <tr class="sum"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
   <tr><td>Invoerrechten ({costing.totals.effectiveDutyPct.pct} gemiddeld)</td>
       <td class="r">{costing.totals.dutyEur.eur}</td></tr>
-  <tr><td>Lokale kosten {order.destinationPort} → magazijn</td>
+  <tr><td>{costLabels.destinationCostsLabel}</td>
       <td class="r">{costing.totals.destinationEur.eur}</td></tr>
   <tr><td>Gewenste extra opbrengst</td>
       <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
@@ -155,8 +157,12 @@
   {#if showRevenue}
     Interne calculatie: bevat de gewenste extra opbrengst als aparte regel. Niet bedoeld
     om buiten het bedrijf te delen - gebruik daarvoor de klantweergave.
-    Koersen: 1 USD = {order.usdToEurGoods.amount} EUR (goederen),
-    {order.usdToEurTransport.amount} EUR (transport){#if order.cnyToUsd},
+    {#if unifiedUsdToEur}
+      Koers: 1 USD = {order.usdToEurGoods.amount} EUR
+    {#else}
+      Historische koersen: 1 USD = {order.usdToEurGoods.amount} EUR (goederen),
+      {order.usdToEurTransport.amount} EUR (transport)
+    {/if}{#if order.cnyToUsd},
     1 CNY = {order.cnyToUsd.amount} USD{/if}.
   {/if}
   Alle bedragen in euro, inclusief transport, invoerrechten en lokale kosten.
