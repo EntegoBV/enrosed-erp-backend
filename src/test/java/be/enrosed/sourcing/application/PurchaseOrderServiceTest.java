@@ -101,19 +101,22 @@ class PurchaseOrderServiceTest {
                 new BigDecimal("-1"), base.originCosts(), base.originCurrency(),
                 base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                base.destinationPort(), base.notes(), base.lines());
+                base.departurePort(), base.destinationPort(), base.notes(), base.lines());
         assertThrows(BusinessRuleException.class,
                 () -> service(orders, new RecordingProducts()).update(10L, negativeFreight));
     }
 
     @Test
-    void createWritesOneUsdRateToBothLegacyColumns() {
+    void createUsesOneUsdRateAndNewPurchaseDefaults() {
         InMemoryOrders orders = new InMemoryOrders(null);
         PurchaseOrder created = service(orders, new RecordingProducts()).create(
                 7L, new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("5"));
 
         assertEquals(new BigDecimal("0.91"), created.usdToEurGoods());
         assertEquals(created.usdToEurGoods(), created.usdToEurTransport());
+        assertEquals(new BigDecimal("2000"), created.extraRevenueEur());
+        assertEquals("Ningbo", created.departurePort());
+        assertEquals("Rotterdam", created.destinationPort());
     }
 
     @Test
@@ -129,6 +132,7 @@ class PurchaseOrderServiceTest {
         assertEquals(6, placed.lines().getFirst().orderedQuantity());
         assertEquals(new BigDecimal("0.82"), placed.usdToEurGoods());
         assertEquals(placed.usdToEurGoods(), placed.usdToEurTransport());
+        assertEquals("Shanghai", placed.departurePort());
     }
 
     @Test
@@ -142,6 +146,7 @@ class PurchaseOrderServiceTest {
         assertEquals(PurchaseOrderStatus.CONCEPT, copy.status());
         assertEquals(new BigDecimal("0.80"), copy.usdToEurGoods());
         assertEquals(copy.usdToEurGoods(), copy.usdToEurTransport());
+        assertEquals(historical.departurePort(), copy.departurePort());
     }
 
     private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
@@ -155,7 +160,7 @@ class PurchaseOrderServiceTest {
                 new BigDecimal("0.90"), BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD,
                 BigDecimal.ZERO, new BigDecimal("5"), BigDecimal.ZERO,
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", null,
+                "Shanghai", "Rotterdam", null,
                 List.of(new PurchaseOrderLine(100L, 1L, quantity,
                         new BigDecimal("4"), Currency.USD, BigDecimal.ZERO, orderedQuantity)));
     }
@@ -167,7 +172,7 @@ class PurchaseOrderServiceTest {
                 source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
                 source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
                 source.allocOrigin(), source.allocDestination(), source.allocExtra(),
-                source.destinationPort(), source.notes(), source.lines());
+                source.departurePort(), source.destinationPort(), source.notes(), source.lines());
     }
 
     private static PurchaseOrder withStatus(PurchaseOrder source, PurchaseOrderStatus status) {
@@ -177,7 +182,7 @@ class PurchaseOrderServiceTest {
                 source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
                 source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
                 source.allocOrigin(), source.allocDestination(), source.allocExtra(),
-                source.destinationPort(), source.notes(), source.lines());
+                source.departurePort(), source.destinationPort(), source.notes(), source.lines());
     }
 
     private static Product product() {

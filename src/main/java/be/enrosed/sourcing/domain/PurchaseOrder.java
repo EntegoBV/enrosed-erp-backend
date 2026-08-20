@@ -51,6 +51,16 @@ public record PurchaseOrder(
         Allocation allocExtra,
 
         /**
+         * Port of departure (Ningbo, Shanghai, Shenzhen, ...).
+         *
+         * <p>This belongs to the order rather than the supplier: the same
+         * factory can ship through another port for a specific container.
+         * Legacy rows predate this field and can therefore be {@code null};
+         * callers always receive the safe operational default.</p>
+         */
+        String departurePort,
+
+        /**
          * Port of arrival (Rotterdam, Amsterdam, Antwerp, ...).
          *
          * Drives the label of the destination costs on screen and on the PDF.
@@ -66,7 +76,11 @@ public record PurchaseOrder(
         return lines == null ? List.of() : lines;
     }
 
+    public String departurePort() {
+        return departurePort == null || departurePort.isBlank() ? "Ningbo" : departurePort.strip();
+    }
+
     public String destinationPort() {
-        return destinationPort == null || destinationPort.isBlank() ? "Rotterdam" : destinationPort;
+        return destinationPort == null || destinationPort.isBlank() ? "Rotterdam" : destinationPort.strip();
     }
 }

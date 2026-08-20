@@ -251,7 +251,7 @@ public class DemoDataLoader {
                 new BigDecimal(freightUsd), new BigDecimal(originCosts), originCurrency,
                 new BigDecimal(destinationEur), new BigDecimal("10"), new BigDecimal(extraRevenue),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", notes, lines)).order();
+                created.departurePort(), "Rotterdam", notes, lines)).order();
         purchaseOrders.update(placed.id(), new PurchaseOrder(
                 placed.id(), placed.number(), placed.alias(), placed.supplierId(), placed.orderDate(),
                 PurchaseOrderStatus.ONTVANGEN, placed.containerType(),
@@ -259,7 +259,7 @@ public class DemoDataLoader {
                 placed.freightUsd(), placed.originCosts(), placed.originCurrency(),
                 placed.destinationCostsEur(), placed.defaultDutyRatePct(), placed.extraRevenueEur(),
                 placed.allocFreight(), placed.allocOrigin(), placed.allocDestination(), placed.allocExtra(),
-                placed.destinationPort(), placed.notes(), placed.lines()));
+                placed.departurePort(), placed.destinationPort(), placed.notes(), placed.lines()));
     }
 
     private void country(String code, String name, String minOrder, String perPallet,

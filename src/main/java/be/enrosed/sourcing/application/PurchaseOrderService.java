@@ -83,9 +83,9 @@ public class PurchaseOrderService {
                 PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
                 cnyToUsd, usdToEur, usdToEur,
                 BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
-                defaultDutyRatePct, BigDecimal.ZERO,
+                defaultDutyRatePct, new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", "", List.of());
+                "Ningbo", "Rotterdam", "", List.of());
         return orders.save(draft);
     }
 
@@ -111,7 +111,7 @@ public class PurchaseOrderService {
                 source.freightUsd(), source.originCosts(), source.originCurrency(),
                 source.destinationCostsEur(), source.defaultDutyRatePct(), source.extraRevenueEur(),
                 source.allocFreight(), source.allocOrigin(), source.allocDestination(),
-                source.allocExtra(), source.destinationPort(), source.notes(),
+                source.allocExtra(), source.departurePort(), source.destinationPort(), source.notes(),
                 source.lines().stream()
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null))
@@ -205,7 +205,8 @@ public class PurchaseOrderService {
                 changes.freightUsd(), changes.originCosts(), changes.originCurrency(),
                 changes.destinationCostsEur(), changes.defaultDutyRatePct(), changes.extraRevenueEur(),
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
-                changes.allocExtra(), changes.destinationPort(), changes.notes(), lines));
+                changes.allocExtra(), changes.departurePort(), changes.destinationPort(),
+                changes.notes(), lines));
 
         bookStockOnReceipt(current, saved);
         return new UpdateResult(saved, warnings);

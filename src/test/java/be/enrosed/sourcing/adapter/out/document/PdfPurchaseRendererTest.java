@@ -44,6 +44,6 @@ class PdfPurchaseRendererTest {
                 be.enrosed.sourcing.domain.Allocation.CBM,
                 be.enrosed.sourcing.domain.Allocation.CBM,
                 be.enrosed.sourcing.domain.Allocation.PIECES,
-                "Rotterdam", null, List.of());
+                "Ningbo", "Rotterdam", null, List.of());
     }
 }

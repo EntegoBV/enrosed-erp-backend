@@ -77,6 +77,9 @@ public final class SourcingEntities {
         @Enumerated(EnumType.STRING) public Allocation allocDestination = Allocation.CBM;
         @Enumerated(EnumType.STRING) public Allocation allocExtra = Allocation.PIECES;
 
+        /** Port of departure; new orders default to Ningbo. */
+        public String departurePort = "Ningbo";
+
         /** Port of arrival; drives the destination-cost labels. */
         public String destinationPort = "Rotterdam";
 

@@ -58,7 +58,8 @@ class LandedCostCalculatorTest {
                 new BigDecimal("10"),
                 new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Rotterdam", "", List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null, 1968)));
+                "Ningbo", "Rotterdam", "",
+                List.of(new PurchaseOrderLine(1L, 1L, 1968, null, null, null, 1968)));
     }
 
     @Test
@@ -99,7 +100,7 @@ class LandedCostCalculatorTest {
                 new BigDecimal("1000"), Currency.EUR,
                 base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                "Rotterdam", base.notes(), base.lines());
+                base.departurePort(), "Rotterdam", base.notes(), base.lines());
 
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 withOrigin, Map.of(1L, preservedRose()));
@@ -121,7 +122,7 @@ class LandedCostCalculatorTest {
                 base.destinationCostsEur().add(new BigDecimal("1000")),
                 base.defaultDutyRatePct(), base.extraRevenueEur(),
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                "Rotterdam", base.notes(), base.lines());
+                base.departurePort(), "Rotterdam", base.notes(), base.lines());
 
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 extraDestination, Map.of(1L, preservedRose()));
@@ -142,7 +143,7 @@ class LandedCostCalculatorTest {
                 base.freightUsd(), base.originCosts(), base.originCurrency(),
                 base.destinationCostsEur(), base.defaultDutyRatePct(), BigDecimal.ZERO,
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
-                base.destinationPort(), base.notes(), base.lines());
+                base.departurePort(), base.destinationPort(), base.notes(), base.lines());
 
         LandedCost result = calculator(new BigDecimal("10")).calculate(
                 historical, Map.of(1L, preservedRose()));

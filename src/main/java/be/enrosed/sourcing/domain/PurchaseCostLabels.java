@@ -24,9 +24,9 @@ public record PurchaseCostLabels(
     public static PurchaseCostLabels forOrder(PurchaseOrder order, Supplier supplier) {
         String originCountry = countryName(supplier == null ? null : supplier.country());
         String loadingPort = first(
+                order == null ? null : order.departurePort(),
                 supplier == null ? null : supplier.portOfLoading(),
-                supplier == null ? null : supplier.city(),
-                "laadhaven");
+                first(supplier == null ? null : supplier.city(), null, "Ningbo"));
         String destinationPort = first(order == null ? null : order.destinationPort(),
                 null, "Rotterdam");
 
