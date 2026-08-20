@@ -40,20 +40,34 @@ public class CcfiFetcher {
             URI.create("https://en.sse.net.cn/currentIndex?indexName=ccfi");
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    /* The exchange answers from China; four seconds proved too tight. */
     private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(4))
+            .connectTimeout(Duration.ofSeconds(6))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+
+    private void store(LocalDate quotedOn, BigDecimal points) {
+        if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, quotedOn) > 0) return;
+        FreightRateEntity entity = new FreightRateEntity();
+        entity.route = ROUTE;
+        entity.quotedOn = quotedOn;
+        entity.usdPerContainer = points;
+        entity.persist();
+        LOG.infof("CCFI China-Europe: %s points (%s)", points, quotedOn);
+    }
 
     @Transactional
     public void refreshIfStale() {
         LocalDate weekAgo = LocalDate.now().minusDays(6);
         long recent = FreightRateEntity.count("route = ?1 and quotedOn >= ?2", ROUTE, weekAgo);
-        if (recent > 0) return;
+        long total = FreightRateEntity.count("route = ?1", ROUTE);
+        /* The endpoint also carries last week's value; with a thin log the
+           run continues so that free history row gets stored too. */
+        if (recent > 0 && total >= 2) return;
 
         try {
             HttpRequest request = HttpRequest.newBuilder(ENDPOINT)
-                    .timeout(Duration.ofSeconds(4))
+                    .timeout(Duration.ofSeconds(12))
                     .header("User-Agent", "Mozilla/5.0 (Enrosed ERP dashboard)")
                     .header("Referer", "https://en.sse.net.cn/indices/ccfinew.jsp")
                     .GET().build();
@@ -61,22 +75,16 @@ public class CcfiFetcher {
             JsonNode data = JSON.readTree(body).path("data");
             LocalDate quotedOn = LocalDate.parse(data.path("currentDate").asText());
 
-            /* The published date is the index date; a re-run within the same
-               week must not duplicate the row. */
-            if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, quotedOn) > 0) {
-                return;
-            }
+            LocalDate lastDate = LocalDate.parse(data.path("lastDate").asText());
             for (JsonNode line : data.path("lineDataList")) {
                 String name = line.path("properties").path("lineName_EN").asText();
                 if (!"EUROPE".equalsIgnoreCase(name.trim())) continue;
                 if (line.path("currentContent").isNull()) return;
-                BigDecimal points = line.path("currentContent").decimalValue();
-                FreightRateEntity entity = new FreightRateEntity();
-                entity.route = ROUTE;
-                entity.quotedOn = quotedOn;
-                entity.usdPerContainer = points;
-                entity.persist();
-                LOG.infof("CCFI China-Europe: %s points (%s)", points, quotedOn);
+                store(quotedOn, line.path("currentContent").decimalValue());
+                /* The same JSON carries last week's value - free history. */
+                if (!line.path("lastContent").isNull()) {
+                    store(lastDate, line.path("lastContent").decimalValue());
+                }
                 return;
             }
             LOG.warn("CCFI JSON fetched but no EUROPE line found; format may have changed");

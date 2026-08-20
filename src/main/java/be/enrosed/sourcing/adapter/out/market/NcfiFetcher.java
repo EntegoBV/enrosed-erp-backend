@@ -54,12 +54,15 @@ public class NcfiFetcher {
     public void refreshIfStale() {
         LocalDate weekAgo = LocalDate.now().minusDays(6);
         long recent = FreightRateEntity.count("route = ?1 and quotedOn >= ?2", ROUTE, weekAgo);
-        if (recent > 0) return;
+        long total = FreightRateEntity.count("route = ?1", ROUTE);
+        /* Weekly top-up once history exists; with a thin log (fresh install)
+           the walk below backfills up to ten weeks of reprints. */
+        if (recent > 0 && total >= 6) return;
 
         LocalDate friday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.FRIDAY));
-        for (int back = 0; back < 3; back++) {
+        for (int back = 0; back < 10; back++) {
             LocalDate week = friday.minusWeeks(back);
-            if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, week) > 0) return;
+            if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, week) > 0) continue;
             String url = String.format(BASE,
                     SLUG.format(week).toLowerCase(Locale.ENGLISH));
             try {
@@ -79,7 +82,6 @@ public class NcfiFetcher {
                 entity.usdPerContainer = points;
                 entity.persist();
                 LOG.infof("NCFI Ningbo composite: %s points (week of %s)", points, week);
-                return;
             } catch (Exception e) {
                 LOG.debugf("NCFI fetch for %s skipped: %s", week, e.toString());
             }
