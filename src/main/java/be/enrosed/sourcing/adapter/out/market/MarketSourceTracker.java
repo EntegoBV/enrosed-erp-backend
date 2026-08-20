@@ -89,6 +89,15 @@ public class MarketSourceTracker {
         store(code, observedOn, value);
     }
 
+    public long observationCount(String code) {
+        return FreightRateEntity.count("route = ?1", code);
+    }
+
+    public boolean hasObservation(String code, LocalDate publishedOn) {
+        return FreightRateEntity.count(
+                "route = ?1 and quotedOn = ?2", code, publishedOn) > 0;
+    }
+
     @Transactional
     public void success(String code) {
         MarketSourceStateEntity state = requiredState(code);
@@ -117,10 +126,18 @@ public class MarketSourceTracker {
         String health;
         String detail;
         if (!authorized) {
-            health = "LICENSE_REQUIRED";
+            health = "DISABLED";
             detail = latest == null
-                    ? "Automatische controle staat uit tot provider-toestemming is vastgelegd."
-                    : "Cache zichtbaar; automatische controle staat uit tot provider-toestemming is vastgelegd.";
+                    ? "Automatische controle is uitgeschakeld via configuratie."
+                    : "Cache zichtbaar; automatische controle is uitgeschakeld via configuratie.";
+        } else if (state != null && providerAccessRequired(state.lastError)) {
+            health = latest == null ? "PROVIDER_ACCESS_REQUIRED" : "CACHE_AFTER_ACCESS_BLOCK";
+            detail = latest == null
+                    ? "De provider geeft een toegangscontrole terug in plaats van indexdata. "
+                        + "Configureer de geautoriseerde feed, credentials of IP-allowlist."
+                    : "De provider geeft een toegangscontrole terug; de laatst geldige cache "
+                        + "blijft zichtbaar. Configureer de geautoriseerde feed, credentials "
+                        + "of IP-allowlist.";
         } else if (state != null && state.lastError != null) {
             health = latest == null ? "FAILED" : "CACHE_AFTER_FAILURE";
             detail = latest == null
@@ -145,6 +162,14 @@ public class MarketSourceTracker {
                 state == null ? null : state.lastSuccessfulAt,
                 latest == null ? null : latest.quotedOn,
                 latest == null ? null : latest.usdPerContainer);
+    }
+
+    static boolean providerAccessRequired(String error) {
+        if (error == null) return false;
+        return error.contains("Provider challenge received")
+                /* Compatibility with the pre-detection connector: the live
+                   Baltic challenge was previously reduced to this message. */
+                || error.contains("No recent Ningbo-Europe publication found");
     }
 
     private MarketSourceStateEntity requiredState(String code) {

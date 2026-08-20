@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -57,6 +59,21 @@ class MarketFetchersTest {
     }
 
     @Test
+    void ncfiRecognizesProviderChallengeInsteadOfTreatingItAsMissingPublication() {
+        assertTrue(NcfiFetcher.isProviderChallenge("""
+                <!doctype html><html><head><title>Challenge Validation</title></head>
+                <body>Request validation</body></html>
+                """));
+        assertFalse(NcfiFetcher.isProviderChallenge("""
+                <html><head><title>Ningbo Containerised Freight Index</title></head></html>
+                """));
+        assertTrue(MarketSourceTracker.providerAccessRequired(
+                "IllegalStateException: Provider challenge received; configure the authorized feed"));
+        assertTrue(MarketSourceTracker.providerAccessRequired(
+                "IllegalStateException: No recent Ningbo-Europe publication found"));
+    }
+
+    @Test
     void drewryParserNeverTurnsAnotherRouteIntoShanghaiRotterdam() {
         assertEquals(new BigDecimal("2345"),
                 DrewryWciFetcher.parseShanghaiRotterdam(
@@ -85,5 +102,32 @@ class MarketFetchersTest {
                 last, LocalDate.of(2026, 8, 20)));
         assertTrue(MarketSourceTracker.weeklyObservationDue(
                 last, LocalDate.of(2026, 8, 21)));
+    }
+
+    @Test
+    void ncfiHistoryTopUpIsBoundedAndAvoidsOverlappingPagesFirst() {
+        var candidates = NcfiFetcher.historyCandidateWeeks();
+
+        assertEquals(31, candidates.size());
+        assertEquals(java.util.List.of(2, 4, 6, 8, 10, 12),
+                candidates.subList(0, NcfiFetcher.HISTORY_REQUEST_BUDGET));
+        assertEquals(candidates.size(), new HashSet<>(candidates).size());
+        assertTrue(candidates.stream().allMatch(weeks -> weeks >= 2 && weeks <= 32));
+        assertEquals(26, NcfiFetcher.HISTORY_TARGET);
+    }
+
+    @Test
+    void providerConnectorsAreEnabledByDefaultButKeepEnvironmentOverrides() throws Exception {
+        Properties properties = new Properties();
+        try (var stream = MarketFetchersTest.class.getResourceAsStream("/application.properties")) {
+            properties.load(stream);
+        }
+
+        assertEquals("${DREWRY_AUTOMATED_ACCESS_AUTHORIZED:true}", properties.getProperty(
+                "enrosed.market.drewry.automated-access-authorized"));
+        assertEquals("${NCFI_AUTOMATED_ACCESS_AUTHORIZED:true}", properties.getProperty(
+                "enrosed.market.ncfi.automated-access-authorized"));
+        assertEquals("${CCFI_AUTOMATED_ACCESS_AUTHORIZED:true}", properties.getProperty(
+                "enrosed.market.ccfi.automated-access-authorized"));
     }
 }

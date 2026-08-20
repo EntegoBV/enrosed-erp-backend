@@ -26,10 +26,9 @@ import java.util.List;
  * honest context for those ports. Index points, not dollars: the trend is
  * the signal, the forwarder quote stays the price.
  *
- * SSE reserves automated/commercial reuse unless the customer has the
- * appropriate agreement. For that reason this connector is disabled by
- * default and cannot issue a request until the operator explicitly confirms
- * authorization in configuration.
+ * ENROSED confirmed permission for this internal installation. The connector
+ * is therefore enabled by default, while an explicit false configuration
+ * still prevents every request.
  */
 @ApplicationScoped
 public class CcfiFetcher implements MarketSourceFetcher {
@@ -66,7 +65,7 @@ public class CcfiFetcher implements MarketSourceFetcher {
             MarketSourceTracker tracker,
             @ConfigProperty(
                     name = "enrosed.market.ccfi.automated-access-authorized",
-                    defaultValue = "false") boolean authorized) {
+                    defaultValue = "true") boolean authorized) {
         this.tracker = tracker;
         this.authorized = authorized;
     }

@@ -16,11 +16,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Reads the weekly Drewry Shanghai -> Rotterdam WCI value after the provider
- * has authorized this installation's automated use. Drewry offers licensed
- * subscription/API access; a visible web value alone is not treated as that
- * permission. The connector is disabled by default and preserves its last
- * valid cache when an authorized lookup fails.
+ * Reads the weekly Drewry Shanghai -> Rotterdam WCI value for ENROSED's
+ * authorized internal installation. The connector is enabled by default,
+ * can still be disabled explicitly, and preserves its last valid cache when
+ * a lookup fails.
  */
 @ApplicationScoped
 public class DrewryWciFetcher implements MarketSourceFetcher {
@@ -58,7 +57,7 @@ public class DrewryWciFetcher implements MarketSourceFetcher {
             MarketSourceTracker tracker,
             @ConfigProperty(
                     name = "enrosed.market.drewry.automated-access-authorized",
-                    defaultValue = "false") boolean authorized) {
+                    defaultValue = "true") boolean authorized) {
         this.tracker = tracker;
         this.authorized = authorized;
     }

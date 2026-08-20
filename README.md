@@ -641,15 +641,14 @@ Bronnen en voorwaarden:
   en [User Agreement](https://en.sse.net.cn/indices/agreetext.htm);
 - [Guangzhou Port Authority — scope GBA-exportindex](https://gwj.gz.gov.cn/xwzx/gzgxw/content/post_9252150.html).
 
-Publiek kunnen lezen betekent niet automatisch dat machinegebruik, interne non-display-
-analyse of herpublicatie is toegestaan. Daarom zijn alle drie bronconnectors standaard
-**uit**. Zet een vlag pas aan nadat de overeenkomst met die provider dit gebruik expliciet
-dekt:
+ENROSED heeft bevestigd dat deze interne installatie de benodigde provider-toestemming
+heeft. Daarom zijn alle drie bronconnectors standaard **aan**. Een bron kan operationeel
+altijd expliciet worden uitgezet door de bijbehorende vlag op `false` te zetten:
 
 ```properties
-DREWRY_AUTOMATED_ACCESS_AUTHORIZED=true
-NCFI_AUTOMATED_ACCESS_AUTHORIZED=true
-CCFI_AUTOMATED_ACCESS_AUTHORIZED=true
+DREWRY_AUTOMATED_ACCESS_AUTHORIZED=false
+NCFI_AUTOMATED_ACCESS_AUTHORIZED=false
+CCFI_AUTOMATED_ACCESS_AUTHORIZED=false
 ```
 
 Een achtergrondtaak controleert dagelijks om 03:15 UTC; met
@@ -657,9 +656,18 @@ Een achtergrondtaak controleert dagelijks om 03:15 UTC; met
 probeert dezelfde controle als fallback. Een databaseclaim zorgt dat meerdere app-nodes
 dezelfde bron niet dubbel opvragen. Providerpublicaties worden op datum gededupliceerd;
 een bron zonder publicatiedatum krijgt hoogstens één lokale observatie per zeven dagen.
+NCFI vult daarnaast met maximaal zes archiefpagina's per dag geleidelijk circa zes
+maanden aan exacte Ningbo-Europa-punten; na voldoende historie stopt die aanvulling.
 Bij een netwerk- of parsefout blijft de laatst geldige cache staan, samen met bron,
-publicatiedatum, laatste controlemoment en foutstatus. Zonder providerautorisatie werken
-handmatig ingevoerde forwarderoffertes volledig door.
+publicatiedatum, laatste controlemoment en foutstatus. Ook wanneer een connector
+operationeel uitstaat, werken handmatig ingevoerde forwarderoffertes volledig door.
+
+Provider-toestemming en technische servertoegang zijn twee afzonderlijke zaken. Wanneer
+Baltic een `Challenge Validation`-pagina teruggeeft, probeert de connector die beveiliging
+niet te omzeilen. De bronstatus wordt dan `PROVIDER_ACCESS_REQUIRED`; configureer via de
+provider de geautoriseerde feed of credentials, of laat het server-IP allowlisten. Zodra
+die toegang index-HTML teruggeeft, werken dezelfde parser, dagelijkse controle en begrensde
+historie-aanvulling zonder verdere datamigratie.
 
 ## Structuur
 
