@@ -43,6 +43,13 @@ public record Product(
         Long supplierId,
         boolean active,
 
+        Long familyId,
+        String canonicalVariantKey,
+        /** Source-accurate product EAN/barcode; unlike inner/outer carton codes its level is not guessed. */
+        String canonicalBarcode,
+        int variantPosition,
+        boolean inventoryKnown,
+
         /** Stable key that groups stock-bearing variants into one merchandising family. */
         String familyKey,
         /** Stable, unique URL identity shared with public catalogue consumers. */
@@ -93,7 +100,26 @@ public record Product(
             BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
             List<Photo> photos, List<ProductText> texts) {
         this(id, sku, name, dimensions, colour, description, categoryId, supplierId, active,
+                null, null, null, 0, true,
                 null, null, PublicationState.DRAFT, PublicationState.DRAFT,
+                barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
+                landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                stockQuantity, photos, texts);
+    }
+
+    /** Compatibility constructor for callers written before canonical family entities existed. */
+    public Product(
+            Long id, String sku, String name, Dimensions dimensions, String colour,
+            String description, Long categoryId, Long supplierId, boolean active,
+            String familyKey, String publicHandle,
+            PublicationState websiteStatus, PublicationState orderAppStatus,
+            Barcodes barcodes, String hsCode, Carton carton,
+            BigDecimal exwPrice, Currency exwCurrency, BigDecimal extraUnitCost,
+            BigDecimal landedCostEur, String landedCostSource,
+            BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
+            List<Photo> photos, List<ProductText> texts) {
+        this(id, sku, name, dimensions, colour, description, categoryId, supplierId, active,
+                null, null, null, 0, true, familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
@@ -109,7 +135,12 @@ public record Product(
 
     /** Null is treated as DRAFT so rows created before publication existed remain private. */
     public PublicationState publicationState(CatalogChannel channel) {
-        PublicationState state = channel == CatalogChannel.ORDER_APP ? orderAppStatus : websiteStatus;
+        PublicationState state = switch (channel) {
+            case WEBSITE -> websiteStatus;
+            case ORDER_APP -> orderAppStatus;
+            /* Catalogue publication belongs to the canonical family, not legacy flat SKUs. */
+            case CATALOGUE -> PublicationState.DRAFT;
+        };
         return state == null ? PublicationState.DRAFT : state;
     }
 
@@ -231,7 +262,9 @@ public record Product(
 
     public Product withSku(String newSku) {
         return new Product(id, newSku, name, dimensions, colour, description, categoryId,
-                supplierId, active, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
@@ -242,7 +275,9 @@ public record Product(
         List<Photo> ordered = newPhotos == null ? List.of() : newPhotos.stream()
                 .sorted(java.util.Comparator.comparingInt(Photo::position)).toList();
         return new Product(id, sku, name, dimensions, colour, description, categoryId,
-                supplierId, active, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, ordered, texts);
@@ -250,7 +285,9 @@ public record Product(
 
     public Product withStockQuantity(int newStock) {
         return new Product(id, sku, name, dimensions, colour, description, categoryId,
-                supplierId, active, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, true,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 newStock, photos, texts);
@@ -258,7 +295,9 @@ public record Product(
 
     public Product withLandedCost(BigDecimal newLandedCostEur, String source) {
         return new Product(id, sku, name, dimensions, colour, description, categoryId,
-                supplierId, active, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, newLandedCostEur, source, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
@@ -266,7 +305,9 @@ public record Product(
 
     public Product withTexts(List<ProductText> newTexts) {
         return new Product(id, sku, name, dimensions, colour, description, categoryId,
-                supplierId, active, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, newTexts);
@@ -276,9 +317,23 @@ public record Product(
                                            PublicationState newWebsiteStatus,
                                            PublicationState newOrderAppStatus) {
         return new Product(id, sku, name, dimensions, colour, description, categoryId,
-                supplierId, active, newFamilyKey, newPublicHandle, newWebsiteStatus,
+                supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown,
+                newFamilyKey, newPublicHandle, newWebsiteStatus,
                 newOrderAppStatus, barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
+                stockQuantity, photos, texts);
+    }
+
+    public Product withCanonicalIdentity(Long newFamilyId, String newCanonicalVariantKey,
+                                         String newCanonicalBarcode, int newVariantPosition,
+                                         boolean newInventoryKnown) {
+        return new Product(id, sku, name, dimensions, colour, description, categoryId,
+                supplierId, active, newFamilyId, newCanonicalVariantKey, newCanonicalBarcode,
+                newVariantPosition, newInventoryKnown, familyKey, publicHandle,
+                websiteStatus, orderAppStatus,
+                barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
+                landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
     }
 }

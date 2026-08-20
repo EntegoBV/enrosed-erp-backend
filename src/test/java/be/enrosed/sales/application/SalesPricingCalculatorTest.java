@@ -119,6 +119,25 @@ class SalesPricingCalculatorTest {
         assertEquals(0, loose.palletPositionsForProduct(1L, 7));
     }
 
+    @Test
+    void unknownInventoryDoesNotPretendZeroStockOrAQuantityShortfall() {
+        Product product = product(1L, "UNKNOWN-STOCK", carton("10", "10", "10", 10, "2"))
+                .withCanonicalIdentity(null, null, null, 0, false);
+        SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.BEREKEND,
+                List.of(new SalesOrderLine(null, 1L, 20, null, null, null)), List.of());
+
+        PricedOrder.Line line = price(order, Map.of(1L, product)).lines().getFirst();
+
+        assertFalse(line.inventoryKnown());
+        assertFalse(line.inStock());
+        assertNull(line.stockQuantity());
+        assertNull(line.shortfall());
+        assertNull(line.deliveryDate());
+        assertNull(line.deliveryWeek());
+        assertEquals("Voorraad nog niet bevestigd", line.deliveryExplanation());
+    }
+
     private PricedOrder price(SalesOrder order, Map<Long, Product> products) {
         Country country = new Country("BE", "België", BigDecimal.ZERO,
                 decimal("90"), decimal("250"), decimal("35"), decimal("21"), 1, true);

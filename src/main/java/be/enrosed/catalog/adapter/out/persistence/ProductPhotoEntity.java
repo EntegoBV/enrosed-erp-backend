@@ -22,4 +22,6 @@ public class ProductPhotoEntity {
     public Integer widthPx;
     public Integer heightPx;
     public int position;
+    /** Family-gallery source metadata; null means a product-specific legacy upload. */
+    public Long familyPhotoId;
 }

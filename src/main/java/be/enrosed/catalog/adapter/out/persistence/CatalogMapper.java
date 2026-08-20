@@ -38,6 +38,11 @@ final class CatalogMapper {
                 entity.categoryId,
                 entity.supplierId,
                 entity.active,
+                entity.familyId,
+                entity.canonicalVariantKey,
+                entity.canonicalBarcode,
+                entity.variantPosition,
+                entity.inventoryKnown,
                 entity.familyKey,
                 entity.publicHandle,
                 entity.websiteStatus == null ? PublicationState.DRAFT : entity.websiteStatus,
@@ -72,6 +77,11 @@ final class CatalogMapper {
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();
         entity.active = product.active();
+        entity.familyId = product.familyId();
+        entity.canonicalVariantKey = blankToNull(product.canonicalVariantKey());
+        entity.canonicalBarcode = blankToNull(product.canonicalBarcode());
+        entity.variantPosition = product.variantPosition();
+        entity.inventoryKnown = product.inventoryKnown();
         entity.familyKey = blankToNull(product.familyKey());
         entity.publicHandle = blankToNull(product.publicHandle());
         entity.websiteStatus = product.publicationState(CatalogChannel.WEBSITE);

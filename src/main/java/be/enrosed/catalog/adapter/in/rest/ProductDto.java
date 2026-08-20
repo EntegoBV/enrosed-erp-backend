@@ -23,6 +23,11 @@ public record ProductDto(
         Long categoryId,
         Long supplierId,
         Boolean active,
+        Long familyId,
+        String canonicalVariantKey,
+        String canonicalBarcode,
+        Integer variantPosition,
+        Boolean inventoryKnown,
         String familyKey,
         String publicHandle,
         PublicationState websiteStatus,
@@ -46,7 +51,8 @@ public record ProductDto(
         List<String> publicationIssues,
         String describedAs,
         BigDecimal cartonCbm,
-        BigDecimal pieceCbm
+        BigDecimal pieceCbm,
+        BigDecimal computedSalesPriceEur
 ) {
 
     public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {}
@@ -81,6 +87,9 @@ public record ProductDto(
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
                 product.colour(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
+                product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
+                product.variantPosition(),
+                product.inventoryKnown(),
                 product.familyKey(), product.publicHandle(),
                 product.publicationState(CatalogChannel.WEBSITE),
                 product.publicationState(CatalogChannel.ORDER_APP),
@@ -92,7 +101,7 @@ public record ProductDto(
                 product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
                 photos, texts,
                 product.publicationIssues(),
-                product.describe(), carton.cbm(), carton.pieceCbm());
+                product.describe(), carton.cbm(), carton.pieceCbm(), product.computedSalesPriceEur());
     }
 
     public Product toDomain(Long id) {
@@ -105,6 +114,9 @@ public record ProductDto(
                 id, sku, name,
                 new Dimensions(size.lengthCm(), size.widthCm(), size.heightCm()),
                 colour, description, categoryId, supplierId, active == null || active,
+                familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition == null ? 0 : variantPosition,
+                inventoryKnown == null || inventoryKnown,
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 new Barcodes(barcodeInner, barcodeOuter), hsCode,
                 new Carton(new Dimensions(box.lengthCm(), box.widthCm(), box.heightCm()),

@@ -1,0 +1,313 @@
+package be.enrosed.catalog.application;
+
+import be.enrosed.catalog.adapter.in.rest.CanonicalCatalogManifest;
+import be.enrosed.catalog.adapter.in.rest.CatalogMigrationApplyRequest;
+import be.enrosed.catalog.adapter.in.rest.CatalogMigrationPreflight;
+import be.enrosed.catalog.adapter.in.rest.CatalogMigrationResult;
+import be.enrosed.catalog.adapter.in.rest.ProductDto;
+import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
+import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogDto;
+import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogResource;
+import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.domain.CatalogChannel;
+import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.sales.adapter.out.persistence.SalesEntities;
+import be.enrosed.shared.company.CompanyProfileEntity;
+import be.enrosed.sourcing.adapter.out.persistence.PanacheSourcingRepositories;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.quarkus.test.TestTransaction;
+import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/** Opt-in verification against the generated 8 MB source-audited manifest. */
+@QuarkusTest
+class CatalogMigrationRealManifestTest {
+    @Inject CatalogMigrationService migration;
+    @Inject CanonicalManifestPayload payloads;
+    @Inject ObjectMapper json;
+    @Inject EntityManager entityManager;
+    @Inject CatalogDaos.Products productRows;
+    @Inject CanonicalCatalogDaos.Provenance provenance;
+    @Inject CanonicalCatalogDaos.PriceObservations priceObservations;
+    @Inject CanonicalCatalogDaos.Families families;
+    @Inject PanacheSourcingRepositories.SupplierDao suppliers;
+    @Inject ProductService products;
+    @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
+    @Inject PublicFamilyCatalogResource publicCatalog;
+
+    @Test
+    void generatedManifestPassesExactBackendContract() throws Exception {
+        JsonNode raw = realManifest();
+        CanonicalManifestPayload.Parsed parsed = payloads.parse(raw);
+        CatalogMigrationPreflight preflight = migration.preflight(
+                parsed.manifest(), parsed.verifiedPayloadSha256());
+        assertTrue(preflight.valid(), () -> String.join("\n", preflight.problems()));
+        assertTrue(preflight.applicationTableRowCounts().containsKey("supplier"));
+        assertEquals(CatalogMigrationService.FULL_RESET_CONFIRMATION,
+                preflight.fullResetConfirmationRequired());
+    }
+
+    @Test
+    @TestTransaction
+    void fullResetAppliesRealManifestIdempotentlyAndServesSafePublicFamilies() throws Exception {
+        seedRowsThatMustBeCleared();
+        CanonicalManifestPayload.Parsed parsed = payloads.parse(realManifest());
+        CatalogMigrationApplyRequest request = new CatalogMigrationApplyRequest(
+                parsed.manifest(), true, false, true,
+                CatalogMigrationService.FULL_RESET_CONFIRMATION);
+
+        CatalogMigrationResult result = migration.apply(request, parsed.verifiedPayloadSha256());
+        assertFalse(result.idempotent());
+        assertTrue(result.fullReset());
+        assertEquals(24, result.familiesApplied());
+        assertEquals(58, result.variantsApplied());
+        assertEquals(80, result.imagesApplied());
+        assertEquals(4, result.reusedImageBlobs());
+        assertEquals(1L, result.clearedRows().get("supplier"));
+        assertEquals(1L, result.clearedRows().get("customer"));
+        assertEquals(1L, result.clearedRows().get("product"));
+        assertEquals(1L, result.clearedRows().get("company_profile"));
+        assertEquals(0, suppliers.count());
+        assertEquals(58, productRows.count());
+        assertEquals(58, provenance.count(
+                "ownerType = ?1 and fieldName = ?2 and source = ?3",
+                "VARIANT", "skuProvenance", "GENERATED_INTERNAL"));
+        assertEquals(58, provenance.count(
+                "ownerType = ?1 and fieldName = ?2 and rawValue = ?3",
+                "VARIANT", "sourceSku", "null"));
+
+        var familyWithExw = families.listAll().stream()
+                .filter(family -> priceObservations.count(
+                        "familyId = ?1 and context = ?2", family.id, "EXW") > 0)
+                .findFirst().orElseThrow();
+        var familyPrices = priceObservations.list("familyId", familyWithExw.id);
+        ProductFamilyDto adminFamily = ProductFamilyDto.from(
+                familyWithExw, java.util.List.of(), familyPrices,
+                java.util.List.of(), java.util.List.of(),
+                productRows.count("familyId", familyWithExw.id), json);
+        assertTrue(adminFamily.priceObservations().stream().anyMatch(observation ->
+                "EXW".equals(observation.context()) && observation.currency() == null
+                        && observation.ownerType() != null && observation.ownerKey() != null),
+                "authenticated family DTO must expose source EXW without inventing currency");
+        assertTrue(productRows.list("familyId", familyWithExw.id).stream()
+                .allMatch(product -> product.exwPrice == null && product.exwCurrency == null),
+                "unknown source currency/context must not populate operational EXW fields");
+
+        var cobalt = products.list().stream()
+                .filter(product -> "cobalt-blue-roos-in-glazen-stolp".equals(product.familyKey()))
+                .findFirst().orElseThrow();
+        assertDecimal("58.5", cobalt.carton().dimensions().lengthCm());
+        assertDecimal("40", cobalt.carton().dimensions().widthCm());
+        assertDecimal("34", cobalt.carton().dimensions().heightCm());
+        assertEquals(6, cobalt.carton().piecesPerCarton(),
+                "audited ordered carton sides must materialize for pallet/CBM compatibility");
+        assertDecimal("12", cobalt.dimensions().lengthCm());
+        assertDecimal("25", cobalt.dimensions().widthCm());
+        var protectedVariant = products.update(cobalt.id(), cobalt.withPublicationMetadata(
+                cobalt.familyKey(), "must-remain-family-owned",
+                PublicationState.PUBLISHED, PublicationState.PUBLISHED));
+        assertNull(protectedVariant.publicHandle());
+        assertEquals(PublicationState.DRAFT,
+                protectedVariant.publicationState(CatalogChannel.WEBSITE));
+        assertEquals(PublicationState.DRAFT,
+                protectedVariant.publicationState(CatalogChannel.ORDER_APP));
+
+        var acrylic = products.list().stream()
+                .filter(product -> "acrylic-flowerbox".equals(product.familyKey()))
+                .findFirst().orElseThrow();
+        assertDecimal("52", acrylic.carton().dimensions().lengthCm());
+        assertDecimal("52", acrylic.carton().dimensions().widthCm());
+        assertDecimal("49", acrylic.carton().dimensions().heightCm());
+        assertEquals(18, acrylic.carton().piecesPerCarton(),
+                "operational family PDF carton must beat a non-operational variant observation");
+
+        var heartReview = products.list().stream()
+                .filter(product -> "odoo-heart-flowerbox-28-review".equals(product.familyKey()))
+                .findFirst().orElseThrow();
+        assertTrue(heartReview.dimensions().isBlank(),
+                "non-operational review dimensions must remain observations only");
+        assertTrue(heartReview.carton().dimensions().isBlank(),
+                "non-operational review cartons must not reach pallet/CBM calculations");
+
+        var operationalVariant = products.list().stream()
+                .filter(product -> product.familyId() != null && !product.photos().isEmpty())
+                .findFirst().orElseThrow();
+        ProductDto adminDto = ProductDto.from(operationalVariant);
+        assertFalse(adminDto.photos().isEmpty(), "legacy admin/product picker must receive a photo");
+        try (InputStream bytes = products.photoData(operationalVariant.primaryPhoto().storageKey())) {
+            assertTrue(bytes.readAllBytes().length > 12, "effective legacy photo must be retrievable");
+        }
+
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(uriInfo.getBaseUri()).thenReturn(URI.create("https://api.enrosed.test/"));
+        Response response = publicCatalog.catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
+        PublicFamilyCatalogDto publicDto = (PublicFamilyCatalogDto) response.getEntity();
+        assertEquals(19, publicDto.families().size());
+        assertTrue(publicDto.families().stream().allMatch(family ->
+                family.summary() != null && !family.summary().isBlank()
+                        && family.description() != null && !family.description().isBlank()
+                        && family.seo() != null && family.seo().title() != null
+                        && family.seo().description() != null
+                        && family.category() != null && family.category().eyebrow() != null
+                        && family.category().description() != null
+                        && !family.images().isEmpty() && !family.variants().isEmpty()),
+                "all 19 EN responses must use stored field-wise fallback (including NL descriptions)");
+        assertTrue(publicDto.families().stream().flatMap(family -> family.images().stream())
+                .allMatch(image -> image.alt() != null && !image.alt().isBlank()
+                        && image.smallWidth() > 0 && image.smallHeight() > 0
+                        && image.largeWidth() > 0 && image.largeHeight() > 0));
+        Set<String> expectedWebsiteDimensionHandles = Set.of(
+                "acrylic-flowerbox", "glass-flowerbox", "hearth-glass-flowerbox",
+                "one-rose-in-box", "rose-in-dome-elite", "rose-in-dome-m",
+                "rose-in-dome-xl", "roses-in-box-16pcs", "roses-in-box-9pcs",
+                "single-rose-in-acryl-glass-box", "soap-rose-box-led");
+        assertEquals(expectedWebsiteDimensionHandles, publicDto.families().stream()
+                .filter(family -> family.dimensions() != null)
+                .map(PublicFamilyCatalogDto.FamilyDto::publicHandle).collect(Collectors.toSet()));
+        assertNull(publicDto.families().stream()
+                .filter(family -> "cobalt-blue-roos-in-glazen-stolp".equals(family.publicHandle()))
+                .findFirst().orElseThrow().dimensions(),
+                "PDF-only operational dimensions must not change the website baseline");
+        var publicAcrylic = publicDto.families().stream()
+                .filter(family -> "acrylic-flowerbox".equals(family.publicHandle()))
+                .findFirst().orElseThrow();
+        assertDecimal("12", publicAcrylic.dimensions().length());
+        assertDecimal("20", publicAcrylic.dimensions().width());
+        assertTrue(publicDto.families().stream().flatMap(family -> family.images().stream())
+                .allMatch(image -> image.smallUrl().startsWith("/api/")
+                        && image.largeUrl().startsWith("/api/")),
+                "public image URLs must be reverse-proxy-safe relative paths");
+        var acrylicEntity = families.find("publicHandle", "acrylic-flowerbox").firstResult();
+        var acrylicImage = acrylicEntity.photos.get(0);
+        Response publicImage = publicCatalog.image(
+                acrylicEntity.publicHandle, acrylicImage.sourceKey, "small");
+        assertEquals(200, publicImage.getStatus());
+        try (InputStream bytes = (InputStream) publicImage.getEntity()) {
+            assertTrue(bytes.readAllBytes().length > 12);
+        }
+        String publicJson = json.writeValueAsString(publicDto);
+        assertFalse(publicJson.contains("provenance"));
+        assertFalse(publicJson.contains("priceObservations"));
+        assertFalse(publicJson.contains("supplier"));
+        assertFalse(publicJson.contains("sourceUrl"));
+
+        var editableGallery = families.listAll().stream()
+                .filter(family -> family.photos.size() > 1).findFirst().orElseThrow();
+        long blobsBeforeReorder = ((Number) entityManager.createNativeQuery(
+                "select count(*) from photo_blob").getSingleResult()).longValue();
+        ArrayList<be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity> reversed =
+                new ArrayList<>(editableGallery.photos);
+        Collections.reverse(reversed);
+        for (int index = 0; index < reversed.size(); index++) reversed.get(index).position = index;
+        editableGallery.photos.sort(java.util.Comparator.comparingInt(photo -> photo.position));
+        families.flush();
+        familyPhotoCompatibility.sync(editableGallery);
+        entityManager.clear();
+        assertEquals(blobsBeforeReorder, ((Number) entityManager.createNativeQuery(
+                "select count(*) from photo_blob").getSingleResult()).longValue());
+        assertTrue(productRows.list("familyId", editableGallery.id).stream()
+                .allMatch(product -> product.photos.size() == editableGallery.photos.size()),
+                "family gallery order must resync legacy product consumers without blob copies");
+
+        var unknownInventory = products.list().stream()
+                .filter(product -> !product.inventoryKnown()).findFirst().orElseThrow();
+        assertEquals(0, unknownInventory.stockQuantity());
+        products.adjustStock(unknownInventory.id(), 7);
+        var receivedInventory = products.get(unknownInventory.id());
+        assertTrue(receivedInventory.inventoryKnown(),
+                "first real stock movement must confirm previously unknown inventory");
+        assertEquals(7, receivedInventory.stockQuantity());
+
+        CatalogMigrationResult second = migration.apply(request, parsed.verifiedPayloadSha256());
+        assertTrue(second.idempotent());
+        assertEquals(58, productRows.count());
+        assertTrue(second.clearedRows().isEmpty());
+    }
+
+    @Test
+    @TestTransaction
+    void fullResetRefusesMissingConfirmationBeforeDeletingAnything() throws Exception {
+        seedRowsThatMustBeCleared();
+        CanonicalManifestPayload.Parsed parsed = payloads.parse(realManifest());
+        CatalogMigrationApplyRequest unsafe = new CatalogMigrationApplyRequest(
+                parsed.manifest(), true, false, true, "yes");
+        assertThrows(RuntimeException.class,
+                () -> migration.apply(unsafe, parsed.verifiedPayloadSha256()));
+        assertEquals(1, suppliers.count());
+        assertEquals(1, productRows.count());
+    }
+
+    @Test
+    @TestTransaction
+    void semanticValidationRunsBeforeProductReplacement() throws Exception {
+        seedRowsThatMustBeCleared();
+        JsonNode invalid = realManifest().deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.path("validationSummary"))
+                .put("familyCount", 25);
+        CanonicalCatalogManifest manifest = json.treeToValue(invalid, CanonicalCatalogManifest.class);
+        CatalogMigrationApplyRequest request = new CatalogMigrationApplyRequest(
+                manifest, true, false, false, null);
+
+        assertThrows(RuntimeException.class, () -> migration.apply(request, null));
+        assertEquals(1, suppliers.count());
+        assertEquals(1, productRows.count());
+    }
+
+    private JsonNode realManifest() throws Exception {
+        String configured = System.getProperty("catalog.manifest.path");
+        Assumptions.assumeTrue(configured != null && !configured.isBlank(),
+                "Set -Dcatalog.manifest.path to run the real-manifest contract test");
+        Path path = Path.of(configured).toAbsolutePath().normalize();
+        Assumptions.assumeTrue(Files.isRegularFile(path), "Manifest does not exist: " + path);
+        return json.readTree(path.toFile());
+    }
+
+    private void seedRowsThatMustBeCleared() {
+        SourcingEntities.SupplierEntity supplier = new SourcingEntities.SupplierEntity();
+        supplier.name = "Test supplier";
+        entityManager.persist(supplier);
+
+        SalesEntities.CustomerEntity customer = new SalesEntities.CustomerEntity();
+        customer.company = "Test customer";
+        entityManager.persist(customer);
+
+        ProductEntity product = new ProductEntity();
+        product.sku = "OLD-TEST-SKU";
+        product.name = "Old test product";
+        product.piecesPerCarton = 1;
+        entityManager.persist(product);
+
+        CompanyProfileEntity company = new CompanyProfileEntity();
+        company.name = "Old company settings";
+        entityManager.persist(company);
+        entityManager.flush();
+    }
+
+    private static void assertDecimal(String expected, BigDecimal actual) {
+        assertNotNull(actual);
+        assertEquals(0, new BigDecimal(expected).compareTo(actual));
+    }
+}

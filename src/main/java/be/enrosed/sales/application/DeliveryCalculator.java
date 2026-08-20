@@ -26,15 +26,24 @@ public class DeliveryCalculator {
             LocalDate earliestDate,
             String week,
             boolean fromStock,
-            int shortfall,
+            Integer shortfall,
             String explanation
     ) {}
 
     public Estimate estimate(Country country, int quantity, int stockQuantity) {
+        return estimate(country, quantity, stockQuantity, true);
+    }
+
+    public Estimate estimate(
+            Country country, int quantity, int stockQuantity, boolean inventoryKnown) {
         int transitDays = country == null ? 0 : Math.max(0, country.transitDays());
 
         if (quantity <= 0) {
             return new Estimate(null, null, false, 0, "Geen aantal ingevuld");
+        }
+
+        if (!inventoryKnown) {
+            return new Estimate(null, null, false, null, "Voorraad nog niet bevestigd");
         }
 
         if (stockQuantity >= quantity) {

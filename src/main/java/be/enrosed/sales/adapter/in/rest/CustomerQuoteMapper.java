@@ -60,7 +60,8 @@ public class CustomerQuoteMapper {
                         order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
                         piecesPerCarton(line.productId()),
                         line.unitPrice(), line.discountPct(), line.net(),
-                        line.inStock(), line.deliveryDate(), line.deliveryWeek()))
+                        line.inventoryKnown(), line.inStock(),
+                        line.deliveryDate(), line.deliveryWeek()))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();

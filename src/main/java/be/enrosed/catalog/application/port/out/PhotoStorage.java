@@ -14,6 +14,12 @@ public interface PhotoStorage {
 
     Stored store(String originalFilename, String contentType, byte[] data);
 
+    /** Stores a prevalidated migration rendition under a deterministic checksum key. */
+    default Stored storeKnown(String storageKey, String originalFilename,
+                              String contentType, byte[] data) {
+        throw new UnsupportedOperationException("Deterministic photo storage is not configured");
+    }
+
     InputStream read(String storageKey);
 
     void delete(String storageKey);

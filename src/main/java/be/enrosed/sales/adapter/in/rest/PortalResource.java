@@ -56,7 +56,7 @@ public class PortalResource {
     public record CatalogItem(Long productId, String sku, String description, String photoUrl,
                               int piecesPerCarton, BigDecimal unitPrice,
                               /* Available from stock, or do we need to order it first? */
-                              boolean inStock) {}
+                              boolean inventoryKnown, boolean inStock) {}
 
     public record AcceptRequest(String signedByName, String message) {}
     public record RejectRequest(String message) {}
@@ -88,6 +88,7 @@ public class PortalResource {
                                 : "/api/portal/" + token + "/products/" + product.id() + "/photo",
                         product.carton() == null ? 1 : product.carton().piecesPerCarton(),
                         salesOrders.unitPriceFor(product, order),
+                        product.inventoryKnown(),
                         product.stockQuantity() > 0))
                 .toList();
     }

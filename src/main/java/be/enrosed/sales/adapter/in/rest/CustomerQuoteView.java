@@ -30,7 +30,8 @@ public record CustomerQuoteView(
             int quantity, int cartons, int pallets, BigDecimal cbm,
             int piecesPerCarton,
             BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
-            boolean inStock, String deliveryDate, String deliveryWeek) {}
+            boolean inventoryKnown, boolean inStock,
+            String deliveryDate, String deliveryWeek) {}
 
     public record CustomerTotals(
             int pieces, int cartons, int pallets, BigDecimal cbm,

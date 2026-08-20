@@ -91,7 +91,7 @@ public final class SourcingEntities {
         public List<PurchaseOrderLineEntity> lines = new ArrayList<>();
     }
 
-    @Entity
+    @Entity(name = "PurchaseOrderLineEntity")
     @Table(name = "purchase_order_line")
     public static class PurchaseOrderLineEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

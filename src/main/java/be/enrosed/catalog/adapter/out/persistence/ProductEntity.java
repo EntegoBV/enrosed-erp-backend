@@ -36,6 +36,26 @@ public class ProductEntity {
     public Long supplierId;
     public boolean active = true;
 
+    /** Canonical family relation. Nullable for pre-migration rows. */
+    public Long familyId;
+
+    /** Stable variant identity from the canonical manifest, independent from SKU. */
+    @Column(unique = true)
+    public String canonicalVariantKey;
+
+    /** Product-level EAN/barcode without guessing inner- or outer-carton semantics. */
+    @Column(unique = true)
+    public String canonicalBarcode;
+
+    /** Explicit merchandising order inside the family. */
+    public int variantPosition;
+
+    /** False means that zero stock is only a persistence placeholder, not an observed value. */
+    public boolean inventoryKnown = true;
+
+    /** Explicit customer-facing availability from a source such as Shopify; null is unknown. */
+    public Boolean publicAvailability;
+
     /** Optional stable grouping key shared by related stock-bearing SKUs. */
     public String familyKey;
 

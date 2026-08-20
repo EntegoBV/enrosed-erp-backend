@@ -145,8 +145,8 @@
             {#if it.priceLabel}
               <div class="price">{it.priceLabel} <small>{t.portalPerPiece}</small></div>
             {/if}
-            {#if it.stockQuantity <= 0}
-              <div class="nostock">{t.portalOutOfStock}</div>
+            {#if it.inventoryKnown}
+              {#if it.stockQuantity <= 0}<div class="nostock">{t.portalOutOfStock}</div>{/if}
             {/if}
           </div>
         </div>

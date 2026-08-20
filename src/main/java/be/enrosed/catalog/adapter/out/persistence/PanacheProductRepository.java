@@ -58,7 +58,13 @@ public class PanacheProductRepository implements ProductRepository {
     /** A single SQL update avoids lost stock when separate orders arrive together. */
     @Override
     public boolean adjustStock(long productId, int delta) {
-        return dao.update("stockQuantity = stockQuantity + ?1 where id = ?2", delta, productId) == 1;
+        ProductEntity entity = dao.findById(productId);
+        if (entity == null) return false;
+        boolean updated = dao.update(
+                "stockQuantity = stockQuantity + ?1, inventoryKnown = true where id = ?2",
+                delta, productId) == 1;
+        if (updated) dao.getEntityManager().refresh(entity);
+        return updated;
     }
 
     @Override

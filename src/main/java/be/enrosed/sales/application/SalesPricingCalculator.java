@@ -121,7 +121,8 @@ public class SalesPricingCalculator {
             /* Delivery term: from stock we count from the next working day
                plus transit time; otherwise no date, only what is short. */
             DeliveryCalculator.Estimate estimate =
-                    delivery.estimate(context.country(), quantity, product.stockQuantity());
+                    delivery.estimate(context.country(), quantity, product.stockQuantity(),
+                            product.inventoryKnown());
             String manualWeek = line.deliveryWeek();
 
             lines.add(new PricedOrder.Line(
@@ -148,7 +149,8 @@ public class SalesPricingCalculator {
                             : BigDecimal.ZERO,
                     next == null ? null : next.minQuantity(),
                     next == null ? null : next.percent(),
-                    product.stockQuantity(),
+                    product.inventoryKnown() ? product.stockQuantity() : null,
+                    product.inventoryKnown(),
                     estimate.fromStock(),
                     estimate.shortfall(),
                     estimate.earliestDate() == null ? null : estimate.earliestDate().toString(),

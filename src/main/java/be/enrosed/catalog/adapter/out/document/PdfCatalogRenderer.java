@@ -59,7 +59,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record Item(String sku, String name, String description, String size, String colour,
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
-                       String priceLabel, Integer stockQuantity,
+                       String priceLabel, boolean inventoryKnown, Integer stockQuantity,
                        /**
                         * First two photos render full size side by side; at a
                         * fair the second angle sells the product as much as
@@ -143,7 +143,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 product.carton() == null || product.carton().dimensions() == null
                         ? "" : product.carton().dimensions().label(),
                 request.includePrices() ? priceLabel(product) : null,
-                product.stockQuantity(),
+                product.inventoryKnown(),
+                product.inventoryKnown() ? product.stockQuantity() : null,
                 request.includePhotos() ? photoDataUri(product.primaryPhoto()) : null,
                 request.includePhotos() ? photoAt(product, 1, request) : null,
                 request.includePhotos() ? extraPhotos(product, request) : List.of());

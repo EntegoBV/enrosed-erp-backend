@@ -24,7 +24,8 @@ public record PublicCatalogDto(
 
     public enum Availability {
         IN_STOCK,
-        AVAILABLE_ON_ORDER
+        AVAILABLE_ON_ORDER,
+        UNKNOWN
     }
 
     public record PublicProductDto(
@@ -86,7 +87,9 @@ public record PublicCatalogDto(
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
                 new CartonDto(box.lengthCm(), box.widthCm(), box.heightCm(), carton.piecesPerCarton()),
                 product.computedSalesPriceEur(),
-                product.stockQuantity() > 0 ? Availability.IN_STOCK : Availability.AVAILABLE_ON_ORDER,
+                !product.inventoryKnown() ? Availability.UNKNOWN
+                        : product.stockQuantity() > 0
+                            ? Availability.IN_STOCK : Availability.AVAILABLE_ON_ORDER,
                 photos);
     }
 }

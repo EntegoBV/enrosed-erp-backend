@@ -1,5 +1,7 @@
 package be.enrosed.catalog.application;
 
+import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Barcodes;
@@ -11,6 +13,7 @@ import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.io.InputStream;
@@ -32,12 +35,24 @@ public class ProductService {
     private final ProductRepository products;
     private final PhotoStorage photoStorage;
     private final ProductValidator validator;
+    private final PhotoReferenceService photoReferences;
+    private final CanonicalCatalogDaos.Families families;
 
+    @Inject
     public ProductService(
-            ProductRepository products, PhotoStorage photoStorage, ProductValidator validator) {
+            ProductRepository products, PhotoStorage photoStorage, ProductValidator validator,
+            PhotoReferenceService photoReferences, CanonicalCatalogDaos.Families families) {
         this.products = products;
         this.photoStorage = photoStorage;
         this.validator = validator;
+        this.photoReferences = photoReferences;
+        this.families = families;
+    }
+
+    /** Test compatibility for pure domain tests that do not share family photo blobs. */
+    public ProductService(ProductRepository products, PhotoStorage photoStorage,
+                          ProductValidator validator) {
+        this(products, photoStorage, validator, null, null);
     }
 
     public List<Product> list() {
@@ -57,10 +72,10 @@ public class ProductService {
         Product withSku = product.sku() == null || product.sku().isBlank()
                 ? product.withSku(nextSku())
                 : product;
-        Product prepared = withSku.withPublicationMetadata(
+        Product prepared = canonicalFamilyMetadata(withSku.withPublicationMetadata(
                 normalizeOptional(withSku.familyKey()), normalizeHandle(withSku.publicHandle()),
                 withSku.websiteStatus() == null ? PublicationState.DRAFT : withSku.websiteStatus(),
-                withSku.orderAppStatus() == null ? PublicationState.DRAFT : withSku.orderAppStatus());
+                withSku.orderAppStatus() == null ? PublicationState.DRAFT : withSku.orderAppStatus()));
         validator.validate(prepared);
         ensureUniqueSku(prepared.sku(), null);
         ensureUniqueHandle(prepared.publicHandle(), null);
@@ -82,6 +97,14 @@ public class ProductService {
                 changes.categoryId(),
                 changes.supplierId(),
                 changes.active(),
+                /* familyId is an editable nullable field: null explicitly unlinks the variant. */
+                changes.familyId(),
+                changes.canonicalVariantKey() == null
+                        ? current.canonicalVariantKey() : normalizeOptional(changes.canonicalVariantKey()),
+                changes.canonicalBarcode() == null
+                        ? current.canonicalBarcode() : normalizeOptional(changes.canonicalBarcode()),
+                changes.variantPosition(),
+                changes.inventoryKnown(),
                 changes.familyKey() == null
                         ? current.familyKey() : normalizeOptional(changes.familyKey()),
                 changes.publicHandle() == null
@@ -106,6 +129,7 @@ public class ProductService {
                 /* Translations travel with the form; when the field is not
                    sent along, what was there stays. */
                 changes.texts().isEmpty() ? current.texts() : changes.texts());
+        merged = canonicalFamilyMetadata(merged);
         validator.validate(merged);
         ensureUniqueSku(merged.sku(), current.id());
         ensureUniqueHandle(merged.publicHandle(), current.id());
@@ -130,6 +154,7 @@ public class ProductService {
                 newColour == null || newColour.isBlank() ? source.colour() : newColour,
                 source.description(),
                 source.categoryId(), source.supplierId(), source.active(),
+                source.familyId(), null, null, source.variantPosition() + 1, false,
                 source.familyKey(), null, PublicationState.DRAFT, PublicationState.DRAFT,
                 Barcodes.none(), source.hsCode(), source.carton(),
                 source.exwPrice(), source.exwCurrency(), source.extraUnitCost(),
@@ -150,8 +175,8 @@ public class ProductService {
     @Transactional
     public void delete(long id) {
         Product product = get(id);
-        product.photos().forEach(photo -> photoStorage.delete(photo.storageKey()));
         products.deleteById(id);
+        product.photos().forEach(photo -> deleteBlob(photo.storageKey()));
     }
 
     /**
@@ -212,8 +237,9 @@ public class ProductService {
         photos.remove(target);
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
-        photoStorage.delete(target.storageKey());
-        return products.save(updated);
+        Product saved = products.save(updated);
+        deleteBlob(target.storageKey());
+        return saved;
     }
 
     /** Orders the series by the given ids; the first becomes the primary photo. */
@@ -275,6 +301,17 @@ public class ProductService {
         }
     }
 
+    /** Family publication and URL identity are family-owned, never copied onto unique flat SKUs. */
+    private Product canonicalFamilyMetadata(Product product) {
+        if (product.familyId() == null || families == null) return product;
+        ProductFamilyEntity family = families.findById(product.familyId());
+        if (family == null) {
+            throw new BusinessRuleException("Onbekende productfamilie " + product.familyId());
+        }
+        return product.withPublicationMetadata(
+                family.familyKey, null, PublicationState.DRAFT, PublicationState.DRAFT);
+    }
+
     private static String normalizeOptional(String value) {
         if (value == null || value.isBlank()) return null;
         return value.trim();
@@ -305,6 +342,11 @@ public class ProductService {
                     photo.contentType(), photo.sizeBytes(), photo.widthPx(), photo.heightPx(), i));
         }
         return result;
+    }
+
+    private void deleteBlob(String storageKey) {
+        if (photoReferences == null) photoStorage.delete(storageKey);
+        else photoReferences.deleteIfUnreferenced(storageKey);
     }
 
 

@@ -44,8 +44,29 @@ public class DatabasePhotoStorage implements PhotoStorage {
     @Override
     @Transactional
     public Stored store(String originalFilename, String contentType, byte[] bytes) {
+        return storeNew(UUID.randomUUID() + extensionOf(originalFilename),
+                originalFilename, contentType, bytes);
+    }
+
+    @Override
+    @Transactional
+    public Stored storeKnown(String storageKey, String originalFilename,
+                             String contentType, byte[] bytes) {
+        if (storageKey == null || !storageKey.matches("sha256-[a-f0-9]{64}\\.[a-z0-9]{1,5}")) {
+            throw new IllegalArgumentException("Ongeldige deterministische fotosleutel");
+        }
+        if (blobs.findById(storageKey) != null) {
+            int[] size = readDimensions(bytes);
+            return new Stored(storageKey, bytes.length,
+                    size[0] == 0 ? null : size[0], size[1] == 0 ? null : size[1]);
+        }
+        return storeNew(storageKey, originalFilename, contentType, bytes);
+    }
+
+    private Stored storeNew(String storageKey, String originalFilename,
+                            String contentType, byte[] bytes) {
         PhotoBlobEntity entity = new PhotoBlobEntity();
-        entity.storageKey = UUID.randomUUID() + extensionOf(originalFilename);
+        entity.storageKey = storageKey;
         entity.data = bytes;
         entity.sizeBytes = bytes.length;
         entity.contentType = contentType;
@@ -53,7 +74,7 @@ public class DatabasePhotoStorage implements PhotoStorage {
         blobs.persist(entity);
 
         int[] size = readDimensions(bytes);
-        return new Stored(entity.storageKey, bytes.length,
+        return new Stored(storageKey, bytes.length,
                 size[0] == 0 ? null : size[0], size[1] == 0 ? null : size[1]);
     }
 

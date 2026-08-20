@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "1.0",
+  "decision": "Only high-confidence cross-source matches are merged. Medium-confidence matches remain separate review families.",
+  "excludedOdooRows": [
+    {
+      "name": "Productie container voorschot",
+      "reason": "Financial advance, not a sellable product"
+    }
+  ],
+  "highConfidenceMatches": [
+    {
+      "websiteHandle": "acrylic-flowerbox",
+      "pdfProductNo": 4,
+      "odooRows": [{ "name": "Elegance Flower Cube", "variantColor": "Red" }]
+    },
+    {
+      "websiteHandle": "bowl-rose-xl",
+      "pdfProductNo": 9,
+      "odooRows": [
+        { "name": "Blue glass bowl XL", "variantColor": "Blue", "targetVariantColor": "Navy" },
+        { "name": "Pink glass bowl XL", "variantColor": "Pink", "targetVariantColor": "Cherry Pink" },
+        { "name": "Red glass bowl XL", "variantColor": "Red" },
+        { "name": "White glass bowl XL", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "cobalt-blue-roos-in-glazen-stolp",
+      "pdfProductNo": 3,
+      "odooRows": [
+        { "name": "Rose in dome 12x25cm Red", "variantColor": "Red" },
+        { "name": "Rose in dome 12x25cm blue", "variantColor": "Blue", "targetVariantColor": "Navy" },
+        { "name": "Rose in dome 12x25cm pink", "variantColor": "Pink", "targetVariantColor": "Cherry Pink" },
+        { "name": "Rose in dome 12x25cm white", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "hearth-glass-flowerbox",
+      "pdfProductNo": 7,
+      "odooRows": [{ "name": "Mirror heart box 20x20", "variantColor": "Red" }]
+    },
+    {
+      "websiteHandle": "preserved-bowl-rose",
+      "pdfProductNo": 10,
+      "odooRows": [
+        { "name": "Blue glass bowl", "variantColor": "Blue" },
+        { "name": "Pink glass bowl", "variantColor": "Pink" },
+        { "name": "Red glass bowl", "variantColor": "Red" },
+        { "name": "White glass bowl", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "preserved-single-rose-in-display",
+      "pdfProductNo": null,
+      "familyOnlyOdooRows": ["12 Longroses with display"],
+      "odooRows": [
+        { "name": "12 Longroses with transparant box with display BLUE", "variantColor": "Blue" },
+        { "name": "12 Longroses with transparant box with display RED", "variantColor": "Red" },
+        { "name": "12 Longroses with transparant box with display pink", "variantColor": "Pink" },
+        { "name": "12 Longroses with transparant box with display white", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "rose-diamonds-within-display",
+      "pdfProductNo": null,
+      "odooRows": [
+        { "name": "Jewelry Rose Blue", "variantColor": "Blue", "targetVariantColor": "Navy" },
+        { "name": "Jewelry Rose Cherry Pink", "variantColor": "Cherry Pink" },
+        { "name": "Jewelry Rose Red", "variantColor": "Red" },
+        { "name": "Jewelry Rose White", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "rose-in-dome-elite",
+      "pdfProductNo": 6,
+      "odooRows": [{ "name": "Rose in dome 15x30cm Tripple", "variantColor": "Red" }]
+    },
+    {
+      "websiteHandle": "single-rose-in-acryl-glass-box",
+      "pdfProductNo": 1,
+      "odooRows": [{ "name": "Rose in mirrorbox", "variantColor": "Red" }]
+    },
+    {
+      "websiteHandle": "soap-rose-box-led",
+      "pdfProductNo": null,
+      "odooRows": [
+        { "name": "Soaprozen met LED Red", "variantColor": "Red" },
+        { "name": "Soaprozen met LED Red Pink", "variantColor": "Cherry Pink" },
+        { "name": "Soaprozen met LED White", "variantColor": "White" }
+      ]
+    },
+    {
+      "websiteHandle": "soaproos-in-vensterdoos",
+      "pdfProductNo": null,
+      "odooRows": [{ "name": "Soaproos in windowbox", "variantColor": null }]
+    }
+  ],
+  "reviewFamilies": [
+    {
+      "canonicalFamilyKey": "odoo-heart-flowerbox-28-review",
+      "name": "Heart flowerbox 28 cm (review)",
+      "candidateWebsiteHandle": "glass-flowerbox",
+      "confidence": "MEDIUM",
+      "pdfProductNo": 8,
+      "rowsAsSeparateVariants": [
+        { "name": "16 Roses in heart shape box", "variantKey": "stock-template", "variantName": "16 Roses stock template" },
+        { "name": "Display heart flowerbox 28*28", "variantKey": "display-template", "variantName": "Display 28×28 template" }
+      ]
+    },
+    {
+      "canonicalFamilyKey": "odoo-dome-15x30-single-review",
+      "name": "Rose in dome 15×30 single (review)",
+      "candidateWebsiteHandle": "rose-in-dome-m",
+      "confidence": "MEDIUM",
+      "pdfProductNo": 5,
+      "rows": [
+        { "name": "Rose in dome 15x30cm Blue", "variantColor": "Blue" },
+        { "name": "Rose in dome 15x30cm Red", "variantColor": "Red" },
+        { "name": "Rose in dome 15x30cm pink", "variantColor": "Pink" },
+        { "name": "Rose in dome 15x30cm white", "variantColor": "White" }
+      ]
+    }
+  ],
+  "odooOnlyFamilies": [
+    {
+      "canonicalFamilyKey": "odoo-half-heart-foam-25",
+      "name": "Half heart rose foam 25 cm",
+      "rows": [
+        { "name": "Half heart rose foam 25cm PINK", "variantColor": "Pink" },
+        { "name": "Half heart rose foam 25cm RED", "variantColor": "Red" }
+      ]
+    },
+    {
+      "canonicalFamilyKey": "odoo-half-heart-foam-40",
+      "name": "Half heart rose foam 40 cm",
+      "rows": [
+        { "name": "Half heart rose foam 40cm PINK", "variantColor": "Pink" },
+        { "name": "Half heart rose foam 40cm RED", "variantColor": "Red" }
+      ]
+    },
+    {
+      "canonicalFamilyKey": "odoo-preserved-rose-windowbox",
+      "name": "Preserved rose in windowbox",
+      "rows": [{ "name": "Preserved rose in windowbox", "variantColor": null }]
+    }
+  ]
+}

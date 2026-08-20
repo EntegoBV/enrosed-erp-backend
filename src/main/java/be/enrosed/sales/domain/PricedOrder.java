@@ -48,9 +48,10 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal nextTierPercent,
 
             /* Voorraad en levering. */
-            int stockQuantity,
+            Integer stockQuantity,
+            boolean inventoryKnown,
             boolean inStock,
-            int shortfall,
+            Integer shortfall,
             String deliveryDate,
             String deliveryWeek,
             String deliveryExplanation

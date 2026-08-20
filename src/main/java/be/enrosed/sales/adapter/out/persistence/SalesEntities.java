@@ -190,7 +190,7 @@ public final class SalesEntities {
         public List<SalesPalletItemEntity> items = new ArrayList<>();
     }
 
-    @Entity
+    @Entity(name = "SalesPalletItemEntity")
     @Table(name = "sales_pallet_item")
     public static class SalesPalletItemEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -233,7 +233,7 @@ public final class SalesEntities {
         public String detail;
     }
 
-    @Entity
+    @Entity(name = "SalesOrderLineEntity")
     @Table(name = "sales_order_line")
     public static class SalesOrderLineEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -249,7 +249,7 @@ public final class SalesEntities {
         public String deliveryWeek;
     }
 
-    @Entity
+    @Entity(name = "QuoteRevisionEntity")
     @Table(name = "quote_revision")
     public static class QuoteRevisionEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -271,7 +271,7 @@ public final class SalesEntities {
         public List<QuoteRevisionLineEntity> lines = new ArrayList<>();
     }
 
-    @Entity
+    @Entity(name = "QuoteRevisionLineEntity")
     @Table(name = "quote_revision_line")
     public static class QuoteRevisionLineEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

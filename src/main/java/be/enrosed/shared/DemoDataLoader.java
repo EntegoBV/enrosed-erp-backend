@@ -19,6 +19,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -54,6 +55,10 @@ public class DemoDataLoader {
     private final CountryService countries;
     private final DiscountTierService tiers;
 
+    /** Opt-in only: an empty production database must never silently recreate test business data. */
+    @ConfigProperty(name = "enrosed.demo-data.enabled", defaultValue = "false")
+    boolean enabled;
+
     public DemoDataLoader(CategoryService categories, HsCodeService hsCodes, ProductService products,
                           SupplierService suppliers, PurchaseOrderService purchaseOrders,
                           CustomerService customers, CountryService countries, DiscountTierService tiers) {
@@ -69,6 +74,10 @@ public class DemoDataLoader {
 
     @Transactional
     void onStart(@Observes StartupEvent event) {
+        if (!enabled) {
+            LOG.info("Demo-startdata is uitgeschakeld");
+            return;
+        }
         if (!products.list().isEmpty()) {
             LOG.info("Startdata staat er al");
             return;
