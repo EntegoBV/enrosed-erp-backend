@@ -119,4 +119,24 @@ public final class SourcingEntities {
         public java.math.BigDecimal usdPerContainer;
     }
 
+    /**
+     * Operational state for a licensed external market-data source.
+     *
+     * Observations themselves remain in {@link FreightRateEntity}: this row
+     * only throttles external checks and records why the cached observation
+     * may be stale. Keeping the failure separate is important: a provider
+     * outage must never overwrite a last known good value.
+     */
+    @Entity
+    @Table(name = "market_source_state")
+    public static class MarketSourceStateEntity
+            extends io.quarkus.hibernate.orm.panache.PanacheEntityBase {
+        @Id
+        public String code;
+        public java.time.Instant lastCheckedAt;
+        public java.time.Instant lastSuccessfulAt;
+        @Column(length = 500)
+        public String lastError;
+    }
+
 }

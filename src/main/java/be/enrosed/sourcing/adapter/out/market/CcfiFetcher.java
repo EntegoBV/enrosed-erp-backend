@@ -1,10 +1,10 @@
 package be.enrosed.sourcing.adapter.out.market;
 
-import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.FreightRateEntity;
+import be.enrosed.sourcing.domain.MarketSourceStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
@@ -14,27 +14,40 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Reads the weekly CCFI Europe route from the Shanghai Shipping Exchange.
  *
  * The CCFI (China Containerized Freight Index) covers the whole Chinese
- * coast per destination - the closest public thing to a Ningbo/Guangzhou/
- * Shenzhen -> Europe number, since no per-port index is published openly.
- * The exchange serves it as plain JSON, keyless; route-level SCFI data sits
- * behind a login, but CCFI routes are open. Index points, not dollars: the
- * trend is the signal, the forwarder quote stays the price.
+ * coast per destination. Source research did not identify a reusable exact
+ * Guangzhou- or Shenzhen-Europe series, so this broad CCFI route is the
+ * honest context for those ports. Index points, not dollars: the trend is
+ * the signal, the forwarder quote stays the price.
  *
- * Same contract as the Drewry fetcher: lazy, one short attempt per week,
- * every failure swallowed so the dashboard never breaks on a scrape.
+ * SSE reserves automated/commercial reuse unless the customer has the
+ * appropriate agreement. For that reason this connector is disabled by
+ * default and cannot issue a request until the operator explicitly confirms
+ * authorization in configuration.
  */
 @ApplicationScoped
-public class CcfiFetcher {
+public class CcfiFetcher implements MarketSourceFetcher {
 
     private static final Logger LOG = Logger.getLogger(CcfiFetcher.class);
 
     /** Route code the scraped index is stored under. */
     public static final String ROUTE = "CCFI CN-EUR";
+
+    public static final MarketSourceDefinition SOURCE = new MarketSourceDefinition(
+            ROUTE,
+            "CCFI China → Europa",
+            "Brede referentie: tien Chinese vertrekhavens, waaronder Guangzhou en Shenzhen",
+            "INDEX_POINTS",
+            "BROAD_REFERENCE",
+            "Shanghai Shipping Exchange · CCFI",
+            "https://en.sse.net.cn/indices/ccfinew.jsp",
+            "https://en.sse.net.cn/indices/agreetext.htm");
 
     private static final URI ENDPOINT =
             URI.create("https://en.sse.net.cn/currentIndex?indexName=ccfi");
@@ -46,24 +59,21 @@ public class CcfiFetcher {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    private void store(LocalDate quotedOn, BigDecimal points) {
-        if (FreightRateEntity.count("route = ?1 and quotedOn = ?2", ROUTE, quotedOn) > 0) return;
-        FreightRateEntity entity = new FreightRateEntity();
-        entity.route = ROUTE;
-        entity.quotedOn = quotedOn;
-        entity.usdPerContainer = points;
-        entity.persist();
-        LOG.infof("CCFI China-Europe: %s points (%s)", points, quotedOn);
+    private final MarketSourceTracker tracker;
+    private final boolean authorized;
+
+    public CcfiFetcher(
+            MarketSourceTracker tracker,
+            @ConfigProperty(
+                    name = "enrosed.market.ccfi.automated-access-authorized",
+                    defaultValue = "false") boolean authorized) {
+        this.tracker = tracker;
+        this.authorized = authorized;
     }
 
-    @Transactional
-    public void refreshIfStale() {
-        LocalDate weekAgo = LocalDate.now().minusDays(6);
-        long recent = FreightRateEntity.count("route = ?1 and quotedOn >= ?2", ROUTE, weekAgo);
-        long total = FreightRateEntity.count("route = ?1", ROUTE);
-        /* The endpoint also carries last week's value; with a thin log the
-           run continues so that free history row gets stored too. */
-        if (recent > 0 && total >= 2) return;
+    @Override
+    public void refreshIfDue() {
+        if (!authorized || !tracker.beginDailyCheck(ROUTE)) return;
 
         try {
             HttpRequest request = HttpRequest.newBuilder(ENDPOINT)
@@ -71,25 +81,53 @@ public class CcfiFetcher {
                     .header("User-Agent", "Mozilla/5.0 (Enrosed ERP dashboard)")
                     .header("Referer", "https://en.sse.net.cn/indices/ccfinew.jsp")
                     .GET().build();
-            String body = HTTP.send(request, HttpResponse.BodyHandlers.ofString()).body();
-            JsonNode data = JSON.readTree(body).path("data");
-            LocalDate quotedOn = LocalDate.parse(data.path("currentDate").asText());
-
-            LocalDate lastDate = LocalDate.parse(data.path("lastDate").asText());
-            for (JsonNode line : data.path("lineDataList")) {
-                String name = line.path("properties").path("lineName_EN").asText();
-                if (!"EUROPE".equalsIgnoreCase(name.trim())) continue;
-                if (line.path("currentContent").isNull()) return;
-                store(quotedOn, line.path("currentContent").decimalValue());
-                /* The same JSON carries last week's value - free history. */
-                if (!line.path("lastContent").isNull()) {
-                    store(lastDate, line.path("lastContent").decimalValue());
-                }
-                return;
+            HttpResponse<String> response = HTTP.send(
+                    request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IllegalStateException("HTTP " + response.statusCode());
             }
-            LOG.warn("CCFI JSON fetched but no EUROPE line found; format may have changed");
+            List<Observation> observations = parseEurope(response.body());
+            if (observations.isEmpty()) {
+                throw new IllegalStateException("EUROPE line missing");
+            }
+            for (Observation observation : observations) {
+                tracker.store(ROUTE, observation.publishedOn(), observation.value());
+            }
+            tracker.success(ROUTE);
+            LOG.infof("CCFI China-Europe refreshed: %s", observations);
         } catch (Exception e) {
+            tracker.failure(ROUTE, e);
             LOG.debugf("CCFI fetch skipped: %s", e.toString());
         }
     }
+
+    @Override
+    public MarketSourceStatus status() {
+        return tracker.status(SOURCE, authorized);
+    }
+
+    static List<Observation> parseEurope(String body) throws Exception {
+        JsonNode data = JSON.readTree(body).path("data");
+        String currentDate = data.path("currentDate").asText();
+        String lastDate = data.path("lastDate").asText();
+        if (currentDate.isBlank() || lastDate.isBlank()) return List.of();
+
+        for (JsonNode line : data.path("lineDataList")) {
+            String name = line.path("properties").path("lineName_EN").asText();
+            if (!"EUROPE".equalsIgnoreCase(name.trim())) continue;
+            List<Observation> result = new ArrayList<>(2);
+            if (line.path("currentContent").isNumber()) {
+                result.add(new Observation(LocalDate.parse(currentDate),
+                        line.path("currentContent").decimalValue()));
+            }
+            if (line.path("lastContent").isNumber()) {
+                result.add(new Observation(LocalDate.parse(lastDate),
+                        line.path("lastContent").decimalValue()));
+            }
+            return result;
+        }
+        return List.of();
+    }
+
+    record Observation(LocalDate publishedOn, BigDecimal value) {}
 }

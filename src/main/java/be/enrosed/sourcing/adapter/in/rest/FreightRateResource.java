@@ -4,6 +4,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.FreightRateEntity;
 import be.enrosed.sourcing.domain.FreightRate;
+import be.enrosed.sourcing.domain.MarketSourceStatus;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
@@ -38,14 +39,24 @@ public class FreightRateResource {
 
     @GET
     public List<FreightRate> list() {
-        /* Lazily tops up the weekly indices; failures serve the cache. */
-        drewry.refreshIfStale();
-        ccfi.refreshIfStale();
-        ncfi.refreshIfStale();
         return FreightRateEntity.<FreightRateEntity>list("order by quotedOn, id").stream()
                 .map(entity -> new FreightRate(entity.id, entity.route,
                         entity.quotedOn, entity.usdPerContainer))
                 .toList();
+    }
+
+    /**
+     * Runs at most one authorized lookup per source and UTC day, then
+     * reports provenance and cache health. Source failures are swallowed by
+     * their connector so an old, clearly labelled cache remains usable.
+     */
+    @GET
+    @Path("/market-sources")
+    public List<MarketSourceStatus> marketSources() {
+        drewry.refreshIfDue();
+        ncfi.refreshIfDue();
+        ccfi.refreshIfDue();
+        return List.of(drewry.status(), ncfi.status(), ccfi.status());
     }
 
     @POST
@@ -57,6 +68,10 @@ public class FreightRateResource {
         }
         if (rate.usdPerContainer().signum() <= 0) {
             throw new BusinessRuleException("Vrachttarief moet groter zijn dan nul");
+        }
+        if (managedMarketRoute(rate.route())) {
+            throw new BusinessRuleException(
+                    "Marktdata kan alleen door een geautoriseerde bronconnector worden toegevoegd");
         }
         FreightRateEntity entity = new FreightRateEntity();
         entity.route = rate.route().trim().toUpperCase();
@@ -70,6 +85,20 @@ public class FreightRateResource {
     @Path("/{id}")
     @Transactional
     public void remove(@PathParam("id") long id) {
-        FreightRateEntity.deleteById(id);
+        FreightRateEntity entity = FreightRateEntity.findById(id);
+        if (entity == null) return;
+        if (managedMarketRoute(entity.route)) {
+            throw new BusinessRuleException("Een officiële marktcache kan niet handmatig worden verwijderd");
+        }
+        entity.delete();
+    }
+
+    private static boolean managedMarketRoute(String route) {
+        if (route == null) return false;
+        String code = route.trim().toUpperCase();
+        return code.equals(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher.ROUTE)
+                || code.equals(be.enrosed.sourcing.adapter.out.market.CcfiFetcher.ROUTE)
+                || code.equals(be.enrosed.sourcing.adapter.out.market.NcfiFetcher.ROUTE)
+                || code.equals(be.enrosed.sourcing.adapter.out.market.NcfiFetcher.LEGACY_COMPOSITE_ROUTE);
     }
 }

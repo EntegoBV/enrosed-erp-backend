@@ -612,6 +612,55 @@ niet dubbel over hetzelfde bedrag lopen, en verschijnt met die naam op de offert
 klantportaal. **Opslag is niet hetzelfde als marge**: opslag rekent vanaf de kostprijs, marge
 vanaf de verkoopprijs. 45 % opslag = 31 % marge, en staffelkorting drukt dat verder.
 
+## Marktdata voor containervracht
+
+Het dashboard houdt twee soorten cijfers bewust uit elkaar:
+
+- een **eigen forwarderofferte** is een echte USD-prijs per 40ft-container en kan per
+  vertrekhaven worden genoteerd;
+- een **marktindex** bestaat uit punten en laat alleen de marktrichting zien. Indexpunten
+  zijn geen USD-vrachttarief en worden nooit naar een vermeende routeprijs omgerekend.
+
+Shanghai → Rotterdam blijft apart als de USD-benchmark van de Drewry World Container
+Index. Voor Ningbo gebruikt de app uitsluitend de exacte NCFI-route *Ningbo → Europe*;
+de Baltic-publicatie beschrijft die route als Ningbo-Zhoushan naar Hamburg en Rotterdam.
+Voor Nansha/Guangzhou en Yantian/Shenzhen is geen exacte Europa-reeks geïmplementeerd:
+de officiële CCFI China → Europa is daar alleen een **brede referentie** over tien Chinese
+vertrekhavens. De eigen forwarderofferte blijft dus het prijsanker. De officiële
+Guangzhou/GBA-exportindex die bij het brononderzoek werd gevonden bestrijkt ASEAN-routes,
+niet Europa, en wordt daarom niet als vervanger gebruikt.
+
+Bronnen en voorwaarden:
+
+- [Drewry — free market insights](https://www.drewry.co.uk/free-market-insights),
+  [licentievoorwaarden](https://www.drewry.co.uk/maritime-research/maritime-research-related-content/standard-licence-terms)
+  en [Container Freight Rate Insight/API](https://www.drewry.co.uk/maritime-research-products/container-freight-rate-insight-annual-subscription?redirected=1);
+- [Baltic Exchange — NCFI weekpublicaties](https://www.balticexchange.com/en/data-services/WeeklyRoundup/ningbo/news/2026/ningbo-containerised-freight-index-070826.html)
+  en [data policy](https://www.balticexchange.com/en/site-services/data-policy.html);
+- [Shanghai Shipping Exchange — CCFI-definitie](https://en.sse.net.cn/indices/intro_ccfitt.htm)
+  en [User Agreement](https://en.sse.net.cn/indices/agreetext.htm);
+- [Guangzhou Port Authority — scope GBA-exportindex](https://gwj.gz.gov.cn/xwzx/gzgxw/content/post_9252150.html).
+
+Publiek kunnen lezen betekent niet automatisch dat machinegebruik, interne non-display-
+analyse of herpublicatie is toegestaan. Daarom zijn alle drie bronconnectors standaard
+**uit**. Zet een vlag pas aan nadat de overeenkomst met die provider dit gebruik expliciet
+dekt:
+
+```properties
+DREWRY_AUTOMATED_ACCESS_AUTHORIZED=true
+NCFI_AUTOMATED_ACCESS_AUTHORIZED=true
+CCFI_AUTOMATED_ACCESS_AUTHORIZED=true
+```
+
+Een achtergrondtaak controleert dagelijks om 03:15 UTC; met
+`MARKET_DATA_REFRESH_CRON` kan dat stille tijdstip worden gewijzigd. De dashboard-API
+probeert dezelfde controle als fallback. Een databaseclaim zorgt dat meerdere app-nodes
+dezelfde bron niet dubbel opvragen. Providerpublicaties worden op datum gededupliceerd;
+een bron zonder publicatiedatum krijgt hoogstens één lokale observatie per zeven dagen.
+Bij een netwerk- of parsefout blijft de laatst geldige cache staan, samen met bron,
+publicatiedatum, laatste controlemoment en foutstatus. Zonder providerautorisatie werken
+handmatig ingevoerde forwarderoffertes volledig door.
+
 ## Structuur
 
 ```
