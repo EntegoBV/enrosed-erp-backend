@@ -51,6 +51,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @QuarkusTest
+/* Resource methods are called directly here; the admin role check on
+   the resource class needs an identity, exactly as over HTTP. */
+@io.quarkus.test.security.TestSecurity(user = "enrosedadmin",
+        roles = be.enrosed.shared.security.AdminIdentityProvider.ADMIN_ROLE)
 class ProductFamilyVariantContractPersistenceTest {
     @Inject EntityManager entityManager;
     @Inject ProductRepository products;
@@ -924,13 +928,24 @@ class ProductFamilyVariantContractPersistenceTest {
         BusinessRuleException error = assertThrows(BusinessRuleException.class,
                 () -> publicTranslations.replaceProductTexts(
                         java.util.Map.of(variant.id, incomplete)));
-        assertTrue(error.getMessage().contains("Publicatiecopy"), error.getMessage());
+        /* The bulk path runs through the family write guard, whose message
+           names the family and lists every blocker - here the variant copy
+           missing in the other seven languages. */
+        assertTrue(error.getMessage().contains("niet publiceerbaar"), error.getMessage());
+        assertTrue(error.getMessage().contains("bulk-translation-guard-red.nl.name"),
+                error.getMessage());
     }
 
     @Test
     @TestTransaction
     void staleGeneralFamilyPutCannotOverwriteAtomicFamilyTranslations() {
         ProductFamilyEntity family = family("legacy-family-put-copy-owner");
+        /* This family has no category, photo or variant; keep it a draft so the
+           general PUT is not refused on publication rules - the contract under
+           test is about copy ownership, not publishability. */
+        family.websiteStatus = PublicationState.DRAFT;
+        /* The helper seeds every language; replace its FR copy, one row per language. */
+        family.texts.removeIf(text -> text.language == Language.FR);
         ProductFamilyTextEntity approved = new ProductFamilyTextEntity();
         approved.family = family;
         approved.language = Language.FR;

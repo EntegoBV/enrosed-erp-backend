@@ -56,9 +56,10 @@ public class PanacheCategoryRepository implements CategoryRepository {
         CatalogMapper.apply(category, entity);
         if (entity.id == null) dao.persist(entity);
         else if (aggregateChanged) {
-            /* Child-only CategoryText edits do not dirty the owning row by themselves. Force the
-               aggregate version so a second all-language editor cannot reuse a stale token. */
-            dao.getEntityManager().lock(entity, LockModeType.PESSIMISTIC_FORCE_INCREMENT);
+            /* Child-only CategoryText edits do not dirty the owning row by themselves;
+               touching updatedAt makes the @Version bump at flush so a second
+               all-language editor cannot reuse a stale token. */
+            entity.updatedAt = java.time.Instant.now();
         }
         dao.flush();
         String publicKey = CategoryPublicKey.from(entity.code);

@@ -34,6 +34,12 @@ class ContentTranslationContractTest {
     @Inject CanonicalCatalogDaos.ContentTranslations rows;
     @Inject CanonicalCatalogDaos.WebsiteRebuilds rebuildRows;
     @Inject WebsiteRebuildService rebuild;
+    /* The injected bean is a CDI client proxy: writing its config fields
+       changes the proxy's copy, never the real instance. Unwrap first. */
+    private WebsiteRebuildService rebuildTarget() {
+        return io.quarkus.arc.ClientProxy.unwrap(rebuild);
+    }
+
     @Inject WebsiteCatalogRevisionService catalogRevision;
 
     @Test
@@ -200,9 +206,9 @@ class ContentTranslationContractTest {
         state.liveRevision = "0".repeat(64);
         state.attemptCount = 3;
 
-        Optional<String> previousHook = rebuild.deployHookUrl;
+        Optional<String> previousHook = rebuildTarget().deployHookUrl;
         try {
-            rebuild.deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
+            rebuildTarget().deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
             seeds.ensureSeededAndQueueWebsiteChange();
             assertEquals(WebsiteRebuildStatus.QUEUED, state.status);
             assertEquals(0, state.attemptCount);
@@ -212,7 +218,7 @@ class ContentTranslationContractTest {
             assertEquals(queuedAt, state.queuedAt,
                     "an unchanged startup seed must not enqueue another deploy");
         } finally {
-            rebuild.deployHookUrl = previousHook;
+            rebuildTarget().deployHookUrl = previousHook;
         }
     }
 
@@ -226,9 +232,9 @@ class ContentTranslationContractTest {
         }
         state.status = WebsiteRebuildStatus.LIVE;
         state.liveRevision = "0".repeat(64);
-        Optional<String> previousHook = rebuild.deployHookUrl;
+        Optional<String> previousHook = rebuildTarget().deployHookUrl;
         try {
-            rebuild.deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
+            rebuildTarget().deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
             rebuild.onStart(null);
             assertEquals(WebsiteRebuildStatus.QUEUED, state.status);
 
@@ -239,7 +245,7 @@ class ContentTranslationContractTest {
             assertEquals(WebsiteRebuildStatus.LIVE, state.status);
             assertEquals(unchangedQueue, state.queuedAt);
         } finally {
-            rebuild.deployHookUrl = previousHook;
+            rebuildTarget().deployHookUrl = previousHook;
         }
     }
 

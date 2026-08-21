@@ -33,6 +33,12 @@ class PublicProductTranslationsStandaloneTest {
     @Inject PublicProductTranslationsService translations;
     @Inject EntityManager entityManager;
     @Inject WebsiteRebuildService rebuild;
+    /* The injected bean is a CDI client proxy: writing its config fields
+       changes the proxy's copy, never the real instance. Unwrap first. */
+    private WebsiteRebuildService rebuildTarget() {
+        return io.quarkus.arc.ClientProxy.unwrap(rebuild);
+    }
+
     @Inject CanonicalCatalogDaos.WebsiteRebuilds rebuildRows;
 
     @Test
@@ -130,9 +136,9 @@ class PublicProductTranslationsStandaloneTest {
         Map<Language, ProductDto.TextDto> patch = Map.of(Language.EN,
                 new ProductDto.TextDto(
                         Language.EN, "Standalone", "Description", null, "Small"));
-        Optional<String> previousHook = rebuild.deployHookUrl;
+        Optional<String> previousHook = rebuildTarget().deployHookUrl;
         try {
-            rebuild.deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
+            rebuildTarget().deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
             assertEquals(1, translations.patchProductTexts(Map.of(product.id, patch)));
             assertEquals(WebsiteRebuildStatus.QUEUED, state.status);
             assertEquals(0, state.attemptCount);
@@ -147,26 +153,34 @@ class PublicProductTranslationsStandaloneTest {
             assertEquals(queuedAt, state.queuedAt,
                     "an identical full translation snapshot must not requeue the outbox");
         } finally {
-            rebuild.deployHookUrl = previousHook;
+            rebuildTarget().deployHookUrl = previousHook;
         }
     }
 
     @Test
     @TestTransaction
     void configuredStatusCreatesAndLocksTheSingletonOutboxRowWithNativeColumnNames() {
-        rebuildRows.deleteAll();
-        rebuildRows.flush();
-        Optional<String> previousHook = rebuild.deployHookUrl;
+        /* The singleton row survives other test classes (the scheduler
+           commits in its own transactions); an in-test delete would roll
+           back with this test, so clear it in a committed transaction and
+           drop the stale instance from the first-level cache. */
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew()
+                .run(() -> rebuildRows.deleteAll());
+        entityManager.clear();
+        Optional<String> previousHook = rebuildTarget().deployHookUrl;
         try {
-            rebuild.deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
+            rebuildTarget().deployHookUrl = Optional.of("https://example.invalid/deploy-hook");
             WebsiteRebuildDto status = rebuild.status();
             assertEquals(WebsiteRebuildStatus.QUEUED, status.status());
             WebsiteRebuildEntity row = rebuildRows.findById(1L);
             assertNotNull(row);
-            assertEquals(0L, row.rowRevision);
+            /* The native insert writes rowRevision 0; status() then fills in
+               queuedAt/nextAttemptAt/currentRevision and flushes, so the
+               @Version column legitimately reads 1 here. */
+            assertEquals(1L, row.rowRevision);
             assertEquals(0, row.attemptCount);
         } finally {
-            rebuild.deployHookUrl = previousHook;
+            rebuildTarget().deployHookUrl = previousHook;
         }
     }
 

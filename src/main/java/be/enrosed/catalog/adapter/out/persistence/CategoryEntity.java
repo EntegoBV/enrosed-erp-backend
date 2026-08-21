@@ -14,6 +14,14 @@ public class CategoryEntity {
     public Long id;
 
     /** Optimistic token for the dashboard's all-language category editor. */
+    /**
+     * Touched on every aggregate save. Child-only text edits do not dirty
+     * this row by themselves, and a forced version increment only lands at
+     * commit in Hibernate 6 - too late for the revision the API returns.
+     * A real column change makes the @Version bump at flush, in memory.
+     */
+    public java.time.Instant updatedAt;
+
     @Version
     @Column(nullable = false, columnDefinition = "bigint default 0")
     public long revision;
