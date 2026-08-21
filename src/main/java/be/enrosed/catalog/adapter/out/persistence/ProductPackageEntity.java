@@ -16,6 +16,7 @@ public class ProductPackageEntity {
     public String sourceKey;
     public String packageType;
     public int position;
+    /** Legacy storage names: length=B and width=D in confirmed-axis displays. */
     public BigDecimal lengthValue;
     public BigDecimal widthValue;
     public BigDecimal heightValue;

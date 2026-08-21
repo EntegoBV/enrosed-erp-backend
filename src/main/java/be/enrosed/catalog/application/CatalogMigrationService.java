@@ -71,6 +71,7 @@ public class CatalogMigrationService {
     private final PhotoStorage photoStorage;
     private final PhotoReferenceService photoReferences;
     private final BarcodeValidator barcodeValidator;
+    private final FeaturedProductSelectionService featuredProducts;
     private final ObjectMapper json;
     private final EntityManager entityManager;
 
@@ -94,6 +95,7 @@ public class CatalogMigrationService {
             PhotoStorage photoStorage,
             PhotoReferenceService photoReferences,
             BarcodeValidator barcodeValidator,
+            FeaturedProductSelectionService featuredProducts,
             ObjectMapper json,
             EntityManager entityManager) {
         this.families = families;
@@ -115,6 +117,7 @@ public class CatalogMigrationService {
         this.photoStorage = photoStorage;
         this.photoReferences = photoReferences;
         this.barcodeValidator = barcodeValidator;
+        this.featuredProducts = featuredProducts;
         this.json = json;
         this.entityManager = entityManager;
     }
@@ -236,6 +239,7 @@ public class CatalogMigrationService {
         for (FamilyManifest input : safe(manifest.families())) {
             applyFamily(input, manifest, batch, categoryByKey, stats);
         }
+        resolveFeaturedSelections(manifest);
 
         batch.status = "APPLIED";
         batch.appliedAt = Instant.now();
@@ -316,7 +320,7 @@ public class CatalogMigrationService {
 
         List<ProductFamilyPhotoEntity> familyPhotos = new ArrayList<>();
         for (ImageManifest image : safe(input.images())) {
-            ProductFamilyPhotoEntity stored = persistImage(family, image, stats);
+            ProductFamilyPhotoEntity stored = persistImage(family, image, variantByKey, stats);
             familyPhotos.add(stored);
             persistImageAltProvenance(family, image, batch.importKey,
                     manifest.importDescriptor().generatedAt());
@@ -358,6 +362,8 @@ public class CatalogMigrationService {
                 ? generatedSku(input.canonicalVariantKey()) : input.sku().strip();
         product.name = family.name;
         product.colour = optional(input.color());
+        product.variantSize = optional(input.size());
+        product.colourHex = optional(input.colourHex());
         product.description = family.description;
         product.categoryId = family.categoryId;
         product.supplierId = null;
@@ -419,7 +425,10 @@ public class CatalogMigrationService {
     }
 
     private ProductFamilyPhotoEntity persistImage(
-            ProductFamilyEntity family, ImageManifest input, ImportStats stats) {
+            ProductFamilyEntity family,
+            ImageManifest input,
+            Map<String, ProductEntity> variantByKey,
+            ImportStats stats) {
         StoredRendition small = storeRendition(input.filename(), input.contentType(), input.small());
         StoredRendition large = storeRendition(input.filename(), input.contentType(), input.large());
         if (small.reused) stats.reusedBlobs++;
@@ -446,6 +455,8 @@ public class CatalogMigrationService {
         photo.largeWidthPx = input.large().width();
         photo.largeHeightPx = input.large().height();
         photo.position = integer(input.position());
+        photo.variantProduct = input.variantCanonicalKey() == null
+                ? null : variantByKey.get(input.variantCanonicalKey());
         photo.variantExternalId = optional(input.variantCanonicalKey());
         photo.variantColor = optional(input.variantColor());
         photo.altTextSource = optional(input.altTextSource());
@@ -461,8 +472,10 @@ public class CatalogMigrationService {
             List<ProductFamilyPhotoEntity> images) {
         for (Map.Entry<String, ProductEntity> entry : variants.entrySet()) {
             List<ProductFamilyPhotoEntity> ordered = images.stream()
+                    .filter(image -> imageRank(image, entry.getValue()) < 2)
                     .sorted(Comparator
-                            .comparingInt((ProductFamilyPhotoEntity image) -> imageRank(image, entry.getKey()))
+                            .comparingInt((ProductFamilyPhotoEntity image) ->
+                                    imageRank(image, entry.getValue()))
                             .thenComparingInt(image -> image.position))
                     .toList();
             int position = 0;
@@ -483,9 +496,11 @@ public class CatalogMigrationService {
         }
     }
 
-    private static int imageRank(ProductFamilyPhotoEntity image, String variantKey) {
-        if (Objects.equals(image.variantExternalId, variantKey)) return 0;
-        if (image.variantExternalId == null) return 1;
+    private static int imageRank(ProductFamilyPhotoEntity image, ProductEntity variant) {
+        if (image.variantProduct != null && Objects.equals(image.variantProduct.id, variant.id)) return 0;
+        if (Objects.equals(image.variantExternalId, variant.canonicalVariantKey)) return 0;
+        if (image.variantProduct == null && image.variantExternalId == null
+                && image.variantColor == null) return 1;
         return 2;
     }
 
@@ -546,7 +561,7 @@ public class CatalogMigrationService {
             CategoryManifest category = input.category();
             requested = List.of(new CollectionManifest(
                     category.key(), category.name(), category.eyebrow(), category.description(),
-                    category.position(), true));
+                    category.position(), true, null, null));
         }
         for (CollectionManifest item : requested) {
             ProductCollectionEntity collection = collections.find("collectionKey", item.key()).firstResult();
@@ -559,6 +574,7 @@ public class CatalogMigrationService {
             collection.eyebrow = item.eyebrow();
             collection.description = item.description();
             collection.position = integer(item.position());
+            collection.mobileName = optional(item.mobileName());
             ProductFamilyCollectionEntity membership = new ProductFamilyCollectionEntity();
             membership.family = family;
             membership.collection = collection;
@@ -569,6 +585,56 @@ public class CatalogMigrationService {
         family.collectionKey = family.collections.stream()
                 .filter(item -> item.primaryCollection).findFirst()
                 .map(item -> item.collection.collectionKey).orElse(null);
+    }
+
+    /** Resolve portable canonical keys only after every family and SKU has been persisted. */
+    private void resolveFeaturedSelections(CanonicalCatalogManifest manifest) {
+        for (FamilyManifest input : safe(manifest.families())) {
+            ProductFamilyEntity family = families.find(
+                    "familyKey", input.canonicalFamilyKey()).firstResult();
+            String familyFeaturedKey = optional(input.cardFeaturedCanonicalVariantKey());
+            family.cardFeaturedProductId = null;
+            if (familyFeaturedKey != null) {
+                ProductEntity product = productByCanonicalKey(familyFeaturedKey);
+                featuredProducts.requireFamilyMember(family, product.id);
+                family.cardFeaturedProductId = product.id;
+            }
+
+            for (CollectionManifest inputCollection : safe(input.collections())) {
+                ProductCollectionEntity collection = collections.find(
+                        "collectionKey", inputCollection.key()).firstResult();
+                if (collection == null) continue;
+                collection.mobileName = optional(inputCollection.mobileName());
+                String featuredKey = optional(inputCollection.featuredCanonicalVariantKey());
+                ProductEntity featuredProduct = null;
+                collection.featuredProductId = null;
+                if (featuredKey != null) {
+                    featuredProduct = productByCanonicalKey(featuredKey);
+                    featuredProducts.requireCollectionMember(collection, featuredProduct.id);
+                    collection.featuredProductId = featuredProduct.id;
+                }
+                CategoryEntity category = categories.find("code", collection.collectionKey).firstResult();
+                if (category != null) {
+                    category.mobileName = collection.mobileName;
+                    category.featuredProductId = null;
+                    if (featuredProduct != null) {
+                        featuredProducts.requireCategoryMember(
+                                category.id, category.code, featuredProduct.id);
+                        category.featuredProductId = featuredProduct.id;
+                    }
+                }
+            }
+        }
+    }
+
+    private ProductEntity productByCanonicalKey(String canonicalVariantKey) {
+        ProductEntity product = products.find(
+                "canonicalVariantKey", canonicalVariantKey).firstResult();
+        if (product == null) {
+            throw new BusinessRuleException(
+                    "Onbekende canonieke uitgelichte variant " + canonicalVariantKey);
+        }
+        return product;
     }
 
     private Map<String, CategoryEntity> applyCategories(List<CategoryManifest> inputs) {
@@ -582,6 +648,7 @@ public class CatalogMigrationService {
             }
             category.name = input.name();
             category.description = input.description();
+            category.eyebrow = input.eyebrow();
             category.position = integer(input.position());
             result.put(input.key(), category);
         }
@@ -942,8 +1009,24 @@ public class CatalogMigrationService {
                 CollectionManifest prior = collectionDefinitions.putIfAbsent(collection.key(), collection);
                 if (prior != null && (!Objects.equals(prior.name(), collection.name())
                         || !Objects.equals(prior.eyebrow(), collection.eyebrow())
-                        || !Objects.equals(prior.description(), collection.description()))) {
+                        || !Objects.equals(prior.description(), collection.description())
+                        || !Objects.equals(prior.mobileName(), collection.mobileName())
+                        || !Objects.equals(prior.featuredCanonicalVariantKey(),
+                        collection.featuredCanonicalVariantKey()))) {
                     result.problems.add("Collectie " + collection.key() + " heeft conflicterende editorial");
+                }
+                if (optional(collection.featuredCanonicalVariantKey()) != null
+                        && !featuredVariantBelongsToCollection(
+                        manifest, collection.featuredCanonicalVariantKey(), collection.key())) {
+                    result.problems.add("Collectie " + collection.key()
+                            + " verwijst niet naar een actieve variant binnen die collectie");
+                }
+                if (optional(collection.featuredCanonicalVariantKey()) != null
+                        && categoryKeys.contains(collection.key())
+                        && !featuredVariantBelongsToPrimaryCategory(
+                        manifest, collection.featuredCanonicalVariantKey(), collection.key())) {
+                    result.problems.add("Categorie " + collection.key()
+                            + " verwijst niet naar een actieve variant binnen de primaire categorie");
                 }
             }
 
@@ -956,7 +1039,23 @@ public class CatalogMigrationService {
             Set<String> familyVariantKeys = safe(family.variants()).stream()
                     .map(VariantManifest::canonicalVariantKey).filter(Objects::nonNull)
                     .collect(Collectors.toSet());
+            String cardFeaturedKey = optional(family.cardFeaturedCanonicalVariantKey());
+            if (cardFeaturedKey != null) {
+                VariantManifest selected = safe(family.variants()).stream().filter(variant ->
+                                cardFeaturedKey.equals(variant.canonicalVariantKey())
+                                        && Boolean.TRUE.equals(variant.active()))
+                        .findFirst().orElse(null);
+                if (selected == null) {
+                    result.problems.add(path
+                            + " verwijst niet naar een actieve uitgelichte variant binnen de familie");
+                } else if (!manifestPhotoForVariant(family, selected)) {
+                    result.problems.add(path
+                            + " uitgelichte variant mist een eigen of familiebrede publieke foto");
+                }
+            }
             boolean websitePublished = requested(family, "WEBSITE") == PublicationState.PUBLISHED;
+            boolean websiteReady = websitePublished
+                    || requested(family, "WEBSITE") == PublicationState.READY;
             if (websitePublished) {
                 result.websitePublishedFamilyCount++;
                 validateWebsiteFamily(family, result, path);
@@ -998,6 +1097,17 @@ public class CatalogMigrationService {
                     BarcodeValidator.Result barcode = barcodeValidator.validate(variant.barcode());
                     if (!barcode.valid()) result.problems.add(variantPath + " barcode: " + barcode.message());
                     if (!barcodes.add(variant.barcode())) result.problems.add("Dubbele barcode " + variant.barcode());
+                }
+                if (variant.colourHex() != null
+                        && !variant.colourHex().matches("#[0-9A-F]{6}")) {
+                    result.problems.add(variantPath + " kleurcode moet exact #RRGGBB zijn");
+                }
+                if (supportsFeaturedVariantContract(manifest)
+                        && websiteReady && Boolean.TRUE.equals(variant.active())
+                        && optional(variant.color()) != null
+                        && optional(variant.colourHex()) == null) {
+                    result.problems.add(variantPath
+                            + " mist colourHex voor website READY/PUBLISHED");
                 }
                 if (variant.inventoryKnown() == null) {
                     result.problems.add(variantPath + " mist inventoryKnown");
@@ -1058,6 +1168,62 @@ public class CatalogMigrationService {
             result.problems.add("importDescriptor.importKey is niet afgeleid van payloadSha256");
         }
         return result;
+    }
+
+    private static boolean featuredVariantBelongsToCollection(
+            CanonicalCatalogManifest manifest, String variantKey, String collectionKey) {
+        return safe(manifest.families()).stream().anyMatch(family -> {
+            boolean member = safe(family.collections()).stream()
+                    .anyMatch(collection -> Objects.equals(collection.key(), collectionKey));
+            if (!member && safe(family.collections()).isEmpty() && family.category() != null) {
+                member = Objects.equals(family.category().key(), collectionKey);
+            }
+            VariantManifest selected = safe(family.variants()).stream().filter(variant ->
+                            Objects.equals(variant.canonicalVariantKey(), variantKey)
+                                    && Boolean.TRUE.equals(variant.active()))
+                    .findFirst().orElse(null);
+            return member && selected != null && manifestPhotoForVariant(family, selected);
+        });
+    }
+
+    private static boolean featuredVariantBelongsToPrimaryCategory(
+            CanonicalCatalogManifest manifest, String variantKey, String categoryKey) {
+        return safe(manifest.families()).stream().anyMatch(family -> {
+            boolean primaryCategory = family.category() != null
+                    && Objects.equals(family.category().key(), categoryKey);
+            VariantManifest selected = safe(family.variants()).stream().filter(variant ->
+                            Objects.equals(variant.canonicalVariantKey(), variantKey)
+                                    && Boolean.TRUE.equals(variant.active()))
+                    .findFirst().orElse(null);
+            return primaryCategory && selected != null && manifestPhotoForVariant(family, selected);
+        });
+    }
+
+    private static boolean manifestPhotoForVariant(
+            FamilyManifest family, VariantManifest selected) {
+        return safe(family.images()).stream().anyMatch(image -> {
+            if (optional(image.variantCanonicalKey()) == null
+                    && optional(image.variantColor()) == null) return true;
+            if (Objects.equals(image.variantCanonicalKey(), selected.canonicalVariantKey())) return true;
+            if (optional(image.variantCanonicalKey()) != null
+                    || optional(image.variantColor()) == null) return false;
+            String wanted = image.variantColor().strip().replaceAll("\\s+", " ");
+            List<VariantManifest> colourMatches = safe(family.variants()).stream()
+                    .filter(variant -> optional(variant.color()) != null)
+                    .filter(variant -> wanted.equalsIgnoreCase(
+                            variant.color().strip().replaceAll("\\s+", " ")))
+                    .toList();
+            return colourMatches.size() == 1
+                    && Objects.equals(colourMatches.getFirst().canonicalVariantKey(),
+                    selected.canonicalVariantKey());
+        });
+    }
+
+    /** The archived 2026-08-20.4 manifest predates editable swatches and remains replayable. */
+    private static boolean supportsFeaturedVariantContract(CanonicalCatalogManifest manifest) {
+        if (manifest.importDescriptor() == null) return false;
+        String version = optional(manifest.importDescriptor().transformVersion());
+        return version != null && version.compareTo("2026-08-20.5") >= 0;
     }
 
     private void validateWebsiteFamily(FamilyManifest family, Validation result, String path) {

@@ -35,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -56,6 +57,7 @@ class CatalogMigrationRealManifestTest {
     @Inject PanacheSourcingRepositories.SupplierDao suppliers;
     @Inject ProductService products;
     @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
+    @Inject FamilyPhotoVariantResolver familyPhotoVariants;
     @Inject PublicFamilyCatalogResource publicCatalog;
 
     @Test
@@ -92,6 +94,22 @@ class CatalogMigrationRealManifestTest {
         assertEquals(1L, result.clearedRows().get("company_profile"));
         assertEquals(0, suppliers.count());
         assertEquals(58, productRows.count());
+        for (ProductEntity variant : productRows.listAll()) {
+            if (variant.familyId == null) continue;
+            var family = families.findById(variant.familyId);
+            var members = productRows.list("familyId", variant.familyId);
+            for (var projected : variant.photos) {
+                if (projected.familyPhotoId == null) continue;
+                var source = entityManager.find(
+                        be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity.class,
+                        projected.familyPhotoId);
+                assertNotNull(source, "derived product photo must retain its family source");
+                assertTrue(familyPhotoVariants.rank(source, variant, members) < 2,
+                        () -> "SKU " + variant.sku
+                                + " received a sibling variant image from family "
+                                + family.familyKey);
+            }
+        }
         assertEquals(58, provenance.count(
                 "ownerType = ?1 and fieldName = ?2 and source = ?3",
                 "VARIANT", "skuProvenance", "GENERATED_INTERNAL"));
@@ -215,7 +233,19 @@ class CatalogMigrationRealManifestTest {
         assertFalse(publicJson.contains("sourceUrl"));
 
         var editableGallery = families.listAll().stream()
-                .filter(family -> family.photos.size() > 1).findFirst().orElseThrow();
+                .filter(family -> family.photos.size() > 1)
+                .filter(family -> {
+                    var members = productRows.list("familyId", family.id);
+                    return members.stream().anyMatch(product ->
+                            hasReorderableCompatiblePhotos(family, product, members));
+                })
+                .findFirst().orElseThrow();
+        var membersBeforeReorder = productRows.list("familyId", editableGallery.id);
+        ProductEntity reorderedConsumer = membersBeforeReorder.stream()
+                .filter(product -> hasReorderableCompatiblePhotos(
+                        editableGallery, product, membersBeforeReorder))
+                .findFirst().orElseThrow();
+        List<Long> consumerOrderBefore = inheritedFamilyPhotoIds(reorderedConsumer);
         long blobsBeforeReorder = ((Number) entityManager.createNativeQuery(
                 "select count(*) from photo_blob").getSingleResult()).longValue();
         ArrayList<be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity> reversed =
@@ -228,9 +258,36 @@ class CatalogMigrationRealManifestTest {
         entityManager.clear();
         assertEquals(blobsBeforeReorder, ((Number) entityManager.createNativeQuery(
                 "select count(*) from photo_blob").getSingleResult()).longValue());
-        assertTrue(productRows.list("familyId", editableGallery.id).stream()
-                .allMatch(product -> product.photos.size() == editableGallery.photos.size()),
-                "family gallery order must resync legacy product consumers without blob copies");
+        var reorderedGallery = families.findById(editableGallery.id);
+        var membersAfterReorder = productRows.list("familyId", reorderedGallery.id);
+        boolean relevantConsumerUpdated = false;
+        for (ProductEntity product : membersAfterReorder) {
+            List<Long> expected = reorderedGallery.photos.stream()
+                    .filter(image -> familyPhotoVariants.rank(
+                            image, product, membersAfterReorder) < 2)
+                    .sorted(java.util.Comparator
+                            .comparingInt((be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity image) ->
+                                    familyPhotoVariants.rank(image, product, membersAfterReorder))
+                            .thenComparingInt(image -> image.position))
+                    .map(image -> image.id)
+                    .toList();
+            List<Long> actual = inheritedFamilyPhotoIds(product);
+            assertEquals(expected, actual,
+                    "legacy product photos must follow exact-then-global filtered family order");
+            for (Long familyPhotoId : actual) {
+                var source = reorderedGallery.photos.stream()
+                        .filter(image -> image.id.equals(familyPhotoId))
+                        .findFirst().orElseThrow();
+                assertTrue(familyPhotoVariants.rank(source, product, membersAfterReorder) < 2,
+                        "a compatibility projection must never contain a sibling variant image");
+            }
+            if (product.id.equals(reorderedConsumer.id)
+                    && !actual.equals(consumerOrderBefore)) {
+                relevantConsumerUpdated = true;
+            }
+        }
+        assertTrue(relevantConsumerUpdated,
+                "reordering must update at least one relevant exact/global legacy consumer");
 
         var unknownInventory = products.list().stream()
                 .filter(product -> !product.inventoryKnown()).findFirst().orElseThrow();
@@ -283,6 +340,26 @@ class CatalogMigrationRealManifestTest {
         Path path = Path.of(configured).toAbsolutePath().normalize();
         Assumptions.assumeTrue(Files.isRegularFile(path), "Manifest does not exist: " + path);
         return json.readTree(path.toFile());
+    }
+
+    private boolean hasReorderableCompatiblePhotos(
+            be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity family,
+            ProductEntity product, List<ProductEntity> members) {
+        long exact = family.photos.stream()
+                .filter(image -> familyPhotoVariants.rank(image, product, members) == 0)
+                .count();
+        long global = family.photos.stream()
+                .filter(image -> familyPhotoVariants.rank(image, product, members) == 1)
+                .count();
+        return exact > 1 || global > 1;
+    }
+
+    private static List<Long> inheritedFamilyPhotoIds(ProductEntity product) {
+        return product.photos.stream()
+                .filter(photo -> photo.familyPhotoId != null)
+                .sorted(java.util.Comparator.comparingInt(photo -> photo.position))
+                .map(photo -> photo.familyPhotoId)
+                .toList();
     }
 
     private void seedRowsThatMustBeCleared() {

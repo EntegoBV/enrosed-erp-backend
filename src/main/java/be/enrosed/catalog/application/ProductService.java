@@ -20,8 +20,10 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Everything that happens to a product.
@@ -38,22 +40,28 @@ public class ProductService {
     private final ProductValidator validator;
     private final PhotoReferenceService photoReferences;
     private final CanonicalCatalogDaos.Families families;
+    private final ProductFamilyWriteGuard familyWrites;
+    private final FamilyPhotoCompatibilityService familyPhotos;
 
     @Inject
     public ProductService(
             ProductRepository products, PhotoStorage photoStorage, ProductValidator validator,
-            PhotoReferenceService photoReferences, CanonicalCatalogDaos.Families families) {
+            PhotoReferenceService photoReferences, CanonicalCatalogDaos.Families families,
+            ProductFamilyWriteGuard familyWrites,
+            FamilyPhotoCompatibilityService familyPhotos) {
         this.products = products;
         this.photoStorage = photoStorage;
         this.validator = validator;
         this.photoReferences = photoReferences;
         this.families = families;
+        this.familyWrites = familyWrites;
+        this.familyPhotos = familyPhotos;
     }
 
     /** Test compatibility for pure domain tests that do not share family photo blobs. */
     public ProductService(ProductRepository products, PhotoStorage photoStorage,
                           ProductValidator validator) {
-        this(products, photoStorage, validator, null, null);
+        this(products, photoStorage, validator, null, null, null, null);
     }
 
     public List<Product> list() {
@@ -73,41 +81,100 @@ public class ProductService {
         Product withSku = product.sku() == null || product.sku().isBlank()
                 ? product.withSku(nextSku())
                 : product;
-        Product prepared = canonicalFamilyMetadata(withSku.withPublicationMetadata(
+        Product prepared = withSku.withPublicationMetadata(
                 normalizeOptional(withSku.familyKey()), normalizeHandle(withSku.publicHandle()),
                 withSku.websiteStatus() == null ? PublicationState.DRAFT : withSku.websiteStatus(),
-                withSku.orderAppStatus() == null ? PublicationState.DRAFT : withSku.orderAppStatus()));
+                withSku.orderAppStatus() == null ? PublicationState.DRAFT : withSku.orderAppStatus());
+        lockFamilies(prepared.familyId());
+        prepared = canonicalFamilyMetadata(prepared);
+        prepared = assignFamilyPosition(prepared, null);
         validator.validate(prepared);
         ensureUniqueSku(prepared.sku(), null);
         ensureUniqueHandle(prepared.publicHandle(), null);
         ensurePublishable(prepared);
-        return products.save(prepared);
+        Product saved = products.save(prepared);
+        validateFamilies(prepared.familyId());
+        syncFamilyPhotos(saved.id(), prepared.familyId());
+        return saved.id() == null ? saved : get(saved.id());
     }
 
     @Transactional
     public Product update(long id, Product changes) {
+        return update(id, changes, false);
+    }
+
+    /** Dedicated command: unlike the backward-compatible full PUT, null explicitly unlinks. */
+    @Transactional
+    public Product assignFamily(long id, Long familyId) {
         Product current = get(id);
-        /* The photo series is managed through the photo methods, not an update. */
-        Product merged = new Product(
+        Product changes = current.withCanonicalIdentity(
+                familyId, current.canonicalVariantKey(), current.canonicalBarcode(),
+                current.variantPosition(), current.inventoryKnown());
+        if (familyId == null) {
+            changes = changes.withPublicationMetadata(
+                    null, null, PublicationState.DRAFT, PublicationState.DRAFT);
+        }
+        return update(id, changes, true);
+    }
+
+    private Product update(long id, Product changes, boolean familyExplicit) {
+        Product observed = get(id);
+        Long requestedFamilyId = familyExplicit || changes.familyId() != null
+                ? changes.familyId() : observed.familyId();
+        lockFamilies(observed.familyId(), requestedFamilyId);
+        if (familyWrites != null) {
+            Long lockedFamilyId = familyWrites.lockProduct(id);
+            if (!Objects.equals(lockedFamilyId, observed.familyId())) {
+                throw new BusinessRuleException(
+                        "Product is gelijktijdig naar een andere familie verplaatst; laad het opnieuw");
+            }
+        }
+        Product current = get(id);
+        Product merged = mergeUpdate(current, changes, familyExplicit);
+        merged = canonicalFamilyMetadata(merged);
+        merged = assignFamilyPosition(merged, current);
+        validator.validate(merged);
+        ensureUniqueSku(merged.sku(), current.id());
+        ensureUniqueHandle(merged.publicHandle(), current.id());
+        ensurePublishable(merged);
+        Product saved = products.save(merged);
+        validateFamilies(current.familyId(), merged.familyId());
+        syncFamilyPhotos(saved.id(), current.familyId(), merged.familyId());
+        return saved.id() == null ? saved : get(saved.id());
+    }
+
+    /** The photo series and purchasing-owned fields are never overwritten by a full product PUT. */
+    private static Product mergeUpdate(
+            Product current, Product changes, boolean familyExplicit) {
+        return new Product(
                 current.id(),
                 changes.sku() == null || changes.sku().isBlank() ? current.sku() : changes.sku(),
                 changes.name(),
                 changes.dimensions(),
                 changes.colour(),
+                /* Backward compatible partial PUT: null means omitted/preserve for older clients;
+                   an explicit blank string is the wire-level clear operation. */
+                changes.variantSize() == null
+                        ? current.variantSize() : normalizeOptional(changes.variantSize()),
+                changes.colourHex() == null
+                        ? current.colourHex() : normalizeOptional(changes.colourHex()),
                 changes.description(),
                 changes.categoryId(),
                 changes.supplierId(),
                 changes.active(),
-                /* familyId is an editable nullable field: null explicitly unlinks the variant. */
-                changes.familyId(),
+                /* Legacy full PUTs omitted this new field. Only the dedicated family command
+                   treats null as an explicit unlink. */
+                familyExplicit || changes.familyId() != null
+                        ? changes.familyId() : current.familyId(),
                 changes.canonicalVariantKey() == null
                         ? current.canonicalVariantKey() : normalizeOptional(changes.canonicalVariantKey()),
                 changes.canonicalBarcode() == null
                         ? current.canonicalBarcode() : normalizeOptional(changes.canonicalBarcode()),
                 changes.variantPosition(),
                 changes.inventoryKnown(),
-                changes.familyKey() == null
-                        ? current.familyKey() : normalizeOptional(changes.familyKey()),
+                familyExplicit && changes.familyId() == null
+                        ? null : changes.familyKey() == null
+                            ? current.familyKey() : normalizeOptional(changes.familyKey()),
                 changes.publicHandle() == null
                         ? current.publicHandle() : normalizeHandle(changes.publicHandle()),
                 changes.websiteStatus() == null
@@ -130,12 +197,6 @@ public class ProductService {
                 /* Translations travel with the form; when the field is not
                    sent along, what was there stays. */
                 changes.texts().isEmpty() ? current.texts() : changes.texts());
-        merged = canonicalFamilyMetadata(merged);
-        validator.validate(merged);
-        ensureUniqueSku(merged.sku(), current.id());
-        ensureUniqueHandle(merged.publicHandle(), current.id());
-        ensurePublishable(merged);
-        return products.save(merged);
     }
 
     /**
@@ -149,10 +210,31 @@ public class ProductService {
      */
     @Transactional
     public Product duplicate(long id, String newColour) {
+        return duplicate(id, newColour, null, null);
+    }
+
+    /** Copies one stock-bearing SKU as another colour and/or size variant. */
+    @Transactional
+    public Product duplicate(long id, String newColour, String newColourHex, String newVariantSize) {
         Product source = get(id);
+        String requestedColour = normalizeOptional(newColour);
+        String requestedHex = normalizeOptional(newColourHex);
+        String requestedSize = normalizeOptional(newVariantSize);
+        /* null is legacy omitted/inherit; a supplied blank string explicitly clears. */
+        String colour = newColour == null ? source.colour() : requestedColour;
+        String size = newVariantSize == null ? source.variantSize() : requestedSize;
+        boolean colourChanged = !java.util.Objects.equals(colour, source.colour());
+        String colourHex = newColourHex != null
+                ? requestedHex : colourChanged ? null : source.colourHex();
+        if (java.util.Objects.equals(colour, source.colour())
+                && java.util.Objects.equals(size, source.variantSize())
+                && java.util.Objects.equals(colourHex, source.colourHex())) {
+            throw new BusinessRuleException(
+                    "De nieuwe variant moet in kleur, kleurcode of maat verschillen van het bronproduct");
+        }
         return create(new Product(
                 null, null, source.name(), source.dimensions(),
-                newColour == null || newColour.isBlank() ? source.colour() : newColour,
+                colour, size, colourHex,
                 source.description(),
                 source.categoryId(), source.supplierId(), source.active(),
                 source.familyId(), null, null, source.variantPosition() + 1, false,
@@ -164,17 +246,26 @@ public class ProductService {
                 /* Stock starts at zero: this is a new article. */
                 0, List.of(),
                 /* Translated names and descriptions come along; the per-language
-                   colour does not, because it was just changed here and would
-                   otherwise keep naming the old colour in every language. */
+                   colour comes along for size/swatch-only variants, but is cleared
+                   when the actual colour label changed. */
                 source.texts().stream()
                         .map(text -> new ProductText(text.language(), text.name(),
-                                text.description(), null))
+                                text.description(), colourChanged ? null : text.colour()))
                         .filter(text -> !text.isEmpty())
                         .toList()));
     }
 
     @Transactional
     public void delete(long id) {
+        Product observed = get(id);
+        lockFamilies(observed.familyId());
+        if (familyWrites != null) {
+            Long lockedFamilyId = familyWrites.lockProduct(id);
+            if (!Objects.equals(lockedFamilyId, observed.familyId())) {
+                throw new BusinessRuleException(
+                        "Product is gelijktijdig naar een andere familie verplaatst; laad het opnieuw");
+            }
+        }
         Product product = get(id);
         ProductRepository.ReferenceCounts references = products.referenceCounts(id);
         if (references.total() > 0) {
@@ -182,6 +273,8 @@ public class ProductService {
         }
         products.deleteById(id);
         draftEmptyFamily(product.familyId());
+        validateFamilies(product.familyId());
+        syncFamilyPhotos(null, product.familyId());
         product.photos().forEach(photo -> deleteBlob(photo.storageKey()));
     }
 
@@ -314,7 +407,7 @@ public class ProductService {
         if (family == null) {
             throw new BusinessRuleException("Onbekende productfamilie " + product.familyId());
         }
-        return product.withPublicationMetadata(
+        return product.withCategoryId(family.categoryId).withPublicationMetadata(
                 family.familyKey, null, PublicationState.DRAFT, PublicationState.DRAFT);
     }
 
@@ -326,6 +419,28 @@ public class ProductService {
     private static String normalizeHandle(String value) {
         String normalized = normalizeOptional(value);
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private void lockFamilies(Long... familyIds) {
+        if (familyWrites != null) familyWrites.lockFamilies(Arrays.asList(familyIds));
+    }
+
+    private Product assignFamilyPosition(Product candidate, Product current) {
+        return familyWrites == null ? candidate : familyWrites.assignPosition(candidate, current);
+    }
+
+    private void validateFamilies(Long... familyIds) {
+        if (familyWrites != null) familyWrites.validateFamilies(Arrays.asList(familyIds));
+    }
+
+    private void syncFamilyPhotos(Long productId, Long... familyIds) {
+        if (familyPhotos == null || families == null) return;
+        Arrays.stream(familyIds).filter(Objects::nonNull).distinct().sorted()
+                .map(families::findById).filter(Objects::nonNull).forEach(familyPhotos::sync);
+        if (productId != null) {
+            Product product = get(productId);
+            if (product.familyId() == null) familyPhotos.clearInherited(productId);
+        }
     }
 
     private String nextSku() {

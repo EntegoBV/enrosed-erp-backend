@@ -14,5 +14,11 @@ public class CategoryEntity {
     public String code;
     public String name;
     public String description;
+    /** Explicit website collection label; never inferred from name. */
+    public String eyebrow;
     public int position;
+    /** Optional shorter label used by the mobile website navigation. */
+    public String mobileName;
+    /** Stable operational Product id selected as this category's card/collection preview. */
+    public Long featuredProductId;
 }

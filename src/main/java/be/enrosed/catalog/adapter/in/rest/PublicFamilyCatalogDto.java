@@ -26,6 +26,7 @@ public record PublicFamilyCatalogDto(
             List<String> highlights,
             CategoryDto category,
             int productPosition,
+            Long cardFeaturedProductId,
             List<String> tags,
             String status,
             SeoDto seo,
@@ -40,11 +41,14 @@ public record PublicFamilyCatalogDto(
             String name,
             int position,
             String eyebrow,
-            String description
+            String description,
+            String mobileName,
+            Long featuredProductId
     ) {}
 
     public record SeoDto(String title, String description) {}
 
+    /** Legacy wire names; length=B, width=D, height=H. */
     public record DimensionsDto(
             BigDecimal length,
             BigDecimal width,
@@ -73,6 +77,7 @@ public record PublicFamilyCatalogDto(
             Integer largeHeight,
             String alt,
             int position,
+            Long variantProductId,
             String variantExternalId,
             String variantColor
     ) {}
@@ -82,6 +87,8 @@ public record PublicFamilyCatalogDto(
             String sku,
             String barcode,
             String color,
+            String size,
+            String colorHex,
             String name,
             int position,
             Object availability,

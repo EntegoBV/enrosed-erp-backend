@@ -1,10 +1,14 @@
 package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.out.persistence.CatalogImportConflictEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductDimensionObservationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductExternalIdentifierEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPackageEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPriceObservationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductProvenanceEntity;
@@ -57,7 +61,27 @@ class ProductRepositoryReferencePersistenceTest {
         entityManager.persist(product);
         entityManager.flush();
 
+        family.cardFeaturedProductId = product.id;
+        ProductCollectionEntity collection = new ProductCollectionEntity();
+        collection.collectionKey = "delete-collection";
+        collection.name = "Delete collection";
+        collection.featuredProductId = product.id;
+        entityManager.persist(collection);
+        ProductFamilyCollectionEntity membership = new ProductFamilyCollectionEntity();
+        membership.family = family;
+        membership.collection = collection;
+        membership.primaryCollection = true;
+        family.collections.add(membership);
+        entityManager.persist(membership);
+        CategoryEntity category = new CategoryEntity();
+        category.code = collection.collectionKey;
+        category.name = collection.name;
+        category.featuredProductId = product.id;
+        entityManager.persist(category);
+
         persistCanonicalMetadata(family, product.id);
+        ProductFamilyPhotoEntity retainedPhoto = familyPhoto(family, product);
+        entityManager.persist(retainedPhoto);
         entityManager.flush();
 
         productService.delete(product.id);
@@ -73,6 +97,15 @@ class ProductRepositoryReferencePersistenceTest {
         assertEquals(PublicationState.DRAFT, retained.orderAppStatus);
         assertEquals(PublicationState.DRAFT, retained.catalogueStatus);
         assertNotNull(retained.updatedAt);
+        assertNull(retained.cardFeaturedProductId);
+        assertNull(entityManager.find(ProductCollectionEntity.class, collection.id).featuredProductId);
+        assertNull(entityManager.find(CategoryEntity.class, category.id).featuredProductId);
+        ProductFamilyPhotoEntity reloadedPhoto = entityManager.find(
+                ProductFamilyPhotoEntity.class, retainedPhoto.id);
+        assertNotNull(reloadedPhoto, "family image must outlive its deleted SKU");
+        assertNull(reloadedPhoto.variantProduct, "delete must release the nullable image FK");
+        assertEquals(product.canonicalVariantKey, reloadedPhoto.variantExternalId,
+                "legacy import evidence remains available");
 
         assertOnlyFamilyOwnedMetadataRemains("ProductExternalIdentifierEntity", product.id);
         assertOnlyFamilyOwnedMetadataRemains("ProductPriceObservationEntity", product.id);
@@ -91,8 +124,14 @@ class ProductRepositoryReferencePersistenceTest {
         entityManager.flush();
         ProductEntity deleted = product(family, "DELETE-ONE");
         ProductEntity retained = product(family, "KEEP-ONE");
+        deleted.colour = "Red";
+        deleted.colourHex = "#A91F32";
+        retained.colour = "Blue";
+        retained.colourHex = "#6C8FC4";
+        retained.variantPosition = 1;
         entityManager.persist(deleted);
         entityManager.persist(retained);
+        completePublishedFamily(family);
         entityManager.flush();
 
         productService.delete(deleted.id);
@@ -104,6 +143,35 @@ class ProductRepositoryReferencePersistenceTest {
         assertEquals(PublicationState.PUBLISHED, reloaded.orderAppStatus);
         assertEquals(PublicationState.PUBLISHED, reloaded.catalogueStatus);
         assertEquals(1L, products.countActiveByFamily(family.id));
+    }
+
+    @Test
+    @TestTransaction
+    void movingVariantDetachesStablePhotoFkButKeepsLegacyEvidence() {
+        ProductFamilyEntity original = publishedFamily();
+        original.familyKey = "original-family";
+        original.publicHandle = "original-family";
+        ProductFamilyEntity target = publishedFamily();
+        target.familyKey = "target-family";
+        target.publicHandle = "target-family";
+        entityManager.persist(original);
+        entityManager.persist(target);
+        entityManager.flush();
+        ProductEntity product = product(original, "MOVE-ME");
+        entityManager.persist(product);
+        ProductFamilyPhotoEntity photo = familyPhoto(original, product);
+        entityManager.persist(photo);
+        entityManager.flush();
+
+        products.save(products.findById(product.id).orElseThrow().withCanonicalIdentity(
+                target.id, product.canonicalVariantKey, null, 0, true));
+        entityManager.flush();
+        entityManager.clear();
+
+        ProductFamilyPhotoEntity retained = entityManager.find(
+                ProductFamilyPhotoEntity.class, photo.id);
+        assertNull(retained.variantProduct);
+        assertEquals(product.canonicalVariantKey, retained.variantExternalId);
     }
 
     private ProductFamilyEntity publishedFamily() {
@@ -129,6 +197,60 @@ class ProductRepositoryReferencePersistenceTest {
         product.canonicalVariantKey = sku;
         product.piecesPerCarton = 1;
         return product;
+    }
+
+    private void completePublishedFamily(ProductFamilyEntity family) {
+        family.summary = "Published family summary";
+        family.seoTitle = "Published family title";
+        family.seoDescription = "Published family SEO description";
+        CategoryEntity category = new CategoryEntity();
+        category.code = family.familyKey;
+        category.name = "Published category";
+        category.eyebrow = "Published";
+        category.description = "Published category description";
+        entityManager.persist(category);
+        ProductCollectionEntity collection = new ProductCollectionEntity();
+        collection.collectionKey = family.familyKey;
+        collection.name = category.name;
+        collection.eyebrow = category.eyebrow;
+        collection.description = category.description;
+        entityManager.persist(collection);
+        entityManager.flush();
+        family.categoryId = category.id;
+        family.categoryKey = category.code;
+        family.categoryName = category.name;
+        family.collectionKey = collection.collectionKey;
+        ProductFamilyCollectionEntity membership = new ProductFamilyCollectionEntity();
+        membership.family = family;
+        membership.collection = collection;
+        membership.primaryCollection = true;
+        family.collections.add(membership);
+        ProductFamilyPhotoEntity photo = new ProductFamilyPhotoEntity();
+        photo.family = family;
+        photo.sourceKey = "global-delete-family-photo";
+        photo.smallStorageKey = "global-delete-family-small";
+        photo.largeStorageKey = "global-delete-family-large";
+        photo.smallWidthPx = 320;
+        photo.smallHeightPx = 320;
+        photo.largeWidthPx = 960;
+        photo.largeHeightPx = 960;
+        photo.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Published family\"}]";
+        family.photos.add(photo);
+    }
+
+    private ProductFamilyPhotoEntity familyPhoto(
+            ProductFamilyEntity family, ProductEntity variant) {
+        ProductFamilyPhotoEntity photo = new ProductFamilyPhotoEntity();
+        photo.family = family;
+        photo.sourceKey = "photo-" + variant.sku;
+        photo.smallStorageKey = "small-" + variant.sku;
+        photo.largeStorageKey = "large-" + variant.sku;
+        photo.variantProduct = variant;
+        photo.variantExternalId = variant.canonicalVariantKey;
+        photo.variantColor = variant.colour;
+        photo.altTextsJson = "[]";
+        family.photos.add(photo);
+        return photo;
     }
 
     private void persistCanonicalMetadata(ProductFamilyEntity family, long productId) {

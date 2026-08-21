@@ -5,8 +5,15 @@ import java.math.BigDecimal;
 /**
  * Dimensions in centimetres. Used both for the product itself and for the
  * outer carton - two different things that used to blur together.
+ *
+ * The component names are a legacy storage/API contract and must not move:
+ * {@code lengthCm} is displayed as Breedte (B), {@code widthCm} as Diepte (D),
+ * and {@code heightCm} as Hoogte (H).
  */
 public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {
+
+    public static final String AXIS_ORDER_SHORT = "B × D × H";
+    public static final String AXIS_ORDER_LONG = "Breedte × Diepte × Hoogte";
 
     public static Dimensions empty() {
         return new Dimensions(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
@@ -25,10 +32,11 @@ public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal hei
                 .divide(BigDecimal.valueOf(1_000_000), 8, java.math.RoundingMode.HALF_UP);
     }
 
-    /** "15 x 30 x 12 cm", or empty when nothing is filled in. */
+    /** "B × D × H: 15 × 30 × 12 cm", or empty when nothing is filled in. */
     public String label() {
         if (isBlank()) return "";
-        return strip(lengthCm) + " x " + strip(widthCm) + " x " + strip(heightCm) + " cm";
+        return AXIS_ORDER_SHORT + ": " + strip(lengthCm) + " × " + strip(widthCm)
+                + " × " + strip(heightCm) + " cm";
     }
 
     private static int signum(BigDecimal value) {
@@ -36,6 +44,8 @@ public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal hei
     }
 
     private static String strip(BigDecimal value) {
-        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
+        return value == null || value.signum() <= 0
+                ? "—"
+                : value.stripTrailingZeros().toPlainString();
     }
 }

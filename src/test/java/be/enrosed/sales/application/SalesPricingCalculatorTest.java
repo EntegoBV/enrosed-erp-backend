@@ -138,6 +138,27 @@ class SalesPricingCalculatorTest {
         assertEquals("Voorraad nog niet bevestigd", line.deliveryExplanation());
     }
 
+    @Test
+    void pricedLineKeepsPhysicalBdhAndVariantSizeDistinct() {
+        Product product = new Product(
+                1L, "SIZE-XL", "Roos",
+                new Dimensions(decimal("12"), decimal("8"), decimal("25")),
+                "Rood", "Beschrijving", 1L, 1L, true,
+                Barcodes.none(), null, carton("40", "30", "20", 1, "1"),
+                BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                decimal("1"), "test", decimal("45"), null, 1000,
+                List.of(), List.of())
+                .withVariantAttributes("Rood", "XL", "#A91F32");
+        SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.BEREKEND,
+                List.of(new SalesOrderLine(null, product.id(), 1, null, null, null)), List.of());
+
+        PricedOrder.Line line = price(order, Map.of(product.id(), product)).lines().getFirst();
+
+        assertEquals("Roos - B × D × H: 12 × 8 × 25 cm - Rood - XL", line.description());
+        assertEquals(line.description(), line.customerDescription());
+    }
+
     private PricedOrder price(SalesOrder order, Map<Long, Product> products) {
         Country country = new Country("BE", "België", BigDecimal.ZERO,
                 decimal("90"), decimal("250"), decimal("35"), decimal("21"), 1, true);

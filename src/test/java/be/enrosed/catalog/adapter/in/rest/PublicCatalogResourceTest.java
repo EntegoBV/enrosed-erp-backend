@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.application.CategoryService;
+import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
@@ -81,6 +82,21 @@ class PublicCatalogResourceTest {
         assertEquals("public, max-age=31536000, immutable",
                 response.getHeaderString("Cache-Control"));
         assertEquals("nosniff", response.getHeaderString("X-Content-Type-Options"));
+    }
+
+    @Test
+    void authenticatedProductPhotoEndpointNeverAdvertisesPrivateMediaAsPublicCacheable() {
+        ProductService products = mock(ProductService.class);
+        when(products.photo(1L, 9L)).thenReturn(new Photo(
+                9L, "private-photo", "private.webp", "image/webp",
+                2, 1, 1, 0));
+        when(products.photoData("private-photo"))
+                .thenReturn(new ByteArrayInputStream(new byte[] { 1, 2 }));
+
+        Response response = new ProductResource(products, mock(BarcodeValidator.class))
+                .viewPhoto(1L, 9L);
+
+        assertEquals("private, max-age=60", response.getHeaderString("Cache-Control"));
     }
 
     private static Category category() {

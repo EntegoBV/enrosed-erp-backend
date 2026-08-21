@@ -63,6 +63,34 @@ class ProductPublicationTest {
         });
     }
 
+    @Test
+    void descriptionSeparatesPhysicalDimensionsFromTheVariantSizeOption() {
+        Product product = legacyProduct().withVariantAttributes("Rood", "XL", "#A91F32");
+
+        assertEquals("Roos - B × D × H: 1 × 1 × 1 cm - Rood - XL", product.describeIn(
+                be.enrosed.shared.Language.NL));
+    }
+
+    @Test
+    void dimensionLabelKeepsLegacyValuesInBreadthDepthHeightOrder() {
+        Dimensions dimensions = new Dimensions(
+                new BigDecimal("12.5"), new BigDecimal("8"), new BigDecimal("25"));
+
+        assertEquals("B × D × H: 12.5 × 8 × 25 cm", dimensions.label());
+        assertEquals(new BigDecimal("12.5"), dimensions.lengthCm(),
+                "the first legacy field remains the displayed breadth");
+        assertEquals(new BigDecimal("8"), dimensions.widthCm(),
+                "the second legacy field remains the displayed depth");
+    }
+
+    @Test
+    void dimensionLabelDoesNotInventZeroForAMissingAxis() {
+        Dimensions dimensions = new Dimensions(
+                BigDecimal.ZERO, BigDecimal.TEN, new BigDecimal("20"));
+
+        assertEquals("B × D × H: — × 10 × 20 cm", dimensions.label());
+    }
+
     private static Product legacyProduct() {
         return new Product(
                 1L, "ENR-P01", "Roos", new Dimensions(one(), one(), one()),

@@ -8,9 +8,11 @@ import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.Language;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -89,9 +91,75 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void duplicateCanCreateASizeVariantWithoutChangingColourOrSwatch() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Rood", "Small", "#AA1122")
+                .withCanonicalIdentity(42L, "source-key", null, 3, true)
+                .withTexts(List.of(new ProductText(
+                        Language.EN, "Rose", "Description", "Red")));
+        repository.add(source);
+
+        Product duplicate = service.duplicate(1L, null, null, "Large");
+
+        assertEquals(42L, duplicate.familyId());
+        assertEquals("Rood", duplicate.colour());
+        assertEquals("Large", duplicate.variantSize());
+        assertEquals("#AA1122", duplicate.colourHex());
+        assertEquals("Red", duplicate.textIn(Language.EN).colour());
+        assertNull(duplicate.canonicalVariantKey());
+    }
+
+    @Test
+    void duplicateColourRemainsBackwardCompatibleAndDropsTheOldSwatch() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Rood", "Medium", "#AA1122")
+                .withTexts(List.of(new ProductText(
+                        Language.EN, "Rose", "Description", "Red")));
+        repository.add(source);
+
+        Product duplicate = service.duplicate(1L, "Roze");
+
+        assertEquals("Roze", duplicate.colour());
+        assertEquals("Medium", duplicate.variantSize());
+        assertNull(duplicate.colourHex());
+        assertNull(duplicate.textIn(Language.EN).colour());
+    }
+
+    @Test
+    void duplicateBlankValuesExplicitlyClearColourSwatchAndSize() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Rood", "XL", "#AA1122");
+        repository.add(source);
+
+        Product duplicate = service.duplicate(1L, "", "", " ");
+
+        assertNull(duplicate.colour());
+        assertNull(duplicate.colourHex());
+        assertNull(duplicate.variantSize());
+    }
+
+    @Test
+    void duplicateRequiresARealVariantDifferenceAndValidHex() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Rood", "Medium", "#AA1122");
+        repository.add(source);
+
+        assertThrows(BusinessRuleException.class,
+                () -> service.duplicate(1L, null, null, null));
+        BusinessRuleException invalidHex = assertThrows(BusinessRuleException.class,
+                () -> service.duplicate(1L, null, "#aa1122", null));
+        assertTrue(invalidHex.getMessage().contains("#RRGGBB"), invalidHex.getMessage());
+    }
+
+    @Test
     void updateFromOlderClientDoesNotSilentlyUnpublishOrClearPublicIdentity() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
-                PublicationState.PUBLISHED, PublicationState.READY, true);
+                PublicationState.PUBLISHED, PublicationState.READY, true)
+                .withVariantAttributes("Rood", "XL", "#A91F32");
         repository.add(current);
 
         Product requestWithoutNewFields = current.withPublicationMetadata(null, null, null, null);
@@ -106,9 +174,29 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void productPutPreservesNullVariantFieldsAndUsesBlankAsExplicitClear() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Rood", "XL", "#A91F32");
+        repository.add(current);
+
+        Product preserved = service.update(
+                1L, current.withVariantAttributes("Rood", null, null));
+        assertEquals("XL", preserved.variantSize());
+        assertEquals("#A91F32", preserved.colourHex());
+
+        Product updated = service.update(
+                1L, current.withVariantAttributes("Rood", " ", ""));
+
+        assertNull(updated.variantSize());
+        assertNull(updated.colourHex());
+    }
+
+    @Test
     void masterDataCsvRoundTripsPublicIdentityAndChannelStates() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
-                PublicationState.PUBLISHED, PublicationState.READY, true);
+                PublicationState.PUBLISHED, PublicationState.READY, true)
+                .withVariantAttributes("Rood", "XL", "#A91F32");
         repository.add(current);
         ProductCsv csv = new ProductCsv(
                 repository, new ProductValidator(new BarcodeValidator()));
@@ -116,14 +204,16 @@ class ProductServicePublicationTest {
         byte[] exported = csv.export();
         String text = new String(exported, StandardCharsets.UTF_8);
         assertTrue(text.lines().findFirst().orElseThrow().endsWith(
-                "family_key;public_handle;website_status;order_app_status"), text);
-        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY"), text);
+                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex"), text);
+        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32"), text);
 
         ProductCsv.ImportResult result = csv.importFrom(new ByteArrayInputStream(exported));
         assertEquals(1, result.updatedProducts());
         assertTrue(result.problems().isEmpty(), result.problems().toString());
         assertEquals(PublicationState.PUBLISHED,
                 repository.findById(1L).orElseThrow().publicationState(CatalogChannel.WEBSITE));
+        assertEquals("XL", repository.findById(1L).orElseThrow().variantSize());
+        assertEquals("#A91F32", repository.findById(1L).orElseThrow().colourHex());
     }
 
     @Test

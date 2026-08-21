@@ -1,11 +1,13 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
 import be.enrosed.catalog.application.port.out.ProductRepository;
+import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.domain.Product;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -55,6 +57,8 @@ public class PanacheProductRepository implements ProductRepository {
 
         if (entity.id == null) dao.persist(entity);
         dao.flush();
+        clearInvalidFeaturedReferences(entity);
+        entityManager.flush();
         return CatalogMapper.toDomain(entity);
     }
 
@@ -72,8 +76,92 @@ public class PanacheProductRepository implements ProductRepository {
 
     @Override
     public void deleteById(long id) {
+        clearFeaturedReferences(id);
+        /* Family images are merchandising content and outlive an individual SKU. */
+        List<ProductFamilyPhotoEntity> linkedImages = entityManager.createQuery(
+                        "from ProductFamilyPhotoEntity image where image.variantProduct.id = :productId",
+                        ProductFamilyPhotoEntity.class)
+                .setParameter("productId", id)
+                .getResultList();
+        linkedImages.forEach(image -> image.variantProduct = null);
+        entityManager.flush();
         deleteProductOwnedMetadata(id);
         dao.deleteById(id);
+    }
+
+    private void clearFeaturedReferences(long productId) {
+        entityManager.createQuery(
+                        "from ProductFamilyEntity item where item.cardFeaturedProductId = :productId",
+                        ProductFamilyEntity.class)
+                .setParameter("productId", productId).getResultList()
+                .forEach(item -> item.cardFeaturedProductId = null);
+        entityManager.createQuery(
+                        "from ProductCollectionEntity item where item.featuredProductId = :productId",
+                        ProductCollectionEntity.class)
+                .setParameter("productId", productId).getResultList()
+                .forEach(item -> item.featuredProductId = null);
+        entityManager.createQuery(
+                        "from CategoryEntity item where item.featuredProductId = :productId",
+                        CategoryEntity.class)
+                .setParameter("productId", productId).getResultList()
+                .forEach(item -> item.featuredProductId = null);
+    }
+
+    /** Product edits may inactivate or move a selected member; stale cards must not survive. */
+    private void clearInvalidFeaturedReferences(ProductEntity product) {
+        if (product.id == null) return;
+        entityManager.createQuery(
+                        "from ProductFamilyPhotoEntity image where image.variantProduct.id = :productId",
+                        ProductFamilyPhotoEntity.class)
+                .setParameter("productId", product.id).getResultList().stream()
+                .filter(image -> image.family == null
+                        || !Objects.equals(image.family.id, product.familyId))
+                .forEach(image -> image.variantProduct = null);
+        entityManager.createQuery(
+                        "from ProductFamilyEntity item where item.cardFeaturedProductId = :productId",
+                        ProductFamilyEntity.class)
+                .setParameter("productId", product.id).getResultList().stream()
+                .filter(family -> !product.active || !Objects.equals(family.id, product.familyId))
+                .forEach(family -> family.cardFeaturedProductId = null);
+
+        entityManager.createQuery(
+                        "from ProductCollectionEntity item where item.featuredProductId = :productId",
+                        ProductCollectionEntity.class)
+                .setParameter("productId", product.id).getResultList().stream()
+                .filter(collection -> !isCollectionMember(product, collection.id))
+                .forEach(collection -> collection.featuredProductId = null);
+
+        ProductFamilyEntity family = product.familyId == null
+                ? null : entityManager.find(ProductFamilyEntity.class, product.familyId);
+        entityManager.createQuery(
+                        "from CategoryEntity item where item.featuredProductId = :productId",
+                        CategoryEntity.class)
+                .setParameter("productId", product.id).getResultList().stream()
+                .filter(category -> !isCategoryMember(product, family, category))
+                .forEach(category -> category.featuredProductId = null);
+    }
+
+    private boolean isCollectionMember(ProductEntity product, Long collectionId) {
+        if (!product.active || product.familyId == null || collectionId == null) return false;
+        return entityManager.createQuery(
+                        "select count(item) from ProductFamilyCollectionEntity item "
+                                + "where item.family.id = :familyId and item.collection.id = :collectionId",
+                        Long.class)
+                .setParameter("familyId", product.familyId)
+                .setParameter("collectionId", collectionId)
+                .getSingleResult() > 0;
+    }
+
+    private static boolean isCategoryMember(
+            ProductEntity product, ProductFamilyEntity family, CategoryEntity category) {
+        if (!product.active) return false;
+        if (family == null) return Objects.equals(product.categoryId, category.id);
+        if (!family.active) return false;
+        if (Objects.equals(family.categoryId, category.id)) {
+            return true;
+        }
+        return category.code != null && !category.code.isBlank()
+                && Objects.equals(family.categoryKey, CategoryPublicKey.from(category.code));
     }
 
     private void deleteProductOwnedMetadata(long productId) {

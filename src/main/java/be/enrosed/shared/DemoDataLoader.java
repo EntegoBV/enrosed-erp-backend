@@ -108,7 +108,8 @@ public class DemoDataLoader {
         /* ---- products ---------------------------------------------------
            Dimensions come from the product names on the container overview.
            Those carry two ("11*11cm"), so the third is an assumption: for
-           round and square articles length is taken equal to width.
+           round and square articles breadth (first legacy field) is taken
+           equal to depth (second legacy field).
            Measure before the real catalogue. ----------------------------- */
         Product p01 = product("Acryl box", dim("11", "11", "11"), "Rood", acrylic.id(), yiwu.id(),
                 "5401234001002", "5401234011001", "3926.40.00",
@@ -206,8 +207,8 @@ public class DemoDataLoader {
 
     /* ------------------------------------------------------------ helpers */
 
-    private Dimensions dim(String length, String width, String height) {
-        return new Dimensions(new BigDecimal(length), new BigDecimal(width), new BigDecimal(height));
+    private Dimensions dim(String breadth, String depth, String height) {
+        return new Dimensions(new BigDecimal(breadth), new BigDecimal(depth), new BigDecimal(height));
     }
 
     /**

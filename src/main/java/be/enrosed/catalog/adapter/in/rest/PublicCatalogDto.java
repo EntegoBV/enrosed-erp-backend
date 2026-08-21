@@ -44,10 +44,14 @@ public record PublicCatalogDto(
             List<PhotoDto> photos
     ) {}
 
-    public record CategoryDto(Long id, String code, String name, String description) {}
+    public record CategoryDto(
+            Long id, String code, String name, String description,
+            String mobileName, Long featuredProductId) {}
 
+    /** Legacy wire names; lengthCm=B, widthCm=D, heightCm=H. */
     public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {}
 
+    /** Legacy wire names; lengthCm=B, widthCm=D, heightCm=H. */
     public record CartonDto(
             BigDecimal lengthCm,
             BigDecimal widthCm,
@@ -70,7 +74,8 @@ public record PublicCatalogDto(
         Carton carton = product.carton() == null ? Carton.empty() : product.carton();
         Dimensions box = carton.dimensions() == null ? Dimensions.empty() : carton.dimensions();
         CategoryDto publicCategory = category == null ? null
-                : new CategoryDto(category.id(), category.code(), category.name(), category.description());
+                : new CategoryDto(category.id(), category.code(), category.name(),
+                        category.description(), category.mobileName(), category.featuredProductId());
         String base = apiBaseUrl.endsWith("/") ? apiBaseUrl : apiBaseUrl + "/";
 
         List<PhotoDto> photos = product.photos().stream()

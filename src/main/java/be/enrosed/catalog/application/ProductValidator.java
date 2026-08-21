@@ -55,13 +55,16 @@ public class ProductValidator {
             throw new BusinessRuleException(
                     "Publieke handle mag alleen kleine letters, cijfers en koppeltekens bevatten");
         }
+        if (product.colourHex() != null && !product.colourHex().matches("#[0-9A-F]{6}")) {
+            throw new BusinessRuleException("Kleurcode moet exact #RRGGBB zijn");
+        }
     }
 
     private static void validateDimensions(Dimensions dimensions, String label) {
         if (dimensions == null) return;
-        nonNegative(dimensions.lengthCm(), label + " lengte");
-        nonNegative(dimensions.widthCm(), label + " breedte");
-        nonNegative(dimensions.heightCm(), label + " hoogte");
+        nonNegative(dimensions.lengthCm(), label + " breedte (B)");
+        nonNegative(dimensions.widthCm(), label + " diepte (D)");
+        nonNegative(dimensions.heightCm(), label + " hoogte (H)");
     }
 
     private static void nonNegative(BigDecimal value, String label) {

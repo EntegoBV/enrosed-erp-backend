@@ -6,22 +6,28 @@ import jakarta.persistence.EntityManager;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 
 /** Keeps existing ProductDto/sales/purchasing photo consumers backed by the canonical family gallery. */
 @ApplicationScoped
 public class FamilyPhotoCompatibilityService {
     private final CatalogDaos.Products products;
     private final EntityManager entityManager;
+    private final FamilyPhotoVariantResolver variantResolver;
 
-    public FamilyPhotoCompatibilityService(CatalogDaos.Products products, EntityManager entityManager) {
+    public FamilyPhotoCompatibilityService(
+            CatalogDaos.Products products,
+            EntityManager entityManager,
+            FamilyPhotoVariantResolver variantResolver) {
         this.products = products;
         this.entityManager = entityManager;
+        this.variantResolver = variantResolver;
     }
 
     public void sync(ProductFamilyEntity family) {
         if (family == null || family.id == null) return;
-        for (ProductEntity product : products.list("familyId", family.id)) {
+        List<ProductEntity> members = products.list("familyId", family.id);
+        variantResolver.backfill(family, members);
+        for (ProductEntity product : members) {
             List<ProductPhotoEntity> inherited = product.photos.stream()
                     .filter(photo -> photo.familyPhotoId != null).toList();
             inherited.forEach(photo -> {
@@ -31,8 +37,10 @@ public class FamilyPhotoCompatibilityService {
 
             int nextPosition = product.photos.stream().mapToInt(photo -> photo.position).max().orElse(-1) + 1;
             List<ProductFamilyPhotoEntity> ordered = family.photos.stream()
+                    .filter(image -> variantResolver.rank(image, product, members) < 2)
                     .sorted(Comparator
-                            .comparingInt((ProductFamilyPhotoEntity image) -> rank(image, product))
+                            .comparingInt((ProductFamilyPhotoEntity image) ->
+                                    variantResolver.rank(image, product, members))
                             .thenComparingInt(image -> image.position))
                     .toList();
             for (ProductFamilyPhotoEntity source : ordered) {
@@ -53,9 +61,16 @@ public class FamilyPhotoCompatibilityService {
         entityManager.flush();
     }
 
-    private static int rank(ProductFamilyPhotoEntity image, ProductEntity product) {
-        if (Objects.equals(image.variantExternalId, product.canonicalVariantKey)) return 0;
-        if (image.variantExternalId == null) return 1;
-        return 2;
+    /** Removes inherited family projections when a product is explicitly unlinked from a family. */
+    public void clearInherited(long productId) {
+        ProductEntity product = products.findById(productId);
+        if (product == null) return;
+        List<ProductPhotoEntity> inherited = product.photos.stream()
+                .filter(photo -> photo.familyPhotoId != null).toList();
+        inherited.forEach(photo -> {
+            product.photos.remove(photo);
+            entityManager.remove(photo);
+        });
+        entityManager.flush();
     }
 }

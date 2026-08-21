@@ -78,6 +78,35 @@ const categoryByHandle = new Map(catalogModule.catalogCategories.map((category, 
   category.handle,
   { key: category.handle, name: category.title, eyebrow: category.eyebrow, description: category.description, position },
 ]));
+// Audited presentation choices from the retired website. These values are ETL input,
+// not a runtime colour-name resolver; the generated manifest remains the source of truth.
+const websiteSwatchHex = new Map(Object.entries({
+  Red: '#A91F32', Pink: '#D889A2', Blue: '#6C8FC4', White: '#EEE8DD',
+  Navy: '#243253', 'Cherry Pink': '#D9577E', 'Light Blue': '#9CC5DE',
+}));
+const familyCardFeaturedVariant = new Map(Object.entries({
+  'rose-diamonds-within-display': 'shopify-46685588127913',
+  'preserved-single-rose-in-display': 'shopify-46736420765865',
+  'preserved-bowl-rose': 'shopify-46736421683369',
+  'bowl-rose-xl': 'shopify-46736106717353',
+  'cobalt-blue-roos-in-glazen-stolp': 'shopify-44784500277417',
+  'one-rose-in-box': 'shopify-44784495526057',
+  'roses-in-box-16pcs': 'shopify-44784490873001',
+  'roses-in-box-9pcs': 'shopify-44784491397289',
+  'rose-in-dome-xl': 'shopify-44887957340329',
+  'soap-rose-box-led': 'shopify-46685592944809',
+}));
+const collectionPresentation = new Map(Object.entries({
+  'display-roses': {
+    mobileName: 'Signature displays', featuredCanonicalVariantKey: 'shopify-46685588095145',
+  },
+  divers: {
+    mobileName: 'Domes & boxes', featuredCanonicalVariantKey: 'shopify-44784500277417',
+  },
+  'rose-bears': {
+    mobileName: 'Soap & foam', featuredCanonicalVariantKey: 'shopify-44784482320553',
+  },
+}));
 const odooByName = new Map(sourceInventory.sources.odooWorkbook.rows.map((row) => [row.name, row]));
 const pdfByNumber = new Map(sourceInventory.sources.pdf.rows.map((row) => [row.productNo, row]));
 const crossSourceByHandle = new Map(sourceInventory.crossSource.matches.map((match) => [match.websiteHandle, match]));
@@ -332,6 +361,8 @@ const makeOdooVariant = (familyKey, row, position, color = null, name = row.name
     sourceSku: null,
     name,
     color,
+    size: null,
+    colourHex: null,
     position,
     active: true,
     inventoryKnown: true,
@@ -372,6 +403,8 @@ const buildWebsiteFamily = async (product, productPosition) => {
       sourceSku: null,
       name: color ?? raw.title,
       color,
+      size: null,
+      colourHex: color == null ? null : (websiteSwatchHex.get(color) ?? null),
       position,
       active: true,
       inventoryKnown: false,
@@ -589,8 +622,15 @@ const buildWebsiteFamily = async (product, productPosition) => {
     canonicalFamilyKey: product.handle,
     publicHandle: product.handle,
     active: true,
+    cardFeaturedCanonicalVariantKey: familyCardFeaturedVariant.get(product.handle) ?? null,
     category,
-    collections: [{ ...category, primary: true }],
+    collections: [{
+      ...category,
+      primary: true,
+      mobileName: collectionPresentation.get(category.key)?.mobileName ?? null,
+      featuredCanonicalVariantKey:
+        collectionPresentation.get(category.key)?.featuredCanonicalVariantKey ?? null,
+    }],
     productPosition,
     tags: shopify.tags ?? [],
     requestedPublication: { websiteStatus: 'PUBLISHED', orderAppStatus: 'DRAFT', catalogueStatus: 'DRAFT' },
@@ -696,6 +736,7 @@ const buildOdooFamily = (definition, { review = false, startPosition }) => {
     canonicalFamilyKey: definition.canonicalFamilyKey,
     publicHandle: null,
     active: true,
+    cardFeaturedCanonicalVariantKey: null,
     category: null,
     collections: [],
     productPosition: startPosition,
@@ -835,7 +876,7 @@ for (const family of payloadFamilies) {
     delete image.large.bytesBase64;
   }
 }
-const transformVersion = '2026-08-20.3';
+const transformVersion = '2026-08-20.5';
 const sourceDigest = sha256(Buffer.from(sources.map((source) => `${source.sourceType}:${source.sha256}`).join('\n')));
 const payloadSha256 = sha256(Buffer.from(JSON.stringify({
   schemaVersion: '1.0',

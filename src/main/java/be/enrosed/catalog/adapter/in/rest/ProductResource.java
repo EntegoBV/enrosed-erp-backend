@@ -51,18 +51,36 @@ public class ProductResource {
     @PUT
     @Path("/{id}")
     public ProductDto update(@PathParam("id") long id, ProductDto dto) {
-        return ProductDto.from(products.update(id, dto.toDomain(id)));
+        var current = products.get(id);
+        var changes = dto.toDomainForUpdate(current);
+        return ProductDto.from(products.update(id, changes));
     }
+
+    /** Explicit family assignment; a null id intentionally unlinks the SKU. */
+    @PUT
+    @Path("/{id}/family")
+    public ProductDto assignFamily(
+            @PathParam("id") long id, FamilyAssignmentRequest request) {
+        if (request == null) throw new BadRequestException("Geen familie-opdracht meegestuurd");
+        return ProductDto.from(products.assignFamily(id, request.familyId()));
+    }
+
+    public record FamilyAssignmentRequest(Long familyId) {}
 
     /** Copies a product, usually to make the same style in another colour. */
     @POST
     @Path("/{id}/duplicate")
     public Response duplicate(@PathParam("id") long id, DuplicateRequest request) {
-        var copy = products.duplicate(id, request == null ? null : request.colour());
+        var copy = products.duplicate(
+                id,
+                request == null ? null : request.colour(),
+                request == null ? null : request.colourHex(),
+                request == null ? null : request.variantSize());
         return Response.status(Response.Status.CREATED).entity(ProductDto.from(copy)).build();
     }
 
-    public record DuplicateRequest(String colour) {}
+    /** Additive request: older clients that only send colour remain compatible. */
+    public record DuplicateRequest(String colour, String colourHex, String variantSize) {}
 
     @DELETE
     @Path("/{id}")
@@ -104,9 +122,9 @@ public class ProductResource {
     public Response viewPhoto(@PathParam("id") long id, @PathParam("photoId") long photoId) {
         Photo photo = products.photo(id, photoId);
         return PhotoResponses.inline(
-                        products.photoData(photo.storageKey()),
+                products.photoData(photo.storageKey()),
                         photo.contentType(), photo.originalFilename())
-                .header("Cache-Control", "public, max-age=31536000, immutable")
+                .header("Cache-Control", "private, max-age=60")
                 .build();
     }
 

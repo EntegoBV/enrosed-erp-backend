@@ -66,6 +66,7 @@ public record CanonicalCatalogManifest(
             String canonicalFamilyKey,
             String publicHandle,
             Boolean active,
+            String cardFeaturedCanonicalVariantKey,
             CategoryManifest category,
             List<CollectionManifest> collections,
             Integer productPosition,
@@ -100,6 +101,8 @@ public record CanonicalCatalogManifest(
             String sourceSku,
             String name,
             String color,
+            String size,
+            String colourHex,
             Integer position,
             Boolean active,
             Boolean inventoryKnown,
@@ -124,7 +127,9 @@ public record CanonicalCatalogManifest(
             String eyebrow,
             String description,
             Integer position,
-            Boolean primary
+            Boolean primary,
+            String mobileName,
+            String featuredCanonicalVariantKey
     ) {}
 
     /** Values remain ordered because many source documents do not confirm axis meaning. */

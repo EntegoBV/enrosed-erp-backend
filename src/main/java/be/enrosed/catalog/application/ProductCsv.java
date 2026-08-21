@@ -11,7 +11,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Csv;
 import be.enrosed.shared.Currency;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.transaction.Transactional;
+import jakarta.inject.Inject;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -41,6 +41,8 @@ import java.util.Locale;
  *
  * Stock is deliberately absent: it belongs to purchasing, where receiving a
  * container books it. Translations have their own file per language.
+ * The legacy headers lengte_cm/breedte_cm/hoogte_cm remain a stable import
+ * contract; their display meaning is B/D/H in that unchanged order.
  */
 @ApplicationScoped
 public class ProductCsv {
@@ -52,14 +54,24 @@ public class ProductCsv {
             "stuks_per_doos", "doos_gewicht_kg",
             "barcode_inner", "barcode_outer",
             "exw_prijs", "exw_munt", "opslag_pct", "vaste_verkoopprijs_eur", "actief",
-            "family_key", "public_handle", "website_status", "order_app_status");
+            "family_key", "public_handle", "website_status", "order_app_status",
+            "variant_size", "colour_hex");
 
     private final ProductRepository products;
     private final ProductValidator validator;
+    private final ProductService productService;
 
     public ProductCsv(ProductRepository products, ProductValidator validator) {
+        this(products, validator, null);
+    }
+
+    @Inject
+    public ProductCsv(
+            ProductRepository products, ProductValidator validator,
+            ProductService productService) {
         this.products = products;
         this.validator = validator;
+        this.productService = productService;
     }
 
     public record ImportResult(int updatedProducts, List<String> problems) {}
@@ -102,14 +114,14 @@ public class ProductCsv {
                     product.active() ? "ja" : "nee",
                     blank(product.familyKey()), blank(product.publicHandle()),
                     product.publicationState(CatalogChannel.WEBSITE).name(),
-                    product.publicationState(CatalogChannel.ORDER_APP).name()));
+                    product.publicationState(CatalogChannel.ORDER_APP).name(),
+                    blank(product.variantSize()), blank(product.colourHex())));
         }
         return rows;
     }
 
     /* ------------------------------------------------------------- import */
 
-    @Transactional
     public ImportResult importFrom(InputStream input) {
         List<List<String>> rows = new ArrayList<>();
 
@@ -134,7 +146,6 @@ public class ProductCsv {
     }
 
     /** Imports canonical column rows; list index zero corresponds to spreadsheet row 2. */
-    @Transactional
     public ImportResult importRows(List<List<String>> rows) {
         List<String> problems = new ArrayList<>();
         int updated = 0;
@@ -161,7 +172,8 @@ public class ProductCsv {
                 Product merged = merge(current, cells);
                 validator.validate(merged);
                 validatePublicationFields(merged, current.id());
-                products.save(merged);
+                if (productService == null) products.save(merged);
+                else productService.update(current.id(), merged);
                 updated++;
             } catch (IllegalArgumentException | BusinessRuleException e) {
                 problems.add("Regel " + lineNumber + " (" + sku + "): " + e.getMessage());
@@ -186,6 +198,8 @@ public class ProductCsv {
                         decimal(cells, 6, size.widthCm()),
                         decimal(cells, 7, size.heightCm())),
                 text(cells, 3, current.colour()),
+                text(cells, 24, current.variantSize()),
+                text(cells, 25, current.colourHex()),
                 text(cells, 2, current.description()),
                 current.categoryId(), current.supplierId(),
                 bool(cells, 19, current.active()),

@@ -4,7 +4,8 @@ import jakarta.persistence.*;
 
 @Entity
 @Table(name = "product_family_photo",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"family_id", "sourceKey"}))
+        uniqueConstraints = @UniqueConstraint(columnNames = {"family_id", "sourceKey"}),
+        indexes = @Index(name = "idx_family_photo_variant_product", columnList = "variant_product_id"))
 public class ProductFamilyPhotoEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     public Long id;
@@ -31,6 +32,11 @@ public class ProductFamilyPhotoEntity {
     public Integer largeWidthPx;
     public Integer largeHeightPx;
     public int position;
+    /** Canonical variant link. Legacy text fields below remain fallback/import evidence only. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "variant_product_id",
+            foreignKey = @ForeignKey(name = "fk_family_photo_variant_product"))
+    public ProductEntity variantProduct;
     public String variantExternalId;
     public String variantColor;
     public String altTextSource;

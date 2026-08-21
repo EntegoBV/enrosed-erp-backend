@@ -4,7 +4,8 @@ import jakarta.persistence.*;
 
 /**
  * A source-accurate dimension observation. Values stay ordered and JSON encoded
- * because the PDF does not always prove which axis is length, width or height.
+ * because a source does not always prove its axes. Where axes are confirmed,
+ * the display convention is Breedte × Diepte × Hoogte (B × D × H).
  */
 @Entity
 @Table(name = "product_dimension_observation",

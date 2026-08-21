@@ -13,4 +13,7 @@ public class ProductCollectionEntity {
     public String eyebrow;
     @Column(length = 4000) public String description;
     public int position;
+    public String mobileName;
+    /** Runtime FK identity; portable manifests use featuredCanonicalVariantKey. */
+    public Long featuredProductId;
 }

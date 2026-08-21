@@ -34,6 +34,8 @@ final class CatalogMapper {
                 entity.name,
                 new Dimensions(entity.productLengthCm, entity.productWidthCm, entity.productHeightCm),
                 entity.colour,
+                entity.variantSize,
+                entity.colourHex,
                 entity.description,
                 entity.categoryId,
                 entity.supplierId,
@@ -73,6 +75,8 @@ final class CatalogMapper {
         entity.productHeightCm = size.heightCm();
 
         entity.colour = product.colour();
+        entity.variantSize = blankToNull(product.variantSize());
+        entity.colourHex = blankToNull(product.colourHex());
         entity.description = blankToNull(product.description());
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();
@@ -174,14 +178,18 @@ final class CatalogMapper {
     }
 
     static Category toDomain(CategoryEntity entity) {
-        return new Category(entity.id, entity.code, entity.name, entity.description, entity.position);
+        return new Category(entity.id, entity.code, entity.name, entity.description,
+                entity.eyebrow, entity.position, entity.mobileName, entity.featuredProductId);
     }
 
     static void apply(Category category, CategoryEntity entity) {
         entity.code = category.code();
         entity.name = category.name();
         entity.description = category.description();
+        entity.eyebrow = blankToNull(category.eyebrow());
         entity.position = category.position();
+        entity.mobileName = blankToNull(category.mobileName());
+        entity.featuredProductId = category.featuredProductId();
     }
 
     static HsCode toDomain(HsCodeEntity entity) {

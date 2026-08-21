@@ -20,13 +20,16 @@ public class ProductEntity {
     public String sku;
     public String name;
 
-    /* Dimensions of the product itself. */
+    /* Legacy storage names: length=B, width=D, height=H in all displays. */
     public BigDecimal productLengthCm;
     public BigDecimal productWidthCm;
     public BigDecimal productHeightCm;
 
-    /* A key, like colour. */
+    /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;
+    public String variantSize;
+    @Column(length = 7)
+    public String colourHex;
 
     /** Sales copy for the quote and the catalogue. */
     @Column(length = 2000)
@@ -73,7 +76,7 @@ public class ProductEntity {
     public String barcodeOuter;
     public String hsCode;
 
-    /* Dimensions of the outer carton. */
+    /* Legacy storage names: length=B, width=D, height=H in all displays. */
     public BigDecimal cartonLengthCm;
     public BigDecimal cartonWidthCm;
     public BigDecimal cartonHeightCm;

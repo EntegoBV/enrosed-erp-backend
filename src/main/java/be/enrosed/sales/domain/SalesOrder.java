@@ -124,7 +124,7 @@ public record SalesOrder(
         return loadMode;
     }
 
-    /** Existing palletised orders used the 120 x 80 cm footprint. */
+    /** Existing palletised orders used the B × D: 120 × 80 cm footprint. */
     public PalletProfile palletProfile() {
         return palletProfile == null ? PalletProfile.EURO_120X80 : palletProfile;
     }

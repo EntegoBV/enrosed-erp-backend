@@ -2,6 +2,14 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.FamilyPhotoCompatibilityService;
+import be.enrosed.catalog.application.FamilyImageVariantService;
+import be.enrosed.catalog.application.FamilyVariantRules;
+import be.enrosed.catalog.application.ProductFamilyWriteGuard;
+import be.enrosed.catalog.application.CategoryPublicKey;
+import be.enrosed.catalog.application.PublishedFamilyGalleryGuard;
+import be.enrosed.catalog.application.FamilyMemberCacheService;
+import be.enrosed.catalog.application.FamilyCollectionAlignmentService;
+import be.enrosed.catalog.application.FeaturedProductSelectionService;
 import be.enrosed.catalog.application.PhotoReferenceService;
 import be.enrosed.catalog.application.PhotoUploadPolicy;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
@@ -35,7 +43,6 @@ import java.util.*;
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class ProductFamilyResource {
     private final CanonicalCatalogDaos.Families families;
-    private final CanonicalCatalogDaos.Collections collections;
     private final CanonicalCatalogDaos.ExternalIdentifiers identifiers;
     private final CanonicalCatalogDaos.PriceObservations prices;
     private final CanonicalCatalogDaos.Provenance provenance;
@@ -45,11 +52,16 @@ public class ProductFamilyResource {
     private final PhotoStorage photoStorage;
     private final PhotoReferenceService photoReferences;
     private final FamilyPhotoCompatibilityService familyPhotoCompatibility;
+    private final FamilyImageVariantService familyImageVariants;
+    private final PublishedFamilyGalleryGuard galleryGuard;
+    private final FamilyMemberCacheService memberCache;
+    private final FamilyCollectionAlignmentService familyCollections;
+    private final FeaturedProductSelectionService featuredProducts;
+    private final ProductFamilyWriteGuard familyWrites;
     private final ObjectMapper json;
 
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
-            CanonicalCatalogDaos.Collections collections,
             CanonicalCatalogDaos.ExternalIdentifiers identifiers,
             CanonicalCatalogDaos.PriceObservations prices,
             CanonicalCatalogDaos.Provenance provenance,
@@ -59,9 +71,14 @@ public class ProductFamilyResource {
             PhotoStorage photoStorage,
             PhotoReferenceService photoReferences,
             FamilyPhotoCompatibilityService familyPhotoCompatibility,
+            FamilyImageVariantService familyImageVariants,
+            PublishedFamilyGalleryGuard galleryGuard,
+            FamilyMemberCacheService memberCache,
+            FamilyCollectionAlignmentService familyCollections,
+            FeaturedProductSelectionService featuredProducts,
+            ProductFamilyWriteGuard familyWrites,
             ObjectMapper json) {
         this.families = families;
-        this.collections = collections;
         this.identifiers = identifiers;
         this.prices = prices;
         this.provenance = provenance;
@@ -71,6 +88,12 @@ public class ProductFamilyResource {
         this.photoStorage = photoStorage;
         this.photoReferences = photoReferences;
         this.familyPhotoCompatibility = familyPhotoCompatibility;
+        this.familyImageVariants = familyImageVariants;
+        this.galleryGuard = galleryGuard;
+        this.memberCache = memberCache;
+        this.familyCollections = familyCollections;
+        this.featuredProducts = featuredProducts;
+        this.familyWrites = familyWrites;
         this.json = json;
     }
 
@@ -92,7 +115,9 @@ public class ProductFamilyResource {
         family.createdAt = Instant.now();
         applyEditable(family, request);
         requireUnique(family, null);
-        ensureRequestedPublicationIsValid(family, 0);
+        requireUniqueFamilyPosition(family, null);
+        validateCardFeature(family);
+        ensureRequestedPublicationIsValid(family, List.of());
         families.persist(family);
         families.flush();
         return Response.status(Response.Status.CREATED).entity(dto(family)).build();
@@ -100,14 +125,18 @@ public class ProductFamilyResource {
 
     @PUT @Path("/{id}") @Transactional
     public ProductFamilyDto update(@PathParam("id") long id, ProductFamilyDto request) {
+        lockFamily(id);
         ProductFamilyEntity family = family(id);
         applyEditable(family, request);
         requireUnique(family, id);
-        long variants = products.count("familyId = ?1 and active = true", id);
-        ensureRequestedPublicationIsValid(family, variants);
-        products.update("familyKey = ?1, categoryId = ?2, name = ?3, description = ?4 "
-                        + "where familyId = ?5",
-                family.familyKey, family.categoryId, family.name, family.description, id);
+        requireUniqueFamilyPosition(family, id);
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", id);
+        memberCache.sync(family);
+        families.flush();
+        featuredProducts.clearInvalidReferencesForFamily(family);
+        validateCardFeature(family);
+        ensureRequestedPublicationIsValid(family, members);
         families.flush();
         return dto(family);
     }
@@ -116,10 +145,14 @@ public class ProductFamilyResource {
     public ProductFamilyDto uploadImage(
             @PathParam("id") long id,
             @RestForm("file") FileUpload file,
+            @RestForm("variantProductId") Long variantProductId,
             @RestForm("variantExternalId") String variantExternalId,
             @RestForm("variantColor") String variantColor) throws IOException {
         if (file == null) throw new BadRequestException("Geen fotobestand meegestuurd");
+        lockFamily(id);
         ProductFamilyEntity family = family(id);
+        ProductEntity variant = variantProductId == null
+                ? null : familyImageVariants.requireMember(family, variantProductId);
         PhotoUploadPolicy.ValidatedPhoto upload;
         try (InputStream input = Files.newInputStream(file.uploadedFile())) {
             upload = PhotoUploadPolicy.validate(file.fileName(), input);
@@ -150,8 +183,12 @@ public class ProductFamilyResource {
         photo.largeWidthPx = stored.widthPx();
         photo.largeHeightPx = stored.heightPx();
         photo.position = family.photos.size();
-        photo.variantExternalId = optional(variantExternalId);
-        photo.variantColor = optional(variantColor);
+        if (variant == null) {
+            photo.variantExternalId = optional(variantExternalId);
+            photo.variantColor = optional(variantColor);
+        } else {
+            familyImageVariants.assign(photo, variant);
+        }
         photo.altTextSource = "ADMIN";
         photo.altTextsJson = "[]";
         family.photos.add(photo);
@@ -160,8 +197,26 @@ public class ProductFamilyResource {
         return dto(family);
     }
 
+    public record VariantLinkRequest(Long variantProductId) {}
+
+    /** Links a family image to one SKU by stable product id, or null to make it family-wide. */
+    @PUT @Path("/{id}/images/{imageId}/variant") @Transactional
+    public ProductFamilyDto linkImageVariant(
+            @PathParam("id") long id,
+            @PathParam("imageId") long imageId,
+            VariantLinkRequest request) {
+        if (request == null) throw new BusinessRuleException("Geen variantkoppeling meegestuurd");
+        lockFamily(id);
+        ProductFamilyEntity family = family(id);
+        ProductFamilyPhotoEntity photo = photo(family, imageId);
+        familyImageVariants.link(family, photo, request.variantProductId());
+        galleryGuard.validate(family);
+        return dto(family);
+    }
+
     @PUT @Path("/{id}/images/order") @Transactional
     public ProductFamilyDto reorderImages(@PathParam("id") long id, List<Long> imageIds) {
+        lockFamily(id);
         ProductFamilyEntity family = family(id);
         List<Long> wanted = imageIds == null ? List.of() : imageIds;
         if (wanted.size() != family.photos.size() || new HashSet<>(wanted).size() != wanted.size()
@@ -183,6 +238,7 @@ public class ProductFamilyResource {
     public ProductFamilyDto setImageAlt(@PathParam("id") long id,
                                         @PathParam("imageId") long imageId,
                                         AltRequest request) {
+        lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
         if (request == null || request.language() == null) {
@@ -199,21 +255,21 @@ public class ProductFamilyResource {
         photo.altTextsJson = write(values.entrySet().stream()
                 .map(entry -> new ProductFamilyDto.AltTextDto(entry.getKey(), entry.getValue()))
                 .toList());
+        galleryGuard.validate(family);
         families.flush();
         return dto(family);
     }
 
     @DELETE @Path("/{id}/images/{imageId}") @Transactional
     public ProductFamilyDto deleteImage(@PathParam("id") long id, @PathParam("imageId") long imageId) {
+        lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
-        if (family.photos.size() == 1 && isPublished(family)) {
-            throw new BusinessRuleException("Een gepubliceerde productfamilie moet minstens één foto houden");
-        }
         String small = photo.smallStorageKey;
         String large = photo.largeStorageKey;
         family.photos.remove(photo);
         for (int index = 0; index < family.photos.size(); index++) family.photos.get(index).position = index;
+        galleryGuard.validate(family);
         families.flush();
         familyPhotoCompatibility.sync(family);
         photoReferences.deleteIfUnreferenced(small);
@@ -243,8 +299,8 @@ public class ProductFamilyResource {
         family.description = optional(request.description());
         family.format = optional(request.format());
         family.highlightsJson = write(request.highlights());
-        family.collectionKey = optional(request.collectionKey());
         family.productPosition = request.productPosition();
+        family.cardFeaturedProductId = request.cardFeaturedProductId();
         family.tagsJson = write(request.tags());
         family.websiteStatus = state(request.websiteStatus());
         family.orderAppStatus = state(request.orderAppStatus());
@@ -264,6 +320,7 @@ public class ProductFamilyResource {
         /* Imported package observations are audit/master data. The reduced general family form
            must never rewrite their owner, source, confidence or operational meaning. */
         replaceCollections(family, request.collections());
+        familyCollections.alignPrimary(family);
     }
 
     private void applyCategory(ProductFamilyEntity family, ProductFamilyDto request) {
@@ -271,7 +328,7 @@ public class ProductFamilyResource {
             CategoryEntity category = categories.findById(request.categoryId());
             if (category == null) throw new BusinessRuleException("Onbekende categorie " + request.categoryId());
             family.categoryId = category.id;
-            family.categoryKey = category.code;
+            family.categoryKey = CategoryPublicKey.from(category.code);
             family.categoryName = category.name;
             family.categoryPosition = category.position;
         } else {
@@ -305,51 +362,22 @@ public class ProductFamilyResource {
 
     private void replaceCollections(ProductFamilyEntity family,
                                     List<ProductFamilyDto.CollectionDto> requested) {
-        if (requested == null) return;
-        family.collections.clear();
-        Set<String> seen = new HashSet<>();
-        int primaryCount = 0;
-        for (ProductFamilyDto.CollectionDto input : requested) {
-            String key = required(input.key(), "Collectiecode");
-            if (!seen.add(key)) throw new BusinessRuleException("Dubbele collectiecode " + key);
-            ProductCollectionEntity collection = collections.find("collectionKey", key).firstResult();
-            if (collection == null) {
-                collection = new ProductCollectionEntity();
-                collection.collectionKey = key;
-                collections.persist(collection);
-            }
-            collection.name = required(input.name(), "Collectienaam");
-            collection.eyebrow = optional(input.eyebrow());
-            collection.description = optional(input.description());
-            collection.position = input.position();
-
-            ProductFamilyCollectionEntity membership = new ProductFamilyCollectionEntity();
-            membership.family = family;
-            membership.collection = collection;
-            membership.position = input.position();
-            membership.primaryCollection = input.primary();
-            if (membership.primaryCollection) primaryCount++;
-            family.collections.add(membership);
-        }
-        if (primaryCount > 1) {
-            throw new BusinessRuleException("Een productfamilie kan maar één primaire collectie hebben");
-        }
-        if (!family.collections.isEmpty() && primaryCount == 0) {
-            family.collections.get(0).primaryCollection = true;
-        }
-        family.collectionKey = family.collections.stream()
-                .filter(item -> item.primaryCollection).findFirst()
-                .map(item -> item.collection.collectionKey).orElse(optional(family.collectionKey));
+        familyCollections.replaceMemberships(family, requested == null ? null : requested.stream()
+                .map(input -> new FamilyCollectionAlignmentService.MembershipRequest(
+                        input.key(), input.position(), input.primary()))
+                .toList());
     }
 
     private ProductFamilyDto dto(ProductFamilyEntity family) {
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", family.id);
         return ProductFamilyDto.from(
                 family,
                 identifiers.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
                 prices.list("familyId", family.id),
                 provenance.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
                 conflicts.list("familyKey", family.familyKey),
-                products.count("familyId", family.id), json);
+                members, json);
     }
 
     private ProductFamilyEntity family(long id) {
@@ -376,10 +404,54 @@ public class ProductFamilyResource {
         }
     }
 
-    private static void ensureRequestedPublicationIsValid(ProductFamilyEntity family, long variants) {
-        if (isPublished(family) && !ProductFamilyDto.publicationIssues(family, variants).isEmpty()) {
+    private void validateCardFeature(ProductFamilyEntity family) {
+        if (family.cardFeaturedProductId != null) {
+            featuredProducts.requireFamilyMember(family, family.cardFeaturedProductId);
+        }
+    }
+
+    private void lockFamily(long familyId) {
+        familyWrites.lockFamilies(List.of(familyId));
+    }
+
+    private void requireUniqueFamilyPosition(ProductFamilyEntity family, Long currentId) {
+        if (family.productPosition < 0) {
+            throw new BusinessRuleException("Productpositie binnen de categorie mag niet negatief zijn");
+        }
+        if (family.categoryId == null && optional(family.categoryKey) == null) return;
+        boolean collision = families.listAll().stream()
+                .filter(existing -> !Objects.equals(existing.id, currentId))
+                .filter(existing -> family.categoryId != null
+                        ? Objects.equals(existing.categoryId, family.categoryId)
+                        : Objects.equals(optional(existing.categoryKey), optional(family.categoryKey)))
+                .anyMatch(existing -> existing.productPosition == family.productPosition);
+        if (collision) {
+            throw new BusinessRuleException(
+                    "Productpositie " + family.productPosition
+                            + " is al in gebruik binnen deze categorie");
+        }
+    }
+
+    private void ensureRequestedPublicationIsValid(
+            ProductFamilyEntity family, List<ProductEntity> members) {
+        List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
+        if (isPublished(family) && !issues.isEmpty()) {
             throw new BusinessRuleException("Productfamilie kan nog niet gepubliceerd worden: "
-                    + String.join("; ", ProductFamilyDto.publicationIssues(family, variants)));
+                    + String.join("; ", issues));
+        }
+        boolean anyReady = family.websiteStatus == PublicationState.READY
+                || family.orderAppStatus == PublicationState.READY
+                || family.catalogueStatus == PublicationState.READY;
+        List<String> readyBlockers = issues.stream().filter(issue ->
+                issue.equals(FamilyVariantRules.OPTION_ISSUE)
+                        || issue.equals(FamilyVariantRules.POSITION_ISSUE)
+                        || family.websiteStatus == PublicationState.READY
+                            && issue.equals("Kleurstaal ontbreekt voor een actieve gekleurde variant"))
+                .toList();
+        if (anyReady && !readyBlockers.isEmpty()) {
+            throw new BusinessRuleException(
+                    "Productfamilie kan nog niet klaar voor publicatie worden gezet: "
+                            + String.join("; ", readyBlockers));
         }
     }
 

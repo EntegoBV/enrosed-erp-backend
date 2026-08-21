@@ -19,6 +19,8 @@ public record ProductDto(
         String name,
         DimensionsDto dimensions,
         String colour,
+        String variantSize,
+        String colourHex,
         String description,
         Long categoryId,
         Long supplierId,
@@ -55,8 +57,10 @@ public record ProductDto(
         BigDecimal computedSalesPriceEur
 ) {
 
+    /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {}
 
+    /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public record CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
                             Integer piecesPerCarton, BigDecimal weightKg) {}
 
@@ -85,7 +89,7 @@ public record ProductDto(
         return new ProductDto(
                 product.id(), product.sku(), product.name(),
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
-                product.colour(), product.description(),
+                product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
                 product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
                 product.variantPosition(),
@@ -113,7 +117,8 @@ public record ProductDto(
         return new Product(
                 id, sku, name,
                 new Dimensions(size.lengthCm(), size.widthCm(), size.heightCm()),
-                colour, description, categoryId, supplierId, active == null || active,
+                colour, variantSize, colourHex, description,
+                categoryId, supplierId, active == null || active,
                 familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition == null ? 0 : variantPosition,
                 inventoryKnown == null || inventoryKnown,
@@ -131,5 +136,16 @@ public record ProductDto(
                         .map(text -> new ProductText(text.language(), text.name(),
                                 text.description(), text.colour()))
                         .toList());
+    }
+
+    /** Preserves fields that older full-PUT clients could not send yet. */
+    public Product toDomainForUpdate(Product current) {
+        Product changes = toDomain(current.id());
+        if (inventoryKnown == null) {
+            changes = changes.withCanonicalIdentity(
+                    changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),
+                    changes.variantPosition(), current.inventoryKnown());
+        }
+        return changes;
     }
 }

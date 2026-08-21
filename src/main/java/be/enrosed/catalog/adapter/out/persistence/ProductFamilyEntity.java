@@ -33,6 +33,8 @@ public class ProductFamilyEntity {
     public int categoryPosition;
     public String collectionKey;
     public int productPosition;
+    /** Optional active member selected for family cards; null means the normal/base member. */
+    public Long cardFeaturedProductId;
     @Column(length = 10000) public String tagsJson;
 
     @Enumerated(EnumType.STRING)

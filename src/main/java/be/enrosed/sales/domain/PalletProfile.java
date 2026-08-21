@@ -4,9 +4,9 @@ import java.math.BigDecimal;
 
 /** The pallet footprint used by the stacking calculation. */
 public enum PalletProfile {
-    EURO_120X80("Europallet 120x80", 120, 80),
-    BLOCK_120X100("Blokpallet 120x100", 120, 100),
-    HALF_80X60("Halve pallet 80x60", 80, 60);
+    EURO_120X80("Europallet B × D: 120 × 80 cm", 120, 80),
+    BLOCK_120X100("Blokpallet B × D: 120 × 100 cm", 120, 100),
+    HALF_80X60("Halve pallet B × D: 80 × 60 cm", 80, 60);
 
     private final String label;
     private final BigDecimal lengthCm;

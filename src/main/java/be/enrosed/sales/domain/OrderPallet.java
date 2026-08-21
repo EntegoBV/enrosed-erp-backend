@@ -20,7 +20,7 @@ public record OrderPallet(
         /** Free label, e.g. "Pallet 1 - glas" or a customer reference. */
         String label,
         /**
-         * Pallet type, e.g. "Europallet" or "Blokpallet 100×120".
+         * Pallet type, e.g. "Europallet" or "Blokpallet 120×100" (B × D).
          *
          * Informational: freight counts pallet positions regardless of the
          * wood underneath, but the transporter and the warehouse want to
@@ -40,7 +40,12 @@ public record OrderPallet(
 
     /** The default is the standard of European road freight. */
     public String type() {
-        return type == null || type.isBlank() ? "Europallet" : type;
+        if (type == null || type.isBlank()) return "Europallet";
+        return switch (type.strip()) {
+            case "Blokpallet 100×120" -> "Blokpallet 120×100";
+            case "Halve pallet 60×80" -> "Halve pallet 80×60";
+            default -> type.strip();
+        };
     }
 
     public List<Item> items() {

@@ -54,6 +54,12 @@ class CatalogWorkbookTest {
             var products = excel.getSheet("Producten");
             assertEquals("SKU", products.getRow(0).getCell(0).getStringCellValue());
             assertEquals("Productnaam", products.getRow(0).getCell(1).getStringCellValue());
+            assertEquals("Product breedte B (cm)", products.getRow(0).getCell(5).getStringCellValue());
+            assertEquals("Product diepte D (cm)", products.getRow(0).getCell(6).getStringCellValue());
+            assertEquals("Product hoogte H (cm)", products.getRow(0).getCell(7).getStringCellValue());
+            assertEquals(12.5, products.getRow(1).getCell(5).getNumericCellValue());
+            assertEquals(8.0, products.getRow(1).getCell(6).getNumericCellValue());
+            assertEquals(25.0, products.getRow(1).getCell(7).getNumericCellValue());
             assertEquals(CellType.NUMERIC, products.getRow(1).getCell(5).getCellType());
             assertEquals(CellType.BLANK, products.getRow(1).getCell(13).getCellType());
             assertEquals("@", products.getRow(1).getCell(0).getCellStyle().getDataFormatString());
@@ -61,6 +67,57 @@ class CatalogWorkbookTest {
             assertNotNull(products.getPaneInformation(), "header and SKU stay in view");
             assertTrue(products.getCTWorksheet().getAutoFilter().getRef().startsWith("A1:"));
         }
+    }
+
+    @Test
+    void legacyDimensionHeadingsStillImportWithoutMovingValues() throws Exception {
+        byte[] edited = editedWorkbook(excel -> {
+            var products = excel.getSheet("Producten");
+            products.getRow(0).getCell(5).setCellValue("Product lengte (cm)");
+            products.getRow(0).getCell(6).setCellValue("Product breedte (cm)");
+            products.getRow(0).getCell(7).setCellValue("Product hoogte (cm)");
+            products.getRow(1).getCell(5).setCellValue(31);
+            products.getRow(1).getCell(6).setCellValue(22);
+            products.getRow(1).getCell(7).setCellValue(44);
+        });
+
+        CatalogWorkbook.ImportResult result = workbook.importFrom(new ByteArrayInputStream(edited));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Dimensions saved = repository.get("ENR-P01").dimensions();
+        assertEquals(new BigDecimal("31"), saved.lengthCm());
+        assertEquals(new BigDecimal("22"), saved.widthCm());
+        assertEquals(new BigDecimal("44"), saved.heightCm());
+    }
+
+    @Test
+    void variantSizeAndColourSwatchRoundTripAsProductMasterData() throws Exception {
+        FakeProducts variantRepository = new FakeProducts();
+        variantRepository.add(product().withVariantAttributes("Rood", "XL", "#A91F32"));
+        CatalogWorkbook variantWorkbook = workbookFor(variantRepository);
+
+        byte[] exported = variantWorkbook.export();
+        byte[] edited;
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(exported));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            var products = excel.getSheet("Producten");
+            assertEquals("Variantmaat", products.getRow(0).getCell(24).getStringCellValue());
+            assertEquals("Kleurstaal (#RRGGBB)",
+                    products.getRow(0).getCell(25).getStringCellValue());
+            assertEquals("XL", products.getRow(1).getCell(24).getStringCellValue());
+            assertEquals("#A91F32", products.getRow(1).getCell(25).getStringCellValue());
+            products.getRow(1).getCell(24).setCellValue("XXL");
+            products.getRow(1).getCell(25).setCellValue("#243253");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+
+        CatalogWorkbook.ImportResult result = variantWorkbook.importFrom(
+                new ByteArrayInputStream(edited));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals("XXL", variantRepository.get("ENR-P01").variantSize());
+        assertEquals("#243253", variantRepository.get("ENR-P01").colourHex());
     }
 
     @Test

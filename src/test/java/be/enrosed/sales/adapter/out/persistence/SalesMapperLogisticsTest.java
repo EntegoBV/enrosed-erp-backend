@@ -44,6 +44,16 @@ class SalesMapperLogisticsTest {
         assertEquals(FreightPricingStrategy.FIXED, restored.freightPricingStrategy());
     }
 
+    @Test
+    void legacyPalletTypeAxesDisplayAsBreedteByDiepte() {
+        assertEquals("Blokpallet 120×100",
+                new OrderPallet(null, null, "Blokpallet 100×120", null, null).type());
+        assertEquals("Halve pallet 80×60",
+                new OrderPallet(null, null, "Halve pallet 60×80", null, null).type());
+        assertEquals("Europallet",
+                new OrderPallet(null, null, null, null, null).type());
+    }
+
     private static SalesOrder order(LoadMode loadMode, PalletProfile profile,
                                     BigDecimal maxHeight, FreightPricingStrategy strategy,
                                     BigDecimal perCbm, BigDecimal fixed,

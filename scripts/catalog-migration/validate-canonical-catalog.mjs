@@ -31,6 +31,8 @@ unique(manifest.families.map((family) => family.canonicalFamilyKey), 'family key
 unique(manifest.families.map((family) => family.publicHandle), 'public handles', { allowNull: true });
 
 const variants = manifest.families.flatMap((family) => family.variants);
+const variantByKey = new Map(variants.map((variant) => [variant.canonicalVariantKey, variant]));
+const strictFeaturedContract = manifest.importDescriptor.transformVersion >= '2026-08-20.5';
 unique(variants.map((variant) => variant.canonicalVariantKey), 'variant keys');
 unique(variants.map((variant) => variant.sku), 'generated SKUs');
 const shopifyVariantIds = variants.flatMap((variant) => variant.externalIdentifiers)
@@ -42,6 +44,20 @@ for (const family of manifest.families) {
   assert(family.texts?.some((text) => text.language === 'EN' && text.name), `${family.canonicalFamilyKey}: missing EN name`);
   unique(family.variants.map((variant) => variant.position), `${family.canonicalFamilyKey} variant positions`);
   unique(family.images.map((image) => image.position), `${family.canonicalFamilyKey} image positions`);
+  if (family.cardFeaturedCanonicalVariantKey != null) {
+    assert(family.variants.some((variant) => (
+      variant.canonicalVariantKey === family.cardFeaturedCanonicalVariantKey && variant.active
+    )), `${family.canonicalFamilyKey}: card feature must be an active family variant`);
+  }
+  for (const collection of family.collections ?? []) {
+    if (collection.featuredCanonicalVariantKey == null) continue;
+    const selected = variantByKey.get(collection.featuredCanonicalVariantKey);
+    const selectedFamily = manifest.families.find((candidate) => (
+      candidate.variants.some((variant) => variant.canonicalVariantKey === selected?.canonicalVariantKey)
+    ));
+    assert(selected?.active && selectedFamily?.collections?.some((item) => item.key === collection.key),
+      `${collection.key}: featured variant must be active and belong to the collection`);
+  }
   if (family.requestedPublication.websiteStatus === 'PUBLISHED') {
     const englishText = family.texts.find((text) => text.language === 'EN');
     assert(family.publicHandle, `${family.canonicalFamilyKey}: published without publicHandle`);
@@ -96,6 +112,13 @@ for (const family of manifest.families) {
   );
   for (const variant of family.variants) {
     assert(variant.skuProvenance === 'GENERATED_INTERNAL' || variant.sourceSku, `${variant.canonicalVariantKey}: SKU provenance missing`);
+    assert(variant.colourHex == null || /^#[0-9A-F]{6}$/.test(variant.colourHex),
+      `${variant.canonicalVariantKey}: colourHex must be #RRGGBB or null`);
+    if (strictFeaturedContract && variant.active && variant.color != null
+        && ['READY', 'PUBLISHED'].includes(family.requestedPublication.websiteStatus)) {
+      assert(variant.colourHex != null,
+        `${variant.canonicalVariantKey}: website-ready coloured variant requires colourHex`);
+    }
     assert(variant.inventoryKnown ? Number.isInteger(variant.stockQuantity) && variant.stockQuantity >= 0 : variant.stockQuantity == null,
       `${variant.canonicalVariantKey}: inventoryKnown/stockQuantity mismatch`);
     for (const observation of variant.priceObservations) {

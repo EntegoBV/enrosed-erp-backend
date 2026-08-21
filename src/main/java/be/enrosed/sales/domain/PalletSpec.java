@@ -6,7 +6,8 @@ import java.math.BigDecimal;
  * Dimensions and limits of the pallet we ship on.
  * {@code maxHeightCm} is the total loaded height including
  * {@code baseHeightCm}; the calculator subtracts the wood before counting
- * carton layers.
+ * carton layers. Legacy {@code lengthCm}/{@code widthCm} are displayed as
+ * pallet Breedte/Diepte (B × D) without changing their value order.
  */
 public record PalletSpec(
         String name,

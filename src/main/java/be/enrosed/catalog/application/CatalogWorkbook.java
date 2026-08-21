@@ -62,12 +62,12 @@ public class CatalogWorkbook {
             wrapped("beschrijving", "Beschrijving (basis)", 42),
             text("kleur", "Kleur (basis)", 20),
             text("hs_code", "HS-code", 18),
-            decimal("lengte_cm", "Product lengte (cm)", 18),
-            decimal("breedte_cm", "Product breedte (cm)", 18),
-            decimal("hoogte_cm", "Product hoogte (cm)", 18),
-            decimal("doos_lengte_cm", "Doos lengte (cm)", 17),
-            decimal("doos_breedte_cm", "Doos breedte (cm)", 17),
-            decimal("doos_hoogte_cm", "Doos hoogte (cm)", 17),
+            decimal("lengte_cm", "Product breedte B (cm)", 20, "Product lengte (cm)"),
+            decimal("breedte_cm", "Product diepte D (cm)", 20, "Product breedte (cm)"),
+            decimal("hoogte_cm", "Product hoogte H (cm)", 20, "Product hoogte (cm)"),
+            decimal("doos_lengte_cm", "Doos breedte B (cm)", 19, "Doos lengte (cm)"),
+            decimal("doos_breedte_cm", "Doos diepte D (cm)", 19, "Doos breedte (cm)"),
+            decimal("doos_hoogte_cm", "Doos hoogte H (cm)", 19, "Doos hoogte (cm)"),
             integer("stuks_per_doos", "Stuks per doos", 16),
             decimal("doos_gewicht_kg", "Doosgewicht (kg)", 18),
             text("barcode_inner", "Barcode binnenverpakking", 26),
@@ -80,7 +80,9 @@ public class CatalogWorkbook {
             text("family_key", "Familiecode", 22),
             text("public_handle", "Publieke URL-naam", 24),
             text("website_status", "Website status", 18),
-            text("order_app_status", "Orderapp status", 18));
+            text("order_app_status", "Orderapp status", 18),
+            text("variant_size", "Variantmaat", 18),
+            text("colour_hex", "Kleurstaal (#RRGGBB)", 22));
 
     private static final List<Column> TRANSLATION_COLUMNS = List.of(
             text("sku", "SKU", 18),
@@ -278,6 +280,9 @@ public class CatalogWorkbook {
                 new String[]{"Lege productcel", "Laat het bestaande productveld ongemoeid."},
                 new String[]{"Lege vertaling", "Verwijdert de vertaling voor dat veld; de basistekst wordt dan gebruikt."},
                 new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal en publicatiestatus."},
+                new String[]{"Maatvolgorde", "Alle product- en doosmaten staan als Breedte × Diepte × Hoogte (B × D × H)."},
+                new String[]{"Variantmaat", "Een verkoopoptie zoals S, XL of 25 cm; dit is iets anders dan de fysieke B × D × H."},
+                new String[]{"Kleurstaal", "Gebruik exact #RRGGBB in hoofdletters, bijvoorbeeld #A91F32. Leeg laat de bestaande waarde staan."},
                 new String[]{"Niet opgenomen", "Categorie, leverancier, voorraad, extra eenheidskosten "
                         + "en actuele landed cost blijven in het ERP en veranderen niet door deze import."});
 
@@ -372,7 +377,14 @@ public class CatalogWorkbook {
 
     private static Integer findSourceColumn(Map<String, Integer> sourceColumns, Column column) {
         Integer byLabel = sourceColumns.get(normalize(column.label()));
-        return byLabel != null ? byLabel : sourceColumns.get(normalize(column.key()));
+        if (byLabel != null) return byLabel;
+        Integer byKey = sourceColumns.get(normalize(column.key()));
+        if (byKey != null) return byKey;
+        return column.legacyLabels().stream()
+                .map(CatalogWorkbook::normalize)
+                .map(sourceColumns::get)
+                .filter(java.util.Objects::nonNull)
+                .findFirst().orElse(null);
     }
 
     private static String importValue(
@@ -473,24 +485,29 @@ public class CatalogWorkbook {
     }
 
     private static Column text(String key, String label, int width) {
-        return new Column(key, label, Kind.TEXT, width);
+        return new Column(key, label, Kind.TEXT, width, List.of());
     }
 
     private static Column wrapped(String key, String label, int width) {
-        return new Column(key, label, Kind.WRAPPED, width);
+        return new Column(key, label, Kind.WRAPPED, width, List.of());
     }
 
     private static Column decimal(String key, String label, int width) {
-        return new Column(key, label, Kind.DECIMAL, width);
+        return decimal(key, label, width, new String[0]);
+    }
+
+    private static Column decimal(String key, String label, int width, String... legacyLabels) {
+        return new Column(key, label, Kind.DECIMAL, width, List.of(legacyLabels));
     }
 
     private static Column integer(String key, String label, int width) {
-        return new Column(key, label, Kind.INTEGER, width);
+        return new Column(key, label, Kind.INTEGER, width, List.of());
     }
 
     private enum Kind { TEXT, WRAPPED, DECIMAL, INTEGER }
 
-    private record Column(String key, String label, Kind kind, int width) {}
+    private record Column(String key, String label, Kind kind, int width,
+                          List<String> legacyLabels) {}
 
     private record ReadRows(List<List<String>> rows, List<String> problems) {}
 

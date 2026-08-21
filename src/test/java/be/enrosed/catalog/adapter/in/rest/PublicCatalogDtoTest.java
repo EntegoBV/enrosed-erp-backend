@@ -27,7 +27,9 @@ class PublicCatalogDtoTest {
     @Test
     void resolvesRequestedLanguageAndNeverSerializesInternalCommercialData() throws Exception {
         Product product = sensitiveProduct();
-        Category category = new Category(7L, "ROSES", "Rozen", "Geconserveerde rozen", 1);
+        Category category = new Category(
+                7L, "ROSES", "Rozen", "Geconserveerde rozen", 1,
+                "Signature displays", 42L);
         PublicCatalogDto.PublicProductDto item = PublicCatalogDto.product(
                 product, category, Language.EN, "https://erp.example.test/");
         PublicCatalogDto catalog = new PublicCatalogDto(
@@ -61,6 +63,9 @@ class PublicCatalogDtoTest {
         assertTrue(publicProduct.has("category"));
         assertTrue(publicProduct.has("dimensions"));
         assertTrue(publicProduct.has("carton"));
+        assertEquals("Signature displays",
+                publicProduct.path("category").path("mobileName").asText());
+        assertEquals(42L, publicProduct.path("category").path("featuredProductId").asLong());
     }
 
     private static Product sensitiveProduct() {
