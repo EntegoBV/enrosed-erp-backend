@@ -121,6 +121,45 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   source or exact stock. Public photo bytes have a separate PermitAll route and
   remain inaccessible unless the SKU is published on at least one channel.
 
+### Translation system and public website (Codex, 2026-08-21)
+- **Content translations**: `ContentTranslationEntity` + texts per language,
+  scoped (`ContentScope`: website copy, legal pages, categories, product
+  families). Seeds ship as CSV/JSON under `src/main/resources/i18n/`
+  (`website-content.csv`, `public-content.csv`, `catalog-family-copy.json`,
+  `catalog-content-backfill.json`); `PublicContentSeedLoader` loads them,
+  `CatalogContentBackfillService` fills gaps on existing data.
+- **Strict localization**: public catalogue endpoints take
+  `strictLanguage=true`; `PublicLocalizationCompletenessService` lists
+  every missing path and `LocalizationIncompleteException` refuses to
+  serve a language with holes. `ProductFamilyWriteGuard` blocks any edit
+  that would make a PUBLISHED/READY family incomplete. The general family
+  PUT never overwrites atomic translations (owned by the revisioned
+  translation endpoints).
+- **Category optimistic locking**: `Category.revision` (@Version); every
+  save requires the revision the editor observed. Child-only text edits
+  dirty the aggregate via `updatedAt` so the version bumps at flush - a
+  forced increment would only land at commit, after the API answered.
+- **Website rebuild outbox**: mutations enqueue one debounced
+  `WebsiteRebuildEntity` row; a scheduler calls the Vercel deploy hook
+  outside the business transaction (`VERCEL_WEBSITE_DEPLOY_HOOK_URL`) and
+  polls `WEBSITE_PUBLIC_REVISION_URL` (the site's catalog-revision.json)
+  until the deployed revision is LIVE. Unset variables = NOT_CONFIGURED.
+- **Public API for the site**: `/api/v1/public/catalog/families?channel=
+  WEBSITE&language=XX&strictLanguage=true`, product translations and
+  content endpoints. Variant `textSources` carry a source language per
+  field; `color`/`size` appear only when the variant has a value - the
+  website treats them as optional.
+- **Migration log**: `docs/migrations/2026-08-21/category-revision-
+  postgresql.sql` was executed on the Railway Postgres on 2026-08-21 via
+  the TCP proxy (3 categories backfilled to revision 0, description
+  widened to 4000). Hibernate `update` cannot add NOT NULL columns to
+  tables with rows - future primitive columns need the same treatment.
+- **Testing lessons**: config fields on an injected bean are written on a
+  CDI client proxy - use `ClientProxy.unwrap` in tests; resource classes
+  carry `@RolesAllowed`, so direct calls need `@TestSecurity`
+  (quarkus-test-security); the rebuild singleton row survives test
+  classes (scheduler commits) - clean it in a committed transaction.
+
 ### Mail
 - Production sends via **Brevo HTTPS API** (`BREVO_API_KEY`); Railway
   blocks outbound SMTP below the Pro plan, so SMTP settings exist only as
