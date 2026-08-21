@@ -51,10 +51,10 @@ class ProductTranslationCsvTest {
         String text = new String(csv.export(), StandardCharsets.UTF_8);
         List<String> lines = text.lines().toList();
 
-        assertEquals("sku;taal;naam;beschrijving;kleur", stripBom(lines.get(0)));
+        assertEquals("sku;taal;naam;beschrijving;kleur;maat", stripBom(lines.get(0)));
         assertEquals(1 + Language.values().length, lines.size(), "kop plus een rij per taal");
-        assertEquals("ENR-P01;nl;Glass flower;Handgemaakt;Rood", lines.get(1));
-        assertEquals("ENR-P01;fr;Glass flower;Handgemaakt;Rood", lines.get(2));
+        assertEquals("ENR-P01;nl;Glass flower;Handgemaakt;Rood;", lines.get(1));
+        assertEquals("ENR-P01;fr;Glass flower;Handgemaakt;Rood;", lines.get(2));
     }
 
     @Test
@@ -68,6 +68,24 @@ class ProductTranslationCsvTest {
         /* And it comes back out intact. */
         csv.importFrom(new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
         assertEquals("Groot; met doos", products.get("ENR-P01").description());
+    }
+
+    @Test
+    @DisplayName("de export importeert geciteerde regeleindes, quotes en puntkomma's verliesloos")
+    void roundTripsMultilineQuotedDescriptions() {
+        Product base = product(1L, "ENR-P01", "Glass flower", "Rood", "Handgemaakt");
+        String translated = "Première ligne; détail\n\"Rose\"\r\nDernière ligne";
+        products.add(base.withTexts(List.of(
+                new ProductText(Language.FR, "Fleur en verre", translated, "Rouge", null))));
+
+        byte[] exported = csv.export();
+        products.add(base);
+        ProductTranslationCsv.ImportResult result =
+                csv.importFrom(new ByteArrayInputStream(exported));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals(translated, products.get("ENR-P01").descriptionIn(Language.FR));
+        assertEquals("Fleur en verre", products.get("ENR-P01").nameIn(Language.FR));
     }
 
     @Test
@@ -111,6 +129,41 @@ class ProductTranslationCsvTest {
 
         /* Where nothing is set, it falls back to the base. */
         assertEquals("Glass flower", saved.nameIn(Language.DE));
+    }
+
+    @Test
+    @DisplayName("een gedeeltelijk bestand bewaart talen die niet in het bestand staan")
+    void partialImportPreservesAbsentLanguages() {
+        Product existing = product(1L, "ENR-P01", "Glass flower", "Rood", "Handgemaakt")
+                .withTexts(List.of(
+                        new ProductText(Language.FR, "Fleur", "Fait main", "Rouge", null),
+                        new ProductText(Language.EN, "Flower", "Handmade", "Red", null)));
+        products.add(existing);
+
+        ProductTranslationCsv.ImportResult result = csv.importRows(List.of(
+                List.of("ENR-P01", "de", "Glasblume", "Handgefertigt", "Rot")));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Product saved = products.get("ENR-P01");
+        assertEquals("Fleur", saved.nameIn(Language.FR));
+        assertEquals("Flower", saved.nameIn(Language.EN));
+        assertEquals("Glasblume", saved.nameIn(Language.DE));
+    }
+
+    @Test
+    @DisplayName("te lange vertalingen stoppen de hele import voor de eerste write")
+    void invalidLengthsLeaveEveryProductUntouched() {
+        products.add(product(1L, "ENR-P01", "Glass flower", "Rood", "Handgemaakt"));
+        products.add(product(2L, "ENR-P02", "Rose dome", "Blauw", "Handgemaakt"));
+
+        ProductTranslationCsv.ImportResult result = csv.importRows(List.of(
+                List.of("ENR-P01", "fr", "Fleur", "Fait main", "Rouge"),
+                List.of("ENR-P02", "fr", "x".repeat(256), "Fait main", "Bleu")));
+
+        assertEquals(0, result.updatedProducts());
+        assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("255")));
+        assertTrue(products.get("ENR-P01").texts().isEmpty());
+        assertTrue(products.get("ENR-P02").texts().isEmpty());
     }
 
     @Test

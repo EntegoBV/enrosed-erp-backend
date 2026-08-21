@@ -89,7 +89,8 @@ public class CatalogWorkbook {
             text("taal", "Taal", 12),
             text("naam", "Productnaam", 30),
             wrapped("beschrijving", "Beschrijving", 48),
-            text("kleur", "Kleur", 20));
+            text("kleur", "Kleur", 20),
+            text("maat", "Variantmaat", 18));
 
     static {
         requireCanonicalColumns(ProductCsv.HEADERS, PRODUCT_COLUMNS);
@@ -148,6 +149,9 @@ public class CatalogWorkbook {
                 workbookProblems.addAll(
                         translations.validateCompleteWorkbookRows(translationRows.rows()));
             }
+            if (workbookProblems.isEmpty()) {
+                workbookProblems.addAll(products.validateRows(productRows.rows()));
+            }
             if (!workbookProblems.isEmpty()) {
                 return new ImportResult(0, 0, List.copyOf(workbookProblems));
             }
@@ -162,6 +166,11 @@ public class CatalogWorkbook {
             List<String> problems = new ArrayList<>();
             problems.addAll(productResult.problems());
             problems.addAll(translationResult.problems());
+            if (!problems.isEmpty()) {
+                throw new BusinessRuleException(
+                        "De catalogus is intussen gewijzigd; er is niets opgeslagen: "
+                                + String.join("; ", problems));
+            }
             return new ImportResult(productResult.updatedProducts(),
                     translationResult.updatedRows(), List.copyOf(problems));
         } catch (BusinessRuleException exception) {

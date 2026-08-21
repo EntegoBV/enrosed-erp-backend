@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{languageCode}">
 <head>
   <meta charset="utf-8"/>
   <title>{title}</title>
@@ -148,61 +148,61 @@
   <table><tr>
     <td class="copy">
       {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
-      <div class="eyebrow">ENROSED WHOLESALE · {year}</div>
+      <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
       <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
       <p class="cover-intro">{intro}</p>
       <div class="cover-bottom">{familyCountLabel} · {variantCountLabel}</div>
     </td>
-    <td class="photo"><div>{#if coverImage}<img src="{coverImage}" alt="ENROSED collection"/>{/if}</div></td>
+    <td class="photo"><div>{#if coverImage}<img src="{coverImage}" alt="{copy['catalog.brochure.cover.imagealt']}"/>{/if}</div></td>
   </tr></table>
 </section>
 
 <section class="page ivory utility">
-  <div class="eyebrow">WHOLESALE COLLECTION · {year}</div>
-  <h2 class="lead-title">One clear collection.<br/><em>Everything you need to order.</em></h2>
+  <div class="eyebrow">{copy['catalog.brochure.intro.eyebrow']} · {year}</div>
+  <h2 class="lead-title">{copy['catalog.brochure.intro.titleone']}<br/><em>{copy['catalog.brochure.intro.titletwo']}</em></h2>
   <p class="lead">{intro}</p>
   <table class="intro-grid"><tr>
-    <td class="intro-card"><div class="eyebrow">01 · SELECT</div><h3>Choose your range</h3><p>Every selected colour and size remains a separate, orderable SKU inside one clear product family.</p></td>
-    <td class="intro-card"><div class="eyebrow">02 · COMPARE</div><h3>Read real logistics</h3><p>Product size, carton size, pack quantity, prices and EAN values are shown together for easy ordering.</p></td>
-    <td class="intro-card"><div class="eyebrow">03 · ORDER</div><h3>Request a quote</h3><p>Availability, freight and lead times are confirmed for the exact mix and quantities you need.</p></td>
+    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.select.eyebrow']}</div><h3>{copy['catalog.brochure.intro.select.title']}</h3><p>{copy['catalog.brochure.intro.select.body']}</p></td>
+    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.compare.eyebrow']}</div><h3>{copy['catalog.brochure.intro.compare.title']}</h3><p>{copy['catalog.brochure.intro.compare.body']}</p></td>
+    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.order.eyebrow']}</div><h3>{copy['catalog.brochure.intro.order.title']}</h3><p>{copy['catalog.brochure.intro.order.body']}</p></td>
   </tr></table>
-  {#if introDisplayImage}<div class="utility-frame"><img class="utility-image" src="{introDisplayImage}" alt="ENROSED counter display"/></div>{/if}
-  <div class="care-note">Warm-season friendly in normal indoor retail. Keep away from direct sun, heaters, high humidity and extreme heat.</div>
-  <div class="footer">ENROSED · WHOLESALE COLLECTION <span class="page-no">INTRO</span></div>
+  {#if introDisplayImage}<div class="utility-frame"><img class="utility-image" src="{introDisplayImage}" alt="{copy['catalog.brochure.intro.imagealt']}"/></div>{/if}
+  <div class="care-note">{copy['catalog.brochure.carenote']}</div>
+  <div class="footer">ENROSED · {copy['catalog.brochure.intro.eyebrow']} <span class="page-no">{copy['catalog.brochure.page.intro']}</span></div>
 </section>
 
 {#if options.includeOverview}
 <section class="page contents">
-  <div class="eyebrow">COLLECTION INDEX</div>
-  <h2>Contents</h2>
-  <div class="contents-sub">Selected families and variants, grouped for easy ordering</div>
+  <div class="eyebrow">{copy['catalog.brochure.contents.eyebrow']}</div>
+  <h2>{copy['catalog.brochure.contents.title']}</h2>
+  <div class="contents-sub">{copy['catalog.brochure.contents.subtitle']}</div>
   <table class="contents-list">
     {#for entry in contents}<tr>
       <td class="number">{entry.number}</td><td class="family">{entry.name}</td><td class="category">{entry.categoryName}</td>
     </tr>{/for}
   </table>
-  <div class="footer">{familyCountLabel} · {variantCountLabel} <span class="page-no">INDEX</span></div>
+  <div class="footer">{familyCountLabel} · {variantCountLabel} <span class="page-no">{copy['catalog.brochure.page.index']}</span></div>
 </section>
 {/if}
 
 <section class="comparison-page">
   <table class="comparison-head"><tr>
-    <td><div class="eyebrow">WHOLESALE RANGE OVERVIEW</div><h2>Retail-ready products,<br/>compared quickly.</h2></td>
-    <td class="comparison-subtitle">Counter Displays + Soap &amp; Decorative Roses</td>
+    <td><div class="eyebrow">{copy['catalog.brochure.comparison.eyebrow']}</div><h2>{copy['catalog.brochure.comparison.title']}</h2></td>
+    <td class="comparison-subtitle">{copy['catalog.brochure.comparison.subtitle']}</td>
   </tr></table>
   <div class="comparison-rule"></div>
 
-  <table class="comparison-label"><tr><td>Counter Displays</td><td class="hint">Selected families · representative selected SKU</td></tr></table>
+  <table class="comparison-label"><tr><td>{copy['catalog.brochure.comparison.counter']}</td><td class="hint">{copy['catalog.brochure.comparison.hint']}</td></tr></table>
   {#if comparisonCounters.size > 0}
   <table class="comparison-grid counter-grid"><tr>
     {#for card in comparisonCounters}<td class="comparison-card">
-      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</div>
+      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
       <div class="comparison-copy">
         <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
         <table class="comparison-specs">
-          {#if card.productSize}<tr><td class="key">Product</td><td>{card.productSize}</td></tr>{/if}
-          {#if card.cartonSize}<tr><td class="key">Carton</td><td>{card.cartonSize}</td></tr>{/if}
-          {#if card.piecesPerCarton > 0}<tr><td class="key">Pack</td><td>{card.piecesPerCarton} pcs</td></tr>{/if}
+          {#if card.productSize}<tr><td class="key">{copy['catalog.common.product']}</td><td>{card.productSize}</td></tr>{/if}
+          {#if card.cartonSize}<tr><td class="key">{copy['catalog.common.carton']}</td><td>{card.cartonSize}</td></tr>{/if}
+          {#if card.piecesPerCarton > 0}<tr><td class="key">{copy['catalog.common.pack']}</td><td>{card.piecesPerCarton} {copy['catalog.common.pieces']}</td></tr>{/if}
           {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
         </table>
       </div>
@@ -211,19 +211,19 @@
     {#if comparisonCounters.size == 2}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
     {#if comparisonCounters.size == 3}<td class="comparison-empty-card"></td>{/if}
   </tr></table>
-  {#else}<div class="comparison-none">No selected counter-display families</div>{/if}
+  {#else}<div class="comparison-none">{copy['catalog.brochure.comparison.nocounter']}</div>{/if}
 
-  <table class="comparison-label"><tr><td>Soap &amp; Decorative Roses</td><td class="hint">Selected families · representative selected SKU</td></tr></table>
+  <table class="comparison-label"><tr><td>{copy['catalog.brochure.comparison.decorative']}</td><td class="hint">{copy['catalog.brochure.comparison.hint']}</td></tr></table>
   {#if comparisonDecorative.size > 0}
   <table class="comparison-grid decorative-grid"><tr>
     {#for card in comparisonDecorative}<td class="comparison-card">
-      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</div>
+      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
       <div class="comparison-copy">
         <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
         <table class="comparison-specs">
-          {#if card.productSize}<tr><td class="key">Product</td><td>{card.productSize}</td></tr>{/if}
-          {#if card.cartonSize}<tr><td class="key">Carton</td><td>{card.cartonSize}</td></tr>{/if}
-          {#if card.piecesPerCarton > 0}<tr><td class="key">Pack</td><td>{card.piecesPerCarton} pcs</td></tr>{/if}
+          {#if card.productSize}<tr><td class="key">{copy['catalog.common.product']}</td><td>{card.productSize}</td></tr>{/if}
+          {#if card.cartonSize}<tr><td class="key">{copy['catalog.common.carton']}</td><td>{card.cartonSize}</td></tr>{/if}
+          {#if card.piecesPerCarton > 0}<tr><td class="key">{copy['catalog.common.pack']}</td><td>{card.piecesPerCarton} {copy['catalog.common.pieces']}</td></tr>{/if}
           {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
         </table>
       </div>
@@ -231,9 +231,9 @@
     {#if comparisonDecorative.size == 1}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
     {#if comparisonDecorative.size == 2}<td class="comparison-empty-card"></td>{/if}
   </tr></table>
-  {#else}<div class="comparison-none">No selected soap or decorative-rose families</div>{/if}
+  {#else}<div class="comparison-none">{copy['catalog.brochure.comparison.nodecorative']}</div>{/if}
 
-  <div class="comparison-care">Warm-season friendly in normal indoor retail. Keep away from direct sun, heaters, high humidity and extreme heat.</div>
+  <div class="comparison-care">{copy['catalog.brochure.carenote']}</div>
 </section>
 
 {#for section in sections}
@@ -241,7 +241,7 @@
   <section class="page category-page">
     {#if section.image}<img class="bg" src="{section.image}" alt=""/>{/if}<div class="shade"></div>
     <div class="category-copy">
-      <div class="eyebrow">THE ENROSED COLLECTION</div>
+      <div class="eyebrow">{copy['catalog.brochure.category.eyebrow']}</div>
       <div class="category-number">{section.number}</div>
       <h2>{section.name}</h2>
       <p>{section.description}</p>
@@ -259,7 +259,7 @@
     </tr></table>
     <div class="gold-rule"></div>
     <table class="family-media"><tr>
-      <td class="hero{#if !family.secondImage} solo{/if}">{#if family.heroImage}<img src="{family.heroImage}" alt="{family.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</td>
+      <td class="hero{#if !family.secondImage} solo{/if}">{#if family.heroImage}<img src="{family.heroImage}" alt="{family.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</td>
       {#if family.secondImage}<td class="side"><img src="{family.secondImage}" alt=""/></td>{/if}
     </tr></table>
     {#if family.gallery.size > 0}<div class="gallery-strip">{#for image in family.gallery}<img src="{image}" alt=""/>{/for}</div>{/if}
@@ -270,14 +270,14 @@
         {#if family.highlights.size > 0}<ul class="highlights">{#for highlight in family.highlights}<li>{highlight}</li>{/for}</ul>{/if}
       </td>
       <td class="specs">
-        {#if family.familySize || family.packageLine}<div class="family-logistics">{#if family.familySize}{family.familySize}{/if}{#if family.packageLine} · Outer carton {family.packageLine}{/if}</div>{/if}
+        {#if family.familySize || family.packageLine}<div class="family-logistics">{#if family.familySize}{family.familySize}{/if}{#if family.packageLine} · {copy['catalog.common.outercarton']} {family.packageLine}{/if}</div>{/if}
         <table class="variants">
-          <thead><tr><th class="sku">SKU</th><th class="option">Colour / size</th><th class="size">Product B × D × H</th><th class="carton">Outer carton / pack</th><th class="ean">EAN</th></tr></thead>
+          <thead><tr><th class="sku">SKU</th><th class="option">{copy['catalog.common.colorsize']}</th><th class="size">{copy['catalog.common.productdimensions']}</th><th class="carton">{copy['catalog.common.outercartonpack']}</th><th class="ean">EAN</th></tr></thead>
           <tbody>{#for variant in family.variants}<tr>
             <td>{variant.sku}{#if variant.priceLabel}<span class="variant-price">{variant.priceLabel}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
-            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}<br/>{variant.piecesPerCarton} pcs{/if}</td>
+            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}<br/>{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}</td>
             <td>{variant.ean}</td>
           </tr>{/for}</tbody>
         </table>
@@ -290,35 +290,35 @@
 
 {#if options.includeCustomisation}
 <section class="page ivory utility">
-  <div class="eyebrow">CUSTOMISATION &amp; PRIVATE LABEL</div>
-  <h2>Make the collection<br/>recognisably yours.</h2>
-  <p class="lead">Selected formats can be adapted for retail programmes, gifting concepts and private-label presentation. Feasibility and minimum quantities are confirmed per project.</p>
-  {#if customisationImage}<div class="utility-frame"><img class="utility-image" src="{customisationImage}" alt="Custom ENROSED presentation"/></div>{/if}
+  <div class="eyebrow">{copy['catalog.brochure.custom.eyebrow']}</div>
+  <h2>{copy['catalog.brochure.custom.title']}</h2>
+  <p class="lead">{copy['catalog.brochure.custom.body']}</p>
+  {#if customisationImage}<div class="utility-frame"><img class="utility-image" src="{customisationImage}" alt="{copy['catalog.brochure.custom.imagealt']}"/></div>{/if}
   <table class="steps"><tr>
-    <td><div class="step-no">01</div><h3>Choose</h3><p>Select the family, colours, sizes and presentation that suit your channel.</p></td>
-    <td><div class="step-no">02</div><h3>Compose</h3><p>Discuss sleeves, labels, counter displays, carton configuration and gifting details.</p></td>
-    <td><div class="step-no">03</div><h3>Confirm</h3><p>Receive the exact quote, visual direction, minimum quantity and delivery plan.</p></td>
+    <td><div class="step-no">01</div><h3>{copy['catalog.brochure.custom.stepone.title']}</h3><p>{copy['catalog.brochure.custom.stepone.body']}</p></td>
+    <td><div class="step-no">02</div><h3>{copy['catalog.brochure.custom.steptwo.title']}</h3><p>{copy['catalog.brochure.custom.steptwo.body']}</p></td>
+    <td><div class="step-no">03</div><h3>{copy['catalog.brochure.custom.stepthree.title']}</h3><p>{copy['catalog.brochure.custom.stepthree.body']}</p></td>
   </tr></table>
-  <div class="footer">ENROSED · CUSTOMISATION <span class="page-no">PRIVATE LABEL</span></div>
+  <div class="footer">ENROSED · {copy['catalog.brochure.custom.footer']} <span class="page-no">{copy['catalog.brochure.custom.pagelabel']}</span></div>
 </section>
 {/if}
 
 {#if options.includeOrdering}
 <section class="page utility">
-  <div class="eyebrow">HOW TO ORDER</div>
-  <h2>From selection<br/>to delivery.</h2>
-  <p class="lead" style="color:#cdbfb4">Send the selected SKUs and quantities. ENROSED confirms availability, pricing, freight, lead time and the practical delivery plan before the order is final.</p>
+  <div class="eyebrow">{copy['catalog.brochure.order.eyebrow']}</div>
+  <h2>{copy['catalog.brochure.order.title']}</h2>
+  <p class="lead" style="color:#cdbfb4">{copy['catalog.brochure.order.body']}</p>
   <table class="steps"><tr>
-    <td><div class="step-no">01</div><h3>Select</h3><p>Use this brochure to choose the exact product families and colour or size variants.</p></td>
-    <td><div class="step-no">02</div><h3>Quote</h3><p>We prepare a current quotation for the requested mix, volume and destination.</p></td>
-    <td><div class="step-no">03</div><h3>Deliver</h3><p>After confirmation, products are prepared and shipped according to the agreed plan.</p></td>
+    <td><div class="step-no">01</div><h3>{copy['catalog.brochure.order.stepone.title']}</h3><p>{copy['catalog.brochure.order.stepone.body']}</p></td>
+    <td><div class="step-no">02</div><h3>{copy['catalog.brochure.order.steptwo.title']}</h3><p>{copy['catalog.brochure.order.steptwo.body']}</p></td>
+    <td><div class="step-no">03</div><h3>{copy['catalog.brochure.order.stepthree.title']}</h3><p>{copy['catalog.brochure.order.stepthree.body']}</p></td>
   </tr></table>
   <div class="contact-card">
     <h3>{company.name}</h3>
     <p>{#if company.addressOneLine}{company.addressOneLine}<br/>{/if}{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</p>
   </div>
-  <div class="care-note">Trade prices, stock and lead times can change. Product information in this export is the current basis; your quotation confirms the commercial terms for the order.</div>
-  <div class="footer">ENROSED · HOW TO ORDER <span class="page-no">CONTACT</span></div>
+  <div class="care-note">{copy['catalog.brochure.order.note']}</div>
+  <div class="footer">ENROSED · {copy['catalog.brochure.order.footer']} <span class="page-no">{copy['catalog.brochure.order.pagelabel']}</span></div>
 </section>
 {/if}
 
@@ -327,8 +327,8 @@
   {#if coverImage}<img class="back-bg" src="{coverImage}" alt=""/>{/if}<div class="back-shade"></div>
   <div class="back-copy">
     {#if logo}<img class="back-logo" src="{logo}" alt="ENROSED"/>{/if}
-    <h2>Made to last.<br/>Ready for retail.</h2>
-    <p>Preserved and decorative roses designed for gifting, display and wholesale programmes.</p>
+    <h2>{copy['catalog.brochure.back.title']}</h2>
+    <p>{copy['catalog.brochure.back.body']}</p>
     <div class="back-contact">{company.name}<br/>{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</div>
   </div>
 </section>

@@ -1,5 +1,6 @@
 package be.enrosed.catalog.application;
 
+import be.enrosed.catalog.adapter.in.rest.ProductDto;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
@@ -7,9 +8,9 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Csv;
 import be.enrosed.shared.Language;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -27,7 +28,7 @@ import java.util.Map;
  * screen. Hence one file out, with one row per language per product, and the
  * same file back in.
  *
- * Only name, description and colour are in it. The rest of a product is
+ * Name, description, colour and merchandising size are in it. The rest of a product is
  * universal; putting those columns in the file invites editing, and a
  * translator should not be able to change carton dimensions.
  *
@@ -40,12 +41,21 @@ import java.util.Map;
 public class ProductTranslationCsv {
 
     static final List<String> HEADERS =
-            List.of("sku", "taal", "naam", "beschrijving", "kleur");
+            List.of("sku", "taal", "naam", "beschrijving", "kleur", "maat");
 
     private final ProductRepository products;
+    private final PublicProductTranslationsService publicTranslations;
 
     public ProductTranslationCsv(ProductRepository products) {
+        this(products, null);
+    }
+
+    @Inject
+    public ProductTranslationCsv(
+            ProductRepository products,
+            PublicProductTranslationsService publicTranslations) {
         this.products = products;
+        this.publicTranslations = publicTranslations;
     }
 
     /** What an import produced; reported per row instead of swallowed silently. */
@@ -87,7 +97,9 @@ public class ProductTranslationCsv {
                         text == null || isBlank(text.name()) ? nullToBlank(product.name()) : text.name(),
                         text == null || isBlank(text.description())
                                 ? nullToBlank(product.description()) : text.description(),
-                        text == null || isBlank(text.colour()) ? nullToBlank(product.colour()) : text.colour()));
+                        text == null || isBlank(text.colour()) ? nullToBlank(product.colour()) : text.colour(),
+                        text == null || isBlank(text.variantSize())
+                                ? nullToBlank(product.variantSize()) : text.variantSize()));
             }
         }
         return rows;
@@ -98,9 +110,8 @@ public class ProductTranslationCsv {
     /**
      * Reads the file back in.
      *
-     * Unknown SKUs and languages are reported and skipped, not silently
-     * ignored: a translation file with a typo in the SKU would otherwise
-     * produce an import that says "done" while nothing changed.
+     * Unknown SKUs and languages are reported, not silently ignored. Validation completes before
+     * any write, so a typo or overlong customer-facing value cannot leave a half-applied file.
      *
      * A row exactly equal to the base values counts as "not translated".
      * That keeps an export-without-changes read back in without effect,
@@ -108,26 +119,16 @@ public class ProductTranslationCsv {
      */
     @Transactional
     public ImportResult importFrom(InputStream input) {
-        List<List<String>> rows = new ArrayList<>();
-
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(input, StandardCharsets.UTF_8))) {
-
-            String header = reader.readLine();
-            if (header == null) {
-                throw new BusinessRuleException("Het bestand is leeg");
-            }
-            requireHeader(header);
-
-            String line;
-            while ((line = reader.readLine()) != null) {
-                rows.add(line.isBlank() ? List.of() : Csv.parseRow(line));
-            }
+        List<List<String>> document;
+        try (InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
+            document = Csv.parseRows(reader);
         } catch (IOException e) {
             throw new UncheckedIOException("Kan het bestand niet lezen", e);
         }
+        if (document.isEmpty()) throw new BusinessRuleException("Het bestand is leeg");
+        requireHeader(document.getFirst());
 
-        return importRows(rows);
+        return importRows(document.subList(1, document.size()));
     }
 
     /** Imports canonical column rows; list index zero corresponds to spreadsheet row 2. */
@@ -160,12 +161,18 @@ public class ProductTranslationCsv {
                 continue;
             }
 
-            perSku.computeIfAbsent(sku, key -> new LinkedHashMap<>())
+            ProductText duplicate = perSku.computeIfAbsent(sku, key -> new LinkedHashMap<>())
                     .put(language, new ProductText(language,
-                            cell(cells, 2), cell(cells, 3), cell(cells, 4)));
+                            cell(cells, 2), cell(cells, 3), cell(cells, 4), cell(cells, 5)));
+            if (duplicate != null) {
+                problems.add("Regel " + lineNumber + ": " + sku + " / "
+                        + language.code() + " staat dubbel");
+            }
         }
 
-        int updatedProducts = 0;
+        Map<Long, Map<Language, ProductDto.TextDto>> patches = new LinkedHashMap<>();
+        List<Product> fallbackProducts = new ArrayList<>();
+        int targetedProducts = 0;
         int updatedRows = 0;
 
         for (Map.Entry<String, Map<Language, ProductText>> entry : perSku.entrySet()) {
@@ -175,20 +182,41 @@ public class ProductTranslationCsv {
                 continue;
             }
 
-            List<ProductText> texts = new ArrayList<>();
+            Map<Language, ProductText> merged = new LinkedHashMap<>();
+            product.texts().forEach(text -> merged.put(text.language(), text));
             for (ProductText text : entry.getValue().values()) {
                 ProductText trimmed = withoutBaseValues(product, text);
-                if (!trimmed.isEmpty()) {
-                    texts.add(trimmed);
+                if (trimmed.isEmpty()) merged.remove(trimmed.language());
+                else {
+                    merged.put(trimmed.language(), trimmed);
                     updatedRows++;
                 }
             }
-
-            products.save(product.withTexts(texts));
-            updatedProducts++;
+            List<ProductText> texts = merged.values().stream()
+                    .sorted(java.util.Comparator.comparing(ProductText::language)).toList();
+            validateTexts(product.sku(), texts, problems);
+            if (product.id() == null && publicTranslations != null) {
+                problems.add("SKU " + product.sku() + " heeft geen geldig product-id");
+                continue;
+            }
+            if (product.id() != null) {
+                Map<Language, ProductDto.TextDto> productPatches = new LinkedHashMap<>();
+                entry.getValue().forEach((language, text) -> productPatches.put(language,
+                        new ProductDto.TextDto(language, text.name(), text.description(),
+                                text.colour(), text.variantSize())));
+                patches.put(product.id(), productPatches);
+            }
+            fallbackProducts.add(product.withTexts(texts));
+            targetedProducts++;
         }
 
-        return new ImportResult(updatedProducts, updatedRows, problems);
+        if (!problems.isEmpty()) return new ImportResult(0, 0, List.copyOf(problems));
+        if (publicTranslations != null) {
+            publicTranslations.patchProductTexts(patches);
+        } else {
+            fallbackProducts.forEach(products::save);
+        }
+        return new ImportResult(targetedProducts, updatedRows, List.of());
     }
 
     /**
@@ -274,14 +302,34 @@ public class ProductTranslationCsv {
                 text.language(),
                 sameAs(text.name(), product.name()) ? null : blankToNull(text.name()),
                 sameAs(text.description(), product.description()) ? null : blankToNull(text.description()),
-                sameAs(text.colour(), product.colour()) ? null : blankToNull(text.colour()));
+                sameAs(text.colour(), product.colour()) ? null : blankToNull(text.colour()),
+                sameAs(text.variantSize(), product.variantSize())
+                        ? null : blankToNull(text.variantSize()));
+    }
+
+    private static void validateTexts(
+            String sku, List<ProductText> texts, List<String> problems) {
+        for (ProductText text : texts) {
+            validateLength(sku, text.language(), "naam", text.name(), 255, problems);
+            validateLength(sku, text.language(), "beschrijving", text.description(), 2_000, problems);
+            validateLength(sku, text.language(), "kleur", text.colour(), 255, problems);
+            validateLength(sku, text.language(), "maat", text.variantSize(), 255, problems);
+        }
+    }
+
+    private static void validateLength(
+            String sku, Language language, String field, String value,
+            int max, List<String> problems) {
+        if (value != null && value.length() > max) {
+            problems.add("SKU " + sku + " / " + language.code() + " / " + field
+                    + " is langer dan " + max + " tekens");
+        }
     }
 
 
     /* ------------------------------------------------------------ csv */
 
-    private static void requireHeader(String header) {
-        List<String> cells = Csv.parseRow(Csv.stripBom(header));
+    private static void requireHeader(List<String> cells) {
         if (cells.size() < 2
                 || !cells.get(0).trim().equalsIgnoreCase("sku")
                 || !cells.get(1).trim().equalsIgnoreCase("taal")) {

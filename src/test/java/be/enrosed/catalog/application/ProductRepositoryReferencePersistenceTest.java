@@ -2,6 +2,7 @@ package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.out.persistence.CatalogImportConflictEntity;
 import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductDimensionObservationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
@@ -9,11 +10,14 @@ import be.enrosed.catalog.adapter.out.persistence.ProductExternalIdentifierEntit
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPackageEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPriceObservationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductProvenanceEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.shared.Language;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import io.quarkus.test.TestTransaction;
@@ -196,6 +200,14 @@ class ProductRepositoryReferencePersistenceTest {
         product.familyKey = family.familyKey;
         product.canonicalVariantKey = sku;
         product.piecesPerCarton = 1;
+        for (Language language : Language.values()) {
+            ProductTextEntity text = new ProductTextEntity();
+            text.product = product;
+            text.language = language;
+            text.name = "Variant " + language.code();
+            text.colour = "Colour " + language.code();
+            product.texts.add(text);
+        }
         return product;
     }
 
@@ -203,11 +215,32 @@ class ProductRepositoryReferencePersistenceTest {
         family.summary = "Published family summary";
         family.seoTitle = "Published family title";
         family.seoDescription = "Published family SEO description";
+        for (Language language : Language.values()) {
+            ProductFamilyTextEntity text = new ProductFamilyTextEntity();
+            text.family = family;
+            text.language = language;
+            text.name = "Family " + language.code();
+            text.summary = "Summary " + language.code();
+            text.description = "Description " + language.code();
+            text.seoTitle = "SEO title " + language.code();
+            text.seoDescription = "SEO description " + language.code();
+            text.highlightsJson = "[]";
+            family.texts.add(text);
+        }
         CategoryEntity category = new CategoryEntity();
         category.code = family.familyKey;
         category.name = "Published category";
         category.eyebrow = "Published";
         category.description = "Published category description";
+        for (Language language : Language.values()) {
+            CategoryTextEntity text = new CategoryTextEntity();
+            text.category = category;
+            text.language = language;
+            text.name = "Published category " + language.code();
+            text.eyebrow = "Published " + language.code();
+            text.description = "Published category description " + language.code();
+            category.texts.add(text);
+        }
         entityManager.persist(category);
         ProductCollectionEntity collection = new ProductCollectionEntity();
         collection.collectionKey = family.familyKey;
@@ -234,7 +267,10 @@ class ProductRepositoryReferencePersistenceTest {
         photo.smallHeightPx = 320;
         photo.largeWidthPx = 960;
         photo.largeHeightPx = 960;
-        photo.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Published family\"}]";
+        photo.altTextsJson = java.util.Arrays.stream(Language.values())
+                .map(language -> "{\"language\":\"" + language.name()
+                        + "\",\"alt\":\"Published family " + language.code() + "\"}")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
         family.photos.add(photo);
     }
 

@@ -21,5 +21,8 @@ public final class CatalogDaos {
     public static class Categories implements PanacheRepository<CategoryEntity> {}
 
     @ApplicationScoped
+    public static class CategoryTexts implements PanacheRepository<CategoryTextEntity> {}
+
+    @ApplicationScoped
     public static class HsCodes implements PanacheRepository<HsCodeEntity> {}
 }

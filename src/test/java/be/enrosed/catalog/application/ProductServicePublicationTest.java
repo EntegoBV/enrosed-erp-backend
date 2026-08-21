@@ -193,6 +193,49 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void staleGeneralProductPutCannotOverwriteAtomicPublicTranslations() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withTexts(List.of(new ProductText(
+                        Language.FR, "Texte approuvé", "Description approuvée", "Rouge", "Petit")));
+        repository.add(current);
+
+        Product staleRequest = current.withTexts(List.of(new ProductText(
+                Language.FR, "Ancien brouillon", "Ancienne description", "Rouge", "Petit")));
+        Product updated = service.update(1L, staleRequest);
+
+        assertEquals("Texte approuvé", updated.textIn(Language.FR).name());
+        assertEquals("Description approuvée", updated.textIn(Language.FR).description());
+    }
+
+    @Test
+    void productCreateValidatesTranslationDuplicatesAndDatabaseBoundariesBeforeSave() {
+        Product boundary = product(null, "ENR-P255", "Beschrijving", null,
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withTexts(List.of(new ProductText(
+                        Language.EN, "x".repeat(255), "d".repeat(2_000),
+                        "c".repeat(255), "s".repeat(255))));
+        assertEquals(255, service.create(boundary).textIn(Language.EN).name().length());
+
+        Product overlong = product(null, "ENR-P256", "Beschrijving", null,
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withTexts(List.of(new ProductText(
+                        Language.EN, "x".repeat(256), null, null, null)));
+        BusinessRuleException length = assertThrows(
+                BusinessRuleException.class, () -> service.create(overlong));
+        assertTrue(length.getMessage().contains("255"), length.getMessage());
+        assertTrue(repository.findBySku("ENR-P256").isEmpty());
+
+        Product duplicate = product(null, "ENR-P-DUP-TEXT", "Beschrijving", null,
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "One", null, null, null),
+                        new ProductText(Language.EN, "Two", null, null, null)));
+        assertThrows(BusinessRuleException.class, () -> service.create(duplicate));
+        assertTrue(repository.findBySku("ENR-P-DUP-TEXT").isEmpty());
+    }
+
+    @Test
     void masterDataCsvRoundTripsPublicIdentityAndChannelStates() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.PUBLISHED, PublicationState.READY, true)

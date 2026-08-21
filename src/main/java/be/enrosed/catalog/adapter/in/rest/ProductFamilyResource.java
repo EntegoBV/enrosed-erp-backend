@@ -22,6 +22,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -42,6 +44,10 @@ import java.util.*;
 @Consumes(MediaType.APPLICATION_JSON)
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class ProductFamilyResource {
+    private static final int MAX_SHORT = 255;
+    private static final int MAX_SUMMARY = 2_000;
+    private static final int MAX_LONG = 10_000;
+    private static final int MAX_HIGHLIGHT = 1_000;
     private final CanonicalCatalogDaos.Families families;
     private final ProductFamilyDtoFactory familyDtos;
     private final CatalogDaos.Products products;
@@ -56,6 +62,12 @@ public class ProductFamilyResource {
     private final FeaturedProductSelectionService featuredProducts;
     private final ProductFamilyWriteGuard familyWrites;
     private final ObjectMapper json;
+
+    @Inject
+    be.enrosed.catalog.application.WebsiteRebuildService websiteRebuild;
+
+    @Inject
+    be.enrosed.catalog.application.PublicLocalizationCompletenessService localization;
 
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
@@ -104,13 +116,14 @@ public class ProductFamilyResource {
     public Response create(ProductFamilyDto request) {
         ProductFamilyEntity family = new ProductFamilyEntity();
         family.createdAt = Instant.now();
-        applyEditable(family, request);
+        applyEditable(family, request, true);
         requireUnique(family, null);
         requireUniqueFamilyPosition(family, null);
         validateCardFeature(family);
         ensureRequestedPublicationIsValid(family, List.of());
         families.persist(family);
         families.flush();
+        queueWebsite();
         return Response.status(Response.Status.CREATED).entity(dto(family)).build();
     }
 
@@ -118,7 +131,7 @@ public class ProductFamilyResource {
     public ProductFamilyDto update(@PathParam("id") long id, ProductFamilyDto request) {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
-        applyEditable(family, request);
+        applyEditable(family, request, false);
         requireUnique(family, id);
         requireUniqueFamilyPosition(family, id);
         List<ProductEntity> members = products.list(
@@ -129,7 +142,7 @@ public class ProductFamilyResource {
         validateCardFeature(family);
         ensureRequestedPublicationIsValid(family, members);
         families.flush();
-        return dto(family);
+        return changed(family);
     }
 
     @POST @Path("/{id}/images") @Consumes(MediaType.MULTIPART_FORM_DATA) @Transactional
@@ -185,7 +198,7 @@ public class ProductFamilyResource {
         family.photos.add(photo);
         families.flush();
         familyPhotoCompatibility.sync(family);
-        return dto(family);
+        return changed(family);
     }
 
     public record VariantLinkRequest(Long variantProductId) {}
@@ -202,7 +215,7 @@ public class ProductFamilyResource {
         ProductFamilyPhotoEntity photo = photo(family, imageId);
         familyImageVariants.link(family, photo, request.variantProductId());
         galleryGuard.validate(family);
-        return dto(family);
+        return changed(family);
     }
 
     @PUT @Path("/{id}/images/order") @Transactional
@@ -220,7 +233,7 @@ public class ProductFamilyResource {
         family.photos.sort(Comparator.comparingInt(photo -> photo.position));
         families.flush();
         familyPhotoCompatibility.sync(family);
-        return dto(family);
+        return changed(family);
     }
 
     public record AltRequest(Language language, String alt) {}
@@ -248,7 +261,7 @@ public class ProductFamilyResource {
                 .toList());
         galleryGuard.validate(family);
         families.flush();
-        return dto(family);
+        return changed(family);
     }
 
     @DELETE @Path("/{id}/images/{imageId}") @Transactional
@@ -265,7 +278,7 @@ public class ProductFamilyResource {
         familyPhotoCompatibility.sync(family);
         photoReferences.deleteIfUnreferenced(small);
         if (!Objects.equals(small, large)) photoReferences.deleteIfUnreferenced(large);
-        return dto(family);
+        return changed(family);
     }
 
     @GET @Path("/{id}/images/{imageId}/{rendition}") @Produces(MediaType.WILDCARD)
@@ -280,34 +293,40 @@ public class ProductFamilyResource {
                 .header("Cache-Control", "private, max-age=60").build();
     }
 
-    private void applyEditable(ProductFamilyEntity family, ProductFamilyDto request) {
+    private void applyEditable(
+            ProductFamilyEntity family, ProductFamilyDto request, boolean initializeTexts) {
         if (request == null) throw new BusinessRuleException("Geen productfamilie meegestuurd");
-        family.familyKey = required(request.familyKey(), "Familiecode");
+        family.familyKey = required(request.familyKey(), "Familiecode", MAX_SHORT);
         family.publicHandle = handle(request.publicHandle());
         family.active = request.active();
-        family.name = required(request.name(), "Naam");
-        family.summary = optional(request.summary());
-        family.description = optional(request.description());
-        family.format = optional(request.format());
-        family.highlightsJson = write(request.highlights());
+        family.name = required(request.name(), "Naam", MAX_SHORT);
+        family.summary = bounded(request.summary(), MAX_SUMMARY, "Samenvatting");
+        family.description = bounded(request.description(), MAX_LONG, "Beschrijving");
+        family.format = bounded(request.format(), MAX_SHORT, "Formaat");
+        family.highlightsJson = writeBounded(
+                validHighlights(request.highlights()), MAX_LONG, "Highlights");
         family.productPosition = request.productPosition();
         family.cardFeaturedProductId = request.cardFeaturedProductId();
-        family.tagsJson = write(request.tags());
+        family.tagsJson = writeBounded(request.tags(), MAX_LONG, "Tags");
         family.websiteStatus = state(request.websiteStatus());
         family.orderAppStatus = state(request.orderAppStatus());
         family.catalogueStatus = state(request.catalogueStatus());
-        family.seoTitle = optional(request.seoTitle());
-        family.seoDescription = optional(request.seoDescription());
+        family.seoTitle = bounded(request.seoTitle(), MAX_SHORT, "SEO-titel");
+        family.seoDescription = bounded(
+                request.seoDescription(), MAX_SUMMARY, "SEO-beschrijving");
         family.updatedAt = Instant.now();
         if (request.dimensions() != null) {
             family.dimensionLength = request.dimensions().length();
             family.dimensionWidth = request.dimensions().width();
             family.dimensionHeight = request.dimensions().height();
-            family.dimensionUnit = optional(request.dimensions().unit());
-            family.dimensionRaw = optional(request.dimensions().raw());
+            family.dimensionUnit = bounded(
+                    request.dimensions().unit(), MAX_SHORT, "Afmetingseenheid");
+            family.dimensionRaw = bounded(request.dimensions().raw(), 1_000, "Bronafmeting");
         }
         applyCategory(family, request);
-        replaceTexts(family, request.texts());
+        /* Existing public copy is owned by the revisioned atomic product-translation endpoint.
+           The general family PUT may initialize a new family but cannot clobber later edits. */
+        if (initializeTexts) replaceTexts(family, request.texts());
         /* Imported package observations are audit/master data. The reduced general family form
            must never rewrite their owner, source, confidence or operational meaning. */
         replaceCollections(family, request.collections());
@@ -316,8 +335,12 @@ public class ProductFamilyResource {
 
     private void applyCategory(ProductFamilyEntity family, ProductFamilyDto request) {
         if (request.categoryId() != null) {
-            CategoryEntity category = categories.findById(request.categoryId());
+            CategoryEntity category = categories.findById(
+                    request.categoryId(), LockModeType.PESSIMISTIC_WRITE);
             if (category == null) throw new BusinessRuleException("Onbekende categorie " + request.categoryId());
+            /* A family update already owns the family lock. Refresh while holding the category
+               row so a concurrent category editor cannot leave cached name/order metadata. */
+            categories.getEntityManager().refresh(category, LockModeType.PESSIMISTIC_WRITE);
             family.categoryId = category.id;
             family.categoryKey = CategoryPublicKey.from(category.code);
             family.categoryName = category.name;
@@ -331,8 +354,8 @@ public class ProductFamilyResource {
     }
 
     private void replaceTexts(ProductFamilyEntity family, List<ProductFamilyDto.TextDto> texts) {
-        family.texts.clear();
         Set<Language> seen = EnumSet.noneOf(Language.class);
+        List<ProductFamilyTextEntity> replacements = new ArrayList<>();
         for (ProductFamilyDto.TextDto input : safeList(texts)) {
             if (input == null || input.language() == null || !seen.add(input.language())) {
                 throw new BusinessRuleException("Elke familietaal mag exact één keer voorkomen");
@@ -340,15 +363,19 @@ public class ProductFamilyResource {
             ProductFamilyTextEntity text = new ProductFamilyTextEntity();
             text.family = family;
             text.language = input.language();
-            text.name = optional(input.name());
-            text.summary = optional(input.summary());
-            text.description = optional(input.description());
-            text.format = optional(input.format());
-            text.highlightsJson = write(input.highlights());
-            text.seoTitle = optional(input.seoTitle());
-            text.seoDescription = optional(input.seoDescription());
-            family.texts.add(text);
+            text.name = bounded(input.name(), MAX_SHORT, "Vertaalde familienaam");
+            text.summary = bounded(input.summary(), MAX_SUMMARY, "Vertaalde samenvatting");
+            text.description = bounded(input.description(), MAX_LONG, "Vertaalde beschrijving");
+            text.format = bounded(input.format(), MAX_SHORT, "Vertaald formaat");
+            text.highlightsJson = writeBounded(
+                    validHighlights(input.highlights()), MAX_LONG, "Vertaalde highlights");
+            text.seoTitle = bounded(input.seoTitle(), MAX_SHORT, "Vertaalde SEO-titel");
+            text.seoDescription = bounded(
+                    input.seoDescription(), MAX_SUMMARY, "Vertaalde SEO-beschrijving");
+            replacements.add(text);
         }
+        family.texts.clear();
+        family.texts.addAll(replacements);
     }
 
     private void replaceCollections(ProductFamilyEntity family,
@@ -361,6 +388,19 @@ public class ProductFamilyResource {
 
     private ProductFamilyDto dto(ProductFamilyEntity family) {
         return familyDtos.from(family);
+    }
+
+    private ProductFamilyDto changed(ProductFamilyEntity family) {
+        if (localization != null) {
+            localization.validateReadyOrPublished(family,
+                    products.list("familyId = ?1 order by variantPosition, id", family.id));
+        }
+        queueWebsite();
+        return dto(family);
+    }
+
+    private void queueWebsite() {
+        if (websiteRebuild != null) websiteRebuild.queue();
     }
 
     private ProductFamilyEntity family(long id) {
@@ -418,6 +458,14 @@ public class ProductFamilyResource {
     private void ensureRequestedPublicationIsValid(
             ProductFamilyEntity family, List<ProductEntity> members) {
         List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
+        if (localization != null) {
+            List<String> localized = localization.issues(family, members);
+            if (!localized.isEmpty()) {
+                List<String> combined = new ArrayList<>(issues);
+                combined.addAll(localized);
+                issues = List.copyOf(combined);
+            }
+        }
         if (isPublished(family) && !issues.isEmpty()) {
             throw new BusinessRuleException("Productfamilie kan nog niet gepubliceerd worden: "
                     + String.join("; ", issues));
@@ -428,6 +476,10 @@ public class ProductFamilyResource {
         List<String> readyBlockers = issues.stream().filter(issue ->
                 issue.equals(FamilyVariantRules.OPTION_ISSUE)
                         || issue.equals(FamilyVariantRules.POSITION_ISSUE)
+                        || family.websiteStatus == PublicationState.READY
+                            && issue.startsWith("website.")
+                        || family.catalogueStatus == PublicationState.READY
+                            && issue.startsWith("catalog.")
                         || family.websiteStatus == PublicationState.READY
                             && issue.equals("Kleurstaal ontbreekt voor een actieve gekleurde variant"))
                 .toList();
@@ -451,6 +503,27 @@ public class ProductFamilyResource {
         }
     }
 
+    private String writeBounded(Object value, int max, String label) {
+        String encoded = write(value);
+        if (encoded.length() > max) {
+            throw new BusinessRuleException(label + " zijn samen langer dan " + max + " tekens");
+        }
+        return encoded;
+    }
+
+    private static List<String> validHighlights(List<String> values) {
+        if (values == null || values.isEmpty()) return List.of();
+        List<String> result = new ArrayList<>();
+        for (String value : values) {
+            String normalized = bounded(value, MAX_HIGHLIGHT, "Highlight");
+            if (normalized == null) {
+                throw new BusinessRuleException("Highlights mogen niet leeg zijn");
+            }
+            result.add(normalized);
+        }
+        return List.copyOf(result);
+    }
+
     private static String sha256(byte[] bytes) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
@@ -472,15 +545,25 @@ public class ProductFamilyResource {
         return state == null ? PublicationState.DRAFT : state;
     }
     private static String handle(String value) {
-        String handle = optional(value);
+        String handle = bounded(value, MAX_SHORT, "Publieke handle");
         if (handle != null && !handle.matches("[a-z0-9]+(?:-[a-z0-9]+)*")) {
             throw new BusinessRuleException("Publieke handle mag alleen kleine letters, cijfers en koppeltekens bevatten");
         }
         return handle;
     }
     private static String required(String value, String label) {
-        String result = optional(value);
+        return required(value, label, Integer.MAX_VALUE);
+    }
+    private static String required(String value, String label, int max) {
+        String result = bounded(value, max, label);
         if (result == null) throw new BusinessRuleException(label + " is verplicht");
+        return result;
+    }
+    private static String bounded(String value, int max, String label) {
+        String result = optional(value);
+        if (result != null && result.length() > max) {
+            throw new BusinessRuleException(label + " is langer dan " + max + " tekens");
+        }
         return result;
     }
     private static String optional(String value) { return value == null || value.isBlank() ? null : value.strip(); }

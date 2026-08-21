@@ -7,7 +7,7 @@
     @page {
       size: A4;
       margin: 13mm 10mm 15mm;
-      @bottom-left { content: "ENROSED · WHOLESALE"; font-family: "Jost"; font-size: 6pt; letter-spacing: 1.2px; color: #9b8461; }
+      @bottom-left { content: "ENROSED · {copy['catalog.brand.wholesale']}"; font-family: "Jost"; font-size: 6pt; letter-spacing: 1.2px; color: #9b8461; }
       @bottom-right { content: counter(page) " / " counter(pages); font-family: "Jost"; font-size: 6pt; color: #9b8461; }
     }
     * { box-sizing: border-box; }
@@ -61,7 +61,7 @@
     <td class="meta">
       <strong>{company.name}</strong><br/>
       {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
-      {#if company.vatNumber}{t.vatNumber} {company.vatNumber}<br/>{/if}
+      {#if company.vatNumber}{copy['catalog.simple.vatnumber']} {company.vatNumber}<br/>{/if}
       {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}
       {#if company.website}<br/>{company.website}{/if}
     </td>
@@ -95,17 +95,17 @@
               <div class="media"><table><tr><td><img src="{it.photoDataUri}" alt="{it.name}"/></td></tr></table></div>
             {/if}
             {#if it.extraPhotos.size > 0}<div class="strip">{#for extra in it.extraPhotos}<img src="{extra}" alt=""/>{/for}</div>{/if}
-          {#else}<div class="media"><div class="noimage">Beeld niet beschikbaar</div></div>{/if}
+          {#else}<div class="media"><div class="noimage">{copy['catalog.common.imageunavailable']}</div></div>{/if}
           <div class="body">
             <div class="sku">{it.sku}</div>
             <div class="name">{it.name}</div>
             <div class="spec">
-              {#if it.size}<strong>{it.size}</strong>{/if}{#if it.colour} · {it.colour}{/if}<br/>
-              {it.piecesPerCarton} {t.portalPerBox}{#if it.cartonSize} · {t.catalogCarton} {it.cartonSize}{/if}
+              {#if it.size}<strong>{it.size}</strong>{/if}{#if it.colour} · {it.colour}{/if}{#if it.variantSize} · {it.variantSize}{/if}<br/>
+              {it.piecesPerCarton} {copy['catalog.simple.perbox']}{#if it.cartonSize} · {copy['catalog.common.carton']} {it.cartonSize}{/if}
             </div>
             {#if it.barcodeInner || it.barcodeOuter}<div class="barcode">{#if it.barcodeInner}{it.barcodeInner}{/if}{#if it.barcodeOuter} · {it.barcodeOuter}{/if}</div>{/if}
-            {#if it.priceLabel}<div class="price">{it.priceLabel} <small>{t.portalPerPiece}</small></div>{/if}
-            {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{t.portalOutOfStock}</div>{/if}{/if}
+            {#if it.priceLabel}<div class="price">{it.priceLabel} <small>{copy['catalog.simple.perpiece']}</small></div>{/if}
+            {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}{/if}
           </div>
         </td>
       {/for}
@@ -116,6 +116,6 @@
   </table>
 {/for}
 
-<div class="foot">{t.catalogFooter}{#if footerText}<br/>{footerText}{/if}</div>
+<div class="foot">{copy['catalog.simple.footer']}</div>
 </body>
 </html>

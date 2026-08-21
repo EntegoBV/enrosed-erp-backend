@@ -12,6 +12,7 @@ import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.VariantSizes;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -43,6 +44,9 @@ public class ProductService {
     private final CanonicalCatalogDaos.Families families;
     private final ProductFamilyWriteGuard familyWrites;
     private final FamilyPhotoCompatibilityService familyPhotos;
+
+    @Inject
+    WebsiteRebuildService websiteRebuild;
 
     @Inject
     public ProductService(
@@ -96,6 +100,7 @@ public class ProductService {
         Product saved = products.save(prepared);
         validateFamilies(prepared.familyId());
         syncFamilyPhotos(saved.id(), prepared.familyId());
+        queueWebsite();
         return saved.id() == null ? saved : get(saved.id());
     }
 
@@ -141,6 +146,7 @@ public class ProductService {
         Product saved = products.save(merged);
         validateFamilies(current.familyId(), merged.familyId());
         syncFamilyPhotos(saved.id(), current.familyId(), merged.familyId());
+        queueWebsite();
         return saved.id() == null ? saved : get(saved.id());
     }
 
@@ -195,9 +201,9 @@ public class ProductService {
                 /* Stock belongs to purchasing, not to a product update. */
                 current.stockQuantity(),
                 current.photos(),
-                /* Translations travel with the form; when the field is not
-                   sent along, what was there stays. */
-                changes.texts().isEmpty() ? current.texts() : changes.texts());
+                /* Public translations have their own revisioned, atomic endpoint. A stale
+                   general product PUT must never overwrite that independently saved snapshot. */
+                current.texts());
     }
 
     /**
@@ -225,6 +231,7 @@ public class ProductService {
         String colour = newColour == null ? source.colour() : requestedColour;
         String size = newVariantSize == null ? source.variantSize() : requestedSize;
         boolean colourChanged = !java.util.Objects.equals(colour, source.colour());
+        boolean sizeChanged = !java.util.Objects.equals(size, source.variantSize());
         String colourHex = newColourHex != null
                 ? requestedHex : colourChanged ? null : source.colourHex();
         if (java.util.Objects.equals(colour, source.colour())
@@ -251,7 +258,9 @@ public class ProductService {
                    when the actual colour label changed. */
                 source.texts().stream()
                         .map(text -> new ProductText(text.language(), text.name(),
-                                text.description(), colourChanged ? null : text.colour()))
+                                text.description(), colourChanged ? null : text.colour(),
+                                sizeChanged ? VariantSizes.translate(size, text.language())
+                                        : text.variantSize()))
                         .filter(text -> !text.isEmpty())
                         .toList()));
     }
@@ -277,6 +286,7 @@ public class ProductService {
         validateFamilies(product.familyId());
         syncFamilyPhotos(null, product.familyId());
         product.photos().forEach(photo -> deleteBlob(photo.storageKey()));
+        queueWebsite();
     }
 
     /**
@@ -288,6 +298,7 @@ public class ProductService {
         Product updated = get(productId).withLandedCost(landedCostEur, source);
         ensurePublishable(updated);
         products.save(updated);
+        queueWebsite();
     }
 
     /**
@@ -303,6 +314,7 @@ public class ProductService {
         if (!products.adjustStock(productId, delta)) {
             throw new NotFoundException("Product", productId);
         }
+        queueWebsite();
     }
 
     /* ------------------------------------------------------------ fotos */
@@ -324,7 +336,9 @@ public class ProductService {
                 stored.sizeBytes(), stored.widthPx(), stored.heightPx(), photos.size()));
         product.photos().stream().filter(Photo::inherited).forEach(photos::add);
 
-        return products.save(product.withPhotos(renumber(photos)));
+        Product saved = products.save(product.withPhotos(renumber(photos)));
+        queueWebsite();
+        return saved;
     }
 
     @Transactional
@@ -345,6 +359,7 @@ public class ProductService {
         ensurePublishable(updated);
         Product saved = products.save(updated);
         deleteBlob(target.storageKey());
+        queueWebsite();
         return saved;
     }
 
@@ -378,7 +393,9 @@ public class ProductService {
         /* Family projections remain read-only and keep their canonical relative order. */
         photos.stream().filter(Photo::inherited).forEach(ordered::add);
 
-        return products.save(product.withPhotos(renumber(ordered)));
+        Product saved = products.save(product.withPhotos(renumber(ordered)));
+        queueWebsite();
+        return saved;
     }
 
     public Photo photo(long productId, long photoId) {
@@ -504,6 +521,10 @@ public class ProductService {
     private void deleteBlob(String storageKey) {
         if (photoReferences == null) photoStorage.delete(storageKey);
         else photoReferences.deleteIfUnreferenced(storageKey);
+    }
+
+    private void queueWebsite() {
+        if (websiteRebuild != null) websiteRebuild.queue();
     }
 
     /** Preserve family content and media, but never leave an empty family publicly visible. */

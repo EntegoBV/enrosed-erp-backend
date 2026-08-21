@@ -59,12 +59,26 @@ public enum Language {
     /** Unknown or empty falls back to Dutch. */
     public static Language of(String code) {
         if (code == null || code.isBlank()) return NL;
+        return find(code).orElse(NL);
+    }
+
+    /**
+     * Parses a public/API language without silently turning an unsupported value into Dutch.
+     * A missing value uses the supplied endpoint default for backward compatibility.
+     */
+    public static Language requireSupported(String code, Language defaultLanguage) {
+        if (code == null || code.isBlank()) return defaultLanguage;
+        return find(code).orElseThrow(() ->
+                new IllegalArgumentException("Unsupported language: " + code));
+    }
+
+    private static java.util.Optional<Language> find(String code) {
         String wanted = code.trim().toLowerCase(Locale.ROOT);
         for (Language language : values()) {
             if (language.code.equals(wanted) || language.name().equalsIgnoreCase(wanted)) {
-                return language;
+                return java.util.Optional.of(language);
             }
         }
-        return NL;
+        return java.util.Optional.empty();
     }
 }

@@ -1,6 +1,7 @@
 package be.enrosed.catalog.application.port.out;
 
 import be.enrosed.shared.Language;
+import be.enrosed.shared.LanguageFallback;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,56 +39,51 @@ public interface CatalogFamilyReader {
         }
 
         public String nameIn(Language language) {
+            return nameResolved(language).value();
+        }
+
+        public LanguageFallback.Resolved<String> nameResolved(Language language) {
             return translated(language, Text::name, name);
         }
 
         public String summaryIn(Language language) {
+            return summaryResolved(language).value();
+        }
+
+        public LanguageFallback.Resolved<String> summaryResolved(Language language) {
             return translated(language, Text::summary, summary);
         }
 
         public String descriptionIn(Language language) {
+            return descriptionResolved(language).value();
+        }
+
+        public LanguageFallback.Resolved<String> descriptionResolved(Language language) {
             return translated(language, Text::description, description);
         }
 
         public String formatIn(Language language) {
+            return formatResolved(language).value();
+        }
+
+        public LanguageFallback.Resolved<String> formatResolved(Language language) {
             return translated(language, Text::format, format);
         }
 
         public List<String> highlightsIn(Language language) {
-            for (Language candidate : fallbackLanguages(language)) {
-                Text text = textIn(candidate);
-                if (text != null && !text.highlights().isEmpty()) return text.highlights();
-            }
-            return highlights;
+            return highlightsResolved(language).value();
         }
 
-        private String translated(Language language,
-                                  java.util.function.Function<Text, String> field,
-                                  String base) {
-            for (Language candidate : fallbackLanguages(language)) {
-                Text text = textIn(candidate);
-                if (text != null && usable(field.apply(text), null) != null) {
-                    return field.apply(text);
-                }
-            }
-            return base;
+        public LanguageFallback.Resolved<List<String>> highlightsResolved(Language language) {
+            return LanguageFallback.resolve(texts, language, Text::language, Text::highlights,
+                    candidate -> candidate != null && !candidate.isEmpty(), highlights);
         }
 
-        private static List<Language> fallbackLanguages(Language requested) {
-            java.util.LinkedHashSet<Language> languages = new java.util.LinkedHashSet<>();
-            if (requested != null) languages.add(requested);
-            languages.add(Language.EN);
-            languages.add(Language.NL);
-            return List.copyOf(languages);
+        private LanguageFallback.Resolved<String> translated(
+                Language language, java.util.function.Function<Text, String> field, String base) {
+            return LanguageFallback.text(texts, language, Text::language, field, base);
         }
 
-        private Text textIn(Language language) {
-            return texts.stream().filter(item -> item.language() == language).findFirst().orElse(null);
-        }
-
-        private static String usable(String preferred, String fallback) {
-            return preferred == null || preferred.isBlank() ? fallback : preferred;
-        }
     }
 
     record Text(Language language, String name, String summary, String description,

@@ -1,17 +1,20 @@
 package be.enrosed.catalog.adapter.out.document;
 
 import be.enrosed.catalog.application.CatalogExportService;
+import be.enrosed.catalog.application.ContentTranslationService;
 import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.Category;
+import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
-import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.LanguageFallback;
+import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.company.CompanyProfile;
 import be.enrosed.shared.company.CompanyProfileService;
 import io.quarkus.qute.Location;
@@ -48,6 +51,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private final CatalogPdfFonts fonts;
     private final PdfImageEncoder imageEncoder;
     private final CatalogEditorialAssets editorial;
+    private final ContentTranslationService content;
 
     public PdfCatalogRenderer(@Location("catalog.html") Template simpleTemplate,
                               @Location("catalog-brochure.html") Template brochureTemplate,
@@ -57,7 +61,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                               CompanyProfileService company,
                               CatalogPdfFonts fonts,
                               PdfImageEncoder imageEncoder,
-                              CatalogEditorialAssets editorial) {
+                              CatalogEditorialAssets editorial,
+                              ContentTranslationService content) {
         this.simpleTemplate = simpleTemplate;
         this.brochureTemplate = brochureTemplate;
         this.products = products;
@@ -67,10 +72,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.fonts = fonts;
         this.imageEncoder = imageEncoder;
         this.editorial = editorial;
+        this.content = content;
     }
 
     /** One compact, SKU-level card. */
-    public record Item(String sku, String name, String size, String colour,
+    public record Item(String sku, String name, String size, String colour, String variantSize,
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
                        String priceLabel, boolean inventoryKnown, Integer stockQuantity,
@@ -86,7 +92,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     public record BrochureFamily(
             String number, String name, String summary, String description, String format,
-            List<String> highlights, String categoryName, String familySize,
+            List<String> highlights, String categoryKey, String categoryName, String familySize,
             String packageLine, String heroImage, String secondImage,
             List<String> gallery, List<BrochureVariant> variants) {}
 
@@ -113,14 +119,22 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /** Package-visible for focused template tests without extracting text from compressed PDFs. */
     String renderHtml(CatalogExportService.Model catalog) {
+        Language language = catalogLanguage(catalog.request().language());
+        if (catalog.request().resolvedStrictLanguage()) {
+            List<String> missing = strictMissing(catalog, language);
+            if (!missing.isEmpty()) {
+                throw new LocalizationIncompleteException(
+                        "Cataloguscopy voor " + language.code() + " is onvolledig", missing);
+            }
+        }
         return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
                 ? brochureHtml(catalog) : simpleHtml(catalog);
     }
 
     private String simpleHtml(CatalogExportService.Model catalog) {
         CatalogExportService.Request request = catalog.request();
-        Language language = Language.of(request.language());
-        Map<String, String> text = DocumentText.of(language);
+        Language language = catalogLanguage(request.language());
+        Map<String, String> copy = content.values(ContentScope.CATALOG, language);
         PhotoResolver photos = new PhotoResolver(700);
 
         Map<Long, List<Item>> byCategory = new LinkedHashMap<>();
@@ -141,34 +155,45 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         for (Category category : ordered) {
             List<Item> items = byCategory.get(category.id());
             if (items.isEmpty()) continue;
-            sections.add(new Section(twoDigits(chapter++), category.name(),
-                    category.description(), chunk(items)));
+            sections.add(new Section(twoDigits(chapter++), category.nameIn(language),
+                    category.descriptionIn(language), chunk(items)));
         }
         if (!uncategorised.isEmpty()) {
             sections.add(new Section(twoDigits(chapter), null, null, chunk(uncategorised)));
         }
 
         CompanyProfile profile = company.get();
-        String title = present(request.title()) ? request.title().trim() : text.get("catalogTitle");
+        String title = present(request.title()) ? request.title().trim()
+                : copy(copy, "catalog.simple.title");
         return simpleTemplate
                 .data("sections", sections)
                 .data("itemCount", catalog.products().size())
-                .data("itemCountLabel", itemCountLabel(catalog.products().size(), language))
+                .data("itemCountLabel", countLabel(catalog.products().size(),
+                        copy(copy, "catalog.simple.item.singular"),
+                        copy(copy, "catalog.simple.item.plural")))
                 .data("title", title)
                 .data("intro", request.intro())
                 .data("todayText", DocumentText.date(LocalDate.now(), language))
                 .data("languageCode", language.code())
-                .data("logo", brand.logoDataUri())
+                .data("logo", editorial.image("logo-gold.png"))
                 .data("company", profile)
-                .data("footerText", profile.footerFor(language))
-                .data("t", text)
+                .data("copy", copy)
                 .render();
     }
 
     private String brochureHtml(CatalogExportService.Model catalog) {
         CatalogExportService.Request request = catalog.request();
-        CatalogExportService.BrochureOptions options = request.resolvedBrochure();
-        Language language = Language.of(request.language());
+        Language language = catalogLanguage(request.language());
+        Map<String, String> copy = content.values(ContentScope.CATALOG, language);
+        CatalogExportService.BrochureOptions requestedOptions = request.resolvedBrochure();
+        CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
+                requestedOptions.includeOverview(), requestedOptions.includeCategoryIntros(),
+                requestedOptions.includeCustomisation(), requestedOptions.includeOrdering(),
+                requestedOptions.includeBackCover(),
+                defaultText(requestedOptions.coverTitle(),
+                        copy(copy, "catalog.brochure.defaulttitle")),
+                defaultText(requestedOptions.coverSubtitle(),
+                        copy(copy, "catalog.brochure.defaultsubtitle")));
         PhotoResolver photos = new PhotoResolver(1_600);
         List<BrochureFamily> allFamilies = new ArrayList<>();
         Map<String, List<BrochureFamily>> byCategory = new LinkedHashMap<>();
@@ -176,7 +201,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
         int index = 1;
         for (CatalogExportService.FamilyGroup group : catalog.families()) {
-            BrochureFamily family = brochureFamily(group, language, request, photos, index++);
+            BrochureFamily family = brochureFamily(
+                    group, language, request, photos, copy, index++);
             allFamilies.add(family);
             String key = categoryKey(group.category(), group.content());
             byCategory.computeIfAbsent(key, ignored -> new ArrayList<>()).add(family);
@@ -187,14 +213,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         int sectionIndex = 1;
         for (Map.Entry<String, List<BrochureFamily>> entry : byCategory.entrySet()) {
             Category category = categoryByKey.get(entry.getKey());
-            String name = category != null && present(category.name())
-                    ? category.name() : entry.getValue().getFirst().categoryName();
-            String description = category != null && present(category.description())
-                    ? category.description() : categoryDescription(name);
+            String name = category != null && present(category.nameIn(language))
+                    ? category.nameIn(language) : entry.getValue().getFirst().categoryName();
+            String description = category == null ? null : category.descriptionIn(language);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
-                    editorial.image(categoryAsset(name)),
-                    countLabel(entry.getValue().size(), "selected product family",
-                            "selected product families"),
+                    editorial.image(categoryAsset(entry.getValue().getFirst().categoryKey())),
+                    countLabel(entry.getValue().size(),
+                            copy(copy, "catalog.common.selectedfamily.singular"),
+                            copy(copy, "catalog.common.selectedfamily.plural")),
                     List.copyOf(entry.getValue())));
         }
 
@@ -207,31 +233,37 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 allFamilies, ComparisonGroup.SOAP_DECORATIVE, 3);
         CompanyProfile profile = company.get();
         String title = present(request.title())
-                ? request.title().trim() : "Wholesale Collection " + LocalDate.now().getYear();
+                ? request.title().trim()
+                : copy(copy, "catalog.brochure.intro.eyebrow") + " "
+                        + LocalDate.now().getYear();
         String intro = present(request.intro()) ? request.intro().trim()
-                : "Long-lasting gifting for counters, flower shops and wholesale buyers - "
-                + "from preserved display roses to domes, flowerboxes and decorative roses.";
+                : copy(copy, "catalog.brochure.defaultintro");
 
         return brochureTemplate
                 .data("title", title)
                 .data("intro", intro)
                 .data("itemCount", catalog.products().size())
                 .data("familyCount", allFamilies.size())
-                .data("familyCountLabel", countLabel(allFamilies.size(), "FAMILY", "FAMILIES"))
+                .data("familyCountLabel", countLabel(allFamilies.size(),
+                        copy(copy, "catalog.common.family.singular"),
+                        copy(copy, "catalog.common.family.plural")))
                 .data("variantCountLabel", countLabel(catalog.products().size(),
-                        "SELECTED VARIANT", "SELECTED VARIANTS"))
+                        copy(copy, "catalog.common.variant.singular"),
+                        copy(copy, "catalog.common.variant.plural")))
                 .data("families", allFamilies)
                 .data("sections", sections)
                 .data("contents", contents)
                 .data("comparisonCounters", comparisonCounters)
                 .data("comparisonDecorative", comparisonDecorative)
                 .data("options", options)
+                .data("copy", copy)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold.png"))
                 .data("coverImage", editorial.image("hero-open-desktop.jpg"))
                 .data("introDisplayImage", editorial.image("counter-bowl-retail.jpg"))
                 .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
                 .data("year", LocalDate.now().getYear())
+                .data("languageCode", language.code())
                 .render();
     }
 
@@ -245,13 +277,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
         return new Item(
                 product.sku(), product.nameIn(language), dimensionLabel(product.dimensions()),
-                product.colourIn(language),
+                product.colourIn(language), product.variantSizeIn(language),
                 product.barcodes() == null ? null : product.barcodes().inner(),
                 product.barcodes() == null ? null : product.barcodes().outer(),
                 product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                 product.carton() == null || product.carton().dimensions() == null
                         ? "" : dimensionLabel(product.carton().dimensions()),
-                request.includePrices() ? priceLabel(product) : null,
+                request.includePrices() ? priceLabel(product, language) : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
                 at(images, 0), at(images, 1), images.size() <= 2
                         ? List.of() : List.copyOf(images.subList(2, images.size())));
@@ -259,7 +291,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private BrochureFamily brochureFamily(
             CatalogExportService.FamilyGroup group, Language language,
-            CatalogExportService.Request request, PhotoResolver photos, int index) {
+            CatalogExportService.Request request, PhotoResolver photos,
+            Map<String, String> copy, int index) {
         Product first = group.variants().getFirst();
         CatalogFamilyReader.Family family = group.content();
         String name = family == null ? first.nameIn(language) : family.nameIn(language);
@@ -268,9 +301,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 : family.descriptionIn(language);
         String format = family == null ? null : family.formatIn(language);
         List<String> highlights = family == null ? List.of() : family.highlightsIn(language);
+        String categoryKey = group.category() == null
+                ? family == null ? "" : defaultText(family.categoryKey(), "")
+                : defaultText(group.category().code(), "");
         String categoryName = group.category() == null
-                ? family == null ? "Collection" : defaultText(family.categoryName(), "Collection")
-                : group.category().name();
+                ? copy(copy, "catalog.common.collection")
+                : group.category().nameIn(language);
 
         int allowed = Math.min(4, request.resolvedPhotosPerProduct());
         List<String> images = new ArrayList<>();
@@ -302,18 +338,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         .thenComparing(Product::id, Comparator.nullsLast(Long::compareTo)))
                 .map(product -> new BrochureVariant(
                         product.sku(), product.nameIn(language), product.colourIn(language),
-                        product.variantSize(), product.colourHex(),
+                        product.variantSizeIn(language), product.colourHex(),
                         dimensionLabel(product.dimensions()),
                         product.carton() == null ? "" : dimensionLabel(product.carton().dimensions()),
                         product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                         defaultText(product.canonicalBarcode(), "-"),
-                        request.includePrices() ? priceLabel(product) : null))
+                        request.includePrices() ? priceLabel(product, language) : null))
                 .toList();
 
         return new BrochureFamily(
                 twoDigits(index), defaultText(name, first.sku()), summary, description, format,
-                highlights, categoryName, familyDimension(family, first),
-                packageLine(family, group.variants()), at(images, 0), at(images, 1),
+                highlights, categoryKey, categoryName, familyDimension(family, first),
+                packageLine(family, group.variants(), copy), at(images, 0), at(images, 1),
                 images.size() <= 2 ? List.of() : List.copyOf(images.subList(2, images.size())),
                 variants);
     }
@@ -340,7 +376,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private static ComparisonGroup comparisonGroup(BrochureFamily family) {
-        String key = (defaultText(family.categoryName(), "") + " "
+        String categoryKey = defaultText(family.categoryKey(), "").toLowerCase(Locale.ROOT);
+        if ("display-roses".equals(categoryKey)) return ComparisonGroup.COUNTER;
+        if ("rose-bears".equals(categoryKey)) return ComparisonGroup.SOAP_DECORATIVE;
+        String key = (categoryKey + " "
                 + defaultText(family.format(), "")).toLowerCase(Locale.ROOT);
         if (key.contains("soap") || key.contains("decorative")
                 || key.contains("foam") || key.contains("zeep")) {
@@ -362,7 +401,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return dimensionLabel(first.dimensions());
     }
 
-    private static String packageLine(CatalogFamilyReader.Family family, List<Product> variants) {
+    private static String packageLine(
+            CatalogFamilyReader.Family family, List<Product> variants,
+            Map<String, String> copy) {
         if (family == null || family.packages().isEmpty()) return "";
         Set<Long> selected = variants.stream().map(Product::id).filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
@@ -381,7 +422,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
         if (item.piecesPerPackage() != null && item.piecesPerPackage() > 0) {
             if (!line.isEmpty()) line.append(" · ");
-            line.append(item.piecesPerPackage()).append(" pcs");
+            line.append(item.piecesPerPackage()).append(' ')
+                    .append(copy(copy, "catalog.common.pieces"));
         }
         return line.toString();
     }
@@ -405,8 +447,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return value != null && value.signum() > 0;
     }
 
-    private String priceLabel(Product product) {
-        return DocumentFormat.eur(product.computedSalesPriceEur());
+    private String priceLabel(Product product, Language language) {
+        java.text.NumberFormat format = java.text.NumberFormat.getCurrencyInstance(language.locale());
+        format.setCurrency(java.util.Currency.getInstance("EUR"));
+        format.setMinimumFractionDigits(2);
+        format.setMaximumFractionDigits(2);
+        return format.format(product.computedSalesPriceEur());
     }
 
     private static List<List<Item>> chunk(List<Item> items) {
@@ -432,17 +478,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return "preserved-roses.jpg";
     }
 
-    private static String categoryDescription(String name) {
-        String key = defaultText(name, "").toLowerCase(Locale.ROOT);
-        if (key.contains("counter") || key.contains("signature")) {
-            return "Turn a small space near the till into an easy last-minute gifting moment.";
-        }
-        if (key.contains("soap") || key.contains("foam") || key.contains("zeep")) {
-            return "Decorative rose gifts with strong shelf presence and easy counter appeal.";
-        }
-        return "Real preserved roses in refined displays, created for lasting impact without water.";
-    }
-
     private static String at(List<String> values, int index) {
         return index < values.size() ? values.get(index) : null;
     }
@@ -451,22 +486,118 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return String.format(Locale.ROOT, "%02d", value);
     }
 
-    private static String itemCountLabel(int count, Language language) {
-        String word = switch (language) {
-            case NL -> count == 1 ? "artikel" : "artikelen";
-            case FR -> count == 1 ? "article" : "articles";
-            case EN -> count == 1 ? "item" : "items";
-            case DE -> "Artikel";
-            case ES -> count == 1 ? "artículo" : "artículos";
-            case PL -> count == 1 ? "artykuł" : "artykuły";
-            case PT -> count == 1 ? "artigo" : "artigos";
-            case TR -> "ürün";
-        };
-        return count + " " + word;
-    }
-
     private static String countLabel(int count, String singular, String plural) {
         return count + " " + (count == 1 ? singular : plural);
+    }
+
+    private List<String> strictMissing(CatalogExportService.Model catalog, Language language) {
+        List<String> missing = new ArrayList<>();
+        boolean brochure = catalog.request().resolvedLayout()
+                == CatalogExportService.Layout.BROCHURE;
+        boolean categoryDescriptionsRendered = !brochure
+                || catalog.request().resolvedBrochure().includeCategoryIntros();
+        content.missingRequired(ContentScope.CATALOG, language).stream()
+                .map(key -> "catalog.copy." + key).forEach(missing::add);
+        Map<String, Category> renderedCategories = new LinkedHashMap<>();
+        for (CatalogExportService.FamilyGroup group : catalog.families()) {
+            Category category = group.category();
+            if (category == null) continue;
+            String key = category.id() == null ? "code:" + category.code() : "id:" + category.id();
+            renderedCategories.putIfAbsent(key, category);
+        }
+        for (Category category : renderedCategories.values()) {
+            requireSource(missing, "categories." + category.code() + ".name",
+                    category.nameResolved(language), language);
+            if (categoryDescriptionsRendered) {
+                requireSource(missing, "categories." + category.code() + ".description",
+                        category.descriptionResolved(language), language);
+            }
+        }
+        for (CatalogExportService.FamilyGroup group : catalog.families()) {
+            CatalogFamilyReader.Family family = group.content();
+            if (brochure && family != null) {
+                String prefix = "families." + family.familyKey();
+                requireSource(missing, prefix + ".name", family.nameResolved(language), language);
+                requireSource(missing, prefix + ".summary", family.summaryResolved(language), language);
+                requireSource(missing, prefix + ".description",
+                        family.descriptionResolved(language), language);
+                if (familyUsesFormat(family)) {
+                    requireSource(missing, prefix + ".format",
+                            family.formatResolved(language), language);
+                }
+                if (familyUsesHighlights(family)) {
+                    LanguageFallback.Resolved<List<String>> highlights =
+                            family.highlightsResolved(language);
+                    if (highlights.value() == null || highlights.value().isEmpty()
+                            || highlights.sourceLanguage() != language) {
+                        missing.add(prefix + ".highlights");
+                    }
+                }
+            }
+            for (Product product : group.variants()) {
+                String prefix = "products." + product.id();
+                if (!brochure || family == null) {
+                    requireSource(missing, prefix + ".name",
+                            product.nameResolved(language), language);
+                }
+                if (catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
+                        && family == null) {
+                    requireSource(missing, prefix + ".description",
+                            product.descriptionResolved(language), language);
+                }
+                if (productUsesColour(product)) {
+                    requireSource(missing, prefix + ".color",
+                            product.colourResolved(language), language);
+                }
+                if (productUsesSize(product)) {
+                    requireSource(missing, prefix + ".size",
+                            product.variantSizeResolved(language), language);
+                }
+            }
+        }
+        return List.copyOf(new LinkedHashSet<>(missing));
+    }
+
+    private static void requireSource(
+            List<String> missing, String path,
+            LanguageFallback.Resolved<String> value, Language requested) {
+        if (!present(value.value()) || value.sourceLanguage() != requested) missing.add(path);
+    }
+
+    private static boolean familyUsesFormat(CatalogFamilyReader.Family family) {
+        return present(family.format()) || family.texts().stream()
+                .anyMatch(text -> present(text.format()));
+    }
+
+    private static boolean familyUsesHighlights(CatalogFamilyReader.Family family) {
+        return !family.highlights().isEmpty() || family.texts().stream()
+                .anyMatch(text -> text.highlights() != null && !text.highlights().isEmpty());
+    }
+
+    private static boolean productUsesColour(Product product) {
+        return present(product.colour()) || product.texts().stream()
+                .anyMatch(text -> present(text.colour()));
+    }
+
+    private static boolean productUsesSize(Product product) {
+        return present(product.variantSize()) || product.texts().stream()
+                .anyMatch(text -> present(text.variantSize()));
+    }
+
+    private static Language catalogLanguage(String code) {
+        try {
+            return Language.requireSupported(code, Language.NL);
+        } catch (IllegalArgumentException exception) {
+            throw new jakarta.ws.rs.BadRequestException(exception.getMessage());
+        }
+    }
+
+    private static String copy(Map<String, String> values, String key) {
+        String value = values.get(key);
+        if (!present(value)) {
+            throw new IllegalStateException("Cataloguscopy ontbreekt: " + key);
+        }
+        return value;
     }
 
     private static String defaultText(String value, String fallback) {

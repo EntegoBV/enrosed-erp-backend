@@ -4,10 +4,12 @@ import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.shared.BusinessRuleException;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
+import java.util.EnumSet;
 
 /**
  * One validation boundary for every path that writes product master data.
@@ -30,6 +32,22 @@ public class ProductValidator {
         }
         if (product.name() == null || product.name().isBlank()) {
             throw new BusinessRuleException("Naam is verplicht");
+        }
+        bounded(product.name(), 255, "Naam");
+        bounded(product.description(), 2_000, "Beschrijving");
+        bounded(product.colour(), 255, "Kleur");
+        bounded(product.variantSize(), 255, "Variantmaat");
+        EnumSet<be.enrosed.shared.Language> languages =
+                EnumSet.noneOf(be.enrosed.shared.Language.class);
+        for (ProductText text : product.texts() == null
+                ? java.util.List.<ProductText>of() : product.texts()) {
+            if (text == null || text.language() == null || !languages.add(text.language())) {
+                throw new BusinessRuleException("Elke producttaal mag exact één keer voorkomen");
+            }
+            bounded(text.name(), 255, "Vertaalde productnaam");
+            bounded(text.description(), 2_000, "Vertaalde productbeschrijving");
+            bounded(text.colour(), 255, "Vertaalde kleur");
+            bounded(text.variantSize(), 255, "Vertaalde variantmaat");
         }
 
         Carton carton = product.carton();
@@ -77,6 +95,12 @@ public class ProductValidator {
         BarcodeValidator.Result result = barcodes.validate(value);
         if (!result.valid()) {
             throw new BusinessRuleException(label + ": " + result.message());
+        }
+    }
+
+    private static void bounded(String value, int max, String label) {
+        if (value != null && value.strip().length() > max) {
+            throw new BusinessRuleException(label + " is langer dan " + max + " tekens");
         }
     }
 }

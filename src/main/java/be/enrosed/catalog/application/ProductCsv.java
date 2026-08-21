@@ -183,6 +183,37 @@ public class ProductCsv {
         return new ImportResult(updated, problems);
     }
 
+    /** Validates workbook master rows without writing any product. */
+    List<String> validateRows(List<List<String>> rows) {
+        List<String> problems = new ArrayList<>();
+        for (int index = 0; index < rows.size(); index++) {
+            int lineNumber = index + 2;
+            List<String> cells = rows.get(index);
+            if (cells == null || cells.stream().allMatch(value -> value == null || value.isBlank())) {
+                continue;
+            }
+            String sku = cell(cells, 0);
+            if (sku == null) {
+                problems.add("Regel " + lineNumber + ": geen SKU");
+                continue;
+            }
+            Product current = products.findBySku(sku).orElse(null);
+            if (current == null) {
+                problems.add("SKU " + sku + " bestaat niet");
+                continue;
+            }
+            try {
+                Product merged = merge(current, cells);
+                validator.validate(merged);
+                validatePublicationFields(merged, current.id());
+            } catch (IllegalArgumentException | BusinessRuleException exception) {
+                problems.add("Regel " + lineNumber + " (" + sku + "): "
+                        + exception.getMessage());
+            }
+        }
+        return List.copyOf(problems);
+    }
+
     /** A filled cell overwrites; an empty one leaves the product untouched. */
     private static Product merge(Product current, List<String> cells) {
         Dimensions size = current.dimensions() == null ? Dimensions.empty() : current.dimensions();

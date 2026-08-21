@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
+import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
 import jakarta.enterprise.context.ApplicationScoped;
 
 public final class CanonicalCatalogDaos {
@@ -18,4 +19,8 @@ public final class CanonicalCatalogDaos {
     @ApplicationScoped public static class Provenance implements PanacheRepository<ProductProvenanceEntity> {}
     @ApplicationScoped public static class ImportBatches implements PanacheRepository<CatalogImportBatchEntity> {}
     @ApplicationScoped public static class ImportConflicts implements PanacheRepository<CatalogImportConflictEntity> {}
+    @ApplicationScoped public static class ContentTranslations implements PanacheRepository<ContentTranslationEntity> {}
+    @ApplicationScoped public static class WebsiteRebuilds implements PanacheRepository<WebsiteRebuildEntity> {}
+    @ApplicationScoped public static class LocalizationBackfills
+            implements PanacheRepositoryBase<CatalogLocalizationBackfillEntity, String> {}
 }

@@ -5,6 +5,7 @@ import be.enrosed.shared.Language;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Public family catalogue projection. It intentionally contains no suppliers,
@@ -13,6 +14,10 @@ import java.util.List;
 public record PublicFamilyCatalogDto(
         CatalogChannel channel,
         Language language,
+        List<Language> fallbackChain,
+        long siteCopyRevision,
+        String catalogRevision,
+        Map<String, LocalizedValueDto> siteCopy,
         List<FamilyDto> families
 ) {
     public record FamilyDto(
@@ -33,7 +38,8 @@ public record PublicFamilyCatalogDto(
             DimensionsDto dimensions,
             List<PackageDto> packages,
             List<ImageDto> images,
-            List<VariantDto> variants
+            List<VariantDto> variants,
+            Map<String, Language> textSources
     ) {}
 
     public record CategoryDto(
@@ -43,7 +49,10 @@ public record PublicFamilyCatalogDto(
             String eyebrow,
             String description,
             String mobileName,
-            Long featuredProductId
+            String navigationName,
+            String footerName,
+            Long featuredProductId,
+            Map<String, Language> textSources
     ) {}
 
     public record SeoDto(String title, String description) {}
@@ -79,7 +88,8 @@ public record PublicFamilyCatalogDto(
             int position,
             Long variantProductId,
             String variantExternalId,
-            String variantColor
+            String variantColor,
+            Map<String, Language> textSources
     ) {}
 
     public record VariantDto(
@@ -93,7 +103,8 @@ public record PublicFamilyCatalogDto(
             int position,
             Object availability,
             Long primaryImageId,
-            PublicPriceDto publicPrice
+            PublicPriceDto publicPrice,
+            Map<String, Language> textSources
     ) {}
 
     public record PublicPriceDto(

@@ -1,5 +1,7 @@
 package be.enrosed.shared;
 
+import java.io.IOException;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -66,6 +68,61 @@ public final class Csv {
         }
         cells.add(current.toString());
         return cells;
+    }
+
+    /** Parses a complete CSV stream, including quoted cells that contain physical line breaks. */
+    public static List<List<String>> parseRows(Reader reader) throws IOException {
+        StringBuilder document = new StringBuilder();
+        char[] buffer = new char[4096];
+        int read;
+        while ((read = reader.read(buffer)) >= 0) document.append(buffer, 0, read);
+
+        List<List<String>> rows = new ArrayList<>();
+        List<String> cells = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int index = 0; index < document.length(); index++) {
+            char character = document.charAt(index);
+            if (inQuotes) {
+                if (character == '"') {
+                    if (index + 1 < document.length() && document.charAt(index + 1) == '"') {
+                        current.append('"');
+                        index++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    current.append(character);
+                }
+                continue;
+            }
+            if (character == '"') {
+                inQuotes = true;
+            } else if (character == SEPARATOR) {
+                cells.add(current.toString());
+                current.setLength(0);
+            } else if (character == '\n' || character == '\r') {
+                if (character == '\r' && index + 1 < document.length()
+                        && document.charAt(index + 1) == '\n') index++;
+                cells.add(current.toString());
+                current.setLength(0);
+                if (!(cells.size() == 1 && cells.getFirst().isEmpty())) rows.add(List.copyOf(cells));
+                cells.clear();
+            } else {
+                current.append(character);
+            }
+        }
+        if (inQuotes) throw new IllegalArgumentException("CSV bevat een niet-afgesloten quote");
+        if (!cells.isEmpty() || !current.isEmpty()) {
+            cells.add(current.toString());
+            rows.add(List.copyOf(cells));
+        }
+        if (!rows.isEmpty() && !rows.getFirst().isEmpty()) {
+            List<String> header = new ArrayList<>(rows.getFirst());
+            header.set(0, stripBom(header.getFirst()));
+            rows.set(0, List.copyOf(header));
+        }
+        return List.copyOf(rows);
     }
 
     /** Strips the BOM a round trip through Excel may have kept. */

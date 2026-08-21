@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
 public class CatalogExportServiceTest {
 
     @Test
-    void omittedBuilderFieldsKeepTheCompactDefaults() {
+    void omittedBuilderFieldsKeepLayoutDefaultsAndLeaveCopyToTheContentStore() {
         CatalogExportService.Request request = new CatalogExportService.Request(
                 null, false, true, null, null, null, null);
 
@@ -36,7 +36,7 @@ public class CatalogExportServiceTest {
         assertEquals(4, request.resolvedPhotosPerProduct());
         assertTrue(request.resolvedBrochure().includeOverview());
         assertTrue(request.resolvedBrochure().includeCategoryIntros());
-        assertEquals("Preserved roses,", request.resolvedBrochure().coverTitle());
+        assertEquals(null, request.resolvedBrochure().coverTitle());
     }
 
     @Test

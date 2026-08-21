@@ -47,7 +47,7 @@ public record ProductDto(
         BigDecimal fixedSalesPriceEur,
         Integer stockQuantity,
         List<PhotoDto> photos,
-        /** Name, description and colour per language; the rest stays universal. */
+        /** Name, description, colour and merchandising size per language. */
         List<TextDto> texts,
         /* derived, outbound only */
         List<String> publicationIssues,
@@ -64,7 +64,13 @@ public record ProductDto(
     public record CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
                             Integer piecesPerCarton, BigDecimal weightKg) {}
 
-    public record TextDto(Language language, String name, String description, String colour) {}
+    public record TextDto(
+            Language language, String name, String description, String colour, String variantSize) {
+        /** Backward-compatible request/source shape. */
+        public TextDto(Language language, String name, String description, String colour) {
+            this(language, name, description, colour, null);
+        }
+    }
 
     public enum PhotoOrigin { PRODUCT, FAMILY }
 
@@ -90,7 +96,8 @@ public record ProductDto(
                 .toList();
 
         List<TextDto> texts = product.texts().stream()
-                .map(text -> new TextDto(text.language(), text.name(), text.description(), text.colour()))
+                .map(text -> new TextDto(text.language(), text.name(), text.description(),
+                        text.colour(), text.variantSize()))
                 .toList();
 
         return new ProductDto(
@@ -141,7 +148,7 @@ public record ProductDto(
                 texts == null ? List.of() : texts.stream()
                         .filter(text -> text != null && text.language() != null)
                         .map(text -> new ProductText(text.language(), text.name(),
-                                text.description(), text.colour()))
+                                text.description(), text.colour(), text.variantSize()))
                         .toList());
     }
 

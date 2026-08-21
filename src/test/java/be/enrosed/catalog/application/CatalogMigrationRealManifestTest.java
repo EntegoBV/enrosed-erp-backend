@@ -11,6 +11,9 @@ import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogResource;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryTextEntity;
+import be.enrosed.shared.Language;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities;
@@ -59,6 +62,7 @@ class CatalogMigrationRealManifestTest {
     @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
     @Inject FamilyPhotoVariantResolver familyPhotoVariants;
     @Inject PublicFamilyCatalogResource publicCatalog;
+    @Inject CatalogContentBackfillService catalogContentBackfill;
 
     @Test
     void generatedManifestPassesExactBackendContract() throws Exception {
@@ -92,8 +96,20 @@ class CatalogMigrationRealManifestTest {
         assertEquals(1L, result.clearedRows().get("customer"));
         assertEquals(1L, result.clearedRows().get("product"));
         assertEquals(1L, result.clearedRows().get("company_profile"));
+        assertEquals(1L, result.clearedRows().get("category_text"));
+        assertTrue(result.clearedRows().get("content_translation") >= 528);
+        assertTrue(result.clearedRows().get("content_translation_text") >= 4224);
         assertEquals(0, suppliers.count());
         assertEquals(58, productRows.count());
+        CatalogContentBackfillService.Result localized = catalogContentBackfill.apply();
+        assertEquals(3, localized.matchedCategories());
+        assertEquals(24, localized.matchedFamilies());
+        assertEquals(58, localized.matchedVariants());
+        assertEquals(80, localized.matchedImages());
+        assertEquals(528L, tableCount("content_translation"));
+        assertEquals(4224L, tableCount("content_translation_text"));
+        assertEquals(24L, tableCount("category_text"));
+        assertEquals(1L, tableCount("catalog_localization_backfill"));
         for (ProductEntity variant : productRows.listAll()) {
             if (variant.familyId == null) continue;
             var family = families.findById(variant.familyId);
@@ -229,8 +245,20 @@ class CatalogMigrationRealManifestTest {
         String publicJson = json.writeValueAsString(publicDto);
         assertFalse(publicJson.contains("provenance"));
         assertFalse(publicJson.contains("priceObservations"));
-        assertFalse(publicJson.contains("supplier"));
-        assertFalse(publicJson.contains("sourceUrl"));
+        assertFalse(publicJson.contains("\"supplier\":"));
+        assertFalse(publicJson.contains("\"sourceUrl\":"));
+
+        for (be.enrosed.shared.Language language : be.enrosed.shared.Language.values()) {
+            Response strictResponse = publicCatalog.catalog(
+                    CatalogChannel.WEBSITE, language.code(), true, uriInfo);
+            assertEquals(200, strictResponse.getStatus(), language.code());
+            PublicFamilyCatalogDto strict = (PublicFamilyCatalogDto) strictResponse.getEntity();
+            assertEquals(19, strict.families().size(), language.code());
+            assertEquals(47, strict.families().stream()
+                    .mapToInt(family -> family.variants().size()).sum(), language.code());
+            assertEquals(80, strict.families().stream()
+                    .mapToInt(family -> family.images().size()).sum(), language.code());
+        }
 
         var editableGallery = families.listAll().stream()
                 .filter(family -> family.photos.size() > 1)
@@ -298,10 +326,28 @@ class CatalogMigrationRealManifestTest {
                 "first real stock movement must confirm previously unknown inventory");
         assertEquals(7, receivedInventory.stockQuantity());
 
+        SourcingEntities.SupplierEntity laterSupplier = new SourcingEntities.SupplierEntity();
+        laterSupplier.name = "Added after the first canonical import";
+        entityManager.persist(laterSupplier);
+        entityManager.flush();
+
         CatalogMigrationResult second = migration.apply(request, parsed.verifiedPayloadSha256());
-        assertTrue(second.idempotent());
+        assertFalse(second.idempotent(),
+                "an explicitly confirmed full reset must never short-circuit on an APPLIED batch");
+        assertTrue(second.fullReset());
+        assertEquals(1L, second.clearedRows().get("supplier"));
+        assertEquals(0, suppliers.count());
         assertEquals(58, productRows.count());
-        assertTrue(second.clearedRows().isEmpty());
+        assertEquals(528L, tableCount("content_translation"));
+        assertEquals(4224L, tableCount("content_translation_text"));
+
+        CatalogMigrationApplyRequest ordinaryRepeat = new CatalogMigrationApplyRequest(
+                parsed.manifest(), false, false, false, null);
+        CatalogMigrationResult third = migration.apply(
+                ordinaryRepeat, parsed.verifiedPayloadSha256());
+        assertTrue(third.idempotent(),
+                "ordinary non-reset retries retain the idempotent import contract");
+        assertTrue(third.clearedRows().isEmpty());
     }
 
     @Test
@@ -380,7 +426,22 @@ class CatalogMigrationRealManifestTest {
         CompanyProfileEntity company = new CompanyProfileEntity();
         company.name = "Old company settings";
         entityManager.persist(company);
+
+        CategoryEntity category = new CategoryEntity();
+        category.code = "OLD-CATEGORY";
+        category.name = "Old category";
+        CategoryTextEntity categoryText = new CategoryTextEntity();
+        categoryText.category = category;
+        categoryText.language = Language.EN;
+        categoryText.name = "Old category";
+        category.texts.add(categoryText);
+        entityManager.persist(category);
         entityManager.flush();
+    }
+
+    private long tableCount(String table) {
+        return ((Number) entityManager.createNativeQuery("select count(*) from " + table)
+                .getSingleResult()).longValue();
     }
 
     private static void assertDecimal(String expected, BigDecimal actual) {

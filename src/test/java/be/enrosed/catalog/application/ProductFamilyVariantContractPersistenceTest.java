@@ -3,15 +3,19 @@ package be.enrosed.catalog.application;
 import be.enrosed.catalog.adapter.in.rest.ProductDto;
 import be.enrosed.catalog.adapter.in.rest.CanonicalCatalogManifest;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
+import be.enrosed.catalog.adapter.in.rest.ProductFamilyResource;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogDto;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogResource;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductPackageEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.CatalogChannel;
@@ -23,6 +27,8 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.LanguageFallback;
+import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.Currency;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.test.TestTransaction;
@@ -54,6 +60,10 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject FeaturedProductSelectionService featuredProducts;
     @Inject CategoryService categoryService;
     @Inject ProductService productService;
+    @Inject WebsiteCatalogRevisionService catalogRevisions;
+    @Inject PublicProductTranslationsService publicTranslations;
+    @Inject ProductFamilyResource familyResource;
+    @Inject CatalogContentBackfillService catalogBackfill;
     @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
     @Inject PublishedFamilyGalleryGuard galleryGuard;
     @Inject FamilyMemberCacheService familyMemberCache;
@@ -76,6 +86,43 @@ class ProductFamilyVariantContractPersistenceTest {
         assertTrue(manifest.families().stream().flatMap(family -> family.collections().stream())
                 .allMatch(collection -> collection.mobileName() == null
                         && collection.featuredCanonicalVariantKey() == null));
+    }
+
+    @Test
+    @TestTransaction
+    void versionedBackfillLeavesLaterManualVariantsAndImagesUntouched() {
+        ProductFamilyEntity family = family("rose-diamonds-within-display");
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity manual = product(
+                family, "SKU-MANUAL-AUBERGINE", "manual-aubergine", "Aubergine",
+                "Bespoke", null, 99);
+        manual.texts.clear();
+        ProductTextEntity french = new ProductTextEntity();
+        french.product = manual;
+        french.language = Language.FR;
+        french.name = "Variante manuelle";
+        french.colour = "Aubergine personnalisée";
+        french.variantSize = "Sur mesure";
+        manual.texts.add(french);
+        entityManager.persist(manual);
+        ProductFamilyPhotoEntity image = photo(family, "manual-new-image", 99);
+        image.variantProduct = manual;
+        image.variantColor = "Aubergine";
+        image.altTextsJson = "[{\"language\":\"FR\",\"alt\":\"Photo manuelle\"}]";
+        entityManager.persist(image);
+        entityManager.flush();
+
+        CatalogContentBackfillService.Result result = catalogBackfill.apply();
+
+        assertEquals(1, result.matchedFamilies());
+        assertEquals(0, result.matchedVariants());
+        assertEquals(0, result.matchedImages());
+        assertNull(manual.colourHex);
+        assertEquals("Aubergine personnalisée", french.colour);
+        assertEquals("Sur mesure", french.variantSize);
+        assertEquals("[{\"language\":\"FR\",\"alt\":\"Photo manuelle\"}]",
+                image.altTextsJson);
     }
 
     @Test
@@ -189,6 +236,7 @@ class ProductFamilyVariantContractPersistenceTest {
         ProductEntity small = product(family, "SKU-RED-S", "red-small", "Rood", "Small", "#A91F32", 0);
         text(small, Language.EN, "English small rose", "Red");
         text(small, Language.NL, "Nederlandse kleine roos", "Rood vertaald");
+        small.texts.removeIf(item -> item.language == Language.FR);
         ProductEntity large = product(family, "SKU-RED-L", "red-large", "Rood", "Large", "#A91F32", 1);
         ProductEntity inactive = product(
                 family, "SKU-PRIVATE", "private-key", "Navy", null, "#243253", 2);
@@ -248,6 +296,7 @@ class ProductFamilyVariantContractPersistenceTest {
         assertEquals("Red", englishSmall.color());
         assertEquals("English small rose", englishSmall.name());
         assertEquals("Small", englishSmall.size());
+        assertEquals(Language.EN, englishSmall.textSources().get("size"));
         assertEquals("#A91F32", englishSmall.colorHex());
         assertEquals(specific.id, englishSmall.primaryImageId(),
                 "stable product id must beat gallery position and stale colour text");
@@ -263,6 +312,8 @@ class ProductFamilyVariantContractPersistenceTest {
                 publicFamily("NL", family.publicHandle), small.id);
         assertEquals("Rood vertaald", dutch.color());
         assertEquals("Nederlandse kleine roos", dutch.name());
+        assertEquals("Klein", dutch.size());
+        assertEquals(Language.NL, dutch.textSources().get("size"));
 
         PublicFamilyCatalogDto.VariantDto frenchFallback = variant(
                 publicFamily("FR", family.publicHandle), small.id);
@@ -310,6 +361,8 @@ class ProductFamilyVariantContractPersistenceTest {
         category.name = "Signature";
         category.description = "Signature category description";
         category.eyebrow = "Signature";
+        category.mobileName = "Signature displays";
+        addCategoryTexts(category);
         entityManager.persist(category);
         ProductCollectionEntity collection = new ProductCollectionEntity();
         collection.collectionKey = category.code;
@@ -323,6 +376,7 @@ class ProductFamilyVariantContractPersistenceTest {
         family.description = "Featured family description";
         family.seoTitle = "Featured family SEO title";
         family.seoDescription = "Featured family SEO description";
+        addFamilyTexts(family);
         family.categoryId = category.id;
         family.categoryKey = category.code;
         family.categoryName = category.name;
@@ -386,9 +440,11 @@ class ProductFamilyVariantContractPersistenceTest {
                 () -> featuredProducts.requireCollectionMember(collection, outsider.id));
 
         family.cardFeaturedProductId = selected.id;
+        Category currentCategory = categoryService.get(category.id);
         Category updated = categoryService.update(category.id, new Category(
                 category.id, category.code, category.name, category.description, "Signature", 0,
-                "Signature displays", selected.id));
+                "Signature displays", null, null, selected.id,
+                currentCategory.texts(), currentCategory.revision()));
         assertEquals("Signature displays", updated.mobileName());
         assertEquals(selected.id, updated.featuredProductId());
         assertEquals("Signature displays", collection.mobileName);
@@ -684,7 +740,7 @@ class ProductFamilyVariantContractPersistenceTest {
         entityManager.flush();
 
         Product duplicate = productService.duplicate(
-                source.id, "Navy", "#243253", null);
+                source.id, null, null, "Large");
         assertEquals(3, duplicate.variantPosition());
         Product created = productService.create(domainProduct(
                 sourceFamily, "SKU-POS-NEW", "Light Blue", null, "#9CC5DE", 0));
@@ -715,6 +771,257 @@ class ProductFamilyVariantContractPersistenceTest {
                     .map(PublicFamilyCatalogDto.VariantDto::position).toList();
             assertEquals(positions.size(), Set.copyOf(positions).size());
         }
+    }
+
+    @Test
+    @TestTransaction
+    void strictPublicCatalogRequiresExactCategoryNavigationAndNonblankFamilyCopy() {
+        FamilyContext context = completeFamilyContext("strict-language-contract");
+        context.category.navigationName = "Displays";
+        context.category.footerName = "Signature displays";
+        context.category.texts.forEach(text -> {
+            text.navigationName = text.language == Language.EN
+                    ? "Displays" : "Displays " + text.language.code();
+            text.footerName = text.language == Language.EN
+                    ? "Signature displays" : "Footer " + text.language.code();
+        });
+        ProductEntity variant = product(
+                context.family, "SKU-STRICT-LANGUAGE", "strict-language",
+                "Red", null, "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        Response response = publicFamilies.catalog(
+                CatalogChannel.WEBSITE, "EN", true, null);
+        PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
+        PublicFamilyCatalogDto.FamilyDto projected = catalog.families().stream()
+                .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
+                .findFirst().orElseThrow();
+        assertEquals("Displays", projected.category().navigationName());
+        assertEquals(Language.EN,
+                projected.category().textSources().get("navigationName"));
+        assertEquals("Signature displays", projected.category().footerName());
+        assertEquals(Language.EN, projected.category().textSources().get("footerName"));
+
+        context.family.description = null;
+        context.family.texts.stream()
+                .filter(text -> text.language == Language.EN || text.language == Language.NL)
+                .forEach(text -> text.description = null);
+        context.category.texts.stream().filter(text -> text.language == Language.EN)
+                .forEach(text -> {
+                    text.navigationName = null;
+                    text.footerName = null;
+                });
+        LocalizationIncompleteException error = assertThrows(
+                LocalizationIncompleteException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "EN", true, null));
+        String prefix = "families." + context.family.publicHandle;
+        assertTrue(error.missingPaths().contains(prefix + ".description"));
+        assertTrue(error.missingPaths().contains(prefix + ".category.navigationName"));
+        assertTrue(error.missingPaths().contains(prefix + ".category.footerName"));
+        assertEquals(error.missingPaths().size(), Set.copyOf(error.missingPaths()).size(),
+                "strict missing paths must be unique and deterministically ordered");
+    }
+
+    @Test
+    @TestTransaction
+    void strictPublicCatalogServesEverySupportedLocaleAndFallbackIsExplicit() {
+        FamilyContext context = completeFamilyContext("strict-eight-locale-contract");
+        ProductEntity variant = product(
+                context.family, "SKU-STRICT-EIGHT", "strict-eight",
+                "Red", "Small", "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        String catalogRevision = null;
+        for (Language language : Language.values()) {
+            Response response = publicFamilies.catalog(
+                    CatalogChannel.WEBSITE, language.code(), true, null);
+            assertEquals(200, response.getStatus(), language.code());
+            PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
+            if (catalogRevision == null) catalogRevision = catalog.catalogRevision();
+            else assertEquals(catalogRevision, catalog.catalogRevision(),
+                    "all locale snapshots must publish one rebuild revision");
+            assertEquals(language, catalog.language());
+            assertEquals(LanguageFallback.chain(language), catalog.fallbackChain());
+            PublicFamilyCatalogDto.FamilyDto projected = catalog.families().stream()
+                    .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
+                    .findFirst().orElseThrow();
+            assertEquals(language, projected.textSources().get("name"));
+            assertEquals(language, projected.variants().getFirst().textSources().get("name"));
+            assertEquals(language,
+                    projected.images().getFirst().textSources().get("alt"));
+        }
+
+        context.family.texts.removeIf(text -> text.language == Language.FR);
+        entityManager.flush();
+        PublicFamilyCatalogDto fallback = (PublicFamilyCatalogDto) publicFamilies.catalog(
+                CatalogChannel.WEBSITE, "fr", false, null).getEntity();
+        PublicFamilyCatalogDto.FamilyDto projected = fallback.families().stream()
+                .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
+                .findFirst().orElseThrow();
+        assertEquals(Language.EN, projected.textSources().get("name"));
+        assertThrows(jakarta.ws.rs.BadRequestException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "xx", true, null));
+    }
+
+    @Test
+    @TestTransaction
+    void strictPublicCatalogRejectsAPublishedFamilyThatCannotBeProjected() {
+        ProductFamilyEntity invalid = family("strict-projection-hole");
+        entityManager.persist(invalid);
+        entityManager.flush();
+
+        LocalizationIncompleteException error = assertThrows(
+                LocalizationIncompleteException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "EN", true, null));
+        assertEquals(List.of("families.strict-projection-hole.publicProjection"),
+                error.missingPaths());
+
+        PublicFamilyCatalogDto nonStrict = (PublicFamilyCatalogDto) publicFamilies.catalog(
+                CatalogChannel.WEBSITE, "EN", false, null).getEntity();
+        assertTrue(nonStrict.families().stream().noneMatch(item ->
+                "strict-projection-hole".equals(item.publicHandle())));
+    }
+
+    @Test
+    @TestTransaction
+    void strictPublicCatalogRejectsAPublishedFamilyWithoutACategoryProjection() {
+        FamilyContext context = completeFamilyContext("strict-category-hole");
+        ProductEntity variant = product(
+                context.family, "SKU-STRICT-CATEGORY", "strict-category",
+                "Red", null, "#A91F32", 0);
+        entityManager.persist(variant);
+        context.family.categoryId = null;
+        context.family.categoryKey = null;
+        context.family.categoryName = null;
+        entityManager.flush();
+
+        LocalizationIncompleteException error = assertThrows(
+                LocalizationIncompleteException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "EN", true, null));
+
+        assertTrue(error.missingPaths().contains(
+                "families.strict-category-hole.category"));
+    }
+
+    @Test
+    @TestTransaction
+    void bulkTranslationReplacementCannotMakeAPublishedFamilyIncomplete() {
+        FamilyContext context = completeFamilyContext("bulk-translation-guard");
+        ProductEntity variant = product(
+                context.family, "SKU-BULK-GUARD", "bulk-translation-guard-red",
+                "Red", null, "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        List<ProductDto.TextDto> incomplete = List.of(new ProductDto.TextDto(
+                Language.EN, "English only", null, "Red", null));
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class,
+                () -> publicTranslations.replaceProductTexts(
+                        java.util.Map.of(variant.id, incomplete)));
+        assertTrue(error.getMessage().contains("Publicatiecopy"), error.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void staleGeneralFamilyPutCannotOverwriteAtomicFamilyTranslations() {
+        ProductFamilyEntity family = family("legacy-family-put-copy-owner");
+        ProductFamilyTextEntity approved = new ProductFamilyTextEntity();
+        approved.family = family;
+        approved.language = Language.FR;
+        approved.name = "Copie approuvée";
+        approved.description = "Description approuvée";
+        approved.highlightsJson = "[]";
+        family.texts.add(approved);
+        entityManager.persist(family);
+        entityManager.flush();
+
+        ProductFamilyDto stale = familyResource.get(family.id).withTexts(List.of(
+                new ProductFamilyDto.TextDto(Language.FR, "Ancien brouillon", null,
+                        "Ancienne description", null, List.of(), null, null)));
+        familyResource.update(family.id, stale);
+        entityManager.flush();
+
+        ProductFamilyTextEntity stored = entityManager.find(
+                ProductFamilyEntity.class, family.id).texts.stream()
+                .filter(text -> text.language == Language.FR).findFirst().orElseThrow();
+        assertEquals("Copie approuvée", stored.name);
+        assertEquals("Description approuvée", stored.description);
+    }
+
+    @Test
+    @TestTransaction
+    void familyCreateRejectsTranslationValuesBeyondDatabaseBoundsBeforePersisting() {
+        ProductFamilyEntity source = family("family-create-copy-bounds-source");
+        entityManager.persist(source);
+        entityManager.flush();
+        long before = entityManager.createQuery(
+                "select count(item) from ProductFamilyEntity item", Long.class).getSingleResult();
+        ProductFamilyDto base = familyResource.get(source.id);
+
+        assertThrows(BusinessRuleException.class, () -> familyResource.create(base.withTexts(List.of(
+                new ProductFamilyDto.TextDto(Language.EN, "x".repeat(256), null,
+                        null, null, List.of(), null, null)))));
+        assertThrows(BusinessRuleException.class, () -> familyResource.create(base.withTexts(List.of(
+                new ProductFamilyDto.TextDto(Language.EN, "Name", "s".repeat(2_001),
+                        null, null, List.of(), null, null)))));
+        assertThrows(BusinessRuleException.class, () -> familyResource.create(base.withTexts(List.of(
+                new ProductFamilyDto.TextDto(Language.EN, "Name", null,
+                        "d".repeat(10_001), null, List.of(), null, null)))));
+        assertThrows(BusinessRuleException.class, () -> familyResource.create(base.withTexts(List.of(
+                new ProductFamilyDto.TextDto(Language.EN, "Name", null,
+                        null, null, List.of("h".repeat(1_001)), null, null)))));
+
+        assertEquals(before, entityManager.createQuery(
+                "select count(item) from ProductFamilyEntity item", Long.class).getSingleResult());
+    }
+
+    @Test
+    @TestTransaction
+    void websiteRevisionTracksPublicPackageAndCollectionFeaturedPayloads() {
+        FamilyContext context = completeFamilyContext("revision-public-payload");
+        ProductEntity variant = product(
+                context.family, "SKU-REVISION-PUBLIC", "revision-public",
+                "Red", null, "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+
+        ProductPackageEntity pack = new ProductPackageEntity();
+        pack.family = context.family;
+        pack.sourceKey = "revision-pack";
+        pack.packageType = "CARTON";
+        pack.position = 0;
+        pack.lengthValue = new BigDecimal("20");
+        pack.widthValue = new BigDecimal("15");
+        pack.heightValue = new BigDecimal("10");
+        pack.dimensionUnit = "cm";
+        pack.piecesPerPackage = 6;
+        pack.operational = true;
+        context.family.packages.add(pack);
+        entityManager.persist(pack);
+        entityManager.flush();
+
+        String initial = catalogRevisions.currentRevision();
+        pack.sourceLocation = "internal-only-audit-location";
+        entityManager.flush();
+        assertEquals(initial, catalogRevisions.currentRevision(),
+                "non-public package audit metadata must not alter the public digest");
+
+        pack.piecesPerPackage = 12;
+        entityManager.flush();
+        String packageChanged = catalogRevisions.currentRevision();
+        assertTrue(!initial.equals(packageChanged));
+
+        ProductFamilyCollectionEntity primary = context.family.collections.stream()
+                .filter(item -> item.primaryCollection).findFirst().orElseThrow();
+        primary.collection.featuredProductId = variant.id;
+        entityManager.flush();
+        assertTrue(!packageChanged.equals(catalogRevisions.currentRevision()));
     }
 
     @Test
@@ -937,7 +1244,10 @@ class ProductFamilyVariantContractPersistenceTest {
         Category renamed = categoryService.update(created.id(), new Category(
                 created.id(), "SIGNATURE DISPLAYS", "Signature displays",
                 "Updated public category description", "Updated signature", 2,
-                "Signature mobile", null));
+                "Signature mobile", null, null, null,
+                categoryTexts("Signature displays", "Updated public category description",
+                        "Updated signature", "Signature mobile", null),
+                created.revision()));
         assertEquals("SIGNATURE DISPLAYS", renamed.code(),
                 "administrator-owned codes retain their original casing");
         entityManager.flush();
@@ -1015,10 +1325,58 @@ class ProductFamilyVariantContractPersistenceTest {
 
         Category cleared = categoryService.update(created.id(), new Category(
                 created.id(), created.code(), created.name(), created.description(),
-                null, created.position(), created.mobileName(), null));
+                null, created.position(), created.mobileName(), null, null,
+                created.featuredProductId(), created.texts(), created.revision()));
         assertNull(cleared.eyebrow());
         assertNull(collection.eyebrow,
                 "full category PUT must persist an explicit nullable eyebrow clear");
+    }
+
+    @Test
+    @TestTransaction
+    void categoryTranslationsRejectAStaleOptimisticRevision() {
+        Category created = categoryService.create(new Category(
+                null, "REVISION CATEGORY", "Revision category", "Initial",
+                null, 0, null, null, null, null,
+                List.of(new be.enrosed.catalog.domain.CategoryText(
+                        Language.FR, "Catégorie", "Initiale", null,
+                        "Catégorie mobile", "Navigation initiale", "Pied de page")), null));
+        assertEquals(0L, created.revision());
+        Category first = categoryService.update(created.id(), new Category(
+                created.id(), created.code(), created.name(), created.description(),
+                created.eyebrow(), created.position(), created.mobileName(),
+                created.navigationName(), created.footerName(), created.featuredProductId(),
+                List.of(new be.enrosed.catalog.domain.CategoryText(
+                        Language.FR, "Catégorie", "Initiale", null,
+                        "Catégorie mobile", "Navigation publiée", "Pied de page")),
+                created.revision()));
+        assertTrue(first.revision() > created.revision());
+
+        BusinessRuleException stale = assertThrows(BusinessRuleException.class,
+                () -> categoryService.update(created.id(), new Category(
+                        created.id(), created.code(), created.name(), created.description(),
+                        created.eyebrow(), created.position(), created.mobileName(),
+                        created.navigationName(), created.footerName(),
+                        created.featuredProductId(), List.of(
+                                new be.enrosed.catalog.domain.CategoryText(
+                                        Language.FR, "Catégorie", "Initiale", null,
+                                        "Catégorie mobile", "Écrasement obsolète",
+                                        "Pied de page")), created.revision())));
+        assertTrue(stale.getMessage().contains("herlaad"));
+        assertEquals("Navigation publiée", categoryService.get(created.id()).texts().stream()
+                .filter(text -> text.language() == Language.FR).findFirst().orElseThrow()
+                .navigationName());
+    }
+
+    @Test
+    void categoryRevisionColumnHasAZeroDefaultForOnlineSchemaUpdates() {
+        Object[] column = (Object[]) entityManager.createNativeQuery("""
+                select column_default, is_nullable
+                from information_schema.columns
+                where table_name = 'CATEGORY' and column_name = 'REVISION'
+                """).getSingleResult();
+        assertTrue(String.valueOf(column[0]).contains("0"));
+        assertEquals("NO", String.valueOf(column[1]));
     }
 
     @Test
@@ -1143,6 +1501,7 @@ class ProductFamilyVariantContractPersistenceTest {
         family.websiteStatus = PublicationState.PUBLISHED;
         family.orderAppStatus = PublicationState.DRAFT;
         family.catalogueStatus = PublicationState.DRAFT;
+        addFamilyTexts(family);
         return family;
     }
 
@@ -1160,6 +1519,8 @@ class ProductFamilyVariantContractPersistenceTest {
         family.productPosition = productPosition;
         family.seoTitle = "Public SEO title";
         family.seoDescription = "Public SEO description";
+        addFamilyTexts(family);
+        addCategoryTexts(category);
         ProductFamilyCollectionEntity membership = new ProductFamilyCollectionEntity();
         membership.family = family;
         membership.collection = collection;
@@ -1203,7 +1564,12 @@ class ProductFamilyVariantContractPersistenceTest {
                         1, BigDecimal.ONE),
                 BigDecimal.ONE, Currency.USD, BigDecimal.ZERO,
                 null, null, new BigDecimal("25"), BigDecimal.TEN,
-                0, List.of(), List.of());
+                0, List.of(), java.util.Arrays.stream(Language.values())
+                        .map(language -> new be.enrosed.catalog.domain.ProductText(
+                                language, "Internal " + sku + " " + language.code(),
+                                "Internal description " + sku + " " + language.code(),
+                                colour == null ? null : colour + " " + language.code()))
+                        .toList());
     }
 
     private static CategoryEntity category(String code, int position) {
@@ -1212,6 +1578,7 @@ class ProductFamilyVariantContractPersistenceTest {
         category.name = code + " name";
         category.description = "Category description";
         category.position = position;
+        addCategoryTexts(category);
         return category;
     }
 
@@ -1248,6 +1615,10 @@ class ProductFamilyVariantContractPersistenceTest {
         product.cartonWidthCm = BigDecimal.ONE;
         product.cartonHeightCm = BigDecimal.ONE;
         product.fixedSalesPriceEur = BigDecimal.TEN;
+        for (Language language : Language.values()) {
+            text(product, language, "Variant " + language.code(),
+                    colour == null ? null : colour + " " + language.code());
+        }
         return product;
     }
 
@@ -1297,12 +1668,18 @@ class ProductFamilyVariantContractPersistenceTest {
 
     private static void text(
             ProductEntity product, Language language, String name, String colour) {
-        ProductTextEntity text = new ProductTextEntity();
-        text.product = product;
-        text.language = language;
+        ProductTextEntity text = product.texts.stream()
+                .filter(existing -> existing.language == language).findFirst().orElse(null);
+        if (text == null) {
+            text = new ProductTextEntity();
+            text.product = product;
+            text.language = language;
+            product.texts.add(text);
+        }
         text.name = name;
         text.colour = colour;
-        product.texts.add(text);
+        text.variantSize = be.enrosed.shared.VariantSizes.translate(
+                product.variantSize, language);
     }
 
     private static ProductFamilyPhotoEntity photo(
@@ -1319,8 +1696,56 @@ class ProductFamilyVariantContractPersistenceTest {
         photo.largeWidthPx = 1200;
         photo.largeHeightPx = 1200;
         photo.position = position;
-        photo.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Ready image\"}]";
+        photo.altTextsJson = allAlts("Ready image");
         family.photos.add(photo);
         return photo;
+    }
+
+    private static void addFamilyTexts(ProductFamilyEntity family) {
+        if (!family.texts.isEmpty()) return;
+        for (Language language : Language.values()) {
+            ProductFamilyTextEntity text = new ProductFamilyTextEntity();
+            text.family = family;
+            text.language = language;
+            text.name = "Family " + language.code();
+            text.summary = "Summary " + language.code();
+            text.description = "Description " + language.code();
+            text.seoTitle = "SEO title " + language.code();
+            text.seoDescription = "SEO description " + language.code();
+            text.highlightsJson = "[]";
+            family.texts.add(text);
+        }
+    }
+
+    private static void addCategoryTexts(CategoryEntity category) {
+        if (!category.texts.isEmpty()) return;
+        for (Language language : Language.values()) {
+            CategoryTextEntity text = new CategoryTextEntity();
+            text.category = category;
+            text.language = language;
+            text.name = category.name + " " + language.code();
+            text.description = category.description + " " + language.code();
+            text.eyebrow = (category.eyebrow == null ? "Category" : category.eyebrow)
+                    + " " + language.code();
+            text.mobileName = category.mobileName;
+            text.navigationName = category.navigationName;
+            category.texts.add(text);
+        }
+    }
+
+    private static List<be.enrosed.catalog.domain.CategoryText> categoryTexts(
+            String name, String description, String eyebrow,
+            String mobileName, String navigationName) {
+        return java.util.Arrays.stream(Language.values())
+                .map(language -> new be.enrosed.catalog.domain.CategoryText(
+                        language, name, description, eyebrow, mobileName, navigationName))
+                .toList();
+    }
+
+    private static String allAlts(String value) {
+        return java.util.Arrays.stream(Language.values())
+                .map(language -> "{\"language\":\"" + language.name()
+                        + "\",\"alt\":\"" + value + " " + language.code() + "\"}")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
     }
 }

@@ -15,6 +15,7 @@ import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import org.junit.jupiter.api.Test;
@@ -100,6 +101,17 @@ class PublicCatalogResourceTest {
                 .viewPhoto(1L, 9L);
 
         assertEquals("private, max-age=60", response.getHeaderString("Cache-Control"));
+    }
+
+    @Test
+    void familyCatalogNeverLabelsAnOlderProjectionWithANewerRevision() {
+        String oldRevision = "a".repeat(64);
+        String newRevision = "b".repeat(64);
+
+        assertEquals(oldRevision,
+                PublicFamilyCatalogResource.requireStableRevision(oldRevision, oldRevision));
+        assertThrows(ServiceUnavailableException.class, () ->
+                PublicFamilyCatalogResource.requireStableRevision(oldRevision, newRevision));
     }
 
     private static Category category() {

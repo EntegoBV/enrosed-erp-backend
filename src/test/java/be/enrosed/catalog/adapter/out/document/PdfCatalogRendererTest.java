@@ -5,14 +5,19 @@ import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.Category;
+import be.enrosed.catalog.domain.CategoryText;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductText;
+import be.enrosed.shared.Language;
+import be.enrosed.shared.LocalizationIncompleteException;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @QuarkusTest
 class PdfCatalogRendererTest {
@@ -56,7 +62,7 @@ class PdfCatalogRendererTest {
         assertFalse(simpleHtml.contains("Beschrijving"));
         assertTrue(brochureHtml.contains("A lasting collection"));
         assertTrue(brochureHtml.contains("Product B × D × H"));
-        assertTrue(brochureHtml.contains("Retail-ready products,<br/>compared quickly."));
+        assertTrue(brochureHtml.contains("Retail-ready products, compared quickly."));
         assertTrue(brochureHtml.contains("Counter Displays + Soap &amp; Decorative Roses"));
         assertTrue(brochureHtml.contains("ENROSED counter display"));
         assertFalse(brochureHtml.contains("ENROSED atelier"));
@@ -114,6 +120,146 @@ class PdfCatalogRendererTest {
         });
     }
 
+    @Test
+    void writesAllEightLocaleQaCatalogsWhenRequested() throws Exception {
+        String configured = System.getProperty("catalog.qa.output");
+        Assumptions.assumeTrue(configured != null && !configured.isBlank(),
+                "set -Dcatalog.qa.output to create delivery QA PDFs");
+        Path output = Path.of(configured);
+        Files.createDirectories(output);
+        Photo photo = storedPhoto(90L, "/images/soap-roos-in-box-480.webp",
+                "soap-roos-in-box-480.webp", "image/webp");
+
+        int written = 0;
+        for (Language language : Language.values()) {
+            for (CatalogExportService.Layout layout : CatalogExportService.Layout.values()) {
+                CatalogDocumentRenderer.Document document = renderer.render(
+                        localizedQaModel(language, layout, photo));
+                assertPdf(document);
+                String stem = layout.name().toLowerCase() + "-" + language.code();
+                Files.write(output.resolve("enrosed-catalog-" + stem + ".pdf"),
+                        document.content());
+                try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                    assertTrue(pdf.getNumberOfPages() >= 1);
+                    String extracted = new PDFTextStripper().getText(pdf);
+                    assertTrue(extracted.contains("B × D × H"), stem);
+                    assertTrue(extracted.contains(localizedFamilyName(language)), stem);
+                    assertFalse(extracted.toLowerCase().contains("dashboard"), stem);
+                    assertFalse(extracted.toLowerCase().contains("canonical"), stem);
+                    assertFalse(extracted.toLowerCase().contains("provenance"), stem);
+                    assertFalse(extracted.toLowerCase().contains("candidate"), stem);
+                }
+                written++;
+            }
+        }
+        assertEquals(16, written);
+        try (var files = Files.list(output)) {
+            assertEquals(16, files.filter(path -> path.getFileName().toString()
+                    .startsWith("enrosed-catalog-")).count());
+        }
+    }
+
+    @Test
+    void strictExportRejectsBlankExactOptionalCopyWhenAnotherLocaleUsesTheField() {
+        Photo photo = new Photo(91L, "unused.webp", "unused.webp", "image/webp",
+                1L, 1, 1, 0);
+        CatalogExportService.Model complete = localizedQaModel(
+                Language.PT, CatalogExportService.Layout.BROCHURE, photo);
+        CatalogExportService.FamilyGroup originalGroup = complete.families().getFirst();
+        CatalogFamilyReader.Family originalFamily = originalGroup.content();
+        List<CatalogFamilyReader.Text> familyTexts = originalFamily.texts().stream()
+                .map(text -> text.language() == Language.PT
+                        ? new CatalogFamilyReader.Text(Language.PT, text.name(), text.summary(),
+                                text.description(), "", List.of())
+                        : text)
+                .toList();
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                originalFamily.id(), originalFamily.familyKey(), originalFamily.publicHandle(),
+                originalFamily.categoryId(), originalFamily.categoryKey(),
+                originalFamily.categoryName(), originalFamily.categoryPosition(),
+                originalFamily.productPosition(), originalFamily.name(), originalFamily.summary(),
+                originalFamily.description(), originalFamily.format(), originalFamily.highlights(),
+                originalFamily.dimensions(), familyTexts, originalFamily.packages(),
+                originalFamily.photos());
+
+        Product originalProduct = complete.products().getFirst();
+        List<ProductText> productTexts = originalProduct.texts().stream()
+                .map(text -> text.language() == Language.PT
+                        ? new ProductText(Language.PT, text.name(), text.description(), "", "") : text)
+                .toList();
+        Product product = new Product(
+                originalProduct.id(), originalProduct.sku(), originalProduct.name(),
+                originalProduct.dimensions(), null, originalProduct.variantSize(),
+                originalProduct.colourHex(), originalProduct.description(), null,
+                originalProduct.supplierId(), originalProduct.active(), originalProduct.familyId(),
+                originalProduct.canonicalVariantKey(), originalProduct.canonicalBarcode(),
+                originalProduct.variantPosition(), originalProduct.inventoryKnown(),
+                originalProduct.familyKey(), originalProduct.publicHandle(),
+                originalProduct.websiteStatus(), originalProduct.orderAppStatus(),
+                originalProduct.barcodes(), originalProduct.hsCode(), originalProduct.carton(),
+                originalProduct.exwPrice(), originalProduct.exwCurrency(),
+                originalProduct.extraUnitCost(), originalProduct.landedCostEur(),
+                originalProduct.landedCostSource(), originalProduct.markupPct(),
+                originalProduct.fixedSalesPriceEur(), originalProduct.stockQuantity(),
+                originalProduct.photos(), productTexts);
+
+        Category originalCategory = originalGroup.category();
+        List<CategoryText> categoryTexts = originalCategory.texts().stream()
+                .map(text -> text.language() == Language.PT
+                        ? new CategoryText(Language.PT, "", text.description(), text.eyebrow(),
+                                text.mobileName(), text.navigationName(), text.footerName())
+                        : text)
+                .toList();
+        Category category = new Category(originalCategory.id(), originalCategory.code(),
+                originalCategory.name(), originalCategory.description(), originalCategory.eyebrow(),
+                originalCategory.position(), originalCategory.mobileName(),
+                originalCategory.navigationName(), originalCategory.footerName(),
+                originalCategory.featuredProductId(), categoryTexts, originalCategory.revision());
+        CatalogExportService.Model incomplete = new CatalogExportService.Model(
+                List.of(product), Map.of(category.id(), category),
+                List.of(new CatalogExportService.FamilyGroup(
+                        family, List.of(product), category, false)), complete.request());
+
+        LocalizationIncompleteException failure = assertThrows(
+                LocalizationIncompleteException.class, () -> renderer.renderHtml(incomplete));
+        assertEquals(List.of(
+                "categories.counter.name",
+                "families.qa-family.format",
+                "families.qa-family.highlights",
+                "products.1.color",
+                "products.1.size"), failure.missingPaths());
+    }
+
+    @Test
+    void strictSimpleIgnoresMissingFamilyCopyThatTheSimpleTemplateNeverRenders() {
+        Photo photo = new Photo(92L, "unused.jpg", "unused.jpg", "image/jpeg",
+                1L, 1, 1, 0);
+        CatalogExportService.Model complete = localizedQaModel(
+                Language.FR, CatalogExportService.Layout.SIMPLE, photo);
+        CatalogExportService.FamilyGroup original = complete.families().getFirst();
+        CatalogFamilyReader.Family source = original.content();
+        List<CatalogFamilyReader.Text> texts = source.texts().stream()
+                .map(text -> text.language() == Language.FR
+                        ? new CatalogFamilyReader.Text(Language.FR, text.name(), null,
+                                null, null, List.of()) : text)
+                .toList();
+        CatalogFamilyReader.Family incompleteFamily = new CatalogFamilyReader.Family(
+                source.id(), source.familyKey(), source.publicHandle(), source.categoryId(),
+                source.categoryKey(), source.categoryName(), source.categoryPosition(),
+                source.productPosition(), source.name(), source.summary(), source.description(),
+                source.format(), source.highlights(), source.dimensions(), texts,
+                source.packages(), source.photos());
+        CatalogExportService.Model incomplete = new CatalogExportService.Model(
+                complete.products(), complete.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        incompleteFamily, original.variants(), original.category(), false)),
+                complete.request());
+
+        String html = renderer.renderHtml(incomplete);
+        assertTrue(html.contains(localizedFamilyName(Language.FR)));
+        assertFalse(html.contains("Description approuvée"));
+    }
+
     private static CatalogExportService.Model model(
             int productCount, CatalogExportService.Layout layout) {
         Category category = new Category(
@@ -167,6 +313,143 @@ class PdfCatalogRendererTest {
                 oldRequest.layout(), oldRequest.brochure());
         return new CatalogExportService.Model(
                 List.of(pictured), model.categoriesById(), List.of(group), request);
+    }
+
+    static CatalogExportService.Model localizedQaModel(
+            Language requested, CatalogExportService.Layout layout, Photo photo) {
+        List<CategoryText> categoryTexts = java.util.Arrays.stream(Language.values())
+                .map(language -> new CategoryText(language, localizedCategoryName(language),
+                        localizedCategoryDescription(language), null, null, null, null))
+                .toList();
+        Category category = new Category(
+                1L, "counter", "Counter Displays", "Retail-ready products", null, 0,
+                null, null, null, null, categoryTexts);
+
+        Product base = product(1L, "SKU-QA-01", 100L, 1L, 0)
+                .withVariantAttributes("Red", "Medium", "#9D263A");
+        List<ProductText> productTexts = java.util.Arrays.stream(Language.values())
+                .map(language -> new ProductText(language, localizedFamilyName(language),
+                        localizedDescription(language), localizedColour(language),
+                        localizedSize(language)))
+                .toList();
+        Product item = new Product(
+                base.id(), base.sku(), base.name(), base.dimensions(), base.colour(),
+                base.variantSize(), base.colourHex(), base.description(), base.categoryId(),
+                base.supplierId(), base.active(), base.familyId(), base.canonicalVariantKey(),
+                base.canonicalBarcode(), base.variantPosition(), base.inventoryKnown(),
+                base.familyKey(), base.publicHandle(), base.websiteStatus(), base.orderAppStatus(),
+                base.barcodes(), base.hsCode(), base.carton(), base.exwPrice(), base.exwCurrency(),
+                base.extraUnitCost(), base.landedCostEur(), base.landedCostSource(),
+                base.markupPct(), base.fixedSalesPriceEur(), base.stockQuantity(),
+                List.of(photo), productTexts);
+
+        List<CatalogFamilyReader.Text> familyTexts = java.util.Arrays.stream(Language.values())
+                .map(language -> new CatalogFamilyReader.Text(
+                        language, localizedFamilyName(language), localizedSummary(language),
+                        localizedDescription(language), localizedFormat(language),
+                        List.of(localizedHighlight(language), localizedCare(language))))
+                .toList();
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                100L, "qa-family", "qa-family", 1L, "counter", "Counter Displays",
+                0, 0, "Preserved Rose", "Gift-ready presentation",
+                "A lasting preserved rose presentation.", "Counter display",
+                List.of("Gift-ready", "No daily water"), null, familyTexts, List.of(),
+                List.of(new CatalogFamilyReader.GalleryPhoto(
+                        photo.id(), photo.storageKey(), photo.contentType(), 0, item.id())));
+        CatalogExportService.BrochureOptions options =
+                CatalogExportService.BrochureOptions.defaults();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                List.of(item.id()), true, true, 2, null, null, requested.code(), layout,
+                options, true);
+        return new CatalogExportService.Model(
+                List.of(item), Map.of(category.id(), category),
+                List.of(new CatalogExportService.FamilyGroup(
+                        family, List.of(item), category, false)), request);
+    }
+
+    static String localizedFamilyName(Language language) {
+        return switch (language) {
+            case NL -> "Gepreserveerde roos";
+            case FR -> "Rose stabilisée";
+            case EN -> "Preserved Rose";
+            case DE -> "Konservierte Rose";
+            case ES -> "Rosa preservada";
+            case PL -> "Róża stabilizowana";
+            case PT -> "Rosa preservada";
+            case TR -> "Korunmuş gül";
+        };
+    }
+
+    private static String localizedSummary(Language language) {
+        return localizedFamilyName(language) + " · " + localizedHighlight(language) + ".";
+    }
+
+    private static String localizedDescription(Language language) {
+        return localizedFamilyName(language) + " — " + localizedCare(language) + ".";
+    }
+
+    private static String localizedFormat(Language language) {
+        return localizedCategoryName(language) + " · 12";
+    }
+
+    private static String localizedCategoryName(Language language) {
+        return switch (language) {
+            case NL -> "Toonbankdisplays";
+            case FR -> "Présentoirs de comptoir";
+            case EN -> "Counter Displays";
+            case DE -> "Thekendisplays";
+            case ES -> "Expositores de mostrador";
+            case PL -> "Ekspozytory na ladę";
+            case PT -> "Expositores de balcão";
+            case TR -> "Tezgâh teşhirleri";
+        };
+    }
+
+    private static String localizedCategoryDescription(Language language) {
+        return localizedCategoryName(language) + " — " + localizedHighlight(language) + ".";
+    }
+
+    private static String localizedColour(Language language) {
+        return switch (language) {
+            case NL -> "Rood";
+            case FR -> "Rouge";
+            case EN -> "Red";
+            case DE -> "Rot";
+            case ES -> "Rojo";
+            case PL -> "Czerwony";
+            case PT -> "Vermelho";
+            case TR -> "Kırmızı";
+        };
+    }
+
+    private static String localizedSize(Language language) {
+        return be.enrosed.shared.VariantSizes.translate("Medium", language);
+    }
+
+    private static String localizedHighlight(Language language) {
+        return switch (language) {
+            case NL -> "Cadeauklaar";
+            case FR -> "Prête à offrir";
+            case EN -> "Gift-ready";
+            case DE -> "Geschenkfertig";
+            case ES -> "Lista para regalar";
+            case PL -> "Gotowa na prezent";
+            case PT -> "Pronta a oferecer";
+            case TR -> "Hediyeye hazır";
+        };
+    }
+
+    private static String localizedCare(Language language) {
+        return switch (language) {
+            case NL -> "geen dagelijks water nodig";
+            case FR -> "sans arrosage quotidien";
+            case EN -> "no daily water required";
+            case DE -> "kein tägliches Wasser nötig";
+            case ES -> "sin riego diario";
+            case PL -> "bez codziennego podlewania";
+            case PT -> "sem rega diária";
+            case TR -> "günlük sulama gerektirmez";
+        };
     }
 
     private static CatalogExportService.Model comparisonQaModel(

@@ -2,6 +2,7 @@ package be.enrosed.catalog.domain;
 
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.LanguageFallback;
 import be.enrosed.shared.Money;
 
 import java.math.BigDecimal;
@@ -230,8 +231,12 @@ public record Product(
 
     /** Name in this language, falling back to the base name. */
     public String nameIn(Language language) {
-        ProductText text = textIn(language);
-        return text == null || isBlank(text.name()) ? name : text.name();
+        return nameResolved(language).value();
+    }
+
+    public LanguageFallback.Resolved<String> nameResolved(Language language) {
+        return LanguageFallback.text(texts(), language, ProductText::language,
+                ProductText::name, name);
     }
 
     /**
@@ -242,15 +247,35 @@ public record Product(
      * unknown stays as typed.
      */
     public String colourIn(Language language) {
-        ProductText text = textIn(language);
-        if (text != null && !isBlank(text.colour())) return text.colour();
-        return be.enrosed.shared.ColourNames.translate(colour, language);
+        return colourResolved(language).value();
+    }
+
+    public LanguageFallback.Resolved<String> colourResolved(Language language) {
+        LanguageFallback.Resolved<String> translated = LanguageFallback.text(
+                texts(), language, ProductText::language, ProductText::colour, null);
+        if (translated.value() != null) return translated;
+        return new LanguageFallback.Resolved<>(
+                be.enrosed.shared.ColourNames.translate(colour, language), null);
+    }
+
+    /** Merchandising size in this language (for example Small / Petit / Klein). */
+    public String variantSizeIn(Language language) {
+        return variantSizeResolved(language).value();
+    }
+
+    public LanguageFallback.Resolved<String> variantSizeResolved(Language language) {
+        return LanguageFallback.text(texts(), language, ProductText::language,
+                ProductText::variantSize, variantSize);
     }
 
     /** Description in this language, falling back to the base description. */
     public String descriptionIn(Language language) {
-        ProductText text = textIn(language);
-        return text == null || isBlank(text.description()) ? description : text.description();
+        return descriptionResolved(language).value();
+    }
+
+    public LanguageFallback.Resolved<String> descriptionResolved(Language language) {
+        return LanguageFallback.text(texts(), language, ProductText::language,
+                ProductText::description, description);
     }
 
     private static boolean isBlank(String value) {
@@ -280,8 +305,9 @@ public record Product(
         if (!physicalSize.isBlank()) text.append(" - ").append(physicalSize);
         String kleur = colourIn(language);
         if (kleur != null && !kleur.isBlank()) text.append(" - ").append(kleur);
-        if (variantSize != null && !variantSize.isBlank()) {
-            text.append(" - ").append(variantSize);
+        String localizedSize = variantSizeIn(language);
+        if (localizedSize != null && !localizedSize.isBlank()) {
+            text.append(" - ").append(localizedSize);
         }
         return text.toString();
     }

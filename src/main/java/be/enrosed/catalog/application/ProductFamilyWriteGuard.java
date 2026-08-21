@@ -11,6 +11,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
 
 import java.util.Collection;
@@ -24,6 +25,9 @@ public class ProductFamilyWriteGuard {
     private final CanonicalCatalogDaos.Families families;
     private final CatalogDaos.Products productRows;
     private final ObjectMapper json;
+
+    @Inject
+    PublicLocalizationCompletenessService localization;
 
     public ProductFamilyWriteGuard(
             CanonicalCatalogDaos.Families families,
@@ -86,6 +90,14 @@ public class ProductFamilyWriteGuard {
             List<ProductEntity> members = productRows.list(
                     "familyId = ?1 order by variantPosition, id", familyId);
             List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
+            if (localization != null) {
+                List<String> localized = localization.issues(family, members);
+                if (!localized.isEmpty()) {
+                    List<String> combined = new java.util.ArrayList<>(issues);
+                    combined.addAll(localized);
+                    issues = List.copyOf(combined);
+                }
+            }
             boolean published = state(family.websiteStatus) == PublicationState.PUBLISHED
                     || state(family.orderAppStatus) == PublicationState.PUBLISHED
                     || state(family.catalogueStatus) == PublicationState.PUBLISHED;
@@ -95,6 +107,10 @@ public class ProductFamilyWriteGuard {
             List<String> blockers = published ? issues : anyReady
                     ? issues.stream().filter(issue -> issue.equals(FamilyVariantRules.OPTION_ISSUE)
                             || issue.equals(FamilyVariantRules.POSITION_ISSUE)
+                            || state(family.websiteStatus) == PublicationState.READY
+                                && issue.startsWith("website.")
+                            || state(family.catalogueStatus) == PublicationState.READY
+                                && issue.startsWith("catalog.")
                             || state(family.websiteStatus) == PublicationState.READY
                                 && issue.equals("Kleurstaal ontbreekt voor een actieve gekleurde variant"))
                         .toList()

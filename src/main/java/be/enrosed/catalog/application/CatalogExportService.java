@@ -33,9 +33,7 @@ public class CatalogExportService {
             String coverSubtitle) {
 
         public static BrochureOptions defaults() {
-            return new BrochureOptions(true, true, true, true, true,
-                    "Preserved roses,",
-                    "ready for retail.");
+            return new BrochureOptions(true, true, true, true, true, null, null);
         }
 
         public BrochureOptions resolved() {
@@ -73,13 +71,22 @@ public class CatalogExportService {
             String intro,
             String language,
             Layout layout,
-            BrochureOptions brochure) {
+            BrochureOptions brochure,
+            Boolean strictLanguage) {
+
+        /** Source compatibility for builder callers written before strict locale validation. */
+        public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
+                       Integer photosPerProduct, String title, String intro, String language,
+                       Layout layout, BrochureOptions brochure) {
+            this(productIds, includePrices, includePhotos, photosPerProduct,
+                    title, intro, language, layout, brochure, null);
+        }
 
         /** Source compatibility for callers written before the builder existed. */
         public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
                        Integer photosPerProduct, String title, String intro, String language) {
             this(productIds, includePrices, includePhotos, photosPerProduct,
-                    title, intro, language, null, null);
+                    title, intro, language, null, null, null);
         }
 
         public Request {
@@ -87,7 +94,7 @@ public class CatalogExportService {
         }
 
         public static Request defaults() {
-            return new Request(null, false, true, 4, null, null, "nl", null, null);
+            return new Request(null, false, true, 4, null, null, "nl", null, null, null);
         }
 
         public Layout resolvedLayout() {
@@ -102,6 +109,10 @@ public class CatalogExportService {
             if (!includePhotos) return 0;
             if (photosPerProduct == null) return 4;
             return Math.max(0, Math.min(8, photosPerProduct));
+        }
+
+        public boolean resolvedStrictLanguage() {
+            return Boolean.TRUE.equals(strictLanguage);
         }
     }
 

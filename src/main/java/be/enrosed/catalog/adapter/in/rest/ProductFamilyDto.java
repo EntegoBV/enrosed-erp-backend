@@ -91,6 +91,34 @@ public record ProductFamilyDto(
                                 String rawValue, String confidence, String status) {}
     public record ConflictDto(String fieldName, String reason, String confidence, String status) {}
 
+    public ProductFamilyDto withAdditionalPublicationIssues(List<String> additional) {
+        if (additional == null || additional.isEmpty()) return this;
+        List<String> combined = new ArrayList<>(publicationIssues == null
+                ? List.of() : publicationIssues);
+        additional.stream().filter(issue -> !combined.contains(issue)).forEach(combined::add);
+        return new ProductFamilyDto(
+                id, familyKey, publicHandle, categoryId, categoryKey, categoryName,
+                categoryPosition, collectionKey, collections, productPosition,
+                cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus,
+                active, name, summary, description, format, highlights, seoTitle,
+                seoDescription, dimensions, texts, packages, images, externalIdentifiers,
+                priceObservations, provenance, conflicts, members, List.copyOf(combined),
+                variantCount);
+    }
+
+    /** Request-copy helper used by clients that edit the revisioned family text snapshot. */
+    public ProductFamilyDto withTexts(List<TextDto> replacementTexts) {
+        return new ProductFamilyDto(
+                id, familyKey, publicHandle, categoryId, categoryKey, categoryName,
+                categoryPosition, collectionKey, collections, productPosition,
+                cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus,
+                active, name, summary, description, format, highlights, seoTitle,
+                seoDescription, dimensions,
+                replacementTexts == null ? List.of() : List.copyOf(replacementTexts),
+                packages, images, externalIdentifiers, priceObservations, provenance, conflicts,
+                members, publicationIssues, variantCount);
+    }
+
     public static ProductFamilyDto from(
             ProductFamilyEntity family,
             List<ProductExternalIdentifierEntity> identifiers,

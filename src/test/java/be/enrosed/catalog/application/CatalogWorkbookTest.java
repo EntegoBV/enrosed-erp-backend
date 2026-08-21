@@ -255,6 +255,28 @@ class CatalogWorkbookTest {
     }
 
     @Test
+    void invalidMasterRowPreventsEveryTranslationWrite() throws Exception {
+        repository.add(productWithFrenchTranslation());
+        byte[] edited = editedWorkbook(excel -> {
+            excel.getSheet("Producten").getRow(1).getCell(13).setCellValue("123");
+            var translations = excel.getSheet("Vertalingen");
+            for (int rowIndex = 1; rowIndex <= translations.getLastRowNum(); rowIndex++) {
+                if ("fr".equals(translations.getRow(rowIndex).getCell(1).getStringCellValue())) {
+                    translations.getRow(rowIndex).getCell(2).setCellValue("Ne doit pas être sauvegardé");
+                }
+            }
+        });
+
+        CatalogWorkbook.ImportResult result = workbook.importFrom(new ByteArrayInputStream(edited));
+
+        assertEquals(0, result.updatedProducts());
+        assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("Binnenbarcode")),
+                result.problems().toString());
+        assertEquals("Fleur en verre", repository.get("ENR-P01").nameIn(Language.FR));
+        assertEquals(Barcodes.none(), repository.get("ENR-P01").barcodes());
+    }
+
+    @Test
     void negativeNumericValueIsReportedInsteadOfBeingStored() throws Exception {
         byte[] edited = editedWorkbook(excel ->
                 excel.getSheet("Producten").getRow(1).getCell(5).setCellValue(-1));

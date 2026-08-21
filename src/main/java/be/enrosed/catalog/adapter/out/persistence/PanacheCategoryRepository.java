@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.port.out.CategoryRepository;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.domain.Category;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +36,12 @@ public class PanacheCategoryRepository implements CategoryRepository {
     }
 
     @Override
+    public Optional<Category> findByIdForUpdate(long id) {
+        return Optional.ofNullable(dao.findById(id, LockModeType.PESSIMISTIC_WRITE))
+                .map(CatalogMapper::toDomain);
+    }
+
+    @Override
     public Optional<Category> findByCode(String code) {
         return dao.find("code", code).firstResultOptional().map(CatalogMapper::toDomain);
     }
@@ -43,10 +50,16 @@ public class PanacheCategoryRepository implements CategoryRepository {
     public Category save(Category category) {
         CategoryEntity entity = category.id() == null ? null : dao.findById(category.id());
         if (entity == null) entity = new CategoryEntity();
+        boolean aggregateChanged = !CatalogMapper.toDomain(entity).equals(category);
         String oldCode = entity.code;
         String oldPublicKey = oldCode == null ? null : CategoryPublicKey.from(oldCode);
         CatalogMapper.apply(category, entity);
         if (entity.id == null) dao.persist(entity);
+        else if (aggregateChanged) {
+            /* Child-only CategoryText edits do not dirty the owning row by themselves. Force the
+               aggregate version so a second all-language editor cannot reuse a stale token. */
+            dao.getEntityManager().lock(entity, LockModeType.PESSIMISTIC_FORCE_INCREMENT);
+        }
         dao.flush();
         String publicKey = CategoryPublicKey.from(entity.code);
         ProductCollectionEntity collection = collections.listAll().stream()

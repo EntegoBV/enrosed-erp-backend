@@ -27,7 +27,8 @@ final class CatalogMapper {
         }
         List<ProductText> texts = new ArrayList<>();
         for (ProductTextEntity text : entity.texts) {
-            texts.add(new ProductText(text.language, text.name, text.description, text.colour));
+            texts.add(new ProductText(text.language, text.name, text.description,
+                    text.colour, text.variantSize));
         }
         return new Product(
                 entity.id,
@@ -137,6 +138,7 @@ final class CatalogMapper {
             existing.name = blankToNull(text.name());
             existing.description = blankToNull(text.description());
             existing.colour = blankToNull(text.colour());
+            existing.variantSize = blankToNull(text.variantSize());
         }
 
         for (ProductText text : wanted.values()) {
@@ -146,6 +148,7 @@ final class CatalogMapper {
             added.name = blankToNull(text.name());
             added.description = blankToNull(text.description());
             added.colour = blankToNull(text.colour());
+            added.variantSize = blankToNull(text.variantSize());
             entity.texts.add(added);
         }
     }
@@ -180,8 +183,13 @@ final class CatalogMapper {
     }
 
     static Category toDomain(CategoryEntity entity) {
+        List<CategoryText> texts = entity.texts.stream()
+                .map(text -> new CategoryText(text.language, text.name, text.description,
+                        text.eyebrow, text.mobileName, text.navigationName, text.footerName))
+                .toList();
         return new Category(entity.id, entity.code, entity.name, entity.description,
-                entity.eyebrow, entity.position, entity.mobileName, entity.featuredProductId);
+                entity.eyebrow, entity.position, entity.mobileName, entity.navigationName,
+                entity.footerName, entity.featuredProductId, texts, entity.revision);
     }
 
     static void apply(Category category, CategoryEntity entity) {
@@ -191,7 +199,44 @@ final class CatalogMapper {
         entity.eyebrow = blankToNull(category.eyebrow());
         entity.position = category.position();
         entity.mobileName = blankToNull(category.mobileName());
+        entity.navigationName = blankToNull(category.navigationName());
+        entity.footerName = blankToNull(category.footerName());
         entity.featuredProductId = category.featuredProductId();
+        applyCategoryTexts(category, entity);
+    }
+
+    private static void applyCategoryTexts(Category category, CategoryEntity entity) {
+        Map<Language, CategoryText> wanted = new LinkedHashMap<>();
+        for (CategoryText text : category.texts()) {
+            if (text != null && text.language() != null && !text.isEmpty()) {
+                if (wanted.put(text.language(), text) != null) {
+                    throw new be.enrosed.shared.BusinessRuleException(
+                            "Elke categorietaal mag exact één keer voorkomen");
+                }
+            }
+        }
+        entity.texts.removeIf(existing -> !wanted.containsKey(existing.language));
+        for (CategoryTextEntity existing : entity.texts) {
+            CategoryText text = wanted.remove(existing.language);
+            existing.name = blankToNull(text.name());
+            existing.description = blankToNull(text.description());
+            existing.eyebrow = blankToNull(text.eyebrow());
+            existing.mobileName = blankToNull(text.mobileName());
+            existing.navigationName = blankToNull(text.navigationName());
+            existing.footerName = blankToNull(text.footerName());
+        }
+        for (CategoryText text : wanted.values()) {
+            CategoryTextEntity added = new CategoryTextEntity();
+            added.category = entity;
+            added.language = text.language();
+            added.name = blankToNull(text.name());
+            added.description = blankToNull(text.description());
+            added.eyebrow = blankToNull(text.eyebrow());
+            added.mobileName = blankToNull(text.mobileName());
+            added.navigationName = blankToNull(text.navigationName());
+            added.footerName = blankToNull(text.footerName());
+            entity.texts.add(added);
+        }
     }
 
     static HsCode toDomain(HsCodeEntity entity) {

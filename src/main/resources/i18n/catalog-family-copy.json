@@ -1,0 +1,1566 @@
+{
+  "version": "2026-08-21-public-family-copy-v3",
+  "families": {
+    "rose-diamonds-within-display": {
+      "NL": {
+        "summary": "Een gepreserveerde roos en geurbeleving in een transparante facetdoos, geleverd in een sterke toonbankdisplay voor cadeaus en impulsverkoop.",
+        "format": "12 facetdozen met roos in een toonbankdisplay",
+        "highlights": [
+          "Cadeauklare facetdoos",
+          "Geur en gepreserveerde roos in één",
+          "Ontworpen voor toonbankpresentatie"
+        ],
+        "description": "Een gepreserveerde roos en geurbeleving in een transparante facetdoos, geleverd in een sterke toonbankdisplay voor cadeaus en impulsverkoop. Elke individuele doos beschermt de roos en houdt het product zichtbaar, terwijl de complete display snel op de toonbank kan worden geplaatst."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée et une expérience parfumée dans un écrin transparent facetté, fournies dans un présentoir de comptoir robuste pour les cadeaux et la vente d’impulsion.",
+        "format": "12 écrins facettés avec rose dans un présentoir de comptoir",
+        "highlights": [
+          "Écrin facetté prêt à offrir",
+          "Parfum et rose stabilisée en un seul produit",
+          "Conçu pour la présentation au comptoir"
+        ],
+        "description": "Une rose stabilisée et une expérience parfumée dans un écrin transparent facetté, fournies dans un présentoir de comptoir robuste pour les cadeaux et la vente d’impulsion. Chaque écrin protège la rose tout en gardant le produit visible, tandis que le présentoir complet se place rapidement sur le comptoir."
+      },
+      "EN": {
+        "summary": "A preserved rose and fragrance experience in a faceted clear case, supplied in a strong counter-display format for gifting and impulse retail.",
+        "format": "12 faceted rose cases in a counter display",
+        "highlights": [
+          "Gift-ready faceted case",
+          "Fragrance and preserved rose in one",
+          "Designed for counter presentation"
+        ],
+        "description": "A preserved rose and fragrance experience in a faceted clear case, supplied in a strong counter-display format for gifting and impulse retail. Each individual case protects the rose while keeping the product visible, and the complete display can be placed directly on the counter."
+      },
+      "DE": {
+        "summary": "Eine konservierte Rose mit Dufterlebnis in einer transparenten facettierten Box, geliefert in einem stabilen Thekendisplay für Geschenk- und Impulsverkäufe.",
+        "format": "12 facettierte Rosenboxen in einem Thekendisplay",
+        "highlights": [
+          "Geschenkfertige facettierte Box",
+          "Duft und konservierte Rose in einem Produkt",
+          "Für die Thekenpräsentation entwickelt"
+        ],
+        "description": "Eine konservierte Rose mit Dufterlebnis in einer transparenten facettierten Box, geliefert in einem stabilen Thekendisplay für Geschenk- und Impulsverkäufe. Jede einzelne Box schützt die Rose und hält das Produkt sichtbar, während das komplette Display direkt auf der Theke platziert werden kann."
+      },
+      "ES": {
+        "summary": "Una rosa preservada con experiencia aromática en un estuche transparente facetado, suministrada en un sólido expositor de mostrador para regalos y ventas por impulso.",
+        "format": "12 estuches facetados con rosa en un expositor de mostrador",
+        "highlights": [
+          "Estuche facetado listo para regalar",
+          "Fragancia y rosa preservada en uno",
+          "Diseñado para exposición en mostrador"
+        ],
+        "description": "Una rosa preservada con experiencia aromática en un estuche transparente facetado, suministrada en un sólido expositor de mostrador para regalos y ventas por impulso. Cada estuche protege la rosa y mantiene el producto visible, mientras el expositor completo puede colocarse directamente en el mostrador."
+      },
+      "PL": {
+        "summary": "Róża stabilizowana i zapach w przezroczystym fasetowanym pudełku, dostarczane w solidnym ekspozytorze na ladę do sprzedaży prezentowej i impulsowej.",
+        "format": "12 fasetowanych pudełek z różą w ekspozytorze na ladę",
+        "highlights": [
+          "Fasetowane pudełko gotowe na prezent",
+          "Zapach i róża stabilizowana w jednym produkcie",
+          "Zaprojektowane do ekspozycji na ladzie"
+        ],
+        "description": "Róża stabilizowana i zapach w przezroczystym fasetowanym pudełku, dostarczane w solidnym ekspozytorze na ladę do sprzedaży prezentowej i impulsowej. Każde pudełko chroni różę i pozostawia produkt widoczny, a kompletny ekspozytor można ustawić bezpośrednio na ladzie."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada e uma experiência perfumada num estojo transparente facetado, fornecidas num expositor de balcão resistente para presentes e vendas por impulso.",
+        "format": "12 estojos facetados com rosa num expositor de balcão",
+        "highlights": [
+          "Estojo facetado pronto a oferecer",
+          "Fragrância e rosa preservada num só produto",
+          "Concebido para apresentação no balcão"
+        ],
+        "description": "Uma rosa preservada e uma experiência perfumada num estojo transparente facetado, fornecidas num expositor de balcão resistente para presentes e vendas por impulso. Cada estojo protege a rosa e mantém o produto visível, enquanto o expositor completo pode ser colocado diretamente no balcão."
+      },
+      "TR": {
+        "summary": "Şeffaf fasetli kutuda korunmuş gül ve koku deneyimi; hediye ve dürtüsel satış için sağlam bir tezgâh standında sunulur.",
+        "format": "Tezgâh standında 12 fasetli gül kutusu",
+        "highlights": [
+          "Hediyeye hazır fasetli kutu",
+          "Tek üründe koku ve korunmuş gül",
+          "Tezgâh sunumu için tasarlandı"
+        ],
+        "description": "Şeffaf fasetli kutuda korunmuş gül ve koku deneyimi; hediye ve dürtüsel satış için sağlam bir tezgâh standında sunulur. Her kutu gülü korurken ürünü görünür tutar ve eksiksiz stant doğrudan tezgâha yerleştirilebilir."
+      }
+    },
+    "preserved-single-rose-in-display": {
+      "NL": {
+        "summary": "Afzonderlijk gepresenteerde gepreserveerde rozen met lange steel in transparante hoezen en zwarte houders, gegroepeerd in een display dat rechtstreeks van doos naar toonbank gaat.",
+        "format": "12 afzonderlijk gepresenteerde steelrozen",
+        "highlights": [
+          "Volledige steel en bladeren blijven zichtbaar",
+          "Vier kleurrichtingen",
+          "Klaar om de toonbank snel aan te vullen"
+        ],
+        "description": "Afzonderlijk gepresenteerde gepreserveerde rozen met lange steel in transparante hoezen en zwarte houders, gegroepeerd in een display dat rechtstreeks van doos naar toonbank gaat. De transparante verpakking laat steel, bladeren en bloem volledig zien en maakt afzonderlijke verkoop zonder extra verwerking mogelijk."
+      },
+      "FR": {
+        "summary": "Des roses stabilisées à longue tige, présentées individuellement dans des étuis transparents et des supports noirs, réunies dans un présentoir qui passe directement du carton au comptoir.",
+        "format": "12 roses sur tige présentées individuellement",
+        "highlights": [
+          "Tige entière et feuilles visibles",
+          "Quatre orientations de couleur",
+          "Prêt pour un réassort rapide du comptoir"
+        ],
+        "description": "Des roses stabilisées à longue tige, présentées individuellement dans des étuis transparents et des supports noirs, réunies dans un présentoir qui passe directement du carton au comptoir. L’emballage transparent laisse entièrement voir la tige, les feuilles et la fleur et permet la vente à l’unité sans préparation supplémentaire."
+      },
+      "EN": {
+        "summary": "Individually presented long-stem preserved roses in clear sleeves and black holders, grouped in a display that moves straight from carton to counter.",
+        "format": "12 individually presented stem roses",
+        "highlights": [
+          "Full stem and leaves remain visible",
+          "Four colour directions",
+          "Ready for quick counter replenishment"
+        ],
+        "description": "Individually presented long-stem preserved roses in clear sleeves and black holders, grouped in a display that moves straight from carton to counter. The clear packaging keeps the stem, leaves and flower fully visible and allows individual sale without additional preparation."
+      },
+      "DE": {
+        "summary": "Einzeln präsentierte langstielige konservierte Rosen in transparenten Hüllen und schwarzen Haltern, gebündelt in einem Display, das direkt vom Karton auf die Theke gestellt wird.",
+        "format": "12 einzeln präsentierte Stielrosen",
+        "highlights": [
+          "Vollständiger Stiel und Blätter bleiben sichtbar",
+          "Vier Farbrichtungen",
+          "Bereit zum schnellen Auffüllen der Theke"
+        ],
+        "description": "Einzeln präsentierte langstielige konservierte Rosen in transparenten Hüllen und schwarzen Haltern, gebündelt in einem Display, das direkt vom Karton auf die Theke gestellt wird. Die transparente Verpackung zeigt Stiel, Blätter und Blüte vollständig und ermöglicht den Einzelverkauf ohne zusätzliche Vorbereitung."
+      },
+      "ES": {
+        "summary": "Rosas preservadas de tallo largo presentadas individualmente en fundas transparentes y soportes negros, agrupadas en un expositor que pasa directamente de la caja al mostrador.",
+        "format": "12 rosas de tallo presentadas individualmente",
+        "highlights": [
+          "El tallo completo y las hojas permanecen visibles",
+          "Cuatro opciones de color",
+          "Listo para una reposición rápida del mostrador"
+        ],
+        "description": "Rosas preservadas de tallo largo presentadas individualmente en fundas transparentes y soportes negros, agrupadas en un expositor que pasa directamente de la caja al mostrador. El envase transparente mantiene visibles el tallo, las hojas y la flor, y permite la venta individual sin preparación adicional."
+      },
+      "PL": {
+        "summary": "Długie róże stabilizowane prezentowane pojedynczo w przezroczystych osłonach i czarnych uchwytach, zebrane w ekspozytorze ustawianym bezpośrednio z kartonu na ladzie.",
+        "format": "12 pojedynczo prezentowanych róż na łodydze",
+        "highlights": [
+          "Widoczna cała łodyga i liście",
+          "Cztery warianty kolorystyczne",
+          "Gotowe do szybkiego uzupełniania ekspozycji"
+        ],
+        "description": "Długie róże stabilizowane prezentowane pojedynczo w przezroczystych osłonach i czarnych uchwytach, zebrane w ekspozytorze ustawianym bezpośrednio z kartonu na ladzie. Przezroczyste opakowanie pokazuje całą łodygę, liście i kwiat oraz umożliwia sprzedaż pojedynczą bez dodatkowego przygotowania."
+      },
+      "PT": {
+        "summary": "Rosas preservadas de haste longa apresentadas individualmente em capas transparentes e suportes pretos, reunidas num expositor que passa diretamente da caixa para o balcão.",
+        "format": "12 rosas com haste apresentadas individualmente",
+        "highlights": [
+          "Haste completa e folhas visíveis",
+          "Quatro opções de cor",
+          "Pronto para reposição rápida no balcão"
+        ],
+        "description": "Rosas preservadas de haste longa apresentadas individualmente em capas transparentes e suportes pretos, reunidas num expositor que passa diretamente da caixa para o balcão. A embalagem transparente mantém a haste, as folhas e a flor totalmente visíveis e permite a venda individual sem preparação adicional."
+      },
+      "TR": {
+        "summary": "Şeffaf kılıflar ve siyah tutucularda ayrı ayrı sunulan uzun saplı korunmuş güller, koliden doğrudan tezgâha geçen bir stantta gruplanır.",
+        "format": "Ayrı ayrı sunulan 12 saplı gül",
+        "highlights": [
+          "Sapın ve yaprakların tamamı görünür",
+          "Dört renk seçeneği",
+          "Tezgâhı hızlı yenilemeye hazır"
+        ],
+        "description": "Şeffaf kılıflar ve siyah tutucularda ayrı ayrı sunulan uzun saplı korunmuş güller, koliden doğrudan tezgâha geçen bir stantta gruplanır. Şeffaf ambalaj sapı, yaprakları ve çiçeği tamamen görünür tutar ve ek hazırlık olmadan tekli satış sağlar."
+      }
+    },
+    "preserved-bowl-rose": {
+      "NL": {
+        "summary": "Een compacte gepreserveerde roos met bladgroen en fijne witte details in een transparante bowl, gepresenteerd als een samenhangende retaildisplay.",
+        "format": "8 kleine rozenbowls in een toonbankdisplay",
+        "highlights": [
+          "Compact cadeauformaat",
+          "Transparante beschermende bowl",
+          "Vier kleurrichtingen"
+        ],
+        "description": "Een compacte gepreserveerde roos met bladgroen en fijne witte details in een transparante bowl, gepresenteerd als een samenhangende retaildisplay. De heldere beschermvorm houdt de compacte compositie netjes en geeft elke kleurvariant een consistente presentatie in het schap."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée compacte avec feuillage et délicats détails blancs dans une coupe transparente, présentée dans un ensemble coordonné pour la vente.",
+        "format": "8 petites coupes de roses dans un présentoir de comptoir",
+        "highlights": [
+          "Format cadeau compact",
+          "Coupe protectrice transparente",
+          "Quatre orientations de couleur"
+        ],
+        "description": "Une rose stabilisée compacte avec feuillage et délicats détails blancs dans une coupe transparente, présentée dans un ensemble coordonné pour la vente. La forme protectrice transparente garde la composition compacte bien ordonnée et offre à chaque couleur une présentation cohérente en rayon."
+      },
+      "EN": {
+        "summary": "A compact preserved rose with foliage and delicate white detail in a clear bowl, presented as a coordinated retail display.",
+        "format": "8 small rose bowls in a counter display",
+        "highlights": [
+          "Compact gifting format",
+          "Clear protective bowl",
+          "Four colour directions"
+        ],
+        "description": "A compact preserved rose with foliage and delicate white detail in a clear bowl, presented as a coordinated retail display. The clear protective form keeps the compact composition tidy and gives every colour option a consistent presentation on the shelf."
+      },
+      "DE": {
+        "summary": "Eine kompakte konservierte Rose mit Blattgrün und feinen weißen Details in einer transparenten Schale, präsentiert als abgestimmtes Verkaufsdisplay.",
+        "format": "8 kleine Rosenschalen in einem Thekendisplay",
+        "highlights": [
+          "Kompaktes Geschenkformat",
+          "Transparente Schutzschale",
+          "Vier Farbrichtungen"
+        ],
+        "description": "Eine kompakte konservierte Rose mit Blattgrün und feinen weißen Details in einer transparenten Schale, präsentiert als abgestimmtes Verkaufsdisplay. Die transparente Schutzform hält die kompakte Komposition ordentlich und gibt jeder Farboption eine einheitliche Regalpräsentation."
+      },
+      "ES": {
+        "summary": "Una rosa preservada compacta con follaje y delicados detalles blancos en un cuenco transparente, presentada como un expositor coordinado para la venta.",
+        "format": "8 pequeños cuencos con rosa en un expositor de mostrador",
+        "highlights": [
+          "Formato de regalo compacto",
+          "Cuenco protector transparente",
+          "Cuatro opciones de color"
+        ],
+        "description": "Una rosa preservada compacta con follaje y delicados detalles blancos en un cuenco transparente, presentada como un expositor coordinado para la venta. La forma protectora transparente mantiene ordenada la composición compacta y ofrece a cada color una presentación uniforme en el lineal."
+      },
+      "PL": {
+        "summary": "Kompaktowa róża stabilizowana z zielenią i delikatnymi białymi detalami w przezroczystej miseczce, przedstawiona jako spójna ekspozycja sprzedażowa.",
+        "format": "8 małych miseczek z różą w ekspozytorze na ladę",
+        "highlights": [
+          "Kompaktowy format prezentowy",
+          "Przezroczysta miseczka ochronna",
+          "Cztery warianty kolorystyczne"
+        ],
+        "description": "Kompaktowa róża stabilizowana z zielenią i delikatnymi białymi detalami w przezroczystej miseczce, przedstawiona jako spójna ekspozycja sprzedażowa. Przezroczysta osłona utrzymuje kompaktową kompozycję w porządku i nadaje każdemu kolorowi spójną prezentację na półce."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada compacta com folhagem e delicados detalhes brancos numa taça transparente, apresentada num expositor coordenado para venda.",
+        "format": "8 pequenas taças com rosa num expositor de balcão",
+        "highlights": [
+          "Formato de presente compacto",
+          "Taça protetora transparente",
+          "Quatro opções de cor"
+        ],
+        "description": "Uma rosa preservada compacta com folhagem e delicados detalhes brancos numa taça transparente, apresentada num expositor coordenado para venda. A forma protetora transparente mantém a composição compacta organizada e dá a cada cor uma apresentação consistente na prateleira."
+      },
+      "TR": {
+        "summary": "Şeffaf bir kasede yapraklar ve zarif beyaz ayrıntılarla sunulan kompakt korunmuş gül, uyumlu bir satış standı oluşturur.",
+        "format": "Tezgâh standında 8 küçük gül kasesi",
+        "highlights": [
+          "Kompakt hediye formatı",
+          "Şeffaf koruyucu kase",
+          "Dört renk seçeneği"
+        ],
+        "description": "Şeffaf bir kasede yapraklar ve zarif beyaz ayrıntılarla sunulan kompakt korunmuş gül, uyumlu bir satış standı oluşturur. Şeffaf koruyucu form kompakt kompozisyonu düzenli tutar ve her renk seçeneğine rafta tutarlı bir sunum kazandırır."
+      }
+    },
+    "bowl-rose-xl": {
+      "NL": {
+        "summary": "De grotere bowlpresentatie geeft elke gepreserveerde roos meer visuele impact en behoudt tegelijk het eenvoudige, verkoopklare toonbankdisplayformaat.",
+        "format": "6 XL-rozenbowls in een toonbankdisplay",
+        "highlights": [
+          "Grotere afzonderlijke bowl",
+          "Displayklare doos",
+          "Vier kleurrichtingen"
+        ],
+        "description": "De grotere bowlpresentatie geeft elke gepreserveerde roos meer visuele impact en behoudt tegelijk het eenvoudige, verkoopklare toonbankdisplayformaat. Het ruimere volume versterkt de zichtbaarheid van de bloem, terwijl de display verkoopklaar en eenvoudig aan te vullen blijft."
+      },
+      "FR": {
+        "summary": "La présentation en grande coupe donne davantage de présence visuelle à chaque rose stabilisée tout en conservant un format de comptoir simple et prêt à vendre.",
+        "format": "6 coupes de roses XL dans un présentoir de comptoir",
+        "highlights": [
+          "Grande coupe individuelle",
+          "Carton prêt à exposer",
+          "Quatre orientations de couleur"
+        ],
+        "description": "La présentation en grande coupe donne davantage de présence visuelle à chaque rose stabilisée tout en conservant un format de comptoir simple et prêt à vendre. Le volume plus généreux renforce la visibilité de la fleur tout en gardant le présentoir prêt à vendre et facile à réassortir."
+      },
+      "EN": {
+        "summary": "The larger bowl presentation gives each preserved rose more visual presence while retaining the easy, shelf-ready counter-display format.",
+        "format": "6 XL rose bowls in a counter display",
+        "highlights": [
+          "Larger individual bowl",
+          "Display-ready carton",
+          "Four colour directions"
+        ],
+        "description": "The larger bowl presentation gives each preserved rose more visual presence while retaining the easy, shelf-ready counter-display format. The more generous volume strengthens the flower’s visibility while keeping the display retail-ready and easy to replenish."
+      },
+      "DE": {
+        "summary": "Die größere Schalenpräsentation verleiht jeder konservierten Rose mehr visuelle Präsenz und behält zugleich das einfache, verkaufsfertige Thekendisplayformat bei.",
+        "format": "6 XL-Rosenschalen in einem Thekendisplay",
+        "highlights": [
+          "Größere Einzelschale",
+          "Displayfertiger Karton",
+          "Vier Farbrichtungen"
+        ],
+        "description": "Die größere Schalenpräsentation verleiht jeder konservierten Rose mehr visuelle Präsenz und behält zugleich das einfache, verkaufsfertige Thekendisplayformat bei. Das großzügigere Volumen verstärkt die Sichtbarkeit der Blüte und hält das Display zugleich verkaufsfertig und leicht nachfüllbar."
+      },
+      "ES": {
+        "summary": "La presentación en un cuenco más grande aporta mayor presencia visual a cada rosa preservada, manteniendo el formato de expositor de mostrador sencillo y listo para la venta.",
+        "format": "6 cuencos XL con rosa en un expositor de mostrador",
+        "highlights": [
+          "Cuenco individual más grande",
+          "Caja lista para exponer",
+          "Cuatro opciones de color"
+        ],
+        "description": "La presentación en un cuenco más grande aporta mayor presencia visual a cada rosa preservada, manteniendo el formato de expositor de mostrador sencillo y listo para la venta. El mayor volumen refuerza la visibilidad de la flor y mantiene el expositor listo para la venta y fácil de reponer."
+      },
+      "PL": {
+        "summary": "Większa miseczka nadaje każdej róży stabilizowanej mocniejszą prezencję, zachowując łatwy i gotowy do sprzedaży format ekspozytora na ladę.",
+        "format": "6 miseczek XL z różą w ekspozytorze na ladę",
+        "highlights": [
+          "Większa pojedyncza miseczka",
+          "Karton gotowy do ekspozycji",
+          "Cztery warianty kolorystyczne"
+        ],
+        "description": "Większa miseczka nadaje każdej róży stabilizowanej mocniejszą prezencję, zachowując łatwy i gotowy do sprzedaży format ekspozytora na ladę. Większa objętość wzmacnia widoczność kwiatu, a ekspozytor pozostaje gotowy do sprzedaży i łatwy do uzupełnienia."
+      },
+      "PT": {
+        "summary": "A apresentação numa taça maior dá mais presença visual a cada rosa preservada, mantendo o formato simples de expositor de balcão pronto para venda.",
+        "format": "6 taças XL com rosa num expositor de balcão",
+        "highlights": [
+          "Taça individual maior",
+          "Caixa pronta para exposição",
+          "Quatro opções de cor"
+        ],
+        "description": "A apresentação numa taça maior dá mais presença visual a cada rosa preservada, mantendo o formato simples de expositor de balcão pronto para venda. O volume mais generoso reforça a visibilidade da flor e mantém o expositor pronto para venda e fácil de repor."
+      },
+      "TR": {
+        "summary": "Daha büyük kase sunumu, kolay ve satışa hazır tezgâh standı formatını korurken her korunmuş güle daha güçlü bir görünüm kazandırır.",
+        "format": "Tezgâh standında 6 XL gül kasesi",
+        "highlights": [
+          "Daha büyük tekli kase",
+          "Teşhire hazır koli",
+          "Dört renk seçeneği"
+        ],
+        "description": "Daha büyük kase sunumu, kolay ve satışa hazır tezgâh standı formatını korurken her korunmuş güle daha güçlü bir görünüm kazandırır. Daha geniş hacim çiçeğin görünürlüğünü artırırken standı satışa hazır ve kolay yenilenebilir tutar."
+      }
+    },
+    "cobalt-blue-roos-in-glazen-stolp": {
+      "NL": {
+        "summary": "Eén gepreserveerde roos onder een glazen stolp van 25 cm, afgewerkt met sfeervolle LED-verlichting en aangeboden in vier verkoopvriendelijke kleuren.",
+        "format": "Eén gepreserveerde roos in een glazen stolp van 25 cm",
+        "highlights": [
+          "Warme LED-presentatie",
+          "Onderhoudsvrije gepreserveerde roos",
+          "Vier kleurrichtingen"
+        ],
+        "description": "Eén gepreserveerde roos onder een glazen stolp van 25 cm, afgewerkt met sfeervolle LED-verlichting en aangeboden in vier verkoopvriendelijke kleuren. De glazen stolp beschermt de bloem en de zachte verlichting versterkt de kleur, waardoor een herkenbaar en onderhoudsvrij cadeau ontstaat."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée sous une cloche en verre de 25 cm, sublimée par une lumière LED chaleureuse et proposée en quatre couleurs adaptées à la vente.",
+        "format": "Une rose stabilisée sous une cloche en verre de 25 cm",
+        "highlights": [
+          "Présentation LED chaleureuse",
+          "Rose stabilisée sans entretien",
+          "Quatre orientations de couleur"
+        ],
+        "description": "Une rose stabilisée sous une cloche en verre de 25 cm, sublimée par une lumière LED chaleureuse et proposée en quatre couleurs adaptées à la vente. La cloche en verre protège la fleur et la lumière douce intensifie sa couleur, créant un cadeau reconnaissable et sans entretien."
+      },
+      "EN": {
+        "summary": "One preserved rose beneath a 25 cm glass dome, finished with atmospheric LED light and offered in four retail-friendly colours.",
+        "format": "Single preserved rose in a 25 cm glass dome",
+        "highlights": [
+          "Warm LED presentation",
+          "Maintenance-free preserved rose",
+          "Four colour directions"
+        ],
+        "description": "One preserved rose beneath a 25 cm glass dome, finished with atmospheric LED light and offered in four retail-friendly colours. The glass dome protects the flower and the soft lighting enhances its colour, creating a distinctive maintenance-free gift."
+      },
+      "DE": {
+        "summary": "Eine konservierte Rose unter einer 25 cm hohen Glasglocke, mit stimmungsvollem LED-Licht und in vier verkaufsstarken Farben erhältlich.",
+        "format": "Eine konservierte Rose unter einer 25-cm-Glasglocke",
+        "highlights": [
+          "Warme LED-Präsentation",
+          "Pflegefreie konservierte Rose",
+          "Vier Farbrichtungen"
+        ],
+        "description": "Eine konservierte Rose unter einer 25 cm hohen Glasglocke, mit stimmungsvollem LED-Licht und in vier verkaufsstarken Farben erhältlich. Die Glasglocke schützt die Blüte und das sanfte Licht verstärkt ihre Farbe, sodass ein markantes pflegefreies Geschenk entsteht."
+      },
+      "ES": {
+        "summary": "Una rosa preservada bajo una cúpula de cristal de 25 cm, realzada con luz LED ambiental y disponible en cuatro colores ideales para la venta.",
+        "format": "Una rosa preservada en una cúpula de cristal de 25 cm",
+        "highlights": [
+          "Presentación con LED cálido",
+          "Rosa preservada sin mantenimiento",
+          "Cuatro opciones de color"
+        ],
+        "description": "Una rosa preservada bajo una cúpula de cristal de 25 cm, realzada con luz LED ambiental y disponible en cuatro colores ideales para la venta. La cúpula de cristal protege la flor y la luz suave realza su color, creando un regalo distintivo y sin mantenimiento."
+      },
+      "PL": {
+        "summary": "Jedna róża stabilizowana pod szklaną kopułą 25 cm, wykończona nastrojowym oświetleniem LED i dostępna w czterech kolorach przyjaznych sprzedaży.",
+        "format": "Jedna róża stabilizowana pod szklaną kopułą 25 cm",
+        "highlights": [
+          "Ciepła prezentacja LED",
+          "Róża stabilizowana bez pielęgnacji",
+          "Cztery warianty kolorystyczne"
+        ],
+        "description": "Jedna róża stabilizowana pod szklaną kopułą 25 cm, wykończona nastrojowym oświetleniem LED i dostępna w czterech kolorach przyjaznych sprzedaży. Szklana kopuła chroni kwiat, a delikatne światło podkreśla jego kolor, tworząc charakterystyczny prezent bez pielęgnacji."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada sob uma cúpula de vidro de 25 cm, com iluminação LED ambiente e disponível em quatro cores adequadas à venda.",
+        "format": "Uma rosa preservada numa cúpula de vidro de 25 cm",
+        "highlights": [
+          "Apresentação com LED quente",
+          "Rosa preservada sem manutenção",
+          "Quatro opções de cor"
+        ],
+        "description": "Uma rosa preservada sob uma cúpula de vidro de 25 cm, com iluminação LED ambiente e disponível em quatro cores adequadas à venda. A cúpula de vidro protege a flor e a luz suave realça a sua cor, criando um presente distinto e sem manutenção."
+      },
+      "TR": {
+        "summary": "25 cm cam fanus altında tek bir korunmuş gül, atmosferik LED ışıkla tamamlanır ve satışa uygun dört renkte sunulur.",
+        "format": "25 cm cam fanusta tek korunmuş gül",
+        "highlights": [
+          "Sıcak LED sunumu",
+          "Bakım gerektirmeyen korunmuş gül",
+          "Dört renk seçeneği"
+        ],
+        "description": "25 cm cam fanus altında tek bir korunmuş gül, atmosferik LED ışıkla tamamlanır ve satışa uygun dört renkte sunulur. Cam fanus çiçeği korur, yumuşak ışık rengini güçlendirir ve bakım gerektirmeyen ayırt edici bir hediye oluşturur."
+      }
+    },
+    "single-rose-in-acryl-glass-box": {
+      "NL": {
+        "summary": "Eén dieprode gepreserveerde roos op een spiegelbasis in een transparante acrylbox: compact, verfijnd en eenvoudig cadeau te geven.",
+        "format": "Eén gepreserveerde roos in een acryl spiegeldoos",
+        "highlights": [
+          "Presentatie op spiegelbasis",
+          "Transparante beschermbox",
+          "Compact premium cadeau"
+        ],
+        "description": "Eén dieprode gepreserveerde roos op een spiegelbasis in een transparante acrylbox: compact, verfijnd en eenvoudig cadeau te geven. De spiegel laat de bloem vanuit meerdere hoeken spreken en de heldere box houdt de presentatie beschermd en direct cadeau-klaar."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée rouge profond sur une base miroir dans une boîte acrylique transparente : compacte, raffinée et facile à offrir.",
+        "format": "Une rose stabilisée dans une boîte acrylique à base miroir",
+        "highlights": [
+          "Présentation sur base miroir",
+          "Étui protecteur transparent",
+          "Cadeau premium compact"
+        ],
+        "description": "Une rose stabilisée rouge profond sur une base miroir dans une boîte acrylique transparente : compacte, raffinée et facile à offrir. Le miroir met la fleur en valeur sous plusieurs angles et la boîte transparente garde la présentation protégée et prête à offrir."
+      },
+      "EN": {
+        "summary": "A single deep-red preserved rose displayed on a mirrored base inside a clear acrylic box: compact, polished and easy to gift.",
+        "format": "Single preserved rose in a mirrored acrylic box",
+        "highlights": [
+          "Mirrored presentation",
+          "Clear protective case",
+          "Compact premium gift"
+        ],
+        "description": "A single deep-red preserved rose displayed on a mirrored base inside a clear acrylic box: compact, polished and easy to gift. The mirror presents the flower from several angles and the clear box keeps the arrangement protected and immediately gift-ready."
+      },
+      "DE": {
+        "summary": "Eine einzelne tiefrote konservierte Rose auf einem Spiegelsockel in einer transparenten Acrylbox: kompakt, edel und leicht zu verschenken.",
+        "format": "Eine konservierte Rose in einer Acrylbox mit Spiegelsockel",
+        "highlights": [
+          "Präsentation auf Spiegelsockel",
+          "Transparente Schutzbox",
+          "Kompaktes Premiumgeschenk"
+        ],
+        "description": "Eine einzelne tiefrote konservierte Rose auf einem Spiegelsockel in einer transparenten Acrylbox: kompakt, edel und leicht zu verschenken. Der Spiegel zeigt die Blüte aus mehreren Blickwinkeln und die transparente Box hält die Präsentation geschützt und sofort geschenkfertig."
+      },
+      "ES": {
+        "summary": "Una rosa preservada de color rojo intenso sobre una base de espejo dentro de una caja acrílica transparente: compacta, refinada y fácil de regalar.",
+        "format": "Una rosa preservada en una caja acrílica con base de espejo",
+        "highlights": [
+          "Presentación sobre espejo",
+          "Estuche protector transparente",
+          "Regalo premium compacto"
+        ],
+        "description": "Una rosa preservada de color rojo intenso sobre una base de espejo dentro de una caja acrílica transparente: compacta, refinada y fácil de regalar. El espejo muestra la flor desde varios ángulos y la caja transparente mantiene la presentación protegida y lista para regalar."
+      },
+      "PL": {
+        "summary": "Pojedyncza ciemnoczerwona róża stabilizowana na lustrzanej podstawie w przezroczystym pudełku akrylowym: kompaktowa, elegancka i gotowa na prezent.",
+        "format": "Jedna róża stabilizowana w akrylowym pudełku z lustrzaną podstawą",
+        "highlights": [
+          "Prezentacja na lustrzanej podstawie",
+          "Przezroczyste etui ochronne",
+          "Kompaktowy prezent premium"
+        ],
+        "description": "Pojedyncza ciemnoczerwona róża stabilizowana na lustrzanej podstawie w przezroczystym pudełku akrylowym: kompaktowa, elegancka i gotowa na prezent. Lustro pokazuje kwiat z kilku stron, a przezroczyste pudełko chroni kompozycję i pozostawia ją gotową na prezent."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada vermelho-escuro sobre uma base espelhada numa caixa acrílica transparente: compacta, refinada e fácil de oferecer.",
+        "format": "Uma rosa preservada numa caixa acrílica com base espelhada",
+        "highlights": [
+          "Apresentação sobre espelho",
+          "Estojo protetor transparente",
+          "Presente premium compacto"
+        ],
+        "description": "Uma rosa preservada vermelho-escuro sobre uma base espelhada numa caixa acrílica transparente: compacta, refinada e fácil de oferecer. O espelho apresenta a flor de vários ângulos e a caixa transparente mantém o arranjo protegido e pronto a oferecer."
+      },
+      "TR": {
+        "summary": "Şeffaf akrilik kutuda aynalı taban üzerinde sergilenen koyu kırmızı tek bir korunmuş gül: kompakt, zarif ve hediye etmeye hazır.",
+        "format": "Aynalı akrilik kutuda tek korunmuş gül",
+        "highlights": [
+          "Aynalı sunum",
+          "Şeffaf koruyucu kutu",
+          "Kompakt premium hediye"
+        ],
+        "description": "Şeffaf akrilik kutuda aynalı taban üzerinde sergilenen koyu kırmızı tek bir korunmuş gül: kompakt, zarif ve hediye etmeye hazır. Ayna çiçeği farklı açılardan gösterir, şeffaf kutu ise sunumu korur ve hemen hediye edilmeye hazır tutar."
+      }
+    },
+    "one-rose-in-box": {
+      "NL": {
+        "summary": "Eén gepreserveerde roos in een compacte transparante kubus met lintdetail, gemaakt voor kleine gebaren en opvallende cadeaupresentaties.",
+        "format": "Eén gepreserveerde roos in een transparante plexibox",
+        "highlights": [
+          "Compact formaat van 7 × 7 × 9 cm",
+          "Drie kleurrichtingen",
+          "Cadeauklare lintafwerking"
+        ],
+        "description": "Eén gepreserveerde roos in een compacte transparante kubus met lintdetail, gemaakt voor kleine gebaren en opvallende cadeaupresentaties. De transparante verpakking en verfijnde lintafwerking geven het kleine formaat voldoende schapimpact zonder extra cadeauverpakking."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée dans un cube transparent compact avec un ruban, conçue pour les petites attentions et les présentations cadeaux très visibles.",
+        "format": "Une rose stabilisée dans une boîte en plexi transparente",
+        "highlights": [
+          "Format compact de 7 × 7 × 9 cm",
+          "Trois orientations de couleur",
+          "Finition avec ruban prête à offrir"
+        ],
+        "description": "Une rose stabilisée dans un cube transparent compact avec un ruban, conçue pour les petites attentions et les présentations cadeaux très visibles. L’emballage transparent et la finition raffinée du ruban donnent au petit format une forte présence en rayon sans emballage cadeau supplémentaire."
+      },
+      "EN": {
+        "summary": "A single preserved rose in a compact transparent cube with ribbon detail, made for small gestures and high-visibility gifting displays.",
+        "format": "Single preserved rose in a clear plexibox",
+        "highlights": [
+          "Compact 7 × 7 × 9 cm format",
+          "Three colour directions",
+          "Gift-ready ribbon finish"
+        ],
+        "description": "A single preserved rose in a compact transparent cube with ribbon detail, made for small gestures and high-visibility gifting displays. The clear packaging and refined ribbon finish give the small format strong shelf impact without additional gift wrapping."
+      },
+      "DE": {
+        "summary": "Eine konservierte Rose in einem kompakten transparenten Würfel mit Schleifendetail, geschaffen für kleine Gesten und auffällige Geschenkpräsentationen.",
+        "format": "Eine konservierte Rose in einer transparenten Plexibox",
+        "highlights": [
+          "Kompaktes Format von 7 × 7 × 9 cm",
+          "Drei Farbrichtungen",
+          "Geschenkfertige Schleifenveredelung"
+        ],
+        "description": "Eine konservierte Rose in einem kompakten transparenten Würfel mit Schleifendetail, geschaffen für kleine Gesten und auffällige Geschenkpräsentationen. Die transparente Verpackung und die feine Schleifenveredelung geben dem kleinen Format starke Regalwirkung ohne zusätzliche Geschenkverpackung."
+      },
+      "ES": {
+        "summary": "Una rosa preservada en un cubo transparente compacto con detalle de cinta, creada para pequeños gestos y exposiciones de regalo de gran visibilidad.",
+        "format": "Una rosa preservada en una caja de plexiglás transparente",
+        "highlights": [
+          "Formato compacto de 7 × 7 × 9 cm",
+          "Tres opciones de color",
+          "Acabado con cinta listo para regalar"
+        ],
+        "description": "Una rosa preservada en un cubo transparente compacto con detalle de cinta, creada para pequeños gestos y exposiciones de regalo de gran visibilidad. El envase transparente y el acabado refinado de la cinta aportan al pequeño formato una fuerte presencia sin envoltorio adicional."
+      },
+      "PL": {
+        "summary": "Jedna róża stabilizowana w kompaktowej przezroczystej kostce z kokardą, stworzona do drobnych gestów i wyrazistych ekspozycji prezentowych.",
+        "format": "Jedna róża stabilizowana w przezroczystym pudełku z pleksi",
+        "highlights": [
+          "Kompaktowy format 7 × 7 × 9 cm",
+          "Trzy warianty kolorystyczne",
+          "Wykończenie wstążką gotowe na prezent"
+        ],
+        "description": "Jedna róża stabilizowana w kompaktowej przezroczystej kostce z kokardą, stworzona do drobnych gestów i wyrazistych ekspozycji prezentowych. Przezroczyste opakowanie i elegancka wstążka nadają małemu formatowi mocną obecność na półce bez dodatkowego pakowania."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada num cubo transparente compacto com detalhe de fita, criada para pequenos gestos e apresentações de presente com grande visibilidade.",
+        "format": "Uma rosa preservada numa caixa de acrílico transparente",
+        "highlights": [
+          "Formato compacto de 7 × 7 × 9 cm",
+          "Três opções de cor",
+          "Acabamento com fita pronto a oferecer"
+        ],
+        "description": "Uma rosa preservada num cubo transparente compacto com detalhe de fita, criada para pequenos gestos e apresentações de presente com grande visibilidade. A embalagem transparente e o acabamento refinado da fita dão ao pequeno formato forte presença na prateleira sem embrulho adicional."
+      },
+      "TR": {
+        "summary": "Kurdele ayrıntılı kompakt şeffaf küpte tek bir korunmuş gül; küçük jestler ve dikkat çekici hediye sunumları için tasarlanmıştır.",
+        "format": "Şeffaf pleksi kutuda tek korunmuş gül",
+        "highlights": [
+          "Kompakt 7 × 7 × 9 cm format",
+          "Üç renk seçeneği",
+          "Hediyeye hazır kurdele bitişi"
+        ],
+        "description": "Kurdele ayrıntılı kompakt şeffaf küpte tek bir korunmuş gül; küçük jestler ve dikkat çekici hediye sunumları için tasarlanmıştır. Şeffaf ambalaj ve zarif kurdele bitişi, küçük formata ek hediye paketi olmadan güçlü raf etkisi kazandırır."
+      }
+    },
+    "hearth-glass-flowerbox": {
+      "NL": {
+        "summary": "Zestien gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling.",
+        "knownStaleDescription": "De Heart Blossom Box, met afmetingen van 20x20 cm, bevat 13 prachtige rozen die zorgvuldig zijn gerangschikt in een luxe, hartvormige glazen box. Ideaal voor romantische momenten zoals Valentijnsdag of een jubileum, maar ook als een blijvend cadeau om liefde te tonen. Het heldere glas laat elke roos in volle glorie zien, terwijl de hartvormige presentatie een vleugje elegantie en toewijding toevoegt. Een uniek geschenk dat een blijvende indruk maakt en elke ruimte vult met romantiek en stijl.",
+        "format": "16 gepreserveerde rozen in een hartvormige spiegeldoos",
+        "highlights": [
+          "Hartvormige compositie",
+          "Presentatie met spiegel",
+          "Opvallend cadeauformaat"
+        ],
+        "description": "Zestien gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling. De symmetrische hartcompositie en reflecterende basis versterken de diepte van de rozen en maken de box direct geschikt als statementcadeau."
+      },
+      "FR": {
+        "summary": "Seize roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse.",
+        "format": "16 roses stabilisées dans une boîte miroir en forme de cœur",
+        "highlights": [
+          "Composition en forme de cœur",
+          "Présentation miroir",
+          "Format cadeau remarquable"
+        ],
+        "description": "Seize roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse. La composition symétrique en cœur et la base réfléchissante renforcent la profondeur des roses et rendent la boîte idéale comme cadeau remarquable."
+      },
+      "EN": {
+        "summary": "Sixteen preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette.",
+        "format": "16 preserved roses in a heart-shaped mirror box",
+        "highlights": [
+          "Heart-shaped composition",
+          "Mirrored presentation",
+          "Statement gifting format"
+        ],
+        "description": "Sixteen preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette. The symmetrical heart composition and reflective base enhance the depth of the roses and make the box immediately suitable as a statement gift."
+      },
+      "DE": {
+        "summary": "Sechzehn konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette.",
+        "format": "16 konservierte Rosen in einer herzförmigen Spiegelbox",
+        "highlights": [
+          "Herzförmige Komposition",
+          "Spiegelnde Präsentation",
+          "Ausdrucksstarkes Geschenkformat"
+        ],
+        "description": "Sechzehn konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette. Die symmetrische Herzkomposition und der reflektierende Sockel verstärken die Tiefe der Rosen und machen die Box zum ausdrucksstarken Geschenk."
+      },
+      "ES": {
+        "summary": "Dieciséis rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa.",
+        "format": "16 rosas preservadas en una caja de espejo con forma de corazón",
+        "highlights": [
+          "Composición en forma de corazón",
+          "Presentación con espejo",
+          "Formato de regalo llamativo"
+        ],
+        "description": "Dieciséis rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa. La composición simétrica en corazón y la base reflectante realzan la profundidad de las rosas y convierten la caja en un regalo destacado."
+      },
+      "PL": {
+        "summary": "Szesnaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce.",
+        "format": "16 róż stabilizowanych w lustrzanym pudełku w kształcie serca",
+        "highlights": [
+          "Kompozycja w kształcie serca",
+          "Lustrzana prezentacja",
+          "Wyrazisty format prezentowy"
+        ],
+        "description": "Szesnaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce. Symetryczna kompozycja serca i odbijająca podstawa wzmacniają głębię róż i czynią pudełko wyrazistym prezentem."
+      },
+      "PT": {
+        "summary": "Dezasseis rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa.",
+        "format": "16 rosas preservadas numa caixa espelhada em forma de coração",
+        "highlights": [
+          "Composição em forma de coração",
+          "Apresentação espelhada",
+          "Formato de presente marcante"
+        ],
+        "description": "Dezasseis rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa. A composição simétrica em coração e a base refletora realçam a profundidade das rosas e tornam a caixa num presente marcante."
+      },
+      "TR": {
+        "summary": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on altı korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur.",
+        "format": "Kalp şeklinde aynalı kutuda 16 korunmuş gül",
+        "highlights": [
+          "Kalp şeklinde kompozisyon",
+          "Aynalı sunum",
+          "İddialı hediye formatı"
+        ],
+        "description": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on altı korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur. Simetrik kalp kompozisyonu ve yansıtıcı taban güllerin derinliğini artırır ve kutuyu iddialı bir hediyeye dönüştürür."
+      }
+    },
+    "roses-in-box-16pcs": {
+      "NL": {
+        "summary": "Een volle compositie van zestien gepreserveerde rozen in een compacte vierkante flowerbox, verkrijgbaar in drie uitgesproken kleurverhalen.",
+        "format": "16 gepreserveerde rozen in een vierkante flowerbox",
+        "highlights": [
+          "Doos van 17 × 17 × 15 cm",
+          "Drie kleurrichtingen",
+          "Onderhoudsvrije presentatie"
+        ],
+        "description": "Een volle compositie van zestien gepreserveerde rozen in een compacte vierkante flowerbox, verkrijgbaar in drie uitgesproken kleurverhalen. De compacte vierkante opbouw houdt de rozen dicht en gelijkmatig gerangschikt, zodat elke kleurvariant een rijk en verzorgd beeld geeft."
+      },
+      "FR": {
+        "summary": "Une composition dense de seize roses stabilisées dans une flowerbox carrée compacte, disponible en trois univers chromatiques distincts.",
+        "format": "16 roses stabilisées dans une flowerbox carrée",
+        "highlights": [
+          "Boîte de 17 × 17 × 15 cm",
+          "Trois orientations de couleur",
+          "Présentation sans entretien"
+        ],
+        "description": "Une composition dense de seize roses stabilisées dans une flowerbox carrée compacte, disponible en trois univers chromatiques distincts. La construction carrée compacte maintient les roses serrées et régulièrement disposées, donnant à chaque couleur un aspect riche et soigné."
+      },
+      "EN": {
+        "summary": "A dense arrangement of sixteen preserved roses in a compact square flowerbox, available in three distinct colour stories.",
+        "format": "16 preserved roses in a square flowerbox",
+        "highlights": [
+          "17 × 17 × 15 cm box",
+          "Three colour directions",
+          "Maintenance-free presentation"
+        ],
+        "description": "A dense arrangement of sixteen preserved roses in a compact square flowerbox, available in three distinct colour stories. The compact square construction keeps the roses densely and evenly arranged, giving every colour option a rich and polished appearance."
+      },
+      "DE": {
+        "summary": "Ein dichtes Arrangement aus sechzehn konservierten Rosen in einer kompakten quadratischen Flowerbox, erhältlich in drei eigenständigen Farbwelten.",
+        "format": "16 konservierte Rosen in einer quadratischen Flowerbox",
+        "highlights": [
+          "Box mit 17 × 17 × 15 cm",
+          "Drei Farbrichtungen",
+          "Pflegefreie Präsentation"
+        ],
+        "description": "Ein dichtes Arrangement aus sechzehn konservierten Rosen in einer kompakten quadratischen Flowerbox, erhältlich in drei eigenständigen Farbwelten. Der kompakte quadratische Aufbau hält die Rosen dicht und gleichmäßig angeordnet, sodass jede Farbe reich und gepflegt wirkt."
+      },
+      "ES": {
+        "summary": "Una composición densa de dieciséis rosas preservadas en una flowerbox cuadrada compacta, disponible en tres combinaciones de color diferenciadas.",
+        "format": "16 rosas preservadas en una flowerbox cuadrada",
+        "highlights": [
+          "Caja de 17 × 17 × 15 cm",
+          "Tres opciones de color",
+          "Presentación sin mantenimiento"
+        ],
+        "description": "Una composición densa de dieciséis rosas preservadas en una flowerbox cuadrada compacta, disponible en tres combinaciones de color diferenciadas. La estructura cuadrada compacta mantiene las rosas densas y uniformes, dando a cada color un aspecto rico y cuidado."
+      },
+      "PL": {
+        "summary": "Gęsta kompozycja szesnastu róż stabilizowanych w kompaktowym kwadratowym flowerboxie, dostępna w trzech wyrazistych odsłonach kolorystycznych.",
+        "format": "16 róż stabilizowanych w kwadratowym flowerboxie",
+        "highlights": [
+          "Pudełko 17 × 17 × 15 cm",
+          "Trzy warianty kolorystyczne",
+          "Prezentacja bez pielęgnacji"
+        ],
+        "description": "Gęsta kompozycja szesnastu róż stabilizowanych w kompaktowym kwadratowym flowerboxie, dostępna w trzech wyrazistych odsłonach kolorystycznych. Kompaktowa kwadratowa konstrukcja utrzymuje róże w gęstym i równym układzie, nadając każdemu kolorowi bogaty i dopracowany wygląd."
+      },
+      "PT": {
+        "summary": "Uma composição densa de dezasseis rosas preservadas numa flowerbox quadrada compacta, disponível em três histórias de cor distintas.",
+        "format": "16 rosas preservadas numa flowerbox quadrada",
+        "highlights": [
+          "Caixa de 17 × 17 × 15 cm",
+          "Três opções de cor",
+          "Apresentação sem manutenção"
+        ],
+        "description": "Uma composição densa de dezasseis rosas preservadas numa flowerbox quadrada compacta, disponível em três histórias de cor distintas. A construção quadrada compacta mantém as rosas densas e uniformemente dispostas, dando a cada cor um aspeto rico e cuidado."
+      },
+      "TR": {
+        "summary": "Kompakt kare flowerbox içinde on altı korunmuş gülden oluşan yoğun aranjman, üç farklı renk hikâyesiyle sunulur.",
+        "format": "Kare flowerbox içinde 16 korunmuş gül",
+        "highlights": [
+          "17 × 17 × 15 cm kutu",
+          "Üç renk seçeneği",
+          "Bakım gerektirmeyen sunum"
+        ],
+        "description": "Kompakt kare flowerbox içinde on altı korunmuş gülden oluşan yoğun aranjman, üç farklı renk hikâyesiyle sunulur. Kompakt kare yapı gülleri yoğun ve eşit düzenler, her renk seçeneğine zengin ve özenli bir görünüm kazandırır."
+      }
+    },
+    "rose-in-dome-elite": {
+      "NL": {
+        "summary": "Drie verspringend geplaatste dieprode gepreserveerde rozen onder een glazen stolp van 30 cm, gecombineerd met warm LED-licht en een Enrosed-geschenkdoos.",
+        "format": "Drie gepreserveerde rozen in een glazen stolp van 30 cm",
+        "highlights": [
+          "Compositie met drie rozen",
+          "Warme LED-presentatie",
+          "Geschenkdoos inbegrepen"
+        ],
+        "description": "Drie verspringend geplaatste dieprode gepreserveerde rozen onder een glazen stolp van 30 cm, gecombineerd met warm LED-licht en een Enrosed-geschenkdoos. De verspringende hoogtes creëren diepte onder het glas, terwijl de verlichting en geschenkdoos samen een complete premium presentatie vormen."
+      },
+      "FR": {
+        "summary": "Trois roses stabilisées rouge profond disposées en décalé sous une cloche en verre de 30 cm, associées à une lumière LED chaude et une boîte cadeau Enrosed.",
+        "format": "Trois roses stabilisées sous une cloche en verre de 30 cm",
+        "highlights": [
+          "Composition de trois roses",
+          "Présentation LED chaleureuse",
+          "Boîte cadeau incluse"
+        ],
+        "description": "Trois roses stabilisées rouge profond disposées en décalé sous une cloche en verre de 30 cm, associées à une lumière LED chaude et une boîte cadeau Enrosed. Les hauteurs décalées créent de la profondeur sous le verre, tandis que l’éclairage et la boîte cadeau forment une présentation premium complète."
+      },
+      "EN": {
+        "summary": "Three staggered preserved red roses beneath a 30 cm glass dome, paired with warm LED light and an Enrosed giftbox.",
+        "format": "Three preserved roses in a 30 cm glass dome",
+        "highlights": [
+          "Three-rose composition",
+          "Warm LED presentation",
+          "Giftbox included"
+        ],
+        "description": "Three staggered preserved red roses beneath a 30 cm glass dome, paired with warm LED light and an Enrosed giftbox. The staggered heights create depth beneath the glass, while the lighting and giftbox form a complete premium presentation."
+      },
+      "DE": {
+        "summary": "Drei gestaffelte tiefrote konservierte Rosen unter einer 30 cm hohen Glasglocke, kombiniert mit warmem LED-Licht und einer Enrosed-Geschenkbox.",
+        "format": "Drei konservierte Rosen unter einer 30-cm-Glasglocke",
+        "highlights": [
+          "Komposition aus drei Rosen",
+          "Warme LED-Präsentation",
+          "Geschenkbox enthalten"
+        ],
+        "description": "Drei gestaffelte tiefrote konservierte Rosen unter einer 30 cm hohen Glasglocke, kombiniert mit warmem LED-Licht und einer Enrosed-Geschenkbox. Die gestaffelten Höhen erzeugen Tiefe unter dem Glas, während Beleuchtung und Geschenkbox eine vollständige Premiumpräsentation bilden."
+      },
+      "ES": {
+        "summary": "Tres rosas rojas preservadas dispuestas a distintas alturas bajo una cúpula de cristal de 30 cm, con luz LED cálida y caja de regalo Enrosed.",
+        "format": "Tres rosas preservadas en una cúpula de cristal de 30 cm",
+        "highlights": [
+          "Composición de tres rosas",
+          "Presentación con LED cálido",
+          "Caja de regalo incluida"
+        ],
+        "description": "Tres rosas rojas preservadas dispuestas a distintas alturas bajo una cúpula de cristal de 30 cm, con luz LED cálida y caja de regalo Enrosed. Las alturas escalonadas crean profundidad bajo el cristal, mientras la iluminación y la caja de regalo forman una presentación premium completa."
+      },
+      "PL": {
+        "summary": "Trzy ciemnoczerwone róże stabilizowane ułożone na różnych wysokościach pod szklaną kopułą 30 cm, z ciepłym światłem LED i pudełkiem prezentowym Enrosed.",
+        "format": "Trzy róże stabilizowane pod szklaną kopułą 30 cm",
+        "highlights": [
+          "Kompozycja z trzech róż",
+          "Ciepła prezentacja LED",
+          "Pudełko prezentowe w zestawie"
+        ],
+        "description": "Trzy ciemnoczerwone róże stabilizowane ułożone na różnych wysokościach pod szklaną kopułą 30 cm, z ciepłym światłem LED i pudełkiem prezentowym Enrosed. Zróżnicowane wysokości tworzą głębię pod szkłem, a oświetlenie i pudełko prezentowe składają się na kompletną prezentację premium."
+      },
+      "PT": {
+        "summary": "Três rosas vermelhas preservadas dispostas em alturas diferentes sob uma cúpula de vidro de 30 cm, com luz LED quente e caixa de presente Enrosed.",
+        "format": "Três rosas preservadas numa cúpula de vidro de 30 cm",
+        "highlights": [
+          "Composição de três rosas",
+          "Apresentação com LED quente",
+          "Caixa de presente incluída"
+        ],
+        "description": "Três rosas vermelhas preservadas dispostas em alturas diferentes sob uma cúpula de vidro de 30 cm, com luz LED quente e caixa de presente Enrosed. As alturas escalonadas criam profundidade sob o vidro, enquanto a iluminação e a caixa de presente formam uma apresentação premium completa."
+      },
+      "TR": {
+        "summary": "30 cm cam fanus altında farklı yüksekliklerde üç koyu kırmızı korunmuş gül, sıcak LED ışık ve Enrosed hediye kutusuyla sunulur.",
+        "format": "30 cm cam fanusta üç korunmuş gül",
+        "highlights": [
+          "Üç güllü kompozisyon",
+          "Sıcak LED sunumu",
+          "Hediye kutusu dâhil"
+        ],
+        "description": "30 cm cam fanus altında farklı yüksekliklerde üç koyu kırmızı korunmuş gül, sıcak LED ışık ve Enrosed hediye kutusuyla sunulur. Kademeli yükseklikler cam altında derinlik oluşturur, aydınlatma ve hediye kutusu ise eksiksiz premium sunumu tamamlar."
+      }
+    },
+    "roses-in-box-9pcs": {
+      "NL": {
+        "summary": "Negen gepreserveerde rozen in een compacte flowerbox die kleur, structuur en langdurige cadeauwaarde naar het schap brengt.",
+        "format": "9 gepreserveerde rozen in een vierkante flowerbox",
+        "highlights": [
+          "Doos van 15 × 15 × 17 cm",
+          "Drie kleurrichtingen",
+          "Compact premium cadeau"
+        ],
+        "description": "Negen gepreserveerde rozen in een compacte flowerbox die kleur, structuur en langdurige cadeauwaarde naar het schap brengt. De geordende rastercompositie geeft de compacte box een rustige premium uitstraling en laat de gekozen kleur volledig spreken."
+      },
+      "FR": {
+        "summary": "Neuf roses stabilisées dans une flowerbox compacte qui apporte couleur, structure et valeur cadeau durable au rayon.",
+        "format": "9 roses stabilisées dans une flowerbox carrée",
+        "highlights": [
+          "Boîte de 15 × 15 × 17 cm",
+          "Trois orientations de couleur",
+          "Cadeau premium compact"
+        ],
+        "description": "Neuf roses stabilisées dans une flowerbox compacte qui apporte couleur, structure et valeur cadeau durable au rayon. La composition en grille ordonnée donne à la boîte compacte une allure premium apaisée et met pleinement la couleur choisie en valeur."
+      },
+      "EN": {
+        "summary": "Nine preserved roses arranged in a compact flowerbox that brings colour, structure and long-lasting gifting value to the shelf.",
+        "format": "9 preserved roses in a square flowerbox",
+        "highlights": [
+          "15 × 15 × 17 cm box",
+          "Three colour directions",
+          "Compact premium gift"
+        ],
+        "description": "Nine preserved roses arranged in a compact flowerbox that brings colour, structure and long-lasting gifting value to the shelf. The ordered grid composition gives the compact box a calm premium appearance and allows the selected colour to take centre stage."
+      },
+      "DE": {
+        "summary": "Neun konservierte Rosen in einer kompakten Flowerbox bringen Farbe, Struktur und dauerhaften Geschenkwert ins Regal.",
+        "format": "9 konservierte Rosen in einer quadratischen Flowerbox",
+        "highlights": [
+          "Box mit 15 × 15 × 17 cm",
+          "Drei Farbrichtungen",
+          "Kompaktes Premiumgeschenk"
+        ],
+        "description": "Neun konservierte Rosen in einer kompakten Flowerbox bringen Farbe, Struktur und dauerhaften Geschenkwert ins Regal. Die geordnete Rasterkomposition verleiht der kompakten Box eine ruhige Premiumwirkung und rückt die gewählte Farbe in den Mittelpunkt."
+      },
+      "ES": {
+        "summary": "Nueve rosas preservadas en una flowerbox compacta que aporta color, estructura y valor de regalo duradero al lineal.",
+        "format": "9 rosas preservadas en una flowerbox cuadrada",
+        "highlights": [
+          "Caja de 15 × 15 × 17 cm",
+          "Tres opciones de color",
+          "Regalo premium compacto"
+        ],
+        "description": "Nueve rosas preservadas en una flowerbox compacta que aporta color, estructura y valor de regalo duradero al lineal. La composición ordenada en cuadrícula aporta a la caja compacta una apariencia premium serena y realza el color elegido."
+      },
+      "PL": {
+        "summary": "Dziewięć róż stabilizowanych w kompaktowym flowerboxie wnosi na półkę kolor, strukturę i trwałą wartość prezentową.",
+        "format": "9 róż stabilizowanych w kwadratowym flowerboxie",
+        "highlights": [
+          "Pudełko 15 × 15 × 17 cm",
+          "Trzy warianty kolorystyczne",
+          "Kompaktowy prezent premium"
+        ],
+        "description": "Dziewięć róż stabilizowanych w kompaktowym flowerboxie wnosi na półkę kolor, strukturę i trwałą wartość prezentową. Uporządkowana kompozycja w siatce nadaje kompaktowemu pudełku spokojny wygląd premium i eksponuje wybrany kolor."
+      },
+      "PT": {
+        "summary": "Nove rosas preservadas numa flowerbox compacta que leva cor, estrutura e valor de presente duradouro à prateleira.",
+        "format": "9 rosas preservadas numa flowerbox quadrada",
+        "highlights": [
+          "Caixa de 15 × 15 × 17 cm",
+          "Três opções de cor",
+          "Presente premium compacto"
+        ],
+        "description": "Nove rosas preservadas numa flowerbox compacta que leva cor, estrutura e valor de presente duradouro à prateleira. A composição ordenada em grelha dá à caixa compacta uma aparência premium serena e destaca a cor escolhida."
+      },
+      "TR": {
+        "summary": "Kompakt flowerbox içinde dokuz korunmuş gül, rafa renk, yapı ve uzun ömürlü hediye değeri kazandırır.",
+        "format": "Kare flowerbox içinde 9 korunmuş gül",
+        "highlights": [
+          "15 × 15 × 17 cm kutu",
+          "Üç renk seçeneği",
+          "Kompakt premium hediye"
+        ],
+        "description": "Kompakt flowerbox içinde dokuz korunmuş gül, rafa renk, yapı ve uzun ömürlü hediye değeri kazandırır. Düzenli ızgara kompozisyonu kompakt kutuya sakin bir premium görünüm verir ve seçilen rengi öne çıkarır."
+      }
+    },
+    "acrylic-flowerbox": {
+      "NL": {
+        "summary": "Een moderne compositie van gepreserveerde rozen in een hoge transparante acrylkubus, ontworpen als strak architecturaal alternatief voor een boeket.",
+        "format": "Compositie van gepreserveerde rozen in een acrylkubus",
+        "highlights": [
+          "Presentatie van 12 × 20 cm",
+          "Transparante architecturale box",
+          "Eén rode kleurrichting"
+        ],
+        "description": "Een moderne compositie van gepreserveerde rozen in een hoge transparante acrylkubus, ontworpen als strak architecturaal alternatief voor een boeket. De rechte transparante wanden tonen de compositie rondom en geven het arrangement een moderne, rustige uitstraling in uiteenlopende interieurs."
+      },
+      "FR": {
+        "summary": "Une composition moderne de roses stabilisées dans un haut cube acrylique transparent, conçue comme une alternative architecturale épurée au bouquet.",
+        "format": "Composition de roses stabilisées dans un cube acrylique",
+        "highlights": [
+          "Présentation de 12 × 20 cm",
+          "Écrin architectural transparent",
+          "Une seule orientation rouge"
+        ],
+        "description": "Une composition moderne de roses stabilisées dans un haut cube acrylique transparent, conçue comme une alternative architecturale épurée au bouquet. Les parois droites et transparentes montrent la composition tout autour et donnent à l’arrangement une allure moderne et sereine dans différents intérieurs."
+      },
+      "EN": {
+        "summary": "A modern preserved-rose composition inside a tall transparent acrylic cube, designed as a clean architectural alternative to a bouquet.",
+        "format": "Preserved rose composition in an acrylic cube",
+        "highlights": [
+          "12 × 20 cm presentation",
+          "Clear architectural case",
+          "Single red colour direction"
+        ],
+        "description": "A modern preserved-rose composition inside a tall transparent acrylic cube, designed as a clean architectural alternative to a bouquet. The straight transparent walls reveal the composition from every side and give the arrangement a modern, calm presence in varied interiors."
+      },
+      "DE": {
+        "summary": "Eine moderne Komposition konservierter Rosen in einem hohen transparenten Acrylwürfel, als klare architektonische Alternative zum Blumenstrauß gestaltet.",
+        "format": "Komposition konservierter Rosen in einem Acrylwürfel",
+        "highlights": [
+          "Präsentation mit 12 × 20 cm",
+          "Transparente architektonische Box",
+          "Eine rote Farbrichtung"
+        ],
+        "description": "Eine moderne Komposition konservierter Rosen in einem hohen transparenten Acrylwürfel, als klare architektonische Alternative zum Blumenstrauß gestaltet. Die geraden transparenten Wände zeigen die Komposition von allen Seiten und verleihen dem Arrangement in unterschiedlichen Räumen eine moderne, ruhige Präsenz."
+      },
+      "ES": {
+        "summary": "Una composición moderna de rosas preservadas dentro de un alto cubo acrílico transparente, diseñada como alternativa arquitectónica depurada a un ramo.",
+        "format": "Composición de rosas preservadas en un cubo acrílico",
+        "highlights": [
+          "Presentación de 12 × 20 cm",
+          "Estuche arquitectónico transparente",
+          "Una opción de color rojo"
+        ],
+        "description": "Una composición moderna de rosas preservadas dentro de un alto cubo acrílico transparente, diseñada como alternativa arquitectónica depurada a un ramo. Las paredes rectas y transparentes muestran la composición desde todos los lados y dan al arreglo una presencia moderna y serena en distintos interiores."
+      },
+      "PL": {
+        "summary": "Nowoczesna kompozycja róż stabilizowanych w wysokiej przezroczystej kostce akrylowej, zaprojektowana jako czysta architektoniczna alternatywa dla bukietu.",
+        "format": "Kompozycja róż stabilizowanych w akrylowej kostce",
+        "highlights": [
+          "Prezentacja 12 × 20 cm",
+          "Przezroczysta architektoniczna obudowa",
+          "Jeden czerwony wariant kolorystyczny"
+        ],
+        "description": "Nowoczesna kompozycja róż stabilizowanych w wysokiej przezroczystej kostce akrylowej, zaprojektowana jako czysta architektoniczna alternatywa dla bukietu. Proste przezroczyste ściany pokazują kompozycję z każdej strony i nadają aranżacji nowoczesną, spokojną obecność w różnych wnętrzach."
+      },
+      "PT": {
+        "summary": "Uma composição moderna de rosas preservadas num cubo acrílico transparente e alto, concebida como alternativa arquitetónica depurada a um ramo.",
+        "format": "Composição de rosas preservadas num cubo acrílico",
+        "highlights": [
+          "Apresentação de 12 × 20 cm",
+          "Estojo arquitetónico transparente",
+          "Uma opção de cor vermelha"
+        ],
+        "description": "Uma composição moderna de rosas preservadas num cubo acrílico transparente e alto, concebida como alternativa arquitetónica depurada a um ramo. As paredes direitas e transparentes revelam a composição de todos os lados e dão ao arranjo uma presença moderna e serena em diferentes interiores."
+      },
+      "TR": {
+        "summary": "Uzun şeffaf akrilik küp içinde modern korunmuş gül kompozisyonu, bukete sade ve mimari bir alternatif olarak tasarlanmıştır.",
+        "format": "Akrilik küpte korunmuş gül kompozisyonu",
+        "highlights": [
+          "12 × 20 cm sunum",
+          "Şeffaf mimari kutu",
+          "Tek kırmızı renk seçeneği"
+        ],
+        "description": "Uzun şeffaf akrilik küp içinde modern korunmuş gül kompozisyonu, bukete sade ve mimari bir alternatif olarak tasarlanmıştır. Düz şeffaf duvarlar kompozisyonu her yönden gösterir ve aranjmana farklı iç mekânlarda modern, sakin bir duruş kazandırır."
+      }
+    },
+    "rose-in-dome-m": {
+      "NL": {
+        "summary": "Eén gepreserveerde roos in een hoge glazen LED-stolp van 30 cm, met een klassiek cadeausilhouet en sterke aanwezigheid in het schap.",
+        "knownStaleDescription": "De Rose in Dome - Single Elegance combineert tijdloze schoonheid met sfeervolle LED-verlichting, allemaal beschermd onder een elegante glazen koepel van 15x30 cm. De zachte gloed van de LED-verlichting versterkt de rijke kleur van de enkele roos, waardoor een warme, romantische sfeer ontstaat in elke ruimte. Verkrijgbaar in vier prachtige kleuren – klassiek rood, verfijnd kersenroze, diep navyblauw en zuiver wit – is dit arrangement ideaal als cadeau voor speciale gelegenheden zoals jubilea, verjaardagen, of om gewoon een geliefde te verrassen. Een geschenk dat blijvend indruk maakt en jarenlang zonder onderhoud mooi blijft.",
+        "format": "Eén gepreserveerde roos in een glazen stolp van 30 cm",
+        "highlights": [
+          "Hoge stolp van 15 × 30 cm",
+          "Warme LED-presentatie",
+          "Drie kleurrichtingen"
+        ],
+        "description": "Eén gepreserveerde roos in een hoge glazen LED-stolp van 30 cm, met een klassiek cadeausilhouet en sterke aanwezigheid in het schap. De slanke stolp en zachte verlichting geven de enkele roos hoogte en sfeer, terwijl de drie kleuren duidelijke keuze bieden zonder de collectie te versnipperen."
+      },
+      "FR": {
+        "summary": "Une rose stabilisée dans une haute cloche en verre LED de 30 cm, offrant une silhouette cadeau classique et une forte présence en rayon.",
+        "format": "Une rose stabilisée sous une cloche en verre de 30 cm",
+        "highlights": [
+          "Haute cloche de 15 × 30 cm",
+          "Présentation LED chaleureuse",
+          "Trois orientations de couleur"
+        ],
+        "description": "Une rose stabilisée dans une haute cloche en verre LED de 30 cm, offrant une silhouette cadeau classique et une forte présence en rayon. La cloche élancée et la lumière douce donnent hauteur et ambiance à la rose unique, tandis que les trois couleurs offrent un choix clair et resserré."
+      },
+      "EN": {
+        "summary": "A single preserved rose in a tall 30 cm LED glass dome, offering a classic gift silhouette with a strong shelf presence.",
+        "format": "Single preserved rose in a 30 cm glass dome",
+        "highlights": [
+          "Tall 15 × 30 cm dome",
+          "Warm LED presentation",
+          "Three colour directions"
+        ],
+        "description": "A single preserved rose in a tall 30 cm LED glass dome, offering a classic gift silhouette with a strong shelf presence. The slender dome and soft light give the single rose height and atmosphere, while the three colours provide a clear, focused choice."
+      },
+      "DE": {
+        "summary": "Eine konservierte Rose in einer hohen 30-cm-LED-Glasglocke bietet eine klassische Geschenksilhouette mit starker Regalwirkung.",
+        "format": "Eine konservierte Rose unter einer 30-cm-Glasglocke",
+        "highlights": [
+          "Hohe Glasglocke mit 15 × 30 cm",
+          "Warme LED-Präsentation",
+          "Drei Farbrichtungen"
+        ],
+        "description": "Eine konservierte Rose in einer hohen 30-cm-LED-Glasglocke bietet eine klassische Geschenksilhouette mit starker Regalwirkung. Die schlanke Glasglocke und das sanfte Licht geben der einzelnen Rose Höhe und Atmosphäre, während die drei Farben eine klare Auswahl bieten."
+      },
+      "ES": {
+        "summary": "Una rosa preservada en una alta cúpula de cristal con LED de 30 cm, con una silueta clásica de regalo y gran presencia en el lineal.",
+        "format": "Una rosa preservada en una cúpula de cristal de 30 cm",
+        "highlights": [
+          "Cúpula alta de 15 × 30 cm",
+          "Presentación con LED cálido",
+          "Tres opciones de color"
+        ],
+        "description": "Una rosa preservada en una alta cúpula de cristal con LED de 30 cm, con una silueta clásica de regalo y gran presencia en el lineal. La cúpula esbelta y la luz suave aportan altura y ambiente a la rosa única, mientras los tres colores ofrecen una elección clara y enfocada."
+      },
+      "PL": {
+        "summary": "Jedna róża stabilizowana w wysokiej szklanej kopule LED 30 cm oferuje klasyczną formę prezentową i mocną obecność na półce.",
+        "format": "Jedna róża stabilizowana pod szklaną kopułą 30 cm",
+        "highlights": [
+          "Wysoka kopuła 15 × 30 cm",
+          "Ciepła prezentacja LED",
+          "Trzy warianty kolorystyczne"
+        ],
+        "description": "Jedna róża stabilizowana w wysokiej szklanej kopule LED 30 cm oferuje klasyczną formę prezentową i mocną obecność na półce. Smukła kopuła i delikatne światło nadają pojedynczej róży wysokość i atmosferę, a trzy kolory zapewniają jasny, skupiony wybór."
+      },
+      "PT": {
+        "summary": "Uma rosa preservada numa cúpula alta de vidro com LED de 30 cm, com uma silhueta clássica de presente e forte presença na prateleira.",
+        "format": "Uma rosa preservada numa cúpula de vidro de 30 cm",
+        "highlights": [
+          "Cúpula alta de 15 × 30 cm",
+          "Apresentação com LED quente",
+          "Três opções de cor"
+        ],
+        "description": "Uma rosa preservada numa cúpula alta de vidro com LED de 30 cm, com uma silhueta clássica de presente e forte presença na prateleira. A cúpula esguia e a luz suave dão altura e ambiente à rosa única, enquanto as três cores oferecem uma escolha clara e focada."
+      },
+      "TR": {
+        "summary": "30 cm yüksekliğinde LED'li cam fanusta tek bir korunmuş gül, klasik hediye silueti ve güçlü raf görünümü sunar.",
+        "format": "30 cm cam fanusta tek korunmuş gül",
+        "highlights": [
+          "15 × 30 cm yüksek fanus",
+          "Sıcak LED sunumu",
+          "Üç renk seçeneği"
+        ],
+        "description": "30 cm yüksekliğinde LED'li cam fanusta tek bir korunmuş gül, klasik hediye silueti ve güçlü raf görünümü sunar. İnce fanus ve yumuşak ışık tek güle yükseklik ve atmosfer kazandırırken üç renk net ve odaklı bir seçim sunar."
+      }
+    },
+    "glass-flowerbox": {
+      "NL": {
+        "summary": "Zestien gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails.",
+        "knownStaleDescription": "De Glass Blossom Box, met afmetingen van 28x28x14 cm, is een verfijnd bloemenarrangement met 13 prachtige rozen, zorgvuldig geplaatst in een luxe, doorzichtige glazen box. Dit exclusieve ontwerp laat elke roos op elegante wijze stralen en creëert een indrukwekkende uitstraling in elke ruimte. Met zijn moderne en stijlvolle vormgeving is de Glass Blossom Box het perfecte cadeau voor bijzondere gelegenheden of een tijdloze toevoeging aan je interieur. Verras met 13 rozen in een unieke presentatie die blijvende indruk maakt.",
+        "format": "16 gepreserveerde rozen in een transparante flowerbox",
+        "highlights": [
+          "Hartvormig rozenarrangement",
+          "Transparante box van 28 × 28 × 14 cm",
+          "Afwerking met Enrosed-lint"
+        ],
+        "description": "Zestien gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails. De transparante wanden houden de hartvorm vanuit meerdere hoeken zichtbaar en de zwarte randen en lintafwerking geven de presentatie een herkenbare premium signatuur."
+      },
+      "FR": {
+        "summary": "Seize roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed.",
+        "format": "16 roses stabilisées dans une flowerbox transparente",
+        "highlights": [
+          "Arrangement de roses en forme de cœur",
+          "Écrin transparent de 28 × 28 × 14 cm",
+          "Finition avec ruban Enrosed"
+        ],
+        "description": "Seize roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed. Les parois transparentes gardent le cœur visible sous plusieurs angles, tandis que les bords noirs et le ruban donnent une signature premium reconnaissable."
+      },
+      "EN": {
+        "summary": "Sixteen preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing.",
+        "format": "16 preserved roses in a clear flowerbox",
+        "highlights": [
+          "Heart-shaped rose arrangement",
+          "Clear 28 × 28 × 14 cm case",
+          "Enrosed ribbon finish"
+        ],
+        "description": "Sixteen preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing. The transparent walls keep the heart visible from several angles, while the black edging and ribbon finish give the presentation a recognisable premium signature."
+      },
+      "DE": {
+        "summary": "Sechzehn konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail.",
+        "format": "16 konservierte Rosen in einer transparenten Flowerbox",
+        "highlights": [
+          "Herzförmiges Rosenarrangement",
+          "Transparente Box mit 28 × 28 × 14 cm",
+          "Veredelung mit Enrosed-Schleife"
+        ],
+        "description": "Sechzehn konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail. Die transparenten Wände halten das Herz aus mehreren Blickwinkeln sichtbar, während schwarze Kanten und Schleifenfinish eine erkennbare Premiumsignatur schaffen."
+      },
+      "ES": {
+        "summary": "Dieciséis rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed.",
+        "format": "16 rosas preservadas en una flowerbox transparente",
+        "highlights": [
+          "Arreglo de rosas en forma de corazón",
+          "Estuche transparente de 28 × 28 × 14 cm",
+          "Acabado con cinta Enrosed"
+        ],
+        "description": "Dieciséis rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed. Las paredes transparentes mantienen el corazón visible desde varios ángulos, mientras los bordes negros y la cinta aportan una firma premium reconocible."
+      },
+      "PL": {
+        "summary": "Szesnaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed.",
+        "format": "16 róż stabilizowanych w przezroczystym flowerboxie",
+        "highlights": [
+          "Różana kompozycja w kształcie serca",
+          "Przezroczyste pudełko 28 × 28 × 14 cm",
+          "Wykończenie wstążką Enrosed"
+        ],
+        "description": "Szesnaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed. Przezroczyste ściany pokazują serce z kilku stron, a czarne obramowanie i wstążka nadają prezentacji rozpoznawalny charakter premium."
+      },
+      "PT": {
+        "summary": "Dezasseis rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed.",
+        "format": "16 rosas preservadas numa flowerbox transparente",
+        "highlights": [
+          "Arranjo de rosas em forma de coração",
+          "Estojo transparente de 28 × 28 × 14 cm",
+          "Acabamento com fita Enrosed"
+        ],
+        "description": "Dezasseis rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed. As paredes transparentes mantêm o coração visível de vários ângulos, enquanto o rebordo preto e a fita dão uma assinatura premium reconhecível."
+      },
+      "TR": {
+        "summary": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on altı korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır.",
+        "format": "Şeffaf flowerbox içinde 16 korunmuş gül",
+        "highlights": [
+          "Kalp şeklinde gül aranjmanı",
+          "Şeffaf 28 × 28 × 14 cm kutu",
+          "Enrosed kurdele bitişi"
+        ],
+        "description": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on altı korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır. Şeffaf duvarlar kalbi farklı açılardan görünür tutar, siyah kenarlar ve kurdele bitişi sunuma tanınabilir premium bir imza kazandırır."
+      }
+    },
+    "rose-in-dome-xl": {
+      "NL": {
+        "summary": "Een kleine gepreserveerde roos onder een glazen stolp van 20 cm met zacht LED-licht, op maat voor bureaus, nachtkastjes en compacte cadeauzones.",
+        "format": "Eén gepreserveerde roos in een glazen stolp van 20 cm",
+        "highlights": [
+          "Compacte stolp van 12 × 20 cm",
+          "Warme LED-presentatie",
+          "Vier kleurrichtingen"
+        ],
+        "description": "Een kleine gepreserveerde roos onder een glazen stolp van 20 cm met zacht LED-licht, op maat voor bureaus, nachtkastjes en compacte cadeauzones. Het kleine silhouet behoudt de uitstraling van een klassieke glazen stolp en maakt plaatsing mogelijk waar grotere cadeauproducten minder praktisch zijn."
+      },
+      "FR": {
+        "summary": "Une petite rose stabilisée sous une cloche en verre de 20 cm avec une douce lumière LED, adaptée aux bureaux, tables de chevet et espaces cadeaux compacts.",
+        "format": "Une rose stabilisée sous une cloche en verre de 20 cm",
+        "highlights": [
+          "Cloche compacte de 12 × 20 cm",
+          "Présentation LED chaleureuse",
+          "Quatre orientations de couleur"
+        ],
+        "description": "Une petite rose stabilisée sous une cloche en verre de 20 cm avec une douce lumière LED, adaptée aux bureaux, tables de chevet et espaces cadeaux compacts. La petite silhouette conserve l’allure d’une cloche en verre classique et permet une installation là où les grands cadeaux sont moins pratiques."
+      },
+      "EN": {
+        "summary": "A petite preserved rose beneath a 20 cm glass dome with soft LED light, sized for desks, bedside displays and compact gifting zones.",
+        "format": "Single preserved rose in a 20 cm glass dome",
+        "highlights": [
+          "Compact 12 × 20 cm dome",
+          "Warm LED presentation",
+          "Four colour directions"
+        ],
+        "description": "A petite preserved rose beneath a 20 cm glass dome with soft LED light, sized for desks, bedside displays and compact gifting zones. The petite silhouette retains the character of a classic glass dome and fits where larger gift products are less practical."
+      },
+      "DE": {
+        "summary": "Eine kleine konservierte Rose unter einer 20 cm hohen Glasglocke mit sanftem LED-Licht, passend für Schreibtische, Nachttische und kompakte Geschenkzonen.",
+        "format": "Eine konservierte Rose unter einer 20-cm-Glasglocke",
+        "highlights": [
+          "Kompakte Glasglocke mit 12 × 20 cm",
+          "Warme LED-Präsentation",
+          "Vier Farbrichtungen"
+        ],
+        "description": "Eine kleine konservierte Rose unter einer 20 cm hohen Glasglocke mit sanftem LED-Licht, passend für Schreibtische, Nachttische und kompakte Geschenkzonen. Die kleine Silhouette bewahrt den Charakter einer klassischen Glasglocke und passt dorthin, wo größere Geschenkprodukte weniger praktisch sind."
+      },
+      "ES": {
+        "summary": "Una pequeña rosa preservada bajo una cúpula de cristal de 20 cm con luz LED suave, dimensionada para escritorios, mesillas y zonas de regalo compactas.",
+        "format": "Una rosa preservada en una cúpula de cristal de 20 cm",
+        "highlights": [
+          "Cúpula compacta de 12 × 20 cm",
+          "Presentación con LED cálido",
+          "Cuatro opciones de color"
+        ],
+        "description": "Una pequeña rosa preservada bajo una cúpula de cristal de 20 cm con luz LED suave, dimensionada para escritorios, mesillas y zonas de regalo compactas. La pequeña silueta conserva el carácter de una cúpula de cristal clásica y encaja donde los regalos de mayor tamaño resultan menos prácticos."
+      },
+      "PL": {
+        "summary": "Niewielka róża stabilizowana pod szklaną kopułą 20 cm z miękkim światłem LED, dopasowana do biurek, stolików nocnych i kompaktowych stref prezentowych.",
+        "format": "Jedna róża stabilizowana pod szklaną kopułą 20 cm",
+        "highlights": [
+          "Kompaktowa kopuła 12 × 20 cm",
+          "Ciepła prezentacja LED",
+          "Cztery warianty kolorystyczne"
+        ],
+        "description": "Niewielka róża stabilizowana pod szklaną kopułą 20 cm z miękkim światłem LED, dopasowana do biurek, stolików nocnych i kompaktowych stref prezentowych. Niewielka sylwetka zachowuje charakter klasycznej szklanej kopuły i mieści się tam, gdzie większe produkty prezentowe są mniej praktyczne."
+      },
+      "PT": {
+        "summary": "Uma pequena rosa preservada sob uma cúpula de vidro de 20 cm com luz LED suave, dimensionada para secretárias, mesas de cabeceira e zonas de presente compactas.",
+        "format": "Uma rosa preservada numa cúpula de vidro de 20 cm",
+        "highlights": [
+          "Cúpula compacta de 12 × 20 cm",
+          "Apresentação com LED quente",
+          "Quatro opções de cor"
+        ],
+        "description": "Uma pequena rosa preservada sob uma cúpula de vidro de 20 cm com luz LED suave, dimensionada para secretárias, mesas de cabeceira e zonas de presente compactas. A pequena silhueta conserva o caráter de uma cúpula de vidro clássica e cabe onde presentes maiores são menos práticos."
+      },
+      "TR": {
+        "summary": "Yumuşak LED ışıklı 20 cm cam fanus altında küçük bir korunmuş gül; çalışma masaları, komodinler ve kompakt hediye alanları için boyutlandırılmıştır.",
+        "format": "20 cm cam fanusta tek korunmuş gül",
+        "highlights": [
+          "Kompakt 12 × 20 cm fanus",
+          "Sıcak LED sunumu",
+          "Dört renk seçeneği"
+        ],
+        "description": "Yumuşak LED ışıklı 20 cm cam fanus altında küçük bir korunmuş gül; çalışma masaları, komodinler ve kompakt hediye alanları için boyutlandırılmıştır. Küçük siluet klasik cam fanus karakterini korur ve daha büyük hediye ürünlerinin pratik olmadığı alanlara sığar."
+      }
+    },
+    "diamond-rose": {
+      "NL": {
+        "summary": "Eén gepreserveerde rode roos in een extra grote facetgeslepen diamantdoos: een sculpturaal individueel cadeau met scherpe, lichtvangende details.",
+        "format": "Eén gepreserveerde roos in een XL-diamantdoos",
+        "highlights": [
+          "Extra grote facetdoos",
+          "Individueel cadeauformaat",
+          "Eén rode kleurrichting"
+        ],
+        "description": "Eén gepreserveerde rode roos in een extra grote facetgeslepen diamantdoos: een sculpturaal individueel cadeau met scherpe, lichtvangende details. De geometrische box beschermt de bloem en vangt het licht vanuit verschillende richtingen, zodat één roos een uitgesproken decoratief object wordt."
+      },
+      "FR": {
+        "summary": "Une rose rouge stabilisée dans un grand écrin diamant facetté : un cadeau individuel sculptural aux détails nets qui captent la lumière.",
+        "format": "Une rose stabilisée dans un écrin diamant XL",
+        "highlights": [
+          "Grand écrin facetté",
+          "Format cadeau individuel",
+          "Une seule orientation rouge"
+        ],
+        "description": "Une rose rouge stabilisée dans un grand écrin diamant facetté : un cadeau individuel sculptural aux détails nets qui captent la lumière. L’écrin géométrique protège la fleur et capte la lumière sous différents angles, transformant une seule rose en objet décoratif affirmé."
+      },
+      "EN": {
+        "summary": "One preserved red rose presented in an oversized faceted diamond case: a sculptural individual gift with crisp light-catching detail.",
+        "format": "Single preserved rose in an XL diamond case",
+        "highlights": [
+          "Oversized faceted case",
+          "Individual gifting format",
+          "Single red colour direction"
+        ],
+        "description": "One preserved red rose presented in an oversized faceted diamond case: a sculptural individual gift with crisp light-catching detail. The geometric case protects the flower and catches light from different directions, turning one rose into a distinctive decorative object."
+      },
+      "DE": {
+        "summary": "Eine konservierte rote Rose in einer übergroßen facettierten Diamantbox: ein skulpturales Einzelgeschenk mit klaren, lichtfangenden Details.",
+        "format": "Eine konservierte Rose in einer XL-Diamantbox",
+        "highlights": [
+          "Übergroße facettierte Box",
+          "Individuelles Geschenkformat",
+          "Eine rote Farbrichtung"
+        ],
+        "description": "Eine konservierte rote Rose in einer übergroßen facettierten Diamantbox: ein skulpturales Einzelgeschenk mit klaren, lichtfangenden Details. Die geometrische Box schützt die Blüte und fängt Licht aus verschiedenen Richtungen ein, wodurch eine Rose zum markanten Dekorationsobjekt wird."
+      },
+      "ES": {
+        "summary": "Una rosa roja preservada en un estuche de diamante facetado de gran tamaño: un regalo individual escultórico con nítidos detalles que captan la luz.",
+        "format": "Una rosa preservada en un estuche diamante XL",
+        "highlights": [
+          "Estuche facetado de gran tamaño",
+          "Formato de regalo individual",
+          "Una opción de color rojo"
+        ],
+        "description": "Una rosa roja preservada en un estuche de diamante facetado de gran tamaño: un regalo individual escultórico con nítidos detalles que captan la luz. El estuche geométrico protege la flor y capta la luz desde distintas direcciones, convirtiendo una rosa en un objeto decorativo distintivo."
+      },
+      "PL": {
+        "summary": "Jedna czerwona róża stabilizowana w dużym fasetowanym pudełku w kształcie diamentu: rzeźbiarski prezent z wyraźnymi detalami odbijającymi światło.",
+        "format": "Jedna róża stabilizowana w pudełku diament XL",
+        "highlights": [
+          "Duże fasetowane pudełko",
+          "Indywidualny format prezentowy",
+          "Jeden czerwony wariant kolorystyczny"
+        ],
+        "description": "Jedna czerwona róża stabilizowana w dużym fasetowanym pudełku w kształcie diamentu: rzeźbiarski prezent z wyraźnymi detalami odbijającymi światło. Geometryczne pudełko chroni kwiat i łapie światło z różnych kierunków, zmieniając jedną różę w wyrazisty obiekt dekoracyjny."
+      },
+      "PT": {
+        "summary": "Uma rosa vermelha preservada num grande estojo diamante facetado: um presente individual escultural com detalhes nítidos que captam a luz.",
+        "format": "Uma rosa preservada num estojo diamante XL",
+        "highlights": [
+          "Grande estojo facetado",
+          "Formato de presente individual",
+          "Uma opção de cor vermelha"
+        ],
+        "description": "Uma rosa vermelha preservada num grande estojo diamante facetado: um presente individual escultural com detalhes nítidos que captam a luz. O estojo geométrico protege a flor e capta a luz de diferentes direções, transformando uma rosa num objeto decorativo distinto."
+      },
+      "TR": {
+        "summary": "Büyük fasetli elmas kutuda sunulan tek bir kırmızı korunmuş gül: ışığı yakalayan net ayrıntılara sahip heykelsi bir hediye.",
+        "format": "XL elmas kutuda tek korunmuş gül",
+        "highlights": [
+          "Büyük fasetli kutu",
+          "Tekli hediye formatı",
+          "Tek kırmızı renk seçeneği"
+        ],
+        "description": "Büyük fasetli elmas kutuda sunulan tek bir kırmızı korunmuş gül: ışığı yakalayan net ayrıntılara sahip heykelsi bir hediye. Geometrik kutu çiçeği korur ve farklı yönlerden ışığı yakalayarak tek gülü ayırt edici bir dekoratif objeye dönüştürür."
+      }
+    },
+    "soaproos-in-vensterdoos": {
+      "NL": {
+        "summary": "Een decoratieve zeeproos in een matzwarte vensterdoos, voorbereid als compact en cadeau-klaar impulsproduct voor bloemisten en retailers.",
+        "format": "Eén zeeproos in een geschenkdoos met venster",
+        "highlights": [
+          "Verkoopklare vensterverpakking",
+          "Compact toonbankproduct",
+          "Geen extra verpakking nodig"
+        ],
+        "description": "Een decoratieve zeeproos in een matzwarte vensterdoos, voorbereid als compact en cadeau-klaar impulsproduct voor bloemisten en retailers. Het venster toont kleur en bloemvorm zonder de verpakking te openen, zodat het artikel snel kan worden aangevuld en direct als cadeau wordt verkocht."
+      },
+      "FR": {
+        "summary": "Une rose décorative en savon dans une boîte à fenêtre noir mat, préparée comme produit d’impulsion compact et prêt à offrir pour fleuristes et détaillants.",
+        "format": "Une rose en savon dans une boîte cadeau à fenêtre",
+        "highlights": [
+          "Emballage à fenêtre prêt à vendre",
+          "Produit de comptoir compact",
+          "Aucun emballage supplémentaire nécessaire"
+        ],
+        "description": "Une rose décorative en savon dans une boîte à fenêtre noir mat, préparée comme produit d’impulsion compact et prêt à offrir pour fleuristes et détaillants. La fenêtre montre la couleur et la forme de la fleur sans ouvrir la boîte, facilitant le réassort et la vente immédiate comme cadeau."
+      },
+      "EN": {
+        "summary": "A decorative soap rose in a matte-black window box, prepared as a compact, gift-ready impulse product for florists and retailers.",
+        "format": "Single soap rose in a window giftbox",
+        "highlights": [
+          "Shelf-ready window packaging",
+          "Compact counter product",
+          "No additional wrapping required"
+        ],
+        "description": "A decorative soap rose in a matte-black window box, prepared as a compact, gift-ready impulse product for florists and retailers. The window reveals the colour and flower shape without opening the box, allowing quick replenishment and immediate gift sale."
+      },
+      "DE": {
+        "summary": "Eine dekorative Seifenrose in einer mattschwarzen Fensterbox, vorbereitet als kompaktes, geschenkfertiges Impulsprodukt für Floristen und Händler.",
+        "format": "Eine Seifenrose in einer Geschenkbox mit Fenster",
+        "highlights": [
+          "Verkaufsfertige Fensterverpackung",
+          "Kompaktes Thekenprodukt",
+          "Keine zusätzliche Verpackung nötig"
+        ],
+        "description": "Eine dekorative Seifenrose in einer mattschwarzen Fensterbox, vorbereitet als kompaktes, geschenkfertiges Impulsprodukt für Floristen und Händler. Das Fenster zeigt Farbe und Blütenform ohne Öffnen der Box und ermöglicht schnelles Auffüllen sowie den direkten Geschenkverkauf."
+      },
+      "ES": {
+        "summary": "Una rosa decorativa de jabón en una caja negra mate con ventana, preparada como producto de impulso compacto y listo para regalar para floristas y minoristas.",
+        "format": "Una rosa de jabón en una caja de regalo con ventana",
+        "highlights": [
+          "Envase con ventana listo para el lineal",
+          "Producto de mostrador compacto",
+          "No requiere envoltorio adicional"
+        ],
+        "description": "Una rosa decorativa de jabón en una caja negra mate con ventana, preparada como producto de impulso compacto y listo para regalar para floristas y minoristas. La ventana muestra el color y la forma de la flor sin abrir la caja, facilitando la reposición y la venta inmediata como regalo."
+      },
+      "PL": {
+        "summary": "Dekoracyjna róża mydlana w matowoczarnym pudełku z okienkiem, przygotowana jako kompaktowy produkt impulsowy gotowy na prezent dla kwiaciarni i detalistów.",
+        "format": "Jedna róża mydlana w pudełku prezentowym z okienkiem",
+        "highlights": [
+          "Opakowanie z okienkiem gotowe na półkę",
+          "Kompaktowy produkt na ladę",
+          "Bez potrzeby dodatkowego pakowania"
+        ],
+        "description": "Dekoracyjna róża mydlana w matowoczarnym pudełku z okienkiem, przygotowana jako kompaktowy produkt impulsowy gotowy na prezent dla kwiaciarni i detalistów. Okienko pokazuje kolor i kształt kwiatu bez otwierania pudełka, ułatwiając uzupełnianie i natychmiastową sprzedaż prezentową."
+      },
+      "PT": {
+        "summary": "Uma rosa decorativa de sabão numa caixa preta mate com janela, preparada como produto de impulso compacto e pronto a oferecer para floristas e retalhistas.",
+        "format": "Uma rosa de sabão numa caixa de presente com janela",
+        "highlights": [
+          "Embalagem com janela pronta para a prateleira",
+          "Produto de balcão compacto",
+          "Sem necessidade de embrulho adicional"
+        ],
+        "description": "Uma rosa decorativa de sabão numa caixa preta mate com janela, preparada como produto de impulso compacto e pronto a oferecer para floristas e retalhistas. A janela revela a cor e a forma da flor sem abrir a caixa, permitindo reposição rápida e venda imediata como presente."
+      },
+      "TR": {
+        "summary": "Mat siyah pencereli kutuda dekoratif sabun gülü; çiçekçiler ve perakendeciler için kompakt, hediyeye hazır bir dürtüsel satış ürünü olarak hazırlanmıştır.",
+        "format": "Pencereli hediye kutusunda tek sabun gülü",
+        "highlights": [
+          "Rafa hazır pencereli ambalaj",
+          "Kompakt tezgâh ürünü",
+          "Ek paketleme gerekmez"
+        ],
+        "description": "Mat siyah pencereli kutuda dekoratif sabun gülü; çiçekçiler ve perakendeciler için kompakt, hediyeye hazır bir dürtüsel satış ürünü olarak hazırlanmıştır. Pencere kutuyu açmadan rengi ve çiçek formunu gösterir, hızlı yenileme ve doğrudan hediye satışı sağlar."
+      }
+    },
+    "soap-rose-box-led": {
+      "NL": {
+        "summary": "Een lange presentatiedoos met decoratieve zeeprozen en geïntegreerde LED-verlichting, die kleur, geur en sfeer in één cadeauformaat combineert.",
+        "format": "Zeeprozenarrangement met geïntegreerde LED-verlichting",
+        "highlights": [
+          "Presentatie van 10 × 50 cm",
+          "Drie kleurrichtingen",
+          "Geurende decoratieve rozen"
+        ],
+        "description": "Een lange presentatiedoos met decoratieve zeeprozen en geïntegreerde LED-verlichting, die kleur, geur en sfeer in één cadeauformaat combineert. De langwerpige vorm legt de rozen als één doorlopende compositie vast en de verlichting voegt een duidelijk zichtbaar sfeerelement toe."
+      },
+      "FR": {
+        "summary": "Une longue boîte de présentation de roses décoratives en savon avec éclairage LED intégré, réunissant couleur, parfum et ambiance dans un seul format cadeau.",
+        "format": "Composition de roses en savon avec éclairage LED intégré",
+        "highlights": [
+          "Présentation de 10 × 50 cm",
+          "Trois orientations de couleur",
+          "Roses décoratives parfumées"
+        ],
+        "description": "Une longue boîte de présentation de roses décoratives en savon avec éclairage LED intégré, réunissant couleur, parfum et ambiance dans un seul format cadeau. La forme allongée présente les roses comme une composition continue et l’éclairage ajoute un élément d’ambiance clairement visible."
+      },
+      "EN": {
+        "summary": "A long presentation box of decorative soap roses with integrated LED light, combining colour, fragrance and atmosphere in one gift format.",
+        "format": "Soap rose arrangement with integrated LED light",
+        "highlights": [
+          "10 × 50 cm presentation",
+          "Three colour directions",
+          "Fragrant decorative roses"
+        ],
+        "description": "A long presentation box of decorative soap roses with integrated LED light, combining colour, fragrance and atmosphere in one gift format. The elongated form presents the roses as one continuous composition, and the lighting adds a clearly visible atmospheric element."
+      },
+      "DE": {
+        "summary": "Eine lange Präsentationsbox mit dekorativen Seifenrosen und integrierter LED-Beleuchtung verbindet Farbe, Duft und Atmosphäre in einem Geschenkformat.",
+        "format": "Seifenrosenarrangement mit integrierter LED-Beleuchtung",
+        "highlights": [
+          "Präsentation mit 10 × 50 cm",
+          "Drei Farbrichtungen",
+          "Duftende dekorative Rosen"
+        ],
+        "description": "Eine lange Präsentationsbox mit dekorativen Seifenrosen und integrierter LED-Beleuchtung verbindet Farbe, Duft und Atmosphäre in einem Geschenkformat. Die längliche Form zeigt die Rosen als durchgehende Komposition, und die Beleuchtung ergänzt ein deutlich sichtbares Stimmungselement."
+      },
+      "ES": {
+        "summary": "Una caja de presentación alargada con rosas decorativas de jabón e iluminación LED integrada, que combina color, fragancia y ambiente en un formato de regalo.",
+        "format": "Arreglo de rosas de jabón con luz LED integrada",
+        "highlights": [
+          "Presentación de 10 × 50 cm",
+          "Tres opciones de color",
+          "Rosas decorativas perfumadas"
+        ],
+        "description": "Una caja de presentación alargada con rosas decorativas de jabón e iluminación LED integrada, que combina color, fragancia y ambiente en un formato de regalo. La forma alargada presenta las rosas como una composición continua y la iluminación añade un elemento ambiental claramente visible."
+      },
+      "PL": {
+        "summary": "Długie pudełko prezentacyjne z dekoracyjnymi różami mydlanymi i zintegrowanym światłem LED łączy kolor, zapach i atmosferę w jednym formacie prezentowym.",
+        "format": "Kompozycja róż mydlanych ze zintegrowanym światłem LED",
+        "highlights": [
+          "Prezentacja 10 × 50 cm",
+          "Trzy warianty kolorystyczne",
+          "Pachnące róże dekoracyjne"
+        ],
+        "description": "Długie pudełko prezentacyjne z dekoracyjnymi różami mydlanymi i zintegrowanym światłem LED łączy kolor, zapach i atmosferę w jednym formacie prezentowym. Podłużna forma przedstawia róże jako ciągłą kompozycję, a oświetlenie dodaje wyraźnie widoczny element nastrojowy."
+      },
+      "PT": {
+        "summary": "Uma caixa de apresentação longa com rosas decorativas de sabão e luz LED integrada, combinando cor, fragrância e ambiente num só formato de presente.",
+        "format": "Arranjo de rosas de sabão com luz LED integrada",
+        "highlights": [
+          "Apresentação de 10 × 50 cm",
+          "Três opções de cor",
+          "Rosas decorativas perfumadas"
+        ],
+        "description": "Uma caixa de apresentação longa com rosas decorativas de sabão e luz LED integrada, combinando cor, fragrância e ambiente num só formato de presente. A forma alongada apresenta as rosas como uma composição contínua e a iluminação acrescenta um elemento ambiente claramente visível."
+      },
+      "TR": {
+        "summary": "Entegre LED ışıklı dekoratif sabun güllerinden oluşan uzun sunum kutusu, renk, koku ve atmosferi tek hediye formatında birleştirir.",
+        "format": "Entegre LED ışıklı sabun gülü aranjmanı",
+        "highlights": [
+          "10 × 50 cm sunum",
+          "Üç renk seçeneği",
+          "Kokulu dekoratif güller"
+        ],
+        "description": "Entegre LED ışıklı dekoratif sabun güllerinden oluşan uzun sunum kutusu, renk, koku ve atmosferi tek hediye formatında birleştirir. Uzun form gülleri kesintisiz bir kompozisyon olarak sunar, aydınlatma ise belirgin bir atmosfer unsuru ekler."
+      }
+    },
+    "soap-roos-in-box": {
+      "NL": {
+        "summary": "Een geurende zeeproos in een zwarte cup met goudaccent, lint en een transparante beschermdoos voor eenvoudige cadeauverkoop aan de toonbank.",
+        "format": "Eén geurende zeeproos in een transparante geschenkdoos",
+        "highlights": [
+          "Geurende decoratieve roos",
+          "Zwarte en gouden presentatie",
+          "Transparante doos klaar voor de toonbank"
+        ],
+        "description": "Een geurende zeeproos in een zwarte cup met goudaccent, lint en een transparante beschermdoos voor eenvoudige cadeauverkoop aan de toonbank. De zwarte en gouden afwerking verhoogt de cadeauwaarde en de stevige transparante doos houdt de geurende bloem zichtbaar en beschermd tijdens de verkoop."
+      },
+      "FR": {
+        "summary": "Une rose en savon parfumée dans une coupe noire avec détail doré, ruban et boîte de protection transparente pour une vente cadeau facile au comptoir.",
+        "format": "Une rose en savon parfumée dans une boîte cadeau transparente",
+        "highlights": [
+          "Rose décorative parfumée",
+          "Présentation noire et dorée",
+          "Boîte transparente prête pour le comptoir"
+        ],
+        "description": "Une rose en savon parfumée dans une coupe noire avec détail doré, ruban et boîte de protection transparente pour une vente cadeau facile au comptoir. La finition noire et dorée augmente la valeur cadeau et la boîte transparente robuste garde la fleur parfumée visible et protégée pendant la vente."
+      },
+      "EN": {
+        "summary": "A scented soap rose in a black cup with gold detail, ribbon and a clear protective display box for easy counter gifting.",
+        "format": "Single scented soap rose in a clear giftbox",
+        "highlights": [
+          "Fragrant decorative rose",
+          "Black and gold presentation",
+          "Counter-ready clear box"
+        ],
+        "description": "A scented soap rose in a black cup with gold detail, ribbon and a clear protective display box for easy counter gifting. The black and gold finish raises the gifting value, while the sturdy clear box keeps the scented flower visible and protected during sale."
+      },
+      "DE": {
+        "summary": "Eine duftende Seifenrose in einer schwarzen Schale mit Golddetail, Schleife und transparenter Schutzbox für den einfachen Geschenkverkauf an der Theke.",
+        "format": "Eine duftende Seifenrose in einer transparenten Geschenkbox",
+        "highlights": [
+          "Duftende dekorative Rose",
+          "Schwarz-goldene Präsentation",
+          "Transparente Box für die Theke"
+        ],
+        "description": "Eine duftende Seifenrose in einer schwarzen Schale mit Golddetail, Schleife und transparenter Schutzbox für den einfachen Geschenkverkauf an der Theke. Die schwarz-goldene Veredelung erhöht den Geschenkwert, während die stabile transparente Box die duftende Blüte beim Verkauf sichtbar und geschützt hält."
+      },
+      "ES": {
+        "summary": "Una rosa de jabón perfumada en una copa negra con detalle dorado, cinta y caja protectora transparente para facilitar la venta como regalo en el mostrador.",
+        "format": "Una rosa de jabón perfumada en una caja de regalo transparente",
+        "highlights": [
+          "Rosa decorativa perfumada",
+          "Presentación en negro y dorado",
+          "Caja transparente lista para el mostrador"
+        ],
+        "description": "Una rosa de jabón perfumada en una copa negra con detalle dorado, cinta y caja protectora transparente para facilitar la venta como regalo en el mostrador. El acabado negro y dorado aumenta el valor de regalo, mientras la caja transparente resistente mantiene la flor perfumada visible y protegida durante la venta."
+      },
+      "PL": {
+        "summary": "Pachnąca róża mydlana w czarnej miseczce ze złotym detalem, wstążką i przezroczystym pudełkiem ochronnym ułatwia sprzedaż prezentową na ladzie.",
+        "format": "Jedna pachnąca róża mydlana w przezroczystym pudełku prezentowym",
+        "highlights": [
+          "Pachnąca róża dekoracyjna",
+          "Czarno-złota prezentacja",
+          "Przezroczyste pudełko gotowe na ladę"
+        ],
+        "description": "Pachnąca róża mydlana w czarnej miseczce ze złotym detalem, wstążką i przezroczystym pudełkiem ochronnym ułatwia sprzedaż prezentową na ladzie. Czarno-złote wykończenie podnosi wartość prezentową, a solidne przezroczyste pudełko utrzymuje pachnący kwiat widoczny i chroniony podczas sprzedaży."
+      },
+      "PT": {
+        "summary": "Uma rosa de sabão perfumada numa taça preta com detalhe dourado, fita e caixa protetora transparente para facilitar a venda como presente no balcão.",
+        "format": "Uma rosa de sabão perfumada numa caixa de presente transparente",
+        "highlights": [
+          "Rosa decorativa perfumada",
+          "Apresentação preta e dourada",
+          "Caixa transparente pronta para o balcão"
+        ],
+        "description": "Uma rosa de sabão perfumada numa taça preta com detalhe dourado, fita e caixa protetora transparente para facilitar a venda como presente no balcão. O acabamento preto e dourado aumenta o valor de presente, enquanto a caixa transparente resistente mantém a flor perfumada visível e protegida durante a venda."
+      },
+      "TR": {
+        "summary": "Altın ayrıntılı siyah kapta, kurdeleli ve şeffaf koruyucu teşhir kutulu kokulu sabun gülü, tezgâhta kolay hediye satışı sağlar.",
+        "format": "Şeffaf hediye kutusunda tek kokulu sabun gülü",
+        "highlights": [
+          "Kokulu dekoratif gül",
+          "Siyah ve altın sunum",
+          "Tezgâha hazır şeffaf kutu"
+        ],
+        "description": "Altın ayrıntılı siyah kapta, kurdeleli ve şeffaf koruyucu teşhir kutulu kokulu sabun gülü, tezgâhta kolay hediye satışı sağlar. Siyah-altın bitiş hediye değerini yükseltir, sağlam şeffaf kutu ise kokulu çiçeği satış sırasında görünür ve korumalı tutar."
+      }
+    }
+  }
+}

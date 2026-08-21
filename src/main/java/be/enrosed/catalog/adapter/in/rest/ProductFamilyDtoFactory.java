@@ -5,6 +5,7 @@ import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 /** Builds the complete administrator family projection for every command endpoint. */
 @ApplicationScoped
@@ -15,6 +16,9 @@ public class ProductFamilyDtoFactory {
     private final CanonicalCatalogDaos.ImportConflicts conflicts;
     private final CatalogDaos.Products products;
     private final ObjectMapper json;
+
+    @Inject
+    be.enrosed.catalog.application.PublicLocalizationCompletenessService localization;
 
     public ProductFamilyDtoFactory(
             CanonicalCatalogDaos.ExternalIdentifiers identifiers,
@@ -32,13 +36,16 @@ public class ProductFamilyDtoFactory {
     }
 
     public ProductFamilyDto from(ProductFamilyEntity family) {
-        return ProductFamilyDto.from(
+        var members = products.list("familyId = ?1 order by variantPosition, id", family.id);
+        ProductFamilyDto result = ProductFamilyDto.from(
                 family,
                 identifiers.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
                 prices.list("familyId", family.id),
                 provenance.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
                 conflicts.list("familyKey", family.familyKey),
-                products.list("familyId = ?1 order by variantPosition, id", family.id),
+                members,
                 json);
+        return localization == null ? result
+                : result.withAdditionalPublicationIssues(localization.issues(family, members));
     }
 }

@@ -4,7 +4,7 @@ import be.enrosed.shared.Language;
 import jakarta.persistence.*;
 
 /**
- * Name, description and colour of a product in one language.
+ * Name, description, colour and merchandising size of a product in one language.
  *
  * One row per product and language. The unique key on that is not for
  * tidiness: without it a second import of the same translation file
@@ -39,4 +39,6 @@ public class ProductTextEntity {
     public String description;
 
     public String colour;
+
+    public String variantSize;
 }

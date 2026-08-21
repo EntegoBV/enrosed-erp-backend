@@ -48,9 +48,11 @@ public class CatalogMigrationService {
             "product_family_text", "product_family_photo", "product_package",
             "product_external_identifier", "product_price_observation",
             "product_provenance", "product_dimension_observation", "catalog_import_conflict",
-            "product", "product_family", "photo_blob", "product_collection",
+            "product", "product_family", "photo_blob", "product_collection", "category_text",
             "category", "hs_code", "customer", "country", "discount_tier", "supplier",
-            "freight_rate", "market_source_state", "company_profile", "catalog_import_batch");
+            "freight_rate", "market_source_state", "company_profile",
+            "content_translation_text", "content_translation",
+            "catalog_localization_backfill", "website_rebuild", "catalog_import_batch");
 
     private final CanonicalCatalogDaos.Families families;
     private final CanonicalCatalogDaos.Collections collections;
@@ -74,6 +76,9 @@ public class CatalogMigrationService {
     private final FeaturedProductSelectionService featuredProducts;
     private final ObjectMapper json;
     private final EntityManager entityManager;
+    private final PublicContentSeedLoader publicContent;
+    private final WebsiteRebuildService websiteRebuild;
+    private final CatalogMutationLock mutationLock;
 
     public CatalogMigrationService(
             CanonicalCatalogDaos.Families families,
@@ -97,7 +102,10 @@ public class CatalogMigrationService {
             BarcodeValidator barcodeValidator,
             FeaturedProductSelectionService featuredProducts,
             ObjectMapper json,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            PublicContentSeedLoader publicContent,
+            WebsiteRebuildService websiteRebuild,
+            CatalogMutationLock mutationLock) {
         this.families = families;
         this.collections = collections;
         this.packages = packages;
@@ -120,6 +128,9 @@ public class CatalogMigrationService {
         this.featuredProducts = featuredProducts;
         this.json = json;
         this.entityManager = entityManager;
+        this.publicContent = publicContent;
+        this.websiteRebuild = websiteRebuild;
+        this.mutationLock = mutationLock;
     }
 
     public CatalogMigrationPreflight preflight(CanonicalCatalogManifest manifest) {
@@ -173,8 +184,11 @@ public class CatalogMigrationService {
             throw new BusinessRuleException("Volledige reset vereist een byte-voor-byte "
                     + "geverifieerde payloadSha256");
         }
+        /* Global order for migration/startup work is advisory transaction lock first, then
+           family/product/category rows. Ordinary editors never take this advisory lock. */
+        mutationLock.acquire();
         CatalogImportBatchEntity prior = importBatches.find("importKey", importKey).firstResult();
-        if (prior != null) {
+        if (prior != null && !request.fullReset()) {
             if ("APPLIED".equals(prior.status)
                     && payloadSha256.equals(prior.payloadSha256)
                     && contentDigest.equals(prior.contentDigest)) {
@@ -248,6 +262,8 @@ public class CatalogMigrationService {
         batch.imageCount = stats.images;
         batch.conflictCount = stats.conflicts;
         entityManager.flush();
+        publicContent.ensureSeeded();
+        websiteRebuild.queue();
 
         return new CatalogMigrationResult(
                 importKey, false, stats.families, stats.variants, stats.images,
@@ -551,6 +567,7 @@ public class CatalogMigrationService {
             text.name = optional(input.name());
             text.description = optional(input.description());
             text.colour = input.language() == Language.EN ? optional(variant.color()) : null;
+            text.variantSize = input.language() == Language.EN ? optional(variant.size()) : null;
             product.texts.add(text);
         }
     }

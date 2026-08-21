@@ -5,7 +5,7 @@ import be.enrosed.shared.Language;
 /**
  * A product's text in one language.
  *
- * Only name, description and colour live here. The rest of a product -
+ * Name, description, colour and the merchandising size label live here. The rest of a product -
  * dimensions, barcodes, HS code, carton content - is universal: translating
  * that data gains nothing and doubles the chance of contradictions.
  *
@@ -17,12 +17,18 @@ public record ProductText(
         Language language,
         String name,
         String description,
-        String colour
+        String colour,
+        String variantSize
 ) {
+
+    /** Backward-compatible source shape from before size labels became localizable. */
+    public ProductText(Language language, String name, String description, String colour) {
+        this(language, name, description, colour, null);
+    }
 
     /** Anything filled in? A row of only empty fields needs no saving. */
     public boolean isEmpty() {
-        return blank(name) && blank(description) && blank(colour);
+        return blank(name) && blank(description) && blank(colour) && blank(variantSize);
     }
 
     private static boolean blank(String value) {
