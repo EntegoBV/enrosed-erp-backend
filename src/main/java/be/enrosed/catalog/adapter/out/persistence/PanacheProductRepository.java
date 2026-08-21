@@ -32,6 +32,12 @@ public class PanacheProductRepository implements ProductRepository {
     }
 
     @Override
+    public List<Product> findByFamily(long familyId) {
+        return dao.list("familyId = ?1 order by variantPosition, id", familyId).stream()
+                .map(CatalogMapper::toDomain).toList();
+    }
+
+    @Override
     public Optional<Product> findById(long id) {
         return Optional.ofNullable(dao.findById(id)).map(CatalogMapper::toDomain);
     }

@@ -43,10 +43,7 @@ import java.util.*;
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class ProductFamilyResource {
     private final CanonicalCatalogDaos.Families families;
-    private final CanonicalCatalogDaos.ExternalIdentifiers identifiers;
-    private final CanonicalCatalogDaos.PriceObservations prices;
-    private final CanonicalCatalogDaos.Provenance provenance;
-    private final CanonicalCatalogDaos.ImportConflicts conflicts;
+    private final ProductFamilyDtoFactory familyDtos;
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
     private final PhotoStorage photoStorage;
@@ -62,10 +59,7 @@ public class ProductFamilyResource {
 
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
-            CanonicalCatalogDaos.ExternalIdentifiers identifiers,
-            CanonicalCatalogDaos.PriceObservations prices,
-            CanonicalCatalogDaos.Provenance provenance,
-            CanonicalCatalogDaos.ImportConflicts conflicts,
+            ProductFamilyDtoFactory familyDtos,
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
             PhotoStorage photoStorage,
@@ -79,10 +73,7 @@ public class ProductFamilyResource {
             ProductFamilyWriteGuard familyWrites,
             ObjectMapper json) {
         this.families = families;
-        this.identifiers = identifiers;
-        this.prices = prices;
-        this.provenance = provenance;
-        this.conflicts = conflicts;
+        this.familyDtos = familyDtos;
         this.products = products;
         this.categories = categories;
         this.photoStorage = photoStorage;
@@ -369,15 +360,7 @@ public class ProductFamilyResource {
     }
 
     private ProductFamilyDto dto(ProductFamilyEntity family) {
-        List<ProductEntity> members = products.list(
-                "familyId = ?1 order by variantPosition, id", family.id);
-        return ProductFamilyDto.from(
-                family,
-                identifiers.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
-                prices.list("familyId", family.id),
-                provenance.list("ownerType = ?1 and familyId = ?2", "FAMILY", family.id),
-                conflicts.list("familyKey", family.familyKey),
-                members, json);
+        return familyDtos.from(family);
     }
 
     private ProductFamilyEntity family(long id) {

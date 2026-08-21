@@ -13,6 +13,19 @@ public record Photo(
         long sizeBytes,
         Integer widthPx,
         Integer heightPx,
-        int position
+        int position,
+        /** Canonical family-gallery row that projected this photo; null means product-owned. */
+        Long familyPhotoId
 ) {
+    /** Compatibility constructor for product-owned uploads and older callers. */
+    public Photo(
+            Long id, String storageKey, String originalFilename, String contentType,
+            long sizeBytes, Integer widthPx, Integer heightPx, int position) {
+        this(id, storageKey, originalFilename, contentType,
+                sizeBytes, widthPx, heightPx, position, null);
+    }
+
+    public boolean inherited() {
+        return familyPhotoId != null;
+    }
 }

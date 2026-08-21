@@ -46,7 +46,16 @@ public class ProductFamilyWriteGuard {
     public Long lockProduct(long productId) {
         ProductEntity product = productRows.findById(productId, LockModeType.PESSIMISTIC_WRITE);
         if (product == null) throw new NotFoundException("Product", productId);
+        /* findById may return an entity loaded before we waited for its family lock. Refresh the
+           entity and its CascadeType.ALL photo/text collections while holding the row lock so a
+           later full save cannot resurrect or drop a concurrently rebuilt family projection. */
+        productRows.getEntityManager().refresh(product, LockModeType.PESSIMISTIC_WRITE);
         return product.familyId;
+    }
+
+    /** Locks multiple stock-bearing rows in stable order for product-to-product commands. */
+    public void lockProducts(Collection<Long> productIds) {
+        normalizedIds(productIds).stream().sorted().forEach(this::lockProduct);
     }
 
     /**

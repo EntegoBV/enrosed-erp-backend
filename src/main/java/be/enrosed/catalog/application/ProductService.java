@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -312,25 +313,31 @@ public class ProductService {
      */
     @Transactional
     public Product addPhoto(long productId, String filename, InputStream data) {
-        Product product = get(productId);
         PhotoUploadPolicy.ValidatedPhoto upload = PhotoUploadPolicy.validate(filename, data);
+        Product product = lockProductForPhotoWrite(productId);
         PhotoStorage.Stored stored = photoStorage.store(
                 upload.originalFilename(), upload.contentType(), upload.bytes());
 
-        List<Photo> photos = new ArrayList<>(product.photos());
+        List<Photo> photos = new ArrayList<>(product.photos().size() + 1);
+        product.photos().stream().filter(photo -> !photo.inherited()).forEach(photos::add);
         photos.add(new Photo(null, stored.storageKey(), upload.originalFilename(), upload.contentType(),
                 stored.sizeBytes(), stored.widthPx(), stored.heightPx(), photos.size()));
+        product.photos().stream().filter(Photo::inherited).forEach(photos::add);
 
-        return products.save(product.withPhotos(photos));
+        return products.save(product.withPhotos(renumber(photos)));
     }
 
     @Transactional
     public Product removePhoto(long productId, long photoId) {
-        Product product = get(productId);
+        Product product = lockProductForPhotoWrite(productId);
         Photo target = product.photos().stream()
                 .filter(photo -> photo.id() != null && photo.id() == photoId)
                 .findFirst()
                 .orElseThrow(() -> new NotFoundException("Foto", photoId));
+        if (target.inherited()) {
+            throw new BusinessRuleException(
+                    "Deze foto komt uit het model en is hier alleen-lezen; beheer haar in de modelgalerij");
+        }
 
         List<Photo> photos = new ArrayList<>(product.photos());
         photos.remove(target);
@@ -344,18 +351,32 @@ public class ProductService {
     /** Orders the series by the given ids; the first becomes the primary photo. */
     @Transactional
     public Product reorderPhotos(long productId, List<Long> photoIdsInOrder) {
-        Product product = get(productId);
+        Product product = lockProductForPhotoWrite(productId);
         List<Photo> photos = new ArrayList<>(product.photos());
 
-        List<Photo> ordered = new ArrayList<>();
-        for (Long photoId : photoIdsInOrder) {
-            photos.stream()
-                    .filter(photo -> photo.id() != null && photo.id().equals(photoId))
-                    .findFirst()
-                    .ifPresent(photo -> { ordered.add(photo); });
+        List<Long> wanted = photoIdsInOrder == null ? List.of() : photoIdsInOrder;
+        boolean containsInherited = photos.stream().filter(Photo::inherited)
+                .anyMatch(photo -> photo.id() != null && wanted.contains(photo.id()));
+        if (containsInherited) {
+            throw new BusinessRuleException(
+                    "Geërfde modelfoto's zijn alleen-lezen; wijzig hun volgorde in de modelgalerij");
         }
-        /* Whatever is not named keeps its relative order at the back. */
-        photos.stream().filter(photo -> !ordered.contains(photo)).forEach(ordered::add);
+        List<Photo> productOwned = photos.stream().filter(photo -> !photo.inherited()).toList();
+        if (wanted.size() != productOwned.size()
+                || new HashSet<>(wanted).size() != wanted.size()
+                || productOwned.stream().anyMatch(photo -> photo.id() == null
+                        || !wanted.contains(photo.id()))) {
+            throw new BusinessRuleException(
+                    "De fotovolgorde moet elke product-eigen foto exact één keer bevatten");
+        }
+
+        List<Photo> ordered = new ArrayList<>(photos.size());
+        for (Long photoId : wanted) {
+            productOwned.stream().filter(photo -> photo.id().equals(photoId))
+                    .findFirst().ifPresent(ordered::add);
+        }
+        /* Family projections remain read-only and keep their canonical relative order. */
+        photos.stream().filter(Photo::inherited).forEach(ordered::add);
 
         return products.save(product.withPhotos(renumber(ordered)));
     }
@@ -372,6 +393,20 @@ public class ProductService {
     }
 
     /* ---------------------------------------------------------- helpers */
+
+    /** Serializes product-photo writes with family gallery projection rebuilds. */
+    private Product lockProductForPhotoWrite(long productId) {
+        Product observed = get(productId);
+        lockFamilies(observed.familyId());
+        if (familyWrites != null) {
+            Long lockedFamilyId = familyWrites.lockProduct(productId);
+            if (!Objects.equals(lockedFamilyId, observed.familyId())) {
+                throw new BusinessRuleException(
+                        "Product is gelijktijdig naar een ander model verplaatst; laad het opnieuw");
+            }
+        }
+        return get(productId);
+    }
 
     private void ensureUniqueSku(String sku, Long currentId) {
         products.findBySku(sku).ifPresent(existing -> {
@@ -460,7 +495,8 @@ public class ProductService {
         for (int i = 0; i < photos.size(); i++) {
             Photo photo = photos.get(i);
             result.add(new Photo(photo.id(), photo.storageKey(), photo.originalFilename(),
-                    photo.contentType(), photo.sizeBytes(), photo.widthPx(), photo.heightPx(), i));
+                    photo.contentType(), photo.sizeBytes(), photo.widthPx(), photo.heightPx(),
+                    i, photo.familyPhotoId()));
         }
         return result;
     }

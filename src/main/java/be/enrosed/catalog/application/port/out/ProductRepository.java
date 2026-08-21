@@ -25,6 +25,11 @@ public interface ProductRepository {
 
     List<Product> findAll();
     List<Product> findBySupplier(long supplierId);
+    default List<Product> findByFamily(long familyId) {
+        return findAll().stream()
+                .filter(product -> product.familyId() != null && product.familyId() == familyId)
+                .toList();
+    }
     Optional<Product> findById(long id);
     Optional<Product> findBySku(String sku);
     Optional<Product> findByPublicHandle(String publicHandle);

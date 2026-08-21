@@ -66,8 +66,12 @@ public record ProductDto(
 
     public record TextDto(Language language, String name, String description, String colour) {}
 
+    public enum PhotoOrigin { PRODUCT, FAMILY }
+
     public record PhotoDto(Long id, String originalFilename, String contentType, long sizeBytes,
-                           Integer widthPx, Integer heightPx, int position, String url, String downloadUrl) {}
+                           Integer widthPx, Integer heightPx, int position,
+                           String url, String downloadUrl,
+                           Long familyPhotoId, PhotoOrigin origin, boolean readOnly) {}
 
     public static ProductDto from(Product product) {
         Dimensions size = product.dimensions() == null ? Dimensions.empty() : product.dimensions();
@@ -79,7 +83,10 @@ public record ProductDto(
                 .map(photo -> new PhotoDto(photo.id(), photo.originalFilename(), photo.contentType(),
                         photo.sizeBytes(), photo.widthPx(), photo.heightPx(), photo.position(),
                         "/api/products/" + product.id() + "/photos/" + photo.id(),
-                        "/api/products/" + product.id() + "/photos/" + photo.id() + "/download"))
+                        "/api/products/" + product.id() + "/photos/" + photo.id() + "/download",
+                        photo.familyPhotoId(),
+                        photo.inherited() ? PhotoOrigin.FAMILY : PhotoOrigin.PRODUCT,
+                        photo.inherited()))
                 .toList();
 
         List<TextDto> texts = product.texts().stream()

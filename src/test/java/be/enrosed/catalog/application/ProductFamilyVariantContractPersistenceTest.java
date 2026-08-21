@@ -32,7 +32,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -572,10 +574,84 @@ class ProductFamilyVariantContractPersistenceTest {
                 .filter(photo -> photo.familyPhotoId == null).count());
         assertEquals("user-owned", persistedRed.photos.stream()
                 .filter(photo -> photo.familyPhotoId == null).findFirst().orElseThrow().storageKey);
+        ProductDto redDto = ProductDto.from(products.findById(red.id).orElseThrow());
+        assertEquals(1, redDto.photos().stream()
+                .filter(photo -> photo.origin() == ProductDto.PhotoOrigin.PRODUCT
+                        && !photo.readOnly() && photo.familyPhotoId() == null)
+                .count());
+        assertEquals(2, redDto.photos().stream()
+                .filter(photo -> photo.origin() == ProductDto.PhotoOrigin.FAMILY
+                        && photo.readOnly() && photo.familyPhotoId() != null)
+                .count());
         assertEquals(persistedRed.photos.size(), persistedRed.photos.stream()
                 .map(photo -> String.valueOf(photo.familyPhotoId) + "|" + photo.storageKey)
                 .distinct().count(),
                 "a repeated compatibility resync must not leave duplicates");
+    }
+
+    @Test
+    @TestTransaction
+    void inheritedFamilyPhotoCannotBeDeletedThroughTheProductEndpoint() {
+        ProductPhotoContext context = productPhotoContext("readonly-delete-photo");
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class,
+                () -> productService.removePhoto(context.productId(), context.inheritedPhotoId()));
+
+        assertTrue(error.getMessage().contains("modelgalerij"), error.getMessage());
+        assertEquals(3, entityManager.find(ProductEntity.class, context.productId()).photos.size());
+    }
+
+    @Test
+    @TestTransaction
+    void inheritedFamilyPhotoCannotBeReorderedThroughTheProductEndpoint() {
+        ProductPhotoContext context = productPhotoContext("readonly-reorder-photo");
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class,
+                () -> productService.reorderPhotos(context.productId(), List.of(
+                        context.inheritedPhotoId(), context.secondOwnedPhotoId(),
+                        context.firstOwnedPhotoId())));
+
+        assertTrue(error.getMessage().contains("alleen-lezen"), error.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void productOwnedPhotosCanBeReorderedWithoutLosingTheInheritedOrigin() {
+        ProductPhotoContext context = productPhotoContext("owned-reorder-photo");
+
+        Product reordered = productService.reorderPhotos(context.productId(), List.of(
+                context.secondOwnedPhotoId(), context.firstOwnedPhotoId()));
+
+        assertEquals(List.of(
+                        context.secondOwnedPhotoId(), context.firstOwnedPhotoId(),
+                        context.inheritedPhotoId()),
+                reordered.photos().stream().map(be.enrosed.catalog.domain.Photo::id).toList());
+        assertNull(reordered.photos().get(0).familyPhotoId());
+        assertNull(reordered.photos().get(1).familyPhotoId());
+        assertEquals(context.familyPhotoId(), reordered.photos().get(2).familyPhotoId());
+        assertEquals(List.of(0, 1, 2),
+                reordered.photos().stream().map(be.enrosed.catalog.domain.Photo::position).toList());
+    }
+
+    @Test
+    @TestTransaction
+    void uploadedProductPhotoStaysAheadOfInheritedModelPhotos() {
+        ProductPhotoContext context = productPhotoContext("owned-upload-photo");
+
+        Product updated = productService.addPhoto(
+                context.productId(), "new-product-photo.bin",
+                new ByteArrayInputStream("GIF89a-own-photo".getBytes(StandardCharsets.US_ASCII)));
+
+        assertEquals(List.of(
+                        context.firstOwnedPhotoId(), context.secondOwnedPhotoId()),
+                updated.photos().subList(0, 2).stream()
+                        .map(be.enrosed.catalog.domain.Photo::id).toList());
+        assertEquals("new-product-photo.gif", updated.photos().get(2).originalFilename());
+        assertNull(updated.photos().get(2).familyPhotoId());
+        assertEquals(context.inheritedPhotoId(), updated.photos().get(3).id());
+        assertEquals(context.familyPhotoId(), updated.photos().get(3).familyPhotoId());
+        assertEquals(List.of(0, 1, 2, 3), updated.photos().stream()
+                .map(be.enrosed.catalog.domain.Photo::position).toList());
     }
 
     @Test
@@ -1189,6 +1265,35 @@ class ProductFamilyVariantContractPersistenceTest {
         photo.position = position;
         return photo;
     }
+
+    private ProductPhotoContext productPhotoContext(String key) {
+        ProductFamilyEntity family = family(key);
+        family.websiteStatus = PublicationState.DRAFT;
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity product = product(
+                family, "SKU-" + key.toUpperCase(), key + "-variant",
+                "Red", null, "#A91F32", 0);
+        entityManager.persist(product);
+        ProductFamilyPhotoEntity familyPhoto = photo(family, key + "-family", 0);
+        entityManager.persist(familyPhoto);
+        entityManager.flush();
+        ProductPhotoEntity first = productPhoto(product, null, key + "-first", 0);
+        ProductPhotoEntity second = productPhoto(product, null, key + "-second", 1);
+        ProductPhotoEntity inherited = productPhoto(
+                product, familyPhoto.id, familyPhoto.largeStorageKey, 2);
+        for (ProductPhotoEntity photo : List.of(first, second, inherited)) {
+            entityManager.persist(photo);
+            product.photos.add(photo);
+        }
+        entityManager.flush();
+        return new ProductPhotoContext(
+                product.id, first.id, second.id, inherited.id, familyPhoto.id);
+    }
+
+    private record ProductPhotoContext(
+            long productId, long firstOwnedPhotoId, long secondOwnedPhotoId,
+            long inheritedPhotoId, long familyPhotoId) {}
 
     private static void text(
             ProductEntity product, Language language, String name, String colour) {

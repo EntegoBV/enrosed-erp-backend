@@ -43,8 +43,12 @@ public final class FamilyVariantRules {
     }
 
     public static boolean sameOption(Product left, Product right) {
-        return Objects.equals(key(left.colour(), left.variantSize()),
-                key(right.colour(), right.variantSize()));
+        return sameOption(left.colour(), left.variantSize(), right.colour(), right.variantSize());
+    }
+
+    public static boolean sameOption(
+            String leftColour, String leftSize, String rightColour, String rightSize) {
+        return Objects.equals(key(leftColour, leftSize), key(rightColour, rightSize));
     }
 
     private static OptionKey key(String colour, String size) {

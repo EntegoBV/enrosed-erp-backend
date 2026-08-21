@@ -22,7 +22,8 @@ final class CatalogMapper {
         List<Photo> photos = new ArrayList<>();
         for (ProductPhotoEntity photo : entity.photos) {
             photos.add(new Photo(photo.id, photo.storageKey, photo.originalFilename,
-                    photo.contentType, photo.sizeBytes, photo.widthPx, photo.heightPx, photo.position));
+                    photo.contentType, photo.sizeBytes, photo.widthPx, photo.heightPx,
+                    photo.position, photo.familyPhotoId));
         }
         List<ProductText> texts = new ArrayList<>();
         for (ProductTextEntity text : entity.texts) {
@@ -173,6 +174,7 @@ final class CatalogMapper {
             target.widthPx = photo.widthPx();
             target.heightPx = photo.heightPx();
             target.position = photo.position();
+            target.familyPhotoId = photo.familyPhotoId();
         }
         entity.photos.sort((a, b) -> Integer.compare(a.position, b.position));
     }

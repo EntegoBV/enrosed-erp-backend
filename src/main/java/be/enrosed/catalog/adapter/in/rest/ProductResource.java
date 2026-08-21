@@ -2,9 +2,11 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -24,10 +26,18 @@ public class ProductResource {
 
     private final ProductService products;
     private final BarcodeValidator barcodes;
+    private final ProductVariantLinkService variantLinks;
+    private final ProductFamilyDtoFactory familyDtos;
 
-    public ProductResource(ProductService products, BarcodeValidator barcodes) {
+    public ProductResource(
+            ProductService products,
+            BarcodeValidator barcodes,
+            ProductVariantLinkService variantLinks,
+            ProductFamilyDtoFactory familyDtos) {
         this.products = products;
         this.barcodes = barcodes;
+        this.variantLinks = variantLinks;
+        this.familyDtos = familyDtos;
     }
 
     @GET
@@ -66,6 +76,18 @@ public class ProductResource {
     }
 
     public record FamilyAssignmentRequest(Long familyId) {}
+
+    /** Links two existing SKUs while the server owns family creation and membership details. */
+    @POST
+    @Path("/{id}/variants")
+    @Transactional
+    public ProductFamilyDto linkVariant(
+            @PathParam("id") long id, ProductVariantLinkRequest request) {
+        if (request == null || request.variantProductId() == null) {
+            throw new BadRequestException("Kies een product om als variant te koppelen");
+        }
+        return familyDtos.from(variantLinks.link(id, request.variantProductId()).family());
+    }
 
     /** Copies a product, usually to make the same style in another colour. */
     @POST
