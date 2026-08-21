@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>{title}</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; color: #f4ece4; background: #120c0a; font-family: "Jost", "DejaVu Sans", sans-serif; }
+    .page { position: relative; width: 210mm; height: 297mm; padding: 14mm 13mm 13mm; overflow: hidden; page-break-after: always; background: #120c0a; }
+    .page:last-child { page-break-after: auto; }
+    .ivory { color: #241815; background: #f4ece4; }
+    .eyebrow { color: #d6b25e; font-size: 7pt; font-weight: 600; letter-spacing: 2.2px; text-transform: uppercase; }
+    h1, h2, h3, h4 { margin: 0; font-family: "Cormorant Garamond"; font-weight: 600; }
+    p { margin: 0; }
+    .footer { position: absolute; right: 13mm; bottom: 7mm; left: 13mm; padding-top: 2.5mm; color: #a9988d; border-top: .25mm solid #5f4f31; font-size: 6pt; letter-spacing: 1px; text-transform: uppercase; }
+    .footer .page-no { float: right; color: #d6b25e; }
+
+    .cover { padding: 0; }
+    .cover table { width: 100%; height: 297mm; border-collapse: collapse; table-layout: fixed; }
+    .cover .copy { width: 53%; padding: 18mm 13mm; vertical-align: top; background: #120c0a; border-right: .35mm solid #d6b25e; }
+    .cover .photo { width: 47%; padding: 0; vertical-align: top; overflow: hidden; background: #241815; }
+    .cover .photo div { width: 98.7mm; height: 297mm; overflow: hidden; }
+    .cover .photo img { width: auto; height: 297mm; margin-left: -188mm; }
+    .cover-logo { max-width: 54mm; max-height: 13mm; margin-bottom: 14mm; }
+    .cover h1 { margin-top: 24mm; font-size: 36pt; line-height: .92; }
+    .cover h1 span { display: block; color: #d6b25e; font-style: italic; font-weight: 400; }
+    .cover-intro { margin-top: 12mm; color: #cdbfb4; font-size: 10pt; line-height: 1.65; }
+    .cover-bottom { position: absolute; left: 13mm; bottom: 13mm; color: #d6b25e; font-size: 7pt; letter-spacing: 1.5px; }
+
+    .lead-title { margin-top: 8mm; font-size: 31pt; line-height: .95; }
+    .lead-title em { color: #b3924a; font-weight: 400; }
+    .lead { max-width: 158mm; margin-top: 7mm; color: #594840; font-size: 10pt; line-height: 1.65; }
+    .intro-grid { width: 100%; margin-top: 12mm; border-collapse: separate; border-spacing: 4mm; }
+    .intro-card { width: 33.333%; height: 59mm; padding: 6mm; vertical-align: top; color: #f4ece4; background: #241815; border-top: .7mm solid #d6b25e; }
+    .intro-card h3 { margin: 4mm 0 3mm; font-size: 17pt; line-height: 1; }
+    .intro-card p { color: #cdbfb4; font-size: 8pt; line-height: 1.55; }
+    .care-note { margin-top: 9mm; padding: 6mm 7mm; color: #f4ece4; background: #120c0a; border-left: 1mm solid #d6b25e; font-size: 8.5pt; line-height: 1.6; }
+
+    .contents h2 { margin-top: 6mm; font-size: 35pt; }
+    .contents-sub { margin-top: 2mm; color: #cdbfb4; font-family: "Cormorant Garamond"; font-size: 14pt; font-style: italic; }
+    .contents-list { width: 100%; margin-top: 10mm; border-collapse: collapse; }
+    .contents-list td { padding: 2.5mm 0; border-bottom: .2mm solid #4a3b26; }
+    .contents-list .number { width: 13mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 15pt; font-weight: 600; }
+    .contents-list .family { color: #f4ece4; font-size: 8.2pt; font-weight: 500; }
+    .contents-list .category { color: #a9988d; font-size: 6.2pt; letter-spacing: .8px; text-align: right; text-transform: uppercase; }
+
+    .category-page { padding: 0; }
+    .category-page .bg { position: absolute; top: 0; left: -6mm; width: auto; height: 297mm; }
+    .category-page .shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.72); }
+    .category-copy { position: absolute; top: 0; bottom: 0; left: 0; width: 61%; padding: 25mm 14mm; background: rgba(18,12,10,.88); border-right: .35mm solid #d6b25e; }
+    .category-number { margin-top: 20mm; color: #5d4927; font-family: "Cormorant Garamond"; font-size: 70pt; line-height: .7; }
+    .category-page h2 { margin-top: 5mm; font-size: 38pt; line-height: .93; }
+    .category-page p { margin-top: 8mm; color: #cdbfb4; font-size: 10pt; line-height: 1.65; }
+    .category-count { margin-top: 11mm; color: #d6b25e; font-size: 7pt; letter-spacing: 1.5px; text-transform: uppercase; }
+
+    .family-page { padding-top: 11mm; }
+    .family-head { width: 100%; border-collapse: collapse; }
+    .family-head td { vertical-align: bottom; }
+    .family-head .number { width: 18mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 31pt; font-weight: 600; }
+    .family-category { color: #d6b25e; font-size: 6pt; font-weight: 600; letter-spacing: 1.6px; text-transform: uppercase; }
+    .family-head h2 { margin-top: 1.2mm; font-size: 25pt; line-height: .9; }
+    .family-format { padding-bottom: 1mm; color: #cdbfb4; font-family: "Cormorant Garamond"; font-size: 12pt; font-style: italic; text-align: right; }
+    .gold-rule { height: .25mm; margin: 5mm 0; background: rgba(214,178,94,.65); }
+    .family-media { width: 100%; height: 92mm; border-collapse: separate; border-spacing: 2.5mm; table-layout: fixed; }
+    .family-media td { padding: 0; vertical-align: middle; text-align: center; background: #fffaf4; border: .2mm solid #6a5734; }
+    .family-media .hero { width: 68%; }
+    .family-media .hero.solo { width: 100%; }
+    .family-media .side { width: 32%; }
+    .family-media img { max-width: 100%; max-height: 91mm; }
+    .image-placeholder { color: #a9988d; font-size: 6.5pt; letter-spacing: 1.2px; text-transform: uppercase; }
+    .gallery-strip { height: 21mm; margin-top: 2.5mm; white-space: nowrap; }
+    .gallery-strip img { width: auto; height: 21mm; max-width: 32mm; margin-right: 2.5mm; background: #fffaf4; border: .2mm solid #6a5734; }
+    .family-info { width: 100%; margin-top: 5mm; border-collapse: separate; border-spacing: 5mm 0; table-layout: fixed; }
+    .family-info td { vertical-align: top; }
+    .family-info .story { width: 43%; }
+    .family-info .specs { width: 57%; }
+    .summary { color: #f4ece4; font-family: "Cormorant Garamond"; font-size: 14pt; line-height: 1.13; }
+    .description { margin-top: 3mm; color: #cdbfb4; font-size: 7.3pt; line-height: 1.5; }
+    .highlights { margin: 4mm 0 0; padding: 0; list-style: none; }
+    .highlights li { margin-top: 1.5mm; color: #f4ece4; font-size: 6.7pt; line-height: 1.35; }
+    .highlights li:before { content: "·"; margin-right: 2mm; color: #d6b25e; }
+    .family-logistics { margin-bottom: 3mm; padding: 2.5mm 3mm; color: #241815; background: #d6b25e; font-size: 6.4pt; font-weight: 600; }
+    .variants { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .variants th { padding: 1.4mm 1mm; color: #d6b25e; border-bottom: .3mm solid #d6b25e; font-size: 5pt; font-weight: 600; letter-spacing: .6px; text-align: left; text-transform: uppercase; }
+    .variants td { padding: 1.5mm 1mm; color: #e9ddd4; border-bottom: .2mm solid #3d3022; font-size: 5.5pt; line-height: 1.25; vertical-align: top; }
+    .variants .sku { width: 17%; }
+    .variants .option { width: 20%; }
+    .variants .size { width: 23%; }
+    .variants .carton { width: 21%; }
+    .variants .ean { width: 19%; }
+    .swatch { display: inline-block; width: 3mm; height: 3mm; margin-right: 1.5mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
+    .variant-price { display: block; margin-top: .7mm; color: #d6b25e; font-weight: 600; }
+
+    .utility-frame { width: 100%; height: 83mm; margin: 9mm 0; overflow: hidden; border: .25mm solid #6a5734; }
+    .utility-image { width: 100%; height: auto; margin-top: -11mm; }
+    .utility h2 { margin-top: 6mm; font-size: 34pt; line-height: .95; }
+    .utility .lead { max-width: 165mm; }
+    .steps { width: 100%; margin-top: 10mm; border-collapse: separate; border-spacing: 4mm; }
+    .steps td { width: 33.333%; padding: 6mm; vertical-align: top; color: #f4ece4; background: #241815; border-top: .7mm solid #d6b25e; }
+    .steps .step-no { color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 23pt; }
+    .steps h3 { margin: 3mm 0 2mm; font-size: 16pt; }
+    .steps p { color: #cdbfb4; font-size: 7.4pt; line-height: 1.5; }
+    .contact-card { margin-top: 14mm; padding: 8mm; color: #241815; background: #d6b25e; }
+    .contact-card h3 { font-size: 20pt; }
+    .contact-card p { margin-top: 2mm; font-size: 8pt; line-height: 1.6; }
+
+    .back { padding: 0; text-align: center; }
+    .back .back-bg { width: auto; height: 297mm; margin-left: -132mm; }
+    .back-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.74); }
+    .back-copy { position: absolute; top: 79mm; right: 24mm; left: 24mm; }
+    .back-logo { max-width: 67mm; max-height: 15mm; }
+    .back h2 { margin-top: 20mm; font-size: 36pt; }
+    .back p { margin-top: 7mm; color: #cdbfb4; font-size: 9pt; line-height: 1.6; }
+    .back-contact { margin-top: 20mm; color: #d6b25e; font-size: 7pt; line-height: 1.8; letter-spacing: 1.2px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<section class="page cover">
+  <table><tr>
+    <td class="copy">
+      {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
+      <div class="eyebrow">ENROSED WHOLESALE · {year}</div>
+      <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
+      <p class="cover-intro">{intro}</p>
+      <div class="cover-bottom">{familyCountLabel} · {variantCountLabel}</div>
+    </td>
+    <td class="photo"><div>{#if coverImage}<img src="{coverImage}" alt="ENROSED collection"/>{/if}</div></td>
+  </tr></table>
+</section>
+
+<section class="page ivory utility">
+  <div class="eyebrow">WHOLESALE COLLECTION · {year}</div>
+  <h2 class="lead-title">One clear collection.<br/><em>Everything you need to order.</em></h2>
+  <p class="lead">{intro}</p>
+  <table class="intro-grid"><tr>
+    <td class="intro-card"><div class="eyebrow">01 · SELECT</div><h3>Choose your range</h3><p>Every selected colour and size remains a separate, orderable SKU inside one clear product family.</p></td>
+    <td class="intro-card"><div class="eyebrow">02 · COMPARE</div><h3>Read real logistics</h3><p>Product size, carton size, pack quantity, prices and EAN values are shown together for easy ordering.</p></td>
+    <td class="intro-card"><div class="eyebrow">03 · ORDER</div><h3>Request a quote</h3><p>Availability, freight and lead times are confirmed for the exact mix and quantities you need.</p></td>
+  </tr></table>
+  {#if atelierImage}<div class="utility-frame"><img class="utility-image" src="{atelierImage}" alt="ENROSED atelier"/></div>{/if}
+  <div class="care-note">Warm-season friendly in normal indoor retail. Keep away from direct sun, heaters, high humidity and extreme heat.</div>
+  <div class="footer">ENROSED · WHOLESALE COLLECTION <span class="page-no">INTRO</span></div>
+</section>
+
+{#if options.includeOverview}
+<section class="page contents">
+  <div class="eyebrow">COLLECTION INDEX</div>
+  <h2>Contents</h2>
+  <div class="contents-sub">Selected families and variants, grouped for easy ordering</div>
+  <table class="contents-list">
+    {#for entry in contents}<tr>
+      <td class="number">{entry.number}</td><td class="family">{entry.name}</td><td class="category">{entry.categoryName}</td>
+    </tr>{/for}
+  </table>
+  <div class="footer">{familyCountLabel} · {variantCountLabel} <span class="page-no">INDEX</span></div>
+</section>
+{/if}
+
+{#for section in sections}
+  {#if options.includeCategoryIntros}
+  <section class="page category-page">
+    {#if section.image}<img class="bg" src="{section.image}" alt=""/>{/if}<div class="shade"></div>
+    <div class="category-copy">
+      <div class="eyebrow">THE ENROSED COLLECTION</div>
+      <div class="category-number">{section.number}</div>
+      <h2>{section.name}</h2>
+      <p>{section.description}</p>
+      <div class="category-count">{section.familyCountLabel}</div>
+    </div>
+  </section>
+  {/if}
+
+  {#for family in section.families}
+  <section class="page family-page">
+    <table class="family-head"><tr>
+      <td class="number">{family.number}</td>
+      <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2></td>
+      <td class="family-format">{#if family.format}{family.format}{/if}</td>
+    </tr></table>
+    <div class="gold-rule"></div>
+    <table class="family-media"><tr>
+      <td class="hero{#if !family.secondImage} solo{/if}">{#if family.heroImage}<img src="{family.heroImage}" alt="{family.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</td>
+      {#if family.secondImage}<td class="side"><img src="{family.secondImage}" alt=""/></td>{/if}
+    </tr></table>
+    {#if family.gallery.size > 0}<div class="gallery-strip">{#for image in family.gallery}<img src="{image}" alt=""/>{/for}</div>{/if}
+    <table class="family-info"><tr>
+      <td class="story">
+        {#if family.summary}<div class="summary">{family.summary}</div>{/if}
+        {#if family.description}<div class="description">{family.description}</div>{/if}
+        {#if family.highlights.size > 0}<ul class="highlights">{#for highlight in family.highlights}<li>{highlight}</li>{/for}</ul>{/if}
+      </td>
+      <td class="specs">
+        {#if family.familySize || family.packageLine}<div class="family-logistics">{#if family.familySize}{family.familySize}{/if}{#if family.packageLine} · Outer carton {family.packageLine}{/if}</div>{/if}
+        <table class="variants">
+          <thead><tr><th class="sku">SKU</th><th class="option">Colour / size</th><th class="size">Product B × D × H</th><th class="carton">Outer carton / pack</th><th class="ean">EAN</th></tr></thead>
+          <tbody>{#for variant in family.variants}<tr>
+            <td>{variant.sku}{#if variant.priceLabel}<span class="variant-price">{variant.priceLabel}</span>{/if}</td>
+            <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
+            <td>{variant.productSize}</td>
+            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}<br/>{variant.piecesPerCarton} pcs{/if}</td>
+            <td>{variant.ean}</td>
+          </tr>{/for}</tbody>
+        </table>
+      </td>
+    </tr></table>
+    <div class="footer">ENROSED · {family.categoryName} <span class="page-no">{family.number}</span></div>
+  </section>
+  {/for}
+{/for}
+
+{#if options.includeCustomisation}
+<section class="page ivory utility">
+  <div class="eyebrow">CUSTOMISATION &amp; PRIVATE LABEL</div>
+  <h2>Make the collection<br/>recognisably yours.</h2>
+  <p class="lead">Selected formats can be adapted for retail programmes, gifting concepts and private-label presentation. Feasibility and minimum quantities are confirmed per project.</p>
+  {#if customisationImage}<div class="utility-frame"><img class="utility-image" src="{customisationImage}" alt="Custom ENROSED presentation"/></div>{/if}
+  <table class="steps"><tr>
+    <td><div class="step-no">01</div><h3>Choose</h3><p>Select the family, colours, sizes and presentation that suit your channel.</p></td>
+    <td><div class="step-no">02</div><h3>Compose</h3><p>Discuss sleeves, labels, counter displays, carton configuration and gifting details.</p></td>
+    <td><div class="step-no">03</div><h3>Confirm</h3><p>Receive the exact quote, visual direction, minimum quantity and delivery plan.</p></td>
+  </tr></table>
+  <div class="footer">ENROSED · CUSTOMISATION <span class="page-no">PRIVATE LABEL</span></div>
+</section>
+{/if}
+
+{#if options.includeOrdering}
+<section class="page utility">
+  <div class="eyebrow">HOW TO ORDER</div>
+  <h2>From selection<br/>to delivery.</h2>
+  <p class="lead" style="color:#cdbfb4">Send the selected SKUs and quantities. ENROSED confirms availability, pricing, freight, lead time and the practical delivery plan before the order is final.</p>
+  <table class="steps"><tr>
+    <td><div class="step-no">01</div><h3>Select</h3><p>Use this brochure to choose the exact product families and colour or size variants.</p></td>
+    <td><div class="step-no">02</div><h3>Quote</h3><p>We prepare a current quotation for the requested mix, volume and destination.</p></td>
+    <td><div class="step-no">03</div><h3>Deliver</h3><p>After confirmation, products are prepared and shipped according to the agreed plan.</p></td>
+  </tr></table>
+  <div class="contact-card">
+    <h3>{company.name}</h3>
+    <p>{#if company.addressOneLine}{company.addressOneLine}<br/>{/if}{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</p>
+  </div>
+  <div class="care-note">Trade prices, stock and lead times can change. Product information in this export is the current basis; your quotation confirms the commercial terms for the order.</div>
+  <div class="footer">ENROSED · HOW TO ORDER <span class="page-no">CONTACT</span></div>
+</section>
+{/if}
+
+{#if options.includeBackCover}
+<section class="page back">
+  {#if coverImage}<img class="back-bg" src="{coverImage}" alt=""/>{/if}<div class="back-shade"></div>
+  <div class="back-copy">
+    {#if logo}<img class="back-logo" src="{logo}" alt="ENROSED"/>{/if}
+    <h2>Made to last.<br/>Ready for retail.</h2>
+    <p>Preserved and decorative roses designed for gifting, display and wholesale programmes.</p>
+    <div class="back-contact">{company.name}<br/>{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</div>
+  </div>
+</section>
+{/if}
+
+</body>
+</html>

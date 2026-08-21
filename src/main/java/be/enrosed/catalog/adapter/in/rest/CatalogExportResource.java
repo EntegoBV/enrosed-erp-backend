@@ -5,9 +5,11 @@ import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
@@ -26,10 +28,13 @@ public class CatalogExportResource {
     @Path("/export")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces("application/pdf")
-    public Response exportPdf(CatalogExportService.Request request) {
+    public Response exportPdf(CatalogExportService.Request request,
+                              @QueryParam("inline") @DefaultValue("false") boolean inline) {
         CatalogDocumentRenderer.Document document = export.export(request);
         return Response.ok(document.content())
-                .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
+                .header("Content-Disposition", (inline ? "inline" : "attachment")
+                        + "; filename=\"" + document.filename() + "\"")
+                .header("Cache-Control", "no-store")
                 .build();
     }
 }
