@@ -70,7 +70,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     /** One compact, SKU-level card. */
-    public record Item(String sku, String name, String description, String size, String colour,
+    public record Item(String sku, String name, String size, String colour,
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
                        String priceLabel, boolean inventoryKnown, Integer stockQuantity,
@@ -95,6 +95,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String familyCountLabel, List<BrochureFamily> families) {}
 
     public record ContentsEntry(String number, String name, String categoryName) {}
+
+    public record ComparisonFamily(
+            String name, String image, String sku, String productSize,
+            String cartonSize, int piecesPerCarton, String ean) {}
+
+    private enum ComparisonGroup { COUNTER, SOAP_DECORATIVE }
 
     @Override
     public Document render(CatalogExportService.Model catalog) {
@@ -195,6 +201,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         List<ContentsEntry> contents = allFamilies.stream()
                 .map(item -> new ContentsEntry(item.number(), item.name(), item.categoryName()))
                 .toList();
+        List<ComparisonFamily> comparisonCounters = comparisonFamilies(
+                allFamilies, ComparisonGroup.COUNTER, 4);
+        List<ComparisonFamily> comparisonDecorative = comparisonFamilies(
+                allFamilies, ComparisonGroup.SOAP_DECORATIVE, 3);
         CompanyProfile profile = company.get();
         String title = present(request.title())
                 ? request.title().trim() : "Wholesale Collection " + LocalDate.now().getYear();
@@ -213,11 +223,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("families", allFamilies)
                 .data("sections", sections)
                 .data("contents", contents)
+                .data("comparisonCounters", comparisonCounters)
+                .data("comparisonDecorative", comparisonDecorative)
                 .data("options", options)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold.png"))
                 .data("coverImage", editorial.image("hero-open-desktop.jpg"))
-                .data("atelierImage", editorial.image("atelier.jpg"))
+                .data("introDisplayImage", editorial.image("counter-bowl-retail.jpg"))
                 .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
                 .data("year", LocalDate.now().getYear())
                 .render();
@@ -232,8 +244,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             if (uri != null) images.add(uri);
         }
         return new Item(
-                product.sku(), product.nameIn(language), product.descriptionIn(language),
-                dimensionLabel(product.dimensions()),
+                product.sku(), product.nameIn(language), dimensionLabel(product.dimensions()),
                 product.colourIn(language),
                 product.barcodes() == null ? null : product.barcodes().inner(),
                 product.barcodes() == null ? null : product.barcodes().outer(),
@@ -305,6 +316,40 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 packageLine(family, group.variants()), at(images, 0), at(images, 1),
                 images.size() <= 2 ? List.of() : List.copyOf(images.subList(2, images.size())),
                 variants);
+    }
+
+    private static List<ComparisonFamily> comparisonFamilies(
+            List<BrochureFamily> families, ComparisonGroup group, int limit) {
+        return families.stream()
+                .filter(family -> comparisonGroup(family) == group)
+                .limit(limit)
+                .map(family -> {
+                    BrochureVariant variant = family.variants().isEmpty()
+                            ? null : family.variants().getFirst();
+                    return new ComparisonFamily(
+                            family.name(), family.heroImage(),
+                            variant == null ? "" : variant.sku(),
+                            defaultText(family.familySize(),
+                                    variant == null ? "" : variant.productSize()),
+                            variant == null ? "" : variant.cartonSize(),
+                            variant == null ? 0 : variant.piecesPerCarton(),
+                            variant == null || "-".equals(variant.ean())
+                                    ? "" : defaultText(variant.ean(), ""));
+                })
+                .toList();
+    }
+
+    private static ComparisonGroup comparisonGroup(BrochureFamily family) {
+        String key = (defaultText(family.categoryName(), "") + " "
+                + defaultText(family.format(), "")).toLowerCase(Locale.ROOT);
+        if (key.contains("soap") || key.contains("decorative")
+                || key.contains("foam") || key.contains("zeep")) {
+            return ComparisonGroup.SOAP_DECORATIVE;
+        }
+        if (key.contains("counter") || key.contains("display")) {
+            return ComparisonGroup.COUNTER;
+        }
+        return null;
     }
 
     private static String familyDimension(CatalogFamilyReader.Family family, Product first) {

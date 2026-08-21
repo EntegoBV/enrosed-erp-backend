@@ -5,6 +5,7 @@
   <title>{title}</title>
   <style>
     @page { size: A4; margin: 0; }
+    @page comparison { size: A4 landscape; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; color: #f4ece4; background: #120c0a; font-family: "Jost", "DejaVu Sans", sans-serif; }
     .page { position: relative; width: 210mm; height: 297mm; padding: 14mm 13mm 13mm; overflow: hidden; page-break-after: always; background: #120c0a; }
@@ -44,6 +45,32 @@
     .contents-list .number { width: 13mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 15pt; font-weight: 600; }
     .contents-list .family { color: #f4ece4; font-size: 8.2pt; font-weight: 500; }
     .contents-list .category { color: #a9988d; font-size: 6.2pt; letter-spacing: .8px; text-align: right; text-transform: uppercase; }
+
+    .comparison-page { page: comparison; position: relative; width: 297mm; height: 210mm; padding: 11mm 13mm 12mm; overflow: hidden; page-break-after: always; color: #f4ece4; background: #120c0a; }
+    .comparison-head { width: 100%; border-collapse: collapse; }
+    .comparison-head td { vertical-align: bottom; }
+    .comparison-head h2 { margin-top: 2mm; font-size: 26pt; line-height: .92; }
+    .comparison-subtitle { color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 14pt; font-style: italic; text-align: right; }
+    .comparison-rule { height: .3mm; margin: 4mm 0 3mm; background: #d6b25e; }
+    .comparison-label { width: 100%; margin-bottom: 2mm; border-collapse: collapse; }
+    .comparison-label td { color: #d6b25e; font-size: 6pt; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
+    .comparison-label .hint { color: #a9988d; font-weight: 400; letter-spacing: .8px; text-align: right; }
+    .comparison-grid { width: 100%; height: 56mm; border-collapse: separate; border-spacing: 3mm 0; table-layout: fixed; }
+    .comparison-grid + .comparison-label { margin-top: 5mm; }
+    .comparison-card { height: 56mm; padding: 0; vertical-align: top; background: #1d1411; border-top: .55mm solid #d6b25e; }
+    .counter-grid .comparison-card { width: 25%; }
+    .decorative-grid .comparison-card { width: 33.333%; }
+    .comparison-empty-card { height: 56mm; padding: 0; background: transparent; border: .2mm solid #2f231c; }
+    .comparison-image { height: 31mm; padding: 1.5mm; text-align: center; vertical-align: middle; background: #fffaf4; }
+    .comparison-image img { max-width: 100%; max-height: 28mm; }
+    .comparison-copy { padding: 2.3mm 3mm 2.5mm; }
+    .comparison-sku { color: #d6b25e; font-size: 4.7pt; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; }
+    .comparison-name { height: 6mm; margin-top: .7mm; overflow: hidden; font-family: "Cormorant Garamond"; font-size: 10.5pt; font-weight: 600; line-height: .95; }
+    .comparison-specs { width: 100%; margin-top: 1.4mm; border-collapse: collapse; }
+    .comparison-specs td { padding: .35mm 0; color: #bbaa9f; font-size: 4.5pt; line-height: 1.2; vertical-align: top; }
+    .comparison-specs .key { width: 13mm; color: #d6b25e; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
+    .comparison-none { height: 56mm; padding-top: 24mm; color: #7f6f65; border: .2mm solid #2f231c; font-size: 5.3pt; letter-spacing: 1px; text-align: center; text-transform: uppercase; }
+    .comparison-care { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.2mm; color: #a9988d; border-top: .25mm solid #5f4f31; font-size: 5.4pt; letter-spacing: .6px; }
 
     .category-page { padding: 0; }
     .category-page .bg { position: absolute; top: 0; left: -6mm; width: auto; height: 297mm; }
@@ -139,7 +166,7 @@
     <td class="intro-card"><div class="eyebrow">02 · COMPARE</div><h3>Read real logistics</h3><p>Product size, carton size, pack quantity, prices and EAN values are shown together for easy ordering.</p></td>
     <td class="intro-card"><div class="eyebrow">03 · ORDER</div><h3>Request a quote</h3><p>Availability, freight and lead times are confirmed for the exact mix and quantities you need.</p></td>
   </tr></table>
-  {#if atelierImage}<div class="utility-frame"><img class="utility-image" src="{atelierImage}" alt="ENROSED atelier"/></div>{/if}
+  {#if introDisplayImage}<div class="utility-frame"><img class="utility-image" src="{introDisplayImage}" alt="ENROSED counter display"/></div>{/if}
   <div class="care-note">Warm-season friendly in normal indoor retail. Keep away from direct sun, heaters, high humidity and extreme heat.</div>
   <div class="footer">ENROSED · WHOLESALE COLLECTION <span class="page-no">INTRO</span></div>
 </section>
@@ -157,6 +184,57 @@
   <div class="footer">{familyCountLabel} · {variantCountLabel} <span class="page-no">INDEX</span></div>
 </section>
 {/if}
+
+<section class="comparison-page">
+  <table class="comparison-head"><tr>
+    <td><div class="eyebrow">WHOLESALE RANGE OVERVIEW</div><h2>Retail-ready products,<br/>compared quickly.</h2></td>
+    <td class="comparison-subtitle">Counter Displays + Soap &amp; Decorative Roses</td>
+  </tr></table>
+  <div class="comparison-rule"></div>
+
+  <table class="comparison-label"><tr><td>Counter Displays</td><td class="hint">Selected families · representative selected SKU</td></tr></table>
+  {#if comparisonCounters.size > 0}
+  <table class="comparison-grid counter-grid"><tr>
+    {#for card in comparisonCounters}<td class="comparison-card">
+      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</div>
+      <div class="comparison-copy">
+        <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
+        <table class="comparison-specs">
+          {#if card.productSize}<tr><td class="key">Product</td><td>{card.productSize}</td></tr>{/if}
+          {#if card.cartonSize}<tr><td class="key">Carton</td><td>{card.cartonSize}</td></tr>{/if}
+          {#if card.piecesPerCarton > 0}<tr><td class="key">Pack</td><td>{card.piecesPerCarton} pcs</td></tr>{/if}
+          {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
+        </table>
+      </div>
+    </td>{/for}
+    {#if comparisonCounters.size == 1}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
+    {#if comparisonCounters.size == 2}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
+    {#if comparisonCounters.size == 3}<td class="comparison-empty-card"></td>{/if}
+  </tr></table>
+  {#else}<div class="comparison-none">No selected counter-display families</div>{/if}
+
+  <table class="comparison-label"><tr><td>Soap &amp; Decorative Roses</td><td class="hint">Selected families · representative selected SKU</td></tr></table>
+  {#if comparisonDecorative.size > 0}
+  <table class="comparison-grid decorative-grid"><tr>
+    {#for card in comparisonDecorative}<td class="comparison-card">
+      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">Product image unavailable</span>{/if}</div>
+      <div class="comparison-copy">
+        <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
+        <table class="comparison-specs">
+          {#if card.productSize}<tr><td class="key">Product</td><td>{card.productSize}</td></tr>{/if}
+          {#if card.cartonSize}<tr><td class="key">Carton</td><td>{card.cartonSize}</td></tr>{/if}
+          {#if card.piecesPerCarton > 0}<tr><td class="key">Pack</td><td>{card.piecesPerCarton} pcs</td></tr>{/if}
+          {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
+        </table>
+      </div>
+    </td>{/for}
+    {#if comparisonDecorative.size == 1}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
+    {#if comparisonDecorative.size == 2}<td class="comparison-empty-card"></td>{/if}
+  </tr></table>
+  {#else}<div class="comparison-none">No selected soap or decorative-rose families</div>{/if}
+
+  <div class="comparison-care">Warm-season friendly in normal indoor retail. Keep away from direct sun, heaters, high humidity and extreme heat.</div>
+</section>
 
 {#for section in sections}
   {#if options.includeCategoryIntros}

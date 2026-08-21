@@ -41,7 +41,6 @@
     .body { padding: 3mm 3.2mm 3.5mm; }
     .sku { color: #a18455; font-size: 5.5pt; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; }
     .name { min-height: 8mm; margin: .8mm 0 1mm; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1.05; }
-    .desc { margin-bottom: 1.2mm; color: #69584f; font-size: 6.1pt; line-height: 1.35; }
     .spec { color: #594840; font-size: 6.1pt; line-height: 1.45; }
     .spec strong { color: #241815; font-weight: 500; }
     .barcode { margin-top: 1mm; color: #938075; font-family: "DejaVu Sans"; font-size: 5.2pt; }
@@ -100,7 +99,6 @@
           <div class="body">
             <div class="sku">{it.sku}</div>
             <div class="name">{it.name}</div>
-            {#if it.description}<div class="desc">{it.description}</div>{/if}
             <div class="spec">
               {#if it.size}<strong>{it.size}</strong>{/if}{#if it.colour} · {it.colour}{/if}<br/>
               {it.piecesPerCarton} {t.portalPerBox}{#if it.cartonSize} · {t.catalogCarton} {it.cartonSize}{/if}
