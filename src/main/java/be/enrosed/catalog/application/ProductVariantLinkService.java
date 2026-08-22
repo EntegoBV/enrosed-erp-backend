@@ -54,6 +54,23 @@ public class ProductVariantLinkService {
 
     public record Result(ProductFamilyEntity family, boolean familyCreated) {}
 
+    /**
+     * Copies a product as a new colour or size and links the two at once.
+     *
+     * A copy that is not linked is a loose SKU nobody finds again; the copy
+     * and the link therefore happen in one transaction - if the link cannot
+     * be made, no copy is left behind either.
+     */
+    @Transactional
+    public Product duplicateAsVariant(long sourceId, String colour, String colourHex, String size) {
+        Product copy = productService.duplicate(sourceId, colour, colourHex, size);
+        Product source = product(sourceId);
+        if (source.familyId() == null) {
+            link(sourceId, copy.id());
+        }
+        return productService.get(copy.id());
+    }
+
     @Transactional
     public Result link(long sourceProductId, long variantProductId) {
         if (sourceProductId == variantProductId) {

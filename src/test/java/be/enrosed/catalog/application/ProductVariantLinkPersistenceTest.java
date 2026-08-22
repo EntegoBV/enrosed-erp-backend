@@ -8,6 +8,7 @@ import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.BusinessRuleException;
@@ -87,6 +88,27 @@ class ProductVariantLinkPersistenceTest {
         assertTrue(publicCatalog.families().stream()
                 .noneMatch(item -> Objects.equals(item.id(), result.family().id)),
                 "a server-created DRAFT model group must stay out of the public website contract");
+    }
+
+    @Test
+    @TestTransaction
+    void copyingAsAVariantLinksTheCopyToTheSourceAtOnce() {
+        ProductEntity red = standalone(
+                null, "SKU-COPY-RED", "Glass rose", "Rood", null, "#A91F32");
+        entityManager.persist(red);
+        entityManager.flush();
+
+        Product copy = links.duplicateAsVariant(red.id, "Roze", null, null);
+
+        ProductEntity linkedSource = entityManager.find(ProductEntity.class, red.id);
+        assertEquals(linkedSource.familyId, copy.familyId(), "copy and source share one new series");
+        assertEquals("Glass rose", entityManager.find(ProductFamilyEntity.class, copy.familyId()).name,
+                "the series is named after the red source");
+        assertEquals("Roze", copy.colour());
+
+        /* A second copy joins the existing series instead of starting another. */
+        Product third = links.duplicateAsVariant(red.id, "Wit", null, null);
+        assertEquals(copy.familyId(), third.familyId());
     }
 
     @Test

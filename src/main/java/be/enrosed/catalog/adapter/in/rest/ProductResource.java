@@ -128,7 +128,7 @@ public class ProductResource {
     @POST
     @Path("/{id}/duplicate")
     public Response duplicate(@PathParam("id") long id, DuplicateRequest request) {
-        var copy = products.duplicate(
+        var copy = variantLinks.duplicateAsVariant(
                 id,
                 request == null ? null : request.colour(),
                 request == null ? null : request.colourHex(),
