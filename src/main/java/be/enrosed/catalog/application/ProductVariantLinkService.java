@@ -119,16 +119,26 @@ public class ProductVariantLinkService {
         return new Result(created, true);
     }
 
+    static boolean isRed(Product product) {
+        String colour = product.colour() == null ? "" : product.colour().trim();
+        return colour.equalsIgnoreCase("Rood") || colour.equalsIgnoreCase("Red")
+                || colour.equalsIgnoreCase("Rouge") || colour.equalsIgnoreCase("Rot");
+    }
+
     private ProductFamilyEntity newFamily(
             Product source, Product variant, CategoryEntity category) {
-        if (source.name() == null || source.name().isBlank()) {
+        /* The series takes its name from the red variant when there is one -
+           red is the house colour and the one a customer pictures first - and
+           otherwise from the product the link started from. */
+        Product lead = isRed(variant) && !isRed(source) ? variant : source;
+        if (lead.name() == null || lead.name().isBlank()) {
             throw new BusinessRuleException("Het bronproduct heeft geen naam voor de nieuwe modelgroep");
         }
         ProductFamilyEntity family = new ProductFamilyEntity();
         family.familyKey = nextFamilyKey(source.id(), variant.id());
         family.publicHandle = null;
         family.active = true;
-        family.name = source.name();
+        family.name = lead.name();
         family.highlightsJson = "[]";
         family.tagsJson = "[]";
         family.websiteStatus = PublicationState.DRAFT;

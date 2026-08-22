@@ -91,6 +91,24 @@ class ProductVariantLinkPersistenceTest {
 
     @Test
     @TestTransaction
+    void aNewFamilyTakesItsNameFromTheRedVariantWhenTheLinkStartsElsewhere() {
+        ProductEntity blue = standalone(
+                null, "SKU-LINK-RED-A", "Blue title", "Blauw", null, "#1F3A93");
+        ProductEntity red = standalone(
+                null, "SKU-LINK-RED-B", "Red title", "Rood", null, "#A91F32");
+        entityManager.persist(blue);
+        entityManager.persist(red);
+        entityManager.flush();
+
+        ProductVariantLinkService.Result result = links.link(blue.id, red.id);
+
+        assertTrue(result.familyCreated());
+        assertEquals("Red title", result.family().name,
+                "red is the house colour: it names the series unless the link started from red");
+    }
+
+    @Test
+    @TestTransaction
     void addsTheStandaloneProductToTheExistingFamilyAndThenBecomesIdempotent() {
         CategoryEntity category = category("LINK EXISTING");
         entityManager.persist(category);
