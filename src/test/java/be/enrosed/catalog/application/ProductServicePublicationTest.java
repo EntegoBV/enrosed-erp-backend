@@ -111,6 +111,22 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void aVariantCopyKeepsTheGiftBoxButNotItsBarcode() {
+        Product boxed = withCodes(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true),
+                new Barcodes("5410000000019", "15410000000016"), "5410000000026");
+        repository.add(boxed);
+
+        Product copy = service.duplicate(1L, "Roze");
+
+        assertEquals(PackagingKind.GIFT_BOX, copy.packaging().kind(), "the box itself comes along");
+        assertEquals(boxed.packaging().dimensions(), copy.packaging().dimensions());
+        assertNull(copy.packaging().barcode(), "the box's EAN is unique and stays behind");
+        assertNull(copy.barcodes().inner());
+        assertNull(copy.barcodes().outer());
+    }
+
+    @Test
     void refusesOneBarcodeOnTwoLevelsOfTheSameProduct() {
         Product twice = withCodes(product(null, "ENR-P03", "Beschrijving", "gele-roos",
                 null, null, true), new Barcodes("5410000000019", "5410000000019"), null);

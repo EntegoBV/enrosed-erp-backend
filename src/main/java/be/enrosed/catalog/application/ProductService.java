@@ -7,6 +7,7 @@ import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Photo;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
@@ -257,8 +258,13 @@ public class ProductService {
             throw new BusinessRuleException(
                     "De nieuwe variant moet in kleur, kleurcode of maat verschillen van het bronproduct");
         }
+        /* The gift box comes along with its size and weight; its EAN is as
+           unique as any other barcode and stays behind, like the piece and
+           carton codes. */
+        Packaging packaging = new Packaging(source.packaging().kind(),
+                source.packaging().dimensions(), null);
         return create(new Product(
-                null, null, source.name(), source.dimensions(), source.packaging(),
+                null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
                 source.description(),
                 source.categoryId(), source.supplierId(), source.active(),
