@@ -140,23 +140,19 @@
       <td class="r">{costing.totals.dutyEur.eur}</td></tr>
   <tr><td>{costLabels.destinationCostsLabel}</td>
       <td class="r">{costing.totals.destinationEur.eur}</td></tr>
-  <tr><td>Gewenste extra opbrengst</td>
+  <tr><td>Enrosed kost</td>
       <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
   <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
-  <tr><td class="muted">Gemiddeld per stuk</td>
-      <td class="r muted">{costing.totals.averageUnitEur.unit}</td></tr>
 </table>
 {#else}
 <table class="totals">
   <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
-  <tr><td class="muted">Gemiddeld per stuk</td>
-      <td class="r muted">{costing.totals.averageUnitEur.unit}</td></tr>
 </table>
 {/if}
 
 <div class="foot">
   {#if showRevenue}
-    Interne calculatie: bevat de gewenste extra opbrengst als aparte regel. Niet bedoeld
+    Interne calculatie: bevat de Enrosed kost als aparte regel. Niet bedoeld
     om buiten het bedrijf te delen - gebruik daarvoor de klantweergave.
     {#if unifiedUsdToEur}
       Koers: 1 USD = {order.usdToEurGoods.amount} EUR

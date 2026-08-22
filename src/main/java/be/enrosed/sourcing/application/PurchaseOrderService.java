@@ -332,7 +332,7 @@ public class PurchaseOrderService {
         requireNonNegative(order.freightUsd(), "Zeevracht");
         requireNonNegative(order.originCosts(), "Kosten aan de vertrekzijde");
         requireNonNegative(order.destinationCostsEur(), "Kosten aan de aankomstzijde");
-        requireNonNegative(order.extraRevenueEur(), "Extra opbrengst");
+        requireNonNegative(order.extraRevenueEur(), "Enrosed kost");
         requirePercentage(order.defaultDutyRatePct(), "Standaard invoerrecht");
         if (order.originCurrency() == null) {
             throw new BusinessRuleException("Kies de munt van de kosten aan de vertrekzijde");
