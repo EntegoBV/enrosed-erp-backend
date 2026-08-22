@@ -338,6 +338,25 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void theSamePictureIsRefusedASecondTimeEvenUnderAnotherName() {
+        repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, false));
+        byte[] bytes = "GIF89a-the-same-picture".getBytes(StandardCharsets.US_ASCII);
+        service.addPhoto(1L, "roos.gif", new ByteArrayInputStream(bytes));
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class, () -> service.addPhoto(
+                1L, "roos-kopie.gif", new ByteArrayInputStream(bytes)));
+
+        assertEquals("Deze foto staat al bij dit product (roos.gif)", error.getMessage());
+        assertEquals(1, photoStorage.blobs.size(), "nothing was stored for the duplicate");
+
+        /* Same size, different bytes: a genuinely different photo still goes in. */
+        Product updated = service.addPhoto(1L, "ander.gif",
+                new ByteArrayInputStream("GIF89a-another-picture!".getBytes(StandardCharsets.US_ASCII)));
+        assertEquals(2, updated.photos().size());
+    }
+
+    @Test
     void photoUploadRejectsNonImageBeforeStorage() {
         repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, false));
@@ -461,17 +480,20 @@ class ProductServicePublicationTest {
 
     private static final class FakePhotoStorage implements PhotoStorage {
         private byte[] data;
+        private final Map<String, byte[]> blobs = new LinkedHashMap<>();
         private final List<String> deleted = new ArrayList<>();
 
         @Override
         public Stored store(String originalFilename, String contentType, byte[] data) {
             this.data = data;
-            return new Stored("stored", data.length, null, null);
+            String key = "stored-" + (blobs.size() + 1);
+            blobs.put(key, data);
+            return new Stored(key, data.length, null, null);
         }
 
         @Override
         public InputStream read(String storageKey) {
-            return new ByteArrayInputStream(new byte[0]);
+            return new ByteArrayInputStream(blobs.getOrDefault(storageKey, new byte[0]));
         }
 
         @Override

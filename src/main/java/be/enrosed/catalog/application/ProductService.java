@@ -398,6 +398,7 @@ public class ProductService {
     public Product addPhoto(long productId, String filename, InputStream data) {
         PhotoUploadPolicy.ValidatedPhoto upload = PhotoUploadPolicy.validate(filename, data);
         Product product = lockProductForPhotoWrite(productId);
+        rejectDuplicatePhoto(product, upload);
         PhotoStorage.Stored stored = photoStorage.store(
                 upload.originalFilename(), upload.contentType(), upload.bytes());
 
@@ -410,6 +411,27 @@ public class ProductService {
         Product saved = products.save(product.withPhotos(renumber(photos)));
         queueWebsite();
         return saved;
+    }
+
+    /**
+     * The same picture twice helps nobody. Compared by content, not by name:
+     * a renamed copy is still the same photo. Only photos of the same byte
+     * size are read back from storage, so the check stays cheap.
+     */
+    private void rejectDuplicatePhoto(Product product, PhotoUploadPolicy.ValidatedPhoto upload) {
+        for (Photo existing : product.photos()) {
+            if (existing.inherited() || existing.sizeBytes() != upload.bytes().length) continue;
+            byte[] stored;
+            try (InputStream in = photoStorage.read(existing.storageKey())) {
+                stored = in.readAllBytes();
+            } catch (Exception unreadable) {
+                continue;
+            }
+            if (java.util.Arrays.equals(stored, upload.bytes())) {
+                throw new BusinessRuleException("Deze foto staat al bij dit product ("
+                        + existing.originalFilename() + ")");
+            }
+        }
     }
 
     @Transactional
