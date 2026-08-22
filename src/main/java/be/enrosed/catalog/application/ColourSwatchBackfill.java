@@ -28,12 +28,22 @@ public class ColourSwatchBackfill {
     @Transactional
     void onStart(@Observes StartupEvent event) {
         int filled = 0;
-        for (ProductEntity product : products.list("colourHex is null and colour is not null")) {
-            String swatch = ColourSwatches.defaultFor(product.colour);
-            if (swatch == null) continue;
-            product.colourHex = swatch;
-            filled++;
+        int normalized = 0;
+        for (ProductEntity product : products.listAll()) {
+            if (product.colourHex == null || product.colourHex.isBlank()) {
+                String swatch = ColourSwatches.defaultFor(product.colour);
+                if (swatch == null) continue;
+                product.colourHex = swatch;
+                filled++;
+            } else if (!product.colourHex.equals(product.colourHex.toUpperCase())) {
+                /* The validator demands #RRGGBB in capitals; older rows (and
+                   a first version of this backfill) stored lowercase. */
+                product.colourHex = product.colourHex.toUpperCase();
+                normalized++;
+            }
         }
-        if (filled > 0) LOG.infof("Default colour swatch set on %d product(s)", filled);
+        if (filled > 0 || normalized > 0) {
+            LOG.infof("Colour swatches: %d default(s) set, %d normalised to capitals", filled, normalized);
+        }
     }
 }

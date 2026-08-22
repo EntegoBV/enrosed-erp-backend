@@ -81,8 +81,9 @@ final class CatalogMapper {
         /* A standard colour name carries its own swatch; only an explicit
            sample overrides it. Applied here so every write path - editor,
            copy, CSV import - agrees. */
-        entity.colourHex = be.enrosed.shared.ColourSwatches.orDefault(
+        String swatch = be.enrosed.shared.ColourSwatches.orDefault(
                 blankToNull(product.colourHex()), product.colour());
+        entity.colourHex = swatch == null ? null : swatch.toUpperCase();
         entity.description = blankToNull(product.description());
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();

@@ -15,24 +15,24 @@ public final class ColourSwatches {
     private ColourSwatches() {}
 
     private static final Map<String, String> DEFAULTS = Map.ofEntries(
-            Map.entry("Rood", "#a91f32"),
-            Map.entry("Roze", "#e59bb4"),
-            Map.entry("Fuchsia", "#c2187a"),
-            Map.entry("Bordeaux", "#6b1a2b"),
-            Map.entry("Wit", "#f4f1ec"),
-            Map.entry("Ivoor", "#f1e9d6"),
-            Map.entry("Champagne", "#e8d6b3"),
-            Map.entry("Geel", "#f2c94c"),
-            Map.entry("Oranje", "#ef8a2f"),
-            Map.entry("Groen", "#3e7d4f"),
-            Map.entry("Blauw", "#2f5d9e"),
-            Map.entry("Paars", "#6e3c9a"),
-            Map.entry("Lila", "#b69ad6"),
-            Map.entry("Zwart", "#1a1614"),
-            Map.entry("Grijs", "#9a9a9a"),
-            Map.entry("Zilver", "#c0c4c9"),
-            Map.entry("Goud", "#c9a227"),
-            Map.entry("Gemengd", "#d8c3c3"));
+            Map.entry("Rood", "#A91F32"),
+            Map.entry("Roze", "#E59BB4"),
+            Map.entry("Fuchsia", "#C2187A"),
+            Map.entry("Bordeaux", "#6B1A2B"),
+            Map.entry("Wit", "#F4F1EC"),
+            Map.entry("Ivoor", "#F1E9D6"),
+            Map.entry("Champagne", "#E8D6B3"),
+            Map.entry("Geel", "#F2C94C"),
+            Map.entry("Oranje", "#EF8A2F"),
+            Map.entry("Groen", "#3E7D4F"),
+            Map.entry("Blauw", "#2F5D9E"),
+            Map.entry("Paars", "#6E3C9A"),
+            Map.entry("Lila", "#B69AD6"),
+            Map.entry("Zwart", "#1A1614"),
+            Map.entry("Grijs", "#9A9A9A"),
+            Map.entry("Zilver", "#C0C4C9"),
+            Map.entry("Goud", "#C9A227"),
+            Map.entry("Gemengd", "#D8C3C3"));
 
     /** The default swatch for a standard colour name, or null for anything else. */
     public static String defaultFor(String colour) {
