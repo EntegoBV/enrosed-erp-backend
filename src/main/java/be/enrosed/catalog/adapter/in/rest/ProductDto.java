@@ -60,7 +60,11 @@ public record ProductDto(
 ) {
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
-    public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {}
+    public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm, BigDecimal weightKg) {
+        public DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {
+            this(lengthCm, widthCm, heightCm, null);
+        }
+    }
 
     public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode) {}
 
@@ -106,11 +110,12 @@ public record ProductDto(
 
         return new ProductDto(
                 product.id(), product.sku(), product.name(),
-                new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
+                new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm(), size.weightKg()),
                 new PackagingDto(product.packaging().kind(), new DimensionsDto(
                         product.packaging().dimensions().lengthCm(),
                         product.packaging().dimensions().widthCm(),
-                        product.packaging().dimensions().heightCm()),
+                        product.packaging().dimensions().heightCm(),
+                        product.packaging().dimensions().weightKg()),
                         product.packaging().barcode()),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
@@ -143,12 +148,12 @@ public record ProductDto(
         Packaging presentation = packaging == null || packaging.kind() == null
                 ? Packaging.none()
                 : new Packaging(packaging.kind(),
-                        new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm()),
+                        new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm(), wrap.weightKg()),
                         packaging.barcode());
 
         return new Product(
                 id, sku, name,
-                new Dimensions(size.lengthCm(), size.widthCm(), size.heightCm()),
+                new Dimensions(size.lengthCm(), size.widthCm(), size.heightCm(), size.weightKg()),
                 presentation,
                 colour, variantSize, colourHex, description,
                 categoryId, supplierId, active == null || active,

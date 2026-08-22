@@ -34,10 +34,11 @@ final class CatalogMapper {
                 entity.id,
                 entity.sku,
                 entity.name,
-                new Dimensions(entity.productLengthCm, entity.productWidthCm, entity.productHeightCm),
+                new Dimensions(entity.productLengthCm, entity.productWidthCm, entity.productHeightCm,
+                        entity.productWeightKg),
                 new Packaging(entity.packagingKind == null ? PackagingKind.NONE : entity.packagingKind,
                         new Dimensions(entity.packagingLengthCm, entity.packagingWidthCm,
-                                entity.packagingHeightCm),
+                                entity.packagingHeightCm, entity.packagingWeightKg),
                         entity.packagingBarcode),
                 entity.colour,
                 entity.variantSize,
@@ -79,6 +80,7 @@ final class CatalogMapper {
         entity.productLengthCm = size.lengthCm();
         entity.productWidthCm = size.widthCm();
         entity.productHeightCm = size.heightCm();
+        entity.productWeightKg = size.weightKg();
 
         Packaging packaging = product.packaging();
         entity.packagingKind = packaging.kind();
@@ -86,6 +88,7 @@ final class CatalogMapper {
         entity.packagingLengthCm = packagingSize.lengthCm();
         entity.packagingWidthCm = packagingSize.widthCm();
         entity.packagingHeightCm = packagingSize.heightCm();
+        entity.packagingWeightKg = packaging.isPresent() ? packagingSize.weightKg() : null;
         entity.packagingBarcode = packaging.barcode();
 
         entity.colour = product.colour();

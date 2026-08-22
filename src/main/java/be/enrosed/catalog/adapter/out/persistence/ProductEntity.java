@@ -25,6 +25,8 @@ public class ProductEntity {
     public BigDecimal productLengthCm;
     public BigDecimal productWidthCm;
     public BigDecimal productHeightCm;
+    /** Weight of one piece, in kilograms; null when never weighed. */
+    public BigDecimal productWeightKg;
 
     /* Gift box or display around the product, with its own outer size. */
     @Enumerated(EnumType.STRING)
@@ -32,6 +34,7 @@ public class ProductEntity {
     public BigDecimal packagingLengthCm;
     public BigDecimal packagingWidthCm;
     public BigDecimal packagingHeightCm;
+    public BigDecimal packagingWeightKg;
     /** EAN on the gift box or display itself, when it is scanned apart from the article. */
     public String packagingBarcode;
 

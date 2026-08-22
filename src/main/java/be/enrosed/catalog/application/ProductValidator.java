@@ -92,6 +92,7 @@ public class ProductValidator {
         nonNegative(dimensions.lengthCm(), label + " breedte (B)");
         nonNegative(dimensions.widthCm(), label + " diepte (D)");
         nonNegative(dimensions.heightCm(), label + " hoogte (H)");
+        nonNegative(dimensions.weightKg(), label + " gewicht");
     }
 
     private static void nonNegative(BigDecimal value, String label) {

@@ -11,13 +11,24 @@ import java.math.BigDecimal;
  * {@code lengthCm} is displayed as Breedte (B), {@code widthCm} as Diepte (D),
  * and {@code heightCm} as Hoogte (H).
  */
-public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {
+public record Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
+                         /** Weight of the thing these sizes describe, in kilograms; null when unknown. */
+                         BigDecimal weightKg) {
 
     public static final String AXIS_ORDER_SHORT = "B × D × H";
     public static final String AXIS_ORDER_LONG = "Breedte × Diepte × Hoogte";
 
+    /** Sizes without a weight - the carton keeps its own weight on {@link Carton}. */
+    public Dimensions(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm) {
+        this(lengthCm, widthCm, heightCm, null);
+    }
+
     public static Dimensions empty() {
         return new Dimensions(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+    }
+
+    public Dimensions withWeightKg(BigDecimal weightKg) {
+        return new Dimensions(lengthCm, widthCm, heightCm, weightKg);
     }
 
     public boolean isBlank() {
