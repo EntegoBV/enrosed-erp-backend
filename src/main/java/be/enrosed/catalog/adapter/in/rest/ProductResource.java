@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.application.BarcodeOwner;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
@@ -91,6 +92,31 @@ public class ProductResource {
     }
 
     /** Copies a product, usually to make the same style in another colour. */
+    /** Manual stock correction; the product PUT deliberately leaves stock alone. */
+    @POST
+    @Path("/{id}/stock")
+    public ProductDto setStock(@PathParam("id") long id, StockRequest request) {
+        if (request == null || request.quantity() == null) {
+            throw new BusinessRuleException("Geef het nieuwe aantal stuks op");
+        }
+        return ProductDto.from(products.setStock(id, request.quantity()));
+    }
+
+    public record StockRequest(Integer quantity) {}
+
+    /** The stock book for one product, newest first. */
+    @GET
+    @Path("/{id}/stock-movements")
+    public List<StockMovementDto> stockMovements(@PathParam("id") long id) {
+        return products.stockMovements(id).stream()
+                .map(m -> new StockMovementDto(m.id(), m.at(), m.delta(), m.quantityAfter(),
+                        m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor()))
+                .toList();
+    }
+
+    public record StockMovementDto(Long id, java.time.Instant at, int delta, int quantityAfter,
+                                   String kind, String kindLabel, String reference, String actor) {}
+
     @POST
     @Path("/{id}/duplicate")
     public Response duplicate(@PathParam("id") long id, DuplicateRequest request) {

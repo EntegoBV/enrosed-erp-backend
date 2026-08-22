@@ -15,6 +15,10 @@ import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.VariantSizes;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Instance;
+import be.enrosed.shared.security.CurrentActor;
+import be.enrosed.catalog.domain.StockMovement;
+import be.enrosed.catalog.application.port.out.StockLedger;
 import jakarta.transaction.Transactional;
 
 import java.io.InputStream;
@@ -37,6 +41,8 @@ import java.util.Objects;
 @ApplicationScoped
 public class ProductService {
 
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ProductService.class);
+
     private final ProductRepository products;
     private final PhotoStorage photoStorage;
     private final ProductValidator validator;
@@ -47,6 +53,12 @@ public class ProductService {
 
     @Inject
     WebsiteRebuildService websiteRebuild;
+
+    /* The stock book and who writes in it; pure unit tests run without either. */
+    @Inject
+    Instance<StockLedger> ledger;
+    @Inject
+    Instance<CurrentActor> actor;
 
     @Inject
     public ProductService(
@@ -316,10 +328,55 @@ public class ProductService {
      */
     @Transactional
     public void adjustStock(long productId, int delta) {
+        adjustStock(productId, delta, null);
+    }
+
+    /** @param reference the purchase order number the pieces came in on */
+    @Transactional
+    public void adjustStock(long productId, int delta, String reference) {
         if (!products.adjustStock(productId, delta)) {
             throw new NotFoundException("Product", productId);
         }
+        book(productId, delta, StockMovement.Kind.PURCHASE_RECEIPT, reference);
         queueWebsite();
+    }
+
+    public List<StockMovement> stockMovements(long productId) {
+        get(productId);
+        return stockLedger().forProduct(productId);
+    }
+
+    private void book(long productId, int delta, StockMovement.Kind kind, String reference) {
+        int after = products.findById(productId).map(Product::stockQuantity).orElse(0);
+        stockLedger().record(new StockMovement(null, productId, Instant.now(), delta, after, kind,
+                reference, actorName()));
+    }
+
+    private StockLedger stockLedger() {
+        return ledger != null && ledger.isResolvable() ? ledger.get() : StockLedger.NONE;
+    }
+
+    private String actorName() {
+        return actor != null && actor.isResolvable() ? actor.get().name() : "systeem";
+    }
+
+    /**
+     * Manual stock correction after a recount: the new count replaces the
+     * old one, and the stock book gets a line saying so.
+     */
+    @Transactional
+    public Product setStock(long productId, int quantity) {
+        if (quantity < 0) {
+            throw new BusinessRuleException("Voorraad kan niet negatief zijn");
+        }
+        Product before = products.setStock(productId, quantity)
+                .orElseThrow(() -> new NotFoundException("Product", productId));
+        int delta = quantity - (before.inventoryKnown() ? before.stockQuantity() : 0);
+        book(productId, delta, StockMovement.Kind.MANUAL_CORRECTION, null);
+        LOG.infof("Voorraad van %s (%s) manueel gezet: %d -> %d",
+                before.sku(), before.name(), before.stockQuantity(), quantity);
+        queueWebsite();
+        return get(productId);
     }
 
     /* ------------------------------------------------------------ fotos */

@@ -68,6 +68,16 @@ public class PanacheProductRepository implements ProductRepository {
         return CatalogMapper.toDomain(entity);
     }
 
+    @Override
+    public Optional<Product> setStock(long productId, int quantity) {
+        ProductEntity entity = dao.findById(productId);
+        if (entity == null) return Optional.empty();
+        Product before = CatalogMapper.toDomain(entity);
+        dao.update("stockQuantity = ?1, inventoryKnown = true where id = ?2", quantity, productId);
+        dao.getEntityManager().refresh(entity);
+        return Optional.of(before);
+    }
+
     /** A single SQL update avoids lost stock when separate orders arrive together. */
     @Override
     public boolean adjustStock(long productId, int delta) {

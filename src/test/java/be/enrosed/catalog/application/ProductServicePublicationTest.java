@@ -99,6 +99,18 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void manualStockCorrectionReplacesTheCountAndRefusesNegatives() {
+        repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true));
+
+        assertEquals(4, service.get(1L).stockQuantity());
+        assertEquals(250, service.setStock(1L, 250).stockQuantity());
+        assertEquals(250, repository.findById(1L).orElseThrow().stockQuantity());
+        assertEquals(0, service.setStock(1L, 0).stockQuantity(), "sold out is a valid count");
+        assertThrows(BusinessRuleException.class, () -> service.setStock(1L, -1));
+    }
+
+    @Test
     void refusesOneBarcodeOnTwoLevelsOfTheSameProduct() {
         Product twice = withCodes(product(null, "ENR-P03", "Beschrijving", "gele-roos",
                 null, null, true), new Barcodes("5410000000019", "5410000000019"), null);

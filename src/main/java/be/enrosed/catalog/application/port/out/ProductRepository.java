@@ -44,6 +44,17 @@ public interface ProductRepository {
      *
      * @return whether the product existed
      */
+    /**
+     * Sets the count outright - a manual correction after a recount.
+     *
+     * @return the product as it was before, or empty when it does not exist
+     */
+    default Optional<Product> setStock(long productId, int quantity) {
+        Optional<Product> current = findById(productId);
+        current.ifPresent(product -> save(product.withStockQuantity(quantity)));
+        return current;
+    }
+
     default boolean adjustStock(long productId, int delta) {
         Optional<Product> current = findById(productId);
         if (current.isEmpty()) return false;

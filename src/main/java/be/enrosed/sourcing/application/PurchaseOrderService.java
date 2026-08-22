@@ -279,7 +279,7 @@ public class PurchaseOrderService {
         if (!justReceived) return;
 
         for (PurchaseOrderLine line : after.lines()) {
-            products.adjustStock(line.productId(), line.quantity());
+            products.adjustStock(line.productId(), line.quantity(), after.number());
         }
         LOG.infof("Voorraad bijgeboekt uit %s: %d regel(s)", after.number(), after.lines().size());
     }

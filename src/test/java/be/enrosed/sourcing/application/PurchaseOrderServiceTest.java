@@ -23,6 +23,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -206,8 +207,10 @@ class PurchaseOrderServiceTest {
         }
 
         @Override
-        public void adjustStock(long productId, int delta) {
+        public void adjustStock(long productId, int delta, String reference) {
             assertEquals(1L, productId);
+            assertTrue(reference != null && !reference.isBlank(),
+                    "a receipt books stock under its purchase order number");
             stockDelta += delta;
         }
     }
