@@ -150,8 +150,12 @@ class ProductServicePublicationTest {
 
         assertThrows(BusinessRuleException.class,
                 () -> service.duplicate(1L, null, null, null));
-        BusinessRuleException invalidHex = assertThrows(BusinessRuleException.class,
+        /* Lowercase is the same colour, not a variant difference. */
+        BusinessRuleException sameColour = assertThrows(BusinessRuleException.class,
                 () -> service.duplicate(1L, null, "#aa1122", null));
+        assertTrue(sameColour.getMessage().contains("verschillen"), sameColour.getMessage());
+        BusinessRuleException invalidHex = assertThrows(BusinessRuleException.class,
+                () -> service.duplicate(1L, null, "#zz1122", null));
         assertTrue(invalidHex.getMessage().contains("#RRGGBB"), invalidHex.getMessage());
     }
 

@@ -225,7 +225,9 @@ public class ProductService {
     public Product duplicate(long id, String newColour, String newColourHex, String newVariantSize) {
         Product source = get(id);
         String requestedColour = normalizeOptional(newColour);
+        /* Same colour in another case is the same colour - compare in capitals. */
         String requestedHex = normalizeOptional(newColourHex);
+        if (requestedHex != null) requestedHex = requestedHex.toUpperCase();
         String requestedSize = normalizeOptional(newVariantSize);
         /* null is legacy omitted/inherit; a supplied blank string explicitly clears. */
         String colour = newColour == null ? source.colour() : requestedColour;

@@ -73,8 +73,9 @@ public class ProductValidator {
             throw new BusinessRuleException(
                     "Publieke handle mag alleen kleine letters, cijfers en koppeltekens bevatten");
         }
-        if (product.colourHex() != null && !product.colourHex().matches("#[0-9A-F]{6}")) {
-            throw new BusinessRuleException("Kleurcode moet exact #RRGGBB zijn");
+        /* Case does not matter to a colour; the mapper stores capitals. */
+        if (product.colourHex() != null && !product.colourHex().matches("#[0-9A-Fa-f]{6}")) {
+            throw new BusinessRuleException("Kleurcode moet de vorm #RRGGBB hebben, bijvoorbeeld #A91F32");
         }
     }
 
