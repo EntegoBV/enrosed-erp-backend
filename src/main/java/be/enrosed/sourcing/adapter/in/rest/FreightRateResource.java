@@ -28,13 +28,16 @@ public class FreightRateResource {
     private final be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry;
     private final be.enrosed.sourcing.adapter.out.market.CcfiFetcher ccfi;
     private final be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi;
+    private final be.enrosed.sourcing.adapter.out.market.FbxFetcher fbx;
 
     public FreightRateResource(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry,
                                be.enrosed.sourcing.adapter.out.market.CcfiFetcher ccfi,
-                               be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi) {
+                               be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi,
+                               be.enrosed.sourcing.adapter.out.market.FbxFetcher fbx) {
         this.drewry = drewry;
         this.ccfi = ccfi;
         this.ncfi = ncfi;
+        this.fbx = fbx;
     }
 
     @GET
@@ -54,9 +57,10 @@ public class FreightRateResource {
     @Path("/market-sources")
     public List<MarketSourceStatus> marketSources() {
         drewry.refreshIfDue();
+        fbx.refreshIfDue();
         ncfi.refreshIfDue();
         ccfi.refreshIfDue();
-        return List.of(drewry.status(), ncfi.status(), ccfi.status());
+        return List.of(drewry.status(), fbx.status(), ncfi.status(), ccfi.status());
     }
 
     @POST
