@@ -86,7 +86,8 @@ class ProductPublicationTest {
     @Test
     void packagingIsCarriedByEveryCopyMethodAndReadsAsALabel() {
         Packaging giftBox = new Packaging(PackagingKind.GIFT_BOX,
-                new Dimensions(new BigDecimal("20"), new BigDecimal("12"), new BigDecimal("30")));
+                new Dimensions(new BigDecimal("20"), new BigDecimal("12"), new BigDecimal("30")),
+                " 5410000000016 ");
         Product bare = legacyProduct();
         Product boxed = new Product(bare.id(), bare.sku(), bare.name(), bare.dimensions(), giftBox,
                 bare.colour(), bare.variantSize(), bare.colourHex(), bare.description(),
@@ -103,6 +104,9 @@ class ProductPublicationTest {
         assertEquals("Geschenkverpakking B × D × H: 20 × 12 × 30 cm", boxed.packaging().label());
         assertEquals(giftBox, boxed.withSku("X").withStockQuantity(3).withActive(false).packaging(),
                 "a copy-method must never drop the packaging");
+        assertEquals("5410000000016", boxed.packaging().barcode(), "trimmed");
+        assertEquals(null, new Packaging(PackagingKind.NONE, Dimensions.empty(), "123").barcode(),
+                "no packaging, no packaging code");
     }
 
     @Test

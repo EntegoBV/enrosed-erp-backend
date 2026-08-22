@@ -7,10 +7,22 @@ package be.enrosed.catalog.domain;
  * this presentation packaging around it, and the shipping carton around
  * several of those.
  */
-public record Packaging(PackagingKind kind, Dimensions dimensions) {
+public record Packaging(PackagingKind kind, Dimensions dimensions, String barcode) {
 
     public static Packaging none() {
-        return new Packaging(PackagingKind.NONE, Dimensions.empty());
+        return new Packaging(PackagingKind.NONE, Dimensions.empty(), null);
+    }
+
+    /** Packaging without its own code; the gift box is not always scanned separately. */
+    public Packaging(PackagingKind kind, Dimensions dimensions) {
+        this(kind, dimensions, null);
+    }
+
+    /** Trimmed, null when blank; only meaningful while packaging is present. */
+    public String barcode() {
+        if (barcode == null || !isPresent()) return null;
+        String value = barcode.trim();
+        return value.isEmpty() ? null : value;
     }
 
     public PackagingKind kind() {

@@ -6,6 +6,8 @@ import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Packaging;
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
@@ -74,6 +76,52 @@ class ProductServicePublicationTest {
                 BusinessRuleException.class, () -> service.create(second));
 
         assertTrue(error.getMessage().contains("bestaat al"), error.getMessage());
+    }
+
+    @Test
+    void refusesABarcodeThatAlreadySitsOnAnotherProductAndSaysWhere() {
+        Product existing = withCodes(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true),
+                new Barcodes("5410000000019", "15410000000016"), null);
+        repository.add(existing);
+        Product incoming = withCodes(product(null, "ENR-P02", "Beschrijving", "witte-roos",
+                null, null, true), Barcodes.none(), "15410000000016");
+
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> service.create(incoming));
+
+        assertEquals("Barcode 15410000000016 staat al op Roos (ENR-P01) als omdoosbarcode",
+                error.getMessage());
+        assertEquals("Barcode 5410000000019 staat al op Roos (ENR-P01) als stukbarcode",
+                service.barcodeOwner(" 5410000000019 ", null).describe("5410000000019"));
+        assertNull(service.barcodeOwner("5410000000019", 1L),
+                "the product that carries the code may keep it");
+    }
+
+    @Test
+    void refusesOneBarcodeOnTwoLevelsOfTheSameProduct() {
+        Product twice = withCodes(product(null, "ENR-P03", "Beschrijving", "gele-roos",
+                null, null, true), new Barcodes("5410000000019", "5410000000019"), null);
+
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> service.create(twice));
+
+        assertTrue(error.getMessage().contains("zowel als stukbarcode als omdoosbarcode"),
+                error.getMessage());
+    }
+
+    private static Product withCodes(Product base, Barcodes codes, String giftBoxCode) {
+        Packaging packaging = giftBoxCode == null ? Packaging.none()
+                : new Packaging(PackagingKind.GIFT_BOX, new Dimensions(one(), one(), one()), giftBoxCode);
+        return new Product(base.id(), base.sku(), base.name(), base.dimensions(), packaging,
+                base.colour(), base.variantSize(), base.colourHex(), base.description(),
+                base.categoryId(), base.supplierId(), base.active(), base.familyId(),
+                base.canonicalVariantKey(), base.canonicalBarcode(), base.variantPosition(),
+                base.inventoryKnown(), base.familyKey(), base.publicHandle(), base.websiteStatus(),
+                base.orderAppStatus(), codes, base.hsCode(), base.carton(), base.exwPrice(),
+                base.exwCurrency(), base.extraUnitCost(), base.landedCostEur(), base.landedCostSource(),
+                base.markupPct(), base.fixedSalesPriceEur(), base.stockQuantity(), base.photos(),
+                base.texts());
     }
 
     @Test

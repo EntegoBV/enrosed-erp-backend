@@ -1,5 +1,6 @@
 package be.enrosed.catalog.adapter.in.rest;
 
+import be.enrosed.catalog.application.BarcodeOwner;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
@@ -111,11 +112,19 @@ public class ProductResource {
         return Response.noContent().build();
     }
 
-    /** Validates a barcode without saving - for instant feedback in the form. */
+    /**
+     * Validates a barcode without saving - for instant feedback in the form.
+     * A well-formed code that already sits on another product is reported
+     * as invalid too, naming that product and level.
+     */
     @GET
     @Path("/barcode-check")
-    public BarcodeValidator.Result checkBarcode(@QueryParam("value") String value) {
-        return barcodes.validate(value);
+    public BarcodeValidator.Result checkBarcode(
+            @QueryParam("value") String value, @QueryParam("excludeProductId") Long excludeProductId) {
+        BarcodeValidator.Result result = barcodes.validate(value);
+        if (!result.valid() || value == null || value.isBlank()) return result;
+        BarcodeOwner owner = products.barcodeOwner(value, excludeProductId);
+        return owner == null ? result : BarcodeValidator.Result.fail(owner.describe(value.trim()));
     }
 
     /* ------------------------------------------------------------ fotos */

@@ -95,6 +95,7 @@ public class ProductService {
         prepared = assignFamilyPosition(prepared, null);
         validator.validate(prepared);
         ensureUniqueSku(prepared.sku(), null);
+        ensureUniqueBarcodes(prepared, null);
         ensureUniqueHandle(prepared.publicHandle(), null);
         ensurePublishable(prepared);
         Product saved = products.save(prepared);
@@ -141,6 +142,7 @@ public class ProductService {
         merged = assignFamilyPosition(merged, current);
         validator.validate(merged);
         ensureUniqueSku(merged.sku(), current.id());
+        ensureUniqueBarcodes(merged, current.id());
         ensureUniqueHandle(merged.publicHandle(), current.id());
         ensurePublishable(merged);
         Product saved = products.save(merged);
@@ -434,6 +436,48 @@ public class ProductService {
                 throw new BusinessRuleException("SKU " + sku + " bestaat al");
             }
         });
+    }
+
+    /**
+     * One barcode, one meaning. The codes on this product must differ from
+     * each other (a piece and its carton never share a code) and from every
+     * code elsewhere in the catalogue - the message says where it sits.
+     */
+    private void ensureUniqueBarcodes(Product product, Long currentId) {
+        List<BarcodeOwner.Carried> own = new java.util.ArrayList<>();
+        Barcodes codes = product.barcodes() == null ? Barcodes.none() : product.barcodes();
+        checkOwnBarcode(own, codes.inner(), "stukbarcode");
+        if (product.packaging().isPresent()) {
+            checkOwnBarcode(own, product.packaging().barcode(),
+                    "barcode op de " + product.packaging().kind().dutchLabel().toLowerCase());
+        }
+        checkOwnBarcode(own, codes.outer(), "omdoosbarcode");
+        if (own.isEmpty()) return;
+
+        List<Product> catalogue = products.findAll();
+        for (BarcodeOwner.Carried carried : own) {
+            BarcodeOwner owner = BarcodeOwner.find(carried.code(), catalogue, currentId);
+            if (owner != null) {
+                throw new BusinessRuleException(owner.describe(carried.code()));
+            }
+        }
+    }
+
+    private static void checkOwnBarcode(List<BarcodeOwner.Carried> own, String value, String level) {
+        String code = BarcodeOwner.normalize(value);
+        if (code == null) return;
+        for (BarcodeOwner.Carried earlier : own) {
+            if (earlier.code().equals(code)) {
+                throw new BusinessRuleException("Barcode " + code + " staat op dit product zowel als "
+                        + earlier.level() + " als " + level + "; elke barcode hoort bij één ding");
+            }
+        }
+        own.add(new BarcodeOwner.Carried(code, level));
+    }
+
+    /** For the form: who carries this code, or null when it is free. */
+    public BarcodeOwner barcodeOwner(String barcode, Long excludeProductId) {
+        return BarcodeOwner.find(barcode, products.findAll(), excludeProductId);
     }
 
     private void ensureUniqueHandle(String publicHandle, Long currentId) {

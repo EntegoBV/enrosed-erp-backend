@@ -71,6 +71,10 @@ public class ProductValidator {
         Barcodes codes = product.barcodes() == null ? Barcodes.none() : product.barcodes();
         checkBarcode(codes.inner(), "Binnenbarcode");
         checkBarcode(codes.outer(), "Omdoosbarcode");
+        if (product.packaging().isPresent()) {
+            checkBarcode(product.packaging().barcode(),
+                    "Barcode " + product.packaging().kind().dutchLabel().toLowerCase());
+        }
 
         if (product.publicHandle() != null
                 && !product.publicHandle().matches("[a-z0-9]+(?:-[a-z0-9]+)*")) {

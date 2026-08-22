@@ -32,6 +32,8 @@ public class ProductEntity {
     public BigDecimal packagingLengthCm;
     public BigDecimal packagingWidthCm;
     public BigDecimal packagingHeightCm;
+    /** EAN on the gift box or display itself, when it is scanned apart from the article. */
+    public String packagingBarcode;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;
