@@ -84,6 +84,28 @@ class ProductPublicationTest {
     }
 
     @Test
+    void packagingIsCarriedByEveryCopyMethodAndReadsAsALabel() {
+        Packaging giftBox = new Packaging(PackagingKind.GIFT_BOX,
+                new Dimensions(new BigDecimal("20"), new BigDecimal("12"), new BigDecimal("30")));
+        Product bare = legacyProduct();
+        Product boxed = new Product(bare.id(), bare.sku(), bare.name(), bare.dimensions(), giftBox,
+                bare.colour(), bare.variantSize(), bare.colourHex(), bare.description(),
+                bare.categoryId(), bare.supplierId(), bare.active(), bare.familyId(),
+                bare.canonicalVariantKey(), bare.canonicalBarcode(), bare.variantPosition(),
+                bare.inventoryKnown(), bare.familyKey(), bare.publicHandle(), bare.websiteStatus(),
+                bare.orderAppStatus(), bare.barcodes(), bare.hsCode(), bare.carton(), bare.exwPrice(),
+                bare.exwCurrency(), bare.extraUnitCost(), bare.landedCostEur(), bare.landedCostSource(),
+                bare.markupPct(), bare.fixedSalesPriceEur(), bare.stockQuantity(), bare.photos(),
+                bare.texts());
+
+        assertEquals(Packaging.none(), bare.packaging(), "legacy constructors mean: sold bare");
+        assertEquals("", bare.packaging().label());
+        assertEquals("Geschenkverpakking B × D × H: 20 × 12 × 30 cm", boxed.packaging().label());
+        assertEquals(giftBox, boxed.withSku("X").withStockQuantity(3).withActive(false).packaging(),
+                "a copy-method must never drop the packaging");
+    }
+
+    @Test
     void dimensionLabelDoesNotInventZeroForAMissingAxis() {
         Dimensions dimensions = new Dimensions(
                 BigDecimal.ZERO, BigDecimal.TEN, new BigDecimal("20"));

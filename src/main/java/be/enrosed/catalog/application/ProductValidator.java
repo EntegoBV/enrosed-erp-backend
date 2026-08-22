@@ -56,6 +56,10 @@ public class ProductValidator {
         }
 
         validateDimensions(product.dimensions(), "Productafmeting");
+        if (product.packaging().isPresent()) {
+            validateDimensions(product.packaging().dimensions(),
+                    product.packaging().kind().dutchLabel() + " afmeting");
+        }
         validateDimensions(carton.dimensions(), "Doosafmeting");
         nonNegative(carton.weightKg(), "Doosgewicht");
         nonNegative(product.exwPrice(), "EXW-prijs");

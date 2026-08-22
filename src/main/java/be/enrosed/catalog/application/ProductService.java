@@ -158,6 +158,7 @@ public class ProductService {
                 changes.sku() == null || changes.sku().isBlank() ? current.sku() : changes.sku(),
                 changes.name(),
                 changes.dimensions(),
+                changes.packaging(),
                 changes.colour(),
                 /* Backward compatible partial PUT: null means omitted/preserve for older clients;
                    an explicit blank string is the wire-level clear operation. */
@@ -243,7 +244,7 @@ public class ProductService {
                     "De nieuwe variant moet in kleur, kleurcode of maat verschillen van het bronproduct");
         }
         return create(new Product(
-                null, null, source.name(), source.dimensions(),
+                null, null, source.name(), source.dimensions(), source.packaging(),
                 colour, size, colourHex,
                 source.description(),
                 source.categoryId(), source.supplierId(), source.active(),

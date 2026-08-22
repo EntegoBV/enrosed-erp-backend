@@ -228,6 +228,7 @@ public class ProductCsv {
                         decimal(cells, 5, size.lengthCm()),
                         decimal(cells, 6, size.widthCm()),
                         decimal(cells, 7, size.heightCm())),
+                current.packaging(),
                 text(cells, 3, current.colour()),
                 text(cells, 24, current.variantSize()),
                 text(cells, 25, current.colourHex()),

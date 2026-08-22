@@ -15,6 +15,7 @@ import java.util.List;
  *
  * Mind the distinction between three things that easily blur together:
  *  - {@code dimensions} is the product itself (shown as B × D × H)
+ *  - {@code packaging} is the gift box or display it is sold in, if any
  *  - {@code colour} and {@code variantSize} are explicit variant options
  *  - {@code carton} is the outer box it ships in
  */
@@ -23,6 +24,8 @@ public record Product(
         String sku,
         String name,
         Dimensions dimensions,
+        /** Gift box or display around the product; {@link Packaging#none()} when sold bare. */
+        Packaging packaging,
         /**
          * Colour of the article.
          *
@@ -103,13 +106,36 @@ public record Product(
             BigDecimal landedCostEur, String landedCostSource,
             BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
             List<Photo> photos, List<ProductText> texts) {
-        this(id, sku, name, dimensions, colour, null, null, description,
+        this(id, sku, name, dimensions, Packaging.none(), colour, null, null, description,
                 categoryId, supplierId, active,
                 null, null, null, 0, true,
                 null, null, PublicationState.DRAFT, PublicationState.DRAFT,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
+    }
+
+    /** Compatibility constructor for callers written before presentation packaging existed. */
+    public Product(
+            Long id, String sku, String name, Dimensions dimensions, String colour,
+            String variantSize, String colourHex, String description,
+            Long categoryId, Long supplierId, boolean active,
+            Long familyId, String canonicalVariantKey, String canonicalBarcode,
+            int variantPosition, boolean inventoryKnown,
+            String familyKey, String publicHandle,
+            PublicationState websiteStatus, PublicationState orderAppStatus,
+            Barcodes barcodes, String hsCode, Carton carton,
+            BigDecimal exwPrice, Currency exwCurrency, BigDecimal extraUnitCost,
+            BigDecimal landedCostEur, String landedCostSource,
+            BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
+            List<Photo> photos, List<ProductText> texts) {
+        this(id, sku, name, dimensions, Packaging.none(), colour, variantSize, colourHex,
+                description, categoryId, supplierId, active, familyId, canonicalVariantKey,
+                canonicalBarcode, variantPosition, inventoryKnown, familyKey,
+                publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
+                carton, exwPrice, exwCurrency, extraUnitCost, landedCostEur,
+                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity,
+                photos, texts);
     }
 
     /** Compatibility constructor for callers written before size and colour swatches existed. */
@@ -125,7 +151,7 @@ public record Product(
             BigDecimal landedCostEur, String landedCostSource,
             BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
             List<Photo> photos, List<ProductText> texts) {
-        this(id, sku, name, dimensions, colour, null, null, description,
+        this(id, sku, name, dimensions, Packaging.none(), colour, null, null, description,
                 categoryId, supplierId, active, familyId, canonicalVariantKey,
                 canonicalBarcode, variantPosition, inventoryKnown, familyKey,
                 publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
@@ -145,12 +171,16 @@ public record Product(
             BigDecimal landedCostEur, String landedCostSource,
             BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
             List<Photo> photos, List<ProductText> texts) {
-        this(id, sku, name, dimensions, colour, null, null, description,
+        this(id, sku, name, dimensions, Packaging.none(), colour, null, null, description,
                 categoryId, supplierId, active,
                 null, null, null, 0, true, familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
                 stockQuantity, photos, texts);
+    }
+
+    public Packaging packaging() {
+        return packaging == null ? Packaging.none() : packaging;
     }
 
     public List<Photo> photos() {
@@ -317,7 +347,7 @@ public record Product(
        one forgotten field in one of those lists silently wiped data. */
 
     public Product withSku(String newSku) {
-        return new Product(id, newSku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, newSku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, inventoryKnown,
@@ -329,7 +359,7 @@ public record Product(
 
     public Product withVariantAttributes(
             String newColour, String newVariantSize, String newColourHex) {
-        return new Product(id, sku, name, dimensions, newColour, newVariantSize, newColourHex,
+        return new Product(id, sku, name, dimensions, packaging, newColour, newVariantSize, newColourHex,
                 description, categoryId, supplierId, active, familyId, canonicalVariantKey,
                 canonicalBarcode, variantPosition, inventoryKnown, familyKey, publicHandle,
                 websiteStatus, orderAppStatus, barcodes, hsCode, carton, exwPrice,
@@ -341,7 +371,7 @@ public record Product(
     public Product withPhotos(List<Photo> newPhotos) {
         List<Photo> ordered = newPhotos == null ? List.of() : newPhotos.stream()
                 .sorted(java.util.Comparator.comparingInt(Photo::position)).toList();
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, inventoryKnown,
@@ -352,7 +382,7 @@ public record Product(
     }
 
     public Product withStockQuantity(int newStock) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, true,
@@ -363,7 +393,7 @@ public record Product(
     }
 
     public Product withActive(boolean newActive) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId, supplierId, newActive, familyId, canonicalVariantKey,
                 canonicalBarcode, variantPosition, inventoryKnown, familyKey, publicHandle,
                 websiteStatus, orderAppStatus, barcodes, hsCode, carton, exwPrice,
@@ -373,7 +403,7 @@ public record Product(
 
     /** Synchronizes the family-owned operational category cache without touching supplier data. */
     public Product withCategoryId(Long newCategoryId) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, newCategoryId, supplierId, active, familyId,
                 canonicalVariantKey, canonicalBarcode, variantPosition, inventoryKnown,
                 familyKey, publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
@@ -382,7 +412,7 @@ public record Product(
     }
 
     public Product withLandedCost(BigDecimal newLandedCostEur, String source) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, inventoryKnown,
@@ -393,7 +423,7 @@ public record Product(
     }
 
     public Product withTexts(List<ProductText> newTexts) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, inventoryKnown,
@@ -406,7 +436,7 @@ public record Product(
     public Product withPublicationMetadata(String newFamilyKey, String newPublicHandle,
                                            PublicationState newWebsiteStatus,
                                            PublicationState newOrderAppStatus) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
                 variantPosition, inventoryKnown,
@@ -419,7 +449,7 @@ public record Product(
     public Product withCanonicalIdentity(Long newFamilyId, String newCanonicalVariantKey,
                                          String newCanonicalBarcode, int newVariantPosition,
                                          boolean newInventoryKnown) {
-        return new Product(id, sku, name, dimensions, colour, variantSize, colourHex,
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
                 description, categoryId,
                 supplierId, active, newFamilyId, newCanonicalVariantKey, newCanonicalBarcode,
                 newVariantPosition, newInventoryKnown, familyKey, publicHandle,

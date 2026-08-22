@@ -1,5 +1,6 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Currency;
 import jakarta.persistence.*;
@@ -24,6 +25,13 @@ public class ProductEntity {
     public BigDecimal productLengthCm;
     public BigDecimal productWidthCm;
     public BigDecimal productHeightCm;
+
+    /* Gift box or display around the product, with its own outer size. */
+    @Enumerated(EnumType.STRING)
+    public PackagingKind packagingKind;
+    public BigDecimal packagingLengthCm;
+    public BigDecimal packagingWidthCm;
+    public BigDecimal packagingHeightCm;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;

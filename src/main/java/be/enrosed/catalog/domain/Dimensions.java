@@ -3,8 +3,9 @@ package be.enrosed.catalog.domain;
 import java.math.BigDecimal;
 
 /**
- * Dimensions in centimetres. Used both for the product itself and for the
- * outer carton - two different things that used to blur together.
+ * Dimensions in centimetres. Used for the product itself, for the gift box
+ * or display around it, and for the outer carton - three different things
+ * that used to blur together.
  *
  * The component names are a legacy storage/API contract and must not move:
  * {@code lengthCm} is displayed as Breedte (B), {@code widthCm} as Diepte (D),
