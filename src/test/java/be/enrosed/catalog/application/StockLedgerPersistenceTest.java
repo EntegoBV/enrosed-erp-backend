@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @QuarkusTest
 class StockLedgerPersistenceTest {
@@ -55,5 +56,13 @@ class StockLedgerPersistenceTest {
         assertEquals(120, receipt.quantityAfter());
         assertEquals("PO-7", receipt.reference());
         assertEquals("Inkooporder ontvangen", receipt.kind().dutchLabel());
+
+        /* Striking a line cleans the book but leaves the count alone. */
+        products.deleteStockMovement(product.id, manual.id());
+        assertEquals(1, products.stockMovements(product.id).size());
+        assertEquals(100, products.get(product.id).stockQuantity());
+        assertThrows(be.enrosed.shared.NotFoundException.class,
+                () -> products.deleteStockMovement(product.id + 1, receipt.id()),
+                "a line belongs to its product; another product's id does not reach it");
     }
 }

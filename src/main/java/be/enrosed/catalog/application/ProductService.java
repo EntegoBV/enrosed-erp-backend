@@ -346,6 +346,15 @@ public class ProductService {
         return stockLedger().forProduct(productId);
     }
 
+    /** Removes one line from the stock book; the count is not touched. */
+    @Transactional
+    public void deleteStockMovement(long productId, long movementId) {
+        if (!stockLedger().delete(productId, movementId)) {
+            throw new NotFoundException("Voorraadbeweging", movementId);
+        }
+        LOG.infof("Voorraadregel %d van product %d verwijderd door %s", movementId, productId, actorName());
+    }
+
     private void book(long productId, int delta, StockMovement.Kind kind, String reference) {
         int after = products.findById(productId).map(Product::stockQuantity).orElse(0);
         stockLedger().record(new StockMovement(null, productId, Instant.now(), delta, after, kind,

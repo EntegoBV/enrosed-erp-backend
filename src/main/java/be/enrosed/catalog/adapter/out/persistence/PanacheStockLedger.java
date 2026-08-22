@@ -24,6 +24,11 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     }
 
     @Override
+    public boolean delete(long productId, long movementId) {
+        return delete("id = ?1 and productId = ?2", movementId, productId) == 1;
+    }
+
+    @Override
     public List<StockMovement> forProduct(long productId) {
         return list("productId = ?1 order by at desc, id desc", productId).stream()
                 .map(entity -> new StockMovement(entity.id, entity.productId, entity.at, entity.delta,

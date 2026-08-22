@@ -114,6 +114,14 @@ public class ProductResource {
                 .toList();
     }
 
+    @DELETE
+    @Path("/{id}/stock-movements/{movementId}")
+    public Response deleteStockMovement(
+            @PathParam("id") long id, @PathParam("movementId") long movementId) {
+        products.deleteStockMovement(id, movementId);
+        return Response.noContent().build();
+    }
+
     public record StockMovementDto(Long id, java.time.Instant at, int delta, int quantityAfter,
                                    String kind, String kindLabel, String reference, String actor) {}
 
