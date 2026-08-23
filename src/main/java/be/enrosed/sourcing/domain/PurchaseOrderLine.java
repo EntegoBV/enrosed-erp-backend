@@ -25,12 +25,30 @@ public record PurchaseOrderLine(
          */
         Integer orderedQuantity,
         /** What the agreed price covers; null means EXW, as every line was before. */
-        PriceBasis priceBasis
+        PriceBasis priceBasis,
+        /** Pieces that arrived broken; they are in {@code quantity} but never in stock. */
+        Integer damagedQuantity
 ) {
     /** Compatibility for callers written before DDP prices existed. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity) {
-        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, null);
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, null, null);
+    }
+
+    /** Compatibility for callers written before damage was counted. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
+                             PriceBasis priceBasis) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, priceBasis, null);
+    }
+
+    public int damaged() {
+        return damagedQuantity == null || damagedQuantity < 0 ? 0 : damagedQuantity;
+    }
+
+    /** What goes on the shelf: arrived minus broken. */
+    public int usable() {
+        return Math.max(0, quantity - damaged());
     }
 
     public PriceBasis priceBasis() {

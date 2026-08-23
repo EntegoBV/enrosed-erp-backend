@@ -371,6 +371,15 @@ public class ProductService {
         receiveStock(productId, delta, reference, null);
     }
 
+    /** Broken on arrival: counted in the book without ever touching the shelf. */
+    @Transactional
+    public void noteDamagedOnArrival(long productId, int quantity, String reference, Long locationId) {
+        if (stock == null || !stock.isResolvable()) return;
+        StockService service = stock.get();
+        long where = locationId != null ? locationId : service.mainLocation().id();
+        service.noteDamagedOnArrival(productId, where, quantity, reference);
+    }
+
     /** @param locationId where the container was unloaded; null means the warehouse */
     @Transactional
     public void receiveStock(long productId, int delta, String reference, Long locationId) {

@@ -25,7 +25,7 @@ public record StockMovement(
         String actor
 ) {
     public enum Kind {
-        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE;
+        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO;
 
         public String dutchLabel() {
             return switch (this) {
@@ -35,6 +35,8 @@ public record StockMovement(
                 case TRANSFER_IN -> "Ontvangen uit";
                 case STOCKTAKE -> "Telling";
                 case SALE -> "Verkocht";
+                case DAMAGED -> "Beschadigd";
+                case DEMO -> "Demo weggegeven";
             };
         }
     }

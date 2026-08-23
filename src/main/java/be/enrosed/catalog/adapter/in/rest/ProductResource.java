@@ -147,6 +147,20 @@ public class ProductResource {
 
     public record TransferRequest(Long fromLocationId, Long toLocationId, Integer quantity, String note) {}
 
+    /** Pieces leaving the shelf as broken or as a demo for a customer. */
+    @POST
+    @Path("/{id}/stock/take-out")
+    public ProductDto takeOut(@PathParam("id") long id, TakeOutRequest request) {
+        if (request == null || request.quantity() == null || request.kind() == null) {
+            throw new BusinessRuleException("Kies beschadigd of demo, en hoeveel");
+        }
+        long locationId = request.locationId() != null ? request.locationId() : stock.mainLocation().id();
+        stock.takeOut(id, locationId, request.quantity(), request.kind(), request.note());
+        return ProductDto.from(products.get(id));
+    }
+
+    public record TakeOutRequest(Long locationId, Integer quantity, StockMovement.Kind kind, String note) {}
+
     /** The stock book for one product, newest first. */
     @GET
     @Path("/{id}/stock-movements")

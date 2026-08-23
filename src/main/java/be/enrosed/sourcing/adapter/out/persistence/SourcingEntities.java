@@ -2,11 +2,15 @@ package be.enrosed.sourcing.adapter.out.persistence;
 
 import be.enrosed.shared.Currency;
 import be.enrosed.sourcing.domain.Allocation;
+import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PriceBasis;
+import be.enrosed.sourcing.domain.PurchaseDocument;
+import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,6 +94,15 @@ public final class SourcingEntities {
         /** Variants of one series share out costs as one product; null = on. */
         public Boolean groupVariants;
 
+        public LocalDate expectedArrival;
+        public LocalDate receivedOn;
+        @Column(precision = 19, scale = 2) public BigDecimal paidTotalEur;
+        /** Null on orders from before: read as booked when received. */
+        public Boolean stockBooked;
+        @Enumerated(EnumType.STRING) public PaymentTerms paymentTerms;
+        public LocalDate shippedOn;
+        @Column(length = 500) public String trackingReference;
+
         @Column(length = 2000)
         public String notes;
 
@@ -115,7 +128,44 @@ public final class SourcingEntities {
         @Column(precision = 19, scale = 6) public BigDecimal extraUnitCost;
         /** EXW or DDP; null on lines from before, read as EXW. */
         @Enumerated(EnumType.STRING) public PriceBasis priceBasis;
+        /** Pieces that arrived broken. */
+        public Integer damagedQuantity;
     }
+    /** One amount paid on a purchase order, kept as it left the bank. */
+    @Entity
+    @Table(name = "purchase_payment", indexes = @Index(columnList = "orderId, paidOn"))
+    public static class PurchasePaymentEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @Column(nullable = false) public long orderId;
+        @Column(nullable = false) public LocalDate paidOn;
+        @Column(nullable = false, precision = 19, scale = 2) public BigDecimal amount;
+        @Enumerated(EnumType.STRING) @Column(nullable = false) public Currency currency;
+        @Column(nullable = false, precision = 19, scale = 2) public BigDecimal amountEur;
+        public String label;
+        public String actor;
+        @Column(nullable = false) public Instant recordedAt;
+        @Enumerated(EnumType.STRING) public PurchasePayment.Payee payee;
+    }
+
+    /** A file that belongs to a container; the bytes live in the photo blob store. */
+    @Entity
+    @Table(name = "purchase_document", indexes = @Index(columnList = "orderId"))
+    public static class PurchaseDocumentEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @Column(nullable = false) public long orderId;
+        @Enumerated(EnumType.STRING) @Column(nullable = false) public PurchaseDocument.Kind kind;
+        public String label;
+        @Column(nullable = false) public String originalFilename;
+        @Column(nullable = false) public String contentType;
+        @Column(nullable = false) public long sizeBytes;
+        @Column(nullable = false) public String storageKey;
+        public Long paymentId;
+        public String actor;
+        @Column(nullable = false) public Instant addedAt;
+    }
+
     /** One forwarder quote on a China -> Rotterdam route; feeds the dashboard. */
     @Entity
     @Table(name = "freight_rate")

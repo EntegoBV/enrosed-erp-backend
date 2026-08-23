@@ -5,6 +5,8 @@ import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseDocument;
+import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import be.enrosed.shared.security.AdminIdentityProvider;
@@ -39,7 +41,9 @@ public class SourcingResource {
 
     public record PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                     List<PurchaseOrderService.CartonAdjustment> adjustments,
-                                    PurchaseCostLabels costLabels) {}
+                                    PurchaseCostLabels costLabels,
+                                    /** Who is owed what: supplier, road, and our own share. */
+                                    PurchaseOrderService.Payable payable) {}
 
     /* ------------------------------------------------------ leveranciers */
 
@@ -164,6 +168,110 @@ public class SourcingResource {
     }
 
     /** Copies the calculation to price a variant quickly. */
+    /** The container is in: counts, damage, payment, and optionally the booking. */
+    @POST
+    @Path("/purchase-orders/{id}/receive")
+    public PurchaseOrderView receive(@PathParam("id") long id, PurchaseOrderService.Receipt receipt) {
+        PurchaseOrder order = purchaseOrders.receive(id,
+                receipt == null ? new PurchaseOrderService.Receipt(List.of(), true, null, null, null) : receipt);
+        return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
+    /** Books the usable pieces of a received container into stock - once. */
+    @POST
+    @Path("/purchase-orders/{id}/book-stock")
+    public PurchaseOrderView bookStock(@PathParam("id") long id) {
+        PurchaseOrder order = purchaseOrders.bookStock(id);
+        return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
+    /* ---- payments ---- */
+
+    public record PaymentRequest(java.time.LocalDate paidOn, java.math.BigDecimal amount,
+                                 be.enrosed.shared.Currency currency, String label, PurchasePayment.Payee payee) {}
+
+    @GET
+    @Path("/purchase-orders/{id}/payments")
+    public List<PurchasePayment> payments(@PathParam("id") long id) {
+        return purchaseOrders.payments(id);
+    }
+
+    @POST
+    @Path("/purchase-orders/{id}/payments")
+    public Response addPayment(@PathParam("id") long id, PaymentRequest request) {
+        if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
+        PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
+                request.currency(), request.label(), request.payee());
+        return Response.status(Response.Status.CREATED).entity(saved).build();
+    }
+
+    @DELETE
+    @Path("/purchase-orders/{id}/payments/{paymentId}")
+    public Response deletePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId) {
+        purchaseOrders.deletePayment(id, paymentId);
+        return Response.noContent().build();
+    }
+
+    /* ---- documents ---- */
+
+    public record DocumentDto(Long id, PurchaseDocument.Kind kind, String kindLabel, String label, String originalFilename,
+                              String contentType, long sizeBytes, Long paymentId, String actor, java.time.Instant addedAt) {
+        static DocumentDto from(PurchaseDocument d) {
+            return new DocumentDto(d.id(), d.kind(), d.kind().dutchLabel(), d.label(), d.originalFilename(), d.contentType(),
+                    d.sizeBytes(), d.paymentId(), d.actor(), d.addedAt());
+        }
+    }
+
+    @GET
+    @Path("/purchase-orders/{id}/documents")
+    public List<DocumentDto> documents(@PathParam("id") long id) {
+        return purchaseOrders.documents(id).stream().map(DocumentDto::from).toList();
+    }
+
+    @POST
+    @Path("/purchase-orders/{id}/documents")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public Response addDocument(@PathParam("id") long id,
+                                @org.jboss.resteasy.reactive.RestForm("file") org.jboss.resteasy.reactive.multipart.FileUpload file,
+                                @org.jboss.resteasy.reactive.RestForm("kind") String kind,
+                                @org.jboss.resteasy.reactive.RestForm("label") String label,
+                                @org.jboss.resteasy.reactive.RestForm("paymentId") Long paymentId) throws java.io.IOException {
+        if (file == null) throw new BadRequestException("Geen bestand meegestuurd");
+        byte[] bytes = java.nio.file.Files.readAllBytes(file.uploadedFile());
+        PurchaseDocument.Kind documentKind;
+        try { documentKind = kind == null ? PurchaseDocument.Kind.OTHER : PurchaseDocument.Kind.valueOf(kind); }
+        catch (IllegalArgumentException unknown) { documentKind = PurchaseDocument.Kind.OTHER; }
+        PurchaseDocument saved = purchaseOrders.addDocument(id, documentKind, label, paymentId, file.fileName(),
+                file.contentType(), bytes);
+        return Response.status(Response.Status.CREATED).entity(DocumentDto.from(saved)).build();
+    }
+
+    @GET
+    @Path("/purchase-orders/{id}/documents/{documentId}/file")
+    @Produces(MediaType.WILDCARD)
+    public Response documentFile(@PathParam("id") long id, @PathParam("documentId") long documentId) {
+        PurchaseDocument document = purchaseOrders.document(id, documentId);
+        String name = document.originalFilename().replace("\"", "");
+        return Response.ok(purchaseOrders.documentData(document))
+                .type(document.contentType())
+                .header("Content-Disposition", "attachment; filename=\"" + name + "\"")
+                .build();
+    }
+
+    @DELETE
+    @Path("/purchase-orders/{id}/documents/{documentId}")
+    public Response deleteDocument(@PathParam("id") long id, @PathParam("documentId") long documentId) {
+        purchaseOrders.deleteDocument(id, documentId);
+        return Response.noContent().build();
+    }
+
+    /** Pieces on the water, per product: what the catalogue may promise soon. */
+    @GET
+    @Path("/purchase-orders/expected-stock")
+    public List<PurchaseOrderService.ExpectedStock> expectedStock() {
+        return purchaseOrders.expectedStock();
+    }
+
     @POST
     @Path("/purchase-orders/{id}/duplicate")
     public PurchaseOrderView duplicatePurchaseOrder(@PathParam("id") long id) {
@@ -182,6 +290,7 @@ public class SourcingResource {
                                    List<PurchaseOrderService.CartonAdjustment> adjustments) {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         return new PurchaseOrderView(order, costing, adjustments,
-                PurchaseCostLabels.forOrder(order, supplier));
+                PurchaseCostLabels.forOrder(order, supplier),
+                purchaseOrders.payable(order, costing, supplier == null ? null : supplier.incoterm()));
     }
 }

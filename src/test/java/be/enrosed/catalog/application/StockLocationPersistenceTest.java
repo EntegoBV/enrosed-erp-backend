@@ -55,22 +55,37 @@ class StockLocationPersistenceTest {
         /* A recount at the stand. */
         stock.setLevel(product.id, tica.id(), 35, StockMovement.Kind.STOCKTAKE, "Telling TICA");
 
+        /* Broken and demo pieces leave the shelf under their own kind. */
+        stock.takeOut(product.id, main.id(), 3, StockMovement.Kind.DAMAGED, "gevallen in het magazijn");
+        stock.takeOut(product.id, main.id(), 1, StockMovement.Kind.DEMO, "klant Janssens");
+        assertEquals(56, stock.quantityAt(product.id, main.id()), "60 on the shelf, 3 broken, 1 demo");
+        assertThrows(BusinessRuleException.class,
+                () -> stock.takeOut(product.id, main.id(), 5, StockMovement.Kind.SALE, "nee"),
+                "only damaged or demo leave this way");
+        stock.noteDamagedOnArrival(product.id, main.id(), 2, "PO-11");
+        assertEquals(56, stock.quantityAt(product.id, main.id()), "broken on arrival never reached the shelf");
+
         List<StockMovement> book = products.stockMovements(product.id);
-        assertEquals(6, book.size());
-        assertEquals(StockMovement.Kind.STOCKTAKE, book.get(0).kind());
-        assertEquals(-5, book.get(0).delta());
-        assertEquals(tica.id(), book.get(0).locationId());
-        assertEquals(StockMovement.Kind.TRANSFER_IN, book.get(1).kind());
-        assertEquals("Magazijn · bus van maandag", book.get(1).reference());
-        assertEquals(StockMovement.Kind.TRANSFER_OUT, book.get(2).kind());
-        assertEquals("TICA Aalsmeer · bus van maandag", book.get(2).reference());
-        assertEquals(main.id(), book.get(5).locationId(), "the first receipt landed in the warehouse");
-        assertEquals(tica.id(), book.get(4).locationId(), "the second receipt followed the order's door");
+        assertEquals(9, book.size());
+        assertEquals(StockMovement.Kind.DAMAGED, book.get(0).kind());
+        assertEquals(-2, book.get(0).delta(), "counted as damage, stock untouched");
+        assertEquals(56, book.get(0).quantityAfter());
+        assertEquals(StockMovement.Kind.DEMO, book.get(1).kind());
+        /* Newest first: damage on arrival, demo, damaged, then the stocktake and the transfer. */
+        assertEquals(StockMovement.Kind.STOCKTAKE, book.get(3).kind());
+        assertEquals(-5, book.get(3).delta());
+        assertEquals(tica.id(), book.get(3).locationId());
+        assertEquals(StockMovement.Kind.TRANSFER_IN, book.get(4).kind());
+        assertEquals("Magazijn · bus van maandag", book.get(4).reference());
+        assertEquals(StockMovement.Kind.TRANSFER_OUT, book.get(5).kind());
+        assertEquals("TICA Aalsmeer · bus van maandag", book.get(5).reference());
+        assertEquals(main.id(), book.get(8).locationId(), "the first receipt landed in the warehouse");
+        assertEquals(tica.id(), book.get(7).locationId(), "the second receipt followed the order's door");
 
         /* Flip the switch: the stand counts for the website too. */
         stock.saveLocation(new StockLocation(tica.id(), tica.code(), tica.name(), tica.kind(), null,
                 true, true, false, 1));
-        assertEquals(95, products.get(product.id).stockQuantity());
+        assertEquals(91, products.get(product.id).stockQuantity(), "56 in the warehouse + 35 at the stand");
 
         /* A location holding stock cannot be deleted; the warehouse never can. */
         assertThrows(BusinessRuleException.class, () -> stock.deleteLocation(tica.id()));

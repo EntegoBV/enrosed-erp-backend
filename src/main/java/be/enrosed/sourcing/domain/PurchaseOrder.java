@@ -82,9 +82,78 @@ public record PurchaseOrder(
          */
         Boolean groupVariants,
 
+        /** When the container is expected; drives "te verwachten" on the products. */
+        LocalDate expectedArrival,
+        /** The day it was received; null until then. */
+        LocalDate receivedOn,
+        /** What was actually paid for the whole order - it sometimes differs from the sum. */
+        BigDecimal paidTotalEur,
+        /** Whether the received pieces were booked into stock; null on old orders reads as "yes if received". */
+        Boolean stockBooked,
+        /** How the supplier is paid; null reads as thirds. */
+        PaymentTerms paymentTerms,
+        /** The day the container sailed; null until then. */
+        LocalDate shippedOn,
+        /** Container or bill-of-lading number, carrier tracking link - whatever finds the box. */
+        String trackingReference,
+
         String notes,
         List<PurchaseOrderLine> lines
 ) {
+    /** Compatibility for callers written before payment terms and shipping facts existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            LocalDate expectedArrival, LocalDate receivedOn, BigDecimal paidTotalEur, Boolean stockBooked,
+            String notes, List<PurchaseOrderLine> lines) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, null, null, null, notes, lines);
+    }
+
+    public PaymentTerms paymentTerms() {
+        return paymentTerms == null ? PaymentTerms.THIRDS : paymentTerms;
+    }
+
+    /** Compatibility for callers written before receipts had their own fields. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            String notes, List<PurchaseOrderLine> lines) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants,
+                null, null, null, null, notes, lines);
+    }
+
+    /** Old received orders booked their stock at the transition; newer ones say so explicitly. */
+    public boolean isStockBooked() {
+        return stockBooked != null ? stockBooked : status == PurchaseOrderStatus.ONTVANGEN;
+    }
+
+    /** Same order, other receipt facts - the one thing the receive flow changes on the header. */
+    public PurchaseOrder withReceipt(PurchaseOrderStatus status, LocalDate receivedOn, BigDecimal paidTotalEur,
+                                     Boolean stockBooked, String notes, List<PurchaseOrderLine> lines) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
+                receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference, notes, lines);
+    }
+
     /** Compatibility for callers written before variant grouping existed. */
     public PurchaseOrder(
             Long id, String number, String alias, Long supplierId, LocalDate orderDate,

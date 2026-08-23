@@ -15,6 +15,19 @@ public interface SourcingRepositories {
         void deleteById(long id);
     }
 
+    interface Payments {
+        List<be.enrosed.sourcing.domain.PurchasePayment> forOrder(long orderId);
+        be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment);
+        boolean delete(long orderId, long paymentId);
+    }
+
+    interface Documents {
+        List<be.enrosed.sourcing.domain.PurchaseDocument> forOrder(long orderId);
+        java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> find(long orderId, long documentId);
+        be.enrosed.sourcing.domain.PurchaseDocument save(be.enrosed.sourcing.domain.PurchaseDocument document);
+        boolean delete(long orderId, long documentId);
+    }
+
     interface PurchaseOrders {
         List<PurchaseOrder> findAll();
         Optional<PurchaseOrder> findById(long id);

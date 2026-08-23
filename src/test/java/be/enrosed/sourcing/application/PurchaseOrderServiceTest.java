@@ -49,18 +49,46 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
-    void receivingBooksStockExactlyOnce() {
+    void receivingCountsTheContainerAndBooksTheUsablePiecesOnce() {
         InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
         RecordingProducts products = new RecordingProducts();
         PurchaseOrderService service = service(orders, products);
 
-        PurchaseOrder received = service.update(10L,
-                order(PurchaseOrderStatus.ONTVANGEN, 6, 999)).order();
-        assertEquals(6, products.stockDelta);
-        assertEquals(6, received.lines().getFirst().orderedQuantity());
+        /* Five arrived of the six ordered, one of them broken; book at once. */
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(1L, 5, 1)), true,
+                new java.math.BigDecimal("1234.56"), java.time.LocalDate.of(2026, 8, 23), "Doos 3 was nat."));
 
-        service.update(10L, received);
-        assertEquals(6, products.stockDelta, "a repeated received save must not book again");
+        assertEquals(PurchaseOrderStatus.ONTVANGEN, received.status());
+        assertEquals(4, products.stockDelta, "arrived minus broken goes on the shelf");
+        assertEquals(5, received.lines().getFirst().quantity());
+        assertEquals(6, received.lines().getFirst().orderedQuantity(), "the order remembers what was ordered");
+        assertEquals(1, received.lines().getFirst().damaged());
+        assertEquals(new java.math.BigDecimal("1234.56"), received.paidTotalEur());
+        assertTrue(received.isStockBooked());
+        assertTrue(received.notes().contains("Ontvangst 23/08/2026:"), received.notes());
+        assertTrue(received.notes().contains("besteld 6, ontvangen 5, 1 beschadigd"), received.notes());
+        assertTrue(received.notes().contains("Doos 3 was nat."), received.notes());
+
+        assertThrows(BusinessRuleException.class, () -> service.bookStock(10L), "never twice");
+        assertEquals(4, products.stockDelta);
+    }
+
+    @Test
+    void receivingWithoutBookingLeavesStockForLater() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.ONDERWEG, 6, 6));
+        RecordingProducts products = new RecordingProducts();
+        PurchaseOrderService service = service(orders, products);
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(), false, null, null, null));
+        assertEquals(0, products.stockDelta, "received, not booked");
+        assertFalse(received.isStockBooked());
+        assertTrue(received.notes().contains("alles volgens bestelling"), received.notes());
+
+        PurchaseOrder booked = service.bookStock(10L);
+        assertEquals(6, products.stockDelta);
+        assertTrue(booked.isStockBooked());
     }
 
     @Test

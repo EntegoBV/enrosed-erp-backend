@@ -186,6 +186,38 @@ public class StockService {
         recompute(productId);
     }
 
+    /**
+     * Pieces leaving the shelf without a sale: broken, or given to a customer
+     * as a demo. Booked as their own kind so both can be counted later.
+     */
+    @Transactional
+    public void takeOut(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference) {
+        if (kind != StockMovement.Kind.DAMAGED && kind != StockMovement.Kind.DEMO) {
+            throw new BusinessRuleException("Alleen beschadigd of demo kan zo uit de voorraad");
+        }
+        if (quantity <= 0) throw new BusinessRuleException("Geef een aantal groter dan nul op");
+        requireProduct(productId);
+        StockLocation location = location(locationId);
+        int at = quantityAt(productId, locationId);
+        if (at < quantity) {
+            throw new BusinessRuleException("Op " + location.name() + " liggen maar " + at + " stuks");
+        }
+        write(productId, locationId, at - quantity);
+        book(productId, location, -quantity, at - quantity, kind, reference);
+        recompute(productId);
+    }
+
+    /** Books pieces that never reached the shelf - broken on arrival - so the damage is counted. */
+    @Transactional
+    public void noteDamagedOnArrival(long productId, long locationId, int quantity, String reference) {
+        if (quantity <= 0) return;
+        requireProduct(productId);
+        StockLocation location = location(locationId);
+        int at = quantityAt(productId, locationId);
+        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), -quantity, at,
+                StockMovement.Kind.DAMAGED, reference, actor.name()));
+    }
+
     /** Moves pieces from one location to another: two lines, one story. */
     @Transactional
     public void transfer(long productId, long fromId, long toId, int quantity, String note) {
