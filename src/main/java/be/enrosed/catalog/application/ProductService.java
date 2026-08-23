@@ -169,9 +169,11 @@ public class ProductService {
         Product merged = mergeUpdate(current, changes, familyExplicit);
         /* A series shares one category. Changing it on one variant moves the
            whole series - the alternative, silently snapping back to the old
-           category, looked like a form that does not save. */
+           category, looked like a form that does not save. Compared against
+           the family, not the product: a half-moved series (one variant
+           already right, the others behind) is repaired by simply saving. */
         if (merged.familyId() != null && Objects.equals(merged.familyId(), current.familyId())
-                && changes.categoryId() != null && !Objects.equals(changes.categoryId(), current.categoryId())) {
+                && changes.categoryId() != null) {
             moveFamilyToCategory(merged.familyId(), changes.categoryId());
         }
         merged = canonicalFamilyMetadata(merged);
@@ -378,6 +380,14 @@ public class ProductService {
         StockService service = stock.get();
         long where = locationId != null ? locationId : service.mainLocation().id();
         service.noteDamagedOnArrival(productId, where, quantity, reference);
+    }
+
+    /** Pieces found broken after booking: they leave the shelf as damaged. */
+    public void takeOutDamaged(long productId, int quantity, String reference, Long locationId) {
+        if (quantity <= 0 || stock == null || !stock.isResolvable()) return;
+        StockService service = stock.get();
+        long where = locationId != null ? locationId : service.mainLocation().id();
+        service.takeOut(productId, where, quantity, be.enrosed.catalog.domain.StockMovement.Kind.DAMAGED, reference);
     }
 
     /** @param locationId where the container was unloaded; null means the warehouse */
@@ -663,12 +673,15 @@ public class ProductService {
         if (family == null) return;
         CategoryEntity category = categoryDao.get().findById(categoryId);
         if (category == null) throw new BusinessRuleException("Onbekende categorie " + categoryId);
+        boolean unchanged = java.util.Objects.equals(family.categoryId, category.id);
         family.categoryId = category.id;
         family.categoryKey = CategoryPublicKey.from(category.code);
         family.categoryName = category.name;
         family.categoryPosition = category.position;
-        family.updatedAt = Instant.now();
-        if (familyCollections != null && familyCollections.isResolvable()) familyCollections.get().alignPrimary(family);
+        if (!unchanged) family.updatedAt = Instant.now();
+        if (!unchanged && familyCollections != null && familyCollections.isResolvable()) {
+            familyCollections.get().alignPrimary(family);
+        }
         if (familyMembers != null && familyMembers.isResolvable()) familyMembers.get().sync(family);
         families.flush();
     }

@@ -122,6 +122,34 @@ class PurchasePaymentPersistenceTest {
         /* The other stream has its own ceiling and is untouched by the factory's. */
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("50"), Currency.EUR,
                 "Inklaring", PurchasePayment.Payee.LOGISTICS);
+
+        /* The container comes in with one broken piece; the usable 99 go on the shelf. */
+        purchaseOrders.receive(order.id(), new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(product.id, 100, 1)), true, null,
+                LocalDate.of(2026, 9, 20), null));
+        entityManager.flush(); entityManager.refresh(product);
+        assertEquals(99, product.stockQuantity);
+
+        /* Weeks later two more turn out broken: editing the received order books them out. */
+        PurchaseOrder received = purchaseOrders.get(order.id());
+        var line = received.lines().get(0);
+        purchaseOrders.update(order.id(), received.withReceipt(received.status(), received.receivedOn(),
+                received.paidTotalEur(), received.stockBooked(), received.notes(),
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(line.id(), product.id, 100, BigDecimal.TEN,
+                        Currency.USD, null, line.orderedQuantity(), null, 3))));
+        entityManager.flush(); entityManager.refresh(product);
+        assertEquals(97, product.stockQuantity);
+        assertTrue(purchaseOrders.get(order.id()).notes().contains("Beschadigd bijgemeld"),
+                purchaseOrders.get(order.id()).notes());
+
+        /* Pieces do not unbreak. */
+        PurchaseOrder again = purchaseOrders.get(order.id());
+        var lineAgain = again.lines().get(0);
+        assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.update(order.id(),
+                again.withReceipt(again.status(), again.receivedOn(), again.paidTotalEur(), again.stockBooked(),
+                        again.notes(), List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(lineAgain.id(),
+                                product.id, 100, BigDecimal.TEN, Currency.USD, null, lineAgain.orderedQuantity(),
+                                null, 1)))));
     }
 
     private List<String> attention(long orderId) {

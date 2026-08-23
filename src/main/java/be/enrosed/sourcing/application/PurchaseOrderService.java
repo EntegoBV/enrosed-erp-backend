@@ -164,8 +164,10 @@ public class PurchaseOrderService {
         }
         validateHeader(changes);
         requireForwardTransition(current.status(), changes.status());
+        List<String> lateDamage = new ArrayList<>();
         if (current.status() == PurchaseOrderStatus.ONTVANGEN) {
             requireReceivedLinesUnchanged(current, changes);
+            lateDamage.addAll(bookLateDamage(current, changes));
         }
 
         Map<Long, Product> byId = products.list().stream()
@@ -205,7 +207,8 @@ public class PurchaseOrderService {
             /* Saved as entered; the warning is the whole intervention. */
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     line.exwPrice(), line.exwCurrency(), line.extraUnitCost(),
-                    orderedQuantityFor(current, changes, line, requested), line.priceBasis()));
+                    orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
+                    line.damagedQuantity()));
         }
 
         if (changes.status() != PurchaseOrderStatus.CONCEPT
@@ -230,7 +233,7 @@ public class PurchaseOrderService {
                 current.shippedOn() != null ? current.shippedOn()
                         : changes.status() == PurchaseOrderStatus.ONDERWEG ? LocalDate.now() : null,
                 changes.trackingReference(),
-                changes.notes(), lines));
+                withLateDamageNotes(changes.notes(), lateDamage), lines));
 
         return new UpdateResult(saved, warnings);
     }
@@ -426,17 +429,16 @@ public class PurchaseOrderService {
      */
     public Payable payable(PurchaseOrder order, LandedCost costing, String supplierIncoterm) {
         boolean ddp = order.lines().stream().allMatch(PurchaseOrderLine::deliveredDutyPaid) && !order.lines().isEmpty();
-        boolean freightInPrice = ddp || (supplierIncoterm != null && (supplierIncoterm.equalsIgnoreCase("CIF")
-                || supplierIncoterm.equalsIgnoreCase("CFR")));
+        /* The factory is owed its goods price, nothing more: the freight on
+           the order is our own quote, whatever the incoterm on paper says.
+           Only DDP folds everything into the piece price. */
         BigDecimal supplier = costing.totals().goodsEur();
-        BigDecimal freight = costing.totals().freightEur();
         BigDecimal logistics = ddp ? BigDecimal.ZERO
                 : costing.totals().originEur().add(costing.totals().dutyEur()).add(costing.totals().destinationEur())
-                        .add(freightInPrice ? BigDecimal.ZERO : freight);
-        if (freightInPrice && !ddp) supplier = supplier.add(freight);
+                        .add(costing.totals().freightEur());
         return new Payable(supplier.setScale(2, java.math.RoundingMode.HALF_UP),
                 logistics.setScale(2, java.math.RoundingMode.HALF_UP),
-                costing.totals().extraRevenueEur(), freightInPrice, ddp);
+                costing.totals().extraRevenueEur(), ddp, ddp);
     }
 
     public record Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
@@ -706,6 +708,47 @@ public class PurchaseOrderService {
         if (order == null) return null;
         return order.usdToEurGoods() != null
                 ? order.usdToEurGoods() : order.usdToEurTransport();
+    }
+
+    /**
+     * A box opened weeks after the container: broken pieces can still be
+     * noted on a received order. The count only grows - pieces do not
+     * unbreak - and once the stock is booked the extra broken ones leave
+     * the shelf as damaged.
+     */
+    private List<String> bookLateDamage(PurchaseOrder current, PurchaseOrder changes) {
+        List<String> notes = new ArrayList<>();
+        Map<Long, Product> byId = productNames(current);
+        for (PurchaseOrderLine incoming : changes.lines()) {
+            PurchaseOrderLine stored = current.lines().stream()
+                    .filter(line -> incoming.id() != null && incoming.id().equals(line.id()))
+                    .findFirst().orElse(null);
+            if (stored == null) continue;
+            int before = stored.damaged();
+            int after = incoming.damagedQuantity() == null ? before : incoming.damagedQuantity();
+            if (after == before) continue;
+            if (after < before) {
+                throw new BusinessRuleException("Beschadigde stuks kunnen niet dalen bij "
+                        + describe(byId, stored.productId()) + "; corrigeer dat via de voorraad van het product");
+            }
+            if (after > incoming.quantity()) {
+                throw new BusinessRuleException("Meer beschadigd dan ontvangen bij "
+                        + describe(byId, stored.productId()));
+            }
+            int extra = after - before;
+            if (current.isStockBooked()) {
+                products.takeOutDamaged(stored.productId(), extra, current.number(), current.receivingLocationId());
+            }
+            notes.add(extra + " × " + describe(byId, stored.productId())
+                    + (current.isStockBooked() ? " (uit voorraad gehaald)" : ""));
+        }
+        return notes;
+    }
+
+    private static String withLateDamageNotes(String notes, List<String> lateDamage) {
+        if (lateDamage.isEmpty()) return notes;
+        String line = "Beschadigd bijgemeld " + LocalDate.now().format(DAY) + ": " + String.join(", ", lateDamage) + ".";
+        return appendNote(notes, line);
     }
 
     private static void requireReceivedLinesUnchanged(PurchaseOrder current,
