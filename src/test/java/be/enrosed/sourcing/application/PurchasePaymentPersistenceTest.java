@@ -68,4 +68,45 @@ class PurchasePaymentPersistenceTest {
         purchaseOrders.deleteDocument(order.id(), proof.id());
         assertEquals(1, purchaseOrders.documents(order.id()).size());
     }
+
+    @Inject jakarta.persistence.EntityManager entityManager;
+
+    /** Paid is paid: the third instalment cannot be noted twice, nor "the rest" on top of it. */
+    @Test
+    @TestTransaction
+    void aPaymentCannotGoBeyondWhatIsStillOpen() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Cap Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        PurchaseOrder order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"),
+                BigDecimal.TEN);
+        var product = new be.enrosed.catalog.adapter.out.persistence.ProductEntity();
+        product.sku = "SKU-CAP-1";
+        product.name = "Capped rose";
+        product.active = true;
+        product.piecesPerCarton = 10;
+        product.productLengthCm = BigDecimal.ONE;
+        product.productWidthCm = BigDecimal.ONE;
+        product.productHeightCm = BigDecimal.ONE;
+        product.cartonLengthCm = BigDecimal.ONE;
+        product.cartonWidthCm = BigDecimal.ONE;
+        product.cartonHeightCm = BigDecimal.ONE;
+        entityManager.persist(product);
+        entityManager.flush();
+        /* 100 pieces at US$ 10 = US$ 1000 = € 900 to the factory. */
+        purchaseOrders.update(order.id(), order.withReceipt(order.status(), null, null, false, null,
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(null, product.id, 100, BigDecimal.TEN,
+                        Currency.USD, null, null))));
+
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 1), new BigDecimal("600"), Currency.EUR, "2/3");
+        var tooMuch = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
+                order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("600"), Currency.EUR, "2/3 nog eens"));
+        assertTrue(tooMuch.getMessage().startsWith("Er staat nog € 300,00 open aan de leverancier"), tooMuch.getMessage());
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 3), new BigDecimal("300"), Currency.EUR, "Rest");
+        var nothingLeft = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
+                order.id(), LocalDate.of(2026, 8, 4), BigDecimal.ONE, Currency.EUR, null));
+        assertTrue(nothingLeft.getMessage().startsWith("Alles is al betaald aan de leverancier"), nothingLeft.getMessage());
+        /* The other stream has its own ceiling and is untouched by the factory's. */
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("50"), Currency.EUR,
+                "Inklaring", PurchasePayment.Payee.LOGISTICS);
+    }
 }

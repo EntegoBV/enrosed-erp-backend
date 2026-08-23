@@ -326,8 +326,10 @@ public class PurchaseOrderService {
         };
         LocalDate day = paidOn != null ? paidOn : LocalDate.now();
         PurchasePayment.Payee to = payee == null ? PurchasePayment.Payee.SUPPLIER : payee;
+        BigDecimal eurRounded = eur.setScale(2, java.math.RoundingMode.HALF_UP);
+        refuseOverpayment(order, to, eurRounded);
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
-                amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
+                amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
                 actor != null && actor.isResolvable() ? actor.get().name() : "systeem", java.time.Instant.now(), to));
 
@@ -338,6 +340,30 @@ public class PurchaseOrderService {
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), line), order.lines()));
         return payment;
+    }
+
+    /**
+     * What is still open on one stream: once the factory or the forwarder is
+     * paid in full, a further payment is a mistake, not a payment. An order
+     * without goods yet has no ceiling - there is nothing to measure against.
+     */
+    private void refuseOverpayment(PurchaseOrder order, PurchasePayment.Payee to, BigDecimal eur) {
+        if (order.lines().isEmpty()) return;
+        Supplier supplier = order.supplierId() == null ? null : suppliers.findById(order.supplierId()).orElse(null);
+        Payable payable = payable(order, calculate(order), supplier == null ? null : supplier.incoterm());
+        BigDecimal owed = to == PurchasePayment.Payee.SUPPLIER ? payable.supplierEur() : payable.logisticsEur();
+        if (owed.signum() <= 0) return;
+        BigDecimal paid = payments.get().forOrder(order.id()).stream()
+                .filter(payment -> payment.payee() == to)
+                .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal open = owed.subtract(paid).max(BigDecimal.ZERO);
+        if (eur.compareTo(open) > 0) {
+            String who = to == PurchasePayment.Payee.SUPPLIER ? "aan de leverancier" : "voor douane & transport";
+            throw new BusinessRuleException(open.signum() == 0
+                    ? "Alles is al betaald " + who + "; er valt niets meer te noteren"
+                    : "Er staat nog " + describeMoney(open, Currency.EUR) + " open " + who
+                            + "; een betaling van " + describeMoney(eur, Currency.EUR) + " gaat daar overheen");
+        }
     }
 
     private static String describeMoney(BigDecimal amount, Currency currency) {
@@ -515,22 +541,25 @@ public class PurchaseOrderService {
                 LocalDate arrival = order.expectedArrival();
                 if (current == null) {
                     byProduct.put(line.productId(), new ExpectedStock(line.productId(), line.quantity(), arrival,
-                            new ArrayList<>(List.of(order.number()))));
+                            new ArrayList<>(List.of(order.number())), new ArrayList<>(List.of(order.id()))));
                 } else {
                     LocalDate earliest = current.expectedArrival() == null ? arrival
                             : arrival == null ? current.expectedArrival()
                             : arrival.isBefore(current.expectedArrival()) ? arrival : current.expectedArrival();
                     List<String> numbers = new ArrayList<>(current.orderNumbers());
                     numbers.add(order.number());
+                    List<Long> ids = new ArrayList<>(current.orderIds());
+                    ids.add(order.id());
                     byProduct.put(line.productId(), new ExpectedStock(line.productId(),
-                            current.quantity() + line.quantity(), earliest, numbers));
+                            current.quantity() + line.quantity(), earliest, numbers, ids));
                 }
             }
         }
         return List.copyOf(byProduct.values());
     }
 
-    public record ExpectedStock(long productId, int quantity, LocalDate expectedArrival, List<String> orderNumbers) {}
+    public record ExpectedStock(long productId, int quantity, LocalDate expectedArrival, List<String> orderNumbers,
+                                List<Long> orderIds) {}
 
     private static String appendReceiptNote(String notes, LocalDate day, List<String> remarks, String extra) {
         StringBuilder note = new StringBuilder("Ontvangst ").append(day.format(DAY));
