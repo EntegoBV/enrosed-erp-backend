@@ -104,12 +104,23 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
-    void receivedLinesCannotChangeAndReceivedOrderCannotBeDeleted() {
+    void receivedCountsMayBeCorrectedButTheProductSetAndTheOrderStay() {
         InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.ONTVANGEN, 6, 6));
         PurchaseOrderService service = service(orders, new RecordingProducts());
 
-        assertThrows(BusinessRuleException.class,
-                () -> service.update(10L, order(PurchaseOrderStatus.ONTVANGEN, 7, 6)));
+        /* A recount is a correction, not a forbidden edit; the snapshot stays. */
+        PurchaseOrder corrected = service.update(10L, order(PurchaseOrderStatus.ONTVANGEN, 7, 6)).order();
+        assertEquals(7, corrected.lines().getFirst().quantity());
+        assertEquals(6, corrected.lines().getFirst().orderedQuantity());
+
+        /* A line without its stored id reads as another product: refused. */
+        PurchaseOrder swapped = order(PurchaseOrderStatus.ONTVANGEN, 7, 6);
+        PurchaseOrderLine line = swapped.lines().getFirst();
+        PurchaseOrder otherLine = swapped.withReceipt(swapped.status(), swapped.receivedOn(),
+                swapped.paidTotalEur(), swapped.stockBooked(), swapped.notes(),
+                List.of(new PurchaseOrderLine(null, line.productId(), line.quantity(), line.exwPrice(),
+                        line.exwCurrency(), line.extraUnitCost(), line.orderedQuantity())));
+        assertThrows(BusinessRuleException.class, () -> service.update(10L, otherLine));
         assertThrows(BusinessRuleException.class, () -> service.delete(10L));
         assertFalse(orders.deleted);
     }

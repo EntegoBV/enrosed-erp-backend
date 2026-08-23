@@ -114,11 +114,8 @@ class PurchasePaymentPersistenceTest {
         var tooMuch = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
                 order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("600"), Currency.EUR, "2/3 nog eens"));
         assertTrue(tooMuch.getMessage().startsWith("Er staat nog € 300,00 open aan de leverancier"), tooMuch.getMessage());
-        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 3), new BigDecimal("300"), Currency.EUR, "Rest");
-        var nothingLeft = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
-                order.id(), LocalDate.of(2026, 8, 4), BigDecimal.ONE, Currency.EUR, null));
-        assertTrue(nothingLeft.getMessage().startsWith("Alles is al betaald aan de leverancier"), nothingLeft.getMessage());
-        assertEquals(List.of("Track & trace ontbreekt"), attention(order.id()), "paid in full: only the tracking is open");
+        /* Paid between two instalments: € 750 of € 900 leaves € 150. */
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 3), new BigDecimal("150"), Currency.EUR, "Deel");
         /* The other stream has its own ceiling and is untouched by the factory's. */
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("50"), Currency.EUR,
                 "Inklaring", PurchasePayment.Payee.LOGISTICS);
@@ -130,6 +127,15 @@ class PurchasePaymentPersistenceTest {
         entityManager.flush(); entityManager.refresh(product);
         assertEquals(99, product.stockQuantity);
 
+        /* The last third would be € 300, but only € 150 is open: the nag asks
+           for what is genuinely left, never more. */
+        assertEquals(List.of("Betaling open: 1/3 bij aankomst (€ 150,00)"), attention(order.id()));
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 21), new BigDecimal("150"), Currency.EUR, "Rest");
+        assertEquals(List.of(), attention(order.id()));
+        var nothingLeft = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
+                order.id(), LocalDate.of(2026, 9, 22), BigDecimal.ONE, Currency.EUR, null));
+        assertTrue(nothingLeft.getMessage().startsWith("Alles is al betaald aan de leverancier"), nothingLeft.getMessage());
+
         /* Weeks later two more turn out broken: editing the received order books them out. */
         PurchaseOrder received = purchaseOrders.get(order.id());
         var line = received.lines().get(0);
@@ -139,8 +145,18 @@ class PurchasePaymentPersistenceTest {
                         Currency.USD, null, line.orderedQuantity(), null, 3))));
         entityManager.flush(); entityManager.refresh(product);
         assertEquals(97, product.stockQuantity);
-        assertTrue(purchaseOrders.get(order.id()).notes().contains("Beschadigd bijgemeld"),
+        assertTrue(purchaseOrders.get(order.id()).notes().contains("Ontvangst gecorrigeerd"),
                 purchaseOrders.get(order.id()).notes());
+
+        /* A box turns out three short: the count correction follows into stock. */
+        PurchaseOrder counted = purchaseOrders.get(order.id());
+        var countedLine = counted.lines().get(0);
+        purchaseOrders.update(order.id(), counted.withReceipt(counted.status(), counted.receivedOn(),
+                counted.paidTotalEur(), counted.stockBooked(), counted.notes(),
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(countedLine.id(), product.id, 97,
+                        BigDecimal.TEN, Currency.USD, null, countedLine.orderedQuantity(), null, 3))));
+        entityManager.flush(); entityManager.refresh(product);
+        assertEquals(94, product.stockQuantity, "97 received of which 3 broken: 94 usable on the shelf");
 
         /* Pieces do not unbreak. */
         PurchaseOrder again = purchaseOrders.get(order.id());
@@ -148,7 +164,7 @@ class PurchasePaymentPersistenceTest {
         assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.update(order.id(),
                 again.withReceipt(again.status(), again.receivedOn(), again.paidTotalEur(), again.stockBooked(),
                         again.notes(), List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(lineAgain.id(),
-                                product.id, 100, BigDecimal.TEN, Currency.USD, null, lineAgain.orderedQuantity(),
+                                product.id, 97, BigDecimal.TEN, Currency.USD, null, lineAgain.orderedQuantity(),
                                 null, 1)))));
     }
 

@@ -83,20 +83,34 @@ public class ProductFamilyWriteGuard {
     }
 
     /** Validates after the ORM flush; the surrounding transaction rolls every mutation back. */
+    /** What kind of write is asking: content writes stay strict on copy. */
+    public enum WriteKind { PRODUCT, CONTENT }
+
     public void validateFamilies(Collection<Long> familyIds) {
+        validateFamilies(familyIds, WriteKind.CONTENT);
+    }
+
+    public void validateFamilies(Collection<Long> familyIds, WriteKind kind) {
         for (Long familyId : normalizedIds(familyIds)) {
             ProductFamilyEntity family = families.findById(familyId);
             if (family == null) continue;
             List<ProductEntity> members = productRows.list(
                     "familyId = ?1 order by variantPosition, id", familyId);
             List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
-            if (localization != null) {
-                List<String> localized = localization.issues(family, members);
-                if (!localized.isEmpty()) {
-                    List<String> combined = new java.util.ArrayList<>(issues);
-                    combined.addAll(localized);
-                    issues = List.copyOf(combined);
-                }
+            List<String> localized = localization == null ? List.of() : localization.issues(family, members);
+            /* A product write cannot change the family's copy, so missing
+               texts or translations predate it: they stay visible as
+               attention points and are filled in when the website work
+               happens - a price tweak must not be held hostage by them.
+               Content writes (translations, family copy) stay strict. */
+            if (kind == WriteKind.PRODUCT) {
+                issues = issues.stream()
+                        .filter(issue -> !issue.startsWith("website.") && !issue.startsWith("catalog."))
+                        .toList();
+            } else if (!localized.isEmpty()) {
+                List<String> combined = new java.util.ArrayList<>(issues);
+                combined.addAll(localized);
+                issues = List.copyOf(combined);
             }
             boolean published = state(family.websiteStatus) == PublicationState.PUBLISHED
                     || state(family.orderAppStatus) == PublicationState.PUBLISHED

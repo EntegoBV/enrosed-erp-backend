@@ -473,6 +473,10 @@ public class PurchaseOrderService {
            same way the screen does it. */
         BigDecimal slack = new BigDecimal("0.05");
         BigDecimal cumulative = BigDecimal.ZERO;
+        /* What is genuinely still open on the stream: a due instalment never
+           asks for more than that, or the note screen would refuse its own
+           suggestion after earlier payments that did not line up exactly. */
+        BigDecimal stillOpen = owed.subtract(paid).max(BigDecimal.ZERO);
         boolean earlierOpen = false;
         for (PaymentTerms.Instalment step : terms.instalments()) {
             BigDecimal amount = owed.multiply(step.share()).setScale(2, java.math.RoundingMode.HALF_UP);
@@ -486,7 +490,11 @@ public class PurchaseOrderService {
                         || order.status() == PurchaseOrderStatus.ONTVANGEN;
                 case ARRIVED -> order.status() == PurchaseOrderStatus.ONTVANGEN;
             };
-            if (due) items.add("Betaling open: " + step.label() + " (" + describeMoney(amount, Currency.EUR) + ")");
+            BigDecimal ask = amount.min(stillOpen);
+            stillOpen = stillOpen.subtract(ask).max(BigDecimal.ZERO);
+            if (due && ask.signum() > 0) {
+                items.add("Betaling open: " + step.label() + " (" + describeMoney(ask, Currency.EUR) + ")");
+            }
         }
         return items;
     }
@@ -712,9 +720,11 @@ public class PurchaseOrderService {
 
     /**
      * A box opened weeks after the container: broken pieces can still be
-     * noted on a received order. The count only grows - pieces do not
-     * unbreak - and once the stock is booked the extra broken ones leave
-     * the shelf as damaged.
+     * noted on a received order, and a count that turns out short (or long)
+     * can be corrected. Damage only grows - pieces do not unbreak - and once
+     * the stock is booked, every difference follows onto the shelf: extra
+     * broken ones leave as damaged, a corrected count as a receipt
+     * correction.
      */
     private List<String> bookLateDamage(PurchaseOrder current, PurchaseOrder changes) {
         List<String> notes = new ArrayList<>();
@@ -724,30 +734,51 @@ public class PurchaseOrderService {
                     .filter(line -> incoming.id() != null && incoming.id().equals(line.id()))
                     .findFirst().orElse(null);
             if (stored == null) continue;
-            int before = stored.damaged();
-            int after = incoming.damagedQuantity() == null ? before : incoming.damagedQuantity();
-            if (after == before) continue;
-            if (after < before) {
+            int damagedBefore = stored.damaged();
+            int damagedAfter = incoming.damagedQuantity() == null ? damagedBefore : incoming.damagedQuantity();
+            int countBefore = stored.quantity();
+            int countAfter = incoming.quantity();
+            if (damagedAfter == damagedBefore && countAfter == countBefore) continue;
+            if (damagedAfter < damagedBefore) {
                 throw new BusinessRuleException("Beschadigde stuks kunnen niet dalen bij "
                         + describe(byId, stored.productId()) + "; corrigeer dat via de voorraad van het product");
             }
-            if (after > incoming.quantity()) {
+            if (countAfter < 0) {
+                throw new BusinessRuleException("Een ontvangen aantal kan niet negatief zijn");
+            }
+            if (damagedAfter > countAfter) {
                 throw new BusinessRuleException("Meer beschadigd dan ontvangen bij "
                         + describe(byId, stored.productId()));
             }
-            int extra = after - before;
-            if (current.isStockBooked()) {
-                products.takeOutDamaged(stored.productId(), extra, current.number(), current.receivingLocationId());
+            List<String> parts = new ArrayList<>();
+            if (countAfter != countBefore) {
+                parts.add("ontvangen " + countBefore + " → " + countAfter);
             }
-            notes.add(extra + " × " + describe(byId, stored.productId())
-                    + (current.isStockBooked() ? " (uit voorraad gehaald)" : ""));
+            if (damagedAfter != damagedBefore) {
+                parts.add((damagedAfter - damagedBefore) + " beschadigd bijgemeld");
+            }
+            if (current.isStockBooked()) {
+                int extraDamaged = damagedAfter - damagedBefore;
+                if (extraDamaged > 0) {
+                    products.takeOutDamaged(stored.productId(), extraDamaged, current.number(),
+                            current.receivingLocationId());
+                }
+                int countDelta = countAfter - countBefore;
+                if (countDelta != 0) {
+                    products.receiveStock(stored.productId(), countDelta, current.number() + " correctie",
+                            current.receivingLocationId());
+                }
+                int usableDelta = (countAfter - damagedAfter) - (countBefore - damagedBefore);
+                parts.add("voorraad " + (usableDelta > 0 ? "+" : "") + usableDelta);
+            }
+            notes.add(describe(byId, stored.productId()) + ": " + String.join(", ", parts));
         }
         return notes;
     }
 
     private static String withLateDamageNotes(String notes, List<String> lateDamage) {
         if (lateDamage.isEmpty()) return notes;
-        String line = "Beschadigd bijgemeld " + LocalDate.now().format(DAY) + ": " + String.join(", ", lateDamage) + ".";
+        String line = "Ontvangst gecorrigeerd " + LocalDate.now().format(DAY) + ": " + String.join("; ", lateDamage) + ".";
         return appendNote(notes, line);
     }
 
@@ -761,17 +792,18 @@ public class PurchaseOrderService {
         for (PurchaseOrderLine incoming : changes.lines()) {
             if (incoming == null || incoming.id() == null || !seen.add(incoming.id())) {
                 throw new BusinessRuleException(
-                        "Producten en aantallen van een ontvangen inkooporder kunnen niet meer wijzigen");
+                        "Producten van een ontvangen inkooporder kunnen niet meer wijzigen");
             }
             PurchaseOrderLine stored = current.lines().stream()
                     .filter(line -> incoming.id().equals(line.id()))
                     .findFirst()
                     .orElse(null);
-            if (stored == null
-                    || !Objects.equals(stored.productId(), incoming.productId())
-                    || stored.quantity() != incoming.quantity()) {
+            /* The received counts themselves may still be corrected (a box
+               short, glass broken) - that runs through the reconciliation
+               and books the stock difference; the product set is fixed. */
+            if (stored == null || !Objects.equals(stored.productId(), incoming.productId())) {
                 throw new BusinessRuleException(
-                        "Producten en aantallen van een ontvangen inkooporder kunnen niet meer wijzigen");
+                        "Producten van een ontvangen inkooporder kunnen niet meer wijzigen");
             }
         }
     }

@@ -715,7 +715,9 @@ public class ProductService {
     }
 
     private void validateFamilies(Long... familyIds) {
-        if (familyWrites != null) familyWrites.validateFamilies(Arrays.asList(familyIds));
+        if (familyWrites != null) {
+            familyWrites.validateFamilies(Arrays.asList(familyIds), ProductFamilyWriteGuard.WriteKind.PRODUCT);
+        }
     }
 
     private void syncFamilyPhotos(Long productId, Long... familyIds) {
