@@ -838,6 +838,11 @@ public class PurchaseOrderService {
             products.applyLandedCost(line.productId(), line.landedUnitEur(), order.number());
         }
         LOG.infof("Kostprijzen uit %s toegepast op %d product(en)", order.number(), result.lines().size());
+        /* Into the diary: applying rewrites what the whole catalogue counts with. */
+        String line = "Kostprijzen toegepast " + LocalDate.now().format(DAY) + ": "
+                + result.lines().size() + " product(en) bijgewerkt in de catalogus.";
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
+                order.stockBooked(), appendNote(order.notes(), line), order.lines()));
         return result;
     }
 
