@@ -207,7 +207,7 @@ public class PurchaseOrderService {
                 changes.destinationCostsEur(), changes.defaultDutyRatePct(), changes.extraRevenueEur(),
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
                 changes.allocExtra(), changes.departurePort(), changes.destinationPort(),
-                changes.receivingLocationId(), changes.notes(), lines));
+                changes.receivingLocationId(), changes.groupVariants(), changes.notes(), lines));
 
         bookStockOnReceipt(current, saved);
         return new UpdateResult(saved, warnings);

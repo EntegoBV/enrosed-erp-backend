@@ -87,6 +87,9 @@ public final class SourcingEntities {
         /** Stock location the container is unloaded at; null = the warehouse. */
         public Long receivingLocationId;
 
+        /** Variants of one series share out costs as one product; null = on. */
+        public Boolean groupVariants;
+
         @Column(length = 2000)
         public String notes;
 

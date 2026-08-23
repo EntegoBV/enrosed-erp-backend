@@ -75,9 +75,37 @@ public record PurchaseOrder(
          */
         Long receivingLocationId,
 
+        /**
+         * Treat the colours and sizes of one series as a single product when
+         * sharing out the container costs, so every variant lands at the
+         * same unit cost. Null reads as on - that is what a buyer expects.
+         */
+        Boolean groupVariants,
+
         String notes,
         List<PurchaseOrderLine> lines
 ) {
+    /** Compatibility for callers written before variant grouping existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId,
+            String notes, List<PurchaseOrderLine> lines) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, null, notes, lines);
+    }
+
+    /** Null reads as on. */
+    public boolean groupsVariants() {
+        return groupVariants == null || groupVariants;
+    }
+
     /** Compatibility for callers written before receiving locations existed. */
     public PurchaseOrder(
             Long id, String number, String alias, Long supplierId, LocalDate orderDate,

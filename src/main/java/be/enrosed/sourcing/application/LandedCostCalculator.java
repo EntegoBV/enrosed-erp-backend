@@ -144,6 +144,9 @@ public class LandedCostCalculator {
                     : BigDecimal.ZERO;
         }
 
+        /* ---- 3b. Varianten als één product ------------------------------ */
+        if (order.groupsVariants()) levelVariants(working);
+
         /* ---- 4. Totalen ------------------------------------------------ */
         List<LandedCost.Line> lines = working.stream()
                 .map(row -> new LandedCost.Line(
@@ -194,6 +197,50 @@ public class LandedCostCalculator {
                 fill.min(BigDecimal.valueOf(100)),
                 capacity.subtract(usedCbm).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP),
                 usedCbm.subtract(capacity).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP));
+    }
+
+    /**
+     * The colours and sizes of one series are, to the buyer, one product: the
+     * series' whole cost is spread over all its pieces, so every variant
+     * lands at the same unit cost. Goods included - a buyer does not want
+     * the red one dearer than the white one because the factory said so.
+     */
+    private static void levelVariants(List<Working> working) {
+        java.util.Map<Long, List<Working>> series = new java.util.LinkedHashMap<>();
+        for (Working row : working) {
+            Long familyId = row.product.familyId();
+            if (familyId == null) continue;
+            series.computeIfAbsent(familyId, key -> new java.util.ArrayList<>()).add(row);
+        }
+        for (List<Working> rows : series.values()) {
+            int pieces = rows.stream().mapToInt(r -> r.quantity).sum();
+            if (rows.size() < 2 || pieces <= 0) continue;
+            BigDecimal total = BigDecimal.valueOf(pieces);
+            BigDecimal goods = sum(rows, r -> r.goodsEur);
+            BigDecimal goodsUsd = sum(rows, r -> r.goodsUsd);
+            BigDecimal origin = sum(rows, r -> r.originEur);
+            BigDecimal freight = sum(rows, r -> r.freightEur);
+            BigDecimal duty = sum(rows, r -> r.dutyEur);
+            BigDecimal destination = sum(rows, r -> r.destinationEur);
+            BigDecimal extra = sum(rows, r -> r.extraEur);
+            for (Working row : rows) {
+                BigDecimal share = Money.share(BigDecimal.valueOf(row.quantity), total);
+                row.goodsEur = goods.multiply(share);
+                row.goodsUsd = goodsUsd.multiply(share);
+                row.originEur = origin.multiply(share);
+                row.freightEur = freight.multiply(share);
+                row.dutyEur = duty.multiply(share);
+                row.destinationEur = destination.multiply(share);
+                row.extraEur = extra.multiply(share);
+                row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
+                row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur);
+                row.landedUnitEur = Money.divide(row.totalEur, BigDecimal.valueOf(row.quantity));
+            }
+        }
+    }
+
+    private static BigDecimal sum(List<Working> rows, java.util.function.Function<Working, BigDecimal> pick) {
+        return rows.stream().map(pick).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private static BigDecimal overallShare(Working row, Allocation allocation, int pieces, BigDecimal value, BigDecimal cbm) {

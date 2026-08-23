@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -149,6 +150,88 @@ class LandedCostCalculatorTest {
         assertEquals(new BigDecimal("1000.00"), ddpLine.extraRevenueEur());
         /* A DDP piece costs its goods price plus its share of the Enrosed kost, nothing more. */
         assertEquals(ddpLine.goodsEur().add(ddpLine.extraRevenueEur()), ddpLine.totalEur());
+    }
+
+    @Test
+    @DisplayName("varianten van één reeks landen op dezelfde stukprijs; de schakelaar zet dat uit")
+    void variantsOfOneSeriesShareOneUnitCost() {
+        PurchaseOrder base = excelOrder();
+        Product red = preservedRose();
+        /* Same series (family 7), other colour, dearer at the factory and fewer pieces. */
+        Product white = new Product(
+                2L, "ENR-P12", red.name(), red.dimensions(), red.packaging(), "Wit", red.variantSize(),
+                red.colourHex(), red.description(), red.categoryId(), red.supplierId(), red.active(),
+                7L, null, null, 1, true, red.familyKey(), null, red.websiteStatus(), red.orderAppStatus(),
+                red.barcodes(), red.hsCode(), red.carton(), new BigDecimal("25"), Currency.USD,
+                red.extraUnitCost(), red.landedCostEur(), red.landedCostSource(), red.markupPct(),
+                red.fixedSalesPriceEur(), red.stockQuantity(), red.photos(), red.texts());
+        Product redInSeries = red.withCanonicalIdentity(7L, null, null, 0, true);
+        List<PurchaseOrderLine> lines = List.of(
+                new PurchaseOrderLine(1L, 1L, 1000, null, null, null, 1000),
+                new PurchaseOrderLine(2L, 2L, 200, null, null, null, 200));
+        Map<Long, Product> products = Map.of(1L, redInSeries, 2L, white);
+
+        LandedCost grouped = calculator(new BigDecimal("10")).calculate(
+                orderWith(base, lines, null), products);
+        LandedCost apart = calculator(new BigDecimal("10")).calculate(
+                orderWith(base, lines, false), products);
+
+        assertEquals(grouped.lines().get(0).landedUnitEur(), grouped.lines().get(1).landedUnitEur(),
+                "one series, one unit cost");
+        assertEquals(grouped.totals().totalEur(), apart.totals().totalEur(),
+                "grouping moves cost between variants, it never changes the container total");
+        assertTrue(apart.lines().get(1).landedUnitEur().compareTo(apart.lines().get(0).landedUnitEur()) > 0,
+                "switched off, the dearer variant stays dearer");
+    }
+
+    @Test
+    @DisplayName("de verdeelsleutel van de Enrosed kost verdeelt echt anders")
+    void enrosedKostFollowsItsOwnAllocationKey() {
+        PurchaseOrder base = excelOrder();
+        Product rose = preservedRose();
+        /* A second, standalone article: same carton, far fewer pieces. */
+        Product other = new Product(
+                2L, "ENR-P13", rose.name(), rose.dimensions(), rose.colour(), rose.description(),
+                rose.categoryId(), rose.supplierId(), rose.active(), rose.barcodes(), rose.hsCode(), rose.carton(),
+                rose.exwPrice(), rose.exwCurrency(), rose.extraUnitCost(), rose.landedCostEur(), rose.landedCostSource(),
+                rose.markupPct(), rose.fixedSalesPriceEur(), rose.stockQuantity(), rose.photos(), rose.texts());
+        List<PurchaseOrderLine> lines = List.of(
+                new PurchaseOrderLine(1L, 1L, 1000, null, null, null, 1000),
+                new PurchaseOrderLine(2L, 2L, 100, null, null, null, 100));
+        Map<Long, Product> products = Map.of(1L, rose, 2L, other);
+
+        LandedCost byPieces = calculator(BigDecimal.TEN).calculate(
+                allocExtra(base, lines, Allocation.PIECES), products);
+        LandedCost byValue = calculator(BigDecimal.TEN).calculate(
+                allocExtra(base, lines, Allocation.VALUE), products);
+
+        /* 2000 by pieces: 1000/1100 and 100/1100. */
+        assertEquals(new BigDecimal("1818.18"), byPieces.lines().get(0).extraRevenueEur());
+        assertEquals(new BigDecimal("181.82"), byPieces.lines().get(1).extraRevenueEur());
+        /* Same goods price, so by value the split is the same - the key is read, not ignored. */
+        assertEquals(byPieces.lines().get(0).extraRevenueEur(), byValue.lines().get(0).extraRevenueEur());
+    }
+
+    private static PurchaseOrder orderWith(PurchaseOrder base, List<PurchaseOrderLine> lines, Boolean groupVariants) {
+        return new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
+                base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.departurePort(), base.destinationPort(), base.receivingLocationId(), groupVariants,
+                base.notes(), lines);
+    }
+
+    private static PurchaseOrder allocExtra(PurchaseOrder base, List<PurchaseOrderLine> lines, Allocation extra) {
+        return new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
+                base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), extra,
+                base.departurePort(), base.destinationPort(), base.receivingLocationId(), false,
+                base.notes(), lines);
     }
 
     @Test
