@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.out.persistence;
 
 import be.enrosed.shared.Currency;
 import be.enrosed.sourcing.domain.Allocation;
+import be.enrosed.sourcing.domain.PriceBasis;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import jakarta.persistence.*;
 
@@ -109,6 +110,8 @@ public final class SourcingEntities {
         @Column(precision = 19, scale = 6) public BigDecimal exwPrice;
         @Enumerated(EnumType.STRING) public Currency exwCurrency;
         @Column(precision = 19, scale = 6) public BigDecimal extraUnitCost;
+        /** EXW or DDP; null on lines from before, read as EXW. */
+        @Enumerated(EnumType.STRING) public PriceBasis priceBasis;
     }
     /** One forwarder quote on a China -> Rotterdam route; feeds the dashboard. */
     @Entity

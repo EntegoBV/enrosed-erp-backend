@@ -85,24 +85,40 @@ public class LandedCostCalculator {
             row.cbm = cbm;
             row.goodsUsd = goodsUsd;
             row.goodsEur = goodsEur;
-            row.dutyRatePct = hsCodes.dutyRateFor(product.hsCode(), Money.nz(order.defaultDutyRatePct()));
-            row.dutySource = product.hsCode() == null || product.hsCode().isBlank()
-                    ? "standaardtarief order"
-                    : product.hsCode();
+            row.ddp = line.deliveredDutyPaid();
+            if (row.ddp) {
+                /* Delivered duty paid: the price already holds the road and
+                   the customs, so nothing gets added to this line. */
+                row.dutyRatePct = BigDecimal.ZERO;
+                row.dutySource = "DDP - inbegrepen";
+            } else {
+                row.dutyRatePct = hsCodes.dutyRateFor(product.hsCode(), Money.nz(order.defaultDutyRatePct()));
+                row.dutySource = product.hsCode() == null || product.hsCode().isBlank()
+                        ? "standaardtarief order"
+                        : product.hsCode();
+            }
             working.add(row);
         }
 
         /* ---- 2. Verdeelsleutels ---------------------------------------- */
-        BigDecimal totalCbm = working.stream().map(r -> r.cbm).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalValue = working.stream().map(r -> r.goodsEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-        int totalPieces = working.stream().mapToInt(r -> r.quantity).sum();
+        /* Container costs are shared among the lines that actually travel on
+           our account: DDP lines arrived in their price and take no share. */
+        List<Working> shipped = working.stream().filter(r -> !r.ddp).toList();
+        BigDecimal totalCbm = shipped.stream().map(r -> r.cbm).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalValue = shipped.stream().map(r -> r.goodsEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        int totalPieces = shipped.stream().mapToInt(r -> r.quantity).sum();
         BigDecimal totalPiecesDecimal = BigDecimal.valueOf(totalPieces);
 
         for (Working row : working) {
+            if (row.ddp) continue;
             row.cbmShare = Money.share(row.cbm, totalCbm);
             row.valueShare = Money.share(row.goodsEur, totalValue);
             row.pieceShare = Money.share(BigDecimal.valueOf(row.quantity), totalPiecesDecimal);
         }
+        /* The Enrosed kost is our own overhead and is spread over every line. */
+        int allPieces = working.stream().mapToInt(r -> r.quantity).sum();
+        BigDecimal allValue = working.stream().map(r -> r.goodsEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal allCbm = working.stream().map(r -> r.cbm).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         /* ---- 3. Containerkosten verdelen ------------------------------- */
         BigDecimal originEurTotal = currencies.toEur(Money.nz(order.originCosts()),
@@ -116,7 +132,7 @@ public class LandedCostCalculator {
             row.originEur = originEurTotal.multiply(shareFor(row, order.allocOrigin()));
             row.freightEur = freightEurTotal.multiply(shareFor(row, order.allocFreight()));
             row.destinationEur = destinationEurTotal.multiply(shareFor(row, order.allocDestination()));
-            row.extraEur = extraEurTotal.multiply(shareFor(row, order.allocExtra()));
+            row.extraEur = extraEurTotal.multiply(overallShare(row, order.allocExtra(), allPieces, allValue, allCbm));
 
             /* Customs value at the EU border. */
             row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
@@ -145,7 +161,7 @@ public class LandedCostCalculator {
         BigDecimal total = working.stream().map(r -> r.totalEur).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         LandedCost.Totals totals = new LandedCost.Totals(
-                totalPieces,
+                allPieces,
                 working.stream().mapToInt(r -> r.cartons).sum(),
                 totalCbm.setScale(3, RoundingMode.HALF_UP),
                 Money.money(working.stream().map(r -> r.goodsUsd).reduce(BigDecimal.ZERO, BigDecimal::add)),
@@ -157,7 +173,7 @@ public class LandedCostCalculator {
                 Money.money(destinationEurTotal),
                 Money.money(extraEurTotal),
                 Money.money(total),
-                totalPieces > 0 ? Money.unit(Money.divide(total, totalPiecesDecimal)) : BigDecimal.ZERO,
+                allPieces > 0 ? Money.unit(Money.divide(total, BigDecimal.valueOf(allPieces))) : BigDecimal.ZERO,
                 customsValue.signum() > 0
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO);
@@ -176,6 +192,14 @@ public class LandedCostCalculator {
                 fill.min(BigDecimal.valueOf(100)),
                 capacity.subtract(usedCbm).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP),
                 usedCbm.subtract(capacity).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP));
+    }
+
+    private static BigDecimal overallShare(Working row, Allocation allocation, int pieces, BigDecimal value, BigDecimal cbm) {
+        return switch (allocation == null ? Allocation.PIECES : allocation) {
+            case CBM -> Money.share(row.cbm, cbm);
+            case VALUE -> Money.share(row.goodsEur, value);
+            case PIECES -> Money.share(BigDecimal.valueOf(row.quantity), BigDecimal.valueOf(pieces));
+        };
     }
 
     private BigDecimal shareFor(Working row, Allocation allocation) {
@@ -208,5 +232,6 @@ public class LandedCostCalculator {
         BigDecimal cbmShare = BigDecimal.ZERO;
         BigDecimal valueShare = BigDecimal.ZERO;
         BigDecimal pieceShare = BigDecimal.ZERO;
+        boolean ddp;
     }
 }

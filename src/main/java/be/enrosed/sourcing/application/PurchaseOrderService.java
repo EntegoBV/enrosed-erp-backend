@@ -114,7 +114,8 @@ public class PurchaseOrderService {
                 source.allocExtra(), source.departurePort(), source.destinationPort(), source.notes(),
                 source.lines().stream()
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
-                                line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null))
+                                line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
+                                line.priceBasis()))
                         .toList()));
     }
 
@@ -188,7 +189,7 @@ public class PurchaseOrderService {
             /* Saved as entered; the warning is the whole intervention. */
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     line.exwPrice(), line.exwCurrency(), line.extraUnitCost(),
-                    orderedQuantityFor(current, changes, line, requested)));
+                    orderedQuantityFor(current, changes, line, requested), line.priceBasis()));
         }
 
         if (changes.status() != PurchaseOrderStatus.CONCEPT

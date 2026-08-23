@@ -112,6 +112,46 @@ class LandedCostCalculatorTest {
     }
 
     @Test
+    @DisplayName("een DDP-regel krijgt geen rechten en geen deel van de containerkosten")
+    void deliveredDutyPaidLineTakesNoRoadCosts() {
+        PurchaseOrder base = excelOrder();
+        /* The same article twice: one EXW line, one delivered duty paid. */
+        Product exw = preservedRose();
+        /* The calculator keys lines by product id, so the second article only needs another id. */
+        Product ddpProduct = new Product(
+                2L, "ENR-P12", exw.name(), exw.dimensions(), exw.colour(), exw.description(),
+                exw.categoryId(), exw.supplierId(), exw.active(), exw.barcodes(), exw.hsCode(), exw.carton(),
+                exw.exwPrice(), exw.exwCurrency(), exw.extraUnitCost(), exw.landedCostEur(), exw.landedCostSource(),
+                exw.markupPct(), exw.fixedSalesPriceEur(), exw.stockQuantity(), exw.photos(), exw.texts());
+        PurchaseOrder order = new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                base.containerType(), base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
+                base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.departurePort(), base.destinationPort(), base.notes(),
+                List.of(new PurchaseOrderLine(1L, 1L, 1000, null, null, null, 1000),
+                        new PurchaseOrderLine(2L, 2L, 1000, null, null, null, 1000, PriceBasis.DDP)));
+
+        LandedCost result = calculator(new BigDecimal("10")).calculate(
+                order, Map.of(1L, exw, 2L, ddpProduct));
+
+        LandedCost.Line exwLine = result.lines().get(0);
+        LandedCost.Line ddpLine = result.lines().get(1);
+        assertEquals(BigDecimal.ZERO.setScale(2), ddpLine.dutyEur());
+        assertEquals(BigDecimal.ZERO.setScale(2), ddpLine.freightEur());
+        assertEquals(BigDecimal.ZERO.setScale(2), ddpLine.destinationEur());
+        assertEquals("DDP - inbegrepen", ddpLine.dutySource());
+        /* The whole container goes to the EXW line ... */
+        assertEquals(result.totals().freightEur(), exwLine.freightEur());
+        assertEquals(result.totals().destinationEur(), exwLine.destinationEur());
+        /* ... while the Enrosed kost is still spread over both. */
+        assertEquals(new BigDecimal("1000.00"), ddpLine.extraRevenueEur());
+        /* A DDP piece costs its goods price plus its share of the Enrosed kost, nothing more. */
+        assertEquals(ddpLine.goodsEur().add(ddpLine.extraRevenueEur()), ddpLine.totalEur());
+    }
+
+    @Test
     @DisplayName("lokale kosten aan de aankomstzijde blijven buiten de douanewaarde")
     void destinationCostsAreNotDutiable() {
         PurchaseOrder base = excelOrder();

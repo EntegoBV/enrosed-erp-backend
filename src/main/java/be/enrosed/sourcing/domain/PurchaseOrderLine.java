@@ -23,5 +23,21 @@ public record PurchaseOrderLine(
          * "ordered 96, received 90" instead of silently forgetting what was
          * agreed. Null for lines added after ordering.
          */
-        Integer orderedQuantity
-) {}
+        Integer orderedQuantity,
+        /** What the agreed price covers; null means EXW, as every line was before. */
+        PriceBasis priceBasis
+) {
+    /** Compatibility for callers written before DDP prices existed. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, null);
+    }
+
+    public PriceBasis priceBasis() {
+        return priceBasis == null ? PriceBasis.EXW : priceBasis;
+    }
+
+    public boolean deliveredDutyPaid() {
+        return priceBasis() == PriceBasis.DDP;
+    }
+}
