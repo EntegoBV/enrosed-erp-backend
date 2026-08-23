@@ -163,7 +163,9 @@ public class LandedCostCalculator {
         LandedCost.Totals totals = new LandedCost.Totals(
                 allPieces,
                 working.stream().mapToInt(r -> r.cartons).sum(),
-                totalCbm.setScale(3, RoundingMode.HALF_UP),
+                /* The goods' volume, whoever ships them; the container fill below
+                   only counts what travels on our account. */
+                allCbm.setScale(3, RoundingMode.HALF_UP),
                 Money.money(working.stream().map(r -> r.goodsUsd).reduce(BigDecimal.ZERO, BigDecimal::add)),
                 Money.money(totalValue),
                 Money.money(originEurTotal),
@@ -178,7 +180,7 @@ public class LandedCostCalculator {
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO);
 
-        return new LandedCost(lines, totals, fillFor(order.containerType(), totals.cbm()));
+        return new LandedCost(lines, totals, fillFor(order.containerType(), totalCbm.setScale(3, RoundingMode.HALF_UP)));
     }
 
     private LandedCost.ContainerFill fillFor(ContainerType type, BigDecimal usedCbm) {
