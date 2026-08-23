@@ -43,6 +43,8 @@ import java.util.regex.Pattern;
 /** Inserts missing canonical translations and corrects only exact known stale import values. */
 @ApplicationScoped
 public class CatalogContentBackfillService {
+
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(CatalogContentBackfillService.class);
     private static final String RESOURCE = "/i18n/catalog-content-backfill.json";
     private static final String FAMILY_COPY_RESOURCE = "/i18n/catalog-family-copy.json";
     private static final Pattern DUTCH_IN_EN = Pattern.compile(
@@ -636,11 +638,31 @@ public class CatalogContentBackfillService {
         return profile;
     }
 
+    /**
+     * The colour in the asked language.
+     *
+     * The bundle is keyed by the colour names the import used ("Red"). A
+     * seller may since have renamed a product's colour in the editor
+     * ("Rood"), so the lookup also matches any translation in the bundle;
+     * a colour the bundle does not know at all is kept as written rather
+     * than stopping the application at startup.
+     */
     private static String localizedColor(Bundle bundle, String raw, Language language) {
         if (raw == null || raw.isBlank()) return null;
-        Map<Language, String> exact = bundle.colors().get(raw.strip());
-        if (exact == null) throw new IllegalStateException("Onvertaalde cataloguskleur: " + raw);
-        return exact.get(language);
+        String wanted = raw.strip();
+        Map<Language, String> exact = bundle.colors().get(wanted);
+        if (exact == null) {
+            exact = bundle.colors().values().stream()
+                    .filter(translations -> translations.values().stream()
+                            .anyMatch(value -> value != null && value.equalsIgnoreCase(wanted)))
+                    .findFirst().orElse(null);
+        }
+        if (exact == null) {
+            LOG.debugf("Kleur \"%s\" staat niet in de catalogusbundel; blijft zoals ingevuld", wanted);
+            return wanted;
+        }
+        String value = exact.get(language);
+        return value == null || value.isBlank() ? wanted : value;
     }
 
     private static String localizedSize(String raw, Language language) {

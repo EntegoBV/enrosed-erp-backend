@@ -70,9 +70,19 @@ public class PublicContentSeedLoader {
         this.mutationLock = mutationLock;
     }
 
-    @Transactional
+    /* Not transactional itself: the seeding runs in its own transaction, so
+       a failure rolls that back and lands here instead of poisoning the
+       transaction this method would otherwise own. */
     void onStart(@Observes StartupEvent ignored) {
-        SeedResult result = ensureSeededAndQueueWebsiteChange();
+        SeedResult result;
+        try {
+            result = ensureSeededAndQueueWebsiteChange();
+        } catch (RuntimeException failure) {
+            /* Website copy is not worth a dead ERP: log it loudly, start anyway,
+               and the next save of that family runs the backfill again. */
+            LOG.error("Publieke copy kon bij het opstarten niet bijgewerkt worden; de app start zonder", failure);
+            return;
+        }
         LOG.infof("Publieke copy gecontroleerd: %d key(s)/taalwaarden toegevoegd",
                 result.seededValues());
         if (result.retiredKeys() > 0) LOG.infof("%d verouderde website-copy-key(s) verwijderd",
