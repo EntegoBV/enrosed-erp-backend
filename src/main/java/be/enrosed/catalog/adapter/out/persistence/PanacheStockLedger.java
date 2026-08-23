@@ -14,10 +14,11 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     public void record(StockMovement movement) {
         StockMovementEntity entity = new StockMovementEntity();
         entity.productId = movement.productId();
+        entity.locationId = movement.locationId();
         entity.at = movement.at();
         entity.delta = movement.delta();
         entity.quantityAfter = movement.quantityAfter();
-        entity.kind = movement.kind();
+        entity.kind = movement.kind().name();
         entity.reference = movement.reference();
         entity.actor = movement.actor();
         persist(entity);
@@ -31,8 +32,8 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     @Override
     public List<StockMovement> forProduct(long productId) {
         return list("productId = ?1 order by at desc, id desc", productId).stream()
-                .map(entity -> new StockMovement(entity.id, entity.productId, entity.at, entity.delta,
-                        entity.quantityAfter, entity.kind, entity.reference, entity.actor))
+                .map(entity -> new StockMovement(entity.id, entity.productId, entity.locationId, entity.at,
+                        entity.delta, entity.quantityAfter, entity.kind(), entity.reference, entity.actor))
                 .toList();
     }
 }

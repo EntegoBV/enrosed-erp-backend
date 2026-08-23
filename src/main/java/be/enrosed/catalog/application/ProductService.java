@@ -16,6 +16,8 @@ import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.VariantSizes;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
+import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import jakarta.enterprise.inject.Instance;
 import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.catalog.domain.StockMovement;
@@ -60,6 +62,19 @@ public class ProductService {
     Instance<StockLedger> ledger;
     @Inject
     Instance<CurrentActor> actor;
+    /* Stock per location; pure unit tests run on the single figure. */
+    @Inject
+    Instance<StockService> stock;
+    /* Moving a series to another category; absent in pure unit tests. */
+    @Inject
+    Instance<CatalogDaos.Categories> categoryDao;
+    @Inject
+    Instance<FamilyCollectionAlignmentService> familyCollections;
+    @Inject
+    Instance<FamilyMemberCacheService> familyMembers;
+    /* The company's free EAN list; a saved product's codes leave it. */
+    @Inject
+    Instance<BarcodePoolService> barcodePool;
 
     @Inject
     public ProductService(
@@ -112,6 +127,7 @@ public class ProductService {
         ensureUniqueHandle(prepared.publicHandle(), null);
         ensurePublishable(prepared);
         Product saved = products.save(prepared);
+        consumePoolCodes(saved);
         validateFamilies(prepared.familyId());
         syncFamilyPhotos(saved.id(), prepared.familyId());
         queueWebsite();
@@ -151,6 +167,13 @@ public class ProductService {
         }
         Product current = get(id);
         Product merged = mergeUpdate(current, changes, familyExplicit);
+        /* A series shares one category. Changing it on one variant moves the
+           whole series - the alternative, silently snapping back to the old
+           category, looked like a form that does not save. */
+        if (merged.familyId() != null && Objects.equals(merged.familyId(), current.familyId())
+                && changes.categoryId() != null && !Objects.equals(changes.categoryId(), current.categoryId())) {
+            moveFamilyToCategory(merged.familyId(), changes.categoryId());
+        }
         merged = canonicalFamilyMetadata(merged);
         merged = assignFamilyPosition(merged, current);
         validator.validate(merged);
@@ -159,6 +182,7 @@ public class ProductService {
         ensureUniqueHandle(merged.publicHandle(), current.id());
         ensurePublishable(merged);
         Product saved = products.save(merged);
+        consumePoolCodes(saved);
         validateFamilies(current.familyId(), merged.familyId());
         syncFamilyPhotos(saved.id(), current.familyId(), merged.familyId());
         queueWebsite();
@@ -337,9 +361,25 @@ public class ProductService {
         adjustStock(productId, delta, null);
     }
 
-    /** @param reference the purchase order number the pieces came in on */
+    /**
+     * Books a purchase receipt at the receiving location.
+     *
+     * @param reference the purchase order number the pieces came in on
+     */
     @Transactional
     public void adjustStock(long productId, int delta, String reference) {
+        receiveStock(productId, delta, reference, null);
+    }
+
+    /** @param locationId where the container was unloaded; null means the warehouse */
+    @Transactional
+    public void receiveStock(long productId, int delta, String reference, Long locationId) {
+        if (stock != null && stock.isResolvable()) {
+            StockService service = stock.get();
+            long where = locationId != null ? locationId : service.mainLocation().id();
+            service.add(productId, where, delta, StockMovement.Kind.PURCHASE_RECEIPT, reference);
+            return;
+        }
         if (!products.adjustStock(productId, delta)) {
             throw new NotFoundException("Product", productId);
         }
@@ -383,6 +423,13 @@ public class ProductService {
     public Product setStock(long productId, int quantity) {
         if (quantity < 0) {
             throw new BusinessRuleException("Voorraad kan niet negatief zijn");
+        }
+        if (stock != null && stock.isResolvable()) {
+            /* With locations the count belongs to one of them: the warehouse. */
+            StockService service = stock.get();
+            service.setLevel(productId, service.mainLocation().id(), quantity,
+                    StockMovement.Kind.MANUAL_CORRECTION, null);
+            return get(productId);
         }
         Product before = products.setStock(productId, quantity)
                 .orElseThrow(() -> new NotFoundException("Product", productId));
@@ -594,6 +641,29 @@ public class ProductService {
     }
 
     /** Family publication and URL identity are family-owned, never copied onto unique flat SKUs. */
+    /** Codes now on a product leave the company's free list. */
+    private void consumePoolCodes(Product saved) {
+        if (barcodePool == null || !barcodePool.isResolvable()) return;
+        Barcodes codes = saved.barcodes() == null ? Barcodes.none() : saved.barcodes();
+        barcodePool.get().consume(codes.inner(), codes.outer(), saved.packaging().barcode());
+    }
+
+    private void moveFamilyToCategory(long familyId, long categoryId) {
+        if (families == null || categoryDao == null || !categoryDao.isResolvable()) return;
+        ProductFamilyEntity family = families.findById(familyId);
+        if (family == null) return;
+        CategoryEntity category = categoryDao.get().findById(categoryId);
+        if (category == null) throw new BusinessRuleException("Onbekende categorie " + categoryId);
+        family.categoryId = category.id;
+        family.categoryKey = CategoryPublicKey.from(category.code);
+        family.categoryName = category.name;
+        family.categoryPosition = category.position;
+        family.updatedAt = Instant.now();
+        if (familyCollections != null && familyCollections.isResolvable()) familyCollections.get().alignPrimary(family);
+        if (familyMembers != null && familyMembers.isResolvable()) familyMembers.get().sync(family);
+        families.flush();
+    }
+
     private Product canonicalFamilyMetadata(Product product) {
         if (product.familyId() == null || families == null) return product;
         ProductFamilyEntity family = families.findById(product.familyId());

@@ -207,7 +207,7 @@ class PurchaseOrderServiceTest {
         }
 
         @Override
-        public void adjustStock(long productId, int delta, String reference) {
+        public void receiveStock(long productId, int delta, String reference, Long locationId) {
             assertEquals(1L, productId);
             assertTrue(reference != null && !reference.isBlank(),
                     "a receipt books stock under its purchase order number");

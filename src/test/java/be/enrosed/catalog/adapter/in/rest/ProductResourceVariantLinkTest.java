@@ -3,6 +3,7 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.domain.PublicationState;
 import jakarta.ws.rs.BadRequestException;
@@ -32,7 +33,7 @@ class ProductResourceVariantLinkTest {
         when(familyDtos.from(family)).thenReturn(expected);
 
         ProductFamilyDto response = new ProductResource(
-                products, mock(BarcodeValidator.class), links, familyDtos)
+                products, mock(BarcodeValidator.class), links, familyDtos, mock(StockService.class))
                 .linkVariant(11L, new ProductVariantLinkRequest(22L));
 
         assertSame(expected, response);
@@ -45,7 +46,7 @@ class ProductResourceVariantLinkTest {
         ProductVariantLinkService links = mock(ProductVariantLinkService.class);
         ProductResource resource = new ProductResource(
                 mock(ProductService.class), mock(BarcodeValidator.class), links,
-                mock(ProductFamilyDtoFactory.class));
+                mock(ProductFamilyDtoFactory.class), mock(StockService.class));
 
         assertThrows(BadRequestException.class,
                 () -> resource.linkVariant(11L, new ProductVariantLinkRequest(null)));

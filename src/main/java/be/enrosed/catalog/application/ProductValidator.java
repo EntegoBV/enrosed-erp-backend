@@ -74,6 +74,10 @@ public class ProductValidator {
         if (product.packaging().isPresent()) {
             checkBarcode(product.packaging().barcode(),
                     "Barcode " + product.packaging().kind().dutchLabel().toLowerCase());
+            Integer pieces = product.packaging().piecesPerUnit();
+            if (pieces != null && pieces < 1) {
+                throw new BusinessRuleException("Stuks per display moet minstens 1 zijn");
+            }
         }
 
         if (product.publicHandle() != null

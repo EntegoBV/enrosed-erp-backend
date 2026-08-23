@@ -206,7 +206,7 @@ public class PurchaseOrderService {
                 changes.destinationCostsEur(), changes.defaultDutyRatePct(), changes.extraRevenueEur(),
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
                 changes.allocExtra(), changes.departurePort(), changes.destinationPort(),
-                changes.notes(), lines));
+                changes.receivingLocationId(), changes.notes(), lines));
 
         bookStockOnReceipt(current, saved);
         return new UpdateResult(saved, warnings);
@@ -279,7 +279,7 @@ public class PurchaseOrderService {
         if (!justReceived) return;
 
         for (PurchaseOrderLine line : after.lines()) {
-            products.adjustStock(line.productId(), line.quantity(), after.number());
+            products.receiveStock(line.productId(), line.quantity(), after.number(), after.receivingLocationId());
         }
         LOG.infof("Voorraad bijgeboekt uit %s: %d regel(s)", after.number(), after.lines().size());
     }

@@ -3,6 +3,11 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.application.BarcodeOwner;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.catalog.application.BarcodeValidator;
+import java.util.stream.Collectors;
+import java.util.Map;
+import be.enrosed.catalog.domain.StockMovement;
+import be.enrosed.catalog.domain.StockLocation;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.domain.Photo;
@@ -30,16 +35,19 @@ public class ProductResource {
     private final BarcodeValidator barcodes;
     private final ProductVariantLinkService variantLinks;
     private final ProductFamilyDtoFactory familyDtos;
+    private final StockService stock;
 
     public ProductResource(
             ProductService products,
             BarcodeValidator barcodes,
             ProductVariantLinkService variantLinks,
-            ProductFamilyDtoFactory familyDtos) {
+            ProductFamilyDtoFactory familyDtos,
+            StockService stock) {
         this.products = products;
         this.barcodes = barcodes;
         this.variantLinks = variantLinks;
         this.familyDtos = familyDtos;
+        this.stock = stock;
     }
 
     @GET
@@ -92,25 +100,63 @@ public class ProductResource {
     }
 
     /** Copies a product, usually to make the same style in another colour. */
-    /** Manual stock correction; the product PUT deliberately leaves stock alone. */
+    /** The pieces per location for one product, zeros included. */
+    @GET
+    @Path("/{id}/stock")
+    public List<ProductStockDto> stockLevels(@PathParam("id") long id) {
+        products.get(id);
+        return stock.levelsFor(id).stream()
+                .map(level -> new ProductStockDto(level.location().id(), level.location().code(),
+                        level.location().name(), level.location().kind().dutchLabel(),
+                        level.location().countsForWebsite(), level.quantity()))
+                .toList();
+    }
+
+    public record ProductStockDto(long locationId, String code, String name, String kindLabel,
+                                  boolean countsForWebsite, int quantity) {}
+
+    /**
+     * Manual stock correction at one location (the warehouse when none is
+     * given); the product PUT deliberately leaves stock alone.
+     */
     @POST
     @Path("/{id}/stock")
     public ProductDto setStock(@PathParam("id") long id, StockRequest request) {
         if (request == null || request.quantity() == null) {
             throw new BusinessRuleException("Geef het nieuwe aantal stuks op");
         }
-        return ProductDto.from(products.setStock(id, request.quantity()));
+        long locationId = request.locationId() != null ? request.locationId() : stock.mainLocation().id();
+        stock.setLevel(id, locationId, request.quantity(), StockMovement.Kind.MANUAL_CORRECTION,
+                request.reference());
+        return ProductDto.from(products.get(id));
     }
 
-    public record StockRequest(Integer quantity) {}
+    public record StockRequest(Integer quantity, Long locationId, String reference) {}
+
+    /** Moves pieces between two locations. */
+    @POST
+    @Path("/{id}/stock/transfer")
+    public ProductDto transferStock(@PathParam("id") long id, TransferRequest request) {
+        if (request == null || request.fromLocationId() == null || request.toLocationId() == null
+                || request.quantity() == null) {
+            throw new BusinessRuleException("Kies van waar, naar waar en hoeveel");
+        }
+        stock.transfer(id, request.fromLocationId(), request.toLocationId(), request.quantity(), request.note());
+        return ProductDto.from(products.get(id));
+    }
+
+    public record TransferRequest(Long fromLocationId, Long toLocationId, Integer quantity, String note) {}
 
     /** The stock book for one product, newest first. */
     @GET
     @Path("/{id}/stock-movements")
     public List<StockMovementDto> stockMovements(@PathParam("id") long id) {
+        Map<Long, String> names = stock.locations().stream()
+                .collect(Collectors.toMap(StockLocation::id, StockLocation::name));
         return products.stockMovements(id).stream()
                 .map(m -> new StockMovementDto(m.id(), m.at(), m.delta(), m.quantityAfter(),
-                        m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor()))
+                        m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor(),
+                        m.locationId(), m.locationId() == null ? null : names.get(m.locationId())))
                 .toList();
     }
 
@@ -123,7 +169,8 @@ public class ProductResource {
     }
 
     public record StockMovementDto(Long id, java.time.Instant at, int delta, int quantityAfter,
-                                   String kind, String kindLabel, String reference, String actor) {}
+                                   String kind, String kindLabel, String reference, String actor,
+                                   Long locationId, String locationName) {}
 
     @POST
     @Path("/{id}/duplicate")

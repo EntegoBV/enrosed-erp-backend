@@ -37,6 +37,8 @@ public class ProductEntity {
     public BigDecimal packagingWeightKg;
     /** EAN on the gift box or display itself, when it is scanned apart from the article. */
     public String packagingBarcode;
+    /** Pieces one display holds; null for a gift box around a single piece. */
+    public Integer packagingPiecesPerUnit;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;

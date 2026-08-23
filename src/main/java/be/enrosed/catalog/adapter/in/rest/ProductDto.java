@@ -66,7 +66,7 @@ public record ProductDto(
         }
     }
 
-    public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode) {}
+    public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {}
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public record CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
@@ -116,7 +116,8 @@ public record ProductDto(
                         product.packaging().dimensions().widthCm(),
                         product.packaging().dimensions().heightCm(),
                         product.packaging().dimensions().weightKg()),
-                        product.packaging().barcode()),
+                        product.packaging().barcode(),
+                        product.packaging().isPresent() ? product.packaging().unitPieces() : null),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
                 product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
@@ -149,7 +150,7 @@ public record ProductDto(
                 ? Packaging.none()
                 : new Packaging(packaging.kind(),
                         new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm(), wrap.weightKg()),
-                        packaging.barcode());
+                        packaging.barcode(), packaging.piecesPerUnit());
 
         return new Product(
                 id, sku, name,

@@ -3,6 +3,7 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
@@ -97,7 +98,8 @@ class PublicCatalogResourceTest {
 
         Response response = new ProductResource(
                 products, mock(BarcodeValidator.class),
-                mock(ProductVariantLinkService.class), mock(ProductFamilyDtoFactory.class))
+                mock(ProductVariantLinkService.class), mock(ProductFamilyDtoFactory.class),
+                mock(StockService.class))
                 .viewPhoto(1L, 9L);
 
         assertEquals("private, max-age=60", response.getHeaderString("Cache-Control"));

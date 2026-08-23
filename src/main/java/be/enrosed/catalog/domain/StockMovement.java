@@ -12,6 +12,8 @@ import java.time.Instant;
 public record StockMovement(
         Long id,
         long productId,
+        /** Where it happened; null only on lines booked before locations existed. */
+        Long locationId,
         Instant at,
         /** Pieces added (positive) or removed (negative). */
         int delta,
@@ -23,13 +25,23 @@ public record StockMovement(
         String actor
 ) {
     public enum Kind {
-        PURCHASE_RECEIPT, MANUAL_CORRECTION;
+        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE;
 
         public String dutchLabel() {
             return switch (this) {
                 case PURCHASE_RECEIPT -> "Inkooporder ontvangen";
                 case MANUAL_CORRECTION -> "Manueel gezet";
+                case TRANSFER_OUT -> "Verplaatst naar";
+                case TRANSFER_IN -> "Ontvangen uit";
+                case STOCKTAKE -> "Telling";
+                case SALE -> "Verkocht";
             };
         }
+    }
+
+    /** Compatibility for lines written before locations existed. */
+    public StockMovement(Long id, long productId, Instant at, int delta, int quantityAfter,
+                         Kind kind, String reference, String actor) {
+        this(id, productId, null, at, delta, quantityAfter, kind, reference, actor);
     }
 }

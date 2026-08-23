@@ -132,6 +132,7 @@ public final class PanacheSourcingRepositories {
             entity.allocExtra = order.allocExtra();
             entity.departurePort = order.departurePort();
             entity.destinationPort = order.destinationPort();
+            entity.receivingLocationId = order.receivingLocationId();
             entity.notes = order.notes();
 
             List<PurchaseOrderLine> wanted = order.lines();
@@ -179,7 +180,8 @@ public final class PanacheSourcingRepositories {
                     entity.freightUsd, entity.originCosts, entity.originCurrency,
                     entity.destinationCostsEur, entity.defaultDutyRatePct, entity.extraRevenueEur,
                     entity.allocFreight, entity.allocOrigin, entity.allocDestination, entity.allocExtra,
-                    entity.departurePort, entity.destinationPort, entity.notes, lines);
+                    entity.departurePort, entity.destinationPort, entity.receivingLocationId,
+                    entity.notes, lines);
         }
     }
 }

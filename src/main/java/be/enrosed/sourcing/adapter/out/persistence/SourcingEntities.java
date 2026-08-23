@@ -83,6 +83,9 @@ public final class SourcingEntities {
         /** Port of arrival; drives the destination-cost labels. */
         public String destinationPort = "Rotterdam";
 
+        /** Stock location the container is unloaded at; null = the warehouse. */
+        public Long receivingLocationId;
+
         @Column(length = 2000)
         public String notes;
 

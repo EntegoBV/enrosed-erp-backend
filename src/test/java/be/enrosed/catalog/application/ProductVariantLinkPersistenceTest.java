@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProductVariantLinkPersistenceTest {
     @Inject EntityManager entityManager;
     @Inject ProductVariantLinkService links;
+    @Inject ProductService products;
     @Inject ProductFamilyDtoFactory familyDtos;
     @Inject PublicFamilyCatalogResource publicFamilies;
 
@@ -88,6 +89,30 @@ class ProductVariantLinkPersistenceTest {
         assertTrue(publicCatalog.families().stream()
                 .noneMatch(item -> Objects.equals(item.id(), result.family().id)),
                 "a server-created DRAFT model group must stay out of the public website contract");
+    }
+
+    @Test
+    @TestTransaction
+    void changingTheCategoryOnOneVariantMovesTheWholeSeries() {
+        CategoryEntity glass = category("GLASS");
+        CategoryEntity boxes = category("BOXES");
+        entityManager.persist(glass);
+        entityManager.persist(boxes);
+        entityManager.flush();
+        ProductEntity red = standalone(glass.id, "SKU-CAT-RED", "Dome", "Rood", null, "#A91F32");
+        ProductEntity white = standalone(glass.id, "SKU-CAT-WHITE", "Dome", "Wit", null, "#FFFFFF");
+        entityManager.persist(red);
+        entityManager.persist(white);
+        entityManager.flush();
+        ProductVariantLinkService.Result linked = links.link(red.id, white.id);
+
+        Product moved = products.update(red.id, products.get(red.id).withCategoryId(boxes.id));
+
+        assertEquals(boxes.id, moved.categoryId(), "the edited variant lands in the new category");
+        assertEquals(boxes.id, products.get(white.id).categoryId(), "so does its sibling");
+        ProductFamilyEntity family = entityManager.find(ProductFamilyEntity.class, linked.family().id);
+        assertEquals(boxes.id, family.categoryId);
+        assertEquals("BOXES name", family.categoryName);
     }
 
     @Test

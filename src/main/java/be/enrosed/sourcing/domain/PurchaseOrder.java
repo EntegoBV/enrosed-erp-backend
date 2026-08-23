@@ -69,9 +69,30 @@ public record PurchaseOrder(
          */
         String destinationPort,
 
+        /**
+         * Stock location the container is unloaded at; null on orders from
+         * before locations existed, which is read as the warehouse.
+         */
+        Long receivingLocationId,
+
         String notes,
         List<PurchaseOrderLine> lines
 ) {
+    /** Compatibility for callers written before receiving locations existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, String notes, List<PurchaseOrderLine> lines) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, null, notes, lines);
+    }
+
     public List<PurchaseOrderLine> lines() {
         return lines == null ? List.of() : lines;
     }

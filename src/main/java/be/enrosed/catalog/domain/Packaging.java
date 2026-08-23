@@ -7,15 +7,27 @@ package be.enrosed.catalog.domain;
  * this presentation packaging around it, and the shipping carton around
  * several of those.
  */
-public record Packaging(PackagingKind kind, Dimensions dimensions, String barcode) {
+public record Packaging(PackagingKind kind, Dimensions dimensions, String barcode,
+                        /** Pieces a display holds; null or 1 for a gift box around one piece. */
+                        Integer piecesPerUnit) {
 
     public static Packaging none() {
-        return new Packaging(PackagingKind.NONE, Dimensions.empty(), null);
+        return new Packaging(PackagingKind.NONE, Dimensions.empty(), null, null);
     }
 
     /** Packaging without its own code; the gift box is not always scanned separately. */
     public Packaging(PackagingKind kind, Dimensions dimensions) {
-        this(kind, dimensions, null);
+        this(kind, dimensions, null, null);
+    }
+
+    /** Compatibility for callers written before displays counted their pieces. */
+    public Packaging(PackagingKind kind, Dimensions dimensions, String barcode) {
+        this(kind, dimensions, barcode, null);
+    }
+
+    /** How many pieces one unit of this packaging holds; 1 unless a display says more. */
+    public int unitPieces() {
+        return piecesPerUnit == null || piecesPerUnit < 1 || !isPresent() ? 1 : piecesPerUnit;
     }
 
     /** Trimmed, null when blank; only meaningful while packaging is present. */
