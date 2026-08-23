@@ -109,6 +109,28 @@ public class SourcingResource {
         return view(result.order(), purchaseOrders.calculate(result.order()), result.adjustments());
     }
 
+    /**
+     * The calculation for an order as it stands on screen, without saving:
+     * the editor keeps a draft and only writes on Opslaan, but the figures
+     * must follow every keystroke.
+     */
+    @POST
+    @Path("/purchase-orders/{id}/preview")
+    public PurchaseOrderView previewPurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
+        purchaseOrders.get(id);
+        PurchaseOrder draft = order.id() == null || order.id() != id ? withId(order, id) : order;
+        return view(draft, purchaseOrders.calculate(draft), List.of());
+    }
+
+    private static PurchaseOrder withId(PurchaseOrder o, long id) {
+        return new PurchaseOrder(id, o.number(), o.alias(), o.supplierId(), o.orderDate(), o.status(),
+                o.containerType(), o.cnyToUsd(), o.usdToEurGoods(), o.usdToEurTransport(), o.freightUsd(),
+                o.originCosts(), o.originCurrency(), o.destinationCostsEur(), o.defaultDutyRatePct(),
+                o.extraRevenueEur(), o.allocFreight(), o.allocOrigin(), o.allocDestination(), o.allocExtra(),
+                o.departurePort(), o.destinationPort(), o.receivingLocationId(), o.groupVariants(), o.notes(),
+                o.lines());
+    }
+
     @DELETE
     @Path("/purchase-orders/{id}")
     public Response deletePurchaseOrder(@PathParam("id") long id) {

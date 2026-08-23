@@ -78,9 +78,14 @@ public class PublicContentSeedLoader {
         try {
             result = ensureSeededAndQueueWebsiteChange();
         } catch (RuntimeException failure) {
-            /* Website copy is not worth a dead ERP: log it loudly, start anyway,
-               and the next save of that family runs the backfill again. */
-            LOG.error("Publieke copy kon bij het opstarten niet bijgewerkt worden; de app start zonder", failure);
+            /* Website copy is not worth a dead ERP: say what was skipped and
+               start anyway; the next save of that family runs the backfill
+               again. A warning, not an error: nothing is broken for a user,
+               a text was left as it was. ERROR is kept for what actually
+               breaks - a dead database, a failed payment, a lost file. */
+            LOG.warnf("Websiteteksten niet bijgewerkt bij het opstarten (%s); de app start zonder, "
+                    + "de teksten worden bij de volgende opslag van dat product opnieuw geprobeerd",
+                    failure.getMessage());
             return;
         }
         LOG.infof("Publieke copy gecontroleerd: %d key(s)/taalwaarden toegevoegd",

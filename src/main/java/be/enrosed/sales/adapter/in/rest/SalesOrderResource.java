@@ -76,6 +76,17 @@ public class SalesOrderResource {
         return new OrderView(saved, salesOrders.price(saved));
     }
 
+    /**
+     * Prices an order as it stands on screen, without saving: the editor keeps
+     * a draft and writes only on Opslaan, but the figures follow every edit.
+     */
+    @POST
+    @Path("/{id}/preview")
+    public OrderView preview(@PathParam("id") long id, SalesOrder order) {
+        salesOrders.get(id);
+        return new OrderView(order, salesOrders.price(order));
+    }
+
     /** Fills in delivery weeks without reopening every field of a sent quote. */
     @PUT
     @Path("/{id}/delivery-terms")
