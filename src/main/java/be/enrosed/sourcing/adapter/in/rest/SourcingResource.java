@@ -43,7 +43,9 @@ public class SourcingResource {
                                     List<PurchaseOrderService.CartonAdjustment> adjustments,
                                     PurchaseCostLabels costLabels,
                                     /** Who is owed what: supplier, road, and our own share. */
-                                    PurchaseOrderService.Payable payable) {}
+                                    PurchaseOrderService.Payable payable,
+                                    /** What the order waits on from us, in words; empty when nothing. */
+                                    List<String> attention) {}
 
     /* ------------------------------------------------------ leveranciers */
 
@@ -289,8 +291,9 @@ public class SourcingResource {
     private PurchaseOrderView view(PurchaseOrder order, LandedCost costing,
                                    List<PurchaseOrderService.CartonAdjustment> adjustments) {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
+        PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
+                supplier == null ? null : supplier.incoterm());
         return new PurchaseOrderView(order, costing, adjustments,
-                PurchaseCostLabels.forOrder(order, supplier),
-                purchaseOrders.payable(order, costing, supplier == null ? null : supplier.incoterm()));
+                PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable));
     }
 }

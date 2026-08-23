@@ -368,7 +368,9 @@ public class PurchaseOrderService {
 
     private static String describeMoney(BigDecimal amount, Currency currency) {
         String symbol = switch (currency) { case EUR -> "€ "; case USD -> "US$ "; case CNY -> "CN¥ "; };
-        return symbol + amount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace('.', ',');
+        /* Belgian figures: a point every three digits, a comma before the cents. */
+        return symbol + String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f",
+                amount.setScale(2, java.math.RoundingMode.HALF_UP));
     }
 
     private static String appendNote(String notes, String line) {
@@ -439,6 +441,53 @@ public class PurchaseOrderService {
 
     public record Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
                           boolean freightInSupplierPrice, boolean ddp) {}
+
+    /**
+     * What the order is waiting on from us: a box on the water without a
+     * tracking reference, an instalment whose moment has come and is not
+     * noted yet. Once ordered, something must always have been paid -
+     * without a plan, the first payment itself is the open point.
+     */
+    public List<String> attention(PurchaseOrder order, Payable payable) {
+        List<String> items = new ArrayList<>();
+        if (order.status() == PurchaseOrderStatus.ONDERWEG
+                && (order.trackingReference() == null || order.trackingReference().isBlank())) {
+            items.add("Track & trace ontbreekt");
+        }
+        if (order.status() == PurchaseOrderStatus.CONCEPT || payable == null || payable.supplierEur().signum() <= 0
+                || payments == null || !payments.isResolvable()) {
+            return items;
+        }
+        BigDecimal owed = payable.supplierEur();
+        BigDecimal paid = payments.get().forOrder(order.id()).stream()
+                .filter(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER)
+                .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        PaymentTerms terms = order.paymentTerms() == null ? PaymentTerms.THIRDS : order.paymentTerms();
+        if (terms.instalments().isEmpty()) {
+            if (paid.signum() == 0) items.add("Nog geen betaling genoteerd");
+            return items;
+        }
+        /* Ticked off against the running total with a few cents of slack, the
+           same way the screen does it. */
+        BigDecimal slack = new BigDecimal("0.05");
+        BigDecimal cumulative = BigDecimal.ZERO;
+        boolean earlierOpen = false;
+        for (PaymentTerms.Instalment step : terms.instalments()) {
+            BigDecimal amount = owed.multiply(step.share()).setScale(2, java.math.RoundingMode.HALF_UP);
+            cumulative = cumulative.add(amount);
+            boolean covered = !earlierOpen && paid.compareTo(cumulative.min(owed).subtract(slack)) >= 0;
+            if (covered) continue;
+            earlierOpen = true;
+            boolean due = switch (step.due()) {
+                case ORDERED -> true;
+                case SHIPPED -> order.status() == PurchaseOrderStatus.ONDERWEG
+                        || order.status() == PurchaseOrderStatus.ONTVANGEN;
+                case ARRIVED -> order.status() == PurchaseOrderStatus.ONTVANGEN;
+            };
+            if (due) items.add("Betaling open: " + step.label() + " (" + describeMoney(amount, Currency.EUR) + ")");
+        }
+        return items;
+    }
 
     @Transactional
     public void deletePayment(long orderId, long paymentId) {

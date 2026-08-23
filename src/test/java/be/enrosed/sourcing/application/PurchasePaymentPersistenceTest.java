@@ -47,7 +47,7 @@ class PurchasePaymentPersistenceTest {
 
         /* The diary knows about it. */
         String notes = purchaseOrders.get(order.id()).notes();
-        assertTrue(notes.contains("Betaald 01/08/2026: US$ 3000,00 (≈ € 2700,00) aan de leverancier · Aanbetaling 30%."), notes);
+        assertTrue(notes.contains("Betaald 01/08/2026: US$ 3.000,00 (≈ € 2.700,00) aan de leverancier · Aanbetaling 30%."), notes);
 
         /* A payment to the forwarder is its own stream. */
         PurchasePayment road = purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("500"),
@@ -97,7 +97,20 @@ class PurchasePaymentPersistenceTest {
                 List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(null, product.id, 100, BigDecimal.TEN,
                         Currency.USD, null, null))));
 
+        /* Nothing to do on a concept; once ordered, the first third is open. */
+        assertEquals(List.of(), attention(order.id()));
+        purchaseOrders.update(order.id(), purchaseOrders.get(order.id()).withReceipt(
+                be.enrosed.sourcing.domain.PurchaseOrderStatus.BESTELD, null, null, false, null,
+                purchaseOrders.get(order.id()).lines()));
+        assertEquals(List.of("Betaling open: 1/3 bij bestelling (€ 300,00)"), attention(order.id()));
+
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 1), new BigDecimal("600"), Currency.EUR, "2/3");
+        assertEquals(List.of(), attention(order.id()), "two thirds paid, the third is not due yet");
+        /* On the water without a tracking reference: that is the open point now. */
+        purchaseOrders.update(order.id(), purchaseOrders.get(order.id()).withReceipt(
+                be.enrosed.sourcing.domain.PurchaseOrderStatus.ONDERWEG, null, null, false, null,
+                purchaseOrders.get(order.id()).lines()));
+        assertEquals(List.of("Track & trace ontbreekt"), attention(order.id()));
         var tooMuch = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
                 order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("600"), Currency.EUR, "2/3 nog eens"));
         assertTrue(tooMuch.getMessage().startsWith("Er staat nog € 300,00 open aan de leverancier"), tooMuch.getMessage());
@@ -105,8 +118,14 @@ class PurchasePaymentPersistenceTest {
         var nothingLeft = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
                 order.id(), LocalDate.of(2026, 8, 4), BigDecimal.ONE, Currency.EUR, null));
         assertTrue(nothingLeft.getMessage().startsWith("Alles is al betaald aan de leverancier"), nothingLeft.getMessage());
+        assertEquals(List.of("Track & trace ontbreekt"), attention(order.id()), "paid in full: only the tracking is open");
         /* The other stream has its own ceiling and is untouched by the factory's. */
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("50"), Currency.EUR,
                 "Inklaring", PurchasePayment.Payee.LOGISTICS);
+    }
+
+    private List<String> attention(long orderId) {
+        PurchaseOrder order = purchaseOrders.get(orderId);
+        return purchaseOrders.attention(order, purchaseOrders.payable(order, purchaseOrders.calculate(order), "FOB"));
     }
 }

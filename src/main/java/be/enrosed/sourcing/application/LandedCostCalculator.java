@@ -170,7 +170,8 @@ public class LandedCostCalculator {
                    only counts what travels on our account. */
                 allCbm.setScale(3, RoundingMode.HALF_UP),
                 Money.money(working.stream().map(r -> r.goodsUsd).reduce(BigDecimal.ZERO, BigDecimal::add)),
-                Money.money(totalValue),
+                /* Every line's goods, DDP ones too: that is what the factory is owed. */
+                Money.money(allValue),
                 Money.money(originEurTotal),
                 Money.money(freightEurTotal),
                 Money.money(customsValue),

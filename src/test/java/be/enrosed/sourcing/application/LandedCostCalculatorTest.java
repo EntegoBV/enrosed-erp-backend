@@ -150,6 +150,8 @@ class LandedCostCalculatorTest {
         assertEquals(new BigDecimal("1000.00"), ddpLine.extraRevenueEur());
         /* A DDP piece costs its goods price plus its share of the Enrosed kost, nothing more. */
         assertEquals(ddpLine.goodsEur().add(ddpLine.extraRevenueEur()), ddpLine.totalEur());
+        /* The goods total is what the factory is owed: both lines, DDP or not. */
+        assertEquals(exwLine.goodsEur().add(ddpLine.goodsEur()), result.totals().goodsEur());
     }
 
     @Test
