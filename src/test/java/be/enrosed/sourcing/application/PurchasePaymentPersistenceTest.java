@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,12 +43,16 @@ class PurchasePaymentPersistenceTest {
         assertEquals(new BigDecimal("1000.00"), all.get(1).amountEur());
         assertTrue(all.get(0).actor() != null);
 
-        purchaseOrders.deletePayment(order.id(), deposit.id());
-        assertEquals(1, purchaseOrders.payments(order.id()).size());
-
         /* The diary knows about it. */
         String notes = purchaseOrders.get(order.id()).notes();
         assertTrue(notes.contains("Betaald 01/08/2026: US$ 3.000,00 (≈ € 2.700,00) aan de leverancier · Aanbetaling 30%."), notes);
+
+        /* Deleting a payment takes its diary line with it; the rest stays. */
+        purchaseOrders.deletePayment(order.id(), deposit.id());
+        assertEquals(1, purchaseOrders.payments(order.id()).size());
+        String cleaned = purchaseOrders.get(order.id()).notes();
+        assertFalse(cleaned.contains("Aanbetaling 30%"), cleaned);
+        assertTrue(cleaned.contains("Betaald 20/08/2026: € 1.000,00 aan de leverancier."), cleaned);
 
         /* A payment to the forwarder is its own stream. */
         PurchasePayment road = purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("500"),
@@ -58,15 +63,28 @@ class PurchasePaymentPersistenceTest {
         /* Documents live in the photo store, with a cap on proofs per payment. */
         var proof = purchaseOrders.addDocument(order.id(), be.enrosed.sourcing.domain.PurchaseDocument.Kind.PAYMENT_PROOF,
                 "KBC", road.id(), "afschrift.pdf", "application/pdf", "%PDF-1.4 test".getBytes());
-        purchaseOrders.addDocument(order.id(), be.enrosed.sourcing.domain.PurchaseDocument.Kind.PAYMENT_PROOF,
-                null, road.id(), "afschrift-2.pdf", "application/pdf", "%PDF-1.4 test 2".getBytes());
+        for (int i = 2; i <= 5; i++) {
+            purchaseOrders.addDocument(order.id(), be.enrosed.sourcing.domain.PurchaseDocument.Kind.PAYMENT_PROOF,
+                    null, road.id(), "afschrift-" + i + ".pdf", "application/pdf", ("%PDF-1.4 test " + i).getBytes());
+        }
         assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addDocument(order.id(),
-                be.enrosed.sourcing.domain.PurchaseDocument.Kind.PAYMENT_PROOF, null, road.id(), "3.pdf", "application/pdf", "x".getBytes()),
-                "two proofs per payment, not three");
-        assertEquals(2, purchaseOrders.documents(order.id()).size());
+                be.enrosed.sourcing.domain.PurchaseDocument.Kind.PAYMENT_PROOF, null, road.id(), "6.pdf", "application/pdf", "x".getBytes()),
+                "five proofs per payment, not six");
+        assertEquals(5, purchaseOrders.documents(order.id()).size());
+        /* Loose documents get the same ceiling per category. */
+        for (int i = 1; i <= 5; i++) {
+            purchaseOrders.addDocument(order.id(), be.enrosed.sourcing.domain.PurchaseDocument.Kind.CUSTOMS,
+                    null, null, "douane-" + i + ".pdf", "application/pdf", ("doc " + i).getBytes());
+        }
+        assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addDocument(order.id(),
+                be.enrosed.sourcing.domain.PurchaseDocument.Kind.CUSTOMS, null, null, "douane-6.pdf", "application/pdf", "x".getBytes()),
+                "five customs files, not six");
+        assertEquals(10, purchaseOrders.documents(order.id()).size());
         assertEquals("%PDF-1.4 test", new String(purchaseOrders.documentData(proof).readAllBytes()));
+        assertEquals("ING mei", purchaseOrders.renameDocument(order.id(), proof.id(), " ING mei ").label(),
+                "the title stays editable after the upload");
         purchaseOrders.deleteDocument(order.id(), proof.id());
-        assertEquals(1, purchaseOrders.documents(order.id()).size());
+        assertEquals(9, purchaseOrders.documents(order.id()).size());
     }
 
     @Inject jakarta.persistence.EntityManager entityManager;
@@ -111,9 +129,6 @@ class PurchasePaymentPersistenceTest {
                 be.enrosed.sourcing.domain.PurchaseOrderStatus.ONDERWEG, null, null, false, null,
                 purchaseOrders.get(order.id()).lines()));
         assertEquals(List.of("Track & trace ontbreekt"), attention(order.id()));
-        var tooMuch = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
-                order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("600"), Currency.EUR, "2/3 nog eens"));
-        assertTrue(tooMuch.getMessage().startsWith("Er staat nog € 300,00 open aan de leverancier"), tooMuch.getMessage());
         /* Paid between two instalments: € 750 of € 900 leaves € 150. */
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 8, 3), new BigDecimal("150"), Currency.EUR, "Deel");
         /* The other stream has its own ceiling and is untouched by the factory's. */
@@ -132,9 +147,10 @@ class PurchasePaymentPersistenceTest {
         assertEquals(List.of("Betaling open: 1/3 bij aankomst (€ 150,00)"), attention(order.id()));
         purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 21), new BigDecimal("150"), Currency.EUR, "Rest");
         assertEquals(List.of(), attention(order.id()));
-        var nothingLeft = assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> purchaseOrders.addPayment(
-                order.id(), LocalDate.of(2026, 9, 22), BigDecimal.ONE, Currency.EUR, null));
-        assertTrue(nothingLeft.getMessage().startsWith("Alles is al betaald aan de leverancier"), nothingLeft.getMessage());
+        /* Bank costs, a rate difference: paying past the agreed amount is
+           allowed and simply recorded; nothing reopens. */
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 22), new BigDecimal("12.50"), Currency.EUR, "Bankkosten");
+        assertEquals(List.of(), attention(order.id()));
 
         /* Weeks later two more turn out broken: editing the received order books them out. */
         PurchaseOrder received = purchaseOrders.get(order.id());

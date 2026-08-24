@@ -97,6 +97,8 @@ public class ProductEntity {
     public BigDecimal cartonHeightCm;
     public int piecesPerCarton = 1;
     public BigDecimal cartonWeightKg;
+    /** Hand-counted pieces per 40' HC; null lets the carton size decide. */
+    public Integer piecesPerHc;
 
     @Column(precision = 19, scale = 6)
     public BigDecimal exwPrice;

@@ -150,7 +150,7 @@ public class LandedCostCalculator {
         /* ---- 4. Totalen ------------------------------------------------ */
         List<LandedCost.Line> lines = working.stream()
                 .map(row -> new LandedCost.Line(
-                        row.product.id(), row.product.describe(), row.quantity, row.cartons, row.cbm,
+                        row.product.id(), row.product.nameWithColour(), row.quantity, row.cartons, row.cbm,
                         Money.money(row.goodsUsd), Money.money(row.goodsEur), Money.money(row.originEur),
                         Money.money(row.freightEur), Money.money(row.customsValueEur),
                         row.dutyRatePct, row.dutySource, Money.money(row.dutyEur),

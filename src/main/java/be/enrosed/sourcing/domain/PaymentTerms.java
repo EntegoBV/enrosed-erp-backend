@@ -12,7 +12,7 @@ import java.util.List;
  * it lands.
  */
 public enum PaymentTerms {
-    THIRDS, HALF_HALF, DEPOSIT_30_70, FULL_UPFRONT, FULL_ON_ARRIVAL, CUSTOM;
+    THIRDS, HALF_HALF, DEPOSIT_30_70, DEPOSIT_30_40_30, FULL_UPFRONT, FULL_ON_ARRIVAL, CUSTOM;
 
     public record Instalment(String label, BigDecimal share, Moment due) {}
 
@@ -30,6 +30,10 @@ public enum PaymentTerms {
             case DEPOSIT_30_70 -> List.of(
                     new Instalment("30% bij bestelling", new BigDecimal("0.30"), Moment.ORDERED),
                     new Instalment("70% bij vertrek", new BigDecimal("0.70"), Moment.SHIPPED));
+            case DEPOSIT_30_40_30 -> List.of(
+                    new Instalment("30% bij bestelling", new BigDecimal("0.30"), Moment.ORDERED),
+                    new Instalment("40% bij vertrek", new BigDecimal("0.40"), Moment.SHIPPED),
+                    new Instalment("30% bij aankomst", new BigDecimal("0.30"), Moment.ARRIVED));
             case FULL_UPFRONT -> List.of(new Instalment("100% bij bestelling", BigDecimal.ONE, Moment.ORDERED));
             case FULL_ON_ARRIVAL -> List.of(new Instalment("100% bij aankomst", BigDecimal.ONE, Moment.ARRIVED));
             case CUSTOM -> List.of();
@@ -41,6 +45,7 @@ public enum PaymentTerms {
             case THIRDS -> "1/3 · 1/3 · 1/3 (bestelling, vertrek, aankomst)";
             case HALF_HALF -> "50% bij bestelling, 50% bij vertrek";
             case DEPOSIT_30_70 -> "30% bij bestelling, 70% bij vertrek";
+            case DEPOSIT_30_40_30 -> "30% · 40% · 30% (bestelling, vertrek, aankomst)";
             case FULL_UPFRONT -> "100% bij bestelling";
             case FULL_ON_ARRIVAL -> "100% bij aankomst";
             case CUSTOM -> "Anders (vrij)";

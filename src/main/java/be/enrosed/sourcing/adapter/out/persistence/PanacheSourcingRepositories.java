@@ -64,6 +64,17 @@ public final class PanacheSourcingRepositories {
         }
 
         @Override
+        public java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> rename(
+                long orderId, long documentId, String label) {
+            return dao.find("id = ?1 and orderId = ?2", documentId, orderId).firstResultOptional()
+                    .map(entity -> {
+                        entity.label = label;
+                        dao.flush();
+                        return toDomain(entity);
+                    });
+        }
+
+        @Override
         public boolean delete(long orderId, long documentId) {
             return dao.delete("id = ?1 and orderId = ?2", documentId, orderId) == 1;
         }

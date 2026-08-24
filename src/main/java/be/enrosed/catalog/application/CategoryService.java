@@ -81,6 +81,41 @@ public class CategoryService {
         return saved;
     }
 
+    /**
+     * The arrows under Instellingen: the ids in their new order become
+     * positions 1..n in one write, so two categories never fight over a
+     * position halfway. Categories not mentioned keep their place after.
+     */
+    @Transactional
+    public List<Category> reorder(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) throw new BusinessRuleException("Geen volgorde meegestuurd");
+        java.util.LinkedHashSet<Long> wanted = new java.util.LinkedHashSet<>(ids);
+        if (wanted.size() != ids.size()) throw new BusinessRuleException("Een categorie staat dubbel in de volgorde");
+        List<Category> all = list();
+        java.util.Map<Long, Category> byId = new java.util.HashMap<>();
+        for (Category category : all) byId.put(category.id(), category);
+        for (Long id : wanted) {
+            if (!byId.containsKey(id)) throw new NotFoundException("Categorie", id);
+        }
+        int position = 1;
+        for (Long id : wanted) {
+            saveWithPosition(byId.get(id), position++);
+        }
+        for (Category category : all) {
+            if (!wanted.contains(category.id())) saveWithPosition(category, position++);
+        }
+        queueWebsite();
+        return list();
+    }
+
+    private void saveWithPosition(Category category, int position) {
+        if (category.position() == position) return;
+        categories.save(new Category(category.id(), category.code(), category.name(),
+                category.description(), category.eyebrow(), position, category.mobileName(),
+                category.navigationName(), category.footerName(), category.featuredProductId(),
+                category.texts()));
+    }
+
     @Transactional
     public Category update(long id, Category changes) {
         if (changes == null) throw new BusinessRuleException("Geen categorie meegestuurd");

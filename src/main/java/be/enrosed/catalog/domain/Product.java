@@ -323,6 +323,15 @@ public record Product(
     }
 
     /**
+     * The short label a buyer reads on an order line: the name and, when
+     * set, the colour. Dimensions and merchandising size stay off - they
+     * clutter a line whose measurements have their own columns.
+     */
+    public String nameWithColour() {
+        return colour == null || colour.isBlank() ? name : name + " - " + colour;
+    }
+
+    /**
      * Full description in the customer's language.
      *
      * The dimensions stay numeric; they are identical in every language and

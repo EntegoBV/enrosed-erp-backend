@@ -200,7 +200,12 @@ public class PurchaseOrderService {
             int requested = line.quantity();
             int fullCartons = carton.cartonsFor(requested) * perCarton;
 
-            if (fullCartons != requested) {
+            /* Only a freshly typed count earns the warning: editing a rate or
+               a note must not repeat it for numbers that stood for weeks. */
+            boolean quantityTouched = current.lines().stream()
+                    .noneMatch(stored -> java.util.Objects.equals(stored.productId(), line.productId())
+                            && stored.quantity() == requested);
+            if (fullCartons != requested && quantityTouched) {
                 warnings.add(new CartonAdjustment(
                         product.id(), product.describe(), requested, fullCartons, perCarton));
             }
@@ -330,43 +335,22 @@ public class PurchaseOrderService {
         LocalDate day = paidOn != null ? paidOn : LocalDate.now();
         PurchasePayment.Payee to = payee == null ? PurchasePayment.Payee.SUPPLIER : payee;
         BigDecimal eurRounded = eur.setScale(2, java.math.RoundingMode.HALF_UP);
-        refuseOverpayment(order, to, eurRounded);
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
                 actor != null && actor.isResolvable() ? actor.get().name() : "systeem", java.time.Instant.now(), to));
 
-        String line = "Betaald " + day.format(DAY) + ": " + describeMoney(payment.amount(), money)
-                + (money != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
-                + " aan " + (to == PurchasePayment.Payee.SUPPLIER ? "de leverancier" : "douane & transport")
-                + (payment.label() != null ? " · " + payment.label() : "") + ".";
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
-                appendNote(order.notes(), line), order.lines()));
+                appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
         return payment;
     }
 
-    /**
-     * What is still open on one stream: once the factory or the forwarder is
-     * paid in full, a further payment is a mistake, not a payment. An order
-     * without goods yet has no ceiling - there is nothing to measure against.
-     */
-    private void refuseOverpayment(PurchaseOrder order, PurchasePayment.Payee to, BigDecimal eur) {
-        if (order.lines().isEmpty()) return;
-        Supplier supplier = order.supplierId() == null ? null : suppliers.findById(order.supplierId()).orElse(null);
-        Payable payable = payable(order, calculate(order), supplier == null ? null : supplier.incoterm());
-        BigDecimal owed = to == PurchasePayment.Payee.SUPPLIER ? payable.supplierEur() : payable.logisticsEur();
-        if (owed.signum() <= 0) return;
-        BigDecimal paid = payments.get().forOrder(order.id()).stream()
-                .filter(payment -> payment.payee() == to)
-                .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal open = owed.subtract(paid).max(BigDecimal.ZERO);
-        if (eur.compareTo(open) > 0) {
-            String who = to == PurchasePayment.Payee.SUPPLIER ? "aan de leverancier" : "voor douane & transport";
-            throw new BusinessRuleException(open.signum() == 0
-                    ? "Alles is al betaald " + who + "; er valt niets meer te noteren"
-                    : "Er staat nog " + describeMoney(open, Currency.EUR) + " open " + who
-                            + "; een betaling van " + describeMoney(eur, Currency.EUR) + " gaat daar overheen");
-        }
+    /** The diary line a payment writes; built one way so deleting can find it again. */
+    private static String paymentNoteLine(PurchasePayment payment) {
+        return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
+                + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
+                + " aan " + (payment.payee() == PurchasePayment.Payee.SUPPLIER ? "de leverancier" : "douane & transport")
+                + (payment.label() != null ? " · " + payment.label() : "") + ".";
     }
 
     private static String describeMoney(BigDecimal amount, Currency currency) {
@@ -405,7 +389,13 @@ public class PurchaseOrderService {
         if (bytes.length > 25 * 1024 * 1024) throw new BusinessRuleException("Een bestand mag hoogstens 25 MB zijn");
         if (paymentId != null) {
             long proofs = documents.get().forOrder(orderId).stream().filter(d -> paymentId.equals(d.paymentId())).count();
-            if (proofs >= 2) throw new BusinessRuleException("Bij één betaling horen hoogstens twee bewijsstukken");
+            if (proofs >= 5) throw new BusinessRuleException("Bij één betaling horen hoogstens vijf bewijsstukken");
+        } else {
+            /* Every category keeps room for a handful, not an archive. */
+            PurchaseDocument.Kind wanted = kind == null ? PurchaseDocument.Kind.OTHER : kind;
+            long inKind = documents.get().forOrder(orderId).stream()
+                    .filter(d -> d.paymentId() == null && d.kind() == wanted).count();
+            if (inKind >= 5) throw new BusinessRuleException("Per categorie horen hoogstens vijf bestanden bij een order");
         }
         String name = filename == null || filename.isBlank() ? "document" : filename.strip();
         String type = contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType;
@@ -413,6 +403,15 @@ public class PurchaseOrderService {
         return documents.get().save(new PurchaseDocument(null, orderId, kind == null ? PurchaseDocument.Kind.OTHER : kind,
                 label == null || label.isBlank() ? null : label.strip(), name, type, bytes.length, stored.storageKey(),
                 paymentId, actor != null && actor.isResolvable() ? actor.get().name() : "systeem", java.time.Instant.now()));
+    }
+
+    /** The pencil next to an uploaded file: the title stays editable afterwards. */
+    @Transactional
+    public PurchaseDocument renameDocument(long orderId, long documentId, String label) {
+        get(orderId);
+        String cleaned = label == null || label.isBlank() ? null : label.strip();
+        return documents.get().rename(orderId, documentId, cleaned)
+                .orElseThrow(() -> new NotFoundException("Document", documentId));
     }
 
     @Transactional
@@ -501,8 +500,31 @@ public class PurchaseOrderService {
 
     @Transactional
     public void deletePayment(long orderId, long paymentId) {
-        get(orderId);
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment payment = payments.get().forOrder(orderId).stream()
+                .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
+                .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
+        /* The diary line the payment wrote goes with it. */
+        String cleaned = removeNoteLine(order.notes(), paymentNoteLine(payment));
+        if (!java.util.Objects.equals(cleaned, order.notes())) {
+            orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
+                    order.stockBooked(), cleaned, order.lines()));
+        }
+    }
+
+    /** Removes the first line that matches, and nothing else someone wrote. */
+    private static String removeNoteLine(String notes, String line) {
+        if (notes == null || notes.isBlank()) return notes;
+        List<String> kept = new ArrayList<>();
+        boolean removed = false;
+        for (String candidate : notes.split("\n", -1)) {
+            if (!removed && candidate.strip().equals(line)) { removed = true; continue; }
+            kept.add(candidate);
+        }
+        if (!removed) return notes;
+        String joined = String.join("\n", kept).replaceAll("\n{3,}", "\n\n").strip();
+        return joined.isBlank() ? null : joined;
     }
 
     /** One line of a receipt: what arrived, and how much of that was broken. */

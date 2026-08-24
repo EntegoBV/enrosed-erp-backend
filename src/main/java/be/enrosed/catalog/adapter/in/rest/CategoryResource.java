@@ -38,6 +38,12 @@ public class CategoryResource {
         return categories.update(id, category);
     }
 
+    @PUT
+    @Path("/order")
+    public List<Category> reorder(List<Long> ids) {
+        return categories.reorder(ids);
+    }
+
     @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") long id) {

@@ -260,6 +260,16 @@ public class SourcingResource {
                 .build();
     }
 
+    public record DocumentLabelRequest(String label) {}
+
+    @PUT
+    @Path("/purchase-orders/{id}/documents/{documentId}/label")
+    public DocumentDto renameDocument(@PathParam("id") long id, @PathParam("documentId") long documentId,
+                                      DocumentLabelRequest request) {
+        return DocumentDto.from(purchaseOrders.renameDocument(id, documentId,
+                request == null ? null : request.label()));
+    }
+
     @DELETE
     @Path("/purchase-orders/{id}/documents/{documentId}")
     public Response deleteDocument(@PathParam("id") long id, @PathParam("documentId") long documentId) {

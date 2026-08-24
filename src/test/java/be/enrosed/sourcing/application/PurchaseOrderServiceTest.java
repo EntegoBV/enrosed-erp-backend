@@ -92,6 +92,20 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
+    void cartonWarningOnlySpeaksWhenTheCountItselfChanged() {
+        /* 7 pieces in boxes of 6 was accepted weeks ago: editing a rate or a
+           note must not repeat the warning; a new count earns it again. */
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 7, 7));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        assertTrue(service.update(10L, order(PurchaseOrderStatus.BESTELD, 7, 7)).adjustments().isEmpty(),
+                "same count, no warning");
+        var warned = service.update(10L, order(PurchaseOrderStatus.BESTELD, 8, 7)).adjustments();
+        assertEquals(1, warned.size(), "a fresh count that fills no full carton warns");
+        assertEquals(12, warned.getFirst().adjusted());
+    }
+
+    @Test
     void storedOrderedQuantityWinsOverClientValueAfterPlacement() {
         InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
         PurchaseOrderService service = service(orders, new RecordingProducts());

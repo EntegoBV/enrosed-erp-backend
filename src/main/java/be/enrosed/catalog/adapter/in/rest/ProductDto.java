@@ -70,7 +70,11 @@ public record ProductDto(
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public record CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
-                            Integer piecesPerCarton, BigDecimal weightKg) {}
+                            Integer piecesPerCarton, BigDecimal weightKg,
+                            /** Hand-counted pieces per 40' HC; null = derived. */
+                            Integer piecesPerHc,
+                            /** What fits a 40' HC: the hand count, or full cartons by volume. */
+                            Integer hcCapacity) {}
 
     public record TextDto(
             Language language, String name, String description, String colour, String variantSize) {
@@ -128,7 +132,7 @@ public record ProductDto(
                 product.publicationState(CatalogChannel.ORDER_APP),
                 codes.inner(), codes.outer(), product.hsCode(),
                 new CartonDto(cartonSize.lengthCm(), cartonSize.widthCm(), cartonSize.heightCm(),
-                        carton.piecesPerCarton(), carton.weightKg()),
+                        carton.piecesPerCarton(), carton.weightKg(), carton.piecesPerHc(), carton.hcCapacity()),
                 product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
                 product.landedCostEur(), product.landedCostSource(),
                 product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
@@ -141,7 +145,7 @@ public record ProductDto(
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
-                ? new CartonDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 1, BigDecimal.ZERO) : carton;
+                ? new CartonDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 1, BigDecimal.ZERO, null, null) : carton;
 
         DimensionsDto wrap = packaging == null || packaging.dimensions() == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
@@ -164,7 +168,8 @@ public record ProductDto(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 new Barcodes(barcodeInner, barcodeOuter), hsCode,
                 new Carton(new Dimensions(box.lengthCm(), box.widthCm(), box.heightCm()),
-                        box.piecesPerCarton() == null ? 1 : box.piecesPerCarton(), box.weightKg()),
+                        box.piecesPerCarton() == null ? 1 : box.piecesPerCarton(), box.weightKg(),
+                        box.piecesPerHc()),
                 exwPrice, exwCurrency == null ? Currency.USD : exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource,
                 markupPct, fixedSalesPriceEur,

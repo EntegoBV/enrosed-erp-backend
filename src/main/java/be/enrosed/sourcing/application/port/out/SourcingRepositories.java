@@ -25,6 +25,7 @@ public interface SourcingRepositories {
         List<be.enrosed.sourcing.domain.PurchaseDocument> forOrder(long orderId);
         java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> find(long orderId, long documentId);
         be.enrosed.sourcing.domain.PurchaseDocument save(be.enrosed.sourcing.domain.PurchaseDocument document);
+        java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> rename(long orderId, long documentId, String label);
         boolean delete(long orderId, long documentId);
     }
 
