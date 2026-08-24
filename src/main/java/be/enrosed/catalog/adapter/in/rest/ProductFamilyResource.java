@@ -120,7 +120,7 @@ public class ProductFamilyResource {
         requireUnique(family, null);
         requireUniqueFamilyPosition(family, null);
         validateCardFeature(family);
-        ensureRequestedPublicationIsValid(family, List.of());
+        ensureRequestedPublicationIsValid(family, List.of(), true, true);
         families.persist(family);
         families.flush();
         queueWebsite();
@@ -131,6 +131,10 @@ public class ProductFamilyResource {
     public ProductFamilyDto update(@PathParam("id") long id, ProductFamilyDto request) {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
+        boolean wasPublished = isPublished(family);
+        boolean wasReady = family.websiteStatus == PublicationState.READY
+                || family.orderAppStatus == PublicationState.READY
+                || family.catalogueStatus == PublicationState.READY;
         applyEditable(family, request, false);
         requireUnique(family, id);
         requireUniqueFamilyPosition(family, id);
@@ -140,7 +144,7 @@ public class ProductFamilyResource {
         families.flush();
         featuredProducts.clearInvalidReferencesForFamily(family);
         validateCardFeature(family);
-        ensureRequestedPublicationIsValid(family, members);
+        ensureRequestedPublicationIsValid(family, members, !wasPublished, !wasReady);
         families.flush();
         return changed(family);
     }
@@ -391,10 +395,9 @@ public class ProductFamilyResource {
     }
 
     private ProductFamilyDto changed(ProductFamilyEntity family) {
-        if (localization != null) {
-            localization.validateReadyOrPublished(family,
-                    products.list("familyId = ?1 order by variantPosition, id", family.id));
-        }
+        /* No completeness veto here: editing a live family (a rename, a
+           photo) must go through. The full check runs where a channel is
+           switched on; what is missing stays visible on the family. */
         queueWebsite();
         return dto(family);
     }
@@ -455,8 +458,16 @@ public class ProductFamilyResource {
         }
     }
 
+    /**
+     * Publishing is the gate; editing is not. The full completeness check
+     * (texts, translations, photos) runs only when this request switches a
+     * channel on - renaming a series that is already live must not be held
+     * hostage by a missing German footer name. What is missing stays
+     * visible as attention points on the family itself.
+     */
     private void ensureRequestedPublicationIsValid(
-            ProductFamilyEntity family, List<ProductEntity> members) {
+            ProductFamilyEntity family, List<ProductEntity> members,
+            boolean publishingNow, boolean readyingNow) {
         List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
         if (localization != null) {
             List<String> localized = localization.issues(family, members);
@@ -466,7 +477,7 @@ public class ProductFamilyResource {
                 issues = List.copyOf(combined);
             }
         }
-        if (isPublished(family) && !issues.isEmpty()) {
+        if (publishingNow && isPublished(family) && !issues.isEmpty()) {
             throw new BusinessRuleException("Productfamilie kan nog niet gepubliceerd worden: "
                     + String.join("; ", issues));
         }
@@ -483,7 +494,7 @@ public class ProductFamilyResource {
                         || family.websiteStatus == PublicationState.READY
                             && issue.equals("Kleurstaal ontbreekt voor een actieve gekleurde variant"))
                 .toList();
-        if (anyReady && !readyBlockers.isEmpty()) {
+        if (readyingNow && anyReady && !readyBlockers.isEmpty()) {
             throw new BusinessRuleException(
                     "Productfamilie kan nog niet klaar voor publicatie worden gezet: "
                             + String.join("; ", readyBlockers));
