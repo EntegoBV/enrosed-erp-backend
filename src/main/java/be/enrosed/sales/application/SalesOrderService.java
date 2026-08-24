@@ -384,9 +384,14 @@ public class SalesOrderService {
         } catch (NotFoundException exception) {
             throw new BusinessRuleException("De gekozen klant bestaat niet meer");
         }
-        if (order.countryCode() == null || order.countryCode().isBlank()
-                || countries.find(order.countryCode()) == null) {
+        if (order.countryCode() == null || order.countryCode().isBlank()) {
             throw new BusinessRuleException("Kies een geldig bestemmingsland");
+        }
+        if (countries.find(order.countryCode()) == null) {
+            /* Say which code is the problem: nine times out of ten the customer
+               carries a country that Landen & vracht does not ship to yet. */
+            throw new BusinessRuleException("Bestemmingsland " + order.countryCode()
+                    + " staat niet bij Landen & vracht; voeg het daar toe of pas het land van de klant aan");
         }
         if (order.orderDate() == null || order.validUntil() == null) {
             throw new BusinessRuleException("Orderdatum en geldigheidsdatum zijn verplicht");
