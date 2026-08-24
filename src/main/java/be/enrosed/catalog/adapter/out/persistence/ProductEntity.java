@@ -53,6 +53,10 @@ public class ProductEntity {
     public Long categoryId;
     public Long supplierId;
     public boolean active = true;
+    /** A demo piece: shown, never sold; invisible to every public channel. */
+    @org.hibernate.annotations.ColumnDefault("false")
+    @Column(nullable = false)
+    public boolean demo;
 
     /** Canonical family relation. Nullable for pre-migration rows. */
     public Long familyId;

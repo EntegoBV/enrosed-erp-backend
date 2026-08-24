@@ -91,8 +91,37 @@ public record Product(
          * back to them. That keeps a product usable while its translation is
          * still missing, instead of landing as an empty box on a quote.
          */
-        List<ProductText> texts
+        List<ProductText> texts,
+
+        /**
+         * A demo piece: an idea shown at fairs or kept aside, never the
+         * website's to sell. Sorted to the bottom of the catalogue and
+         * excluded from every public channel.
+         */
+        boolean demo
 ) {
+
+    /** Compatibility constructor for callers written before demo pieces existed. */
+    public Product(
+            Long id, String sku, String name, Dimensions dimensions, Packaging packaging,
+            String colour, String variantSize, String colourHex, String description,
+            Long categoryId, Long supplierId, boolean active,
+            Long familyId, String canonicalVariantKey, String canonicalBarcode,
+            int variantPosition, boolean inventoryKnown,
+            String familyKey, String publicHandle,
+            PublicationState websiteStatus, PublicationState orderAppStatus,
+            Barcodes barcodes, String hsCode, Carton carton,
+            BigDecimal exwPrice, Currency exwCurrency, BigDecimal extraUnitCost,
+            BigDecimal landedCostEur, String landedCostSource,
+            BigDecimal markupPct, BigDecimal fixedSalesPriceEur, int stockQuantity,
+            List<Photo> photos, List<ProductText> texts) {
+        this(id, sku, name, dimensions, packaging, colour, variantSize, colourHex, description,
+                categoryId, supplierId, active, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown, familyKey, publicHandle, websiteStatus,
+                orderAppStatus, barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
+                landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity,
+                photos, texts, false);
+    }
 
     /**
      * Compatibility constructor for the existing internal model and seed data.
@@ -112,7 +141,7 @@ public record Product(
                 null, null, PublicationState.DRAFT, PublicationState.DRAFT,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, false);
     }
 
     /** Compatibility constructor for callers written before presentation packaging existed. */
@@ -135,7 +164,7 @@ public record Product(
                 publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
                 carton, exwPrice, exwCurrency, extraUnitCost, landedCostEur,
                 landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity,
-                photos, texts);
+                photos, texts, false);
     }
 
     /** Compatibility constructor for callers written before size and colour swatches existed. */
@@ -157,7 +186,7 @@ public record Product(
                 publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
                 carton, exwPrice, exwCurrency, extraUnitCost, landedCostEur,
                 landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity,
-                photos, texts);
+                photos, texts, false);
     }
 
     /** Compatibility constructor for callers written before canonical family entities existed. */
@@ -176,7 +205,7 @@ public record Product(
                 null, null, null, 0, true, familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, false);
     }
 
     public Packaging packaging() {
@@ -363,7 +392,7 @@ public record Product(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, demo);
     }
 
     public Product withVariantAttributes(
@@ -373,7 +402,7 @@ public record Product(
                 canonicalBarcode, variantPosition, inventoryKnown, familyKey, publicHandle,
                 websiteStatus, orderAppStatus, barcodes, hsCode, carton, exwPrice,
                 exwCurrency, extraUnitCost, landedCostEur, landedCostSource, markupPct,
-                fixedSalesPriceEur, stockQuantity, photos, texts);
+                fixedSalesPriceEur, stockQuantity, photos, texts, demo);
     }
 
     /** Photos in gallery order; sorting lives here so no caller can forget it. */
@@ -387,7 +416,7 @@ public record Product(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, ordered, texts);
+                stockQuantity, ordered, texts, demo);
     }
 
     public Product withStockQuantity(int newStock) {
@@ -398,7 +427,16 @@ public record Product(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                newStock, photos, texts);
+                newStock, photos, texts, demo);
+    }
+
+    public Product withDemo(boolean newDemo) {
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
+                description, categoryId, supplierId, active, familyId, canonicalVariantKey,
+                canonicalBarcode, variantPosition, inventoryKnown, familyKey, publicHandle,
+                websiteStatus, orderAppStatus, barcodes, hsCode, carton, exwPrice,
+                exwCurrency, extraUnitCost, landedCostEur, landedCostSource, markupPct,
+                fixedSalesPriceEur, stockQuantity, photos, texts, newDemo);
     }
 
     public Product withActive(boolean newActive) {
@@ -407,7 +445,7 @@ public record Product(
                 canonicalBarcode, variantPosition, inventoryKnown, familyKey, publicHandle,
                 websiteStatus, orderAppStatus, barcodes, hsCode, carton, exwPrice,
                 exwCurrency, extraUnitCost, landedCostEur, landedCostSource, markupPct,
-                fixedSalesPriceEur, stockQuantity, photos, texts);
+                fixedSalesPriceEur, stockQuantity, photos, texts, demo);
     }
 
     /** Synchronizes the family-owned operational category cache without touching supplier data. */
@@ -417,7 +455,7 @@ public record Product(
                 canonicalVariantKey, canonicalBarcode, variantPosition, inventoryKnown,
                 familyKey, publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
                 carton, exwPrice, exwCurrency, extraUnitCost, landedCostEur,
-                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity, photos, texts);
+                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity, photos, texts, demo);
     }
 
     public Product withLandedCost(BigDecimal newLandedCostEur, String source) {
@@ -428,7 +466,7 @@ public record Product(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, newLandedCostEur, source, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, demo);
     }
 
     public Product withTexts(List<ProductText> newTexts) {
@@ -439,7 +477,7 @@ public record Product(
                 familyKey, publicHandle, websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, newTexts);
+                stockQuantity, photos, newTexts, demo);
     }
 
     public Product withPublicationMetadata(String newFamilyKey, String newPublicHandle,
@@ -452,7 +490,7 @@ public record Product(
                 newFamilyKey, newPublicHandle, newWebsiteStatus,
                 newOrderAppStatus, barcodes, hsCode, carton, exwPrice, exwCurrency,
                 extraUnitCost, landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, demo);
     }
 
     public Product withCanonicalIdentity(Long newFamilyId, String newCanonicalVariantKey,
@@ -465,6 +503,6 @@ public record Product(
                 websiteStatus, orderAppStatus,
                 barcodes, hsCode, carton, exwPrice, exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource, markupPct, fixedSalesPriceEur,
-                stockQuantity, photos, texts);
+                stockQuantity, photos, texts, demo);
     }
 }

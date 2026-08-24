@@ -199,7 +199,8 @@ public class PublicFamilyCatalogResource {
                 family, language, summary, description, fallbackSeoDescription);
         List<ProductEntity> familyMembers = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        List<ProductEntity> variants = familyMembers.stream().filter(item -> item.active).toList();
+        /* Demo pieces are ours to show, never the website's to sell. */
+        List<ProductEntity> variants = familyMembers.stream().filter(item -> item.active && !item.demo).toList();
         List<PublicFamilyCatalogDto.ImageDto> images = family.photos.stream()
                 .filter(image -> photoPublication.isPublic(image, familyMembers))
                 .sorted(Comparator.comparingInt(item -> item.position))
@@ -382,7 +383,7 @@ public class PublicFamilyCatalogResource {
     private Long resolvedProductId(
             ProductFamilyPhotoEntity image, List<ProductEntity> familyMembers) {
         ProductEntity resolved = variantResolver.resolve(image, familyMembers);
-        return resolved == null || !resolved.active ? null : resolved.id;
+        return resolved == null || !resolved.active || resolved.demo ? null : resolved.id;
     }
 
     /** Never expose a stored merchandising id that the public variant graph cannot resolve. */
@@ -391,7 +392,7 @@ public class PublicFamilyCatalogResource {
             CatalogChannel channel) {
         if (productId == null) return null;
         ProductEntity product = products.findById(productId);
-        if (product == null || !product.active || product.familyId == null) return null;
+        if (product == null || !product.active || product.demo || product.familyId == null) return null;
         if (requiredFamilyId != null && !Objects.equals(product.familyId, requiredFamilyId)) {
             return null;
         }

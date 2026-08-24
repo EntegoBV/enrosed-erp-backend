@@ -195,7 +195,8 @@ public class LandedCostCalculator {
                 type.code(),
                 capacity,
                 usedCbm,
-                fill.min(BigDecimal.valueOf(100)),
+                /* The honest figure, past 100 too: 104% is squeezable, 112% is a second container. */
+                fill,
                 capacity.subtract(usedCbm).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP),
                 usedCbm.subtract(capacity).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP));
     }

@@ -245,7 +245,8 @@ public class ProductService {
                 current.photos(),
                 /* Public translations have their own revisioned, atomic endpoint. A stale
                    general product PUT must never overwrite that independently saved snapshot. */
-                current.texts());
+                current.texts(),
+                changes.demo());
     }
 
     /**
@@ -311,7 +312,8 @@ public class ProductService {
                                 sizeChanged ? VariantSizes.translate(size, text.language())
                                         : text.variantSize()))
                         .filter(text -> !text.isEmpty())
-                        .toList()));
+                        .toList(),
+                source.demo()));
     }
 
     @Transactional

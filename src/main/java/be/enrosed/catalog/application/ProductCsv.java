@@ -258,7 +258,8 @@ public class ProductCsv {
                 decimal(cells, 17, current.markupPct()),
                 decimal(cells, 18, current.fixedSalesPriceEur()),
                 current.stockQuantity(),
-                current.photos(), current.texts());
+                current.photos(), current.texts(),
+                current.demo());
     }
 
     private void validatePublicationFields(Product product, Long currentId) {

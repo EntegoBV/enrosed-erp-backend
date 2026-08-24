@@ -27,6 +27,7 @@ public record ProductDto(
         Long categoryId,
         Long supplierId,
         Boolean active,
+        Boolean demo,
         Long familyId,
         String canonicalVariantKey,
         String canonicalBarcode,
@@ -124,6 +125,7 @@ public record ProductDto(
                         product.packaging().isPresent() ? product.packaging().unitPieces() : null),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.active(),
+                product.demo(),
                 product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
                 product.variantPosition(),
                 product.inventoryKnown(),
@@ -179,7 +181,8 @@ public record ProductDto(
                         .filter(text -> text != null && text.language() != null)
                         .map(text -> new ProductText(text.language(), text.name(),
                                 text.description(), text.colour(), text.variantSize()))
-                        .toList());
+                        .toList(),
+                demo != null && demo);
     }
 
     /** Preserves fields that older full-PUT clients could not send yet. */

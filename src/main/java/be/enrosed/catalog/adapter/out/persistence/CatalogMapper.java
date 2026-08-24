@@ -69,7 +69,8 @@ final class CatalogMapper {
                 entity.fixedSalesPriceEur,
                 entity.stockQuantity,
                 photos,
-                texts);
+                texts,
+                entity.demo);
     }
 
     static void apply(Product product, ProductEntity entity) {
@@ -104,6 +105,7 @@ final class CatalogMapper {
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();
         entity.active = product.active();
+        entity.demo = product.demo();
         entity.familyId = product.familyId();
         entity.canonicalVariantKey = blankToNull(product.canonicalVariantKey());
         entity.canonicalBarcode = blankToNull(product.canonicalBarcode());
