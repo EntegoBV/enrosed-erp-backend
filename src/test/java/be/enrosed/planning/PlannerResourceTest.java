@@ -21,11 +21,11 @@ class PlannerResourceTest {
     @TestTransaction
     void appointmentsSortByDateAndTasksTickOff() {
         var meeting = planner.create(new PlannerResource.PlannerItem(null, PlannerItemEntity.Kind.EVENT,
-                "Side Arendonk bezoek", LocalDate.of(2026, 9, 3), "10:30", "stand bespreken", false, true, null));
+                "Side Arendonk bezoek", LocalDate.of(2026, 9, 3), "10:30", "stand bespreken", false, true, null, null));
         planner.create(new PlannerResource.PlannerItem(null, PlannerItemEntity.Kind.TASK,
-                "Dozen bestellen", null, null, null, false, null, null));
+                "Dozen bestellen", null, null, null, false, null, null, null));
         planner.create(new PlannerResource.PlannerItem(null, PlannerItemEntity.Kind.EVENT,
-                "Beurs Gent", LocalDate.of(2026, 8, 30), null, null, false, null, null));
+                "Beurs Gent", LocalDate.of(2026, 8, 30), null, null, false, null, null, null));
 
         /* The fair-planning seed shares the table: assert relative order, not counts. */
         var items = planner.list();
@@ -41,7 +41,7 @@ class PlannerResourceTest {
         var created = (PlannerResource.PlannerItem) meeting.getEntity();
         var done = planner.update(created.id(), new PlannerResource.PlannerItem(created.id(),
                 created.kind(), created.title(), created.onDate(), created.atTime(), created.note(), true,
-                false, null));
+                false, null, null));
         assertTrue(done.done());
 
         int before = planner.list().size();

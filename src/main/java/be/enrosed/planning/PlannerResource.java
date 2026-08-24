@@ -40,10 +40,11 @@ public class PlannerResource {
 
     public record PlannerItem(Long id, PlannerItemEntity.Kind kind, String title,
                               LocalDate onDate, String atTime, String note, boolean done,
-                              Boolean pinned, List<Attachment> attachments) {
+                              Boolean pinned, Long parentId, List<Attachment> attachments) {
         static PlannerItem from(PlannerItemEntity entity, List<Attachment> attachments) {
             return new PlannerItem(entity.id, entity.kind, entity.title,
-                    entity.onDate, entity.atTime, entity.note, entity.done, entity.pinned, attachments);
+                    entity.onDate, entity.atTime, entity.note, entity.done, entity.pinned,
+                    entity.parentId, attachments);
         }
     }
 
@@ -89,6 +90,8 @@ public class PlannerResource {
     @Transactional
     public Response delete(@PathParam("id") long id) {
         if (!PlannerItemEntity.deleteById(id)) throw new NotFoundException("Agendapunt", id);
+        /* Tasks under the appointment stay alive as planned tasks of their own. */
+        PlannerItemEntity.update("parentId = null where parentId = ?1", id);
         for (PlannerAttachmentEntity attachment
                 : PlannerAttachmentEntity.<PlannerAttachmentEntity>list("itemId = ?1", id)) {
             try { photoStorage.get().delete(attachment.storageKey); } catch (RuntimeException ignored) { }
@@ -160,5 +163,6 @@ public class PlannerResource {
         entity.note = request.note() == null || request.note().isBlank() ? null : request.note().strip();
         entity.done = request.done();
         entity.pinned = request.pinned() != null && request.pinned();
+        entity.parentId = request.parentId();
     }
 }

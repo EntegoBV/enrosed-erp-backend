@@ -42,6 +42,9 @@ public class PlannerItemEntity extends io.quarkus.hibernate.orm.panache.PanacheE
 
     public boolean done;
 
+    /** The appointment this task belongs to; planned along with it. */
+    public Long parentId;
+
     /** Pinned to the very top of the dashboard until unpinned. */
     @org.hibernate.annotations.ColumnDefault("false")
     @Column(nullable = false)
