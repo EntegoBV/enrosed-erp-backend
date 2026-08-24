@@ -27,13 +27,16 @@ class PlannerResourceTest {
         planner.create(new PlannerResource.PlannerItem(null, PlannerItemEntity.Kind.EVENT,
                 "Beurs Gent", LocalDate.of(2026, 8, 30), null, null, false, null, null));
 
+        /* The fair-planning seed shares the table: assert relative order, not counts. */
         var items = planner.list();
-        assertEquals(3, items.size());
-        assertEquals("Beurs Gent", items.get(0).title(), "earliest date first");
-        assertEquals("Side Arendonk bezoek", items.get(1).title());
-        assertNull(items.get(2).onDate(), "loose tasks come last");
+        int gent = indexOf(items, "Beurs Gent");
+        int arendonk = indexOf(items, "Side Arendonk bezoek");
+        int loose = indexOf(items, "Dozen bestellen");
+        assertTrue(gent >= 0 && arendonk > gent, "earliest date first");
+        assertTrue(loose > arendonk, "loose tasks come last");
+        assertNull(items.get(loose).onDate());
 
-        assertTrue(items.get(1).pinned(), "the pin rides along");
+        assertTrue(items.get(arendonk).pinned(), "the pin rides along");
 
         var created = (PlannerResource.PlannerItem) meeting.getEntity();
         var done = planner.update(created.id(), new PlannerResource.PlannerItem(created.id(),
@@ -41,7 +44,15 @@ class PlannerResourceTest {
                 false, null));
         assertTrue(done.done());
 
+        int before = planner.list().size();
         planner.delete(created.id());
-        assertEquals(2, planner.list().size());
+        assertEquals(before - 1, planner.list().size());
+    }
+
+    private static int indexOf(java.util.List<PlannerResource.PlannerItem> items, String title) {
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).title().equals(title)) return i;
+        }
+        return -1;
     }
 }
