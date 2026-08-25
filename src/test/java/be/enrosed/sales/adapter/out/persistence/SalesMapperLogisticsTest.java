@@ -64,6 +64,7 @@ class SalesMapperLogisticsTest {
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, fixed,
                 loadMode, profile, maxHeight, strategy, perCbm,
+                null, null, null, null, null, null, null,
                 List.of(new SalesOrderLine(null, 1L, 3, null, null, null)), pallets);
     }
 

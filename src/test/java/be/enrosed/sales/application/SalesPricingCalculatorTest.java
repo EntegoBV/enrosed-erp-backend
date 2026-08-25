@@ -177,6 +177,7 @@ class SalesPricingCalculatorTest {
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, freight, fixed,
                 loadMode, PalletProfile.EURO_120X80, null, strategy, perCbm,
+                null, null, null, null, null, null, null,
                 lines, pallets);
     }
 
@@ -188,7 +189,9 @@ class SalesPricingCalculatorTest {
                 QuoteStatus.CONCEPT, "DAP", null, "", MarkupMode.PRODUCT, decimal("45"),
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, manualFreight,
-                loadMode, profile, null, strategy, null, List.of(), List.of());
+                loadMode, profile, null, strategy, null,
+                null, null, null, null, null, null, null,
+                List.of(), List.of());
     }
 
     private static Product product(long id, String sku, Carton carton) {

@@ -139,6 +139,7 @@ class SalesOrderLogisticsValidationTest {
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, fixed,
                 loadMode, PalletProfile.EURO_120X80, maxHeight, strategy, perCbm,
+                null, null, null, null, null, null, null,
                 List.of(new SalesOrderLine(null, 1L, 20, null, null, null)), pallets);
     }
 
@@ -152,7 +153,9 @@ class SalesOrderLogisticsValidationTest {
                 source.signedByName(), source.customerMessage(), source.internalNotes(),
                 source.deliveryTerms(), freight, source.manualFreightEur(), source.loadMode(),
                 source.palletProfile(), source.maxPalletHeightCm(), source.freightPricingStrategy(),
-                source.freightRatePerCbmEur(), source.lines(), source.pallets());
+                source.freightRatePerCbmEur(),
+                null, null, null, null, null, null, null,
+                source.lines(), source.pallets());
     }
 
     private static Product product() {

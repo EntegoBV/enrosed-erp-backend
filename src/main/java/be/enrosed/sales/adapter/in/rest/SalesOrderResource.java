@@ -44,21 +44,29 @@ public class SalesOrderResource {
                                  FreightPricingStrategy freightPricingStrategy,
                                  BigDecimal freightRatePerCbmEur,
                                  Long freightCarrierId) {}
-    public record OrderView(SalesOrder order, PricedOrder priced) {}
+    /** {@code awaitingResend}: an adopted customer proposal that has not gone back out. */
+    public record OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend) {}
     public record PortalLink(boolean available, String status, String url) {}
 
     @GET
     public List<OrderView> list() {
-        return salesOrders.list().stream()
-                .map(order -> new OrderView(order, salesOrders.price(order)))
+        List<SalesOrder> all = salesOrders.list();
+        java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
+        return all.stream()
+                .map(order -> new OrderView(order, salesOrders.price(order),
+                        awaiting.contains(order.id())))
                 .toList();
+    }
+
+    private OrderView view(SalesOrder order) {
+        return new OrderView(order, salesOrders.price(order), quotes.awaitsResend(order));
     }
 
     @GET
     @Path("/{id}")
     public OrderView get(@PathParam("id") long id) {
         SalesOrder order = salesOrders.get(id);
-        return new OrderView(order, salesOrders.price(order));
+        return view(order);
     }
 
     @POST
@@ -67,7 +75,7 @@ public class SalesOrderResource {
                 request.incoterm(),
                 request.docType() == null ? DocumentType.OFFERTE : request.docType());
         return Response.status(Response.Status.CREATED)
-                .entity(new OrderView(created, salesOrders.price(created)))
+                .entity(view(created))
                 .build();
     }
 
@@ -76,28 +84,35 @@ public class SalesOrderResource {
     @Path("/{id}/invoice")
     public OrderView createInvoice(@PathParam("id") long id) {
         SalesOrder invoice = salesOrders.createInvoiceFrom(id);
-        return new OrderView(invoice, salesOrders.price(invoice));
+        return view(invoice);
     }
 
     @POST
     @Path("/{id}/mark-sent")
     public OrderView markInvoiceSent(@PathParam("id") long id) {
         SalesOrder sent = salesOrders.markInvoiceSent(id);
-        return new OrderView(sent, salesOrders.price(sent));
+        return view(sent);
+    }
+
+    /** The goods left the door: books the stock out. Explicit, never automatic. */
+    @POST
+    @Path("/{id}/ship-goods")
+    public OrderView shipGoods(@PathParam("id") long id) {
+        return view(salesOrders.shipGoods(id));
     }
 
     @POST
     @Path("/{id}/mark-paid")
     public OrderView markInvoicePaid(@PathParam("id") long id) {
         SalesOrder paid = salesOrders.markInvoicePaid(id);
-        return new OrderView(paid, salesOrders.price(paid));
+        return view(paid);
     }
 
     @PUT
     @Path("/{id}")
     public OrderView update(@PathParam("id") long id, SalesOrder order) {
         SalesOrder saved = salesOrders.update(id, order);
-        return new OrderView(saved, salesOrders.price(saved));
+        return view(saved);
     }
 
     /**
@@ -108,7 +123,7 @@ public class SalesOrderResource {
     @Path("/{id}/preview")
     public OrderView preview(@PathParam("id") long id, SalesOrder order) {
         salesOrders.get(id);
-        return new OrderView(order, salesOrders.price(order));
+        return view(order);
     }
 
     /** Fills in delivery weeks without reopening every field of a sent quote. */
@@ -117,7 +132,7 @@ public class SalesOrderResource {
     public OrderView updateDeliveryTerms(@PathParam("id") long id, DeliveryTermsRequest request) {
         SalesOrder saved = salesOrders.updateDeliveryWeeks(id,
                 request == null ? null : request.lines());
-        return new OrderView(saved, salesOrders.price(saved));
+        return view(saved);
     }
 
     /** Updates only the open freight item on a sent quote. */
@@ -130,14 +145,14 @@ public class SalesOrderResource {
                 request == null ? null : request.freightPricingStrategy(),
                 request == null ? null : request.freightRatePerCbmEur(),
                 request == null ? null : request.freightCarrierId());
-        return new OrderView(saved, salesOrders.price(saved));
+        return view(saved);
     }
 
     @POST
     @Path("/{id}/duplicate")
     public OrderView duplicate(@PathParam("id") long id) {
         SalesOrder copy = salesOrders.duplicate(id);
-        return new OrderView(copy, salesOrders.price(copy));
+        return view(copy);
     }
 
     @DELETE
@@ -154,7 +169,7 @@ public class SalesOrderResource {
     @Path("/{id}/send")
     public OrderView send(@PathParam("id") long id, SendRequest request) {
         SalesOrder sent = quotes.send(id, request == null ? null : request.message());
-        return new OrderView(sent, salesOrders.price(sent));
+        return view(sent);
     }
 
     /** The history of a quote, oldest step first. */
@@ -169,7 +184,7 @@ public class SalesOrderResource {
     @Path("/{id}/reopen")
     public OrderView reopen(@PathParam("id") long id) {
         SalesOrder reopened = quotes.reopen(id);
-        return new OrderView(reopened, salesOrders.price(reopened));
+        return view(reopened);
     }
 
     /** The packing slip: pallets when laid out, plain lines otherwise. */
@@ -230,7 +245,7 @@ public class SalesOrderResource {
         SalesOrder order = quotes.approveRevision(revisionId,
                 decision == null ? null : decision.handledBy(),
                 decision == null ? null : decision.message());
-        return new OrderView(order, salesOrders.price(order));
+        return view(order);
     }
 
     /** We do not adopt it; the quote stays as sent. */
@@ -240,6 +255,6 @@ public class SalesOrderResource {
         SalesOrder order = quotes.rejectRevision(revisionId,
                 decision == null ? null : decision.handledBy(),
                 decision == null ? null : decision.message());
-        return new OrderView(order, salesOrders.price(order));
+        return view(order);
     }
 }

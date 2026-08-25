@@ -62,6 +62,7 @@ class QuoteServicePortalUrlTest {
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
                 FreightPricingStrategy.COUNTRY_PALLET, null,
+                null, null, null, null, null, null, null,
                 List.of(), List.of());
     }
 }

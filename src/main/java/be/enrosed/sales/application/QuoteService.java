@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -565,6 +566,37 @@ public class QuoteService {
     }
 
     /**
+     * An adopted proposal puts the quote back on concept - but the customer
+     * is still waiting for the new version. This stays true until the quote
+     * actually goes out again, so the screen can keep saying so.
+     */
+    public boolean awaitsResend(SalesOrder order) {
+        if (order.status() != QuoteStatus.CONCEPT || order.id() == null) return false;
+        return revisions.findByOrder(order.id()).stream()
+                .anyMatch(revision -> adoptedAfterLastSend(order, revision));
+    }
+
+    /** The list-screen variant: one query for all orders at once. */
+    public Set<Long> awaitsResendIds(List<SalesOrder> orders) {
+        Map<Long, SalesOrder> concepts = orders.stream()
+                .filter(order -> order.status() == QuoteStatus.CONCEPT && order.id() != null)
+                .collect(java.util.stream.Collectors.toMap(SalesOrder::id, order -> order));
+        if (concepts.isEmpty()) return Set.of();
+        return revisions.findApproved().stream()
+                .filter(revision -> {
+                    SalesOrder order = concepts.get(revision.salesOrderId());
+                    return order != null && adoptedAfterLastSend(order, revision);
+                })
+                .map(QuoteRevision::salesOrderId)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static boolean adoptedAfterLastSend(SalesOrder order, QuoteRevision revision) {
+        return revision.status() == RevisionStatus.GOEDGEKEURD && revision.handledAt() != null
+                && (order.sentAt() == null || revision.handledAt().isAfter(order.sentAt()));
+    }
+
+    /**
      * We adopt the proposal.
      *
      * The customer's quantities go onto the order; lines the customer zeroes
@@ -617,8 +649,11 @@ public class QuoteService {
                 null, null, order.customerMessage(), order.internalNotes(),
                 order.deliveryTerms(), order.freight(), order.manualFreightEur(),
                 order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
-                order.freightPricingStrategy(), order.freightRatePerCbmEur(), updated,
-                order.pallets()));
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(),
+                updated, order.pallets()));
     }
 
     /**
@@ -744,6 +779,9 @@ public class QuoteService {
                 order.internalNotes(), deliveryTerms, freight, order.manualFreightEur(),
                 order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
                 order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(),
                 order.lines(), order.pallets());
     }
 
@@ -770,6 +808,9 @@ public class QuoteService {
                 order.deliveryTerms(), order.freight(), order.manualFreightEur(),
                 order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
                 order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(),
                 order.lines(), order.pallets());
     }
 }

@@ -207,6 +207,24 @@ public class StockService {
         recompute(productId);
     }
 
+    /**
+     * A sold order leaves the warehouse.
+     *
+     * Unlike {@link #takeOut} the count may sink below zero: a sale is a
+     * fact, and a negative book signals the counting was off - hiding that
+     * behind an error would block the shipment over bookkeeping.
+     */
+    @Transactional
+    public void sell(long productId, long locationId, int quantity, String reference) {
+        if (quantity <= 0) throw new BusinessRuleException("Geef een aantal groter dan nul op");
+        requireProduct(productId);
+        StockLocation location = location(locationId);
+        int at = quantityAt(productId, locationId);
+        write(productId, locationId, at - quantity);
+        book(productId, location, -quantity, at - quantity, StockMovement.Kind.SALE, reference);
+        recompute(productId);
+    }
+
     /** Books pieces that never reached the shelf - broken on arrival - so the damage is counted. */
     @Transactional
     public void noteDamagedOnArrival(long productId, long locationId, int quantity, String reference) {

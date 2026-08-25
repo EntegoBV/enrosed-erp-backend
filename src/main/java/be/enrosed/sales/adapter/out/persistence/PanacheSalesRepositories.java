@@ -182,6 +182,12 @@ public final class PanacheSalesRepositories {
         }
 
         @Override
+        public List<QuoteRevision> findApproved() {
+            return dao.list("status = ?1", RevisionStatus.GOEDGEKEURD)
+                    .stream().map(SalesMapper::toDomain).toList();
+        }
+
+        @Override
         public Optional<QuoteRevision> findById(long id) {
             return Optional.ofNullable(dao.findById(id)).map(SalesMapper::toDomain);
         }

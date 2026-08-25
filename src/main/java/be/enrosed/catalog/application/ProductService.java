@@ -415,6 +415,27 @@ public class ProductService {
         queueWebsite();
     }
 
+    /**
+     * Books a shipped sales order out of the warehouse.
+     *
+     * Only ever called after an explicit confirmation in the app - shipping
+     * is a human decision, never a side effect.
+     */
+    @Transactional
+    public void sellStock(long productId, int quantity, String reference) {
+        if (quantity <= 0) return;
+        if (stock != null && stock.isResolvable()) {
+            StockService service = stock.get();
+            service.sell(productId, service.mainLocation().id(), quantity, reference);
+            return;
+        }
+        if (!products.adjustStock(productId, -quantity)) {
+            throw new NotFoundException("Product", productId);
+        }
+        book(productId, -quantity, StockMovement.Kind.SALE, reference);
+        queueWebsite();
+    }
+
     public List<StockMovement> stockMovements(long productId) {
         get(productId);
         return stockLedger().forProduct(productId);

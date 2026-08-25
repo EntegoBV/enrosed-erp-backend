@@ -111,6 +111,12 @@ public class SalesOrderService {
                              DocumentType docType) {
         boolean invoice = docType == DocumentType.FACTUUR;
         LocalDate today = LocalDate.now();
+        /* The staffel of the shipping organisation is the house standard;
+           without one configured, the country tariff steps in. */
+        Long defaultCarrierId = shippingCarriers.findAll().stream()
+                .filter(be.enrosed.shipping.domain.Carrier::active)
+                .map(be.enrosed.shipping.domain.Carrier::id)
+                .findFirst().orElse(null);
         SalesOrder draft = new SalesOrder(
                 null, invoice ? nextInvoiceNumber() : nextNumber(),
                 customerId, countryCode, today, today.plusDays(30),
@@ -120,8 +126,10 @@ public class SalesOrderService {
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
-                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
-                docType, invoice ? today.plusDays(30) : null, null, null,
+                defaultCarrierId == null
+                        ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
+                null, defaultCarrierId, null,
+                docType, invoice ? today.plusDays(30) : null, null, null, null,
                 List.of(), List.of());
         validateForSave(draft);
         SalesOrder created = orders.save(draft);
@@ -161,7 +169,7 @@ public class SalesOrderService {
                 source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
-                DocumentType.FACTUUR, today.plusDays(30), null, source.id(),
+                DocumentType.FACTUUR, today.plusDays(30), null, source.id(), null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
@@ -182,6 +190,51 @@ public class SalesOrderService {
         phones.notifyAll("sale-invoice", "\uD83D\uDCB0 Nieuwe factuur " + created.number(),
                 "Vanuit offerte " + source.number(), "/sales/" + created.id());
         return created;
+    }
+
+    /**
+     * The goods physically leave: every line is written out of the stock
+     * book, once. Nothing calls this automatically - the app asks for an
+     * explicit confirmation first, because an unbooked shipment is easy to
+     * fix and a double booking is not.
+     */
+    @Transactional
+    public SalesOrder shipGoods(long id) {
+        SalesOrder invoice = requireInvoice(get(id));
+        if (invoice.status() != QuoteStatus.VERZONDEN && invoice.status() != QuoteStatus.BETAALD) {
+            throw new BusinessRuleException("Verstuur eerst de factuur; daarna kan de bestelling afgepunt worden");
+        }
+        if (invoice.goodsShippedAt() != null) {
+            throw new BusinessRuleException("De voorraad van deze bestelling is al afgepunt");
+        }
+        if (invoice.lines().isEmpty()) {
+            throw new BusinessRuleException("Deze factuur heeft geen productregels om af te punten");
+        }
+        for (SalesOrderLine line : invoice.lines()) {
+            if (line.quantity() > 0) {
+                products.sellStock(line.productId(), line.quantity(), invoice.number());
+            }
+        }
+        SalesOrder shipped = orders.save(withGoodsShipped(invoice, java.time.Instant.now()));
+        events.add(new QuoteEvent(null, id, QuoteEvent.Type.BESTELLING_VERZONDEN,
+                java.time.Instant.now(), null, false,
+                "Bestelling verzonden - voorraad afgepunt", null));
+        return shipped;
+    }
+
+    private static SalesOrder withGoodsShipped(SalesOrder order, java.time.Instant at) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                at, order.lines(), order.pallets());
     }
 
     /** Invoices skip the portal: sending is a bookkeeping fact, not a mail flow. */
@@ -273,6 +326,7 @@ public class SalesOrderService {
                 order.freightRatePerCbmEur(), order.freightCarrierId(),
                 order.freightCarrierExtraEur(), order.docType(),
                 order.invoiceDueDate(), paidAt, order.sourceQuoteId(),
+                order.goodsShippedAt(),
                 order.lines(), order.pallets());
     }
 
@@ -327,7 +381,7 @@ public class SalesOrderService {
                         ? current.freightCarrierExtraEur() : changes.freightCarrierExtraEur(),
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
-                current.paidAt(), current.sourceQuoteId(),
+                current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
                 roundLinesToCartons(changes.lines()), changes.pallets());
         validateForSave(updated);
         return orders.save(updated);
@@ -541,7 +595,7 @@ public class SalesOrderService {
                 source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
-                source.docType(), source.isInvoice() ? today.plusDays(30) : null, null, null,
+                source.docType(), source.isInvoice() ? today.plusDays(30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
@@ -759,6 +813,7 @@ public class SalesOrderService {
                 order.freightPricingStrategy(), order.freightRatePerCbmEur(), freightCarrierId,
                 order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(),
                 order.lines(), order.pallets());
     }
 
@@ -778,6 +833,7 @@ public class SalesOrderService {
                 freightPricingStrategy, freightRatePerCbmEur, order.freightCarrierId(),
                 order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(),
                 lines, order.pallets());
     }
 

@@ -43,6 +43,7 @@ public record QuoteEvent(
         LEVERTERMIJN_INGEVULD,
         VRACHT_INGEVULD,
         GEFACTUREERD,
+        BESTELLING_VERZONDEN,
         BETAALD
     }
 }

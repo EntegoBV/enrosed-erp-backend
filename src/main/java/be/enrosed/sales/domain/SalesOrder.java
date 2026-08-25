@@ -98,6 +98,8 @@ public record SalesOrder(
         Instant paidAt,
         /** Invoices only: the quote this invoice was made from, if any. */
         Long sourceQuoteId,
+        /** Invoices only: when the goods left the door and the stock was written down. */
+        Instant goodsShippedAt,
 
         List<SalesOrderLine> lines,
 
@@ -107,30 +109,6 @@ public record SalesOrder(
          */
         List<OrderPallet> pallets
 ) {
-    /**
-     * Pre-invoice signature: every caller that builds a plain quote keeps
-     * working; the new document fields stay empty.
-     */
-    public SalesOrder(Long id, String number, Long customerId, String countryCode,
-                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
-                      String incoterm, String paymentTerms, String notes,
-                      MarkupMode markupMode, BigDecimal orderMarkupPct,
-                      BigDecimal extraDiscountPct, String extraDiscountLabel,
-                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
-                      Instant decidedAt, String signedByName, String customerMessage,
-                      String internalNotes, DeliveryTermsState deliveryTerms, FreightState freight,
-                      BigDecimal manualFreightEur, LoadMode loadMode, PalletProfile palletProfile,
-                      BigDecimal maxPalletHeightCm, FreightPricingStrategy freightPricingStrategy,
-                      BigDecimal freightRatePerCbmEur,
-                      List<SalesOrderLine> lines, List<OrderPallet> pallets) {
-        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
-                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
-                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
-                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
-                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
-                freightPricingStrategy, freightRatePerCbmEur, null, null,
-                null, null, null, null, lines, pallets);
-    }
 
     /** Every order that predates invoices is a quote. */
     public DocumentType docType() {
@@ -206,7 +184,10 @@ public record SalesOrder(
 
     /** The terms that actually apply: the order's own, or the customer's. */
     public String paymentTermsOr(String customerDefault) {
-        return paymentTerms == null || paymentTerms.isBlank() ? customerDefault : paymentTerms;
+        if (paymentTerms != null && !paymentTerms.isBlank()) return paymentTerms;
+        if (customerDefault != null && !customerDefault.isBlank()) return customerDefault;
+        /* Nobody said otherwise: the house standard is payment in advance. */
+        return "Vooruitbetaling";
     }
 
     public FreightState freight() {

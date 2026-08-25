@@ -78,6 +78,7 @@ class SalesLifecycleTest {
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
                 FreightPricingStrategy.COUNTRY_PALLET, null,
+                null, null, null, null, null, null, null,
                 List.of(), List.of());
     }
 
@@ -90,6 +91,8 @@ class SalesLifecycleTest {
                 null, 0, null, null, null, null, draft.deliveryTerms(), draft.freight(),
                 draft.manualFreightEur(), draft.loadMode(), draft.palletProfile(),
                 draft.maxPalletHeightCm(), draft.freightPricingStrategy(),
-                draft.freightRatePerCbmEur(), draft.lines(), draft.pallets());
+                draft.freightRatePerCbmEur(),
+                null, null, null, null, null, null, null,
+                draft.lines(), draft.pallets());
     }
 }

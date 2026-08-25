@@ -170,6 +170,7 @@ public final class SalesEntities {
         public java.time.LocalDate invoiceDueDate;
         public java.time.Instant paidAt;
         public Long sourceQuoteId;
+        public Instant goodsShippedAt;
 
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")

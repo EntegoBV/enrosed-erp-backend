@@ -39,6 +39,7 @@ public interface SalesRepositories {
     interface Revisions {
         List<QuoteRevision> findByOrder(long salesOrderId);
         List<QuoteRevision> findPending();
+        List<QuoteRevision> findApproved();
         Optional<QuoteRevision> findById(long id);
         QuoteRevision save(QuoteRevision revision);
     }

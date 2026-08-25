@@ -39,6 +39,7 @@ public class InvoiceStatusMigration {
         widen("alter table sales_order drop constraint if exists sales_order_freightpricingstrategy_check");
         widen("alter table sales_order drop constraint if exists sales_order_freight_pricing_strategy_check");
         widen("alter table sales_order drop constraint if exists sales_order_doctype_check");
+        widen("alter table quote_event drop constraint if exists quote_event_type_check");
     }
 
     private void widen(String sql) {

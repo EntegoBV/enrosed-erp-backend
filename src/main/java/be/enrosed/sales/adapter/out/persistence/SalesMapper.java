@@ -90,7 +90,7 @@ final class SalesMapper {
                 entity.freightPricingStrategy, entity.freightRatePerCbmEur,
                 entity.freightCarrierId, entity.freightCarrierExtraEur,
                 entity.docType, entity.invoiceDueDate,
-                entity.paidAt, entity.sourceQuoteId,
+                entity.paidAt, entity.sourceQuoteId, entity.goodsShippedAt,
                 lines, pallets);
     }
 
@@ -130,6 +130,7 @@ final class SalesMapper {
         entity.invoiceDueDate = order.invoiceDueDate();
         entity.paidAt = order.paidAt();
         entity.sourceQuoteId = order.sourceQuoteId();
+        entity.goodsShippedAt = order.goodsShippedAt();
 
         List<SalesOrderLine> wanted = order.lines();
         entity.lines.removeIf(existing -> wanted.stream()
