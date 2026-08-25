@@ -228,6 +228,7 @@ public class SalesPricingCalculator {
             case PER_CBM -> freight = Money.money(
                     cbmTotal.multiply(Money.nz(order.freightRatePerCbmEur())));
             case FIXED -> freight = Money.money(order.manualFreightEur());
+            case PICKUP -> freight = BigDecimal.ZERO;
             case CARRIER -> {
                 /* The staffel prices per zone (postcode) and per pallet rung.
                    Whatever cannot be resolved becomes a named validation
@@ -241,9 +242,14 @@ public class SalesPricingCalculator {
                     carrierFreightIssue = "De staffel rekent per pallet; dit order heeft er geen";
                 } else {
                     be.enrosed.shipping.domain.CarrierPricing.PalletKind kind =
-                            order.palletProfile() == PalletProfile.BLOCK_120X100
-                                    ? be.enrosed.shipping.domain.CarrierPricing.PalletKind.BLOCKPALLET
-                                    : be.enrosed.shipping.domain.CarrierPricing.PalletKind.EUROPALLET;
+                            switch (order.palletProfile()) {
+                                case BLOCK_120X100 -> be.enrosed.shipping.domain
+                                        .CarrierPricing.PalletKind.BLOCKPALLET;
+                                case HALF_80X60 -> be.enrosed.shipping.domain
+                                        .CarrierPricing.PalletKind.HALF_PALLET;
+                                default -> be.enrosed.shipping.domain
+                                        .CarrierPricing.PalletKind.EUROPALLET;
+                            };
                     be.enrosed.shipping.domain.CarrierQuote quote =
                             be.enrosed.shipping.domain.CarrierPricing.quote(carrier,
                                     order.countryCode(), postcode, palletsForFreight, kind,

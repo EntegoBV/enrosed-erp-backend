@@ -94,7 +94,9 @@ public class CarrierResource {
         CarrierPricing.PalletKind kind = "BLOCK".equalsIgnoreCase(palletType)
                 || "BLOCKPALLET".equalsIgnoreCase(palletType)
                 ? CarrierPricing.PalletKind.BLOCKPALLET
-                : CarrierPricing.PalletKind.EUROPALLET;
+                : "HALF".equalsIgnoreCase(palletType)
+                        ? CarrierPricing.PalletKind.HALF_PALLET
+                        : CarrierPricing.PalletKind.EUROPALLET;
         CarrierQuote quote = CarrierPricing.quote(carrier, country, postcode, pallets, kind, weightKg);
         if (quote == null) return null;
         return new QuoteDto(quote.baseEur(), quote.dieselPct(), quote.dieselEur(),

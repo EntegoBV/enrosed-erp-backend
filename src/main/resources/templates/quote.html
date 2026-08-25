@@ -217,6 +217,7 @@
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
   <tr><td>{t.freight}
       {#if freightPending}
+      {#else if freightPickup}<span class="muted">({t.pickup})</span>
       {#else if freightPerCbm}<span class="muted">({priced.totals.cbm} m³)</span>
       {#else if freightFixed}
       {#else}<span class="muted">({effectivePallets} {t.pallets})</span>{/if}</td>

@@ -20,8 +20,12 @@ public final class CarrierPricing {
 
     private CarrierPricing() {}
 
-    /** How the pallets on the order map onto the tariff's columns. */
-    public enum PalletKind { EUROPALLET, BLOCKPALLET }
+    /**
+     * How the pallets on the order map onto the tariff's columns. A half
+     * pallet rides the europallet ladder at half weight: two halves count
+     * as one europallet, one half hits the 0,5-rung where the sheet has one.
+     */
+    public enum PalletKind { EUROPALLET, BLOCKPALLET, HALF_PALLET }
 
     public static CarrierQuote quote(Carrier carrier, String countryCode, String postcode,
                                      int pallets, PalletKind kind, BigDecimal weightKg) {
@@ -30,9 +34,13 @@ public final class CarrierPricing {
         if (lane == null || lane.zones().isEmpty() || lane.tiers().isEmpty()) return null;
         if (pallets <= 0) return null;
 
+        BigDecimal equivalents = kind == PalletKind.HALF_PALLET
+                ? BigDecimal.valueOf(pallets).divide(BigDecimal.valueOf(2))
+                : BigDecimal.valueOf(pallets);
+
         ZoneMatch zone = resolveZone(lane.zones(), postcode);
         if (zone == null) return null;
-        CarrierTier tier = pickTier(lane.tiers(), pallets, kind, weightKg);
+        CarrierTier tier = pickTier(lane.tiers(), equivalents, kind, weightKg);
         if (tier == null) return null;
 
         int zoneIndex = lane.zones().indexOf(zone.zone());
@@ -118,13 +126,13 @@ public final class CarrierPricing {
      * kilos. Rows without a capacity for the shipment's pallet kind are
      * someone else's rungs.
      */
-    private static CarrierTier pickTier(List<CarrierTier> tiers, int pallets,
+    private static CarrierTier pickTier(List<CarrierTier> tiers, BigDecimal palletEquivalents,
                                         PalletKind kind, BigDecimal weightKg) {
         CarrierTier best = null;
         for (CarrierTier tier : tiers) {
             BigDecimal capacity = kind == PalletKind.BLOCKPALLET ? tier.bpMax() : tier.epMax();
             if (capacity == null) continue;
-            if (capacity.compareTo(BigDecimal.valueOf(pallets)) < 0) continue;
+            if (capacity.compareTo(palletEquivalents) < 0) continue;
             if (weightKg != null && weightKg.signum() > 0 && tier.kgMax() != null
                     && tier.kgMax().compareTo(weightKg) < 0) continue;
             if (best == null || compareCapacity(tier, best, kind) < 0) best = tier;
@@ -142,6 +150,7 @@ public final class CarrierPricing {
     private static String label(CarrierTier tier, PalletKind kind) {
         BigDecimal capacity = kind == PalletKind.BLOCKPALLET ? tier.bpMax() : tier.epMax();
         String sort = kind == PalletKind.BLOCKPALLET ? "blokpallet(s)" : "europallet(s)";
+        if (kind == PalletKind.HALF_PALLET) sort = "europallet(s), halve pallets meegeteld";
         StringBuilder text = new StringBuilder("t/m ").append(plain(capacity)).append(' ').append(sort);
         if (tier.kgMax() != null) text.append(" · max ").append(plain(tier.kgMax())).append(" kg");
         return text.toString();

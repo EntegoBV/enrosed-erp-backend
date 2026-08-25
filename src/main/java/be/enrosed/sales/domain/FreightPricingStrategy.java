@@ -9,5 +9,7 @@ public enum FreightPricingStrategy {
     /** One fixed total stored in {@code manualFreightEur}. */
     FIXED,
     /** A shipping organisation's staffel: zone by postcode, tier by pallets. */
-    CARRIER
+    CARRIER,
+    /** The customer collects at the warehouse: no freight at all. */
+    PICKUP
 }

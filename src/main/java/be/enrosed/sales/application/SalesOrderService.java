@@ -318,7 +318,7 @@ public class SalesOrderService {
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(),
-                changes.lines(), changes.pallets());
+                roundLinesToCartons(changes.lines()), changes.pallets());
         validateForSave(updated);
         return orders.save(updated);
     }
@@ -445,7 +445,8 @@ public class SalesOrderService {
             case PER_CBM -> {
                 if (order.freightRatePerCbmEur() == null
                         || order.freightRatePerCbmEur().signum() <= 0) {
-                    throw new BusinessRuleException("Vul een positief vrachttarief per CBM in");
+                    throw new BusinessRuleException("De vracht staat op een m3-tarief zonder bedrag"
+                        + " - open Transport & levering en kies een andere vrachtberekening");
                 }
                 requireOuterCartonsForFreight(order, false);
             }
@@ -636,7 +637,8 @@ public class SalesOrderService {
             if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
                     && (order.freightRatePerCbmEur() == null
                         || order.freightRatePerCbmEur().signum() <= 0)) {
-                throw new BusinessRuleException("Vul een positief vrachttarief per CBM in");
+                throw new BusinessRuleException("De vracht staat op een m3-tarief zonder bedrag"
+                        + " - open Transport & levering en kies een andere vrachtberekening");
             }
             if (order.freightPricingStrategy() == FreightPricingStrategy.FIXED
                     && order.manualFreightEur() == null) {
@@ -807,6 +809,27 @@ public class SalesOrderService {
 
     private static String clean(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * We never sell half a carton: every quantity rounds up to whole outer
+     * cartons on save. The screen announces the correction; this makes it
+     * true no matter which client wrote the order.
+     */
+    private List<SalesOrderLine> roundLinesToCartons(List<SalesOrderLine> lines) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        return lines.stream().map(line -> {
+            if (line == null || line.quantity() <= 0) return line;
+            Product product = byId.get(line.productId());
+            int per = product == null || product.carton() == null ? 1
+                    : Math.max(1, product.carton().piecesPerCarton());
+            int rounded = (int) Math.ceil(line.quantity() / (double) per) * per;
+            return rounded == line.quantity() ? line
+                    : new SalesOrderLine(line.id(), line.productId(), rounded,
+                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek());
+        }).toList();
     }
 
     private String nextNumber() {

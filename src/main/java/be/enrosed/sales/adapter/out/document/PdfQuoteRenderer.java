@@ -137,6 +137,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         == be.enrosed.sales.domain.FreightPricingStrategy.PER_CBM)
                 .data("freightFixed", order.freightPricingStrategy()
                         == be.enrosed.sales.domain.FreightPricingStrategy.FIXED)
+                .data("freightPickup", order.freightPricingStrategy()
+                        == be.enrosed.sales.domain.FreightPricingStrategy.PICKUP)
                 .data("effectivePallets", priced.totals().palletsManual() > 0
                         ? priced.totals().palletsManual() : priced.totals().palletsStrict())
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))

@@ -60,6 +60,20 @@ class CarrierPricingTest {
     }
 
     @Test
+    void oneHalfPalletHitsTheHalfRung() {
+        CarrierQuote quote = CarrierPricing.quote(esta(), "NL", "1082", 1,
+                CarrierPricing.PalletKind.HALF_PALLET, new BigDecimal("200"));
+        assertEquals(new BigDecimal("52.00"), quote.baseEur());
+    }
+
+    @Test
+    void twoHalvesCountAsOneEuropallet() {
+        CarrierQuote quote = CarrierPricing.quote(esta(), "NL", "1082", 2,
+                CarrierPricing.PalletKind.HALF_PALLET, new BigDecimal("400"));
+        assertEquals(new BigDecimal("62.00"), quote.baseEur());
+    }
+
+    @Test
     void blockpalletsUseTheirOwnRungs() {
         CarrierQuote quote = CarrierPricing.quote(esta(), "NL", "4500", 1,
                 CarrierPricing.PalletKind.BLOCKPALLET, null);
