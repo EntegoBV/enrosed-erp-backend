@@ -28,6 +28,9 @@ import java.util.List;
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class PlannerResource {
 
+    @jakarta.inject.Inject
+    be.enrosed.push.WebPushNotifier phones;
+
     /** Files ride the same store as product photos: one backup, one place. */
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.port.out.PhotoStorage> photoStorage;
@@ -72,6 +75,10 @@ public class PlannerResource {
         apply(entity, request);
         entity.createdAt = Instant.now();
         entity.persist();
+        String when = entity.onDate == null ? ""
+                : " op " + be.enrosed.shared.DocumentFormat.be(entity.onDate)
+                + (entity.atTime == null || entity.atTime.isBlank() ? "" : " om " + entity.atTime);
+        if (phones != null) phones.notifyAll("agenda", "In de agenda gezet", entity.title + when, "/");
         return Response.status(Response.Status.CREATED).entity(PlannerItem.from(entity, List.of())).build();
     }
 

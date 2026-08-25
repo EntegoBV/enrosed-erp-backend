@@ -51,14 +51,17 @@ public class QuoteService {
     String portalBaseUrl;
 
     private final be.enrosed.shared.company.CompanyProfileService company;
+    private final be.enrosed.push.WebPushNotifier phones;
 
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
                         QuoteDocumentRenderer renderer, QuoteMailer mailer,
                         be.enrosed.catalog.application.ProductService products,
                         SalesRepositories.Events events,
-                        be.enrosed.shared.company.CompanyProfileService company) {
+                        be.enrosed.shared.company.CompanyProfileService company,
+                        be.enrosed.push.WebPushNotifier phones) {
         this.company = company;
+        this.phones = phones;
         this.orders = orders;
         this.revisions = revisions;
         this.salesOrders = salesOrders;
@@ -293,6 +296,8 @@ public class QuoteService {
            on the order. */
         if (order.status() == QuoteStatus.VERZONDEN) {
             record(order, QuoteEvent.Type.BEKEKEN, true, null, "Klant heeft de offerte geopend", null);
+            phones.notifyAll("info", "Offerte " + order.number() + " geopend",
+                    "De klant bekijkt de offerte in het portaal", "/sales/" + order.id());
         }
 
         return orders.save(withStatus(order, status, order.portalToken(),
@@ -349,6 +354,8 @@ public class QuoteService {
 
         mailer.notifyInternal("Offerte " + order.number() + " geaccepteerd",
                 signedByName + " heeft offerte " + order.number() + " getekend.");
+        phones.notifyAll("sale-signed", "Offerte " + order.number() + " getekend",
+                signedByName.trim() + " heeft getekend - tijd om te leveren", "/sales/" + order.id());
         return accepted;
     }
 
@@ -366,6 +373,9 @@ public class QuoteService {
 
         mailer.notifyInternal("Offerte " + order.number() + " afgewezen",
                 "Reden van de klant: " + (message == null ? "geen" : message));
+        phones.notifyAll("info", "Offerte " + order.number() + " afgewezen",
+                message == null || message.isBlank() ? "Zonder reden" : message,
+                "/sales/" + order.id());
         return rejected;
     }
 
@@ -417,6 +427,9 @@ public class QuoteService {
                 (proposedBy == null ? "De klant" : proposedBy)
                         + " stelt wijzigingen voor op offerte " + order.number()
                         + (message == null || message.isBlank() ? "" : ":\n\n" + message));
+        phones.notifyAll("info", "Wijziging gevraagd op " + order.number(),
+                "De klant stelt een aanpassing voor - beoordeel het voorstel",
+                "/sales/" + order.id());
 
         return revision;
     }

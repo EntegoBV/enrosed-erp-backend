@@ -42,6 +42,7 @@ public class SalesOrderService {
     private final CustomerService customers;
     private final VatCalculator vat;
     private final be.enrosed.shipping.application.CarrierRepository shippingCarriers;
+    private final be.enrosed.push.WebPushNotifier phones;
 
     public SalesOrderService(SalesRepositories.Orders orders, ProductService products,
                              CountryService countries, DiscountTierService tiers,
@@ -50,8 +51,10 @@ public class SalesOrderService {
                              CustomerService customers, VatCalculator vat,
                              SalesRepositories.Events events,
                              SalesRepositories.Revisions revisions,
-                             be.enrosed.shipping.application.CarrierRepository shippingCarriers) {
+                             be.enrosed.shipping.application.CarrierRepository shippingCarriers,
+                             be.enrosed.push.WebPushNotifier phones) {
         this.shippingCarriers = shippingCarriers;
+        this.phones = phones;
         this.orders = orders;
         this.products = products;
         this.countries = countries;
@@ -126,6 +129,11 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), null, false,
                 invoice ? "Factuur opgemaakt" : "Offerte opgemaakt", null));
+        Customer buyer = customers.get(customerId);
+        phones.notifyAll(invoice ? "sale-invoice" : "sale-quote",
+                (invoice ? "Nieuwe factuur " : "Nieuwe offerte ") + created.number(),
+                buyer == null ? "Zonet aangemaakt" : "Voor " + buyer.company(),
+                "/sales/" + created.id());
         return created;
     }
 
@@ -171,6 +179,8 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
                 java.time.Instant.now(), null, false,
                 "Factuur " + created.number() + " aangemaakt", null));
+        phones.notifyAll("sale-invoice", "Nieuwe factuur " + created.number(),
+                "Vanuit offerte " + source.number(), "/sales/" + created.id());
         return created;
     }
 

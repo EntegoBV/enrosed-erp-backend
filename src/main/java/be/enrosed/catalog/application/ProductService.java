@@ -44,6 +44,9 @@ import java.util.Objects;
 @ApplicationScoped
 public class ProductService {
 
+    @jakarta.inject.Inject
+    be.enrosed.push.WebPushNotifier phones;
+
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ProductService.class);
 
     private final ProductRepository products;
@@ -131,7 +134,11 @@ public class ProductService {
         validateFamilies(prepared.familyId());
         syncFamilyPhotos(saved.id(), prepared.familyId());
         queueWebsite();
-        return saved.id() == null ? saved : get(saved.id());
+        Product created = saved.id() == null ? saved : get(saved.id());
+        if (phones != null) phones.notifyAll("product", "Product toegevoegd: " + created.name(),
+                created.sku() == null ? "" : created.sku(),
+                created.id() == null ? "/products" : "/products/" + created.id());
+        return created;
     }
 
     @Transactional

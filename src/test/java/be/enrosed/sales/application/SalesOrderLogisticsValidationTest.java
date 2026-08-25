@@ -62,7 +62,7 @@ class SalesOrderLogisticsValidationTest {
 
         service = new SalesOrderService(orders, products, countries, tiers,
                 pricing, new PalletCalculator(), settings, customers, vat, events, revisions,
-                carriers);
+                carriers, mock(be.enrosed.push.WebPushNotifier.class));
     }
 
     @Test

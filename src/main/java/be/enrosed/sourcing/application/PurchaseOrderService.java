@@ -38,6 +38,9 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PurchaseOrderService {
 
+    @jakarta.inject.Inject
+    be.enrosed.push.WebPushNotifier phones;
+
     private static final Logger LOG = Logger.getLogger(PurchaseOrderService.class);
 
     private final SourcingRepositories.PurchaseOrders orders;
@@ -102,7 +105,10 @@ public class PurchaseOrderService {
                 defaultDutyRatePct, new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
                 "Ningbo", "Rotterdam", "", List.of());
-        return orders.save(draft);
+        PurchaseOrder created = orders.save(draft);
+        if (phones != null) phones.notifyAll("purchase", "Nieuwe inkooporder " + created.number(),
+                "Calculatie aangemaakt", "/purchasing/" + created.id());
+        return created;
     }
 
     /**
