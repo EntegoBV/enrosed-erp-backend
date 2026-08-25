@@ -47,23 +47,33 @@
     </div>
   {/if}
 
-  <p>{t.portalText}</p>
+  {#if paymentSentence??}
+    <div style="margin:22px 0;padding:14px 16px;border:1px solid #f0d2d9;background:#fbecef">
+      <p style="margin:0;font-size:14px">{paymentSentence}</p>
+    </div>
+  {/if}
 
-  <p style="margin:26px 0">
-    <a href="{portalUrl}"
-       style="background:#b01f3f;color:#ffffff;text-decoration:none;padding:13px 22px;
-              border-radius:8px;font-weight:600;display:inline-block">
-      {t.mailButton}
-    </a>
-  </p>
+  {#if portalUrl??}
+    <p>{t.portalText}</p>
 
-  <p style="color:#8a807a;font-size:13px">
-    {portalUrl}
-  </p>
+    <p style="margin:26px 0">
+      <a href="{portalUrl}"
+         style="background:#b01f3f;color:#ffffff;text-decoration:none;padding:13px 22px;
+                border-radius:8px;font-weight:600;display:inline-block">
+        {t.mailButton}
+      </a>
+    </p>
 
-  <p style="color:#8a807a;font-size:13px">
-    {validUntilSentence}
-  </p>
+    <p style="color:#8a807a;font-size:13px">
+      {portalUrl}
+    </p>
+  {/if}
+
+  {#if validUntilSentence}
+    <p style="color:#8a807a;font-size:13px">
+      {validUntilSentence}
+    </p>
+  {/if}
 
   <p style="margin:26px 0 0">{t.mailClosing},</p>
 

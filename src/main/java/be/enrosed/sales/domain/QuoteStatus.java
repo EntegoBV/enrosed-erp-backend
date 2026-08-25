@@ -17,14 +17,16 @@ public enum QuoteStatus {
     WIJZIGING_GEVRAAGD,
     GEACCEPTEERD,
     AFGEWEZEN,
-    VERLOPEN;
+    VERLOPEN,
+    /** Invoices only: the money arrived. */
+    BETAALD;
 
     public boolean isOpenForCustomer() {
         return this == VERZONDEN || this == BEKEKEN || this == WIJZIGING_GEVRAAGD;
     }
 
     public boolean isFinal() {
-        return this == GEACCEPTEERD || this == AFGEWEZEN || this == VERLOPEN;
+        return this == GEACCEPTEERD || this == AFGEWEZEN || this == VERLOPEN || this == BETAALD;
     }
 
     /**

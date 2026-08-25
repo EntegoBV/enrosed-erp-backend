@@ -120,5 +120,12 @@
     </tr>
   </table>
 
+{#if termsText??}
+  <div style="page-break-before:always">
+    <div style="font-size:11pt;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#b01f3f;margin-bottom:8px">{termsTitle}</div>
+    <div style="white-space:pre-line;font-size:6.6pt;line-height:1.55;color:#4a423e">{termsText}</div>
+  </div>
+{/if}
+
 </body>
 </html>

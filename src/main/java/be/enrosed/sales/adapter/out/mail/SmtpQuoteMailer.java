@@ -84,6 +84,64 @@ public class SmtpQuoteMailer implements QuoteMailer {
     }
 
     @Override
+    public void sendInvoice(SalesOrder order, Customer customer,
+                            QuoteDocumentRenderer.Document document, String personalMessage,
+                            String paymentSentence) {
+        Language language = customer.language();
+        Map<String, String> text = DocumentText.of(language);
+
+        String body = quoteMailTemplate
+                .data("order", order)
+                .data("customer", customer)
+                .data("portalUrl", null)
+                .data("personalMessage", personalMessage)
+                .data("deliveryLines", List.<DeliveryLine>of())
+                .data("allDeliveryKnown", true)
+                .data("termsJustAdded", false)
+                .data("freightPending", false)
+                .data("freightAdded", false)
+                .data("t", text)
+                .data("intro", text.get("mailIntroInvoice").formatted(order.number()))
+                .data("paymentSentence", paymentSentence)
+                .data("validUntilSentence", "")
+                .render();
+
+        String subject = text.get("mailSubjectInvoice").formatted(order.number());
+        deliver(customer, subject, body, document, order.number());
+    }
+
+    /** One door out for both document sorts: mock, Brevo or plain SMTP. */
+    private void deliver(Customer customer, String subject, String body,
+                         QuoteDocumentRenderer.Document document, String number) {
+        if (mock) {
+            mailer.send(Mail.withHtml(customer.email(), subject, body)
+                    .addAttachment(document.filename(), document.content(), document.contentType()));
+            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN mail naar %s voor %s.",
+                    customer.email(), number);
+            return;
+        }
+        String brevoKey = brevoApiKey.orElse("").trim();
+        if (!brevoKey.isEmpty()) {
+            try {
+                sendViaBrevo(customer.email(), subject, body, null, document);
+            } catch (Exception e) {
+                LOG.errorf(e, "Mail naar %s via Brevo mislukt", customer.email());
+                throw new BusinessRuleException(
+                        "De mail kon niet verzonden worden via de maildienst: " + e.getMessage()
+                        + " Het document staat nog klaar en is niet als verzonden gemarkeerd.");
+            }
+            LOG.infof("%s via Brevo verstuurd naar %s", number, customer.email());
+            return;
+        }
+        if (host.isBlank() || host.endsWith("example.com")) {
+            throw new BusinessRuleException(
+                    "Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
+        }
+        mailer.send(Mail.withHtml(customer.email(), subject, body)
+                .addAttachment(document.filename(), document.content(), document.contentType()));
+    }
+
+    @Override
     public void sendQuote(SalesOrder order, Customer customer, String portalUrl,
                           QuoteDocumentRenderer.Document document, String personalMessage,
                           List<DeliveryLine> deliveryLines, Notice notice) {

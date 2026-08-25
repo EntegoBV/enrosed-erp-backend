@@ -49,7 +49,8 @@ class QuoteServicePortalUrlTest {
                 mock(QuoteDocumentRenderer.class),
                 mock(QuoteMailer.class),
                 mock(ProductService.class),
-                mock(SalesRepositories.Events.class));
+                mock(SalesRepositories.Events.class),
+                mock(be.enrosed.shared.company.CompanyProfileService.class));
     }
 
     private static SalesOrder order(QuoteStatus status, String token, Instant sentAt) {

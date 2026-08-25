@@ -34,6 +34,11 @@ public interface QuoteMailer {
                    QuoteDocumentRenderer.Document document, String personalMessage,
                    List<DeliveryLine> deliveryLines, Notice notice);
 
+    /** The invoice by mail: PDF attached, payment sentence in the body, no portal. */
+    void sendInvoice(SalesOrder order, Customer customer,
+                     QuoteDocumentRenderer.Document document, String personalMessage,
+                     String paymentSentence);
+
     /** Message to ourselves when the customer acts on the quote. */
     void notifyInternal(String subject, String body);
 }

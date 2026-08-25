@@ -82,6 +82,22 @@ public record SalesOrder(
         FreightPricingStrategy freightPricingStrategy,
         /** Own EUR/m3 rate when {@code freightPricingStrategy == PER_CBM}. */
         BigDecimal freightRatePerCbmEur,
+        /** The shipping organisation whose staffel prices the freight, when {@code CARRIER}. */
+        Long freightCarrierId,
+        /**
+         * Internal top-up on the staffel price. The customer sees one freight
+         * amount; our own screens show the staffel and this extra apart.
+         */
+        BigDecimal freightCarrierExtraEur,
+
+        /** Quote or invoice; empty means quote (every order predates invoices). */
+        DocumentType docType,
+        /** Invoices only: the day the money is due. */
+        LocalDate invoiceDueDate,
+        /** Invoices only: when it was marked paid. */
+        Instant paidAt,
+        /** Invoices only: the quote this invoice was made from, if any. */
+        Long sourceQuoteId,
 
         List<SalesOrderLine> lines,
 
@@ -91,6 +107,40 @@ public record SalesOrder(
          */
         List<OrderPallet> pallets
 ) {
+    /**
+     * Pre-invoice signature: every caller that builds a plain quote keeps
+     * working; the new document fields stay empty.
+     */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms, FreightState freight,
+                      BigDecimal manualFreightEur, LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm, FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur,
+                      List<SalesOrderLine> lines, List<OrderPallet> pallets) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, null, null,
+                null, null, null, null, lines, pallets);
+    }
+
+    /** Every order that predates invoices is a quote. */
+    public DocumentType docType() {
+        return docType == null ? DocumentType.OFFERTE : docType;
+    }
+
+    public boolean isInvoice() {
+        return docType() == DocumentType.FACTUUR;
+    }
+
     public List<SalesOrderLine> lines() {
         return lines == null ? List.of() : lines;
     }

@@ -7,5 +7,7 @@ public enum FreightPricingStrategy {
     /** Order volume multiplied by the order's own euro-per-CBM rate. */
     PER_CBM,
     /** One fixed total stored in {@code manualFreightEur}. */
-    FIXED
+    FIXED,
+    /** A shipping organisation's staffel: zone by postcode, tier by pallets. */
+    CARRIER
 }

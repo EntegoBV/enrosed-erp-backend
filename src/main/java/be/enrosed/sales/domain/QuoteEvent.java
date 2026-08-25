@@ -41,6 +41,8 @@ public record QuoteEvent(
         AFGEWEZEN,
         HEROPEND,
         LEVERTERMIJN_INGEVULD,
-        VRACHT_INGEVULD
+        VRACHT_INGEVULD,
+        GEFACTUREERD,
+        BETAALD
     }
 }

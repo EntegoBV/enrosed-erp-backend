@@ -50,11 +50,15 @@ public class QuoteService {
     @ConfigProperty(name = "enrosed.portal.base-url")
     String portalBaseUrl;
 
+    private final be.enrosed.shared.company.CompanyProfileService company;
+
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
                         QuoteDocumentRenderer renderer, QuoteMailer mailer,
                         be.enrosed.catalog.application.ProductService products,
-                        SalesRepositories.Events events) {
+                        SalesRepositories.Events events,
+                        be.enrosed.shared.company.CompanyProfileService company) {
+        this.company = company;
         this.orders = orders;
         this.revisions = revisions;
         this.salesOrders = salesOrders;
@@ -63,6 +67,34 @@ public class QuoteService {
         this.mailer = mailer;
         this.products = products;
         this.events = events;
+    }
+
+    private SalesOrder sendInvoiceByMail(SalesOrder order, String personalMessage) {
+        if (order.status() != QuoteStatus.CONCEPT) {
+            throw new BusinessRuleException("Alleen een conceptfactuur kan verstuurd worden");
+        }
+        salesOrders.validateInvoiceForSend(order);
+        Customer customer = customers.get(order.customerId());
+        if (customer.email() == null || customer.email().isBlank()) {
+            throw new BusinessRuleException(
+                    "Klant " + customer.company() + " heeft geen e-mailadres");
+        }
+
+        PricedOrder priced = salesOrders.price(order);
+        QuoteDocumentRenderer.Document document = renderer.render(order, priced, customer, null);
+
+        var text = be.enrosed.shared.DocumentText.of(customer.language());
+        String iban = company.get().iban() == null || company.get().iban().isBlank()
+                ? "-" : company.get().iban();
+        java.math.BigDecimal claim = priced.totals().vatTreatment().isExempt()
+                ? priced.totals().total() : priced.totals().totalInclVat();
+        String paymentSentence = text.get("paymentInstruction").formatted(
+                be.enrosed.shared.DocumentFormat.eur(claim),
+                be.enrosed.shared.DocumentText.date(order.invoiceDueDate(), customer.language()),
+                iban, order.number());
+
+        mailer.sendInvoice(order, customer, document, personalMessage, paymentSentence);
+        return salesOrders.markInvoiceSent(order.id());
     }
 
     /**
@@ -129,6 +161,11 @@ public class QuoteService {
     @Transactional
     public SalesOrder send(long orderId, String personalMessage) {
         SalesOrder order = salesOrders.get(orderId);
+        /* Same door, different letter: an invoice mails the PDF with its
+           payment line and skips the portal entirely. */
+        if (order.isInvoice()) {
+            return sendInvoiceByMail(order, personalMessage);
+        }
         SalesLifecycle.requireSendable(order);
         salesOrders.validateForSend(order);
 

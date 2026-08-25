@@ -66,6 +66,20 @@ public record CompanyProfile(
                 ? documentFooter : documentFooterEn;
     }
 
+    /**
+     * Terms in the document's language. Dutch and English follow whatever
+     * was edited in settings; French and German are maintained built-ins,
+     * every other language reads the English version.
+     */
+    public String termsFor(be.enrosed.shared.Language language) {
+        return switch (language) {
+            case NL -> termsNl();
+            case FR -> DefaultLegalTexts.TERMS_FR;
+            case DE -> DefaultLegalTexts.TERMS_DE;
+            default -> termsEn();
+        };
+    }
+
     /** Dutch terms, falling back to the built-in draft. */
     public String termsNl() {
         return orDefault(termsAndConditions, DefaultLegalTexts.TERMS_NL);

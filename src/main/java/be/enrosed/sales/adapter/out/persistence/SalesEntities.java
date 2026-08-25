@@ -88,6 +88,7 @@ public final class SalesEntities {
         public LocalDate orderDate;
         public LocalDate validUntil;
         @Enumerated(EnumType.STRING)
+        @Column(columnDefinition = "varchar(32)")
         public QuoteStatus status = QuoteStatus.CONCEPT;
         public String incoterm;
         /** Order-specific payment terms; empty means the customer's default. */
@@ -154,11 +155,21 @@ public final class SalesEntities {
 
         /** Null on legacy rows resolves from manualFreightEur. */
         @Enumerated(EnumType.STRING)
-        @Column(length = 24)
+        @Column(columnDefinition = "varchar(24)")
         public FreightPricingStrategy freightPricingStrategy;
 
         @Column(precision = 19, scale = 4)
         public BigDecimal freightRatePerCbmEur;
+
+        public Long freightCarrierId;
+        @Column(precision = 19, scale = 2)
+        public BigDecimal freightCarrierExtraEur;
+        @Enumerated(EnumType.STRING)
+        @Column(length = 16)
+        public be.enrosed.sales.domain.DocumentType docType;
+        public java.time.LocalDate invoiceDueDate;
+        public java.time.Instant paidAt;
+        public Long sourceQuoteId;
 
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")

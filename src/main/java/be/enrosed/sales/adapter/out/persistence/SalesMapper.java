@@ -88,6 +88,9 @@ final class SalesMapper {
                 entity.manualFreightEur,
                 entity.loadMode, entity.palletProfile, entity.maxPalletHeightCm,
                 entity.freightPricingStrategy, entity.freightRatePerCbmEur,
+                entity.freightCarrierId, entity.freightCarrierExtraEur,
+                entity.docType, entity.invoiceDueDate,
+                entity.paidAt, entity.sourceQuoteId,
                 lines, pallets);
     }
 
@@ -121,6 +124,12 @@ final class SalesMapper {
         entity.maxPalletHeightCm = order.maxPalletHeightCm();
         entity.freightPricingStrategy = order.freightPricingStrategy();
         entity.freightRatePerCbmEur = order.freightRatePerCbmEur();
+        entity.freightCarrierId = order.freightCarrierId();
+        entity.freightCarrierExtraEur = order.freightCarrierExtraEur();
+        entity.docType = order.docType();
+        entity.invoiceDueDate = order.invoiceDueDate();
+        entity.paidAt = order.paidAt();
+        entity.sourceQuoteId = order.sourceQuoteId();
 
         List<SalesOrderLine> wanted = order.lines();
         entity.lines.removeIf(existing -> wanted.stream()

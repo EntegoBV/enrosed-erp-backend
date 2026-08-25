@@ -103,6 +103,93 @@ Enrosed processes personal data of contact persons at its customers in accordanc
 Article 13 — Applicable law and competent court
 All agreements are governed by Belgian law, excluding the Vienna Sales Convention. Disputes fall under the exclusive jurisdiction of the Enterprise Court of Antwerp, Turnhout division.""";
 
+
+    static final String TERMS_FR = """
+Conditions générales — Enrosed BV
+Vekeblok 17, 2400 Mol, Belgique — TVA BE 1034.273.386
+
+Article 1 — Champ d'application
+Les présentes conditions générales s'appliquent à toutes les offres, confirmations de commande, livraisons et factures d'Enrosed BV (« Enrosed »). Toute dérogation ne vaut que si elle a été convenue par écrit. Les conditions d'achat ou autres conditions de l'acheteur ne s'appliquent pas, même à titre supplétif. Enrosed vend exclusivement à des acheteurs professionnels (B2B).
+
+Article 2 — Offres et prix
+Les offres sont sans engagement et valables jusqu'à la date qui y est mentionnée. Les prix s'entendent en euros, hors TVA, transport et assurance éventuelle, sauf mention contraire. Les erreurs ou fautes de frappe manifestes ne lient pas Enrosed. Les variations de plus de 5 % des matières premières, du transport, des taux de change ou des droits d'importation entre l'offre et la livraison peuvent être répercutées proportionnellement sur la partie non encore livrée.
+
+Article 3 — Formation du contrat
+Le contrat est formé dès que l'acheteur accepte l'offre — par écrit, par e-mail ou via le portail client — et qu'Enrosed confirme cette acceptation. Les modifications ou ajouts de l'acheteur ne valent qu'après confirmation écrite d'Enrosed.
+
+Article 4 — Livraison et délais
+Les dates et semaines de livraison sont indicatives et courent à partir de la confirmation de commande, sous réserve de vente intermédiaire. Les articles non en stock sont produits sur commande ; le délai communiqué est confirmé dès que la production est planifiée. Un retard n'ouvre aucun droit à indemnité ni à résolution, sauf lorsqu'un délai raisonnable d'au moins trente jours s'est écoulé après mise en demeure écrite sans livraison.
+
+Article 5 — Transport et transfert des risques
+La livraison a lieu selon l'incoterm (Incoterms 2020) mentionné sur l'offre ou la confirmation de commande. Les risques passent à l'acheteur au moment déterminé par cet incoterm. Les dommages de transport visibles doivent être notés à la réception sur la lettre de voiture ou le bon de livraison et signalés à Enrosed dans les 48 heures, photos à l'appui.
+
+Article 6 — Réserve de propriété
+Les marchandises livrées restent la propriété d'Enrosed jusqu'au paiement intégral du principal, des frais et des intérêts. Jusque-là, l'acheteur ne peut ni les mettre en gage ni les céder en garantie. La revente dans le cours normal des affaires est autorisée ; dans ce cas, l'acheteur cède à Enrosed, à titre de garantie, sa créance sur son propre client.
+
+Article 7 — Paiement
+Les factures sont payables dans les trente jours suivant la date de facture, sauf convention contraire. En cas de retard de paiement, des intérêts sont dus de plein droit et sans mise en demeure conformément à la loi belge du 2 août 2002 concernant la lutte contre le retard de paiement dans les transactions commerciales, majorés d'une indemnité forfaitaire de 10 % du montant impayé avec un minimum de 125 euros. Enrosed peut suspendre les livraisons ultérieures tant que des factures échues restent impayées.
+
+Article 8 — Réclamations et conformité
+Les réclamations relatives aux défauts visibles ou à la conformité de la livraison doivent être signalées par écrit dans les huit jours suivant la réception, avec mention du numéro de commande et photos. La transformation ou la revente des marchandises vaut acceptation. Les fleurs stabilisées sont des produits naturels : des différences limitées de couleur, de forme et de dimension sont propres au produit et ne constituent pas un défaut. Les fleurs stabilisées ne sont pas comestibles, ne sont pas destinées au contact direct avec la peau et doivent être tenues à l'écart de la lumière directe du soleil et des pièces humides.
+
+Article 9 — Responsabilité
+La responsabilité d'Enrosed est limitée au montant facturé de la livraison concernée. Enrosed n'est pas responsable des dommages indirects tels que le manque à gagner, la perte de chiffre d'affaires ou l'atteinte à l'image. Rien dans les présentes conditions n'exclut la responsabilité en cas de dol, de faute lourde ou de dommages résultant d'un décès ou de lésions corporelles.
+
+Article 10 — Force majeure
+Les cas de force majeure — notamment les interruptions de production ou de transport, la congestion portuaire, les restrictions d'exportation ou d'importation, les épidémies, les pénuries d'énergie et les mesures gouvernementales — suspendent les obligations d'Enrosed aussi longtemps qu'ils durent, sans droit à indemnité. Si la force majeure dure plus de nonante jours, chaque partie peut résoudre le contrat pour la partie non encore exécutée.
+
+Article 11 — Propriété intellectuelle
+Les photos, catalogues, créations et textes d'Enrosed restent sa propriété. L'acheteur peut les utiliser pour la revente des marchandises livrées ; tout autre usage requiert l'accord écrit préalable d'Enrosed.
+
+Article 12 — Données personnelles
+Enrosed traite les données personnelles des personnes de contact chez ses clients conformément à la déclaration de confidentialité, disponible sur la même page que les présentes conditions.
+
+Article 13 — Droit applicable et tribunal compétent
+Tous les contrats sont régis par le droit belge, à l'exclusion de la Convention de Vienne sur la vente. Les litiges relèvent de la compétence exclusive du tribunal de l'entreprise d'Anvers, division Turnhout.""";
+
+    static final String TERMS_DE = """
+Allgemeine Geschäftsbedingungen — Enrosed BV
+Vekeblok 17, 2400 Mol, Belgien — USt-IdNr. BE 1034.273.386
+
+Artikel 1 — Geltungsbereich
+Diese Allgemeinen Geschäftsbedingungen gelten für alle Angebote, Auftragsbestätigungen, Lieferungen und Rechnungen der Enrosed BV („Enrosed"). Abweichungen gelten nur, wenn sie schriftlich vereinbart wurden. Einkaufs- oder sonstige Bedingungen des Käufers finden keine Anwendung, auch nicht ergänzend. Enrosed verkauft ausschließlich an gewerbliche Abnehmer (B2B).
+
+Artikel 2 — Angebote und Preise
+Angebote sind freibleibend und gültig bis zu dem darauf genannten Datum. Preise verstehen sich in Euro, zuzüglich Mehrwertsteuer, Transport und etwaiger Versicherung, sofern nicht anders angegeben. Offensichtliche Irrtümer oder Schreibfehler binden Enrosed nicht. Änderungen von mehr als 5 % bei Rohstoffen, Transport, Wechselkursen oder Einfuhrabgaben zwischen Angebot und Lieferung dürfen für den noch nicht gelieferten Teil anteilig weiterberechnet werden.
+
+Artikel 3 — Zustandekommen des Vertrags
+Ein Vertrag kommt zustande, sobald der Käufer das Angebot annimmt — schriftlich, per E-Mail oder über das Kundenportal — und Enrosed diese Annahme bestätigt. Änderungen oder Ergänzungen des Käufers gelten erst nach schriftlicher Bestätigung durch Enrosed.
+
+Artikel 4 — Lieferung und Lieferfristen
+Liefertermine und Lieferwochen sind unverbindlich und laufen ab der Auftragsbestätigung, vorbehaltlich des Zwischenverkaufs. Nicht vorrätige Artikel werden auf Bestellung gefertigt; die mitgeteilte Frist wird bestätigt, sobald die Produktion eingeplant ist. Verzug begründet keinen Anspruch auf Schadensersatz oder Vertragsauflösung, es sei denn, nach schriftlicher Mahnung ist eine angemessene Frist von mindestens dreißig Tagen ohne Lieferung verstrichen.
+
+Artikel 5 — Transport und Gefahrübergang
+Die Lieferung erfolgt gemäß dem auf dem Angebot oder der Auftragsbestätigung genannten Incoterm (Incoterms 2020). Die Gefahr geht in dem durch diesen Incoterm bestimmten Zeitpunkt auf den Käufer über. Sichtbare Transportschäden sind bei Empfang auf dem Frachtbrief oder Lieferschein zu vermerken und Enrosed innerhalb von 48 Stunden mit Fotos zu melden.
+
+Artikel 6 — Eigentumsvorbehalt
+Gelieferte Waren bleiben bis zur vollständigen Bezahlung von Hauptsumme, Kosten und Zinsen Eigentum von Enrosed. Bis dahin darf der Käufer sie weder verpfänden noch zur Sicherheit übereignen. Der Weiterverkauf im gewöhnlichen Geschäftsverkehr ist gestattet; in diesem Fall tritt der Käufer seine Forderung gegen seinen eigenen Abnehmer zur Sicherheit an Enrosed ab.
+
+Artikel 7 — Zahlung
+Rechnungen sind innerhalb von dreißig Tagen nach Rechnungsdatum zahlbar, sofern nicht anders vereinbart. Bei verspäteter Zahlung sind von Rechts wegen und ohne Mahnung Zinsen gemäß dem belgischen Gesetz vom 2. August 2002 zur Bekämpfung des Zahlungsverzugs im Geschäftsverkehr geschuldet, zuzüglich eines pauschalierten Schadensersatzes von 10 % des offenen Betrags, mindestens jedoch 125 Euro. Enrosed darf weitere Lieferungen aussetzen, solange fällige Rechnungen offenstehen.
+
+Artikel 8 — Beanstandungen und Konformität
+Beanstandungen sichtbarer Mängel oder der Konformität der Lieferung sind innerhalb von acht Tagen nach Empfang schriftlich zu melden, unter Angabe der Bestellnummer und mit Fotos. Die Verarbeitung oder der Weiterverkauf der Waren gilt als Annahme. Konservierte Blumen sind Naturprodukte: begrenzte Unterschiede in Farbe, Form und Größe sind produkttypisch und stellen keinen Mangel dar. Konservierte Blumen sind nicht essbar, nicht für direkten Hautkontakt bestimmt und gehören nicht in direktes Sonnenlicht oder feuchte Räume.
+
+Artikel 9 — Haftung
+Die Haftung von Enrosed ist auf den Rechnungsbetrag der betroffenen Lieferung begrenzt. Enrosed haftet nicht für mittelbare Schäden wie entgangenen Gewinn, Umsatzverlust oder Imageschäden. Nichts in diesen Bedingungen schließt die Haftung für Vorsatz, grobe Fahrlässigkeit oder Schäden aus Tod oder Körperverletzung aus.
+
+Artikel 10 — Höhere Gewalt
+Fälle höherer Gewalt — darunter Produktions- oder Transportunterbrechungen, Hafenstaus, Aus- oder Einfuhrbeschränkungen, Epidemien, Energieknappheit und behördliche Maßnahmen — setzen die Pflichten von Enrosed für ihre Dauer aus, ohne Anspruch auf Schadensersatz. Dauert die höhere Gewalt länger als neunzig Tage, kann jede Partei den Vertrag für den noch nicht erfüllten Teil auflösen.
+
+Artikel 11 — Geistiges Eigentum
+Fotos, Kataloge, Entwürfe und Texte von Enrosed bleiben ihr Eigentum. Der Käufer darf sie für den Weiterverkauf der gelieferten Waren verwenden; jede andere Nutzung bedarf der vorherigen schriftlichen Zustimmung.
+
+Artikel 12 — Personenbezogene Daten
+Enrosed verarbeitet personenbezogene Daten von Ansprechpartnern bei ihren Kunden gemäß der Datenschutzerklärung, die auf derselben Seite wie diese Bedingungen verfügbar ist.
+
+Artikel 13 — Anwendbares Recht und zuständiges Gericht
+Auf alle Verträge findet belgisches Recht Anwendung, unter Ausschluss des UN-Kaufrechts. Streitigkeiten unterliegen der ausschließlichen Zuständigkeit des Unternehmensgerichts Antwerpen, Abteilung Turnhout.""";
+
     static final String PRIVACY_NL = """
 Privacyverklaring — Enrosed BV
 Vekeblok 17, 2400 Mol, België — BTW BE 1034.273.386

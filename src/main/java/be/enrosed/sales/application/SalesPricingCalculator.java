@@ -44,8 +44,17 @@ public class SalesPricingCalculator {
             PalletSpec pallet,
             List<DiscountTier> lineTiers,
             List<DiscountTier> orderTiers,
-            VatCalculator.Result vat
-    ) {}
+            VatCalculator.Result vat,
+            /** The shipping organisation, loaded when the order prices freight by staffel. */
+            be.enrosed.shipping.domain.Carrier carrier
+    ) {
+        /** Pre-carrier signature for callers without a staffel. */
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, null);
+        }
+    }
 
     private final DeliveryCalculator delivery;
 
@@ -201,6 +210,7 @@ public class SalesPricingCalculator {
         BigDecimal freight = BigDecimal.ZERO;
         BigDecimal handling = BigDecimal.ZERO;
         boolean freightIsMinimum = false;
+        String carrierFreightIssue = null;
 
         boolean hasShipment = cartonsTotal > 0;
         if (country != null && hasShipment) handling = Money.nz(country.handling());
@@ -218,6 +228,39 @@ public class SalesPricingCalculator {
             case PER_CBM -> freight = Money.money(
                     cbmTotal.multiply(Money.nz(order.freightRatePerCbmEur())));
             case FIXED -> freight = Money.money(order.manualFreightEur());
+            case CARRIER -> {
+                /* The staffel prices per zone (postcode) and per pallet rung.
+                   Whatever cannot be resolved becomes a named validation
+                   point, never a silently invented amount. */
+                be.enrosed.shipping.domain.Carrier carrier = context.carrier();
+                String postcode = context.customer() == null
+                        ? null : context.customer().postalCode();
+                if (carrier == null) {
+                    carrierFreightIssue = "Kies een verzendorganisatie voor de staffelvracht";
+                } else if (palletsForFreight <= 0) {
+                    carrierFreightIssue = "De staffel rekent per pallet; dit order heeft er geen";
+                } else {
+                    be.enrosed.shipping.domain.CarrierPricing.PalletKind kind =
+                            order.palletProfile() == PalletProfile.BLOCK_120X100
+                                    ? be.enrosed.shipping.domain.CarrierPricing.PalletKind.BLOCKPALLET
+                                    : be.enrosed.shipping.domain.CarrierPricing.PalletKind.EUROPALLET;
+                    be.enrosed.shipping.domain.CarrierQuote quote =
+                            be.enrosed.shipping.domain.CarrierPricing.quote(carrier,
+                                    order.countryCode(), postcode, palletsForFreight, kind,
+                                    weightTotal);
+                    if (quote == null) {
+                        carrierFreightIssue = carrier.lane(order.countryCode()) == null
+                                ? carrier.name() + " heeft geen tarief voor dit land"
+                                : "De zending past niet in de staffel van " + carrier.name()
+                                        + " - vraag een prijs op en vul die vast in";
+                    } else {
+                        /* The internal top-up dissolves into the customer's
+                           freight amount; our screens show it separately. */
+                        freight = quote.totalEur()
+                                .add(Money.nz(order.freightCarrierExtraEur()));
+                    }
+                }
+            }
         }
 
         /* While the freight is "to be determined", nothing counts yet.
@@ -268,7 +311,7 @@ public class SalesPricingCalculator {
                 meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(goodsTotal)),
                 !lines.isEmpty(), country != null, withoutCost,
                 withoutCartonDimensions, withoutPalletFit,
-                freightPricingIssue(order));
+                carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
 
         return new PricedOrder(lines, totals, validation);
     }
@@ -290,11 +333,16 @@ public class SalesPricingCalculator {
         if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
                 && (order.freightRatePerCbmEur() == null
                     || order.freightRatePerCbmEur().signum() <= 0)) {
-            return "Vul een positief vrachttarief per CBM in";
+            return "De vracht staat op 'tarief per m\u00b3' maar er is geen tarief ingevuld"
+                    + " - open Transport & levering en kies hoe de vracht berekend wordt";
         }
         if (order.freightPricingStrategy() == FreightPricingStrategy.FIXED
                 && order.manualFreightEur() == null) {
             return "Vul het vaste vrachtbedrag in";
+        }
+        if (order.freightPricingStrategy() == FreightPricingStrategy.CARRIER
+                && order.freightCarrierId() == null) {
+            return "Kies een verzendorganisatie voor de staffelvracht";
         }
         return null;
     }

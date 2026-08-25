@@ -83,6 +83,22 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     order.palletPositionsForProduct(line.productId(), line.pallets()));
         }
 
+        boolean invoice = order.isInvoice();
+        String dueDateText = DocumentText.date(order.invoiceDueDate(), language);
+        String paymentInstruction = null;
+        String iban = null;
+        String claimAmount = null;
+        if (invoice) {
+            iban = company.get().iban() == null || company.get().iban().isBlank()
+                    ? "-" : company.get().iban();
+            /* The claim is what must actually arrive: including VAT when charged. */
+            java.math.BigDecimal claim = priced.totals().vatTreatment().isExempt()
+                    ? priced.totals().total() : priced.totals().totalInclVat();
+            claimAmount = be.enrosed.shared.DocumentFormat.eur(claim);
+            paymentInstruction = text.get("paymentInstruction").formatted(
+                    claimAmount, dueDateText, iban, order.number());
+        }
+
         String html = quoteTemplate
                 .data("order", order)
                 .data("priced", priced)
@@ -98,8 +114,21 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("t", text)
                 .data("orderDateText", DocumentText.date(order.orderDate(), language))
                 .data("validUntilText", DocumentText.date(order.validUntil(), language))
-                .data("validUntilSentence", text.get("validUntilSentence")
+                /* An invoice never claims to "expire": it falls due. */
+                .data("validUntilSentence", invoice ? "" : text.get("validUntilSentence")
                         .formatted(DocumentText.date(order.validUntil(), language)))
+                .data("isInvoice", invoice)
+                .data("docLabel", text.get(invoice ? "invoice" : "quote"))
+                .data("dueDateText", dueDateText)
+                .data("paymentInstruction", paymentInstruction)
+                .data("iban", iban)
+                .data("claimAmount", claimAmount)
+                /* Belgian B2B invoicing runs through Peppol; this paper copy
+                   must say loudly that it is not the legal document. */
+                .data("belgianInvoice", invoice && "BE".equalsIgnoreCase(order.countryCode()))
+                /* The full terms ride along as the closing page: the linked
+                   web page can change, the document in the mailbox cannot. */
+                .data("termsText", company.get().termsFor(language))
                 .data("deliveryTexts", deliveryTexts)
                 .data("palletPositionsByProduct", palletPositionsByProduct)
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
@@ -135,11 +164,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
     @Override
     public Document packingSlip(PackingSlip slip) {
+        Language slipLanguage = slip.customer() == null ? Language.NL : slip.customer().language();
         String html = packingSlipTemplate
                 .data("slip", slip)
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
                 .data("date", be.enrosed.shared.DocumentFormat.be(java.time.LocalDate.now()))
+                .data("termsTitle", DocumentText.of(slipLanguage).get("termsTitle"))
+                .data("termsText", company.get().termsFor(slipLanguage))
                 .render();
         return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
                 "application/pdf");

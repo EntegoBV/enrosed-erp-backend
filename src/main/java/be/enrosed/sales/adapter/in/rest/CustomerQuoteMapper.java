@@ -38,14 +38,6 @@ public class CustomerQuoteMapper {
         return view(order, preferredLanguage, false);
     }
 
-    /**
-     * Read-only staff preview. It never creates or resolves a portal token and
-     * cannot record a customer view or expose response actions.
-     */
-    public CustomerQuoteView preview(SalesOrder order, String preferredLanguage) {
-        return view(order, preferredLanguage, true);
-    }
-
     private CustomerQuoteView view(SalesOrder order, String preferred, boolean preview) {
         PricedOrder priced = salesOrders.price(order);
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());

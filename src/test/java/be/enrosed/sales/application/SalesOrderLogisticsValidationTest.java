@@ -31,6 +31,9 @@ class SalesOrderLogisticsValidationTest {
     private ProductService products;
     private Product product;
 
+    private final be.enrosed.shipping.application.CarrierRepository carriers =
+            mock(be.enrosed.shipping.application.CarrierRepository.class);
+
     @BeforeEach
     void setUp() {
         orders = mock(SalesRepositories.Orders.class);
@@ -58,7 +61,8 @@ class SalesOrderLogisticsValidationTest {
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> call.getArgument(0));
 
         service = new SalesOrderService(orders, products, countries, tiers,
-                pricing, new PalletCalculator(), settings, customers, vat, events, revisions);
+                pricing, new PalletCalculator(), settings, customers, vat, events, revisions,
+                carriers);
     }
 
     @Test

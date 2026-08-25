@@ -9,6 +9,7 @@ import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.FreightPricingStrategy;
 import be.enrosed.shared.Language;
 import be.enrosed.sales.domain.QuoteRevision;
+import be.enrosed.sales.domain.DocumentType;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
@@ -28,22 +29,21 @@ public class SalesOrderResource {
 
     private final SalesOrderService salesOrders;
     private final QuoteService quotes;
-    private final CustomerQuoteMapper customerQuotes;
 
-    public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes,
-                              CustomerQuoteMapper customerQuotes) {
+    public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
         this.quotes = quotes;
-        this.customerQuotes = customerQuotes;
     }
 
-    public record CreateRequest(long customerId, String countryCode, String incoterm) {}
+    public record CreateRequest(long customerId, String countryCode, String incoterm,
+                                DocumentType docType) {}
     public record SendRequest(String message) {}
     public record RevisionDecision(String handledBy, String message) {}
     public record DeliveryTermsRequest(List<SalesOrderService.DeliveryWeekChange> lines) {}
     public record FreightRequest(FreightState state, BigDecimal manualFreightEur,
                                  FreightPricingStrategy freightPricingStrategy,
-                                 BigDecimal freightRatePerCbmEur) {}
+                                 BigDecimal freightRatePerCbmEur,
+                                 Long freightCarrierId) {}
     public record OrderView(SalesOrder order, PricedOrder priced) {}
     public record PortalLink(boolean available, String status, String url) {}
 
@@ -63,10 +63,34 @@ public class SalesOrderResource {
 
     @POST
     public Response create(CreateRequest request) {
-        SalesOrder created = salesOrders.create(request.customerId(), request.countryCode(), request.incoterm());
+        SalesOrder created = salesOrders.create(request.customerId(), request.countryCode(),
+                request.incoterm(),
+                request.docType() == null ? DocumentType.OFFERTE : request.docType());
         return Response.status(Response.Status.CREATED)
                 .entity(new OrderView(created, salesOrders.price(created)))
                 .build();
+    }
+
+    /** Freezes the quote's content into a new invoice; the quote stays. */
+    @POST
+    @Path("/{id}/invoice")
+    public OrderView createInvoice(@PathParam("id") long id) {
+        SalesOrder invoice = salesOrders.createInvoiceFrom(id);
+        return new OrderView(invoice, salesOrders.price(invoice));
+    }
+
+    @POST
+    @Path("/{id}/mark-sent")
+    public OrderView markInvoiceSent(@PathParam("id") long id) {
+        SalesOrder sent = salesOrders.markInvoiceSent(id);
+        return new OrderView(sent, salesOrders.price(sent));
+    }
+
+    @POST
+    @Path("/{id}/mark-paid")
+    public OrderView markInvoicePaid(@PathParam("id") long id) {
+        SalesOrder paid = salesOrders.markInvoicePaid(id);
+        return new OrderView(paid, salesOrders.price(paid));
     }
 
     @PUT
@@ -104,7 +128,8 @@ public class SalesOrderResource {
                 request == null ? null : request.state(),
                 request == null ? null : request.manualFreightEur(),
                 request == null ? null : request.freightPricingStrategy(),
-                request == null ? null : request.freightRatePerCbmEur());
+                request == null ? null : request.freightRatePerCbmEur(),
+                request == null ? null : request.freightCarrierId());
         return new OrderView(saved, salesOrders.price(saved));
     }
 
@@ -182,17 +207,6 @@ public class SalesOrderResource {
                 && order.sentAt() != null;
         return new PortalLink(false,
                 reopenedDraft ? "CONCEPT_IN_BEWERKING" : "NIET_VERSTUURD", null);
-    }
-
-    /**
-     * Customer-safe internal preview. This path remains under the resource's
-     * admin role and never creates/resolves a public token or records a view.
-     */
-    @GET
-    @Path("/{id}/customer-preview")
-    public CustomerQuoteView customerPreview(@PathParam("id") long id,
-                                             @QueryParam("language") String language) {
-        return customerQuotes.preview(salesOrders.get(id), language);
     }
 
     /* -------------------------------------------------- wijzigingen ---- */
