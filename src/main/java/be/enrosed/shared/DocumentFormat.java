@@ -45,6 +45,22 @@ public class DocumentFormat {
         return format.format(rounded) + " %";
     }
 
+    /** Money for dense tables: 8.710,42 - the column header names the unit. */
+    public static String money(BigDecimal value) {
+        NumberFormat format = NumberFormat.getNumberInstance(LOCALE);
+        format.setMinimumFractionDigits(2);
+        format.setMaximumFractionDigits(2);
+        return format.format(value == null ? BigDecimal.ZERO : value);
+    }
+
+    /** Piece price for dense tables; three decimals like the purchase list. */
+    public static String moneyUnit(BigDecimal value) {
+        NumberFormat format = NumberFormat.getNumberInstance(LOCALE);
+        format.setMinimumFractionDigits(2);
+        format.setMaximumFractionDigits(3);
+        return format.format(value == null ? BigDecimal.ZERO : value);
+    }
+
     public static String amount(BigDecimal value) {
         NumberFormat format = NumberFormat.getNumberInstance(LOCALE);
         format.setMaximumFractionDigits(1);

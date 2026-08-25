@@ -139,7 +139,7 @@ class SalesPricingCalculatorTest {
     }
 
     @Test
-    void pricedLineKeepsPhysicalBdhAndVariantSizeDistinct() {
+    void internalLineShowsPlainNameWhileCustomerLineKeepsFullDescription() {
         Product product = new Product(
                 1L, "SIZE-XL", "Roos",
                 new Dimensions(decimal("12"), decimal("8"), decimal("25")),
@@ -155,8 +155,10 @@ class SalesPricingCalculatorTest {
 
         PricedOrder.Line line = price(order, Map.of(product.id(), product)).lines().getFirst();
 
-        assertEquals("Roos - B × D × H: 12 × 8 × 25 cm - Rood - XL", line.description());
-        assertEquals(line.description(), line.customerDescription());
+        /* Internal screens read the short label; dimensions have their own
+           columns there. The quote and the portal keep the full description. */
+        assertEquals("Roos - Rood", line.description());
+        assertEquals("Roos - B × D × H: 12 × 8 × 25 cm - Rood - XL", line.customerDescription());
     }
 
     private PricedOrder price(SalesOrder order, Map<Long, Product> products) {

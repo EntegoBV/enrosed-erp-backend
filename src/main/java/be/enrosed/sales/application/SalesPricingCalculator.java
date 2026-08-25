@@ -126,7 +126,9 @@ public class SalesPricingCalculator {
             String manualWeek = line.deliveryWeek();
 
             lines.add(new PricedOrder.Line(
-                    product.id(), product.sku(), product.describe(),
+                    /* Internal screens read the plain name with colour; the
+                       dimensions live in their own columns. */
+                    product.id(), product.sku(), product.nameWithColour(),
                     /* The same line in the customer's language; that goes to
                        the quote and the portal, while our screens keep showing
                        our own description. */

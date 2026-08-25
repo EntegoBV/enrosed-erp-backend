@@ -159,9 +159,13 @@ public class SourcingResource {
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue) {
         PurchaseOrder order = purchaseOrders.get(id);
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
+        LandedCost costing = purchaseOrders.calculate(order);
 
         PdfPurchaseRenderer.Document document = purchasePdf.render(
-                order, purchaseOrders.calculate(order), supplier, showRevenue);
+                order, costing, supplier, showRevenue,
+                purchaseOrders.payments(id),
+                purchaseOrders.payable(order, costing,
+                        supplier == null ? null : supplier.incoterm()));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",

@@ -3,99 +3,253 @@
 <head>
   <meta charset="utf-8"/>
   <style>
-    @page { size: A4 landscape; margin: 14mm 12mm; }
-    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8.5pt; color: #1a1614; }
-    h1 { font-size: 16pt; margin: 0; font-family: "DejaVu Sans", Georgia, serif; }
+    /* The internal purchase dossier: everything that was entered, on paper
+       the way the screen shows it. Landscape, because the cost of a line is
+       a story of eight numbers side by side - grouped under three banners
+       (Lading, Kostenopbouw, Resultaat) so the eye finds its column. */
+    @page {
+      size: A4 landscape; margin: 11mm 10mm 16mm;
+      @bottom-left {
+        content: "{order.number}{#if showRevenue} · interne inkoopcalculatie{#else} · inkoopcalculatie{/if}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+      }
+      @bottom-right {
+        content: "Pagina " counter(page) " van " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+      }
+    }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8pt; color: #1a1614; margin: 0; }
+    h1 { font-size: 15pt; margin: 0; }
     .muted { color: #8a807a; }
-    .label { font-size: 6.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8a807a; }
+    .tiny { font-size: 6.2pt; color: #8a807a; font-weight: 400; }
 
-    table.head { width: 100%; border-bottom: 1.5px solid #1a1614; padding-bottom: 8px; margin-bottom: 12px; }
-    table.head td { vertical-align: top; }
-    td.meta { text-align: right; }
+    /* -- head ------------------------------------------------------------ */
+    table.head { width: 100%; border-collapse: collapse; }
+    table.head td { vertical-align: top; padding: 0; }
+    .head__company { font-size: 7pt; color: #8a807a; margin-top: 4px; }
+    .head__meta { text-align: right; }
+    .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #1f5e9e; font-weight: 700; }
+    .doc-number { font-size: 15pt; font-weight: 700; margin-top: 1px; }
+    .doc-alias { font-size: 8pt; color: #8a807a; margin-top: 1px; }
+    .doc-badges { margin-top: 4px; }
+    .badge {
+      display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca; border-radius: 3px;
+      font-size: 6.3pt; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+    }
+    .badge--status { border-color: #1f5e9e; color: #1f5e9e; }
+    .badge--intern { background: #1a1614; border-color: #1a1614; color: #ffffff; margin-left: 3px; }
 
-    table.lines { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    /* -- facts band ------------------------------------------------------ */
+    table.band { width: 100%; border-collapse: collapse; margin-top: 9px; page-break-inside: avoid; }
+    td.band__cell {
+      vertical-align: top; background: #f7f5f3; border: 1px solid #e8e2dd;
+      padding: 6px 9px;
+    }
+    .band__label { font-size: 6pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8a807a; margin-bottom: 3px; }
+    .band__value { font-size: 8.5pt; font-weight: 700; }
+    .band__sub { font-size: 6.9pt; color: #8a807a; margin-top: 1px; }
+    .band__line { font-size: 7.2pt; margin-top: 1px; }
+    .band__line span { color: #8a807a; }
+    .band__line b { float: right; }
+
+    /* -- lines table ----------------------------------------------------- */
+    table.lines {
+      width: 100%; border-collapse: collapse; margin-top: 10px;
+      -fs-table-paginate: paginate;
+    }
+    table.lines thead { display: table-header-group; }
+    table.lines tr { page-break-inside: avoid; }
     table.lines th {
-      text-align: left; font-size: 6.5pt; letter-spacing: 0.06em; text-transform: uppercase;
-      color: #8a807a; border-bottom: 1px solid #d8d0ca; padding: 4px 6px;
+      text-align: right; font-size: 6pt; letter-spacing: 0.05em; text-transform: uppercase;
+      color: #8a807a; padding: 3px 4px; white-space: nowrap;
     }
-    table.lines td { padding: 5px 6px; border-bottom: 1px solid #efeae6; }
-    .r { text-align: right; }
-
-    table.totals { width: 58%; margin-top: 14px; border-collapse: collapse; margin-left: auto; }
-    table.totals td { padding: 4px 3px; }
-    table.totals tr.sum td { border-top: 1px solid #d8d0ca; font-weight: 700; }
-    table.totals tr.grand td { border-top: 1.5px solid #1a1614; font-size: 11pt; font-weight: 700; }
-
-    .foot { margin-top: 16px; font-size: 7pt; color: #8a807a; border-top: 1px solid #efeae6; padding-top: 6px; }
-    .stamp {
-      display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca;
-      border-radius: 3px; font-size: 6.5pt; letter-spacing: 0.1em; text-transform: uppercase;
+    tr.grouprow th {
+      text-align: left; color: #1f5e9e; font-weight: 700; letter-spacing: 0.12em;
+      border-bottom: 1px solid #d8d0ca; padding-bottom: 2px;
     }
+    tr.labelrow th { border-bottom: 1px solid #1a1614; }
+    table.lines th.l { text-align: left; }
+    table.lines td { padding: 4.5px 4px; border-bottom: 1px solid #efeae6; font-size: 7.5pt; }
+    tr.alt td { background: #faf8f7; }
+    .group-l { border-left: 1px solid #d8d0ca; }
+    table.lines td.c-res { background: #f2f6fa; }
+    .r { text-align: right; white-space: nowrap; }
+    .c-num { color: #8a807a; font-size: 6.5pt; }
+    .c-name { font-weight: 700; }
+    tr.sumrow td {
+      border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
+      padding-top: 5px; background: none;
+    }
+
+    /* -- summary cards --------------------------------------------------- */
+    table.cards { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 12px -6px 0; page-break-inside: avoid; }
+    td.card { width: 33.33%; vertical-align: top; border: 1px solid #e8e2dd; padding: 8px 10px; }
+    .card__title { font-size: 6.3pt; letter-spacing: 0.12em; text-transform: uppercase; color: #1f5e9e; font-weight: 700; margin-bottom: 4px; }
+    .card__title--follow { margin-top: 8px; }
+    table.mini { width: 100%; border-collapse: collapse; }
+    table.mini td { padding: 2.5px 0; font-size: 7.3pt; vertical-align: top; }
+    tr.mini__sub td { border-top: 1px solid #e8e2dd; font-weight: 700; }
+    tr.mini__grand td { border-top: 1.2px solid #1a1614; font-weight: 700; font-size: 8.3pt; padding-top: 4px; }
+    tr.mini__avg td { color: #8a807a; }
+    .note { font-size: 6.7pt; color: #8a807a; margin-top: 4px; }
+    .tick {
+      display: inline-block; width: 9px; height: 9px; border: 1px solid #d8d0ca; border-radius: 6px;
+      font-size: 6pt; text-align: center; line-height: 9px; color: #ffffff; margin-right: 2px;
+    }
+    .tick--done { background: #1b7a4c; border-color: #1b7a4c; }
+
+    /* -- diary ----------------------------------------------------------- */
+    .notes { margin-top: 10px; border: 1px solid #e8e2dd; padding: 8px 10px; }
+    .notes__body { white-space: pre-wrap; font-size: 7pt; line-height: 1.55; color: #3d3733; }
+
+    .foot { margin-top: 12px; font-size: 6.6pt; color: #8a807a; border-top: 1px solid #efeae6; padding-top: 5px; page-break-inside: avoid; }
   </style>
 </head>
 <body>
 
-<table class="head" width="100%">
+<table class="head">
   <tr>
     <td>
-      {#if logo}<img src="{logo}" alt="Enrosed" style="height:26px"/>{#else}<h1>ENROSED</h1>{/if}
-      <div class="muted" style="font-size:7.5pt;margin-top:4px">
+      {#if logo}<img src="{logo}" alt="Enrosed" style="height:24px"/>{#else}<h1>ENROSED</h1>{/if}
+      <div class="head__company">
         <b>{company.name}</b>
         {#if company.vatNumber} · BTW {company.vatNumber}{/if}
       </div>
     </td>
-    <td class="meta">
-      <span class="label" style="display:block">Inkoopcalculatie</span><b>{order.number}</b><br/>
-      <span class="label" style="margin-top:5px;display:block">Datum</span>{orderDate}<br/>
-      <span class="label" style="margin-top:5px;display:block">Leverancier</span>{supplierName}
-      {#if showRevenue}
-        {#for addressLine in supplierAddressLines}<br/><span class="muted">{addressLine}</span>{/for}
-      {/if}<br/>
-      <span class="label" style="margin-top:5px;display:block">Container</span>{order.containerType.label}<br/>
-      <span class="label" style="margin-top:5px;display:block">Vertrekhaven</span>{costLabels.loadingPort}<br/>
-      <span class="label" style="margin-top:5px;display:block">Aankomsthaven</span>{costLabels.destinationPort}
-      {#if showRevenue}
-        <div style="margin-top:6px"><span class="stamp">Intern</span></div>
-      {/if}
+    <td class="head__meta">
+      <div class="doc-kicker">{#if showRevenue}Interne inkoopcalculatie{#else}Inkoopcalculatie{/if}</div>
+      <div class="doc-number">{order.number}</div>
+      {#if order.alias}<div class="doc-alias">{order.alias}</div>{/if}
+      <div class="doc-badges">
+        <span class="badge badge--status">{statusLabel}</span>
+        {#if showRevenue}<span class="badge badge--intern">Intern</span>{/if}
+      </div>
     </td>
   </tr>
 </table>
 
 {#if showRevenue}
+<table class="band">
+  <tr>
+    <td class="band__cell" style="width:28%">
+      <div class="band__label">Leverancier</div>
+      <div class="band__value">{supplierName}</div>
+      {#for addressLine in supplierAddressLines}<div class="band__sub">{addressLine}</div>{/for}
+      {#if supplierContactLine}<div class="band__sub">{supplierContactLine}</div>{/if}
+    </td>
+    <td class="band__cell" style="width:26%">
+      <div class="band__label">Traject</div>
+      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__sub">{order.containerType.label}{#if order.trackingReference} · {order.trackingReference}{/if}</div>
+      {#if costing.containerFill}
+        <div class="band__sub">Gevuld {costing.containerFill.usedCbm.amount} van {costing.containerFill.capacityCbm.amount} m³
+          ({costing.containerFill.fillPercent.pct})</div>
+      {/if}
+    </td>
+    <td class="band__cell" style="width:22%">
+      <div class="band__label">Momenten</div>
+      {#for moment in timeline}
+        <div class="band__line"><span>{moment.label}</span> <b>{moment.date}</b></div>
+      {/for}
+    </td>
+    <td class="band__cell" style="width:24%">
+      <div class="band__label">Afspraken</div>
+      <div class="band__line"><span>Betaling</span> <b>{paymentTermsLabel}</b></div>
+      {#if usdRateGoods}
+        <div class="band__line"><span>USD → EUR</span>
+          <b>{usdRateGoods}{#if !unifiedUsdToEur} / {usdRateTransport}{/if}</b></div>
+      {/if}
+      {#if cnyRate}
+        <div class="band__line"><span>CNY → USD</span> <b>{cnyRate}</b></div>
+      {/if}
+    </td>
+  </tr>
+</table>
+{#else}
+<table class="band">
+  <tr>
+    <td class="band__cell" style="width:34%">
+      <div class="band__label">Leverancier</div>
+      <div class="band__value">{supplierName}</div>
+    </td>
+    <td class="band__cell" style="width:33%">
+      <div class="band__label">Traject</div>
+      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__sub">{order.containerType.label}</div>
+    </td>
+    <td class="band__cell" style="width:33%">
+      <div class="band__label">Momenten</div>
+      {#for moment in timeline}
+        <div class="band__line"><span>{moment.label}</span> <b>{moment.date}</b></div>
+      {/for}
+    </td>
+  </tr>
+</table>
+{/if}
+
+{#if showRevenue}
 <table class="lines">
   <thead>
-  <tr>
-    <th>Product</th>
-    <th class="r">Stuks</th>
-    <th class="r">Dozen</th>
-    <th class="r">CBM</th>
-    <th class="r">Goederen</th>
-    <th class="r">Oorsprong</th>
-    <th class="r">Vracht</th>
-    <th class="r">Douanewaarde</th>
-    <th class="r">Invoerrecht</th>
-    <th class="r">Bestemming</th>
-    <th class="r">Totaal</th>
-    <th class="r">Per stuk</th>
+  <tr class="grouprow">
+    <th colspan="5">Lading</th>
+    <th class="group-l" colspan="{#if hasExtraColumn}8{#else}7{/if}">Kostenopbouw per regel</th>
+    <th class="group-l" colspan="2">Resultaat</th>
+  </tr>
+  <tr class="labelrow">
+    <th class="l">#</th>
+    <th class="l" style="width:62mm">Product</th>
+    <th>Stuks</th>
+    <th>Dozen</th>
+    <th>m³</th>
+    <th class="group-l">Goederen $</th>
+    <th>Goederen €</th>
+    <th>Oorsprong €</th>
+    <th>Zeevracht €</th>
+    <th>Douanewaarde €</th>
+    <th>Invoerrecht €</th>
+    <th>Bestemming €</th>
+    {#if hasExtraColumn}<th>Enrosed €</th>{/if}
+    <th class="group-l">Totaal €</th>
+    <th>Per stuk €</th>
   </tr>
   </thead>
   <tbody>
   {#for line in costing.lines}
-    <tr>
-      <td>{line.productName}</td>
+    <tr class="{#if line_even}alt{/if}">
+      <td class="c-num">{line_count}</td>
+      <td class="c-name">{line.productName}</td>
       <td class="r">{line.quantity}</td>
       <td class="r">{line.cartons}</td>
       <td class="r">{line.cbm.amount}</td>
-      <td class="r">{line.goodsEur.eur}</td>
-      <td class="r">{line.originEur.eur}</td>
-      <td class="r">{line.freightEur.eur}</td>
-      <td class="r">{line.customsValueEur.eur}</td>
-      <td class="r">{line.dutyEur.eur} <span class="muted">({line.dutyRatePct.pct})</span></td>
-      <td class="r">{line.destinationEur.eur}</td>
-      <td class="r"><b>{line.totalEur.eur}</b></td>
-      <td class="r"><b>{line.landedUnitEur.unit}</b></td>
+      <td class="r group-l">{#if line.goodsUsd}{line.goodsUsd.money}{#else}—{/if}</td>
+      <td class="r">{line.goodsEur.money}</td>
+      <td class="r">{line.originEur.money}</td>
+      <td class="r">{line.freightEur.money}</td>
+      <td class="r">{line.customsValueEur.money}</td>
+      <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
+      <td class="r">{line.destinationEur.money}</td>
+      {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
+      <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b></td>
     </tr>
   {/for}
+  <tr class="sumrow">
+    <td></td>
+    <td>Totaal</td>
+    <td class="r">{costing.totals.pieces}</td>
+    <td class="r">{costing.totals.cartons}</td>
+    <td class="r">{costing.totals.cbm.amount}</td>
+    <td class="r group-l">{#if costing.totals.goodsUsd}{costing.totals.goodsUsd.money}{/if}</td>
+    <td class="r">{costing.totals.goodsEur.money}</td>
+    <td class="r">{costing.totals.originEur.money}</td>
+    <td class="r">{costing.totals.freightEur.money}</td>
+    <td class="r">{costing.totals.customsValueEur.money}</td>
+    <td class="r">{costing.totals.dutyEur.money}</td>
+    <td class="r">{costing.totals.destinationEur.money}</td>
+    {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
+    <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
+    <td class="r c-res">{costing.totals.averageUnitEur.moneyUnit}</td>
+  </tr>
   </tbody>
 </table>
 {#else}
@@ -104,50 +258,116 @@
      add up to its own total invites exactly the arithmetic we want to avoid. -->
 <table class="lines">
   <thead>
-  <tr>
-    <th>Product</th>
-    <th class="r">Stuks</th>
-    <th class="r">Dozen</th>
-    <th class="r">CBM</th>
-    <th class="r">Per stuk</th>
-    <th class="r">Totaal</th>
+  <tr class="labelrow">
+    <th class="l">#</th>
+    <th class="l" style="width:90mm">Product</th>
+    <th>Stuks</th>
+    <th>Dozen</th>
+    <th>m³</th>
+    <th>Per stuk €</th>
+    <th>Totaal €</th>
   </tr>
   </thead>
   <tbody>
   {#for line in costing.lines}
-    <tr>
-      <td>{line.productName}</td>
+    <tr class="{#if line_even}alt{/if}">
+      <td class="c-num">{line_count}</td>
+      <td class="c-name">{line.productName}</td>
       <td class="r">{line.quantity}</td>
       <td class="r">{line.cartons}</td>
       <td class="r">{line.cbm.amount}</td>
-      <td class="r"><b>{line.landedUnitEur.unit}</b></td>
-      <td class="r"><b>{line.totalEur.eur}</b></td>
+      <td class="r"><b>{line.landedUnitEur.moneyUnit}</b></td>
+      <td class="r"><b>{line.totalEur.money}</b></td>
     </tr>
   {/for}
+  <tr class="sumrow">
+    <td></td>
+    <td>Totaal</td>
+    <td class="r">{costing.totals.pieces}</td>
+    <td class="r">{costing.totals.cartons}</td>
+    <td class="r">{costing.totals.cbm.amount}</td>
+    <td class="r">{costing.totals.averageUnitEur.moneyUnit}</td>
+    <td class="r">{costing.totals.totalEur.money}</td>
+  </tr>
   </tbody>
 </table>
 {/if}
 
 {#if showRevenue}
-<table class="totals">
-  <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
-  <tr><td>{costLabels.originCostsLabel} <span class="muted">({costLabels.originRoute})</span></td>
-      <td class="r">{costing.totals.originEur.eur}</td></tr>
-  <tr><td>{costLabels.seaFreightLabel} <span class="muted">({costLabels.seaFreightRoute})</span></td>
-      <td class="r">{costing.totals.freightEur.eur}</td></tr>
-  <tr class="sum"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
-  <tr><td>Invoerrechten ({costing.totals.effectiveDutyPct.pct} gemiddeld)</td>
-      <td class="r">{costing.totals.dutyEur.eur}</td></tr>
-  <tr><td>{costLabels.destinationCostsLabel}</td>
-      <td class="r">{costing.totals.destinationEur.eur}</td></tr>
-  <tr><td>Enrosed kost</td>
-      <td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
-  <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
+<table class="cards">
+  <tr>
+    <td class="card">
+      <div class="card__title">Kostenopbouw</div>
+      <table class="mini">
+        <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
+        <tr><td>{costLabels.originCostsLabel} <span class="tiny">{costLabels.originRoute}</span></td>
+            <td class="r">{costing.totals.originEur.eur}</td></tr>
+        <tr><td>{costLabels.seaFreightLabel} <span class="tiny">{costLabels.seaFreightRoute}</span></td>
+            <td class="r">{costing.totals.freightEur.eur}</td></tr>
+        <tr class="mini__sub"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
+        <tr><td>Invoerrechten <span class="tiny">{costing.totals.effectiveDutyPct.pct} gemiddeld</span></td>
+            <td class="r">{costing.totals.dutyEur.eur}</td></tr>
+        <tr><td>{costLabels.destinationCostsLabel}</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
+        <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
+        <tr class="mini__grand"><td>Totaal geland</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
+        <tr class="mini__avg"><td>Gemiddeld per stuk</td><td class="r">{costing.totals.averageUnitEur.unit}</td></tr>
+      </table>
+    </td>
+    <td class="card">
+      <div class="card__title">Te betalen</div>
+      {#if payableView}
+      <table class="mini">
+        <tr><td>Leverancier <span class="tiny">goederen</span></td><td class="r">{payableView.supplier}</td></tr>
+        <tr><td>Douane &amp; transport</td><td class="r">{payableView.logistics}</td></tr>
+        <tr><td>Enrosed kost</td><td class="r">{payableView.enrosed}</td></tr>
+      </table>
+      {#if payableView.ddp}<div class="note">DDP: de leverancier draagt transport en invoer.</div>
+      {#else if payableView.freightInSupplierPrice}<div class="note">Zeevracht zit in de inkoopprijs van de leverancier.</div>{/if}
+      <div class="card__title card__title--follow">Stand</div>
+      <table class="mini">
+        <tr><td>Betaald aan leverancier</td><td class="r">{payableView.paidSupplier}</td></tr>
+        <tr><td>Betaald douane &amp; transport</td><td class="r">{payableView.paidLogistics}</td></tr>
+        <tr class="mini__grand">
+          <td>{#if payableView.overpaid}Extra betaald{#else}Open bij leverancier{/if}</td>
+          <td class="r">{payableView.openSupplier}</td>
+        </tr>
+      </table>
+      {/if}
+    </td>
+    <td class="card">
+      <div class="card__title">Betaalplan · {paymentTermsLabel}</div>
+      <table class="mini">
+        {#for step in schedule}
+          <tr>
+            <td><span class="tick {#if step.done}tick--done{/if}">{#if step.done}✓{/if}</span> {step.label}</td>
+            <td class="r">{step.amount}</td>
+          </tr>
+        {/for}
+      </table>
+      {#if paymentRows}
+        <div class="card__title card__title--follow">Geregistreerde betalingen</div>
+        <table class="mini">
+          {#for payment in paymentRows}
+            <tr>
+              <td>{payment.date} · {payment.label}
+                <span class="tiny">{payment.payee}{#if payment.original} · {payment.original}{/if}</span></td>
+              <td class="r">{payment.amount}</td>
+            </tr>
+          {/for}
+        </table>
+      {#else}
+        <div class="note">Nog geen betalingen geregistreerd.</div>
+      {/if}
+    </td>
+  </tr>
 </table>
-{#else}
-<table class="totals">
-  <tr class="grand"><td>Totaal</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
-</table>
+{/if}
+
+{#if notesText}
+<div class="notes">
+  <div class="card__title">Dagboek &amp; notities</div>
+  <div class="notes__body">{notesText}</div>
+</div>
 {/if}
 
 <div class="foot">
@@ -155,12 +375,12 @@
     Interne calculatie: bevat de Enrosed kost als aparte regel. Niet bedoeld
     om buiten het bedrijf te delen - gebruik daarvoor de klantweergave.
     {#if unifiedUsdToEur}
-      Koers: 1 USD = {order.usdToEurGoods.amount} EUR
+      Koers: 1 USD = {usdRateGoods} EUR
     {#else}
-      Historische koersen: 1 USD = {order.usdToEurGoods.amount} EUR (goederen),
-      {order.usdToEurTransport.amount} EUR (transport)
-    {/if}{#if order.cnyToUsd},
-    1 CNY = {order.cnyToUsd.amount} USD{/if}.
+      Historische koersen: 1 USD = {usdRateGoods} EUR (goederen),
+      {usdRateTransport} EUR (transport)
+    {/if}{#if cnyRate},
+    1 CNY = {cnyRate} USD{/if}.
   {/if}
   Alle bedragen in euro, inclusief transport, invoerrechten en lokale kosten.
 </div>
