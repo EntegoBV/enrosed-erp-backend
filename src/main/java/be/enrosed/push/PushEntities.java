@@ -30,6 +30,9 @@ public final class PushEntities {
         @Column(length = 300)
         public String userAgent;
         public Instant createdAt = Instant.now();
+        /** HTTP status of the most recent delivery attempt; null before the first. */
+        public Integer lastStatus;
+        public Instant lastAt;
     }
 
     /**

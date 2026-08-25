@@ -57,10 +57,10 @@ public class DailyAgendaPush {
         }
 
         String title = planned.isEmpty()
-                ? "Vervallen facturen opvolgen"
+                ? "\u23F0 Vervallen facturen opvolgen"
                 : planned.size() == 1
-                        ? "Vandaag gepland: " + planned.get(0).title
-                        : "Vandaag " + planned.size() + " punten in de agenda";
+                        ? "\u2600\uFE0F Vandaag gepland: " + planned.get(0).title
+                        : "\u2600\uFE0F Vandaag " + planned.size() + " punten in de agenda";
         push.notifyAll("agenda", title, body, "/");
         LOG.infof("Ochtendagenda gepusht: %d punt(en)", planned.size());
     }

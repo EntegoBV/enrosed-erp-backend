@@ -135,7 +135,7 @@ public class ProductService {
         syncFamilyPhotos(saved.id(), prepared.familyId());
         queueWebsite();
         Product created = saved.id() == null ? saved : get(saved.id());
-        if (phones != null) phones.notifyAll("product", "Product toegevoegd: " + created.name(),
+        if (phones != null) phones.notifyAll("product", "\uD83C\uDF39 Product toegevoegd: " + created.name(),
                 created.sku() == null ? "" : created.sku(),
                 created.id() == null ? "/products" : "/products/" + created.id());
         return created;

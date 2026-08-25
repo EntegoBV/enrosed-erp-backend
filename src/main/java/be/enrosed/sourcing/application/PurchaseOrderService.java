@@ -106,7 +106,7 @@ public class PurchaseOrderService {
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
                 "Ningbo", "Rotterdam", "", List.of());
         PurchaseOrder created = orders.save(draft);
-        if (phones != null) phones.notifyAll("purchase", "Nieuwe inkooporder " + created.number(),
+        if (phones != null) phones.notifyAll("purchase", "\uD83D\uDCE6 Nieuwe inkooporder " + created.number(),
                 "Calculatie aangemaakt", "/purchasing/" + created.id());
         return created;
     }
@@ -246,6 +246,17 @@ public class PurchaseOrderService {
                 changes.trackingReference(),
                 withLateDamageNotes(changes.notes(), lateDamage), lines));
 
+        if (phones != null && current.status() != saved.status()) {
+            switch (saved.status()) {
+                case BESTELD -> phones.notifyAll("purchase",
+                        "\uD83D\uDCE6 Inkooporder " + saved.number() + " besteld",
+                        "Bij de leverancier geplaatst", "/purchasing/" + saved.id());
+                case ONDERWEG -> phones.notifyAll("purchase",
+                        "\uD83D\uDEA2 Container vertrokken \u00b7 " + saved.number(),
+                        "Onderweg naar Rotterdam", "/purchasing/" + saved.id());
+                default -> { }
+            }
+        }
         return new UpdateResult(saved, warnings);
     }
 
@@ -586,6 +597,12 @@ public class PurchaseOrderService {
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
         PurchaseOrder received = orders.save(order.withReceipt(PurchaseOrderStatus.ONTVANGEN, day,
                 receipt.paidTotalEur(), false, notes, lines));
+        if (phones != null) {
+            phones.notifyAll("purchase",
+                    "\uD83D\uDCE6 Container ontvangen \u00b7 " + received.number(),
+                    receipt.bookStock() ? "Voorraad wordt bijgeboekt" : "Ontvangst geregistreerd",
+                    "/purchasing/" + received.id());
+        }
         return receipt.bookStock() ? bookStock(received.id()) : received;
     }
 

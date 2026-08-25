@@ -51,11 +51,35 @@ public class PushResource {
         return Map.of("subscriptions", push.subscriptionCount());
     }
 
+    public record DeviceDto(Long id, String device, String since, Integer lastStatus,
+                            String lastAt) {}
+
+    /** Every registered device with its latest delivery result. */
+    @GET
+    @Path("/subscriptions")
+    public java.util.List<DeviceDto> devices() {
+        return push.subscriptions().stream()
+                .map(row -> new DeviceDto(row.id, deviceName(row.userAgent),
+                        row.createdAt == null ? null : row.createdAt.toString(),
+                        row.lastStatus, row.lastAt == null ? null : row.lastAt.toString()))
+                .toList();
+    }
+
+    private static String deviceName(String userAgent) {
+        if (userAgent == null) return "Onbekend toestel";
+        if (userAgent.contains("iPhone")) return "iPhone";
+        if (userAgent.contains("iPad")) return "iPad";
+        if (userAgent.contains("Android")) return "Android";
+        if (userAgent.contains("Macintosh")) return "Mac";
+        if (userAgent.contains("Windows")) return "Windows-pc";
+        return "Browser";
+    }
+
     /** Sends the sale notification to every device - kaching included. */
     @POST
     @Path("/test")
     public Map<String, Object> test() {
-        push.notifyAll("sale-quote", "Testmelding van Enrosed",
+        push.notifyAll("sale-quote", "\uD83D\uDD14 Testmelding van Enrosed",
                 "Zo klinkt en oogt een nieuwe verkoop op dit toestel.", "/sales");
         return Map.of("sent", push.subscriptionCount());
     }

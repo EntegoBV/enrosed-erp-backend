@@ -123,15 +123,15 @@ public class WebPushNotifier {
                             subscription.p256dh, subscription.auth,
                             payload.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
                     int status = response.getStatusLine().getStatusCode();
-                    if (status == 404 || status == 410) {
-                        removeGone(subscription.endpoint);
-                    } else if (status >= 400) {
+                    record(subscription.endpoint, status);
+                    if (status >= 400 && status != 404 && status != 410) {
                         LOG.warnf("Pushmelding geweigerd (%d) voor %s", status,
                                 subscription.endpoint.substring(0,
                                         Math.min(48, subscription.endpoint.length())));
                     }
                 } catch (Exception e) {
-                    LOG.debugf("Pushmelding niet afgeleverd: %s", e.getMessage());
+                    record(subscription.endpoint, -1);
+                    LOG.warnf("Pushmelding niet afgeleverd: %s", e.getMessage());
                 }
             }
         } catch (Exception e) {
@@ -139,9 +139,34 @@ public class WebPushNotifier {
         }
     }
 
-    @Transactional
-    void removeGone(String endpoint) {
-        PushSubscriptionEntity.delete("endpoint", endpoint);
+    /**
+     * Bookkeeping from the worker thread: a programmatic transaction,
+     * because the interceptor of {@code @Transactional} never sees a
+     * self-invocation. Gone endpoints (404/410) leave the table.
+     */
+    private void record(String endpoint, int status) {
+        try {
+            io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> {
+                if (status == 404 || status == 410) {
+                    PushSubscriptionEntity.delete("endpoint", endpoint);
+                    return;
+                }
+                PushSubscriptionEntity row = PushSubscriptionEntity
+                        .<PushSubscriptionEntity>find("endpoint", endpoint).firstResult();
+                if (row != null) {
+                    row.lastStatus = status;
+                    row.lastAt = java.time.Instant.now();
+                    row.persist();
+                }
+            });
+        } catch (Exception e) {
+            LOG.debugf("Pushboekhouding niet bijgewerkt: %s", e.getMessage());
+        }
+    }
+
+    /** The devices as the settings screen lists them. */
+    public List<PushSubscriptionEntity> subscriptions() {
+        return PushSubscriptionEntity.<PushSubscriptionEntity>listAll();
     }
 
     private static String escape(String value) {

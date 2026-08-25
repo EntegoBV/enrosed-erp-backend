@@ -131,7 +131,7 @@ public class SalesOrderService {
                 invoice ? "Factuur opgemaakt" : "Offerte opgemaakt", null));
         Customer buyer = customers.get(customerId);
         phones.notifyAll(invoice ? "sale-invoice" : "sale-quote",
-                (invoice ? "Nieuwe factuur " : "Nieuwe offerte ") + created.number(),
+                (invoice ? "\uD83D\uDCB0 Nieuwe factuur " : "\uD83D\uDD14 Nieuwe offerte ") + created.number(),
                 buyer == null ? "Zonet aangemaakt" : "Voor " + buyer.company(),
                 "/sales/" + created.id());
         return created;
@@ -179,7 +179,7 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
                 java.time.Instant.now(), null, false,
                 "Factuur " + created.number() + " aangemaakt", null));
-        phones.notifyAll("sale-invoice", "Nieuwe factuur " + created.number(),
+        phones.notifyAll("sale-invoice", "\uD83D\uDCB0 Nieuwe factuur " + created.number(),
                 "Vanuit offerte " + source.number(), "/sales/" + created.id());
         return created;
     }

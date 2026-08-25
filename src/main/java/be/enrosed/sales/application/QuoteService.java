@@ -296,7 +296,7 @@ public class QuoteService {
            on the order. */
         if (order.status() == QuoteStatus.VERZONDEN) {
             record(order, QuoteEvent.Type.BEKEKEN, true, null, "Klant heeft de offerte geopend", null);
-            phones.notifyAll("info", "Offerte " + order.number() + " geopend",
+            phones.notifyAll("info", "\uD83D\uDC40 Offerte " + order.number() + " geopend",
                     "De klant bekijkt de offerte in het portaal", "/sales/" + order.id());
         }
 
@@ -354,7 +354,7 @@ public class QuoteService {
 
         mailer.notifyInternal("Offerte " + order.number() + " geaccepteerd",
                 signedByName + " heeft offerte " + order.number() + " getekend.");
-        phones.notifyAll("sale-signed", "Offerte " + order.number() + " getekend",
+        phones.notifyAll("sale-signed", "\u270D\uFE0F Offerte " + order.number() + " getekend",
                 signedByName.trim() + " heeft getekend - tijd om te leveren", "/sales/" + order.id());
         return accepted;
     }
@@ -373,7 +373,7 @@ public class QuoteService {
 
         mailer.notifyInternal("Offerte " + order.number() + " afgewezen",
                 "Reden van de klant: " + (message == null ? "geen" : message));
-        phones.notifyAll("info", "Offerte " + order.number() + " afgewezen",
+        phones.notifyAll("info", "\u274C Offerte " + order.number() + " afgewezen",
                 message == null || message.isBlank() ? "Zonder reden" : message,
                 "/sales/" + order.id());
         return rejected;
@@ -427,7 +427,7 @@ public class QuoteService {
                 (proposedBy == null ? "De klant" : proposedBy)
                         + " stelt wijzigingen voor op offerte " + order.number()
                         + (message == null || message.isBlank() ? "" : ":\n\n" + message));
-        phones.notifyAll("info", "Wijziging gevraagd op " + order.number(),
+        phones.notifyAll("info", "\u270F\uFE0F Wijziging gevraagd op " + order.number(),
                 "De klant stelt een aanpassing voor - beoordeel het voorstel",
                 "/sales/" + order.id());
 
