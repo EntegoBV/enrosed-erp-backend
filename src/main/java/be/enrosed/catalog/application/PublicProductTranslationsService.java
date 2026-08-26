@@ -112,7 +112,11 @@ public class PublicProductTranslationsService {
             replaceFamilyTexts(family, request.familyTexts());
             replaceImages(family, request.images());
         }
-        replaceProductTexts(product, request.productTexts());
+        /* Missing means an older/new focused client did not edit document translations. */
+        if (request.productTexts() != null) replaceProductTexts(product, request.productTexts());
+        if (request.productPublicCopy() != null) {
+            replaceProductPublicCopy(product, request.productPublicCopy());
+        }
         String updatedRevision = revision(product, family);
         boolean publicChange = !Objects.equals(actualRevision, updatedRevision);
         if (publicChange && family != null) family.updatedAt = Instant.now();
@@ -288,6 +292,7 @@ public class PublicProductTranslationsService {
                         readStrings(text.highlightsJson), text.seoTitle, text.seoDescription))
                 .toList();
         List<ProductDto.TextDto> productTexts = product.texts.stream()
+                .filter(PublicProductTranslationsService::hasDocumentText)
                 .sorted(Comparator.comparing(text -> text.language))
                 .map(text -> new ProductDto.TextDto(
                         text.language, text.name, text.description, text.colour,
@@ -299,11 +304,19 @@ public class PublicProductTranslationsService {
                 .map(image -> new PublicProductTranslationsDto.ImageDto(
                         image.id, image.position, readAltTexts(image.altTextsJson)))
                 .toList();
+        List<PublicProductTranslationsDto.ProductPublicTextDto> publicTexts = product.texts.stream()
+                .filter(text -> text.publicName != null && !text.publicName.isBlank())
+                .sorted(Comparator.comparing(text -> text.language))
+                .map(text -> new PublicProductTranslationsDto.ProductPublicTextDto(
+                        text.language, text.publicName))
+                .toList();
         return new PublicProductTranslationsDto(
                 revision(product, family), family == null ? null : family.id, product.id,
                 familyTexts, productTexts, images,
                 family == null ? null : familyDtos.from(family),
-                ProductDto.from(productService.get(product.id)));
+                ProductDto.from(productService.get(product.id)),
+                new PublicProductTranslationsDto.ProductPublicCopyDto(
+                        product.publicName, publicTexts));
     }
 
     private void replaceFamilyTexts(
@@ -354,9 +367,15 @@ public class PublicProductTranslationsService {
             if (value.isEmpty()) continue;
             replacements.put(value.language(), value);
         }
-        product.texts.removeIf(existing -> !replacements.containsKey(existing.language));
+        product.texts.removeIf(existing -> {
+            if (replacements.containsKey(existing.language)) return false;
+            if (blank(existing.publicName)) return true;
+            clearDocumentText(existing);
+            return false;
+        });
         for (ProductTextEntity existing : product.texts) {
             ProductText value = replacements.remove(existing.language);
+            if (value == null) continue; // row owned only by public naming
             apply(existing, value);
         }
         for (ProductText value : replacements.values()) {
@@ -364,8 +383,41 @@ public class PublicProductTranslationsService {
             added.product = product;
             added.language = value.language();
             apply(added, value);
+            added.publicName = added.name;
             product.texts.add(added);
         }
+    }
+
+    private void replaceProductPublicCopy(
+            ProductEntity product,
+            PublicProductTranslationsDto.ProductPublicCopyDto requested) {
+        String baseName = optional(requested.publicName(), MAX_DB_SHORT);
+        Map<Language, String> replacements = new java.util.EnumMap<>(Language.class);
+        Set<Language> seen = EnumSet.noneOf(Language.class);
+        for (PublicProductTranslationsDto.ProductPublicTextDto input :
+                requested.texts() == null
+                        ? List.<PublicProductTranslationsDto.ProductPublicTextDto>of()
+                        : requested.texts()) {
+            if (input == null || input.language() == null || !seen.add(input.language())) {
+                throw new BusinessRuleException(
+                        "Elke publieke producttaal mag exact één keer voorkomen");
+            }
+            String name = optional(input.publicName(), MAX_DB_SHORT);
+            if (name != null) replacements.put(input.language(), name);
+        }
+
+        product.publicName = baseName;
+        for (ProductTextEntity existing : product.texts) {
+            existing.publicName = replacements.remove(existing.language);
+        }
+        for (Map.Entry<Language, String> replacement : replacements.entrySet()) {
+            ProductTextEntity added = new ProductTextEntity();
+            added.product = product;
+            added.language = replacement.getKey();
+            added.publicName = replacement.getValue();
+            product.texts.add(added);
+        }
+        product.texts.removeIf(text -> !hasDocumentText(text) && blank(text.publicName));
     }
 
     private ProductDto.TextDto withoutBaseValues(
@@ -400,10 +452,13 @@ public class PublicProductTranslationsService {
     }
 
     private static void apply(ProductTextEntity target, ProductText input) {
+        boolean publicNameInherited = blank(target.publicName)
+                || sameAs(target.publicName, target.name);
         target.name = input.name();
         target.description = input.description();
         target.colour = input.colour();
         target.variantSize = input.variantSize();
+        if (publicNameInherited) target.publicName = input.name();
     }
 
     private void replaceImages(
@@ -459,6 +514,7 @@ public class PublicProductTranslationsService {
         StringBuilder canonical = new StringBuilder();
         append(canonical, product.id);
         append(canonical, product.familyId);
+        append(canonical, product.publicName);
         append(canonical, family == null ? null : family.id);
         if (family != null) {
             family.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
@@ -475,6 +531,7 @@ public class PublicProductTranslationsService {
         product.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
             append(canonical, text.language);
             append(canonical, text.name);
+            append(canonical, text.publicName);
             append(canonical, text.description);
             append(canonical, text.colour);
             append(canonical, text.variantSize);
@@ -509,6 +566,22 @@ public class PublicProductTranslationsService {
     private static void append(StringBuilder target, Object value) {
         String text = value == null ? "" : String.valueOf(value);
         target.append(text.length()).append(':').append(text).append('|');
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static boolean hasDocumentText(ProductTextEntity text) {
+        return !blank(text.name) || !blank(text.description)
+                || !blank(text.colour) || !blank(text.variantSize);
+    }
+
+    private static void clearDocumentText(ProductTextEntity text) {
+        text.name = null;
+        text.description = null;
+        text.colour = null;
+        text.variantSize = null;
     }
 
     private List<String> readStrings(String value) {

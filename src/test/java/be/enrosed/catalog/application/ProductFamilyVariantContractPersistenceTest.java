@@ -327,6 +327,33 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
+    void publicCatalogueUsesIndependentVariantNameWhileDocumentsKeepTheirName() {
+        FamilyContext context = completeFamilyContext("separate-public-product-name");
+        ProductEntity product = product(
+                context.family, "SKU-SEPARATE-PUBLIC", "separate-public",
+                "Red", null, "#A91F32", 0);
+        product.name = "Internal invoice name";
+        product.publicName = "Public base name";
+        product.texts.forEach(text -> {
+            text.name = "Document " + text.language.code();
+            text.publicName = "Public " + text.language.code();
+        });
+        entityManager.persist(product);
+        entityManager.flush();
+
+        PublicFamilyCatalogDto.VariantDto projected = variant(
+                publicFamily("EN", context.family.publicHandle), product.id);
+        assertEquals("Public en", projected.name());
+        assertEquals(Language.EN, projected.textSources().get("name"));
+
+        Product operational = productService.get(product.id);
+        assertEquals("Internal invoice name", operational.name());
+        assertEquals("Document en", operational.nameIn(Language.EN),
+                "quote/document localization must remain independent from website copy");
+    }
+
+    @Test
+    @TestTransaction
     void imageVariantEndpointValidatesMembershipDerivesLegacyFieldsAndCanUnlink() {
         ProductFamilyEntity targetFamily = family("link-target");
         ProductFamilyEntity otherFamily = family("link-other");

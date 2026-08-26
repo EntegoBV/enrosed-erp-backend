@@ -219,6 +219,9 @@ public class CatalogContentBackfillService {
                 if (product.canonicalVariantKey == null || product.canonicalVariantKey.isBlank()) continue;
                 if (!bundle.targetVariantKeys().contains(product.canonicalVariantKey)) continue;
                 matchedVariants++;
+                if (product.publicName == null || product.publicName.isBlank()) {
+                    product.publicName = product.name;
+                }
                 String colourHex = product.colour == null
                         ? null : bundle.colourHexes().get(product.colour);
                 if ((product.colourHex == null || product.colourHex.isBlank())
@@ -241,7 +244,7 @@ public class CatalogContentBackfillService {
                         product.texts.add(text);
                         counter.inserted++;
                     }
-                    text.name = merge(text.name, name, known(product.name, language),
+                    text.publicName = merge(text.publicName, name, known(product.publicName, language),
                             correctKnownStale, counter);
                     text.description = merge(text.description, profile.get(language),
                             knownDutchStale(text.description, language),

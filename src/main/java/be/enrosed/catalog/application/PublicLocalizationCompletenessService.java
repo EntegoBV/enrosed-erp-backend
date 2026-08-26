@@ -14,6 +14,7 @@ import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.LanguageFallback;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -30,14 +31,17 @@ import java.util.function.Function;
 public class PublicLocalizationCompletenessService {
     private final CatalogDaos.Categories categories;
     private final ContentTranslationService content;
+    private final PublicProductNameResolver publicProductNames;
     private final ObjectMapper json;
 
     public PublicLocalizationCompletenessService(
             CatalogDaos.Categories categories,
             ContentTranslationService content,
+            PublicProductNameResolver publicProductNames,
             ObjectMapper json) {
         this.categories = categories;
         this.content = content;
+        this.publicProductNames = publicProductNames;
         this.json = json;
     }
 
@@ -121,9 +125,13 @@ public class PublicLocalizationCompletenessService {
                         ? String.valueOf(product.id) : product.canonicalVariantKey;
                 ProductTextEntity text = product.texts.stream()
                         .filter(item -> item.language == language).findFirst().orElse(null);
-                if (productUses(product, product.name, item -> item.name)) {
-                    required(missing, prefix + ".variants." + variantKey + "." + locale + ".name",
-                            value(text, item -> item.name));
+                if (productUsesPublicName(product)) {
+                    LanguageFallback.Resolved<String> publicName =
+                            publicProductNames.resolve(product, language);
+                    if (blank(publicName.value()) || publicName.sourceLanguage() != language) {
+                        missing.add(prefix + ".variants." + variantKey + "."
+                                + locale + ".name");
+                    }
                 }
                 if (productUses(product, product.colour, item -> item.colour)) {
                     required(missing, prefix + ".variants." + variantKey + "." + locale + ".color",
@@ -188,6 +196,12 @@ public class PublicLocalizationCompletenessService {
     private static boolean productUses(
             ProductEntity product, String base, Function<ProductTextEntity, String> field) {
         return !blank(base) || product.texts.stream().map(field).anyMatch(value -> !blank(value));
+    }
+
+    private static boolean productUsesPublicName(ProductEntity product) {
+        return !blank(product.publicName) || !blank(product.name)
+                || product.texts.stream().anyMatch(text ->
+                        !blank(text.publicName) || !blank(text.name));
     }
 
     private List<String> readStrings(String raw) {

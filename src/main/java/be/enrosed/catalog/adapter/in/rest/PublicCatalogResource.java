@@ -1,13 +1,17 @@
 package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.application.CategoryService;
+import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Language;
 import jakarta.annotation.security.PermitAll;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -33,10 +37,22 @@ public class PublicCatalogResource {
 
     private final ProductService products;
     private final CategoryService categories;
+    private final CatalogDaos.Products productRows;
+    private final PublicProductNameResolver publicProductNames;
 
-    public PublicCatalogResource(ProductService products, CategoryService categories) {
+    @Inject
+    public PublicCatalogResource(
+            ProductService products, CategoryService categories,
+            CatalogDaos.Products productRows, PublicProductNameResolver publicProductNames) {
         this.products = products;
         this.categories = categories;
+        this.productRows = productRows;
+        this.publicProductNames = publicProductNames;
+    }
+
+    /** Compatibility constructor for direct unit callers written for the legacy projection. */
+    public PublicCatalogResource(ProductService products, CategoryService categories) {
+        this(products, categories, null, null);
     }
 
     @GET
@@ -53,7 +69,7 @@ public class PublicCatalogResource {
                     Category category = categoryById.get(product.categoryId());
                     return category == null ? Integer.MAX_VALUE : category.position();
                 })
-                .thenComparing(product -> safe(product.nameIn(language)), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(product -> safe(publicName(product, language)), String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(product -> safe(product.sku()), String.CASE_INSENSITIVE_ORDER);
 
         var publicProducts = products.list().stream()
@@ -61,7 +77,7 @@ public class PublicCatalogResource {
                 .sorted(order)
                 .map(product -> PublicCatalogDto.product(
                         product, categoryById.get(product.categoryId()), language,
-                        uriInfo.getBaseUri().toString()))
+                        uriInfo.getBaseUri().toString(), publicName(product, language)))
                 .toList();
 
         return Response.ok(new PublicCatalogDto(channel, language, publicProducts))
@@ -92,5 +108,13 @@ public class PublicCatalogResource {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String publicName(Product product, Language language) {
+        if (productRows == null || publicProductNames == null || product.id() == null) {
+            return product.nameIn(language);
+        }
+        ProductEntity row = productRows.findById(product.id());
+        return row == null ? product.nameIn(language) : publicProductNames.name(row, language);
     }
 }

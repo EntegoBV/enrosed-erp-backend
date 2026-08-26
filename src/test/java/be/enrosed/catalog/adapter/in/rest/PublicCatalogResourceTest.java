@@ -3,8 +3,12 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
+import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.CatalogChannel;
@@ -57,6 +61,37 @@ class PublicCatalogResourceTest {
                 .map(PublicCatalogDto.PublicProductDto::id).toList());
         assertEquals("public, max-age=60, stale-while-revalidate=300",
                 response.getHeaderString("Cache-Control"));
+    }
+
+    @Test
+    void legacyPublicCatalogUsesPublicNameInsteadOfDocumentName() {
+        ProductService products = mock(ProductService.class);
+        CategoryService categories = mock(CategoryService.class);
+        CatalogDaos.Products rows = mock(CatalogDaos.Products.class);
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
+        when(categories.list()).thenReturn(List.of(category()));
+        Product domain = product(1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT);
+        when(products.list()).thenReturn(List.of(domain));
+        ProductEntity row = new ProductEntity();
+        row.id = 1L;
+        row.name = "Internal invoice name";
+        row.publicName = "Public base";
+        ProductTextEntity english = new ProductTextEntity();
+        english.product = row;
+        english.language = Language.EN;
+        english.name = "English invoice name";
+        english.publicName = "English public name";
+        row.texts.add(english);
+        when(rows.findById(1L)).thenReturn(row);
+
+        Response response = new PublicCatalogResource(
+                products, categories, rows, new PublicProductNameResolver())
+                .catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
+        PublicCatalogDto catalog = (PublicCatalogDto) response.getEntity();
+
+        assertEquals("English public name", catalog.products().getFirst().name());
+        assertEquals("Roos 1", domain.name(), "the operational aggregate stays unchanged");
     }
 
     @Test

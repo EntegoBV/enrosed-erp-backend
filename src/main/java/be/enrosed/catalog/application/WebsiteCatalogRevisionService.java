@@ -8,6 +8,7 @@ import be.enrosed.catalog.adapter.out.persistence.ContentTranslationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.WebsiteHomepageLayoutEntity;
 import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +29,8 @@ public class WebsiteCatalogRevisionService {
     private final CatalogDaos.Categories categories;
     private final CanonicalCatalogDaos.PriceObservations prices;
     private final CanonicalCatalogDaos.DimensionObservations dimensions;
+    private final CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts;
+    private final PublicProductNameResolver publicProductNames;
     private final ObjectMapper json;
 
     public WebsiteCatalogRevisionService(
@@ -37,6 +40,8 @@ public class WebsiteCatalogRevisionService {
             CatalogDaos.Categories categories,
             CanonicalCatalogDaos.PriceObservations prices,
             CanonicalCatalogDaos.DimensionObservations dimensions,
+            CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts,
+            PublicProductNameResolver publicProductNames,
             ObjectMapper json) {
         this.content = content;
         this.families = families;
@@ -44,6 +49,8 @@ public class WebsiteCatalogRevisionService {
         this.categories = categories;
         this.prices = prices;
         this.dimensions = dimensions;
+        this.homepageLayouts = homepageLayouts;
+        this.publicProductNames = publicProductNames;
         this.json = json;
     }
 
@@ -61,6 +68,11 @@ public class WebsiteCatalogRevisionService {
                 add(out, text.language); add(out, text.value);
             });
         });
+        WebsiteHomepageLayoutEntity homepage = homepageLayouts.findById(1L);
+        add(out, "homepageLayout");
+        add(out, homepage == null ? 0 : homepage.publishedRevision);
+        add(out, normalized(homepage == null
+                ? encodedDefaultHomepage() : homepage.publishedSectionsJson));
         categories.listAll().stream().sorted(Comparator.comparing(category -> safe(category.code)))
                 .forEach(category -> category(out, category));
         List<ProductFamilyEntity> familyRows = families.listAll().stream()
@@ -168,10 +180,16 @@ public class WebsiteCatalogRevisionService {
         add(out, product.sku);
         add(out, product.canonicalBarcode); add(out, product.active); add(out, product.publicAvailability);
         add(out, product.inventoryKnown); add(out, product.stockQuantity); add(out, product.variantPosition);
-        add(out, product.name); add(out, product.description); add(out, product.colour);
+        for (Language language : Language.values()) {
+            var publicName = publicProductNames.resolve(product, language);
+            add(out, "publicName"); add(out, language);
+            add(out, publicName.value()); add(out, publicName.sourceLanguage());
+        }
+        add(out, product.description); add(out, product.colour);
         add(out, product.colourHex); add(out, product.variantSize); add(out, product.fixedSalesPriceEur);
         product.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
-            add(out, text.language); add(out, text.name); add(out, text.description);
+            add(out, text.language);
+            add(out, text.description);
             add(out, text.colour); add(out, text.variantSize);
         });
         prices.list("productId = ?1 and publicPrice = true order by publicRole, context, id", product.id)
@@ -187,6 +205,14 @@ public class WebsiteCatalogRevisionService {
             return json.writeValueAsString(json.readTree(value));
         } catch (Exception ignored) {
             return value.strip();
+        }
+    }
+
+    private String encodedDefaultHomepage() {
+        try {
+            return json.writeValueAsString(WebsiteBuilderService.defaultSections());
+        } catch (Exception exception) {
+            throw new IllegalStateException("Standaard homepage-layout kon niet gelezen worden", exception);
         }
     }
 

@@ -21,6 +21,8 @@ public final class CanonicalCatalogDaos {
     @ApplicationScoped public static class ImportConflicts implements PanacheRepository<CatalogImportConflictEntity> {}
     @ApplicationScoped public static class ContentTranslations implements PanacheRepository<ContentTranslationEntity> {}
     @ApplicationScoped public static class WebsiteRebuilds implements PanacheRepository<WebsiteRebuildEntity> {}
+    @ApplicationScoped public static class WebsiteHomepageLayouts
+            implements PanacheRepository<WebsiteHomepageLayoutEntity> {}
     @ApplicationScoped public static class LocalizationBackfills
             implements PanacheRepositoryBase<CatalogLocalizationBackfillEntity, String> {}
 }

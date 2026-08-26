@@ -19,7 +19,16 @@ public class ProductEntity {
 
     @Column(unique = true)
     public String sku;
+    /** Internal/document name used on quotes, order lines and invoices. */
     public String name;
+
+    /**
+     * Optional customer-facing base name. While null (or still equal to {@link #name}),
+     * ordinary product edits keep it inherited from the document name. Once an editor
+     * gives it a different value, later document-name edits leave it untouched.
+     */
+    @Column(name = "public_name")
+    public String publicName;
 
     /* Legacy storage names: length=B, width=D, height=H in all displays. */
     public BigDecimal productLengthCm;

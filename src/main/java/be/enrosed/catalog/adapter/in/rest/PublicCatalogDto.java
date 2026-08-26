@@ -70,6 +70,13 @@ public record PublicCatalogDto(
 
     public static PublicProductDto product(
             Product product, Category category, Language language, String apiBaseUrl) {
+        return product(product, category, language, apiBaseUrl, product.nameIn(language));
+    }
+
+    /** Additive overload used by the public adapter once website names diverge from documents. */
+    public static PublicProductDto product(
+            Product product, Category category, Language language, String apiBaseUrl,
+            String publicName) {
         Dimensions size = product.dimensions() == null ? Dimensions.empty() : product.dimensions();
         Carton carton = product.carton() == null ? Carton.empty() : product.carton();
         Dimensions box = carton.dimensions() == null ? Dimensions.empty() : carton.dimensions();
@@ -87,7 +94,7 @@ public record PublicCatalogDto(
 
         return new PublicProductDto(
                 product.id(), product.sku(), product.familyKey(), product.publicHandle(),
-                product.nameIn(language), product.descriptionIn(language), product.colourIn(language),
+                publicName, product.descriptionIn(language), product.colourIn(language),
                 publicCategory,
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
                 new CartonDto(box.lengthCm(), box.widthCm(), box.heightCm(), carton.piecesPerCarton()),

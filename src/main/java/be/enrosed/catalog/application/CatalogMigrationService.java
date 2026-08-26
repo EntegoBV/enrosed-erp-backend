@@ -377,6 +377,7 @@ public class CatalogMigrationService {
         product.sku = optional(input.sku()) == null
                 ? generatedSku(input.canonicalVariantKey()) : input.sku().strip();
         product.name = family.name;
+        product.publicName = product.name;
         product.colour = optional(input.color());
         product.variantSize = optional(input.size());
         product.colourHex = optional(input.colourHex());
@@ -565,6 +566,7 @@ public class CatalogMigrationService {
             text.product = product;
             text.language = input.language();
             text.name = optional(input.name());
+            text.publicName = text.name;
             text.description = optional(input.description());
             text.colour = input.language() == Language.EN ? optional(variant.color()) : null;
             text.variantSize = input.language() == Language.EN ? optional(variant.size()) : null;

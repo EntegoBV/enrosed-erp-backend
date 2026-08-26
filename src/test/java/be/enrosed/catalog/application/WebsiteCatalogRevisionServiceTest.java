@@ -10,6 +10,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.WebsiteHomepageLayoutEntity;
 import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,7 +75,66 @@ class WebsiteCatalogRevisionServiceTest {
                 "database return order must not affect equal-position collection memberships");
     }
 
+    @Test
+    void publicProductNameChangesAlterTheWebsiteRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().publicName = "Public rose";
+        String before = service(graph).currentRevision();
+
+        graph.product().publicName = "Public counter rose";
+        String after = service(graph).currentRevision();
+
+        assertNotEquals(before, after);
+    }
+
+    @Test
+    void internalDocumentNameDoesNotAlterRevisionAfterPublicCopyDiverged() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().publicName = "Public rose";
+        String before = service(graph).currentRevision();
+
+        graph.product().name = "Changed invoice line";
+        String after = service(graph).currentRevision();
+
+        assertEquals(before, after,
+                "document-only copy must not trigger a public website rebuild");
+    }
+
+    @Test
+    void homepageDraftIsExcludedButPublishedLayoutIsCoveredByTheWebsiteRevision()
+            throws Exception {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        ObjectMapper json = new ObjectMapper();
+        WebsiteHomepageLayoutEntity homepage = new WebsiteHomepageLayoutEntity();
+        homepage.publishedRevision = 0;
+        homepage.publishedSectionsJson = json.writeValueAsString(
+                WebsiteBuilderService.defaultSections());
+        homepage.draftSectionsJson = "[{\"key\":\"draft-only\",\"enabled\":false}]";
+
+        String absentDefault = service(graph).currentRevision();
+        String draftOnly = service(graph, homepage).currentRevision();
+        assertEquals(absentDefault, draftOnly,
+                "creating or editing draft state must not alter the public digest");
+
+        homepage.publishedRevision = 2;
+        homepage.publishedSectionsJson = homepage.publishedSectionsJson
+                .replace("\"key\":\"catalog\",\"enabled\":false",
+                        "\"key\":\"catalog\",\"enabled\":true");
+        String published = service(graph, homepage).currentRevision();
+
+        assertNotEquals(draftOnly, published,
+                "a published layout must start a new website delivery revision");
+    }
+
     private static WebsiteCatalogRevisionService service(Graph graph) {
+        return service(graph, null);
+    }
+
+    private static WebsiteCatalogRevisionService service(
+            Graph graph, WebsiteHomepageLayoutEntity homepage) {
         CanonicalCatalogDaos.ContentTranslations content = mock(
                 CanonicalCatalogDaos.ContentTranslations.class);
         CanonicalCatalogDaos.Families families = mock(CanonicalCatalogDaos.Families.class);
@@ -84,6 +144,9 @@ class WebsiteCatalogRevisionServiceTest {
                 CanonicalCatalogDaos.PriceObservations.class);
         CanonicalCatalogDaos.DimensionObservations dimensions = mock(
                 CanonicalCatalogDaos.DimensionObservations.class);
+        CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts = mock(
+                CanonicalCatalogDaos.WebsiteHomepageLayouts.class);
+        when(homepageLayouts.findById(1L)).thenReturn(homepage);
         when(content.list("scope = ?1 order by key", ContentScope.WEBSITE))
                 .thenReturn(List.of(graph.copy()));
         when(categories.listAll()).thenReturn(List.of(graph.category()));
@@ -95,7 +158,8 @@ class WebsiteCatalogRevisionServiceTest {
         when(dimensions.list("familyId = ?1 order by position, id", graph.family().id))
                 .thenReturn(List.of());
         return new WebsiteCatalogRevisionService(
-                content, families, products, categories, prices, dimensions, new ObjectMapper());
+                content, families, products, categories, prices, dimensions,
+                homepageLayouts, new PublicProductNameResolver(), new ObjectMapper());
     }
 
     private static Graph graph(

@@ -27,8 +27,13 @@ final class CatalogMapper {
         }
         List<ProductText> texts = new ArrayList<>();
         for (ProductTextEntity text : entity.texts) {
-            texts.add(new ProductText(text.language, text.name, text.description,
-                    text.colour, text.variantSize));
+            /* A row may now exist only for independently managed website copy.
+               The operational Product aggregate must not expose such a row as an
+               empty document translation and then accidentally erase it on PUT. */
+            if (hasDocumentText(text)) {
+                texts.add(new ProductText(text.language, text.name, text.description,
+                        text.colour, text.variantSize));
+            }
         }
         return new Product(
                 entity.id,
@@ -74,8 +79,11 @@ final class CatalogMapper {
     }
 
     static void apply(Product product, ProductEntity entity) {
+        boolean publicNameInherited = blank(entity.publicName)
+                || sameText(entity.publicName, entity.name);
         entity.sku = product.sku();
-        entity.name = product.name();
+        entity.name = blankToNull(product.name());
+        if (publicNameInherited) entity.publicName = entity.name;
 
         Dimensions size = product.dimensions() == null ? Dimensions.empty() : product.dimensions();
         entity.productLengthCm = size.lengthCm();
@@ -155,14 +163,23 @@ final class CatalogMapper {
             }
         }
 
-        entity.texts.removeIf(existing -> !wanted.containsKey(existing.language));
+        entity.texts.removeIf(existing -> {
+            if (wanted.containsKey(existing.language)) return false;
+            if (blank(existing.publicName)) return true;
+            clearDocumentText(existing);
+            return false;
+        });
 
         for (ProductTextEntity existing : entity.texts) {
             ProductText text = wanted.remove(existing.language);
+            if (text == null) continue; // public-only row
+            boolean publicNameInherited = blank(existing.publicName)
+                    || sameText(existing.publicName, existing.name);
             existing.name = blankToNull(text.name());
             existing.description = blankToNull(text.description());
             existing.colour = blankToNull(text.colour());
             existing.variantSize = blankToNull(text.variantSize());
+            if (publicNameInherited) existing.publicName = existing.name;
         }
 
         for (ProductText text : wanted.values()) {
@@ -170,6 +187,7 @@ final class CatalogMapper {
             added.product = entity;
             added.language = text.language();
             added.name = blankToNull(text.name());
+            added.publicName = added.name;
             added.description = blankToNull(text.description());
             added.colour = blankToNull(text.colour());
             added.variantSize = blankToNull(text.variantSize());
@@ -275,5 +293,26 @@ final class CatalogMapper {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static boolean sameText(String first, String second) {
+        return first != null && second != null
+                && first.strip().equalsIgnoreCase(second.strip());
+    }
+
+    private static boolean hasDocumentText(ProductTextEntity text) {
+        return !blank(text.name) || !blank(text.description)
+                || !blank(text.colour) || !blank(text.variantSize);
+    }
+
+    private static void clearDocumentText(ProductTextEntity text) {
+        text.name = null;
+        text.description = null;
+        text.colour = null;
+        text.variantSize = null;
     }
 }

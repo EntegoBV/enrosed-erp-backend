@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.application.ContentTranslationService;
+import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.WebsiteCatalogRevisionService;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.ContentScope;
@@ -42,6 +43,7 @@ public class PublicFamilyCatalogResource {
     private final PhotoStorage photoStorage;
     private final FamilyPhotoVariantResolver variantResolver;
     private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicProductNameResolver publicProductNames;
     private final ContentTranslationService content;
     private final ObjectMapper json;
 
@@ -57,6 +59,7 @@ public class PublicFamilyCatalogResource {
             PhotoStorage photoStorage,
             FamilyPhotoVariantResolver variantResolver,
             FamilyPhotoPublicationPolicy photoPublication,
+            PublicProductNameResolver publicProductNames,
             ContentTranslationService content,
             ObjectMapper json) {
         this.families = families;
@@ -67,6 +70,7 @@ public class PublicFamilyCatalogResource {
         this.photoStorage = photoStorage;
         this.variantResolver = variantResolver;
         this.photoPublication = photoPublication;
+        this.publicProductNames = publicProductNames;
         this.content = content;
         this.json = json;
     }
@@ -285,15 +289,13 @@ public class PublicFamilyCatalogResource {
                 product, language, item -> item.colour, product.colour);
         LanguageFallback.Resolved<String> size = productText(
                 product, language, item -> item.variantSize, product.variantSize);
-        LanguageFallback.Resolved<String> name = productText(
-                product, language, item -> item.name, product.name);
+        LanguageFallback.Resolved<String> name = publicProductNames.resolve(product, language);
         Map<String, Language> sources = new LinkedHashMap<>();
         source(sources, "color", optionalProductSource(
                 product, language, item -> item.colour, color));
         source(sources, "size", optionalProductSource(
                 product, language, item -> item.variantSize, size));
-        source(sources, "name", optionalProductSource(
-                product, language, item -> item.name, name));
+        source(sources, "name", name.sourceLanguage());
         return new PublicFamilyCatalogDto.VariantDto(
                 product.id, product.sku, product.canonicalBarcode,
                 color.value(),

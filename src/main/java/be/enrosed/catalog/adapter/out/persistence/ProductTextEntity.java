@@ -33,7 +33,12 @@ public class ProductTextEntity {
     @Column(columnDefinition = "varchar(4)", nullable = false)
     public Language language;
 
+    /** Localized document name used on quotes and customer documents. */
     public String name;
+
+    /** Localized public catalogue name, independently editable from the document name. */
+    @Column(name = "public_name")
+    public String publicName;
 
     @Column(length = 2000)
     public String description;

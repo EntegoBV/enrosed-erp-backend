@@ -8,6 +8,8 @@ import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.WebsiteRebuildEntity;
+import be.enrosed.catalog.application.port.out.ProductRepository;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.WebsiteRebuildStatus;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
@@ -31,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @QuarkusTest
 class PublicProductTranslationsStandaloneTest {
     @Inject PublicProductTranslationsService translations;
+    @Inject ProductRepository products;
     @Inject EntityManager entityManager;
     @Inject WebsiteRebuildService rebuild;
     /* The injected bean is a CDI client proxy: writing its config fields
@@ -112,6 +115,75 @@ class PublicProductTranslationsStandaloneTest {
         assertThrows(BusinessRuleException.class, () -> translations.update(product.id,
                 new PublicProductTranslationsDto.UpdateDto(updated.revision(), null,
                         List.of(), List.of(tooLong), List.of())));
+    }
+
+    @Test
+    @TestTransaction
+    void explicitPublicNameDivergesFromDocumentNameAndSurvivesLaterTranslationEdits() {
+        ProductEntity product = standalone("STANDALONE-PUBLIC-NAME");
+        product.publicName = product.name;
+        ProductTextEntity french = new ProductTextEntity();
+        french.product = product;
+        french.language = Language.FR;
+        french.name = "Nom de facture";
+        french.publicName = french.name;
+        product.texts.add(french);
+        entityManager.persist(product);
+        entityManager.flush();
+
+        PublicProductTranslationsDto initial = translations.get(product.id);
+        var publicCopy = new PublicProductTranslationsDto.ProductPublicCopyDto(
+                "Public standalone rose",
+                List.of(new PublicProductTranslationsDto.ProductPublicTextDto(
+                        Language.FR, "Rose publique")));
+        PublicProductTranslationsDto separated = translations.update(product.id,
+                new PublicProductTranslationsDto.UpdateDto(
+                        initial.revision(), null, List.of(), null, List.of(), publicCopy));
+
+        assertEquals("Public standalone rose", separated.productPublicCopy().publicName());
+        assertEquals("Rose publique",
+                separated.productPublicCopy().texts().getFirst().publicName());
+        assertEquals("Nom de facture", separated.productTexts().getFirst().name());
+
+        translations.patchProductTexts(Map.of(product.id, Map.of(Language.FR,
+                new ProductDto.TextDto(
+                        Language.FR, "Nouveau nom de facture", null, null, null))));
+        entityManager.flush();
+        entityManager.clear();
+
+        ProductEntity stored = entityManager.find(ProductEntity.class, product.id);
+        ProductTextEntity storedFrench = stored.texts.stream()
+                .filter(text -> text.language == Language.FR).findFirst().orElseThrow();
+        assertEquals("Nouveau nom de facture", storedFrench.name);
+        assertEquals("Rose publique", storedFrench.publicName,
+                "an explicit public name must not follow later document-name changes");
+        assertEquals("Public standalone rose", stored.publicName);
+    }
+
+    @Test
+    @TestTransaction
+    void publicOnlyLanguageRowSurvivesAnUnawareLegacyProductSave() {
+        ProductEntity product = standalone("STANDALONE-PUBLIC-ONLY");
+        ProductTextEntity turkish = new ProductTextEntity();
+        turkish.product = product;
+        turkish.language = Language.TR;
+        turkish.publicName = "Halka açık gül";
+        product.texts.add(turkish);
+        entityManager.persist(product);
+        entityManager.flush();
+
+        Product operational = products.findById(product.id).orElseThrow();
+        assertTrue(operational.texts().isEmpty(),
+                "public-only copy must stay outside the document Product aggregate");
+        products.save(operational);
+        entityManager.flush();
+        entityManager.clear();
+
+        ProductEntity stored = entityManager.find(ProductEntity.class, product.id);
+        ProductTextEntity storedTurkish = stored.texts.stream()
+                .filter(text -> text.language == Language.TR).findFirst().orElseThrow();
+        assertNull(storedTurkish.name);
+        assertEquals("Halka açık gül", storedTurkish.publicName);
     }
 
     @Test
