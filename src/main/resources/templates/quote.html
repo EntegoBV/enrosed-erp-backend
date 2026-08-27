@@ -4,106 +4,168 @@
   <meta charset="utf-8"/>
   <title>{docLabel} {order.number}</title>
   <style>
-    /* Customer-facing document: quiet ink, one warm accent, generous air.
-       The reader must find four things in three seconds: what it is, from
-       whom, what it costs and what to do next. */
+    /*
+       ENROSED document family
+
+       Customer papers stay portrait and use the same visual grammar as
+       purchase documents: dark ink, warm paper, gold rules and a restrained
+       berry accent. Gold is never used for small copy, so a monochrome office
+       printer keeps the hierarchy intact.
+    */
     @page {
-      size: A4; margin: 16mm 15mm 20mm;
+      size: A4 portrait; margin: 15mm 14mm 20mm;
       @bottom-left {
-        content: "{order.number} · {docLabel}";
-        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+        content: "{order.number}  ·  {docLabel}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
       }
       @bottom-right {
         content: "{t.page} " counter(page) " / " counter(pages);
-        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
       }
     }
-    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 9pt;
-           color: #1a1614; line-height: 1.45; }
-    .accent { color: #b01f3f; }
-    .muted { color: #8a807a; }
-    .label { font-size: 6.5pt; letter-spacing: 1.2px; text-transform: uppercase;
-             color: #8a807a; font-weight: bold; }
+
+    body {
+      margin: 0; color: #181411; font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+      font-size: 10pt; line-height: 1.45;
+    }
     .r { text-align: right; }
+    .muted { color: #736b65; }
+    .accent { color: #8f2942; }
+    .label {
+      display: block; color: #736b65; font-size: 7.2pt; font-weight: bold;
+      letter-spacing: 1px; line-height: 1.25; text-transform: uppercase;
+    }
 
-    /* -------- head: identity left, the document's name right -------- */
-    .head { width: 100%; border-collapse: collapse; }
-    .head td { vertical-align: top; }
-    .brand-sub { margin-top: 5px; font-size: 7.5pt; color: #8a807a; line-height: 1.5; }
-    .doc-badge { text-align: right; }
-    .doc-badge .doc-kind { font-size: 15pt; font-weight: bold; letter-spacing: 3px;
-                           text-transform: uppercase; color: #b01f3f; }
-    .doc-badge .doc-number { margin-top: 1px; font-size: 11pt; font-weight: bold; }
+    /* -- identity ------------------------------------------------------ */
+    table.head { width: 100%; border-collapse: collapse; }
+    table.head td { padding: 0; vertical-align: top; }
+    .brand-logo { height: 33px; max-width: 102mm; }
+    .brand-word { color: #181411; font-size: 19pt; font-weight: bold; letter-spacing: 2px; }
+    .brand-details { margin-top: 6px; color: #5d5550; font-size: 8pt; line-height: 1.55; }
+    .brand-details b { color: #181411; font-size: 8.5pt; }
+    .doc-card {
+      width: 58mm; padding: 10px 12px !important; color: #ffffff;
+      background: #181411; border-top: 3px solid #c9a45c; text-align: right;
+    }
+    .doc-kind { font-size: 8pt; font-weight: bold; letter-spacing: 1.7px; text-transform: uppercase; }
+    .doc-number { margin-top: 4px; color: #f4dfac; font-size: 14pt; font-weight: bold; }
 
-    /* -------- Belgian invoices: the paper is not the legal document -------- */
-    .peppol-banner { margin-top: 12px; padding: 11px 14px; border: 2.5px solid #b4342a;
-                     background: #fbedeb; color: #b4342a; font-size: 11pt; font-weight: bold;
-                     text-align: center; line-height: 1.4; page-break-inside: avoid; }
+    /* -- Peppol notice ------------------------------------------------- */
+    .peppol-banner {
+      margin-top: 11px; padding: 9px 12px; color: #84271f; background: #faebe8;
+      border: 1.5px solid #b44438; font-size: 9.5pt; font-weight: bold;
+      line-height: 1.4; page-break-inside: avoid; text-align: center;
+    }
 
-    /* -------- meta strip: the four key facts in one tinted band -------- */
-    .meta-strip { width: 100%; border-collapse: separate; border-spacing: 3px 0;
-                  margin: 12px -3px 0; }
-    .meta-strip td { width: 25%; padding: 6px 9px; background: #faf6f3;
-                     border: 1px solid #efe7e1; }
-    .meta-strip b { display: block; margin-top: 1px; font-size: 9pt; }
+    /* -- facts --------------------------------------------------------- */
+    table.fact-band {
+      width: 100%; margin-top: 12px; border-collapse: separate; border-spacing: 3px 0;
+      page-break-inside: avoid;
+    }
+    table.fact-band td {
+      width: 25%; padding: 7px 9px; vertical-align: top;
+      background: #f7f1e8; border-top: 2px solid #c9a45c;
+    }
+    .fact-value { margin-top: 2px; font-size: 9.2pt; font-weight: bold; line-height: 1.35; }
+    .fact-value--small { font-size: 8.2pt; }
 
-    /* -------- parties -------- */
-    .parties { width: 100%; border-collapse: collapse; margin: 14px 0 0; }
-    .parties td { vertical-align: top; width: 50%; padding: 2px 20px 0 0; }
-    .party-name { font-size: 10.5pt; font-weight: bold; margin-top: 2px; }
-    .party-lines { margin-top: 1px; line-height: 1.5; }
-    .ship-facts { line-height: 1.65; }
-    .ship-facts b { font-weight: bold; }
+    table.parties {
+      width: 100%; margin-top: 12px; border-collapse: separate; border-spacing: 5px 0;
+      page-break-inside: avoid;
+    }
+    table.parties td {
+      width: 50%; padding: 9px 11px; vertical-align: top;
+      border: 1px solid #e2d9cf; background: #ffffff;
+    }
+    .party-name { margin-top: 3px; font-size: 11pt; font-weight: bold; }
+    .party-lines { margin-top: 2px; line-height: 1.55; }
+    .ship-facts { margin-top: 3px; line-height: 1.65; }
+    .ship-facts b { color: #181411; }
 
-    /* -------- lines -------- */
-    table.lines { width: 100%; border-collapse: collapse; margin-top: 14px;
-                  -fs-table-paginate: paginate; }
-    table.lines thead th { text-align: left; font-size: 6.5pt; letter-spacing: 0.8px;
-                           text-transform: uppercase; color: #8a807a;
-                           border-bottom: 1.6px solid #1a1614; padding: 5px 5px; }
-    table.lines td { padding: 7px 5px; border-bottom: 1px solid #efe7e1;
-                     vertical-align: top; }
+    /* -- commercial lines --------------------------------------------- */
+    table.lines {
+      width: 100%; margin-top: 14px; border-collapse: collapse;
+      -fs-table-paginate: paginate;
+    }
+    table.lines thead { display: table-header-group; }
+    table.lines th {
+      padding: 6px 5px; color: #ffffff; background: #181411;
+      border-bottom: 2px solid #c9a45c; font-size: 7pt; font-weight: bold;
+      letter-spacing: 0.55px; text-align: left; text-transform: uppercase;
+    }
+    table.lines th.r { text-align: right; }
+    table.lines td {
+      padding: 7px 5px; border-bottom: 1px solid #e8e0d8; vertical-align: top;
+      font-size: 9.3pt;
+    }
     table.lines tr { page-break-inside: avoid; }
-    .line-name { font-weight: bold; }
-    .line-sku { font-size: 7pt; color: #8a807a; margin-top: 1px; }
-    .line-delivery { font-size: 7pt; color: #8a807a; margin-top: 1px; }
+    table.lines tr.alt td { background: #fbf8f4; }
+    .line-name { font-size: 9.6pt; font-weight: bold; line-height: 1.35; }
+    .line-meta { margin-top: 2px; color: #736b65; font-size: 7.4pt; line-height: 1.35; }
     .line-total { font-weight: bold; white-space: nowrap; }
+    .nowrap { white-space: nowrap; }
 
-    /* -------- totals: a calm card on the right -------- */
-    .totals-wrap { width: 100%; margin-top: 12px; page-break-inside: avoid; }
-    .totals { width: 47%; margin-left: 53%; border-collapse: collapse; }
-    .totals td { padding: 3.5px 9px; font-size: 9pt; }
-    .totals .sum td { border-top: 1px solid #d8d0c9; font-weight: bold; }
-    .totals .grand td { border-top: 2px solid #1a1614; font-size: 12pt;
-                        font-weight: bold; padding-top: 7px; }
-    .totals .grand .r { color: #b01f3f; white-space: nowrap; }
-    .totals .aftertax td { font-size: 8pt; color: #8a807a; }
-    .totals .duepay td { padding-top: 6px; font-size: 10pt; font-weight: bold; }
+    /* -- totals -------------------------------------------------------- */
+    .totals-wrap { width: 100%; margin-top: 13px; page-break-inside: avoid; }
+    table.totals {
+      width: 51%; margin-left: 49%; border-collapse: collapse;
+      border-top: 3px solid #c9a45c; background: #f7f1e8;
+    }
+    table.totals td { padding: 4px 10px; font-size: 9.4pt; }
+    table.totals tr:first-child td { padding-top: 8px; }
+    table.totals tr:last-child td { padding-bottom: 8px; }
+    table.totals .discount td { color: #5d5550; }
+    table.totals .sum td { border-top: 1px solid #d6c9ba; font-weight: bold; padding-top: 6px; }
+    table.totals .grand td {
+      border-top: 2px solid #181411; padding-top: 7px; font-size: 11.5pt; font-weight: bold;
+    }
+    table.totals .grand .r { color: #8f2942; }
+    table.totals .aftertax td { color: #5d5550; font-size: 8.4pt; }
+    table.totals .duepay td { padding-top: 6px; font-size: 10.5pt; font-weight: bold; }
 
-    /* -------- action panels -------- */
-    .panel { margin-top: 14px; padding: 11px 13px; border: 1px solid #efe7e1;
-             background: #faf6f3; page-break-inside: avoid; }
-    .panel--accent { border-color: #f0d2d9; background: #fbecef; }
-    .panel-title { font-size: 6.5pt; letter-spacing: 1.2px; text-transform: uppercase;
-                   color: #b01f3f; font-weight: bold; }
-    .pay-grid { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    .pay-grid td { vertical-align: top; padding: 2px 14px 2px 0; }
-    .pay-grid b { display: block; font-size: 10pt; margin-top: 1px; }
-    .panel-sentence { margin: 7px 0 0; font-size: 8pt; color: #4a423e; }
-    .portal-link { margin-top: 4px; font-size: 8pt; word-break: break-all; }
+    /* -- notes and actions -------------------------------------------- */
+    .note-block {
+      margin-top: 13px; padding: 9px 11px; border-left: 3px solid #c9a45c;
+      background: #fbf8f4; font-size: 9pt; page-break-inside: avoid;
+    }
+    .panel {
+      margin-top: 13px; padding: 10px 12px; border: 1px solid #ded5cc;
+      background: #fbf8f4; page-break-inside: avoid;
+    }
+    .panel--accent { border-color: #d9aab6; background: #f8e9ed; }
+    .panel-title {
+      color: #8f2942; font-size: 7.2pt; font-weight: bold; letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    table.pay-grid { width: 100%; margin-top: 6px; border-collapse: collapse; }
+    table.pay-grid td { padding: 2px 12px 2px 0; vertical-align: top; }
+    table.pay-grid b { display: block; margin-top: 2px; font-size: 9.6pt; }
+    .panel-sentence { margin: 7px 0 0; color: #453e39; font-size: 8.5pt; }
+    .portal-link { margin-top: 5px; font-size: 8pt; word-wrap: break-word; }
+    .portal-link a { color: #8f2942; }
+    .vat-note {
+      margin-top: 12px; padding: 8px 10px; color: #453e39;
+      border-left: 3px solid #c9a45c; font-size: 8pt; page-break-inside: avoid;
+    }
+    .foot {
+      margin-top: 16px; padding-top: 8px; color: #736b65;
+      border-top: 1px solid #ded5cc; font-size: 7.4pt; line-height: 1.55;
+    }
+    .foot-line { margin-top: 2px; }
+    .foot a { color: #5d5550; }
 
-    .vat-note { margin-top: 12px; padding: 8px 11px; border-left: 2.5px solid #d8d0c9;
-                font-size: 7.5pt; color: #4a423e; page-break-inside: avoid; }
-    .note-block { margin-top: 12px; font-size: 8.5pt; page-break-inside: avoid; }
-
-    .foot { margin-top: 18px; padding-top: 9px; border-top: 1px solid #efe7e1;
-            font-size: 7pt; color: #8a807a; line-height: 1.55; }
-
-    /* -------- closing page: the full terms, frozen with the document -------- */
+    /* -- frozen terms appendix ---------------------------------------- */
     .terms-page { page-break-before: always; }
-    .terms-title { font-size: 11pt; font-weight: bold; letter-spacing: 1px;
-                   text-transform: uppercase; color: #b01f3f; margin-bottom: 8px; }
-    .terms-body { white-space: pre-line; font-size: 6.6pt; line-height: 1.55; color: #4a423e; }
+    .terms-head { padding-bottom: 8px; border-bottom: 2px solid #c9a45c; }
+    .terms-kicker {
+      color: #8f2942; font-size: 7.2pt; font-weight: bold; letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .terms-title { margin-top: 2px; font-size: 15pt; font-weight: bold; }
+    .terms-body {
+      margin-top: 10px; color: #403934; font-size: 7.2pt; line-height: 1.55;
+      white-space: pre-line;
+    }
   </style>
 </head>
 <body>
@@ -111,16 +173,19 @@
 <table class="head">
   <tr>
     <td>
-      {#if logo}<img src="{logo}" alt="Enrosed" style="height:32px"/>{#else}
-        <div style="font-size:20pt;letter-spacing:2px;color:#b01f3f;font-weight:bold">ENROSED</div>{/if}
-      <div class="brand-sub">
-        <b style="color:#1a1614">{company.name}</b><br/>
+      {#if logo}<img class="brand-logo" src="{logo}" alt="Enrosed"/>{#else}
+        <div class="brand-word">ENROSED</div>{/if}
+      <div class="brand-details">
+        <b>{company.name}</b><br/>
         {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
         {#if company.vatNumber}{t.vatNumber} {company.vatNumber}{/if}
-        {#if company.email} · {company.email}{/if}
+        {#if company.registrationNumber} · {company.registrationNumber}{/if}
+        {#if company.email}<br/>{company.email}{/if}
+        {#if company.phone} · {company.phone}{/if}
+        {#if company.website} · {company.website}{/if}
       </div>
     </td>
-    <td class="doc-badge">
+    <td class="doc-card">
       <div class="doc-kind">{docLabel}</div>
       <div class="doc-number">{order.number}</div>
     </td>
@@ -131,24 +196,24 @@
   <div class="peppol-banner">{t.peppolNotice}</div>
 {/if}
 
-<table class="meta-strip">
+<table class="fact-band">
   <tr>
-    <td><span class="label">{t.date}</span><b>{orderDateText}</b></td>
+    <td><span class="label">{t.date}</span><div class="fact-value">{orderDateText}</div></td>
     {#if isInvoice}
-      <td><span class="label">{t.dueDate}</span><b>{dueDateText}</b></td>
+      <td><span class="label">{t.dueDate}</span><div class="fact-value">{dueDateText}</div></td>
     {#else}
-      <td><span class="label">{t.validUntil}</span><b>{validUntilText}</b></td>
+      <td><span class="label">{t.validUntil}</span><div class="fact-value">{validUntilText}</div></td>
     {/if}
-    <td><span class="label">{t.incoterm}</span><b>{order.incoterm}</b></td>
+    <td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>
     <td><span class="label">{t.payment}</span>
-      <b style="font-size:7.5pt">{#if paymentText}{paymentText}{#else}-{/if}</b></td>
+      <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>
   </tr>
 </table>
 
 <table class="parties">
   <tr>
     <td>
-      <div class="label">{t.customer}</div>
+      <span class="label">{t.customer}</span>
       {#if customer}
         <div class="party-name">{customer.company}</div>
         <div class="party-lines">
@@ -162,7 +227,7 @@
       {/if}
     </td>
     <td>
-      <div class="label">{t.delivery}</div>
+      <span class="label">{t.delivery}</span>
       <div class="ship-facts">
         {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
         {#if looseCartons}
@@ -170,7 +235,8 @@
         {#else}
           {t.pallets}: <b>{effectivePallets}</b> ·
         {/if}
-        {t.cartons}: <b>{priced.totals.cartons}</b> · {priced.totals.weightKg.amount} kg
+        {t.cartons}: <b>{priced.totals.cartons}</b><br/>
+        <span class="muted">{priced.totals.weightKg.amount} kg</span>
       </div>
     </td>
   </tr>
@@ -179,7 +245,7 @@
 <table class="lines">
   <thead>
   <tr>
-    <th style="width:44%">{t.description}</th>
+    <th style="width:42%">{t.description}</th>
     <th class="r">{t.quantity}</th>
     <th class="r">{t.cartons}</th>
     <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
@@ -190,17 +256,16 @@
   </thead>
   <tbody>
   {#for line in priced.lines}
-    <tr>
+    <tr class="{#if line_even}alt{/if}">
       <td>
         <div class="line-name">{line.customerDescription}</div>
-        <div class="line-sku">{line.sku}</div>
-        <div class="line-delivery">{deliveryTexts.get(line.productId)}</div>
+        <div class="line-meta">{line.sku} · {deliveryTexts.get(line.productId)}</div>
       </td>
-      <td class="r">{line.quantity}</td>
-      <td class="r">{line.cartons}</td>
-      <td class="r">{#if looseCartons}{line.cbm} m³{#else}{palletPositionsByProduct.get(line.productId)}{/if}</td>
-      <td class="r" style="white-space:nowrap">{line.unitPrice.unit}</td>
-      <td class="r">{#if line.discountPct.isPositive}-{line.discountPct.pct}{#else}·{/if}</td>
+      <td class="r nowrap">{line.quantity}</td>
+      <td class="r nowrap">{line.cartons}</td>
+      <td class="r nowrap">{#if looseCartons}{line.cbm} m³{#else}{palletPositionsByProduct.get(line.productId)}{/if}</td>
+      <td class="r nowrap">{line.unitPrice.unit}</td>
+      <td class="r nowrap">{#if line.discountPct.isPositive}-{line.discountPct.pct}{#else}·{/if}</td>
       <td class="r line-total">{line.net.eur}</td>
     </tr>
   {/for}
@@ -211,8 +276,13 @@
 <table class="totals">
   <tr><td>{t.subtotal}</td><td class="r">{priced.totals.subtotal.eur}</td></tr>
   {#if priced.totals.orderDiscountAmount.isPositive}
-    <tr><td>{t.orderDiscount} {priced.totals.orderDiscountPercent.pct}</td>
+    <tr class="discount"><td>{t.orderDiscount} {priced.totals.orderDiscountPercent.pct}</td>
         <td class="r">- {priced.totals.orderDiscountAmount.eur}</td></tr>
+  {/if}
+  {#if priced.totals.extraDiscountAmount.isPositive}
+    <tr class="discount"><td>{#if priced.totals.extraDiscountLabel}{priced.totals.extraDiscountLabel}{#else}{t.extraDiscount}{/if}
+      {priced.totals.extraDiscountPercent.pct}</td>
+      <td class="r">- {priced.totals.extraDiscountAmount.eur}</td></tr>
   {/if}
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
   <tr><td>{t.freight}
@@ -236,7 +306,7 @@
 </div>
 
 {#if order.notes}
-  <p class="note-block"><b>{t.note}:</b> {order.notes}</p>
+  <div class="note-block"><b>{t.note}:</b> {order.notes}</div>
 {/if}
 
 {#if isInvoice}
@@ -246,7 +316,7 @@
       <tr>
         <td><span class="label">{t.toPay}</span><b class="accent">{claimAmount}</b></td>
         <td><span class="label">{t.dueDate}</span><b>{dueDateText}</b></td>
-        <td><span class="label">IBAN</span><b>{iban}</b></td>
+        <td><span class="label">IBAN</span><b>{iban}</b>{#if company.bic}<span class="muted">BIC {company.bic}</span>{/if}</td>
         <td><span class="label">{t.reference}</span><b>{order.number}</b></td>
       </tr>
     </table>
@@ -258,7 +328,7 @@
   <div class="panel">
     <div class="panel-title">{t.portalTitle}</div>
     <p class="panel-sentence">{t.portalText}</p>
-    <div class="portal-link"><a href="{portalUrl}" style="color:#b01f3f">{portalUrl}</a></div>
+    <div class="portal-link"><a href="{portalUrl}">{portalUrl}</a></div>
   </div>
 {/if}
 
@@ -271,16 +341,19 @@
 {/if}
 
 <div class="foot">
-  {t.footer}
-  {validUntilSentence}
-  {t.termsSentence}
-  {#if footerText}{footerText}{/if}
-  <a href="{termsUrl}" style="color:#8a807a">{termsUrl}</a>
+  <div class="foot-line">{t.footer}</div>
+  {#if validUntilSentence}<div class="foot-line">{validUntilSentence}</div>{/if}
+  <div class="foot-line">{t.termsSentence}</div>
+  {#if footerText}<div class="foot-line">{footerText}</div>{/if}
+  <div class="foot-line"><a href="{termsUrl}">{termsUrl}</a></div>
 </div>
 
-{#if termsText??}
+{#if termsText}
   <div class="terms-page">
-    <div class="terms-title">{t.termsTitle}</div>
+    <div class="terms-head">
+      <div class="terms-kicker">{docLabel} {order.number}</div>
+      <div class="terms-title">{t.termsTitle}</div>
+    </div>
     <div class="terms-body">{termsText}</div>
   </div>
 {/if}

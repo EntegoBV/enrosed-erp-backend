@@ -104,6 +104,32 @@ public class ProductService {
         return products.findAll();
     }
 
+    /**
+     * Products an anonymous website visitor may put on a quote request.
+     *
+     * The canonical family is the publication aggregate for the current
+     * website catalogue. Flat products created before families existed keep
+     * their own WEBSITE state as a safe compatibility path. Demo pieces are
+     * never orderable, even when stale data accidentally left one published.
+     */
+    public List<Product> websiteOrderableProducts() {
+        return products.findAll().stream()
+                .filter(Product::active)
+                .filter(product -> !product.demo())
+                .filter(this::isWebsitePublished)
+                .toList();
+    }
+
+    private boolean isWebsitePublished(Product product) {
+        if (product.familyId() == null) {
+            return product.isPublishedTo(CatalogChannel.WEBSITE);
+        }
+        if (families == null) return false;
+        ProductFamilyEntity family = families.findById(product.familyId());
+        return family != null && family.active
+                && family.websiteStatus == PublicationState.PUBLISHED;
+    }
+
     public List<Product> listBySupplier(long supplierId) {
         return products.findBySupplier(supplierId);
     }
@@ -746,7 +772,9 @@ public class ProductService {
 
     private void validateFamilies(Long... familyIds) {
         if (familyWrites != null) {
-            familyWrites.validateFamilies(Arrays.asList(familyIds), ProductFamilyWriteGuard.WriteKind.PRODUCT);
+            familyWrites.validateFamilies(
+                    Arrays.asList(familyIds),
+                    ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
         }
     }
 
@@ -789,7 +817,10 @@ public class ProductService {
     }
 
     private void queueWebsite() {
-        if (websiteRebuild != null) websiteRebuild.queue();
+        if (websiteRebuild != null
+                && (familyWrites == null || familyWrites.websiteBuildReady())) {
+            websiteRebuild.queue();
+        }
     }
 
     /** Preserve family content and media, but never leave an empty family publicly visible. */

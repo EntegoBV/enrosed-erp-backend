@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.shared.Currency;
 import be.enrosed.sourcing.domain.Supplier;
+import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -10,6 +11,7 @@ import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PdfPurchaseRendererTest {
@@ -30,6 +32,18 @@ class PdfPurchaseRendererTest {
     void pdfCanDistinguishUnifiedAndHistoricalRates() {
         assertTrue(PdfPurchaseRenderer.sameRate(order("0.90", "0.9000")));
         assertFalse(PdfPurchaseRenderer.sameRate(order("0.81", "0.93")));
+    }
+
+    @Test
+    void layoutKeepsLandscapeAsBackwardCompatibleDefault() {
+        assertEquals(PdfPurchaseRenderer.Layout.LANDSCAPE,
+                PdfPurchaseRenderer.Layout.parse(null));
+        assertEquals(PdfPurchaseRenderer.Layout.LANDSCAPE,
+                PdfPurchaseRenderer.Layout.parse("  "));
+        assertEquals(PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Layout.parse("portrait"));
+        assertThrows(BadRequestException.class,
+                () -> PdfPurchaseRenderer.Layout.parse("square"));
     }
 
     private static be.enrosed.sourcing.domain.PurchaseOrder order(String goods, String transport) {

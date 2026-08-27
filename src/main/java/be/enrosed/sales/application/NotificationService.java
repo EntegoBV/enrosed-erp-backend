@@ -3,6 +3,7 @@ package be.enrosed.sales.application;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.DeliveryTermsState;
 import be.enrosed.sales.domain.FreightState;
+import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,18 +33,23 @@ public class NotificationService {
 
     private final SalesRepositories.Orders orders;
     private final SalesRepositories.Revisions revisions;
+    private final SalesRepositories.Events events;
     private final CustomerService customers;
 
     public NotificationService(SalesRepositories.Orders orders,
                                SalesRepositories.Revisions revisions,
+                               SalesRepositories.Events events,
                                CustomerService customers) {
         this.orders = orders;
         this.revisions = revisions;
+        this.events = events;
         this.customers = customers;
     }
 
     /** What kind of notification it is; drives the icon and colour on screen. */
     public enum Kind {
+        /** A complete public website request awaits its first staff review. */
+        WEBSITE_AANVRAAG,
         /** A customer is waiting on a delivery term from us. */
         LEVERTERMIJN,
         /** A customer is waiting on a freight amount from us. */
@@ -79,6 +85,14 @@ public class NotificationService {
             String who = customerName(order);
 
             /* ---- our move ------------------------------------------------ */
+
+            if (isWebsiteRequestAwaitingReview(order)) {
+                items.add(new Notification(Kind.WEBSITE_AANVRAAG,
+                        order.id(), order.number(), who,
+                        "Nieuwe websiteaanvraag",
+                        "Controleer aantallen, prijzen, btw en levering en stuur daarna de offerte.",
+                        true, createdAt(order)));
+            }
 
             if (order.status().isOpenForCustomer()
                     && order.deliveryTerms() == DeliveryTermsState.TE_BEPALEN) {
@@ -142,6 +156,24 @@ public class NotificationService {
 
         int actions = (int) items.stream().filter(Notification::actionNeeded).count();
         return new Feed(items, actions);
+    }
+
+    private static boolean isWebsiteRequestAwaitingReview(SalesOrder order) {
+        return order != null && !order.isInvoice()
+                && order.status() == QuoteStatus.CONCEPT
+                && order.internalNotes() != null
+                && order.internalNotes().stripLeading()
+                        .startsWith(SalesOrderService.WEBSITE_REQUEST_MARKER);
+    }
+
+    private Instant createdAt(SalesOrder order) {
+        if (order.id() == null) return null;
+        return events.findByOrder(order.id()).stream()
+                .filter(event -> event.type() == QuoteEvent.Type.OPGEMAAKT)
+                .map(QuoteEvent::at)
+                .filter(java.util.Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
     }
 
     private String customerName(SalesOrder order) {

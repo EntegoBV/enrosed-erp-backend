@@ -16,6 +16,7 @@ import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.UnprocessableBusinessRuleException;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -131,6 +132,7 @@ public class ProductFamilyResource {
     public ProductFamilyDto update(@PathParam("id") long id, ProductFamilyDto request) {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
+        requireStablePublicIdentity(family, request);
         boolean wasPublished = isPublished(family);
         boolean wasReady = family.websiteStatus == PublicationState.READY
                 || family.orderAppStatus == PublicationState.READY
@@ -147,6 +149,26 @@ public class ProductFamilyResource {
         ensureRequestedPublicationIsValid(family, members, !wasPublished, !wasReady);
         families.flush();
         return changed(family);
+    }
+
+    private void requireStablePublicIdentity(
+            ProductFamilyEntity current, ProductFamilyDto request) {
+        if (request == null) throw new BusinessRuleException("Geen productfamilie meegestuurd");
+        String requestedFamilyKey = optional(request.familyKey());
+        if (request.familyKey() != null
+                && !Objects.equals(current.familyKey, requestedFamilyKey)) {
+            throw new UnprocessableBusinessRuleException(
+                    "Familiecode is een vaste technische sleutel en kan na aanmaak niet "
+                            + "worden gewijzigd. Pas voor klanten de publieke naam aan.");
+        }
+        String requestedHandle = optional(request.publicHandle());
+        if (request.publicHandle() != null
+                && !Objects.equals(current.publicHandle, requestedHandle)) {
+            throw new UnprocessableBusinessRuleException(
+                    "Publieke handle is na aanmaak een vaste URL-sleutel en kan niet via "
+                            + "de gewone productfamilie-editor worden gewijzigd. Gebruik "
+                            + "hiervoor een gecontroleerde URL-migratie met redirects.");
+        }
     }
 
     @POST @Path("/{id}/images") @Consumes(MediaType.MULTIPART_FORM_DATA) @Transactional
@@ -300,8 +322,10 @@ public class ProductFamilyResource {
     private void applyEditable(
             ProductFamilyEntity family, ProductFamilyDto request, boolean initializeTexts) {
         if (request == null) throw new BusinessRuleException("Geen productfamilie meegestuurd");
-        family.familyKey = required(request.familyKey(), "Familiecode", MAX_SHORT);
-        family.publicHandle = handle(request.publicHandle());
+        if (initializeTexts) {
+            family.familyKey = required(request.familyKey(), "Familiecode", MAX_SHORT);
+            family.publicHandle = handle(request.publicHandle());
+        }
         family.active = request.active();
         family.name = required(request.name(), "Naam", MAX_SHORT);
         family.summary = bounded(request.summary(), MAX_SUMMARY, "Samenvatting");
@@ -403,7 +427,9 @@ public class ProductFamilyResource {
     }
 
     private void queueWebsite() {
-        if (websiteRebuild != null) websiteRebuild.queue();
+        if (websiteRebuild != null && familyWrites.websiteBuildReady()) {
+            websiteRebuild.queue();
+        }
     }
 
     private ProductFamilyEntity family(long id) {
@@ -498,6 +524,11 @@ public class ProductFamilyResource {
             throw new BusinessRuleException(
                     "Productfamilie kan nog niet klaar voor publicatie worden gezet: "
                             + String.join("; ", readyBlockers));
+        }
+        if (family.id != null && (publishingNow && isPublished(family)
+                || readyingNow && anyReady)) {
+            familyWrites.validateFamilies(
+                    List.of(family.id), ProductFamilyWriteGuard.WriteKind.PUBLICATION);
         }
     }
 

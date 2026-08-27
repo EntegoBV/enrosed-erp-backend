@@ -8,6 +8,7 @@ import be.enrosed.catalog.domain.CategoryText;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.UnprocessableBusinessRuleException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -128,6 +129,7 @@ public class CategoryService {
             throw new BusinessRuleException(
                     "Categorie is intussen gewijzigd; herlaad voor je opnieuw bewaart");
         }
+        requireStableCode(observed, changes.code());
         Category candidate = normalized(merge(observed, changes));
         List<Long> linkedFamilyIds = linkedFamilyIds(id);
         /* Global lock order: family -> selected product -> category. Product writes follow the
@@ -141,6 +143,7 @@ public class CategoryService {
             throw new BusinessRuleException(
                     "Categorie of productfamiliekoppeling is intussen gewijzigd; herlaad voor je bewaart");
         }
+        requireStableCode(current, changes.code());
         Category updated = normalized(merge(current, changes));
         validateIdentityAndPosition(updated, id);
         if (updated.featuredProductId() != null) {
@@ -149,9 +152,22 @@ public class CategoryService {
         }
         if (updated.equals(current)) return current;
         Category saved = categories.save(updated);
-        familyWrites.validateFamilies(linkedFamilyIds);
+        /* A category editor may save one title/language at a time. Completeness stays visible
+           in the family work queue and is enforced when publishing/building, not here. */
+        familyWrites.validateFamilies(
+                linkedFamilyIds, ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
         queueWebsite();
         return saved;
+    }
+
+    private static void requireStableCode(Category current, String requestedCode) {
+        if (requestedCode == null) return; // omitted by an older client: preserve the stable key
+        String normalized = requestedCode.isBlank() ? null : requestedCode.strip();
+        if (!Objects.equals(current.code(), normalized)) {
+            throw new UnprocessableBusinessRuleException(
+                    "Categoriecode is een vaste technische sleutel en kan na aanmaak niet "
+                            + "worden gewijzigd. Pas voor klanten de categorienaam aan.");
+        }
     }
 
     private static Category merge(Category current, Category changes) {
@@ -297,6 +313,8 @@ public class CategoryService {
     }
 
     private void queueWebsite() {
-        if (websiteRebuild != null) websiteRebuild.queue();
+        if (websiteRebuild != null && familyWrites.websiteBuildReady()) {
+            websiteRebuild.queue();
+        }
     }
 }

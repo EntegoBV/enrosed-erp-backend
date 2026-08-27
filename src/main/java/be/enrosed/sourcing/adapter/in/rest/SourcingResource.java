@@ -150,22 +150,28 @@ public class SourcingResource {
      * @param showRevenue whether the desired extra revenue appears as its own
      *                    line on the sheet. Off by default: the sheet is then
      *                    safe to show, and the total still holds. The screen
-     *                    sends the state of the double-tap switch here.
+     *                    sends an explicit choice here.
+     * @param layout      LANDSCAPE keeps the historical wide calculation;
+     *                    PORTRAIT is the compact purchase-order read copy.
+     *                    Missing means LANDSCAPE for existing clients.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
     @Produces("application/pdf")
     public Response purchasePdf(@PathParam("id") long id,
-                                @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue) {
+                                @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue,
+                                @QueryParam("layout") @DefaultValue("LANDSCAPE") String layout) {
         PurchaseOrder order = purchaseOrders.get(id);
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         LandedCost costing = purchaseOrders.calculate(order);
+        PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
 
         PdfPurchaseRenderer.Document document = purchasePdf.render(
                 order, costing, supplier, showRevenue,
                 purchaseOrders.payments(id),
                 purchaseOrders.payable(order, costing,
-                        supplier == null ? null : supplier.incoterm()));
+                        supplier == null ? null : supplier.incoterm()),
+                resolvedLayout);
 
         return Response.ok(document.content())
                 .header("Content-Disposition",

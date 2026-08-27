@@ -81,15 +81,25 @@ class CatalogContentBackfillResourceTest {
     @Test
     void publicCopyResourcesKeepTheReviewedEightLocaleContract() throws Exception {
         List<List<String>> website = csv("/i18n/website-content.csv");
-        assertEquals(446, website.size(), "one header plus 445 website keys");
+        assertEquals(527, website.size(), "one header plus 526 website keys");
         assertTrue(website.stream().skip(1).allMatch(row -> row.size() == 11
                 && row.subList(3, 11).stream().noneMatch(String::isBlank)));
         List<String> stemRoses = row(website, "home.counter.item3.title", 0);
         assertEquals("12 steelrozen", stemRoses.get(3));
         assertEquals("12 Stem Roses", stemRoses.get(5));
+        for (String key : List.of("quote.error.validation", "quote.error.rateLimited",
+                "quote.error.payloadTooLarge", "quote.error.reviewRequired",
+                "quote.error.network", "quote.error.contact")) {
+            List<String> errorCopy = row(website, key, 0);
+            assertEquals(8, errorCopy.subList(3, 11).stream().filter(
+                    value -> !value.isBlank()).count(), key);
+        }
+        List<String> rateLimited = row(website, "quote.error.rateLimited", 0);
+        assertTrue(rateLimited.subList(3, 11).stream()
+                .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(84, catalog.size(), "one header plus 83 catalogue keys");
+        assertEquals(92, catalog.size(), "one header plus 91 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 12
                 && row.subList(4, 12).stream().noneMatch(String::isBlank)));
         assertEquals("GROSSISTA", row(catalog, "catalog.brand.wholesale", 1).get(10));

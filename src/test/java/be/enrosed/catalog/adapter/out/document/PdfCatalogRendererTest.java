@@ -15,6 +15,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -48,6 +50,8 @@ class PdfCatalogRendererTest {
                 "soap-roos-in-box-480.webp", "image/webp");
         Photo counterFixture = storedPhoto(2L, "/catalog-assets/counter-bowl-retail.jpg",
                 "counter-bowl-retail.jpg", "image/jpeg");
+        Photo preservedFixture = storedPhoto(3L, "/catalog-assets/preserved-roses.jpg",
+                "preserved-roses.jpg", "image/jpeg");
         CatalogExportService.Model simple = withPhoto(
                 model(1, CatalogExportService.Layout.SIMPLE), fixture);
         CatalogExportService.Model brochure = withPhoto(
@@ -62,9 +66,11 @@ class PdfCatalogRendererTest {
         assertFalse(simpleHtml.contains("Beschrijving"));
         assertTrue(brochureHtml.contains("A lasting collection"));
         assertTrue(brochureHtml.contains("Product B × D × H"));
-        assertTrue(brochureHtml.contains("Retail-ready products, compared quickly."));
-        assertTrue(brochureHtml.contains("Counter Displays + Soap &amp; Decorative Roses"));
-        assertTrue(brochureHtml.contains("ENROSED counter display"));
+        assertTrue(brochureHtml.contains("The complete range at a glance."));
+        assertTrue(brochureHtml.contains("Reference prices per piece in EUR"));
+        assertTrue(brochureHtml.contains("href=\"#family-01\""));
+        assertTrue(brochureHtml.contains("id=\"family-01\""));
+        assertFalse(brochureHtml.contains("€0.00"));
         assertFalse(brochureHtml.contains("ENROSED atelier"));
         assertFalse(brochureHtml.toLowerCase().contains("candidate"));
         assertFalse(brochureHtml.toLowerCase().contains("provenance"));
@@ -84,28 +90,77 @@ class PdfCatalogRendererTest {
             assertEquals(1, pdf.getNumberOfPages());
         }
         try (PDDocument pdf = Loader.loadPDF(brochurePdf.content())) {
-            assertEquals(9, pdf.getNumberOfPages());
+            assertEquals(7, pdf.getNumberOfPages());
             assertTrue(pdf.getPage(0).getMediaBox().getHeight()
                     > pdf.getPage(0).getMediaBox().getWidth());
-            assertTrue(pdf.getPage(3).getMediaBox().getWidth()
-                    > pdf.getPage(3).getMediaBox().getHeight());
+            for (int page = 0; page < pdf.getNumberOfPages(); page++) {
+                assertTrue(pdf.getPage(page).getMediaBox().getHeight()
+                        > pdf.getPage(page).getMediaBox().getWidth());
+            }
+            assertTrue(pdf.getPage(1).getAnnotations().stream()
+                    .anyMatch(PDAnnotationLink.class::isInstance));
             String extracted = new PDFTextStripper().getText(pdf);
             assertTrue(extracted.contains("Confirm"));
             assertTrue(extracted.contains("gifting"));
-            assertTrue(extracted.contains("Retail-ready products"));
+            assertTrue(extracted.contains("complete range"));
         }
 
         Path qa = Path.of("target", "catalog-qa");
         Files.createDirectories(qa);
         Files.write(qa.resolve("simple.pdf"), simplePdf.content());
         CatalogDocumentRenderer.Document qaBrochure = renderer.render(
-                comparisonQaModel(counterFixture, fixture));
+                comparisonQaModel(counterFixture, preservedFixture, fixture));
         try (PDDocument pdf = Loader.loadPDF(qaBrochure.content())) {
-            assertEquals(16, pdf.getNumberOfPages());
-            assertTrue(pdf.getPage(3).getMediaBox().getWidth()
-                    > pdf.getPage(3).getMediaBox().getHeight());
+            assertEquals(23, pdf.getNumberOfPages());
+            for (int page = 0; page < pdf.getNumberOfPages(); page++) {
+                assertTrue(pdf.getPage(page).getMediaBox().getHeight()
+                        > pdf.getPage(page).getMediaBox().getWidth());
+            }
         }
         Files.write(qa.resolve("brochure.pdf"), qaBrochure.content());
+    }
+
+    @Test
+    void overviewIncludesEverySelectedFamilyAcrossNoMoreThanTwoPages() {
+        String html = renderer.renderHtml(model(57, CatalogExportService.Layout.BROCHURE));
+        assertEquals(2, occurrences(html, "class=\"page overview-page\""));
+        assertEquals(19, occurrences(html, "class=\"overview-card overview-card--"));
+        assertTrue(html.contains("href=\"#family-19\""));
+        assertTrue(html.contains("id=\"family-19\""));
+        assertFalse(html.contains("family-20"));
+        assertTrue(html.indexOf("class=\"page overview-page\"")
+                < html.indexOf("id=\"family-01\""),
+                "the complete glance must precede every family detail page");
+    }
+
+    @Test
+    void overviewProductLinksUseTheRequestedLocaleAndReachTheDetailPage() {
+        Photo photo = new Photo(93L, "unused.jpg", "unused.jpg", "image/jpeg",
+                1L, 1, 1, 0);
+        for (Language language : Language.values()) {
+            String html = renderer.renderHtml(localizedQaModel(
+                    language, CatalogExportService.Layout.BROCHURE, photo));
+            assertTrue(html.contains("href=\"#family-01\""), language.code());
+            assertTrue(html.contains("id=\"family-01\""), language.code());
+            assertTrue(html.contains(localizedFamilyName(language)), language.code());
+        }
+    }
+
+    @Test
+    void unavailableReferencePriceIsNeverRenderedAsZero() {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        Product unavailable = withoutReferencePrice(source.products().getFirst());
+        CatalogExportService.FamilyGroup oldGroup = source.families().getFirst();
+        CatalogExportService.Model model = new CatalogExportService.Model(
+                List.of(unavailable), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        oldGroup.content(), List.of(unavailable), oldGroup.category(), false)),
+                source.request());
+
+        String html = renderer.renderHtml(model);
+        assertTrue(html.contains("Price on request"));
+        assertFalse(html.contains("€0.00"));
+        assertFalse(html.contains("€ 0,00"));
     }
 
     @Test
@@ -315,6 +370,23 @@ class PdfCatalogRendererTest {
                 List.of(pictured), model.categoriesById(), List.of(group), request);
     }
 
+    private static Product withoutReferencePrice(Product base) {
+        return new Product(
+                base.id(), base.sku(), base.name(), base.dimensions(), base.packaging(),
+                base.colour(), base.variantSize(), base.colourHex(), base.description(),
+                base.categoryId(), base.supplierId(), base.active(), base.familyId(),
+                base.canonicalVariantKey(), base.canonicalBarcode(), base.variantPosition(),
+                base.inventoryKnown(), base.familyKey(), base.publicHandle(),
+                base.websiteStatus(), base.orderAppStatus(), base.barcodes(), base.hsCode(),
+                base.carton(), base.exwPrice(), base.exwCurrency(), base.extraUnitCost(),
+                BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
+                base.stockQuantity(), base.photos(), base.texts());
+    }
+
+    private static int occurrences(String haystack, String needle) {
+        return (haystack.length() - haystack.replace(needle, "").length()) / needle.length();
+    }
+
     static CatalogExportService.Model localizedQaModel(
             Language requested, CatalogExportService.Layout layout, Photo photo) {
         List<CategoryText> categoryTexts = java.util.Arrays.stream(Language.values())
@@ -453,17 +525,26 @@ class PdfCatalogRendererTest {
     }
 
     private static CatalogExportService.Model comparisonQaModel(
-            Photo counterPhoto, Photo decorativePhoto) {
+            Photo counterPhoto, Photo preservedPhoto, Photo decorativePhoto) {
         Category counter = new Category(
-                1L, "counter", "Counter Displays", "Retail-ready products", 0);
+                1L, "display-roses", "Counter Displays", "Retail-ready products", 0);
+        Category preserved = new Category(
+                2L, "divers", "Preserved Roses & Flowerboxes",
+                "Preserved formats for florists and retail buyers", 1);
         Category decorative = new Category(
-                2L, "decorative", "Soap & Decorative Roses",
-                "Decorative rose gifts for year-round retail", 1);
+                3L, "rose-bears", "Soap & Foam Roses",
+                "Decorative rose formats for year-round retail", 2);
         String[] counterNames = {
                 "Bowl Display", "Steel Rose Display", "Diamond Display", "Single Rose Display"
         };
+        String[] preservedNames = {
+                "Glass Flowerbox", "Heart Flowerbox", "9 Rose Flowerbox",
+                "16 Rose Flowerbox", "Acrylic Flowerbox", "Rose Dome Elite",
+                "Rose Dome XL", "Preserved Rose Dome", "Square Rose Box",
+                "Mini Rose Box", "Cobalt Rose Dome", "Preserved Single Rose"
+        };
         String[] decorativeNames = {
-                "Soap Rose Window Box", "Soap Rose Gift Box", "Decorative Rose Box"
+                "Soap Rose Window Box", "Soap Rose Gift Box", "Half Heart Foam Rose"
         };
         List<Product> products = new ArrayList<>();
         List<CatalogExportService.FamilyGroup> groups = new ArrayList<>();
@@ -474,7 +555,7 @@ class PdfCatalogRendererTest {
             Product item = product(productId, "CD-" + (position + 1), familyId, 1L, 0)
                     .withPhotos(List.of(counterPhoto));
             CatalogFamilyReader.Family family = qaFamily(
-                    familyId, "counter-" + position, 1L, "counter",
+                    familyId, "counter-" + position, 1L, "display-roses",
                     "Counter Displays", position, name, "Counter display");
             products.add(item);
             groups.add(new CatalogExportService.FamilyGroup(
@@ -482,13 +563,26 @@ class PdfCatalogRendererTest {
             productId++;
             position++;
         }
-        for (int index = 0; index < decorativeNames.length; index++) {
+        for (int index = 0; index < preservedNames.length; index++) {
             long familyId = 400L + index;
-            Product item = product(productId, "DR-" + (index + 1), familyId, 2L, 0)
+            Product item = product(productId, "PR-" + (index + 1), familyId, 2L, 0)
+                    .withPhotos(List.of(preservedPhoto));
+            CatalogFamilyReader.Family family = qaFamily(
+                    familyId, "preserved-" + index, 2L, "divers",
+                    "Preserved Roses & Flowerboxes", index, preservedNames[index],
+                    "Preserved retail format");
+            products.add(item);
+            groups.add(new CatalogExportService.FamilyGroup(
+                    family, List.of(item), preserved, false));
+            productId++;
+        }
+        for (int index = 0; index < decorativeNames.length; index++) {
+            long familyId = 500L + index;
+            Product item = product(productId, "SR-" + (index + 1), familyId, 3L, 0)
                     .withPhotos(List.of(decorativePhoto));
             CatalogFamilyReader.Family family = qaFamily(
-                    familyId, "decorative-" + index, 2L, "decorative",
-                    "Soap & Decorative Roses", index, decorativeNames[index],
+                    familyId, "decorative-" + index, 3L, "rose-bears",
+                    "Soap & Foam Roses", index, decorativeNames[index],
                     "Decorative rose gift");
             products.add(item);
             groups.add(new CatalogExportService.FamilyGroup(
@@ -497,9 +591,10 @@ class PdfCatalogRendererTest {
         }
         Map<Long, Category> categories = new LinkedHashMap<>();
         categories.put(counter.id(), counter);
+        categories.put(preserved.id(), preserved);
         categories.put(decorative.id(), decorative);
         CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
-                true, true, true, true, true,
+                true, false, false, true, false,
                 "A lasting collection", "Ready for retail.");
         CatalogExportService.Request request = new CatalogExportService.Request(
                 null, true, true, 2, "ENROSED Wholesale", null, "en",

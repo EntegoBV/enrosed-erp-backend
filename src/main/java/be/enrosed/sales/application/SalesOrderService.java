@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
  */
 @ApplicationScoped
 public class SalesOrderService {
+    static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
+    static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
 
     private final SalesRepositories.Orders orders;
     private final ProductService products;
@@ -109,6 +111,17 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder create(long customerId, String countryCode, String incoterm,
                              DocumentType docType) {
+        return create(customerId, countryCode, incoterm, docType, true);
+    }
+
+    /** Public website intake: same ERP draft; its push is sent after the final draft commits. */
+    @Transactional
+    public SalesOrder createWebsiteRequest(long customerId, String countryCode, String incoterm) {
+        return create(customerId, countryCode, incoterm, DocumentType.OFFERTE, false);
+    }
+
+    private SalesOrder create(long customerId, String countryCode, String incoterm,
+                              DocumentType docType, boolean notifyImmediately) {
         boolean invoice = docType == DocumentType.FACTUUR;
         LocalDate today = LocalDate.now();
         /* The staffel of the shipping organisation is the house standard;
@@ -137,11 +150,18 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), null, false,
                 invoice ? "Factuur opgemaakt" : "Offerte opgemaakt", null));
-        Customer buyer = customers.get(customerId);
-        phones.notifyAll(invoice ? "sale-invoice" : "sale-quote",
-                (invoice ? "\uD83D\uDCB0 Nieuwe factuur " : "\uD83D\uDD14 Nieuwe offerte ") + created.number(),
-                buyer == null ? "Zonet aangemaakt" : "Voor " + buyer.company(),
-                "/sales/" + created.id());
+        if (notifyImmediately) {
+            Customer buyer = customers.get(customerId);
+            try {
+                phones.notifyAll(invoice ? "sale-invoice" : "sale-quote",
+                        (invoice ? "\uD83D\uDCB0 Nieuwe factuur "
+                                : "\uD83D\uDD14 Nieuwe offerte ") + created.number(),
+                        buyer == null ? "Zonet aangemaakt" : "Voor " + buyer.company(),
+                        "/sales/" + created.id());
+            } catch (RuntimeException ignored) {
+                /* A push subscription or VAPID problem may never undo a saved quote. */
+            }
+        }
         return created;
     }
 
@@ -611,7 +631,40 @@ public class SalesOrderService {
     /** Rechecks an existing draft/open quotation before a document leaves. */
     public void validateForSend(SalesOrder order) {
         validateForSave(order);
+        validateCommercialLinesReady(order);
         validateLogisticsReady(order);
+    }
+
+    /**
+     * Drafts may contain temporary zero quantities or products whose selling price still
+     * needs a decision. Neither may silently disappear as a zero-value line in a customer PDF.
+     */
+    private void validateCommercialLinesReady(SalesOrder order) {
+        boolean websiteRequest = order.internalNotes() != null
+                && order.internalNotes().stripLeading().startsWith(WEBSITE_REQUEST_MARKER);
+        boolean hasZeroQuantity = order.lines().stream().anyMatch(line -> line.quantity() <= 0);
+        if (websiteRequest && hasZeroQuantity
+                && order.internalNotes().contains(WEBSITE_CARTON_UNRESOLVED_MARKER)) {
+            throw new BusinessRuleException(
+                    "Los eerst de aangevraagde dozen met onbekende doosinhoud op voordat je de offerte verstuurt");
+        }
+
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        for (SalesOrderLine line : order.lines()) {
+            if (line.quantity() <= 0) {
+                throw new BusinessRuleException(
+                        "Vul voor elke offerteregel een positief productaantal in");
+            }
+            Product product = byId.get(line.productId());
+            if (product == null) continue; // validateForSave already reports the missing product.
+            BigDecimal effectivePrice = pricing.unitPriceFor(
+                    product, order, line.unitPriceEur());
+            if (effectivePrice == null || effectivePrice.signum() <= 0) {
+                throw new BusinessRuleException(
+                        "Vul een geldige stukprijs groter dan 0 EUR in voor " + product.describe());
+            }
+        }
     }
 
     private void validateForSave(SalesOrder order) {

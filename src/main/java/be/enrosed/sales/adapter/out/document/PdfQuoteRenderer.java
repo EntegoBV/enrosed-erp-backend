@@ -166,17 +166,23 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
     @Override
     public Document packingSlip(PackingSlip slip) {
+        String html = packingSlipHtml(slip);
+        return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
+                "application/pdf");
+    }
+
+    /** Package-visible so the locale contract can be tested before PDF conversion. */
+    String packingSlipHtml(PackingSlip slip) {
         Language slipLanguage = slip.customer() == null ? Language.NL : slip.customer().language();
-        String html = packingSlipTemplate
+        Map<String, String> text = DocumentText.of(slipLanguage);
+        return packingSlipTemplate
                 .data("slip", slip)
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
-                .data("date", be.enrosed.shared.DocumentFormat.be(java.time.LocalDate.now()))
-                .data("termsTitle", DocumentText.of(slipLanguage).get("termsTitle"))
-                .data("termsText", company.get().termsFor(slipLanguage))
+                .data("lang", slipLanguage.code())
+                .data("date", DocumentText.date(java.time.LocalDate.now(), slipLanguage))
+                .data("t", text)
                 .render();
-        return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
-                "application/pdf");
     }
 
 }

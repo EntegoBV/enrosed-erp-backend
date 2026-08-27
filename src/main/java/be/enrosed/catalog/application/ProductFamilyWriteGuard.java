@@ -5,6 +5,7 @@ import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
@@ -83,11 +84,15 @@ public class ProductFamilyWriteGuard {
     }
 
     /** Validates after the ORM flush; the surrounding transaction rolls every mutation back. */
-    /** What kind of write is asking: content writes stay strict on copy. */
-    public enum WriteKind { PRODUCT, CONTENT }
+    /**
+     * Incremental editor saves retain structural guards but may leave public copy on the
+     * translation work queue. Publication is the only boundary that requires the complete
+     * all-language snapshot.
+     */
+    public enum WriteKind { INCREMENTAL_EDIT, PUBLICATION }
 
     public void validateFamilies(Collection<Long> familyIds) {
-        validateFamilies(familyIds, WriteKind.CONTENT);
+        validateFamilies(familyIds, WriteKind.PUBLICATION);
     }
 
     public void validateFamilies(Collection<Long> familyIds, WriteKind kind) {
@@ -98,12 +103,11 @@ public class ProductFamilyWriteGuard {
                     "familyId = ?1 order by variantPosition, id", familyId);
             List<String> issues = ProductFamilyDto.publicationIssues(family, members, json);
             List<String> localized = localization == null ? List.of() : localization.issues(family, members);
-            /* A product write cannot change the family's copy, so missing
-               texts or translations predate it: they stay visible as
-               attention points and are filled in when the website work
-               happens - a price tweak must not be held hostage by them.
-               Content writes (translations, family copy) stay strict. */
-            if (kind == WriteKind.PRODUCT) {
+            /* An editor works incrementally: a product, category or one language can be saved
+               without having to complete every other language in the same request. Missing copy
+               remains visible in ProductFamilyDto.publicationIssues and the strict public build.
+               Structural family invariants remain guarded here. */
+            if (kind == WriteKind.INCREMENTAL_EDIT) {
                 issues = issues.stream()
                         .filter(issue -> !issue.startsWith("website.") && !issue.startsWith("catalog."))
                         .toList();
@@ -131,9 +135,37 @@ public class ProductFamilyWriteGuard {
                     : List.of();
             if (!blockers.isEmpty()) {
                 throw new BusinessRuleException(
-                        "Productwijziging maakt productfamilie " + family.familyKey
+                        "Wijziging maakt productfamilie " + family.familyKey
                                 + " niet publiceerbaar: " + String.join("; ", blockers));
             }
+        }
+    }
+
+    /**
+     * A deploy hook is useful only while the complete published WEBSITE graph can satisfy the
+     * strict locale endpoint. Returning false merely leaves the saved change in the existing
+     * publication-issues work queue; it never rolls the editor transaction back.
+     */
+    public boolean websiteBuildReady() {
+        try {
+            for (ProductFamilyEntity family : families.listAll()) {
+                if (!family.active || state(family.websiteStatus) != PublicationState.PUBLISHED) {
+                    continue;
+                }
+                List<ProductEntity> members = productRows.list(
+                        "familyId = ?1 order by variantPosition, id", family.id);
+                if (!ProductFamilyDto.publicationIssues(family, members, json).isEmpty()) {
+                    return false;
+                }
+                if (localization != null
+                        && !localization.missing(family, members, CatalogChannel.WEBSITE).isEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (RuntimeException invalidPublishedGraph) {
+            /* Corrupt/incomplete public data should suppress an automatic deploy, not the save. */
+            return false;
         }
     }
 

@@ -4,6 +4,7 @@ import be.enrosed.catalog.adapter.in.rest.ProductDto;
 import be.enrosed.catalog.adapter.in.rest.CanonicalCatalogManifest;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyResource;
+import be.enrosed.catalog.adapter.in.rest.PublicProductTranslationsDto;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogDto;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogResource;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
@@ -17,6 +18,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPackageEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
+import be.enrosed.catalog.adapter.out.persistence.WebsiteRebuildEntity;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Barcodes;
@@ -25,10 +27,13 @@ import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.catalog.domain.WebsiteRebuildStatus;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LanguageFallback;
 import be.enrosed.shared.LocalizationIncompleteException;
+import be.enrosed.shared.UnprocessableBusinessRuleException;
+import be.enrosed.shared.adapter.in.rest.BusinessRuleMapper;
 import be.enrosed.shared.Currency;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.test.TestTransaction;
@@ -42,10 +47,13 @@ import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -66,6 +74,8 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject ProductService productService;
     @Inject WebsiteCatalogRevisionService catalogRevisions;
     @Inject PublicProductTranslationsService publicTranslations;
+    @Inject ProductFamilyWriteGuard familyWrites;
+    @Inject WebsiteRebuildService websiteRebuild;
     @Inject ProductFamilyResource familyResource;
     @Inject CatalogContentBackfillService catalogBackfill;
     @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
@@ -73,6 +83,10 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject FamilyMemberCacheService familyMemberCache;
     @Inject FamilyCollectionAlignmentService familyCollections;
     @Inject ObjectMapper json;
+
+    private WebsiteRebuildService websiteRebuildTarget() {
+        return io.quarkus.arc.ClientProxy.unwrap(websiteRebuild);
+    }
 
     @Test
     void archived20260820ManifestRemainsReadableWithNullDefaultsForAdditiveFields()
@@ -940,7 +954,7 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void bulkTranslationReplacementCannotMakeAPublishedFamilyIncomplete() {
+    void bulkTranslationReplacementSavesIncrementallyAndLeavesMissingCopyInTheWorkQueue() {
         FamilyContext context = completeFamilyContext("bulk-translation-guard");
         ProductEntity variant = product(
                 context.family, "SKU-BULK-GUARD", "bulk-translation-guard-red",
@@ -948,19 +962,66 @@ class ProductFamilyVariantContractPersistenceTest {
         variant.categoryId = context.category.id;
         entityManager.persist(variant);
         entityManager.flush();
+        assertTrue(familyWrites.websiteBuildReady());
+
+        WebsiteRebuildEntity rebuildState = entityManager.find(WebsiteRebuildEntity.class, 1L);
+        if (rebuildState == null) {
+            rebuildState = new WebsiteRebuildEntity();
+            entityManager.persist(rebuildState);
+        }
+        rebuildState.status = WebsiteRebuildStatus.LIVE;
+        rebuildState.liveRevision = "0".repeat(64);
+        rebuildState.attemptCount = 4;
 
         List<ProductDto.TextDto> incomplete = List.of(new ProductDto.TextDto(
                 Language.EN, "English only", null, "Red", null));
+        Optional<String> previousHook = websiteRebuildTarget().deployHookUrl;
+        try {
+            websiteRebuildTarget().deployHookUrl = Optional.of(
+                    "https://example.invalid/deploy-hook");
+            String beforeRevision = publicTranslations.get(variant.id).revision();
+            assertEquals(1, publicTranslations.replaceProductTexts(
+                    java.util.Map.of(variant.id, incomplete)));
 
-        BusinessRuleException error = assertThrows(BusinessRuleException.class,
-                () -> publicTranslations.replaceProductTexts(
-                        java.util.Map.of(variant.id, incomplete)));
-        /* The bulk path runs through the family write guard, whose message
-           names the family and lists every blocker - here the variant copy
-           missing in the other seven languages. */
-        assertTrue(error.getMessage().contains("niet publiceerbaar"), error.getMessage());
-        assertTrue(error.getMessage().contains("bulk-translation-guard-red.nl.name"),
-                error.getMessage());
+            PublicProductTranslationsDto saved = publicTranslations.get(variant.id);
+            assertNotEquals(beforeRevision, saved.revision());
+            assertEquals(context.family.id, saved.familyId());
+            assertEquals(variant.id, saved.productId());
+            assertEquals(context.family.familyKey, saved.family().familyKey());
+            assertEquals(context.family.publicHandle, saved.family().publicHandle());
+            assertEquals(context.family.categoryKey, saved.family().categoryKey());
+            assertEquals(variant.canonicalVariantKey, saved.product().canonicalVariantKey());
+            assertTrue(saved.family().publicationIssues().stream().anyMatch(issue ->
+                            issue.contains("bulk-translation-guard-red.nl.name")),
+                    saved.family().publicationIssues().toString());
+            assertFalse(familyWrites.websiteBuildReady(),
+                    "incomplete published copy must remain pending");
+            assertEquals(WebsiteRebuildStatus.LIVE, rebuildState.status,
+                    "incomplete copy must not queue a predictably failing strict build");
+            assertEquals(4, rebuildState.attemptCount);
+
+            LocalizationIncompleteException strictBuild = assertThrows(
+                    LocalizationIncompleteException.class,
+                    () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "NL", true, null));
+            assertTrue(strictBuild.missingPaths().stream().anyMatch(path ->
+                            path.equals("families." + context.family.publicHandle
+                                    + ".variants." + variant.id + ".name")),
+                    strictBuild.missingPaths().toString());
+
+            List<ProductDto.TextDto> complete = java.util.Arrays.stream(Language.values())
+                    .map(language -> new ProductDto.TextDto(
+                            language, "Complete " + language.code(), null,
+                            "Colour " + language.code(), null))
+                    .toList();
+            assertEquals(1, publicTranslations.replaceProductTexts(
+                    java.util.Map.of(variant.id, complete)));
+            assertTrue(familyWrites.websiteBuildReady());
+            assertEquals(WebsiteRebuildStatus.QUEUED, rebuildState.status,
+                    "fixing the final locale must resume automatic deployment");
+            assertEquals(0, rebuildState.attemptCount);
+        } finally {
+            websiteRebuildTarget().deployHookUrl = previousHook;
+        }
     }
 
     @Test
@@ -994,6 +1055,69 @@ class ProductFamilyVariantContractPersistenceTest {
                 .filter(text -> text.language == Language.FR).findFirst().orElseThrow();
         assertEquals("Copie approuvée", stored.name);
         assertEquals("Description approuvée", stored.description);
+    }
+
+    @Test
+    @TestTransaction
+    void generalFamilyPutKeepsTheTechnicalKeyImmutableWhileVisibleTitleRemainsEditable()
+            throws Exception {
+        ProductFamilyEntity family = family("stable-family-key");
+        family.websiteStatus = PublicationState.DRAFT;
+        entityManager.persist(family);
+        entityManager.flush();
+
+        com.fasterxml.jackson.databind.node.ObjectNode titleJson =
+                json.valueToTree(familyResource.get(family.id));
+        titleJson.put("name", "Visible customer family title");
+        ProductFamilyDto renamed = familyResource.update(
+                family.id, json.treeToValue(titleJson, ProductFamilyDto.class));
+        assertEquals("Visible customer family title", renamed.name());
+        assertEquals("stable-family-key", renamed.familyKey());
+
+        com.fasterxml.jackson.databind.node.ObjectNode keyJson =
+                json.valueToTree(familyResource.get(family.id));
+        keyJson.put("familyKey", "renamed-technical-key");
+        keyJson.put("name", "A title that must not leak through the rejected request");
+        UnprocessableBusinessRuleException blocked = assertThrows(
+                UnprocessableBusinessRuleException.class,
+                () -> familyResource.update(
+                        family.id, json.treeToValue(keyJson, ProductFamilyDto.class)));
+        assertTrue(blocked.getMessage().contains("vaste technische sleutel"));
+        assertEquals(422, new BusinessRuleMapper().toResponse(blocked).getStatus());
+
+        entityManager.flush();
+        entityManager.clear();
+        ProductFamilyEntity stored = entityManager.find(ProductFamilyEntity.class, family.id);
+        assertEquals("stable-family-key", stored.familyKey);
+        assertEquals("Visible customer family title", stored.name);
+    }
+
+    @Test
+    @TestTransaction
+    void publicHandleIsImmutableAfterCreateWhileVisibleTitleRemainsEditable()
+            throws Exception {
+        ProductFamilyEntity family = family("protected-public-handle");
+        family.websiteStatus = PublicationState.DRAFT;
+        entityManager.persist(family);
+        entityManager.flush();
+
+        com.fasterxml.jackson.databind.node.ObjectNode titleJson =
+                json.valueToTree(familyResource.get(family.id));
+        titleJson.put("name", "A freely editable visible title");
+        ProductFamilyDto renamed = familyResource.update(
+                family.id, json.treeToValue(titleJson, ProductFamilyDto.class));
+        assertEquals("A freely editable visible title", renamed.name());
+
+        com.fasterxml.jackson.databind.node.ObjectNode changedHandleJson =
+                json.valueToTree(familyResource.get(family.id));
+        changedHandleJson.put("publicHandle", "unsafe-url-change");
+        UnprocessableBusinessRuleException blocked = assertThrows(
+                UnprocessableBusinessRuleException.class,
+                () -> familyResource.update(
+                        family.id, json.treeToValue(changedHandleJson, ProductFamilyDto.class)));
+        assertTrue(blocked.getMessage().contains("URL-migratie"));
+        assertEquals(422, new BusinessRuleMapper().toResponse(blocked).getStatus());
+        assertEquals("protected-public-handle", familyResource.get(family.id).publicHandle());
     }
 
     @Test
@@ -1255,7 +1379,7 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void categoryRenamePropagatesPublicKeyCopyAndPositionWithoutOverwritingVariantCopy() {
+    void categoryTitleCopyAndPositionPropagateWithoutChangingStableKeysOrVariantCopy() {
         Category created = categoryService.create(new Category(
                 null, "DISPLAY ROSES", "Display roses", "Original category description",
                 "Signature", 0, "Displays", null));
@@ -1284,24 +1408,24 @@ class ProductFamilyVariantContractPersistenceTest {
         assertEquals("Internal quote description", preserved.description);
 
         Category renamed = categoryService.update(created.id(), new Category(
-                created.id(), "SIGNATURE DISPLAYS", "Signature displays",
+                created.id(), created.code(), "Signature displays",
                 "Updated public category description", "Updated signature", 2,
                 "Signature mobile", null, null, null,
                 categoryTexts("Signature displays", "Updated public category description",
                         "Updated signature", "Signature mobile", null),
                 created.revision()));
-        assertEquals("SIGNATURE DISPLAYS", renamed.code(),
-                "administrator-owned codes retain their original casing");
+        assertEquals("DISPLAY ROSES", renamed.code(),
+                "the administrator-owned technical code remains stable");
         entityManager.flush();
         entityManager.clear();
 
         ProductFamilyEntity propagated = entityManager.find(ProductFamilyEntity.class, family.id);
         ProductCollectionEntity propagatedCollection = entityManager.find(
                 ProductCollectionEntity.class, collection.id);
-        assertEquals("signature-displays", propagated.categoryKey);
+        assertEquals("display-roses", propagated.categoryKey);
         assertEquals("Signature displays", propagated.categoryName);
         assertEquals(2, propagated.categoryPosition);
-        assertEquals("signature-displays", propagatedCollection.collectionKey);
+        assertEquals("display-roses", propagatedCollection.collectionKey);
         assertEquals("Signature displays", propagatedCollection.name);
         assertEquals("Updated signature", propagatedCollection.eyebrow);
         assertEquals("Updated public category description", propagatedCollection.description);
@@ -1309,7 +1433,7 @@ class ProductFamilyVariantContractPersistenceTest {
         assertEquals("Signature mobile", propagatedCollection.mobileName);
 
         PublicFamilyCatalogDto.FamilyDto publicFamily = publicFamily("EN", family.publicHandle);
-        assertEquals("signature-displays", publicFamily.category().key());
+        assertEquals("display-roses", publicFamily.category().key());
         assertEquals("Updated public category description",
                 publicFamily.category().description());
 
@@ -1318,6 +1442,47 @@ class ProductFamilyVariantContractPersistenceTest {
                         null, "OTHER CATEGORY", "Other", null, 2)));
         assertTrue(duplicatePosition.getMessage().contains("positie"),
                 duplicatePosition.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void categoryTitleEditKeepsStableIdentityAndAllowsAnIncompleteTranslationWorkQueue() {
+        FamilyContext context = completeFamilyContext("stable-category-title");
+        ProductEntity variant = product(
+                context.family, "SKU-STABLE-CATEGORY", "stable-category-variant",
+                "Red", null, "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        context.category.eyebrow = "Stable collection eyebrow";
+        context.category.texts.removeIf(text -> text.language != Language.EN);
+        entityManager.flush();
+
+        Category before = categoryService.get(context.category.id);
+        String stableCategoryKey = CategoryPublicKey.from(before.code());
+        Category saved = categoryService.update(before.id(), new Category(
+                before.id(), before.code(), "Renamed public category title",
+                before.description(), before.eyebrow(), before.position(),
+                before.mobileName(), before.navigationName(), before.footerName(),
+                before.featuredProductId(), before.texts(), before.revision()));
+
+        assertEquals(before.id(), saved.id());
+        assertEquals(before.code(), saved.code());
+        assertEquals(stableCategoryKey, CategoryPublicKey.from(saved.code()));
+        assertTrue(saved.revision() > before.revision());
+
+        PublicProductTranslationsDto workQueue = publicTranslations.get(variant.id);
+        assertEquals(context.family.id, workQueue.familyId());
+        assertEquals(context.family.familyKey, workQueue.family().familyKey());
+        assertEquals(context.family.publicHandle, workQueue.family().publicHandle());
+        assertEquals(stableCategoryKey, workQueue.family().categoryKey());
+        assertEquals(variant.id, workQueue.productId());
+        assertEquals(context.family.id, workQueue.product().familyId());
+        assertEquals(variant.canonicalVariantKey, workQueue.product().canonicalVariantKey());
+        assertTrue(workQueue.family().publicationIssues().stream().anyMatch(issue ->
+                        issue.contains(".category.nl.name")),
+                workQueue.family().publicationIssues().toString());
+        assertFalse(familyWrites.websiteBuildReady(),
+                "an incomplete category locale must suppress the automatic deploy hook");
     }
 
     @Test

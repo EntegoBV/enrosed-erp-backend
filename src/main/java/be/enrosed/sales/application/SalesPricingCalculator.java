@@ -228,7 +228,10 @@ public class SalesPricingCalculator {
             case PER_CBM -> freight = Money.money(
                     cbmTotal.multiply(Money.nz(order.freightRatePerCbmEur())));
             case FIXED -> freight = Money.money(order.manualFreightEur());
-            case PICKUP -> freight = BigDecimal.ZERO;
+            case PICKUP -> {
+                freight = BigDecimal.ZERO;
+                handling = BigDecimal.ZERO;
+            }
             case CARRIER -> {
                 /* The staffel prices per zone (postcode) and per pallet rung.
                    Whatever cannot be resolved becomes a named validation

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    @page {
+      size: A4 portrait; margin: 13mm 13mm 17mm;
+      @bottom-left {
+        content: "{order.number} - inkooporder leesversie";
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
+      }
+      @bottom-right {
+        content: "Pagina " counter(page) " van " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
+      }
+    }
+
+    body {
+      margin: 0; color: #1c1715; font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+      font-size: 9.5pt; line-height: 1.38;
+    }
+    .top-rule { height: 2.2mm; margin: -13mm -13mm 9mm; background: #8f2942; border-bottom: 1.2mm solid #c6a15b; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { vertical-align: top; }
+    .muted { color: #8b8179; }
+
+    /* Header */
+    .head td { padding: 0; }
+    .logo { display: block; height: 11mm; }
+    .company-line { margin-top: 2mm; color: #8b8179; font-size: 7.5pt; }
+    .doc-meta { text-align: right; }
+    .doc-kicker { color: #8f2942; font-size: 7.5pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    .doc-number { margin-top: 1mm; font-size: 20pt; font-weight: 700; letter-spacing: -.02em; }
+    .doc-alias { margin-top: .5mm; color: #8b8179; font-size: 8.5pt; }
+    .badges { margin-top: 2mm; }
+    .badge {
+      display: inline-block; margin-left: 1mm; padding: 1.2mm 2.4mm; border: .35pt solid #c6a15b;
+      border-radius: 8mm; color: #744f12; font-size: 6.5pt; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    .badge--read { border-color: #dcc8a4; background: #f8f0e3; color: #8f2942; }
+
+    /* Safe read-copy notice */
+    .read-note {
+      margin-top: 7mm; padding: 3.2mm 4mm; border-left: 1.2mm solid #c6a15b;
+      background: #fbf7f2; color: #584d47; font-size: 8pt;
+    }
+    .read-note b { color: #1c1715; }
+
+    /* Parties */
+    .parties { margin-top: 6mm; border: .35pt solid #e3d7c6; }
+    .parties td { width: 50%; padding: 4mm; }
+    .parties td + td { border-left: .35pt solid #e3d7c6; }
+    .label { margin-bottom: 1.5mm; color: #8f2942; font-size: 6.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .party-name { font-size: 10.5pt; font-weight: 700; }
+    .party-lines { margin-top: 1mm; color: #645b55; font-size: 8pt; line-height: 1.45; }
+
+    /* Order facts */
+    .facts { margin-top: 4mm; table-layout: fixed; }
+    .facts td { padding: 3mm 3.2mm; background: #2a211e; color: #ffffff; }
+    .facts td + td { border-left: .35pt solid #564944; }
+    .facts__label { color: #d8bd89; font-size: 6.3pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .facts__value { margin-top: 1mm; font-size: 8.4pt; font-weight: 700; }
+    .facts__sub { margin-top: .5mm; color: #d6cfcb; font-size: 6.9pt; }
+
+    /* Product rows */
+    .section-title { margin-top: 7mm; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .lines { margin-top: 2mm; -fs-table-paginate: paginate; }
+    .lines thead { display: table-header-group; }
+    .lines tr { page-break-inside: avoid; }
+    .lines th {
+      padding: 2mm 1.5mm; border-bottom: .7pt solid #2a211e; color: #8b8179;
+      font-size: 6.5pt; font-weight: 700; letter-spacing: .06em; text-align: right; text-transform: uppercase;
+    }
+    .lines th:first-child { padding-left: 0; text-align: left; }
+    .lines th:last-child { padding-right: 0; }
+    .lines td { padding: 2.7mm 1.5mm; border-bottom: .35pt solid #e8ded1; text-align: right; vertical-align: middle; }
+    .lines tr.alt td { background: #fdfaf6; }
+    .lines td:first-child { padding-left: 0; text-align: left; }
+    .lines td:last-child { padding-right: 0; }
+    .product { table-layout: fixed; }
+    .product td { border: 0; padding: 0; background: transparent; text-align: left; vertical-align: middle; }
+    .product__photo-cell { width: 15mm; padding-right: 2.5mm !important; }
+    .product-photo {
+      display: block; width: auto; height: 12mm; max-width: 12mm;
+      border: .35pt solid #d9c6a6; border-radius: 2.5mm;
+    }
+    .product-photo--empty {
+      display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center;
+      border: .35pt solid #d9c6a6; border-radius: 2.5mm; background: #f7efe3;
+      color: #8f2942; font-size: 6.5pt; font-weight: 700;
+    }
+    .product__name { font-size: 8.5pt; font-weight: 700; line-height: 1.25; }
+    .product__meta { margin-top: .8mm; color: #8b8179; font-size: 6.6pt; }
+    .number { white-space: nowrap; }
+    .price-main { font-weight: 700; }
+    .price-sub { color: #8b8179; font-size: 6.4pt; }
+
+    /* Totals and footer note */
+    .closing { margin-top: 5mm; page-break-inside: avoid; }
+    .closing td { vertical-align: top; }
+    .closing__copy { padding: 4mm; border: .35pt solid #e3d7c6; color: #645b55; font-size: 7.5pt; }
+    .closing__total { width: 68mm; padding-left: 5mm; }
+    .total-box { padding: 4mm; background: #f7efe3; border-top: 1.1pt solid #c6a15b; }
+    .total-row { width: 100%; }
+    .total-row td { padding: 1mm 0; font-size: 8.5pt; }
+    .total-row td:last-child { text-align: right; font-size: 10pt; font-weight: 700; white-space: nowrap; }
+    .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
+    .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; }
+  </style>
+</head>
+<body>
+
+<div class="top-rule"></div>
+
+<table class="head">
+  <tr>
+    <td>
+      {#if logo}<img class="logo" src="{logo}" alt="Enrosed"/>{#else}<b style="font-size:18pt">ENROSED</b>{/if}
+      <div class="company-line">{company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}</div>
+    </td>
+    <td class="doc-meta">
+      <div class="doc-kicker">Inkooporder - leesversie</div>
+      <div class="doc-number">{order.number}</div>
+      {#if order.alias}<div class="doc-alias">{order.alias}</div>{/if}
+      <div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">Controlekopie</span></div>
+    </td>
+  </tr>
+</table>
+
+<div class="read-note">
+  <b>Leesversie voor controle of overleg.</b> Deze versie toont alleen de afgesproken
+  inkoopprijzen en valuta. Andere dossiergegevens blijven afgeschermd.
+</div>
+
+<table class="parties">
+  <tr>
+    <td>
+      <div class="label">Van</div>
+      <div class="party-name">{company.legalName}</div>
+      <div class="party-lines">
+        {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
+        {#if company.email}{company.email}{/if}{#if company.phone} - {company.phone}{/if}
+      </div>
+    </td>
+    <td>
+      <div class="label">Aan leverancier</div>
+      <div class="party-name">{supplierName}</div>
+      <div class="party-lines">
+        {#for addressLine in supplierAddressLines}{addressLine}<br/>{/for}
+        {#if supplierContactLine}{supplierContactLine}{/if}
+      </div>
+    </td>
+  </tr>
+</table>
+
+<table class="facts">
+  <tr>
+    <td style="width:20%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
+    <td style="width:29%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
+    <td style="width:22%"><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>
+    <td style="width:29%"><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div>{#if order.expectedArrival}<div class="facts__sub">Verwacht {order.expectedArrival.be}</div>{/if}</td>
+  </tr>
+</table>
+
+<div class="section-title">Producten</div>
+<table class="lines">
+  <thead>
+  <tr>
+    <th style="width:84mm">Product</th>
+    <th style="width:16mm">Stuks</th>
+    <th style="width:16mm">Dozen</th>
+    <th style="width:31mm">Per stuk</th>
+    <th style="width:31mm">Regeltotaal</th>
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in lines}
+    <tr class="{#if line_even}alt{/if}">
+      <td>
+        <table class="product"><tr>
+          <td class="product__photo-cell">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td>
+            <div class="product__name">{line.productName}</div>
+            <div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
+          </td>
+        </tr></table>
+      </td>
+      <td class="number">{line.purchaseQuantity}</td>
+      <td class="number">{line.purchaseCartons}</td>
+      <td class="number">
+        {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+        {#else}<span class="muted">-</span>{/if}
+      </td>
+      <td class="number">
+        {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseLineTotal.money}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+        {#else}<span class="muted">-</span>{/if}
+      </td>
+    </tr>
+  {/for}
+  </tbody>
+</table>
+
+<table class="closing">
+  <tr>
+    <td class="closing__copy">
+      <div class="label">Levering</div>
+      <b>{costLabels.loadingPort} naar {costLabels.destinationPort}</b><br/>
+      {order.containerType.label}{#if order.trackingReference} - {order.trackingReference}{/if}<br/>
+      {#if order.expectedArrival}Verwachte aankomst: {order.expectedArrival.be}{/if}
+    </td>
+    <td class="closing__total">
+      <div class="total-box">
+        <div class="label">Ordertotaal per valuta</div>
+        <table class="total-row">
+          {#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount}</td></tr>{/for}
+          {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
+        </table>
+      </div>
+      {#if missingPurchasePrices > 0}
+        <div class="warning">{missingPurchasePrices} productregel(s) hebben nog geen eenduidige inkoopprijs of valuta. Controleer dit voor delen.</div>
+      {/if}
+    </td>
+  </tr>
+</table>
+
+<div class="footnote">
+  Leesversie uit het actuele Enrosed-dossier. Product- en leveranciersgegevens worden bij het maken
+  van deze PDF gelezen en zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
+</div>
+
+</body>
+</html>

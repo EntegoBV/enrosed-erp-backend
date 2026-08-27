@@ -18,7 +18,7 @@
         font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
       }
     }
-    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8pt; color: #1a1614; margin: 0; }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8pt; color: #1c1715; margin: 0; }
     h1 { font-size: 15pt; margin: 0; }
     .muted { color: #8a807a; }
     .tiny { font-size: 6.2pt; color: #8a807a; font-weight: 400; }
@@ -28,7 +28,7 @@
     table.head td { vertical-align: top; padding: 0; }
     .head__company { font-size: 7pt; color: #8a807a; margin-top: 4px; }
     .head__meta { text-align: right; }
-    .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #1f5e9e; font-weight: 700; }
+    .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #8f2942; font-weight: 700; }
     .doc-number { font-size: 15pt; font-weight: 700; margin-top: 1px; }
     .doc-alias { font-size: 8pt; color: #8a807a; margin-top: 1px; }
     .doc-badges { margin-top: 4px; }
@@ -36,13 +36,13 @@
       display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca; border-radius: 3px;
       font-size: 6.3pt; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
     }
-    .badge--status { border-color: #1f5e9e; color: #1f5e9e; }
+    .badge--status { border-color: #b99143; color: #744f12; }
     .badge--intern { background: #1a1614; border-color: #1a1614; color: #ffffff; margin-left: 3px; }
 
     /* -- facts band ------------------------------------------------------ */
     table.band { width: 100%; border-collapse: collapse; margin-top: 9px; page-break-inside: avoid; }
     td.band__cell {
-      vertical-align: top; background: #f7f5f3; border: 1px solid #e8e2dd;
+      vertical-align: top; background: #fbf7f2; border: 1px solid #e7dccd;
       padding: 6px 9px;
     }
     .band__label { font-size: 6pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8a807a; margin-bottom: 3px; }
@@ -64,7 +64,7 @@
       color: #8a807a; padding: 3px 4px; white-space: nowrap;
     }
     tr.grouprow th {
-      text-align: left; color: #1f5e9e; font-weight: 700; letter-spacing: 0.12em;
+      text-align: left; color: #8f2942; font-weight: 700; letter-spacing: 0.12em;
       border-bottom: 1px solid #d8d0ca; padding-bottom: 2px;
     }
     tr.labelrow th { border-bottom: 1px solid #1a1614; }
@@ -72,10 +72,17 @@
     table.lines td { padding: 4.5px 4px; border-bottom: 1px solid #efeae6; font-size: 7.5pt; }
     tr.alt td { background: #faf8f7; }
     .group-l { border-left: 1px solid #d8d0ca; }
-    table.lines td.c-res { background: #f2f6fa; }
+    table.lines td.c-res { background: #f7efe3; }
     .r { text-align: right; white-space: nowrap; }
     .c-num { color: #8a807a; font-size: 6.5pt; }
     .c-name { font-weight: 700; }
+    table.product-cell { width: 100%; border-collapse: collapse; }
+    table.product-cell td { border: 0; padding: 0; vertical-align: middle; background: transparent; }
+    table.product-cell td.product-cell__image { width: 11mm; padding-right: 2.2mm; }
+    .product-photo { display: block; width: auto; height: 9mm; max-width: 9mm; border: .35pt solid #d9c6a6; border-radius: 2mm; }
+    .product-photo--empty { display: block; width: 9mm; height: 9mm; line-height: 9mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
+    .product-name { font-weight: 700; line-height: 1.25; }
+    .product-sku { margin-top: 1px; color: #8a807a; font-size: 6pt; letter-spacing: .05em; }
     tr.sumrow td {
       border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
       padding-top: 5px; background: none;
@@ -84,7 +91,7 @@
     /* -- summary cards --------------------------------------------------- */
     table.cards { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 12px -6px 0; page-break-inside: avoid; }
     td.card { width: 33.33%; vertical-align: top; border: 1px solid #e8e2dd; padding: 8px 10px; }
-    .card__title { font-size: 6.3pt; letter-spacing: 0.12em; text-transform: uppercase; color: #1f5e9e; font-weight: 700; margin-bottom: 4px; }
+    .card__title { font-size: 6.3pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8f2942; font-weight: 700; margin-bottom: 4px; }
     .card__title--follow { margin-top: 8px; }
     table.mini { width: 100%; border-collapse: collapse; }
     table.mini td { padding: 2.5px 0; font-size: 7.3pt; vertical-align: top; }
@@ -197,7 +204,7 @@
   </tr>
   <tr class="labelrow">
     <th class="l">#</th>
-    <th class="l" style="width:62mm">Product</th>
+    <th class="l" style="width:67mm">Product</th>
     <th>Stuks</th>
     <th>Dozen</th>
     <th>m³</th>
@@ -214,10 +221,20 @@
   </tr>
   </thead>
   <tbody>
-  {#for line in costing.lines}
+  {#for line in lines}
     <tr class="{#if line_even}alt{/if}">
       <td class="c-num">{line_count}</td>
-      <td class="c-name">{line.productName}</td>
+      <td class="c-name">
+        <table class="product-cell"><tr>
+          <td class="product-cell__image">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td><div class="product-name">{line.productName}</div>
+            {#if line.sku}<div class="product-sku">{line.sku}</div>{/if}
+          </td>
+        </tr></table>
+      </td>
       <td class="r">{line.quantity}</td>
       <td class="r">{line.cartons}</td>
       <td class="r">{line.cbm.amount}</td>
@@ -260,7 +277,7 @@
   <thead>
   <tr class="labelrow">
     <th class="l">#</th>
-    <th class="l" style="width:90mm">Product</th>
+    <th class="l" style="width:92mm">Product</th>
     <th>Stuks</th>
     <th>Dozen</th>
     <th>m³</th>
@@ -269,10 +286,20 @@
   </tr>
   </thead>
   <tbody>
-  {#for line in costing.lines}
+  {#for line in lines}
     <tr class="{#if line_even}alt{/if}">
       <td class="c-num">{line_count}</td>
-      <td class="c-name">{line.productName}</td>
+      <td class="c-name">
+        <table class="product-cell"><tr>
+          <td class="product-cell__image">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td><div class="product-name">{line.productName}</div>
+            {#if line.sku}<div class="product-sku">{line.sku}</div>{/if}
+          </td>
+        </tr></table>
+      </td>
       <td class="r">{line.quantity}</td>
       <td class="r">{line.cartons}</td>
       <td class="r">{line.cbm.amount}</td>

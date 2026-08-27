@@ -91,22 +91,27 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String ean, String priceLabel) {}
 
     public record BrochureFamily(
-            String number, String name, String summary, String description, String format,
+            String anchor, String number, String name, String summary, String description, String format,
             List<String> highlights, String categoryKey, String categoryName, String familySize,
-            String packageLine, String heroImage, String secondImage,
+            String packageLine, String heroImage, String secondImage, String referencePriceLabel,
             List<String> gallery, List<BrochureVariant> variants) {}
 
     public record BrochureSection(
             String number, String name, String description, String image,
             String familyCountLabel, List<BrochureFamily> families) {}
 
-    public record ContentsEntry(String number, String name, String categoryName) {}
+    public record OverviewCard(
+            boolean placeholder, String anchor, String number, String name,
+            String categoryKey, String categoryName, String image, String variantCountLabel,
+            String referencePriceLabel) {
 
-    public record ComparisonFamily(
-            String name, String image, String sku, String productSize,
-            String cartonSize, int piecesPerCarton, String ean) {}
+        static OverviewCard empty() {
+            return new OverviewCard(true, "", "", "", "", "", null, "", null);
+        }
+    }
 
-    private enum ComparisonGroup { COUNTER, SOAP_DECORATIVE }
+    public record OverviewPage(int number, int total, boolean compact,
+                               List<List<OverviewCard>> rows) {}
 
     @Override
     public Document render(CatalogExportService.Model catalog) {
@@ -144,7 +149,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         for (Category category : ordered) byCategory.put(category.id(), new ArrayList<>());
         List<Item> uncategorised = new ArrayList<>();
         for (Product product : catalog.products()) {
-            Item item = simpleItem(product, language, request, photos);
+            Item item = simpleItem(product, language, request, photos, copy);
             List<Item> bucket = product.categoryId() == null
                     ? uncategorised : byCategory.get(product.categoryId());
             (bucket == null ? uncategorised : bucket).add(item);
@@ -198,6 +203,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         List<BrochureFamily> allFamilies = new ArrayList<>();
         Map<String, List<BrochureFamily>> byCategory = new LinkedHashMap<>();
         Map<String, Category> categoryByKey = new LinkedHashMap<>();
+        CompanyProfile profile = company.get();
 
         int index = 1;
         for (CatalogExportService.FamilyGroup group : catalog.families()) {
@@ -224,14 +230,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     List.copyOf(entry.getValue())));
         }
 
-        List<ContentsEntry> contents = allFamilies.stream()
-                .map(item -> new ContentsEntry(item.number(), item.name(), item.categoryName()))
-                .toList();
-        List<ComparisonFamily> comparisonCounters = comparisonFamilies(
-                allFamilies, ComparisonGroup.COUNTER, 4);
-        List<ComparisonFamily> comparisonDecorative = comparisonFamilies(
-                allFamilies, ComparisonGroup.SOAP_DECORATIVE, 3);
-        CompanyProfile profile = company.get();
+        List<OverviewPage> overviewPages = overviewPages(allFamilies, copy);
         String title = present(request.title())
                 ? request.title().trim()
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
@@ -252,14 +251,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         copy(copy, "catalog.common.variant.plural")))
                 .data("families", allFamilies)
                 .data("sections", sections)
-                .data("contents", contents)
-                .data("comparisonCounters", comparisonCounters)
-                .data("comparisonDecorative", comparisonDecorative)
+                .data("overviewPages", overviewPages)
                 .data("options", options)
+                .data("includePrices", request.includePrices())
                 .data("copy", copy)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold.png"))
-                .data("coverImage", editorial.image("hero-open-desktop.jpg"))
+                .data("coverImage", editorial.image("catalog-cover-v2.jpg"))
                 .data("introDisplayImage", editorial.image("counter-bowl-retail.jpg"))
                 .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
                 .data("year", LocalDate.now().getYear())
@@ -268,7 +266,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private Item simpleItem(Product product, Language language,
-                            CatalogExportService.Request request, PhotoResolver photos) {
+                            CatalogExportService.Request request, PhotoResolver photos,
+                            Map<String, String> copy) {
         int allowed = request.resolvedPhotosPerProduct();
         List<String> images = new ArrayList<>();
         for (int index = 0; index < product.photos().size() && index < allowed; index++) {
@@ -283,7 +282,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                 product.carton() == null || product.carton().dimensions() == null
                         ? "" : dimensionLabel(product.carton().dimensions()),
-                request.includePrices() ? priceLabel(product, language) : null,
+                request.includePrices()
+                        ? defaultText(priceLabel(product, language),
+                                copy(copy, "catalog.brochure.overview.priceonrequest"))
+                        : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
                 at(images, 0), at(images, 1), images.size() <= 2
                         ? List.of() : List.copyOf(images.subList(2, images.size())));
@@ -346,49 +348,45 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         request.includePrices() ? priceLabel(product, language) : null))
                 .toList();
 
+        String number = twoDigits(index);
         return new BrochureFamily(
-                twoDigits(index), defaultText(name, first.sku()), summary, description, format,
+                "family-" + number, number, defaultText(name, first.sku()), summary, description, format,
                 highlights, categoryKey, categoryName, familyDimension(family, first),
                 packageLine(family, group.variants(), copy), at(images, 0), at(images, 1),
+                request.includePrices()
+                        ? referencePriceLabel(group.variants(), language, copy) : null,
                 images.size() <= 2 ? List.of() : List.copyOf(images.subList(2, images.size())),
                 variants);
     }
 
-    private static List<ComparisonFamily> comparisonFamilies(
-            List<BrochureFamily> families, ComparisonGroup group, int limit) {
-        return families.stream()
-                .filter(family -> comparisonGroup(family) == group)
-                .limit(limit)
-                .map(family -> {
-                    BrochureVariant variant = family.variants().isEmpty()
-                            ? null : family.variants().getFirst();
-                    return new ComparisonFamily(
-                            family.name(), family.heroImage(),
-                            variant == null ? "" : variant.sku(),
-                            defaultText(family.familySize(),
-                                    variant == null ? "" : variant.productSize()),
-                            variant == null ? "" : variant.cartonSize(),
-                            variant == null ? 0 : variant.piecesPerCarton(),
-                            variant == null || "-".equals(variant.ean())
-                                    ? "" : defaultText(variant.ean(), ""));
-                })
-                .toList();
-    }
-
-    private static ComparisonGroup comparisonGroup(BrochureFamily family) {
-        String categoryKey = defaultText(family.categoryKey(), "").toLowerCase(Locale.ROOT);
-        if ("display-roses".equals(categoryKey)) return ComparisonGroup.COUNTER;
-        if ("rose-bears".equals(categoryKey)) return ComparisonGroup.SOAP_DECORATIVE;
-        String key = (categoryKey + " "
-                + defaultText(family.format(), "")).toLowerCase(Locale.ROOT);
-        if (key.contains("soap") || key.contains("decorative")
-                || key.contains("foam") || key.contains("zeep")) {
-            return ComparisonGroup.SOAP_DECORATIVE;
+    private static List<OverviewPage> overviewPages(
+            List<BrochureFamily> families, Map<String, String> copy) {
+        if (families.isEmpty()) return List.of();
+        int pageCount = families.size() <= 10 ? 1 : 2;
+        int perPage = (int) Math.ceil(families.size() / (double) pageCount);
+        List<OverviewPage> pages = new ArrayList<>();
+        for (int page = 0; page < pageCount; page++) {
+            int from = page * perPage;
+            int to = Math.min(from + perPage, families.size());
+            if (from >= to) break;
+            List<BrochureFamily> slice = families.subList(from, to);
+            int rows = Math.max(1, Math.min(5, (int) Math.ceil(slice.size() / 5d)));
+            int columns = (int) Math.ceil(slice.size() / (double) rows);
+            List<OverviewCard> cards = slice.stream().map(family -> new OverviewCard(
+                    false, family.anchor(), family.number(), family.name(), family.categoryKey(),
+                    family.categoryName(), family.heroImage(), countLabel(family.variants().size(),
+                            copy(copy, "catalog.common.variant.singular"),
+                            copy(copy, "catalog.common.variant.plural")),
+                    family.referencePriceLabel())).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            while (cards.size() % columns != 0) cards.add(OverviewCard.empty());
+            List<List<OverviewCard>> cardRows = new ArrayList<>();
+            for (int index = 0; index < cards.size(); index += columns) {
+                cardRows.add(List.copyOf(cards.subList(index, index + columns)));
+            }
+            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() > 2,
+                    List.copyOf(cardRows)));
         }
-        if (key.contains("counter") || key.contains("display")) {
-            return ComparisonGroup.COUNTER;
-        }
-        return null;
+        return List.copyOf(pages);
     }
 
     private static String familyDimension(CatalogFamilyReader.Family family, Product first) {
@@ -448,11 +446,38 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private String priceLabel(Product product, Language language) {
+        BigDecimal price = product.computedSalesPriceEur();
+        if (!positive(price)) return null;
+        return formatPrice(price, language);
+    }
+
+    private String referencePriceLabel(
+            List<Product> variants, Language language, Map<String, String> copy) {
+        List<BigDecimal> prices = variants.stream()
+                .map(Product::computedSalesPriceEur)
+                .filter(PdfCatalogRenderer::positive)
+                .map(value -> value.setScale(2, java.math.RoundingMode.HALF_UP))
+                .distinct()
+                .sorted()
+                .toList();
+        if (prices.isEmpty()) return copy(copy, "catalog.brochure.overview.priceonrequest");
+        String minimum = formatPrice(prices.getFirst(), language);
+        if (prices.size() == variants.size() && prices.getFirst().compareTo(prices.getLast()) == 0) {
+            return minimum;
+        }
+        if (prices.size() == variants.size()) {
+            return minimum + " - " + formatPrice(prices.getLast(), language);
+        }
+        return copy(copy, "catalog.brochure.overview.from") + " " + minimum + " · "
+                + copy(copy, "catalog.brochure.overview.priceonrequest");
+    }
+
+    private static String formatPrice(BigDecimal price, Language language) {
         java.text.NumberFormat format = java.text.NumberFormat.getCurrencyInstance(language.locale());
         format.setCurrency(java.util.Currency.getInstance("EUR"));
         format.setMinimumFractionDigits(2);
         format.setMaximumFractionDigits(2);
-        return format.format(product.computedSalesPriceEur());
+        return format.format(price);
     }
 
     private static List<List<Item>> chunk(List<Item> items) {

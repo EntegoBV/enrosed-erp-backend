@@ -59,6 +59,7 @@ class WebsiteBuilderServiceTest {
         assertEquals(expectedDefault(), admin.published().sections());
         assertEquals(0, published.revision());
         assertEquals(expectedDefault(), published.homepage().sections());
+        assertEquals(false, section(admin.draft().sections(), HomepageSectionKey.SOAP).enabled());
         assertEquals(false, section(admin.draft().sections(), HomepageSectionKey.OCCASION).enabled());
         assertEquals(false, section(admin.draft().sections(), HomepageSectionKey.CATALOG).enabled());
     }
@@ -137,6 +138,8 @@ class WebsiteBuilderServiceTest {
     void sectionKeysAreAnExactClosedWireAllowlist() {
         assertEquals(HomepageSectionKey.FLOWERBOX,
                 HomepageSectionKey.fromKey("flowerbox"));
+        assertEquals(HomepageSectionKey.SOAP,
+                HomepageSectionKey.fromKey("soap"));
         IllegalArgumentException unknown = assertThrows(IllegalArgumentException.class,
                 () -> HomepageSectionKey.fromKey("custom-html"));
         assertTrue(unknown.getMessage().contains("toegestaan"));

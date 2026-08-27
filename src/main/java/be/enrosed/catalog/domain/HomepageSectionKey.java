@@ -13,7 +13,7 @@ public enum HomepageSectionKey {
     ORDER("order", true),
     COUNTER("counter", true),
     FLOWERBOX("flowerbox", true),
-    SOAP("soap", true),
+    SOAP("soap", false),
     OCCASION("occasion", false),
     RETAIL("retail", true),
     FAQ("faq", true),

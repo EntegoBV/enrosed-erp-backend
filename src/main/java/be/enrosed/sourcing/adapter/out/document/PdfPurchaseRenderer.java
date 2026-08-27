@@ -1,5 +1,9 @@
 package be.enrosed.sourcing.adapter.out.document;
 
+import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
+import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.Photo;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
@@ -10,51 +14,81 @@ import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.ws.rs.BadRequestException;
+import org.jboss.logging.Logger;
 
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 
 /**
- * The purchase order as a PDF, to file away or to show at the table.
+ * Two explicit paper jobs for one purchase dossier.
  *
- * Two views of the same sheet:
- *
- *  - **internal** — the complete dossier: every cost column, the payment
- *    plan against what was actually paid, the shipping moments and the
- *    diary. That is the sheet you keep.
- *  - **customer view** — the same calculation without the internals. The
- *    extra revenue IS folded into the total, so the cost per piece matches
- *    what we use. A customer looking along sees where we land, not how much
- *    margin is in it.
- *
- * Which of the two you get follows the double-tap switch on screen. That is
- * deliberately the same control: one state deciding what is visible, on
- * screen AND on paper. Two separate settings mean that sooner or later you
- * cover the screen but print the wrong sheet.
+ * <p>{@link Layout#LANDSCAPE} is Enrosed's wide internal calculation with
+ * landed-cost columns, payment status and diary. {@link Layout#PORTRAIT} is
+ * a compact read copy for supplier control: it uses the ordered quantity and
+ * agreed purchase-line price/currency and can never render internal costing
+ * or payment history. The portrait copy is deliberately labelled as a read
+ * copy because supplier and product master data are not immutable issue-time
+ * snapshots yet.</p>
  */
 @ApplicationScoped
 public class PdfPurchaseRenderer {
 
-    private final Template template;
+    private static final Logger LOG = Logger.getLogger(PdfPurchaseRenderer.class);
+
+    /** Two deliberately different paper jobs, not one table rotated ninety degrees. */
+    public enum Layout {
+        /** Complete landed-cost dossier for Enrosed. */
+        LANDSCAPE,
+        /** Compact purchase-order read copy with supplier prices only. */
+        PORTRAIT;
+
+        public static Layout parse(String value) {
+            if (value == null || value.isBlank()) return LANDSCAPE;
+            try {
+                return valueOf(value.strip().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new BadRequestException("Onbekende PDF-layout. Kies PORTRAIT of LANDSCAPE");
+            }
+        }
+    }
+
+    private final Template landscapeTemplate;
+    private final Template portraitTemplate;
     private final Brand brand;
     private final CompanyProfileService company;
     private final PdfFonts fonts;
+    private final ProductService products;
+    private final PdfImageEncoder imageEncoder;
 
-    public PdfPurchaseRenderer(@Location("purchase.html") Template template, Brand brand,
-                               CompanyProfileService company, PdfFonts fonts) {
-        this.template = template;
+    public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
+                               @Location("purchase-portrait.html") Template portraitTemplate,
+                               Brand brand, CompanyProfileService company, PdfFonts fonts,
+                               ProductService products, PdfImageEncoder imageEncoder) {
+        this.landscapeTemplate = landscapeTemplate;
+        this.portraitTemplate = portraitTemplate;
         this.brand = brand;
         this.company = company;
         this.fonts = fonts;
+        this.products = products;
+        this.imageEncoder = imageEncoder;
     }
 
     public record Document(String filename, byte[] content, String contentType) {}
@@ -76,21 +110,66 @@ public class PdfPurchaseRenderer {
                               String openSupplier, boolean overpaid) {}
 
     /**
+     * One PDF line enriched with print-safe catalogue data.
+     *
+     * <p>The thumbnail is embedded in the server-rendered HTML as a data URI.
+     * No browser token, private API URL or external image host is written into
+     * the PDF. Purchase price and currency come from the line override first,
+     * and only then from the current product master data.</p>
+     */
+    public record LineView(
+            Long productId, String sku, String productName, String photoDataUri,
+            int quantity, int cartons, int purchaseQuantity, int purchaseCartons, BigDecimal cbm,
+            BigDecimal goodsUsd, BigDecimal goodsEur, BigDecimal originEur,
+            BigDecimal freightEur, BigDecimal customsValueEur,
+            BigDecimal dutyRatePct, BigDecimal dutyEur,
+            BigDecimal destinationEur, BigDecimal extraRevenueEur,
+            BigDecimal totalEur, BigDecimal landedUnitEur,
+            BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
+            Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable) {}
+
+    /** One portrait-order total; separate currencies are never silently combined. */
+    public record PurchaseTotal(String currency, String amount) {}
+
+    private record Prepared(List<LineView> lines, List<PurchaseTotal> purchaseTotals,
+                            int missingPurchasePrices) {}
+
+    /**
      * @param showRevenue shows the desired extra revenue as its own line.
      *                    Off, it stays in the total but out of sight.
      */
     public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
                            boolean showRevenue, List<PurchasePayment> payments,
                            PurchaseOrderService.Payable payable) {
+        return render(order, costing, supplier, showRevenue, payments, payable, Layout.LANDSCAPE);
+    }
+
+    /**
+     * Builds either the wide internal calculation or the portrait read copy.
+     * Portrait is always supplier-safe: a stray {@code showRevenue=true}
+     * cannot make landed cost, margin or payment history appear on it.
+     */
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
+                           boolean showRevenue, List<PurchasePayment> payments,
+                           PurchaseOrderService.Payable payable, Layout requestedLayout) {
+        Layout layout = requestedLayout == null ? Layout.LANDSCAPE : requestedLayout;
+        boolean internal = layout == Layout.LANDSCAPE && showRevenue;
+        Prepared prepared = prepare(order, costing);
         PurchaseCostLabels costLabels = PurchaseCostLabels.forOrder(order, supplier);
         String notes = order.notes() == null || order.notes().isBlank()
                 ? null : order.notes().strip();
+        Template template = layout == Layout.PORTRAIT ? portraitTemplate : landscapeTemplate;
         String html = template
                 .data("order", order)
                 .data("costing", costing)
+                .data("lines", prepared.lines())
+                .data("purchaseTotals", prepared.purchaseTotals())
+                .data("missingPurchasePrices", prepared.missingPurchasePrices())
                 .data("supplierName", supplier == null ? "-" : supplier.name())
-                .data("supplierAddressLines", visibleSupplierAddress(supplier, showRevenue))
+                .data("supplierAddressLines", layout == Layout.PORTRAIT
+                        ? supplierAddress(supplier) : visibleSupplierAddress(supplier, internal))
                 .data("supplierContactLine", contactLine(supplier))
+                .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                 .data("costLabels", costLabels)
                 .data("unifiedUsdToEur", sameRate(order))
                 .data("orderDate", DocumentFormat.be(order.orderDate()))
@@ -100,19 +179,95 @@ public class PdfPurchaseRenderer {
                 .data("schedule", schedule(order, payable))
                 .data("paymentRows", paymentRows(payments))
                 .data("payableView", payableView(payments, payable))
-                .data("hasExtraColumn", showRevenue && hasExtraColumn(costing))
-                .data("notesText", showRevenue ? notes : null)
+                .data("hasExtraColumn", internal && hasExtraColumn(costing))
+                .data("notesText", internal ? notes : null)
                 .data("usdRateGoods", rate(order.usdToEurGoods()))
                 .data("usdRateTransport", rate(order.usdToEurTransport()))
                 .data("cnyRate", rate(order.cnyToUsd()))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
-                .data("showRevenue", showRevenue)
+                .data("showRevenue", internal)
+                .data("portrait", layout == Layout.PORTRAIT)
                 .render();
 
-        String suffix = showRevenue ? "" : "-klantweergave";
+        String suffix = layout == Layout.PORTRAIT
+                ? "-inkooporder-leesversie"
+                : internal ? "" : "-klantweergave";
         return new Document(order.number() + suffix + ".pdf", fonts.render(html),
                 "application/pdf");
+    }
+
+    private Prepared prepare(PurchaseOrder order, LandedCost costing) {
+        Map<Long, Product> byId = products.list().stream()
+                .filter(product -> product.id() != null)
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        Map<Long, PurchaseOrderLine> orderLines = order.lines().stream()
+                .filter(line -> line != null && line.productId() != null)
+                .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(),
+                        (left, right) -> left));
+        Map<String, String> photoCache = new HashMap<>();
+        Map<Currency, BigDecimal> totals = new EnumMap<>(Currency.class);
+        List<LineView> lines = new ArrayList<>();
+        int missingPrices = 0;
+
+        for (LandedCost.Line costingLine : costing.lines()) {
+            Product product = byId.get(costingLine.productId());
+            PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
+            BigDecimal unitPrice = orderLine != null && orderLine.exwPrice() != null
+                    ? orderLine.exwPrice() : product == null ? null : product.exwPrice();
+            Currency currency = orderLine != null && orderLine.exwCurrency() != null
+                    ? orderLine.exwCurrency() : product == null ? null : product.exwCurrency();
+            int purchaseQuantity = orderLine != null && orderLine.orderedQuantity() != null
+                    ? orderLine.orderedQuantity() : costingLine.quantity();
+            int purchaseCartons = product == null || product.carton() == null
+                    ? costingLine.cartons() : product.carton().cartonsFor(purchaseQuantity);
+            boolean priceAvailable = unitPrice != null && currency != null;
+            BigDecimal lineTotal = priceAvailable
+                    ? unitPrice.multiply(BigDecimal.valueOf(purchaseQuantity)) : null;
+            if (priceAvailable) {
+                totals.merge(currency, lineTotal, BigDecimal::add);
+            } else {
+                missingPrices++;
+            }
+            String priceBasis = orderLine == null
+                    ? "EXW" : orderLine.priceBasis().name();
+            lines.add(new LineView(
+                    costingLine.productId(), product == null ? null : product.sku(),
+                    costingLine.productName(), photo(product, photoCache),
+                    costingLine.quantity(), costingLine.cartons(), purchaseQuantity, purchaseCartons,
+                    costingLine.cbm(),
+                    costingLine.goodsUsd(), costingLine.goodsEur(), costingLine.originEur(),
+                    costingLine.freightEur(), costingLine.customsValueEur(),
+                    costingLine.dutyRatePct(), costingLine.dutyEur(),
+                    costingLine.destinationEur(), costingLine.extraRevenueEur(),
+                    costingLine.totalEur(), costingLine.landedUnitEur(),
+                    unitPrice, lineTotal, currency, priceBasis, priceAvailable));
+        }
+
+        List<PurchaseTotal> purchaseTotals = new ArrayList<>();
+        totals.forEach((currency, amount) -> purchaseTotals.add(
+                new PurchaseTotal(currency.name(), DocumentFormat.money(amount) + " " + currency.name())));
+        return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), missingPrices);
+    }
+
+    private String photo(Product product, Map<String, String> cache) {
+        Photo photo = product == null ? null : product.primaryPhoto();
+        if (photo == null || photo.storageKey() == null || photo.storageKey().isBlank()) return null;
+        String encoded = cache.computeIfAbsent(photo.storageKey(), storageKey -> {
+            try (InputStream data = products.photoData(storageKey)) {
+                String value = imageEncoder.encode(data.readAllBytes(), 320);
+                return value == null ? "" : value;
+            } catch (Exception exception) {
+                LOG.warnf("Productfoto %s kon niet in inkoop-PDF: %s",
+                        storageKey, exception.getMessage());
+                return "";
+            }
+        });
+        return encoded.isBlank() ? null : encoded;
+    }
+
+    private static List<String> supplierAddress(Supplier supplier) {
+        return supplier == null ? List.of() : supplier.documentAddressLines();
     }
 
     /**

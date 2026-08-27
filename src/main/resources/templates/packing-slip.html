@@ -1,131 +1,205 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="{lang}">
 <head>
   <meta charset="utf-8"/>
-  <title>Pakbon {slip.order.number}</title>
+  <title>{t.packingSlip} {slip.order.number}</title>
   <style>
-    @page { size: A4; margin: 18mm 15mm; }
-    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #1a1614; }
-    h1 { font-size: 20pt; margin: 0; letter-spacing: 2px; color: #b01f3f; }
-    .head { border-bottom: 2px solid #1a1614; padding-bottom: 10px; }
-    .head td { vertical-align: top; }
-    .meta { text-align: right; font-size: 8.5pt; }
-    .meta b { display: block; font-size: 10pt; }
-    .label { font-size: 7pt; letter-spacing: 1px; text-transform: uppercase; color: #8a807a; }
-    .parties { margin: 14px 0; width: 100%; }
-    .parties td { vertical-align: top; width: 50%; padding-right: 20px; }
-    .pallet { margin-top: 14px; border: 1px solid #d8d0c9; }
-    .pallet-head { background: #f6f1ec; padding: 6px 10px; font-weight: bold;
-                   border-bottom: 1px solid #d8d0c9; }
-    .pallet-head .sub { font-weight: normal; color: #8a807a; font-size: 8pt; }
-    table.items { width: 100%; border-collapse: collapse; }
-    table.items th { text-align: left; font-size: 7pt; letter-spacing: 0.6px;
-                     text-transform: uppercase; color: #4a423e;
-                     padding: 5px 10px; border-bottom: 1px solid #e9e3de; }
-    table.items td { padding: 5px 10px; border-bottom: 1px solid #f0ebe6; }
-    table.items tr:last-child td { border-bottom: 0; }
+    @page {
+      size: A4 portrait; margin: 16mm 14mm 21mm;
+      @bottom-left {
+        content: "{slip.order.number}  ·  {t.packingSlip}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
+        white-space: nowrap;
+      }
+      @bottom-right {
+        content: "{t.page} " counter(page) " / " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
+        white-space: nowrap;
+      }
+    }
+    body {
+      margin: 0; color: #181411; font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+      font-size: 10.2pt; line-height: 1.45;
+    }
     .r { text-align: right; }
-    .totals { margin-top: 14px; padding: 9px 12px; background: #fcfaf8;
-              border: 1px solid #d8d0c9; font-weight: bold; }
-    .sign { margin-top: 28px; width: 100%; }
-    .sign td { width: 50%; padding-right: 24px; vertical-align: bottom; }
-    .sign .line { border-top: 1px solid #1a1614; margin-top: 34px; padding-top: 4px;
-                  font-size: 7.5pt; color: #8a807a; }
+    .muted { color: #736b65; }
+    .label {
+      display: block; color: #736b65; font-size: 7.2pt; font-weight: bold;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    table.head {
+      width: 100%; border-collapse: collapse; page-break-inside: avoid;
+    }
+    table.head td { padding: 0; vertical-align: top; }
+    table.head td.brand-cell { padding-top: 2px; }
+    .brand-logo { display: block; height: 31px; max-width: 102mm; }
+    .brand-word { font-size: 19pt; font-weight: bold; letter-spacing: 2px; }
+    .brand-details { margin-top: 6px; color: #5d5550; font-size: 8pt; line-height: 1.5; }
+    .doc-card {
+      width: 58mm; padding: 10px 12px !important; color: #ffffff;
+      background: #181411; border-top: 3px solid #c9a45c; text-align: right;
+    }
+    .doc-kind { font-size: 8pt; font-weight: bold; letter-spacing: 1.7px; text-transform: uppercase; }
+    .doc-number { margin-top: 4px; color: #f4dfac; font-size: 14pt; font-weight: bold; }
+    .doc-date { margin-top: 2px; color: #ddd4ca; font-size: 8pt; }
+
+    table.fact-band {
+      width: 100%; margin-top: 13px; border-collapse: separate; border-spacing: 5px 0;
+      page-break-inside: avoid;
+    }
+    table.fact-band td {
+      width: 50%; padding: 9px 11px; vertical-align: top;
+      background: #f7f1e8; border-top: 2px solid #c9a45c;
+    }
+    .fact-value { margin-top: 3px; font-size: 10pt; line-height: 1.55; }
+    .fact-value b { font-size: 10.8pt; }
+
+    table.pallet {
+      width: 100%; margin-top: 13px; border-collapse: collapse;
+      border: 1px solid #ddd3c8; -fs-table-paginate: paginate;
+    }
+    table.pallet thead { display: table-header-group; }
+    table.pallet tr { page-break-inside: avoid; }
+    table.pallet .pallet-title th {
+      padding: 7px 10px; color: #181411; background: #f7f1e8;
+      border-top: 2px solid #c9a45c; border-bottom: 1px solid #ddd3c8;
+      font-size: 10pt; text-align: left;
+    }
+    .pallet-sub { color: #736b65; font-size: 8pt; font-weight: normal; }
+    table.pallet .column-head th {
+      padding: 5px 10px; color: #ffffff; background: #181411;
+      font-size: 7.2pt; letter-spacing: 0.6px; text-align: left; text-transform: uppercase;
+    }
+    table.pallet .column-head th.r { text-align: right; }
+    table.pallet td {
+      padding: 7px 10px; border-bottom: 1px solid #ebe4dc; font-size: 9.6pt;
+      vertical-align: top;
+    }
+    table.pallet tbody tr.alt td { background: #fbf8f4; }
+    table.pallet tbody tr:last-child td { border-bottom: 0; }
+    .product-name { font-weight: bold; line-height: 1.35; }
+
+    table.totals {
+      width: 100%; margin-top: 14px; border-collapse: collapse;
+      border-top: 3px solid #c9a45c; background: #f7f1e8; page-break-inside: avoid;
+    }
+    table.totals td { padding: 9px 11px; }
+    table.totals .summary { font-size: 9pt; }
+    table.totals .total-value { color: #8f2942; font-size: 12pt; font-weight: bold; }
+
+    table.sign {
+      width: 100%; margin-top: 30px; border-collapse: separate; border-spacing: 12px 0;
+      page-break-inside: avoid;
+    }
+    table.sign td { width: 50%; padding: 0; vertical-align: bottom; }
+    .sign-line {
+      margin-top: 32px; padding-top: 5px; border-top: 1px solid #181411;
+      color: #736b65; font-size: 8pt;
+    }
+
   </style>
 </head>
 <body>
 
-  <table class="head" style="width:100%">
-    <tr>
-      <td>
-        {#if logo}<img src="{logo}" style="height:34px"/>{#else}<h1>ENROSED</h1>{/if}
-        <div style="font-size:8pt;color:#8a807a;margin-top:4px">{company.name} · {company.addressLine}</div>
-      </td>
-      <td class="meta">
-        <span class="label">Pakbon</span>
-        <b>{slip.order.number}</b>
-        {date}
-      </td>
-    </tr>
-  </table>
+<table class="head">
+  <tr>
+    <td class="brand-cell">
+      {#if logo}<img class="brand-logo" src="{logo}" alt="Enrosed"/>{#else}
+        <div class="brand-word">ENROSED</div>{/if}
+      <div class="brand-details">
+        <b>{company.name}</b><br/>
+        {#if company.addressOneLine}{company.addressOneLine}{/if}
+      </div>
+    </td>
+    <td class="doc-card">
+      <div class="doc-kind">{t.packingSlip}</div>
+      <div class="doc-number">{slip.order.number}</div>
+      <div class="doc-date">{date}</div>
+    </td>
+  </tr>
+</table>
 
-  <table class="parties">
-    <tr>
-      <td>
-        <span class="label">Leveradres</span><br/>
+<table class="fact-band">
+  <tr>
+    <td>
+      <span class="label">{t.deliveryAddress}</span>
+      <div class="fact-value">
         {#if slip.customer}
           <b>{slip.customer.company}</b><br/>
           {#if slip.customer.contact}{slip.customer.contact}<br/>{/if}
           {#if slip.customer.address}{slip.customer.address}<br/>{/if}
           {#if slip.customer.city}{slip.customer.postalCode} {slip.customer.city}{/if}
           {#if slip.customer.countryCode} ({slip.customer.countryCode}){/if}
-        {#else}—{/if}
-      </td>
-      <td>
-        <span class="label">Levering</span><br/>
-        {slip.order.incoterm}
-        {#if slip.pallets}
-          <br/><span class="label" style="margin-top:6px">Pallets</span><br/>
-          {slip.pallets.size} stuks
-        {/if}
-      </td>
-    </tr>
-  </table>
-
-  {#for pallet in slip.pallets}
-    <div class="pallet">
-      <div class="pallet-head">
-        {pallet.label}
-        <span class="sub"> — {pallet.type}{#if pallet.heightCm} · {pallet.heightCm} cm hoog{/if}</span>
+        {#else}-{/if}
       </div>
-      <table class="items">
-        <tr><th>Product</th><th class="r">Dozen</th><th class="r">Stuks</th></tr>
-        {#for item in pallet.items}
-          <tr>
-            <td>{item.description}</td>
-            <td class="r">{item.cartons}</td>
-            <td class="r">{item.pieces}</td>
-          </tr>
-        {/for}
-      </table>
-    </div>
-  {/for}
-
-  {#if slip.loose}
-    <div class="pallet">
-      <div class="pallet-head">
-        {#if slip.looseCartons}Losse dozen{#else if slip.pallets}Niet op een pallet{#else}Inhoud{/if}
+    </td>
+    <td>
+      <span class="label">{t.delivery}</span>
+      <div class="fact-value">
+        <b>{slip.order.incoterm}</b>
+        {#if slip.pallets}<br/>{slip.pallets.size} {t.pallets}{/if}
+        <br/>{slip.totalCartons} {t.cartons} · {slip.totalPieces} {t.pieces}
       </div>
-      <table class="items">
-        <tr><th>Product</th><th class="r">Dozen</th><th class="r">Stuks</th></tr>
-        {#for item in slip.loose}
-          <tr>
-            <td>{item.description}</td>
-            <td class="r">{item.cartons}</td>
-            <td class="r">{item.pieces}</td>
-          </tr>
-        {/for}
-      </table>
-    </div>
-  {/if}
+    </td>
+  </tr>
+</table>
 
-  <div class="totals">
-    Totaal: {slip.totalCartons} dozen · {slip.totalPieces} stuks{#if slip.pallets} · {slip.pallets.size} pallet(s){/if}
-  </div>
-
-  <table class="sign">
-    <tr>
-      <td><div class="line">Geladen door / datum</div></td>
-      <td><div class="line">Ontvangen door / datum</div></td>
-    </tr>
+{#for pallet in slip.pallets}
+  <table class="pallet">
+    <thead>
+      <tr class="pallet-title">
+        <th colspan="3">{pallet.label}
+          <span class="pallet-sub"> - {pallet.type}{#if pallet.heightCm} · {pallet.heightCm} cm {t.height}{/if}</span>
+        </th>
+      </tr>
+      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.pieces}</th></tr>
+    </thead>
+    <tbody>
+    {#for item in pallet.items}
+      <tr class="{#if item_even}alt{/if}">
+        <td class="product-name">{item.description}</td>
+        <td class="r">{item.cartons}</td>
+        <td class="r">{item.pieces}</td>
+      </tr>
+    {/for}
+    </tbody>
   </table>
+{/for}
 
-{#if termsText??}
-  <div style="page-break-before:always">
-    <div style="font-size:11pt;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#b01f3f;margin-bottom:8px">{termsTitle}</div>
-    <div style="white-space:pre-line;font-size:6.6pt;line-height:1.55;color:#4a423e">{termsText}</div>
-  </div>
+{#if slip.loose}
+  <table class="pallet">
+    <thead>
+      <tr class="pallet-title">
+        <th colspan="3">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{t.notOnPallet}{#else}{t.contents}{/if}</th>
+      </tr>
+      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.pieces}</th></tr>
+    </thead>
+    <tbody>
+    {#for item in slip.loose}
+      <tr class="{#if item_even}alt{/if}">
+        <td class="product-name">{item.description}</td>
+        <td class="r">{item.cartons}</td>
+        <td class="r">{item.pieces}</td>
+      </tr>
+    {/for}
+    </tbody>
+  </table>
 {/if}
+
+<table class="totals">
+  <tr>
+    <td class="summary">{t.loadCheck}</td>
+    <td class="r total-value">{slip.totalCartons} {t.cartons} · {slip.totalPieces} {t.pieces}{#if slip.pallets} · {slip.pallets.size} {t.pallets}{/if}</td>
+  </tr>
+</table>
+
+<table class="sign">
+  <tr>
+    <td><div class="sign-line">{t.loadedByDate}</div></td>
+    <td><div class="sign-line">{t.receivedByDate}</div></td>
+  </tr>
+</table>
 
 </body>
 </html>

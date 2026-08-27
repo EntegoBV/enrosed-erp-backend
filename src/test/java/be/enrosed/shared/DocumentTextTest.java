@@ -53,6 +53,25 @@ class DocumentTextTest {
     }
 
     @Test
+    @DisplayName("het pakboncontract is compleet in alle acht klanttalen")
+    void packingSlipContractIsCompleteInAllEightLanguages() {
+        assertEquals(8, Language.values().length,
+                "pas deze expliciete taalcontracttest aan wanneer een klanttaal wordt toegevoegd");
+        Set<String> packingSlipKeys = Set.of(
+                "packingSlip", "deliveryAddress", "pieces", "looseCartons",
+                "notOnPallet", "contents", "loadCheck", "loadedByDate",
+                "receivedByDate", "height");
+
+        for (Language language : Language.values()) {
+            Map<String, String> text = DocumentText.of(language);
+            for (String key : packingSlipKeys) {
+                assertTrue(text.containsKey(key) && !text.get(key).isBlank(),
+                        language + " mist pakbontekst " + key);
+            }
+        }
+    }
+
+    @Test
     @DisplayName("zinnen met een invulplek houden die ook in vertaling")
     void placeholdersSurviveTranslation() {
         for (Language language : Language.values()) {

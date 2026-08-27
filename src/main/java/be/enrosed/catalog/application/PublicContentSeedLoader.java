@@ -38,6 +38,16 @@ public class PublicContentSeedLoader {
             "site.product.priceonrequest", "site.product.imageunavailable",
             "site.catalog.emptytitle", "site.catalog.emptybody",
             "site.common.viewproduct", "site.common.back");
+    /** Exact former seed values; only these migrate, never dashboard-authored privacy copy. */
+    private static final Map<Language, String> LEGACY_PRIVACY_NO_QUOTE_FORM = Map.ofEntries(
+            Map.entry(Language.NL, "Deze website maakt gebruik van e-mail- en telefoonlinks in plaats van een offerteformulier op de website. Informatie die u in een e-mail opneemt, wordt verwerkt via de e-mailservice die wordt gebruikt door Enrosed."),
+            Map.entry(Language.FR, "Ce site Web utilise des liens électroniques et téléphoniques plutôt qu'un formulaire de devis sur site. Les informations que vous incluez dans un e-mail sont traitées via le service de messagerie utilisé par Enrosed."),
+            Map.entry(Language.EN, "This website uses email and telephone links rather than an onsite quotation form. Information you include in an email is processed through the email service used by Enrosed."),
+            Map.entry(Language.DE, "Diese Website verwendet E-Mail- und Telefonlinks anstelle eines Angebotsformulars auf der Website. Die von Ihnen in eine E-Mail eingegebenen Informationen werden über den von Enrosed verwendeten E-Mail-Dienst verarbeitet."),
+            Map.entry(Language.ES, "Este sitio web utiliza enlaces telefónicos y de correo electrónico en lugar de un formulario de presupuesto in situ. La información que incluye en un correo electrónico se procesa a través del servicio de correo electrónico utilizado por Enrosed."),
+            Map.entry(Language.PL, "Ta witryna korzysta z łączy e-mailowych i telefonicznych, a nie z formularza wyceny dostępnego na stronie. Informacje zawarte w wiadomości e-mail są przetwarzane za pośrednictwem usługi poczty elektronicznej, z której korzysta Enrosed."),
+            Map.entry(Language.PT, "Este website utiliza ligações de e-mail e telefone em vez de um formulário de proposta no próprio website. As informações incluídas num e-mail são tratadas através do serviço de e-mail utilizado pela Enrosed."),
+            Map.entry(Language.TR, "Bu web sitesi, yerinde fiyat teklifi formu yerine e-posta ve telefon bağlantılarını kullanır. Bir e-postaya eklediğiniz bilgiler, Enrosed tarafından kullanılan e-posta hizmeti aracılığıyla işlenir."));
 
     private final CanonicalCatalogDaos.ContentTranslations content;
     private final CanonicalCatalogDaos.Families families;
@@ -308,6 +318,9 @@ public class PublicContentSeedLoader {
     /** Corrects only exact values shipped by an older system seed; dashboard edits survive. */
     private static boolean isKnownStaleSeedValue(
             ContentScope scope, String key, Language language, String current) {
+        if (scope == ContentScope.WEBSITE && "legal.privacy.data.p2".equals(key)) {
+            return Objects.equals(LEGACY_PRIVACY_NO_QUOTE_FORM.get(language), current);
+        }
         if (scope == ContentScope.WEBSITE && "home.counter.item3.title".equals(key)) {
             return "12 Steel Roses".equals(current);
         }

@@ -8,6 +8,8 @@ import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.CategoryText;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.UnprocessableBusinessRuleException;
+import be.enrosed.shared.adapter.in.rest.BusinessRuleMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -109,6 +111,32 @@ class CategoryServiceValidationTest {
         org.mockito.InOrder order = inOrder(fixture.guard(), fixture.categories());
         order.verify(fixture.guard()).lockFamilies(anyCollection());
         order.verify(fixture.categories()).findByIdForUpdate(17L);
+    }
+
+    @Test
+    void existingCategoryCodeIsImmutableWith422WhileTheVisibleNameRemainsEditable() {
+        Fixture fixture = fixture();
+        Category current = new Category(
+                17L, "category-code", "Existing", "Existing description",
+                null, 0, null, null, null, null, List.of(), 3L);
+        when(fixture.categories().findById(17L)).thenReturn(java.util.Optional.of(current));
+        when(fixture.categories().findByIdForUpdate(17L))
+                .thenReturn(java.util.Optional.of(current));
+
+        Category renamed = fixture.service().update(17L, new Category(
+                17L, current.code(), "Visible customer title", current.description(),
+                null, 0, null, null, null, null, List.of(), current.revision()));
+        assertEquals("Visible customer title", renamed.name());
+        assertEquals("category-code", renamed.code());
+
+        UnprocessableBusinessRuleException blocked = assertThrows(
+                UnprocessableBusinessRuleException.class,
+                () -> fixture.service().update(17L, new Category(
+                        17L, "renamed-technical-code", "Another visible title",
+                        current.description(), null, 0, null, null, null, null,
+                        List.of(), current.revision())));
+        assertTrue(blocked.getMessage().contains("vaste technische sleutel"));
+        assertEquals(422, new BusinessRuleMapper().toResponse(blocked).getStatus());
     }
 
     private static Category category(

@@ -30,6 +30,8 @@ class SalesOrderLogisticsValidationTest {
     private SalesOrderService service;
     private ProductService products;
     private Product product;
+    private SalesPricingCalculator pricing;
+    private be.enrosed.push.WebPushNotifier phones;
 
     private final be.enrosed.shipping.application.CarrierRepository carriers =
             mock(be.enrosed.shipping.application.CarrierRepository.class);
@@ -40,7 +42,8 @@ class SalesOrderLogisticsValidationTest {
         products = mock(ProductService.class);
         CountryService countries = mock(CountryService.class);
         DiscountTierService tiers = mock(DiscountTierService.class);
-        SalesPricingCalculator pricing = mock(SalesPricingCalculator.class);
+        pricing = mock(SalesPricingCalculator.class);
+        phones = mock(be.enrosed.push.WebPushNotifier.class);
         CustomerService customers = mock(CustomerService.class);
         VatCalculator vat = mock(VatCalculator.class);
         SalesRepositories.Events events = mock(SalesRepositories.Events.class);
@@ -56,13 +59,15 @@ class SalesOrderLogisticsValidationTest {
 
         product = product();
         when(products.list()).thenReturn(List.of(product));
+        when(pricing.unitPriceFor(any(Product.class), any(SalesOrder.class), any()))
+                .thenReturn(decimal("10"));
         when(countries.find("BE")).thenReturn(country());
         when(customers.get(1L)).thenReturn(customer());
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> call.getArgument(0));
 
         service = new SalesOrderService(orders, products, countries, tiers,
                 pricing, new PalletCalculator(), settings, customers, vat, events, revisions,
-                carriers, mock(be.enrosed.push.WebPushNotifier.class));
+                carriers, phones);
     }
 
     @Test
@@ -81,6 +86,13 @@ class SalesOrderLogisticsValidationTest {
         assertNull(saved.maxPalletHeightCm(), "null resets the per-order height override");
         assertNull(saved.freightRatePerCbmEur(), "draft autosave accepts the next field still empty");
         assertEquals(1, saved.pallets().size(), "hidden manual layout is preserved for switching back");
+    }
+
+    @Test
+    void websiteDraftCreationDoesNotPushBeforeItsFinalUpdateCommits() {
+        service.createWebsiteRequest(1L, "BE", "EXW");
+
+        org.mockito.Mockito.verifyNoInteractions(phones);
     }
 
     @Test
@@ -106,6 +118,50 @@ class SalesOrderLogisticsValidationTest {
                 () -> service.validateForSend(empty));
 
         assertEquals("Verwijder lege pallets of zet er minstens één doos op", failure.getMessage());
+    }
+
+    @Test
+    void sendRejectsUnresolvedWebsiteCartonsInsteadOfSilentlyOmittingTheLine() {
+        SalesOrder unresolved = withCommercialState(
+                order(LoadMode.PALLETS, FreightPricingStrategy.COUNTRY_PALLET,
+                        null, null, null, List.of()),
+                SalesOrderService.WEBSITE_REQUEST_MARKER + " ENR-2026-0042\n"
+                        + SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER
+                        + " productId=1; sku=SKU-1; cartons=4; quantityPieces=TE_BEPALEN",
+                List.of(new SalesOrderLine(null, 1L, 0, null, null, null)));
+
+        BusinessRuleException failure = assertThrows(BusinessRuleException.class,
+                () -> service.validateForSend(unresolved));
+
+        assertEquals("Los eerst de aangevraagde dozen met onbekende doosinhoud op voordat je de offerte verstuurt",
+                failure.getMessage());
+    }
+
+    @Test
+    void historicCartonRequestMarkerDoesNotBlockAfterStaffResolvedTheLine() {
+        SalesOrder resolved = withCommercialState(
+                order(LoadMode.PALLETS, FreightPricingStrategy.COUNTRY_PALLET,
+                        null, null, null, List.of()),
+                SalesOrderService.WEBSITE_REQUEST_MARKER + " ENR-2026-0042\n"
+                        + SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER
+                        + " productId=1; sku=SKU-1; cartons=4; quantityPieces=TE_BEPALEN",
+                List.of(new SalesOrderLine(null, 1L, 40, decimal("10"), null, null)));
+
+        service.validateForSend(resolved);
+    }
+
+    @Test
+    void sendRejectsAProductWhoseEffectivePriceIsStillZero() {
+        when(pricing.unitPriceFor(any(Product.class), any(SalesOrder.class), any()))
+                .thenReturn(BigDecimal.ZERO);
+        SalesOrder unresolvedPrice = order(LoadMode.PALLETS,
+                FreightPricingStrategy.COUNTRY_PALLET, null, null, null, List.of());
+
+        BusinessRuleException failure = assertThrows(BusinessRuleException.class,
+                () -> service.validateForSend(unresolvedPrice));
+
+        assertEquals("Vul een geldige stukprijs groter dan 0 EUR in voor Testproduct",
+                failure.getMessage());
     }
 
     @Test
@@ -156,6 +212,21 @@ class SalesOrderLogisticsValidationTest {
                 source.freightRatePerCbmEur(),
                 null, null, null, null, null, null, null,
                 source.lines(), source.pallets());
+    }
+
+    private static SalesOrder withCommercialState(SalesOrder source, String internalNotes,
+                                                  List<SalesOrderLine> lines) {
+        return new SalesOrder(source.id(), source.number(), source.customerId(), source.countryCode(),
+                source.orderDate(), source.validUntil(), source.status(), source.incoterm(),
+                source.paymentTerms(), source.notes(), source.markupMode(), source.orderMarkupPct(),
+                source.extraDiscountPct(), source.extraDiscountLabel(), source.portalToken(),
+                source.sentAt(), source.viewedAt(), source.viewCount(), source.decidedAt(),
+                source.signedByName(), source.customerMessage(), internalNotes,
+                source.deliveryTerms(), source.freight(), source.manualFreightEur(), source.loadMode(),
+                source.palletProfile(), source.maxPalletHeightCm(), source.freightPricingStrategy(),
+                source.freightRatePerCbmEur(), source.freightCarrierId(),
+                source.freightCarrierExtraEur(), source.docType(), source.invoiceDueDate(),
+                source.paidAt(), source.sourceQuoteId(), source.goodsShippedAt(), lines, source.pallets());
     }
 
     private static Product product() {

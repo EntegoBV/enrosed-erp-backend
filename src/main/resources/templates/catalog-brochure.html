@@ -5,236 +5,171 @@
   <title>{title}</title>
   <style>
     @page { size: A4; margin: 0; }
-    @page comparison { size: A4 landscape; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; color: #f4ece4; background: #120c0a; font-family: "Jost", "DejaVu Sans", sans-serif; }
     .page { position: relative; width: 210mm; height: 297mm; padding: 14mm 13mm 13mm; overflow: hidden; page-break-after: always; background: #120c0a; }
     .page:last-child { page-break-after: auto; }
-    .ivory { color: #241815; background: #f4ece4; }
-    .eyebrow { color: #d6b25e; font-size: 7pt; font-weight: 600; letter-spacing: 2.2px; text-transform: uppercase; }
+    .ivory { color: #241815; background: #f8f1e9; }
+    .eyebrow { color: #b28c3f; font-size: 7.5pt; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
     h1, h2, h3, h4 { margin: 0; font-family: "Cormorant Garamond"; font-weight: 600; }
     p { margin: 0; }
-    .footer { position: absolute; right: 13mm; bottom: 7mm; left: 13mm; padding-top: 2.5mm; color: #a9988d; border-top: .25mm solid #5f4f31; font-size: 6pt; letter-spacing: 1px; text-transform: uppercase; }
-    .footer .page-no { float: right; color: #d6b25e; }
+    a { color: inherit; text-decoration: none; }
+    .footer { position: absolute; right: 13mm; bottom: 7mm; left: 13mm; padding-top: 2.5mm; color: #76665d; border-top: .25mm solid #c9b9ab; font-size: 7pt; letter-spacing: .8px; text-transform: uppercase; }
+    .footer .page-no { float: right; color: #9b7735; }
 
-    .cover { padding: 0; }
-    .cover table { width: 100%; height: 297mm; border-collapse: collapse; table-layout: fixed; }
-    .cover .copy { width: 53%; padding: 18mm 13mm; vertical-align: top; background: #120c0a; border-right: .35mm solid #d6b25e; }
-    .cover .photo { width: 47%; padding: 0; vertical-align: top; overflow: hidden; background: #241815; }
-    .cover .photo div { width: 98.7mm; height: 297mm; overflow: hidden; }
-    .cover .photo img { width: auto; height: 297mm; margin-left: -188mm; }
-    .cover-logo { max-width: 54mm; max-height: 13mm; margin-bottom: 14mm; }
-    .cover h1 { margin-top: 24mm; font-size: 36pt; line-height: .92; }
+    .cover { padding: 0; background: #120c0a; }
+    .cover-photo { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
+    .cover-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: linear-gradient(180deg, rgba(18,12,10,.44) 0%, rgba(18,12,10,.06) 54%, rgba(18,12,10,.50) 100%); }
+    .cover-panel { position: absolute; top: 13mm; left: 13mm; width: 111mm; min-height: 107mm; padding: 10mm 10mm 9mm; color: #f8f1e9; background: #120c0a; border-left: 1.2mm solid #d6b25e; }
+    .cover-logo { max-width: 48mm; max-height: 11mm; margin-bottom: 9mm; }
+    .cover h1 { margin-top: 10mm; font-size: 31pt; line-height: .92; }
     .cover h1 span { display: block; color: #d6b25e; font-style: italic; font-weight: 400; }
-    .cover-intro { margin-top: 12mm; color: #cdbfb4; font-size: 10pt; line-height: 1.65; }
-    .cover-bottom { position: absolute; left: 13mm; bottom: 13mm; color: #d6b25e; font-size: 7pt; letter-spacing: 1.5px; }
+    .cover-intro { margin-top: 8mm; color: #e7dcd3; font-size: 9.5pt; line-height: 1.55; }
+    .cover-bottom { position: absolute; right: 13mm; bottom: 13mm; left: 13mm; padding: 4mm 5mm; color: #f8f1e9; background: rgba(18,12,10,.88); border-top: .35mm solid #d6b25e; font-size: 7.5pt; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
 
-    .lead-title { margin-top: 8mm; font-size: 31pt; line-height: .95; }
-    .lead-title em { color: #b3924a; font-weight: 400; }
-    .lead { max-width: 158mm; margin-top: 7mm; color: #594840; font-size: 10pt; line-height: 1.65; }
-    .intro-grid { width: 100%; margin-top: 12mm; border-collapse: separate; border-spacing: 4mm; }
-    .intro-card { width: 33.333%; height: 59mm; padding: 6mm; vertical-align: top; color: #f4ece4; background: #241815; border-top: .7mm solid #d6b25e; }
-    .intro-card h3 { margin: 4mm 0 3mm; font-size: 17pt; line-height: 1; }
-    .intro-card p { color: #cdbfb4; font-size: 8pt; line-height: 1.55; }
-    .care-note { margin-top: 9mm; padding: 6mm 7mm; color: #f4ece4; background: #120c0a; border-left: 1mm solid #d6b25e; font-size: 8.5pt; line-height: 1.6; }
-
-    .contents h2 { margin-top: 6mm; font-size: 35pt; }
-    .contents-sub { margin-top: 2mm; color: #cdbfb4; font-family: "Cormorant Garamond"; font-size: 14pt; font-style: italic; }
-    .contents-list { width: 100%; margin-top: 10mm; border-collapse: collapse; }
-    .contents-list td { padding: 2.5mm 0; border-bottom: .2mm solid #4a3b26; }
-    .contents-list .number { width: 13mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 15pt; font-weight: 600; }
-    .contents-list .family { color: #f4ece4; font-size: 8.2pt; font-weight: 500; }
-    .contents-list .category { color: #a9988d; font-size: 6.2pt; letter-spacing: .8px; text-align: right; text-transform: uppercase; }
-
-    .comparison-page { page: comparison; position: relative; width: 297mm; height: 210mm; padding: 11mm 13mm 12mm; overflow: hidden; page-break-after: always; color: #f4ece4; background: #120c0a; }
-    .comparison-head { width: 100%; border-collapse: collapse; }
-    .comparison-head td { vertical-align: bottom; }
-    .comparison-head h2 { margin-top: 2mm; font-size: 26pt; line-height: .92; }
-    .comparison-subtitle { color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 14pt; font-style: italic; text-align: right; }
-    .comparison-rule { height: .3mm; margin: 4mm 0 3mm; background: #d6b25e; }
-    .comparison-label { width: 100%; margin-bottom: 2mm; border-collapse: collapse; }
-    .comparison-label td { color: #d6b25e; font-size: 6pt; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
-    .comparison-label .hint { color: #a9988d; font-weight: 400; letter-spacing: .8px; text-align: right; }
-    .comparison-grid { width: 100%; height: 56mm; border-collapse: separate; border-spacing: 3mm 0; table-layout: fixed; }
-    .comparison-grid + .comparison-label { margin-top: 5mm; }
-    .comparison-card { height: 56mm; padding: 0; vertical-align: top; background: #1d1411; border-top: .55mm solid #d6b25e; }
-    .counter-grid .comparison-card { width: 25%; }
-    .decorative-grid .comparison-card { width: 33.333%; }
-    .comparison-empty-card { height: 56mm; padding: 0; background: transparent; border: .2mm solid #2f231c; }
-    .comparison-image { height: 31mm; padding: 1.5mm; text-align: center; vertical-align: middle; background: #fffaf4; }
-    .comparison-image img { max-width: 100%; max-height: 28mm; }
-    .comparison-copy { padding: 2.3mm 3mm 2.5mm; }
-    .comparison-sku { color: #d6b25e; font-size: 4.7pt; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; }
-    .comparison-name { height: 6mm; margin-top: .7mm; overflow: hidden; font-family: "Cormorant Garamond"; font-size: 10.5pt; font-weight: 600; line-height: .95; }
-    .comparison-specs { width: 100%; margin-top: 1.4mm; border-collapse: collapse; }
-    .comparison-specs td { padding: .35mm 0; color: #bbaa9f; font-size: 4.5pt; line-height: 1.2; vertical-align: top; }
-    .comparison-specs .key { width: 13mm; color: #d6b25e; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
-    .comparison-none { height: 56mm; padding-top: 24mm; color: #7f6f65; border: .2mm solid #2f231c; font-size: 5.3pt; letter-spacing: 1px; text-align: center; text-transform: uppercase; }
-    .comparison-care { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.2mm; color: #a9988d; border-top: .25mm solid #5f4f31; font-size: 5.4pt; letter-spacing: .6px; }
+    .overview-page { color: #241815; background: #f8f1e9; }
+    .overview-head { width: 100%; border-collapse: collapse; }
+    .overview-head td { vertical-align: bottom; }
+    .overview-head h2 { margin-top: 2mm; font-size: 28pt; line-height: .95; }
+    .overview-subtitle { width: 62mm; padding-bottom: 1mm; color: #66554b; font-size: 8.5pt; line-height: 1.45; text-align: right; }
+    .overview-rule { height: .35mm; margin: 5mm 0 4mm; background: #cba956; }
+    .overview-grid { width: 100%; border-collapse: separate; border-spacing: 3mm 3.5mm; table-layout: fixed; }
+    .overview-cell { height: 102mm; padding: 0; vertical-align: top; }
+    .overview-empty { height: 102mm; }
+    .overview-card { height: 102mm; overflow: hidden; background: #fffdfa; border: .25mm solid #d8c9bd; border-top: 1.1mm solid #a42c48; }
+    .overview-card--divers, .overview-card--rose-in-dome { border-top-color: #52735c; }
+    .overview-card--rose-bears { border-top-color: #79528e; }
+    .overview-image { height: 53mm; padding: 2mm; text-align: center; vertical-align: middle; background: #fff; border-bottom: .2mm solid #ded3cb; }
+    .overview-image img { max-width: 100%; max-height: 49mm; }
+    .overview-copy { padding: 3.5mm 4mm; }
+    .overview-meta { color: #806b5e; font-size: 6.8pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+    .overview-name { height: 18mm; margin-top: 1.8mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 13.5pt; font-weight: 600; line-height: .92; }
+    .overview-price { margin-top: 2mm; color: #8f223c; font-size: 9.5pt; font-weight: 700; }
+    .overview-detail { margin-top: 2mm; color: #67584e; font-size: 7pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7.5pt; line-height: 1.4; }
+    .overview-footnote span { float: right; color: #9b7735; font-weight: 700; }
 
     .category-page { padding: 0; }
-    .category-page .bg { position: absolute; top: 0; left: -6mm; width: auto; height: 297mm; }
-    .category-page .shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.72); }
-    .category-copy { position: absolute; top: 0; bottom: 0; left: 0; width: 61%; padding: 25mm 14mm; background: rgba(18,12,10,.88); border-right: .35mm solid #d6b25e; }
+    .category-page .bg { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
+    .category-page .shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.64); }
+    .category-copy { position: absolute; top: 0; bottom: 0; left: 0; width: 64%; padding: 25mm 14mm; background: rgba(18,12,10,.88); border-right: .35mm solid #d6b25e; }
     .category-number { margin-top: 20mm; color: #5d4927; font-family: "Cormorant Garamond"; font-size: 70pt; line-height: .7; }
     .category-page h2 { margin-top: 5mm; font-size: 38pt; line-height: .93; }
-    .category-page p { margin-top: 8mm; color: #cdbfb4; font-size: 10pt; line-height: 1.65; }
-    .category-count { margin-top: 11mm; color: #d6b25e; font-size: 7pt; letter-spacing: 1.5px; text-transform: uppercase; }
+    .category-page p { margin-top: 8mm; color: #e0d5cc; font-size: 10pt; line-height: 1.65; }
+    .category-count { margin-top: 11mm; color: #d6b25e; font-size: 7.5pt; letter-spacing: 1.4px; text-transform: uppercase; }
 
-    .family-page { padding-top: 11mm; }
+    .family-page { padding-top: 11mm; color: #241815; background: #f7e7e9; }
+    .family-page--divers, .family-page--rose-in-dome { background: #e8f0e5; }
+    .family-page--rose-bears { background: #eee6f2; }
     .family-head { width: 100%; border-collapse: collapse; }
     .family-head td { vertical-align: bottom; }
-    .family-head .number { width: 18mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 31pt; font-weight: 600; }
-    .family-category { color: #d6b25e; font-size: 6pt; font-weight: 600; letter-spacing: 1.6px; text-transform: uppercase; }
-    .family-head h2 { margin-top: 1.2mm; font-size: 25pt; line-height: .9; }
-    .family-format { padding-bottom: 1mm; color: #cdbfb4; font-family: "Cormorant Garamond"; font-size: 12pt; font-style: italic; text-align: right; }
-    .gold-rule { height: .25mm; margin: 5mm 0; background: rgba(214,178,94,.65); }
-    .family-media { width: 100%; height: 92mm; border-collapse: separate; border-spacing: 2.5mm; table-layout: fixed; }
-    .family-media td { padding: 0; vertical-align: middle; text-align: center; background: #fffaf4; border: .2mm solid #6a5734; }
-    .family-media .hero { width: 68%; }
+    .family-head .number { width: 17mm; color: #9b7735; font-family: "Cormorant Garamond"; font-size: 31pt; font-weight: 600; }
+    .family-category { color: #8b3147; font-size: 7pt; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; }
+    .family-page--divers .family-category, .family-page--rose-in-dome .family-category { color: #52735c; }
+    .family-page--rose-bears .family-category { color: #79528e; }
+    .family-head h2 { margin-top: 1mm; font-size: 25pt; line-height: .92; }
+    .family-price { width: 48mm; padding-bottom: 1mm; text-align: right; }
+    .family-price small { display: block; color: #806b5e; font-size: 6.8pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+    .family-price strong { display: block; margin-top: 1mm; color: #8f223c; font-size: 11pt; }
+    .family-format { margin-top: 1mm; color: #67584e; font-family: "Cormorant Garamond"; font-size: 12pt; font-style: italic; }
+    .gold-rule { height: .3mm; margin: 4mm 0; background: rgba(155,119,53,.55); }
+    .family-media { width: 100%; height: 94mm; border-collapse: separate; border-spacing: 2.5mm; table-layout: fixed; }
+    .family-media td { padding: 0; vertical-align: middle; text-align: center; background: #fffdfa; border: .25mm solid #d5c4b8; }
+    .family-media .hero { width: 66%; }
     .family-media .hero.solo { width: 100%; }
-    .family-media .side { width: 32%; }
-    .family-media img { max-width: 100%; max-height: 91mm; }
-    .image-placeholder { color: #a9988d; font-size: 6.5pt; letter-spacing: 1.2px; text-transform: uppercase; }
-    .gallery-strip { height: 21mm; margin-top: 2.5mm; white-space: nowrap; }
-    .gallery-strip img { width: auto; height: 21mm; max-width: 32mm; margin-right: 2.5mm; background: #fffaf4; border: .2mm solid #6a5734; }
-    .family-info { width: 100%; margin-top: 5mm; border-collapse: separate; border-spacing: 5mm 0; table-layout: fixed; }
+    .family-media .side { width: 34%; }
+    .family-media img { max-width: 100%; max-height: 93mm; }
+    .image-placeholder { color: #8b7a70; font-size: 7pt; letter-spacing: 1px; text-transform: uppercase; }
+    .gallery-strip { height: 18mm; margin-top: 2.5mm; white-space: nowrap; }
+    .gallery-strip img { width: auto; height: 18mm; max-width: 34mm; margin-right: 2.5mm; background: #fff; border: .25mm solid #d5c4b8; }
+    .family-info { width: 100%; margin-top: 4mm; border-collapse: separate; border-spacing: 5mm 0; table-layout: fixed; }
     .family-info td { vertical-align: top; }
-    .family-info .story { width: 43%; }
-    .family-info .specs { width: 57%; }
-    .summary { color: #f4ece4; font-family: "Cormorant Garamond"; font-size: 14pt; line-height: 1.13; }
-    .description { margin-top: 3mm; color: #cdbfb4; font-size: 7.3pt; line-height: 1.5; }
-    .highlights { margin: 4mm 0 0; padding: 0; list-style: none; }
-    .highlights li { margin-top: 1.5mm; color: #f4ece4; font-size: 6.7pt; line-height: 1.35; }
-    .highlights li:before { content: "·"; margin-right: 2mm; color: #d6b25e; }
-    .family-logistics { margin-bottom: 3mm; padding: 2.5mm 3mm; color: #241815; background: #d6b25e; font-size: 6.4pt; font-weight: 600; }
-    .variants { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    .variants th { padding: 1.4mm 1mm; color: #d6b25e; border-bottom: .3mm solid #d6b25e; font-size: 5pt; font-weight: 600; letter-spacing: .6px; text-align: left; text-transform: uppercase; }
-    .variants td { padding: 1.5mm 1mm; color: #e9ddd4; border-bottom: .2mm solid #3d3022; font-size: 5.5pt; line-height: 1.25; vertical-align: top; }
-    .variants .sku { width: 17%; }
-    .variants .option { width: 20%; }
-    .variants .size { width: 23%; }
-    .variants .carton { width: 21%; }
-    .variants .ean { width: 19%; }
-    .swatch { display: inline-block; width: 3mm; height: 3mm; margin-right: 1.5mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
-    .variant-price { display: block; margin-top: .7mm; color: #d6b25e; font-weight: 600; }
+    .family-info .story { width: 36%; }
+    .family-info .specs { width: 64%; }
+    .summary { color: #241815; font-family: "Cormorant Garamond"; font-size: 15pt; line-height: 1.05; }
+    .description { margin-top: 2.5mm; color: #594a42; font-size: 8.5pt; line-height: 1.45; }
+    .highlights { margin: 3mm 0 0; padding: 0; list-style: none; }
+    .highlights li { margin-top: 1.3mm; color: #3e302a; font-size: 8pt; line-height: 1.35; }
+    .highlights li:before { content: "·"; margin-right: 1.5mm; color: #9b7735; }
+    .family-logistics { margin-bottom: 2.5mm; padding: 2.5mm 3mm; color: #241815; background: rgba(255,253,250,.76); border-left: .8mm solid #cba956; font-size: 8pt; font-weight: 700; }
+    .variants { width: 100%; border-collapse: collapse; table-layout: fixed; background: rgba(255,253,250,.64); }
+    .variants th { padding: 1.7mm 1.2mm; color: #725f54; border-bottom: .35mm solid #b99b5a; font-size: 6.8pt; font-weight: 700; letter-spacing: .5px; text-align: left; text-transform: uppercase; }
+    .variants td { padding: 1.8mm 1.2mm; color: #30231e; border-bottom: .2mm solid #d8c9bd; font-size: 7.8pt; line-height: 1.25; vertical-align: top; }
+    .variants .sku { width: 19%; }
+    .variants .option { width: 21%; }
+    .variants .size { width: 21%; }
+    .variants .carton { width: 22%; }
+    .variants .ean { width: 17%; }
+    .swatch { display: inline-block; width: 3.4mm; height: 3.4mm; margin-right: 1.3mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
+    .variant-price { display: block; margin-top: .8mm; color: #8f223c; font-size: 8.2pt; font-weight: 700; }
 
-    .utility-frame { width: 100%; height: 83mm; margin: 9mm 0; overflow: hidden; border: .25mm solid #6a5734; }
-    .utility-image { width: 100%; height: auto; margin-top: -11mm; }
     .utility h2 { margin-top: 6mm; font-size: 34pt; line-height: .95; }
-    .utility .lead { max-width: 165mm; }
+    .lead { max-width: 165mm; margin-top: 7mm; color: #594840; font-size: 10pt; line-height: 1.65; }
+    .utility-frame { width: 100%; height: 83mm; margin: 9mm 0; overflow: hidden; border: .25mm solid #8b744a; }
+    .utility-image { width: 100%; height: auto; margin-top: -11mm; }
     .steps { width: 100%; margin-top: 10mm; border-collapse: separate; border-spacing: 4mm; }
     .steps td { width: 33.333%; padding: 6mm; vertical-align: top; color: #f4ece4; background: #241815; border-top: .7mm solid #d6b25e; }
     .steps .step-no { color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 23pt; }
     .steps h3 { margin: 3mm 0 2mm; font-size: 16pt; }
-    .steps p { color: #cdbfb4; font-size: 7.4pt; line-height: 1.5; }
+    .steps p { color: #ddd0c6; font-size: 8pt; line-height: 1.5; }
     .contact-card { margin-top: 14mm; padding: 8mm; color: #241815; background: #d6b25e; }
     .contact-card h3 { font-size: 20pt; }
-    .contact-card p { margin-top: 2mm; font-size: 8pt; line-height: 1.6; }
+    .contact-card p { margin-top: 2mm; font-size: 9pt; line-height: 1.6; }
+    .care-note { margin-top: 9mm; padding: 6mm 7mm; color: #f4ece4; background: #120c0a; border-left: 1mm solid #d6b25e; font-size: 8.5pt; line-height: 1.6; }
 
     .back { padding: 0; text-align: center; }
-    .back .back-bg { width: auto; height: 297mm; margin-left: -132mm; }
-    .back-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.74); }
-    .back-copy { position: absolute; top: 79mm; right: 24mm; left: 24mm; }
+    .back .back-bg { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
+    .back-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.72); }
+    .back-copy { position: absolute; top: 76mm; right: 24mm; left: 24mm; }
     .back-logo { max-width: 67mm; max-height: 15mm; }
     .back h2 { margin-top: 20mm; font-size: 36pt; }
-    .back p { margin-top: 7mm; color: #cdbfb4; font-size: 9pt; line-height: 1.6; }
-    .back-contact { margin-top: 20mm; color: #d6b25e; font-size: 7pt; line-height: 1.8; letter-spacing: 1.2px; text-transform: uppercase; }
+    .back p { margin-top: 7mm; color: #e2d5cb; font-size: 9pt; line-height: 1.6; }
+    .back-contact { margin-top: 20mm; color: #d6b25e; font-size: 8pt; line-height: 1.8; letter-spacing: 1.1px; text-transform: uppercase; }
   </style>
 </head>
 <body>
 
 <section class="page cover">
-  <table><tr>
-    <td class="copy">
-      {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
-      <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
-      <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
-      <p class="cover-intro">{intro}</p>
-      <div class="cover-bottom">{familyCountLabel} · {variantCountLabel}</div>
-    </td>
-    <td class="photo"><div>{#if coverImage}<img src="{coverImage}" alt="{copy['catalog.brochure.cover.imagealt']}"/>{/if}</div></td>
-  </tr></table>
-</section>
-
-<section class="page ivory utility">
-  <div class="eyebrow">{copy['catalog.brochure.intro.eyebrow']} · {year}</div>
-  <h2 class="lead-title">{copy['catalog.brochure.intro.titleone']}<br/><em>{copy['catalog.brochure.intro.titletwo']}</em></h2>
-  <p class="lead">{intro}</p>
-  <table class="intro-grid"><tr>
-    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.select.eyebrow']}</div><h3>{copy['catalog.brochure.intro.select.title']}</h3><p>{copy['catalog.brochure.intro.select.body']}</p></td>
-    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.compare.eyebrow']}</div><h3>{copy['catalog.brochure.intro.compare.title']}</h3><p>{copy['catalog.brochure.intro.compare.body']}</p></td>
-    <td class="intro-card"><div class="eyebrow">{copy['catalog.brochure.intro.order.eyebrow']}</div><h3>{copy['catalog.brochure.intro.order.title']}</h3><p>{copy['catalog.brochure.intro.order.body']}</p></td>
-  </tr></table>
-  {#if introDisplayImage}<div class="utility-frame"><img class="utility-image" src="{introDisplayImage}" alt="{copy['catalog.brochure.intro.imagealt']}"/></div>{/if}
-  <div class="care-note">{copy['catalog.brochure.carenote']}</div>
-  <div class="footer">ENROSED · {copy['catalog.brochure.intro.eyebrow']} <span class="page-no">{copy['catalog.brochure.page.intro']}</span></div>
+  {#if coverImage}<img class="cover-photo" src="{coverImage}" alt="{copy['catalog.brochure.cover.imagealt']}"/>{/if}
+  <div class="cover-shade"></div>
+  <div class="cover-panel">
+    {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
+    <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
+    <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
+    <p class="cover-intro">{intro}</p>
+  </div>
+  <div class="cover-bottom">{familyCountLabel} · {variantCountLabel}</div>
 </section>
 
 {#if options.includeOverview}
-<section class="page contents">
-  <div class="eyebrow">{copy['catalog.brochure.contents.eyebrow']}</div>
-  <h2>{copy['catalog.brochure.contents.title']}</h2>
-  <div class="contents-sub">{copy['catalog.brochure.contents.subtitle']}</div>
-  <table class="contents-list">
-    {#for entry in contents}<tr>
-      <td class="number">{entry.number}</td><td class="family">{entry.name}</td><td class="category">{entry.categoryName}</td>
-    </tr>{/for}
-  </table>
-  <div class="footer">{familyCountLabel} · {variantCountLabel} <span class="page-no">{copy['catalog.brochure.page.index']}</span></div>
-</section>
+  {#for overview in overviewPages}
+  <section class="page overview-page">
+    <table class="overview-head"><tr>
+      <td><div class="eyebrow">{copy['catalog.brochure.overview.eyebrow']}</div><h2>{copy['catalog.brochure.overview.title']}</h2></td>
+      <td class="overview-subtitle">{copy['catalog.brochure.overview.subtitle']}</td>
+    </tr></table>
+    <div class="overview-rule"></div>
+    <table class="overview-grid">
+      {#for row in overview.rows}<tr>
+        {#for card in row}
+          {#if card.placeholder}<td class="overview-cell overview-empty"></td>{#else}
+          <td class="overview-cell"><div class="overview-card overview-card--{card.categoryKey}">
+            <div class="overview-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
+            <div class="overview-copy">
+              <div class="overview-meta">{card.number} · {card.categoryName}</div>
+              <div class="overview-name"><a href="#{card.anchor}">{card.name}</a></div>
+              {#if card.referencePriceLabel}<div class="overview-price">{card.referencePriceLabel}</div>{/if}
+              <div class="overview-detail"><a href="#{card.anchor}">{copy['catalog.brochure.overview.viewdetail']} →</a></div>
+            </div>
+          </div></td>
+          {/if}
+        {/for}
+      </tr>{/for}
+    </table>
+    <div class="overview-footnote">{#if includePrices}{copy['catalog.brochure.overview.pricebasis']}{/if}<span>{overview.number} / {overview.total}</span></div>
+  </section>
+  {/for}
 {/if}
-
-<section class="comparison-page">
-  <table class="comparison-head"><tr>
-    <td><div class="eyebrow">{copy['catalog.brochure.comparison.eyebrow']}</div><h2>{copy['catalog.brochure.comparison.title']}</h2></td>
-    <td class="comparison-subtitle">{copy['catalog.brochure.comparison.subtitle']}</td>
-  </tr></table>
-  <div class="comparison-rule"></div>
-
-  <table class="comparison-label"><tr><td>{copy['catalog.brochure.comparison.counter']}</td><td class="hint">{copy['catalog.brochure.comparison.hint']}</td></tr></table>
-  {#if comparisonCounters.size > 0}
-  <table class="comparison-grid counter-grid"><tr>
-    {#for card in comparisonCounters}<td class="comparison-card">
-      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
-      <div class="comparison-copy">
-        <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
-        <table class="comparison-specs">
-          {#if card.productSize}<tr><td class="key">{copy['catalog.common.product']}</td><td>{card.productSize}</td></tr>{/if}
-          {#if card.cartonSize}<tr><td class="key">{copy['catalog.common.carton']}</td><td>{card.cartonSize}</td></tr>{/if}
-          {#if card.piecesPerCarton > 0}<tr><td class="key">{copy['catalog.common.pack']}</td><td>{card.piecesPerCarton} {copy['catalog.common.pieces']}</td></tr>{/if}
-          {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
-        </table>
-      </div>
-    </td>{/for}
-    {#if comparisonCounters.size == 1}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
-    {#if comparisonCounters.size == 2}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
-    {#if comparisonCounters.size == 3}<td class="comparison-empty-card"></td>{/if}
-  </tr></table>
-  {#else}<div class="comparison-none">{copy['catalog.brochure.comparison.nocounter']}</div>{/if}
-
-  <table class="comparison-label"><tr><td>{copy['catalog.brochure.comparison.decorative']}</td><td class="hint">{copy['catalog.brochure.comparison.hint']}</td></tr></table>
-  {#if comparisonDecorative.size > 0}
-  <table class="comparison-grid decorative-grid"><tr>
-    {#for card in comparisonDecorative}<td class="comparison-card">
-      <div class="comparison-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
-      <div class="comparison-copy">
-        <div class="comparison-sku">{card.sku}</div><div class="comparison-name">{card.name}</div>
-        <table class="comparison-specs">
-          {#if card.productSize}<tr><td class="key">{copy['catalog.common.product']}</td><td>{card.productSize}</td></tr>{/if}
-          {#if card.cartonSize}<tr><td class="key">{copy['catalog.common.carton']}</td><td>{card.cartonSize}</td></tr>{/if}
-          {#if card.piecesPerCarton > 0}<tr><td class="key">{copy['catalog.common.pack']}</td><td>{card.piecesPerCarton} {copy['catalog.common.pieces']}</td></tr>{/if}
-          {#if card.ean}<tr><td class="key">EAN</td><td>{card.ean}</td></tr>{/if}
-        </table>
-      </div>
-    </td>{/for}
-    {#if comparisonDecorative.size == 1}<td class="comparison-empty-card"></td><td class="comparison-empty-card"></td>{/if}
-    {#if comparisonDecorative.size == 2}<td class="comparison-empty-card"></td>{/if}
-  </tr></table>
-  {#else}<div class="comparison-none">{copy['catalog.brochure.comparison.nodecorative']}</div>{/if}
-
-  <div class="comparison-care">{copy['catalog.brochure.carenote']}</div>
-</section>
 
 {#for section in sections}
   {#if options.includeCategoryIntros}
@@ -251,11 +186,12 @@
   {/if}
 
   {#for family in section.families}
-  <section class="page family-page">
+  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey}">
+    <a name="{family.anchor}"></a>
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>
-      <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2></td>
-      <td class="family-format">{#if family.format}{family.format}{/if}</td>
+      <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2><div class="family-format">{#if family.format}{family.format}{/if}</div></td>
+      {#if family.referencePriceLabel}<td class="family-price"><small>{copy['catalog.brochure.overview.referenceprice']}</small><strong>{family.referencePriceLabel}</strong></td>{/if}
     </tr></table>
     <div class="gold-rule"></div>
     <table class="family-media"><tr>
@@ -274,7 +210,7 @@
         <table class="variants">
           <thead><tr><th class="sku">SKU</th><th class="option">{copy['catalog.common.colorsize']}</th><th class="size">{copy['catalog.common.productdimensions']}</th><th class="carton">{copy['catalog.common.outercartonpack']}</th><th class="ean">EAN</th></tr></thead>
           <tbody>{#for variant in family.variants}<tr>
-            <td>{variant.sku}{#if variant.priceLabel}<span class="variant-price">{variant.priceLabel}</span>{/if}</td>
+            <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.priceLabel}{variant.priceLabel}{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
             <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}<br/>{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}</td>
@@ -307,16 +243,13 @@
 <section class="page utility">
   <div class="eyebrow">{copy['catalog.brochure.order.eyebrow']}</div>
   <h2>{copy['catalog.brochure.order.title']}</h2>
-  <p class="lead" style="color:#cdbfb4">{copy['catalog.brochure.order.body']}</p>
+  <p class="lead" style="color:#ddd0c6">{copy['catalog.brochure.order.body']}</p>
   <table class="steps"><tr>
     <td><div class="step-no">01</div><h3>{copy['catalog.brochure.order.stepone.title']}</h3><p>{copy['catalog.brochure.order.stepone.body']}</p></td>
     <td><div class="step-no">02</div><h3>{copy['catalog.brochure.order.steptwo.title']}</h3><p>{copy['catalog.brochure.order.steptwo.body']}</p></td>
     <td><div class="step-no">03</div><h3>{copy['catalog.brochure.order.stepthree.title']}</h3><p>{copy['catalog.brochure.order.stepthree.body']}</p></td>
   </tr></table>
-  <div class="contact-card">
-    <h3>{company.name}</h3>
-    <p>{#if company.addressOneLine}{company.addressOneLine}<br/>{/if}{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</p>
-  </div>
+  <div class="contact-card"><h3>{company.name}</h3><p>{#if company.addressOneLine}{company.addressOneLine}<br/>{/if}{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</p></div>
   <div class="care-note">{copy['catalog.brochure.order.note']}</div>
   <div class="footer">ENROSED · {copy['catalog.brochure.order.footer']} <span class="page-no">{copy['catalog.brochure.order.pagelabel']}</span></div>
 </section>

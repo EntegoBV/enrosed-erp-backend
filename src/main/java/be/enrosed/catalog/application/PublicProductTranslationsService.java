@@ -123,12 +123,13 @@ public class PublicProductTranslationsService {
         products.flush();
         families.flush();
         if (family != null) {
-            writeGuard.validateFamilies(List.of(family.id));
+            writeGuard.validateFamilies(
+                    List.of(family.id), ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
             photoCompatibility.sync(family);
         }
         products.flush();
         families.flush();
-        if (publicChange && websiteRebuild != null) websiteRebuild.queue();
+        if (publicChange) queueWebsiteIfBuildReady();
         return snapshot(product, family);
     }
 
@@ -179,10 +180,11 @@ public class PublicProductTranslationsService {
         lockedFamilies.values().forEach(family -> family.updatedAt = Instant.now());
         products.flush();
         families.flush();
-        writeGuard.validateFamilies(lockedFamilies.keySet());
+        writeGuard.validateFamilies(
+                lockedFamilies.keySet(), ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
         products.flush();
         families.flush();
-        if (websiteRebuild != null) websiteRebuild.queue();
+        queueWebsiteIfBuildReady();
         return changed;
     }
 
@@ -253,11 +255,18 @@ public class PublicProductTranslationsService {
         lockedFamilies.values().forEach(family -> family.updatedAt = Instant.now());
         products.flush();
         families.flush();
-        writeGuard.validateFamilies(lockedFamilies.keySet());
+        writeGuard.validateFamilies(
+                lockedFamilies.keySet(), ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
         products.flush();
         families.flush();
-        if (websiteRebuild != null) websiteRebuild.queue();
+        queueWebsiteIfBuildReady();
         return changed;
+    }
+
+    private void queueWebsiteIfBuildReady() {
+        if (websiteRebuild != null && writeGuard.websiteBuildReady()) {
+            websiteRebuild.queue();
+        }
     }
 
     private Context context(long productId, boolean lock) {

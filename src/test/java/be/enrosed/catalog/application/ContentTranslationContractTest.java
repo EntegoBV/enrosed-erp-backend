@@ -5,6 +5,7 @@ import be.enrosed.catalog.adapter.in.rest.ContentTranslationResource;
 import be.enrosed.catalog.adapter.in.rest.LocalizedValueDto;
 import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ContentTranslationEntity;
+import be.enrosed.catalog.adapter.out.persistence.ContentTranslationTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.WebsiteRebuildEntity;
 import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.catalog.domain.WebsiteRebuildStatus;
@@ -14,6 +15,7 @@ import be.enrosed.shared.adapter.in.rest.BusinessRuleMapper;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,7 @@ class ContentTranslationContractTest {
     @Inject PublicContentSeedLoader seeds;
     @Inject CanonicalCatalogDaos.ContentTranslations rows;
     @Inject CanonicalCatalogDaos.WebsiteRebuilds rebuildRows;
+    @Inject EntityManager entityManager;
     @Inject WebsiteRebuildService rebuild;
     /* The injected bean is a CDI client proxy: writing its config fields
        changes the proxy's copy, never the real instance. Unwrap first. */
@@ -187,6 +190,29 @@ class ContentTranslationContractTest {
         assertEquals("Texte personnalisé approuvé", entity.texts.stream()
                 .filter(text -> text.language == Language.FR).findFirst().orElseThrow().value,
                 "a dashboard customization that is not the exact stale seed must survive");
+    }
+
+    @Test
+    @TestTransaction
+    void privacySeedMigratesOnlyTheFormerNoFormClaim() {
+        ContentTranslationEntity entity = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.privacy.data.p2").firstResult();
+        ContentTranslationTextEntity dutch = entity.texts.stream()
+                .filter(text -> text.language == Language.NL).findFirst().orElseThrow();
+        ContentTranslationTextEntity french = entity.texts.stream()
+                .filter(text -> text.language == Language.FR).findFirst().orElseThrow();
+        String currentDutchSeed = dutch.value;
+        dutch.value = "Deze website maakt gebruik van e-mail- en telefoonlinks in plaats van een offerteformulier op de website. Informatie die u in een e-mail opneemt, wordt verwerkt via de e-mailservice die wordt gebruikt door Enrosed.";
+        french.value = "Texte de confidentialité approuvé dans le dashboard";
+        entityManager.flush();
+
+        seeds.onStart(null);
+
+        assertEquals(currentDutchSeed, dutch.value,
+                "the exact former seed must migrate to the secure-form privacy copy");
+        assertEquals("Texte de confidentialité approuvé dans le dashboard", french.value,
+                "a dashboard-authored value must never be overwritten");
     }
 
     @Test

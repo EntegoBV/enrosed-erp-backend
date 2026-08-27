@@ -12,6 +12,16 @@ delivery;Levering;Livraison;Delivery;Lieferung;Entrega;Dostawa;Entrega;Teslimat
 destination;Bestemming;Destination;Destination;Bestimmungsland;Destino;Miejsce przeznaczenia;Destino;Varış ülkesi
 pallets;Pallets;Palettes;Pallets;Paletten;Palés;Palety;Paletes;Palet
 cartons;Dozen;Cartons;Cartons;Kartons;Cajas;Kartony;Caixas;Koli
+packingSlip;Pakbon;Bon de livraison;Delivery note;Lieferschein;Albarán;Dokument dostawy;Guia de remessa;Sevk irsaliyesi
+deliveryAddress;Leveradres;Adresse de livraison;Delivery address;Lieferadresse;Dirección de entrega;Adres dostawy;Morada de entrega;Teslimat adresi
+pieces;Stuks;Pièces;Pieces;Stück;Unidades;Sztuki;Unidades;Adet
+looseCartons;Losse dozen;Cartons en vrac;Loose cartons;Lose Kartons;Cajas sueltas;Luźne kartony;Caixas soltas;Paletsiz koliler
+notOnPallet;Niet op een pallet;Hors palette;Not on a pallet;Nicht auf einer Palette;Sin palé;Poza paletą;Fora da palete;Palete yerleştirilmemiş
+contents;Inhoud;Contenu;Contents;Inhalt;Contenido;Zawartość;Conteúdo;İçerik
+loadCheck;Controleer de fysieke lading met de aantallen hierboven.;Vérifiez le chargement physique à l'aide des quantités ci-dessus.;Check the physical load against the quantities above.;Prüfen Sie die physische Ladung anhand der oben angegebenen Mengen.;Compruebe la carga física con las cantidades indicadas arriba.;Sprawdź ładunek fizyczny z ilościami podanymi powyżej.;Confirme a carga física com as quantidades acima.;Fiziksel yükü yukarıdaki miktarlarla karşılaştırın.
+loadedByDate;Geladen door / datum;Chargé par / date;Loaded by / date;Verladen von / Datum;Cargado por / fecha;Załadował(a) / data;Carregado por / data;Yükleyen / tarih
+receivedByDate;Ontvangen door / datum;Reçu par / date;Received by / date;Empfangen von / Datum;Recibido por / fecha;Odebrał(a) / data;Recebido por / data;Teslim alan / tarih
+height;hoog;de haut;high;hoch;de altura;wysokości;de altura;yüksekliğinde
 volume;Volume;Volume;Volume;Volumen;Volumen;Objętość;Volume;Hacim
 payment;Betaling;Paiement;Payment;Zahlung;Pago;Płatność;Pagamento;Ödeme
 sku;SKU;Réf.;SKU;Art.-Nr.;Ref.;Nr kat.;Ref.;Ürün kodu
