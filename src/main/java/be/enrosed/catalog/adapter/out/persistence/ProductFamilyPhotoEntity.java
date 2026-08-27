@@ -47,5 +47,6 @@ public class ProductFamilyPhotoEntity {
      * every catalogue channel. Administrator uploads always persist an explicit empty array and
      * therefore stay internal until a user publishes them.
      */
-    @Column(length = 255) public String publishedChannelsJson;
+    @Column(name = "published_channels_json", length = 255)
+    public String publishedChannelsJson;
 }
