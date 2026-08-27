@@ -29,7 +29,11 @@ public class DailyAgendaPush {
         this.entities = entities;
     }
 
-    @Scheduled(cron = "0 0 9 * * ?", timeZone = "Europe/Brussels")
+    @Scheduled(
+            identity = "daily-agenda-push",
+            cron = "{enrosed.push.daily-agenda.cron}",
+            timeZone = "Europe/Brussels",
+            concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     @Transactional
     public void morningDigest() {
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/Brussels"));

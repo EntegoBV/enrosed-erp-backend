@@ -651,10 +651,10 @@ NCFI_AUTOMATED_ACCESS_AUTHORIZED=false
 CCFI_AUTOMATED_ACCESS_AUTHORIZED=false
 ```
 
-Een achtergrondtaak controleert dagelijks om 03:15 UTC; met
-`MARKET_DATA_REFRESH_CRON` kan dat stille tijdstip worden gewijzigd. De dashboard-API
-probeert dezelfde controle als fallback. Een databaseclaim zorgt dat meerdere app-nodes
-dezelfde bron niet dubbel opvragen. Providerpublicaties worden op datum gededupliceerd;
+Een achtergrondtaak controleert standaard dagelijks om 03:15 UTC; met
+`MARKET_DATA_REFRESH_CRON` kan dat tijdstip worden gewijzigd en `off` schakelt de taak uit.
+De dashboard-API probeert dezelfde begrensde controle als fallback. Een databaseclaim
+zorgt dat meerdere app-nodes dezelfde bron niet dubbel opvragen. Providerpublicaties worden op datum gededupliceerd;
 een bron zonder publicatiedatum krijgt hoogstens één lokale observatie per zeven dagen.
 NCFI vult daarnaast met maximaal zes archiefpagina's per dag geleidelijk circa zes
 maanden aan exacte Ningbo-Europa-punten; na voldoende historie stopt die aanvulling.

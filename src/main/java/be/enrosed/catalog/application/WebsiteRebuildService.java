@@ -108,7 +108,10 @@ public class WebsiteRebuildService {
         applyStartupState(state, current, now);
     }
 
-    @Scheduled(every = "10s", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    @Scheduled(
+            identity = "website-rebuild-worker",
+            every = "10s",
+            concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void work() {
         if (!configured(deployHookUrl)) return;
         Work claimed = QuarkusTransaction.requiringNew().call(this::claim);
@@ -117,7 +120,10 @@ public class WebsiteRebuildService {
         QuarkusTransaction.requiringNew().run(() -> finish(claimed, result));
     }
 
-    @Scheduled(every = "60s", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    @Scheduled(
+            identity = "website-rebuild-live-revision-poller",
+            every = "60s",
+            concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void pollLiveRevision() {
         if (!configured(deployHookUrl) || !configured(publicRevisionUrl)) return;
         PollResult result = pollRevision();
