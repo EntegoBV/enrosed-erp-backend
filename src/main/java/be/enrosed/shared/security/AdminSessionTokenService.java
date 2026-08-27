@@ -22,6 +22,7 @@ import java.util.Base64;
 public class AdminSessionTokenService {
 
     private static final String VERSION = "enr1";
+    private static final String PASSWORD_HASH_FALLBACK = "use-password-hash";
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
@@ -30,7 +31,7 @@ public class AdminSessionTokenService {
     @ConfigProperty(name = "enrosed.admin.password-hash")
     String adminPasswordHash;
 
-    @ConfigProperty(name = "enrosed.admin.session-secret", defaultValue = "")
+    @ConfigProperty(name = "enrosed.admin.session-secret", defaultValue = PASSWORD_HASH_FALLBACK)
     String configuredSessionSecret;
 
     @ConfigProperty(name = "enrosed.admin.session-ttl-days", defaultValue = "90")
@@ -111,7 +112,9 @@ public class AdminSessionTokenService {
     }
 
     private byte[] signingSecret() {
-        String value = configuredSessionSecret == null || configuredSessionSecret.isBlank()
+        String value = configuredSessionSecret == null
+                || configuredSessionSecret.isBlank()
+                || PASSWORD_HASH_FALLBACK.equals(configuredSessionSecret)
                 ? adminPasswordHash
                 : configuredSessionSecret;
         if (value == null || value.isBlank()) {

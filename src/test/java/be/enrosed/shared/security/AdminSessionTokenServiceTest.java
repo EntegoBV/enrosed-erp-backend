@@ -46,6 +46,17 @@ class AdminSessionTokenServiceTest {
         assertThrows(IllegalStateException.class, () -> service.issueAt("emre", NOW));
     }
 
+    @Test
+    void explicitFallbackSentinelUsesThePasswordHashAsSigningMaterial() {
+        AdminSessionTokenService service = service();
+        service.configuredSessionSecret = "use-password-hash";
+        String token = service.issueAt("emre", NOW).token();
+
+        assertTrue(service.verifyAt("emre", token, NOW.plusSeconds(1)));
+        service.adminPasswordHash = "rotated-password-hash";
+        assertFalse(service.verifyAt("emre", token, NOW.plusSeconds(1)));
+    }
+
     private static AdminSessionTokenService service() {
         AdminSessionTokenService service = new AdminSessionTokenService();
         service.adminPasswordHash = "fallback-hash";
