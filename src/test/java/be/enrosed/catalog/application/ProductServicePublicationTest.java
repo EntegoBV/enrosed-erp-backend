@@ -12,11 +12,18 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.push.StaffActionPushNotifier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.CurrentActor;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -33,6 +40,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ProductServicePublicationTest {
 
@@ -354,6 +368,33 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void photoUploadRegistersRollbackCleanupBeforeSavingItsProductReference() {
+        ProductRepository failingRepository = mock(ProductRepository.class);
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, false);
+        when(failingRepository.findById(1L)).thenReturn(Optional.of(current));
+        PhotoStorage blobStore = mock(PhotoStorage.class);
+        byte[] bytes = "GIF89a-new-photo".getBytes(StandardCharsets.US_ASCII);
+        when(blobStore.store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class)))
+                .thenReturn(new PhotoStorage.Stored("upload-key", bytes.length, null, null));
+        when(failingRepository.save(any(Product.class)))
+                .thenThrow(new IllegalStateException("database write failed"));
+        ProductService failingService = new ProductService(
+                failingRepository, blobStore, mock(ProductValidator.class));
+        @SuppressWarnings("unchecked")
+        Event<ProductPhotoCleanup.UploadReady> cleanup = mock(Event.class);
+        failingService.photoUploadCleanup = cleanup;
+
+        assertThrows(IllegalStateException.class, () -> failingService.addPhoto(
+                1L, "supplier-photo.tmp", new ByteArrayInputStream(bytes)));
+
+        InOrder sequence = inOrder(blobStore, cleanup, failingRepository);
+        sequence.verify(blobStore).store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class));
+        sequence.verify(cleanup).fire(new ProductPhotoCleanup.UploadReady(1L, "upload-key"));
+        sequence.verify(failingRepository).save(any(Product.class));
+    }
+
+    @Test
     void theSamePictureIsRefusedASecondTimeEvenUnderAnotherName() {
         repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, false));
@@ -407,10 +448,73 @@ class ProductServicePublicationTest {
         repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true));
 
+        @SuppressWarnings("unchecked")
+        Event<ProductPhotoCleanup.DeleteReady> cleanup = mock(Event.class);
+        service.photoDeleteCleanup = cleanup;
+
         service.delete(1L);
 
         assertTrue(repository.findById(1L).isEmpty());
-        assertEquals(List.of("photo-key"), photoStorage.deleted);
+        assertTrue(photoStorage.deleted.isEmpty(), "blob cleanup waits for a successful commit");
+        verify(cleanup).fire(argThat(ready -> ready.storageKeys().equals(List.of("photo-key"))));
+    }
+
+    @Test
+    void removingAProductOwnedPhotoDefersBlobCleanupUntilCommit() {
+        repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true));
+        @SuppressWarnings("unchecked")
+        Event<ProductPhotoCleanup.DeleteReady> cleanup = mock(Event.class);
+        service.photoDeleteCleanup = cleanup;
+
+        Product updated = service.removePhoto(1L, 3L);
+
+        assertTrue(updated.photos().isEmpty());
+        assertTrue(photoStorage.deleted.isEmpty(), "the blob still exists until the product change commits");
+        verify(cleanup).fire(new ProductPhotoCleanup.DeleteReady(List.of("photo-key")));
+    }
+
+    @Test
+    void createUpdateAndDeleteAppendServerAttributedActivityAndFireOneSafePush() {
+        ActivityLogService activities = mock(ActivityLogService.class);
+        @SuppressWarnings("unchecked")
+        Instance<ActivityLogService> activityInstance = mock(Instance.class);
+        when(activityInstance.isResolvable()).thenReturn(true);
+        when(activityInstance.get()).thenReturn(activities);
+        service.activity = activityInstance;
+
+        CurrentActor currentActor = mock(CurrentActor.class);
+        when(currentActor.current()).thenReturn(new ActorRef("berat", "Berat"));
+        @SuppressWarnings("unchecked")
+        Instance<CurrentActor> actorInstance = mock(Instance.class);
+        when(actorInstance.isResolvable()).thenReturn(true);
+        when(actorInstance.get()).thenReturn(currentActor);
+        service.actor = actorInstance;
+
+        @SuppressWarnings("unchecked")
+        Event<StaffActionPushNotifier.Ready> productPush = mock(Event.class);
+        service.staffPush = productPush;
+        @SuppressWarnings("unchecked")
+        Event<ProductPhotoCleanup.DeleteReady> cleanup = mock(Event.class);
+        service.photoDeleteCleanup = cleanup;
+
+        Product created = service.create(product(82L, "ENR-BOWL-XL", "Beschrijving", "bowl-xl",
+                PublicationState.DRAFT, PublicationState.DRAFT, true));
+        Product updated = service.update(82L, created);
+        service.delete(82L);
+
+        InOrder auditOrder = inOrder(activities);
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_CREATED,
+                "PRODUCT", "82", "ENR-BOWL-XL", "Product aangemaakt");
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_UPDATED,
+                "PRODUCT", "82", "ENR-BOWL-XL", "Product bijgewerkt");
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_DELETED,
+                "PRODUCT", "82", "ENR-BOWL-XL", "Product verwijderd");
+
+        verify(productPush).fire(argThat(ready -> ready.entityId() == updated.id()
+                && ready.actor().equals(new ActorRef("berat", "Berat"))
+                && ready.productSku().equals("ENR-BOWL-XL")));
+        verify(cleanup).fire(argThat(ready -> ready.storageKeys().equals(List.of("photo-key"))));
     }
 
     private static Product product(Long id, String sku, String description, String publicHandle,

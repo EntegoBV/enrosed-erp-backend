@@ -155,6 +155,9 @@
     </td>
     <td class="band__cell" style="width:22%">
       <div class="band__label">Momenten</div>
+      {#if createdBy}
+        <div class="band__line"><span>Aangemaakt door</span> <b>{createdBy.displayName}</b></div>
+      {/if}
       {#for moment in timeline}
         <div class="band__line"><span>{moment.label}</span> <b>{moment.date}</b></div>
       {/for}

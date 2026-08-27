@@ -40,7 +40,7 @@ run `mvn quarkus:dev`, test `mvn test`). Hexagonal-lite per feature:
 be.enrosed.catalog | sales | sourcing | shared
    domain/        records, no framework
    application/   services, ports (in/out interfaces)
-   adapter/in     REST resources (Basic auth: enrosedadmin, RolesAllowed)
+   adapter/in     REST resources (Basic auth: named staff principals, RolesAllowed)
    adapter/out    Panache entities+mappers, PDF renderers, mail, market
 ```
 

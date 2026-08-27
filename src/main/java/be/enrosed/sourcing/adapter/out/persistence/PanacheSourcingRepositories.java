@@ -3,6 +3,7 @@ package be.enrosed.sourcing.adapter.out.persistence;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.*;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.*;
+import be.enrosed.shared.security.ActorRef;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
@@ -79,6 +80,11 @@ public final class PanacheSourcingRepositories {
             return dao.delete("id = ?1 and orderId = ?2", documentId, orderId) == 1;
         }
 
+        @Override
+        public long deleteForOrder(long orderId) {
+            return dao.delete("orderId", orderId);
+        }
+
         private static be.enrosed.sourcing.domain.PurchaseDocument toDomain(SourcingEntities.PurchaseDocumentEntity e) {
             return new be.enrosed.sourcing.domain.PurchaseDocument(e.id, e.orderId, e.kind, e.label, e.originalFilename,
                     e.contentType, e.sizeBytes, e.storageKey, e.paymentId, e.actor, e.addedAt);
@@ -118,6 +124,11 @@ public final class PanacheSourcingRepositories {
         @Override
         public boolean delete(long orderId, long paymentId) {
             return dao.delete("id = ?1 and orderId = ?2", paymentId, orderId) == 1;
+        }
+
+        @Override
+        public long deleteForOrder(long orderId) {
+            return dao.delete("orderId", orderId);
         }
 
         private static be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e) {
@@ -246,6 +257,9 @@ public final class PanacheSourcingRepositories {
             entity.paymentTerms = order.paymentTerms();
             entity.shippedOn = order.shippedOn();
             entity.trackingReference = order.trackingReference();
+            entity.createdBy = order.createdBy() == null ? null : order.createdBy().username();
+            entity.createdByDisplayName = order.createdBy() == null ? null : order.createdBy().displayName();
+            entity.createdAt = order.createdAt();
             entity.notes = order.notes();
 
             List<PurchaseOrderLine> wanted = order.lines();
@@ -298,7 +312,10 @@ public final class PanacheSourcingRepositories {
                     entity.departurePort, entity.destinationPort, entity.receivingLocationId,
                     entity.groupVariants, entity.expectedArrival, entity.receivedOn, entity.paidTotalEur,
                     entity.stockBooked, entity.paymentTerms, entity.shippedOn, entity.trackingReference,
-                    entity.notes, lines);
+                    entity.createdBy == null ? null : new ActorRef(entity.createdBy,
+                            entity.createdByDisplayName == null || entity.createdByDisplayName.isBlank()
+                                    ? entity.createdBy : entity.createdByDisplayName),
+                    entity.createdAt, entity.notes, lines);
         }
     }
 }

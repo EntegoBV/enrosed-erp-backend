@@ -8,7 +8,13 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
@@ -31,6 +37,10 @@ import java.util.stream.Collectors;
 public class SalesOrderService {
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
+    static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
+    static final String SALES_ACTION_SENT = "SENT";
+    static final String SALES_ACTION_SHIPPED = "SHIPPED";
+    static final String SALES_ACTION_PAID = "PAID";
 
     private final SalesRepositories.Orders orders;
     private final ProductService products;
@@ -44,7 +54,15 @@ public class SalesOrderService {
     private final CustomerService customers;
     private final VatCalculator vat;
     private final be.enrosed.shipping.application.CarrierRepository shippingCarriers;
-    private final be.enrosed.push.WebPushNotifier phones;
+    /* Optional only for pure unit tests which construct the service directly. */
+    @Inject
+    Instance<CurrentActor> actor;
+    @Inject
+    Instance<ActivityLogService> activity;
+    @Inject
+    Event<SalesCreationPushNotifier.Ready> salesCreationPush;
+    @Inject
+    Event<SalesActivityPushNotifier.Ready> salesActivityPush;
 
     public SalesOrderService(SalesRepositories.Orders orders, ProductService products,
                              CountryService countries, DiscountTierService tiers,
@@ -53,10 +71,8 @@ public class SalesOrderService {
                              CustomerService customers, VatCalculator vat,
                              SalesRepositories.Events events,
                              SalesRepositories.Revisions revisions,
-                             be.enrosed.shipping.application.CarrierRepository shippingCarriers,
-                             be.enrosed.push.WebPushNotifier phones) {
+                             be.enrosed.shipping.application.CarrierRepository shippingCarriers) {
         this.shippingCarriers = shippingCarriers;
-        this.phones = phones;
         this.orders = orders;
         this.products = products;
         this.countries = countries;
@@ -121,8 +137,9 @@ public class SalesOrderService {
     }
 
     private SalesOrder create(long customerId, String countryCode, String incoterm,
-                              DocumentType docType, boolean notifyImmediately) {
+                              DocumentType docType, boolean staffAction) {
         boolean invoice = docType == DocumentType.FACTUUR;
+        ActorRef creator = staffAction ? currentActor() : null;
         LocalDate today = LocalDate.now();
         /* The staffel of the shipping organisation is the house standard;
            without one configured, the country tariff steps in. */
@@ -148,19 +165,13 @@ public class SalesOrderService {
         SalesOrder created = orders.save(draft);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
-                java.time.Instant.now(), null, false,
+                java.time.Instant.now(), creator == null ? null : creator.displayName(), false,
                 invoice ? "Factuur opgemaakt" : "Offerte opgemaakt", null));
-        if (notifyImmediately) {
-            Customer buyer = customers.get(customerId);
-            try {
-                phones.notifyAll(invoice ? "sale-invoice" : "sale-quote",
-                        (invoice ? "\uD83D\uDCB0 Nieuwe factuur "
-                                : "\uD83D\uDD14 Nieuwe offerte ") + created.number(),
-                        buyer == null ? "Zonet aangemaakt" : "Voor " + buyer.company(),
-                        "/sales/" + created.id());
-            } catch (RuntimeException ignored) {
-                /* A push subscription or VAPID problem may never undo a saved quote. */
-            }
+        if (staffAction) {
+            recordActivity(created, invoice ? "Factuur aangemaakt" : "Offerte aangemaakt");
+            fireCreationPush(invoice
+                    ? SalesCreationPushNotifier.Ready.invoiceCreated(created.id(), created.number(), creator)
+                    : SalesCreationPushNotifier.Ready.quoteCreated(created.id(), created.number(), creator));
         }
         return created;
     }
@@ -177,6 +188,7 @@ public class SalesOrderService {
         if (source.isInvoice()) {
             throw new BusinessRuleException("Dit is al een factuur; maak facturen vanuit een offerte");
         }
+        ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
                 null, nextInvoiceNumber(), source.customerId(), source.countryCode(),
@@ -202,13 +214,14 @@ public class SalesOrderService {
         SalesOrder created = orders.save(invoice);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
-                java.time.Instant.now(), null, false,
+                java.time.Instant.now(), creator.displayName(), false,
                 "Factuur opgemaakt vanuit " + source.number(), null));
         events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
-                java.time.Instant.now(), null, false,
+                java.time.Instant.now(), creator.displayName(), false,
                 "Factuur " + created.number() + " aangemaakt", null));
-        phones.notifyAll("sale-invoice", "\uD83D\uDCB0 Nieuwe factuur " + created.number(),
-                "Vanuit offerte " + source.number(), "/sales/" + created.id());
+        recordActivity(created, "Factuur aangemaakt vanuit offerte");
+        fireCreationPush(SalesCreationPushNotifier.Ready.invoiceFromQuoteCreated(
+                created.id(), created.number(), source.number(), creator));
         return created;
     }
 
@@ -235,10 +248,13 @@ public class SalesOrderService {
                 products.sellStock(line.productId(), line.quantity(), invoice.number());
             }
         }
+        ActorRef actor = currentActor();
         SalesOrder shipped = orders.save(withGoodsShipped(invoice, java.time.Instant.now()));
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.BESTELLING_VERZONDEN,
-                java.time.Instant.now(), null, false,
+                java.time.Instant.now(), actor.displayName(), false,
                 "Bestelling verzonden - voorraad afgepunt", null));
+        recordActivity(SALES_ACTION_SHIPPED, shipped,
+                "Bestelling verzonden en voorraad afgepunt");
         return shipped;
     }
 
@@ -267,8 +283,13 @@ public class SalesOrderService {
         validateInvoiceForSend(invoice);
         SalesOrder sent = withStatus(invoice, QuoteStatus.VERZONDEN, java.time.Instant.now(), null);
         SalesOrder saved = orders.save(sent);
+        ActorRef actor = currentActor();
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.VERSTUURD,
-                java.time.Instant.now(), null, false, "Factuur verstuurd", null));
+                java.time.Instant.now(), actor.displayName(), false,
+                "Factuur verstuurd", null));
+        recordActivity(SALES_ACTION_SENT, saved, "Factuur verstuurd");
+        fireActivityPush(SalesActivityPushNotifier.Ready.staffInvoiceSent(
+                saved.id(), saved.number(), actor));
         return saved;
     }
 
@@ -282,8 +303,10 @@ public class SalesOrderService {
         SalesOrder paid = withStatus(invoice, QuoteStatus.BETAALD,
                 invoice.sentAt(), java.time.Instant.now());
         SalesOrder saved = orders.save(paid);
+        ActorRef actor = currentActor();
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.BETAALD,
-                java.time.Instant.now(), null, false, "Factuur betaald", null));
+                java.time.Instant.now(), actor.displayName(), false, "Factuur betaald", null));
+        recordActivity(SALES_ACTION_PAID, saved, "Factuur als betaald gemarkeerd");
         return saved;
     }
 
@@ -596,11 +619,14 @@ public class SalesOrderService {
         SalesLifecycle.requireDeletable(order, hasRevisions);
         events.deleteByOrder(id);
         orders.deleteById(id);
+        recordActivity(ActivityLogService.ACTION_DELETED, order,
+                order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
     }
 
     @Transactional
     public SalesOrder duplicate(long id) {
         SalesOrder source = get(id);
+        ActorRef actor = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder duplicate = new SalesOrder(
                 null, source.isInvoice() ? nextInvoiceNumber() : nextNumber(),
@@ -625,7 +651,19 @@ public class SalesOrderService {
                                 pallet.heightCm(), pallet.items()))
                         .toList());
         validateForSave(duplicate);
-        return orders.save(duplicate);
+        SalesOrder created = orders.save(duplicate);
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
+                java.time.Instant.now(), actor.displayName(), false,
+                (created.isInvoice() ? "Factuur" : "Offerte")
+                        + " gekopieerd vanuit " + source.number(), null));
+        recordActivity(ActivityLogService.ACTION_DUPLICATED, created,
+                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd");
+        fireCreationPush(created.isInvoice()
+                ? SalesCreationPushNotifier.Ready.invoiceDuplicated(
+                        created.id(), created.number(), source.number(), actor)
+                : SalesCreationPushNotifier.Ready.quoteDuplicated(
+                        created.id(), created.number(), source.number(), actor));
+        return created;
     }
 
     /** Rechecks an existing draft/open quotation before a document leaves. */
@@ -924,6 +962,30 @@ public class SalesOrderService {
         if (value != null && value.signum() < 0) {
             throw new BusinessRuleException(label + " kan niet negatief zijn");
         }
+    }
+
+    private ActorRef currentActor() {
+        return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
+    }
+
+    /** Audit and order creation share one transaction, so neither can survive the other failing. */
+    private void recordActivity(SalesOrder order, String summary) {
+        recordActivity(ActivityLogService.ACTION_CREATED, order, summary);
+    }
+
+    private void recordActivity(String action, SalesOrder order, String summary) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, SALES_ORDER_ACTIVITY_TYPE,
+                order.id() == null ? null : order.id().toString(), order.number(), summary);
+    }
+
+    /** CDI delivers this payload only after the transaction has committed successfully. */
+    private void fireCreationPush(SalesCreationPushNotifier.Ready ready) {
+        if (salesCreationPush != null) salesCreationPush.fire(ready);
+    }
+
+    private void fireActivityPush(SalesActivityPushNotifier.Ready ready) {
+        if (salesActivityPush != null) salesActivityPush.fire(ready);
     }
 
     private static String clean(String value) {

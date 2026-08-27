@@ -6,6 +6,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -56,6 +57,35 @@ class PublicQuoteResourceHttpTest {
                 .body("reference", equalTo("ENR-2026-0041"))
                 .body("bindingStatus", equalTo("REQUEST_RECEIVED_NOT_BINDING"));
         verify(quotes).submit(argThat(request -> request.items().getFirst().cartons() == 2));
+    }
+
+    @Test
+    void previewExposesOnlyServerCalculatedDiscountBreakdown() {
+        PublicQuoteDtos.EstimateResponse response = new PublicQuoteDtos.EstimateResponse(
+                "EUR", "NET_EXCL_VAT", "PICKUP", null,
+                "ESTIMATE_NOT_BINDING", "FINAL_QUOTE_FOLLOWS",
+                List.of(new PublicQuoteDtos.LineEstimate(1L, "SKU-1", 2, 24, 12,
+                        decimal("10"), decimal("5"), decimal("228"), true)),
+                new PublicQuoteDtos.ShippingEstimate("PICKUP", "PICKUP",
+                        decimal("0"), decimal("0"), decimal("0"), 0, 2),
+                new PublicQuoteDtos.TotalsEstimate(
+                        decimal("240"), decimal("12"), decimal("228"),
+                        decimal("3"), decimal("6.84"), decimal("221.16"),
+                        decimal("0"), decimal("221.16"), decimal("21"),
+                        decimal("46.44"), decimal("267.60"), "DOMESTIC", true),
+                new PublicQuoteDtos.ValidationSummary(true, false, true,
+                        decimal("100"), decimal("0"), List.of()));
+        when(quotes.preview(any())).thenReturn(response);
+
+        given().contentType("application/json")
+                .body("{\"language\":\"EN\",\"items\":[{\"productId\":1,\"cartons\":2}]}")
+                .when().post("/api/v1/public/quotes/preview")
+                .then().statusCode(200)
+                .body("lines[0].discountPct", equalTo(5))
+                .body("totals.goodsGrossNet", equalTo(240))
+                .body("totals.lineDiscountNet", equalTo(12))
+                .body("totals.orderDiscountPct", equalTo(3))
+                .body("totals.orderDiscountNet", equalTo(6.84f));
     }
 
     @Test
@@ -136,5 +166,9 @@ class PublicQuoteResourceHttpTest {
                   "website":""
                 }
                 """;
+    }
+
+    private static BigDecimal decimal(String value) {
+        return new BigDecimal(value);
     }
 }

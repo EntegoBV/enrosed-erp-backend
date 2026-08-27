@@ -3,9 +3,12 @@ package be.enrosed.sourcing.application;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Supplier;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.util.List;
@@ -16,9 +19,13 @@ import java.util.Set;
 public class SupplierService {
 
     private static final Set<String> ISO_COUNTRY_CODES = Set.of(Locale.getISOCountries());
+    private static final String ACTIVITY_ENTITY = "SUPPLIER";
 
     private final SourcingRepositories.Suppliers suppliers;
     private final ProductRepository products;
+
+    @Inject
+    Instance<ActivityLogService> activity;
 
     public SupplierService(SourcingRepositories.Suppliers suppliers, ProductRepository products) {
         this.suppliers = suppliers;
@@ -53,7 +60,11 @@ public class SupplierService {
         if (country != null && !ISO_COUNTRY_CODES.contains(country.toUpperCase(Locale.ROOT))) {
             throw new BusinessRuleException("Onbekende ISO-landcode: " + country);
         }
-        return suppliers.save(normalize(supplier, country));
+        boolean created = supplier.id() == null || suppliers.findById(supplier.id()).isEmpty();
+        Supplier saved = suppliers.save(normalize(supplier, country));
+        recordActivity(created ? ActivityLogService.ACTION_CREATED : ActivityLogService.ACTION_UPDATED,
+                saved, created ? "Leverancier aangemaakt" : "Leverancier bijgewerkt");
+        return saved;
     }
 
     @Transactional
@@ -65,6 +76,7 @@ public class SupplierService {
                     "Er hangen nog " + attached + " product(en) aan " + supplier.name());
         }
         suppliers.deleteById(id);
+        recordActivity(ActivityLogService.ACTION_DELETED, supplier, "Leverancier verwijderd");
     }
 
     public long productCount(long supplierId) {
@@ -82,5 +94,12 @@ public class SupplierService {
 
     private static String optional(String value) {
         return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    /** The authenticated actor is resolved inside ActivityLogService, never from the request. */
+    private void recordActivity(String action, Supplier supplier, String summary) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                supplier.id() == null ? null : supplier.id().toString(), supplier.name(), summary);
     }
 }

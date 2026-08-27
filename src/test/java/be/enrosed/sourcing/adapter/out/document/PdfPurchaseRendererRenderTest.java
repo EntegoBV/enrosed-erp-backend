@@ -6,6 +6,7 @@ import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.security.ActorRef;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -86,6 +87,10 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("preserved rose with stem - rood " + lineCount));
             assertTrue(text.contains("betaalplan"));
             assertTrue(text.contains("dagboek"));
+            /* PDFBox extracts the label and value columns separately; assert both facts rather
+               than a visual adjacency that text extraction cannot preserve. */
+            assertTrue(text.contains("aangemaakt door"), text);
+            assertTrue(text.contains("emre"), text);
         }
     }
 
@@ -130,6 +135,8 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("betaalplan"), text);
             assertFalse(text.contains("geregistreerde betalingen"), text);
             assertFalse(text.contains("dagboek"), text);
+            assertFalse(text.contains("aangemaakt door"), text);
+            assertFalse(text.contains("emre"), text);
             assertFalse(text.contains("10.344,47"),
                     "geregistreerde leveranciersbetaling mag niet uitlekken");
             assertFalse(text.contains("24.136,80"),
@@ -206,6 +213,8 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(!text.contains("betaalplan"));
             assertTrue(!text.contains("dagboek"));
             assertTrue(!text.contains("factory road"));
+            assertTrue(!text.contains("aangemaakt door"));
+            assertTrue(!text.contains("emre"));
         }
     }
 
@@ -245,7 +254,7 @@ class PdfPurchaseRendererRenderTest {
                 base.departurePort(), base.destinationPort(), base.receivingLocationId(),
                 base.groupVariants(), base.expectedArrival(), base.receivedOn(),
                 base.paidTotalEur(), base.stockBooked(), base.paymentTerms(), base.shippedOn(),
-                base.trackingReference(), base.notes(), lines);
+                base.trackingReference(), base.createdBy(), base.createdAt(), base.notes(), lines);
     }
 
     private static LandedCost portraitCosting(long productId) {
@@ -284,7 +293,8 @@ class PdfPurchaseRendererRenderTest {
                 LocalDate.of(2026, 9, 4), null, null, null,
                 PaymentTerms.DEPOSIT_30_40_30, LocalDate.of(2026, 7, 18), "MSCU1234567",
                 "12/08/2026 · Aanbetaling 30% geboekt.\n18/07/2026 · Container vertrokken uit Ningbo.\n12/05/2026 · Order geplaatst bij Culinan.",
-                List.of());
+                List.of()).withCreationMetadata(
+                        new ActorRef("emre", "Emre"), Instant.parse("2026-05-12T08:15:30Z"));
     }
 
     static Supplier supplier() {

@@ -1,6 +1,7 @@
 package be.enrosed.sourcing.adapter.out.persistence;
 
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.security.ActorRef;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -9,10 +10,12 @@ import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 
 class PurchaseOrderPersistenceMappingTest {
@@ -49,6 +52,31 @@ class PurchaseOrderPersistenceMappingTest {
         PurchaseOrder restored = PanacheSourcingRepositories.PurchaseOrderAdapter.toDomain(entity);
 
         assertEquals("Ningbo", restored.departurePort());
+        assertNull(restored.createdBy(), "historical orders must not be attributed without evidence");
+        assertNull(restored.createdAt());
+    }
+
+    @Test
+    void creatorSnapshotSurvivesPersistenceAdapterRoundTrip() {
+        PanacheSourcingRepositories.PurchaseOrderDao dao =
+                mock(PanacheSourcingRepositories.PurchaseOrderDao.class);
+        PanacheSourcingRepositories.PurchaseOrderAdapter adapter =
+                new PanacheSourcingRepositories.PurchaseOrderAdapter(dao);
+        Instant createdAt = Instant.parse("2026-08-27T08:15:30Z");
+        PurchaseOrder order = new PurchaseOrder(
+                null, "PO-CREATOR", null, 7L, LocalDate.of(2026, 8, 27),
+                PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
+                new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("0.91"),
+                BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                new BigDecimal("10"), new BigDecimal("2000"),
+                Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
+                "Shenzhen", "Antwerpen", null, List.of())
+                .withCreationMetadata(new ActorRef("emre", "Emre"), createdAt);
+
+        PurchaseOrder restored = adapter.save(order);
+
+        assertEquals(new ActorRef("emre", "Emre"), restored.createdBy());
+        assertEquals(createdAt, restored.createdAt());
     }
 
     @Test

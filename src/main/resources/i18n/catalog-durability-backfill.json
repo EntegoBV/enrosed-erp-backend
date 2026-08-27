@@ -1,0 +1,355 @@
+{
+  "version": "2026-08-27-catalog-durability-v1",
+  "preserveStatuses": true,
+  "expectedCounts": {
+    "familyIdentityVariants": 4,
+    "familyIdentityTranslations": 8,
+    "familyMediaSkus": 4,
+    "familyMediaSourceKeys": 9,
+    "familyMediaInternalOnlySourceKeys": 4,
+    "categories": 2,
+    "categoryTranslationsPerCategory": 8,
+    "familyMoves": 7
+  },
+  "familyIdentity": {
+    "expectedFamilyKey": "model-103-104",
+    "familyKey": "long-stem-rose-box-display",
+    "publicHandle": "long-stem-roses-display",
+    "categoryKey": "display-roses",
+    "base": {
+      "name": "12 extra lange steelrozen in individuele boxen met display",
+      "summary": "Twaalf extra lange gepreserveerde steelrozen, elk in een individuele transparante box en samen geleverd in één toonbankdisplay.",
+      "description": "Elke gepreserveerde roos wordt in een eigen transparante box gepresenteerd. Twaalf individuele boxen worden samen in één toonbankdisplay geleverd, klaar om afzonderlijk als cadeauartikel te verkopen.",
+      "format": "12 individuele boxen · 1 toonbankdisplay",
+      "seoTitle": "12 extra lange steelrozen in individuele boxen met display",
+      "seoDescription": "Twaalf extra lange gepreserveerde steelrozen, elk in een individuele transparante box en samen geleverd in één toonbankdisplay."
+    },
+    "translations": {
+      "NL": {
+        "name": "12 extra lange steelrozen in individuele boxen met display",
+        "summary": "Twaalf extra lange gepreserveerde steelrozen, elk in een individuele transparante box en samen geleverd in één toonbankdisplay.",
+        "description": "Elke gepreserveerde roos wordt in een eigen transparante box gepresenteerd. Twaalf individuele boxen worden samen in één toonbankdisplay geleverd, klaar om afzonderlijk als cadeauartikel te verkopen.",
+        "format": "12 individuele boxen · 1 toonbankdisplay",
+        "seoTitle": "12 extra lange steelrozen in individuele boxen met display",
+        "seoDescription": "Twaalf extra lange gepreserveerde steelrozen, elk in een individuele transparante box en samen geleverd in één toonbankdisplay."
+      },
+      "EN": {
+        "name": "12 Extra-Long Preserved Roses in Individual Boxes with Display",
+        "summary": "Twelve extra-long preserved stem roses, each in an individual transparent box and supplied together in one counter display.",
+        "description": "Each preserved rose is presented in its own transparent box. Twelve individual boxes are supplied together in one counter display, ready to sell as separate gift items.",
+        "format": "12 individual boxes · 1 counter display",
+        "seoTitle": "12 Extra-Long Preserved Roses in Individual Boxes with Display",
+        "seoDescription": "Twelve extra-long preserved stem roses, each in an individual transparent box and supplied together in one counter display."
+      },
+      "FR": {
+        "name": "12 roses stabilisées à tige extra-longue en boîtes individuelles avec présentoir",
+        "summary": "Douze roses stabilisées à tige extra-longue, chacune dans une boîte transparente individuelle et livrées ensemble dans un présentoir de comptoir.",
+        "description": "Chaque rose stabilisée est présentée dans sa propre boîte transparente. Les douze boîtes individuelles sont livrées ensemble dans un présentoir de comptoir, prêtes à être vendues séparément comme cadeaux.",
+        "format": "12 boîtes individuelles · 1 présentoir de comptoir",
+        "seoTitle": "12 roses stabilisées à tige extra-longue en boîtes individuelles avec présentoir",
+        "seoDescription": "Douze roses stabilisées à tige extra-longue, chacune dans une boîte transparente individuelle et livrées ensemble dans un présentoir de comptoir."
+      },
+      "DE": {
+        "name": "12 extralange konservierte Stielrosen in Einzelboxen mit Display",
+        "summary": "Zwölf extralange konservierte Stielrosen, jeweils in einer transparenten Einzelbox und gemeinsam in einem Thekendisplay geliefert.",
+        "description": "Jede konservierte Rose wird in einer eigenen transparenten Box präsentiert. Die zwölf Einzelboxen werden gemeinsam in einem Thekendisplay geliefert und können einzeln als Geschenkartikel verkauft werden.",
+        "format": "12 Einzelboxen · 1 Thekendisplay",
+        "seoTitle": "12 extralange konservierte Stielrosen in Einzelboxen mit Display",
+        "seoDescription": "Zwölf extralange konservierte Stielrosen, jeweils in einer transparenten Einzelbox und gemeinsam in einem Thekendisplay geliefert."
+      },
+      "ES": {
+        "name": "12 rosas preservadas de tallo extralargo en cajas individuales con expositor",
+        "summary": "Doce rosas preservadas de tallo extralargo, cada una en una caja transparente individual y suministradas juntas en un expositor de mostrador.",
+        "description": "Cada rosa preservada se presenta en su propia caja transparente. Las doce cajas individuales se suministran juntas en un expositor de mostrador, listas para venderse por separado como artículos de regalo.",
+        "format": "12 cajas individuales · 1 expositor de mostrador",
+        "seoTitle": "12 rosas preservadas de tallo extralargo en cajas individuales con expositor",
+        "seoDescription": "Doce rosas preservadas de tallo extralargo, cada una en una caja transparente individual y suministradas juntas en un expositor de mostrador."
+      },
+      "PL": {
+        "name": "12 róż stabilizowanych na wyjątkowo długiej łodydze w pojedynczych pudełkach z ekspozytorem",
+        "summary": "Dwanaście róż stabilizowanych na wyjątkowo długiej łodydze, każda w osobnym przezroczystym pudełku, dostarczanych razem w jednym ekspozytorze nablatowym.",
+        "description": "Każda róża stabilizowana jest prezentowana we własnym przezroczystym pudełku. Dwanaście pojedynczych pudełek jest dostarczanych razem w jednym ekspozytorze nablatowym i może być sprzedawanych oddzielnie jako upominki.",
+        "format": "12 pojedynczych pudełek · 1 ekspozytor nablatowy",
+        "seoTitle": "12 róż stabilizowanych na wyjątkowo długiej łodydze w pojedynczych pudełkach z ekspozytorem",
+        "seoDescription": "Dwanaście róż stabilizowanych na wyjątkowo długiej łodydze, każda w osobnym przezroczystym pudełku, dostarczanych razem w jednym ekspozytorze nablatowym."
+      },
+      "PT": {
+        "name": "12 rosas preservadas de haste extralonga em caixas individuais com expositor",
+        "summary": "Doze rosas preservadas de haste extralonga, cada uma numa caixa transparente individual e fornecidas em conjunto num expositor de balcão.",
+        "description": "Cada rosa preservada é apresentada na sua própria caixa transparente. As doze caixas individuais são fornecidas em conjunto num expositor de balcão e podem ser vendidas separadamente como artigos de oferta.",
+        "format": "12 caixas individuais · 1 expositor de balcão",
+        "seoTitle": "12 rosas preservadas de haste extralonga em caixas individuais com expositor",
+        "seoDescription": "Doze rosas preservadas de haste extralonga, cada uma numa caixa transparente individual e fornecidas em conjunto num expositor de balcão."
+      },
+      "TR": {
+        "name": "Bireysel kutularda teşhir standıyla 12 ekstra uzun saplı korunmuş gül",
+        "summary": "Her biri ayrı bir şeffaf kutuda sunulan ve tek bir tezgâh üstü teşhir standında birlikte tedarik edilen on iki ekstra uzun saplı korunmuş gül.",
+        "description": "Her korunmuş gül kendi şeffaf kutusunda sunulur. On iki ayrı kutu, hediye ürünü olarak tek tek satılabilecek şekilde bir tezgâh üstü teşhir standında birlikte tedarik edilir.",
+        "format": "12 bireysel kutu · 1 tezgâh üstü teşhir standı",
+        "seoTitle": "Bireysel kutularda teşhir standıyla 12 ekstra uzun saplı korunmuş gül",
+        "seoDescription": "Her biri ayrı bir şeffaf kutuda sunulan ve tek bir tezgâh üstü teşhir standında birlikte tedarik edilen on iki ekstra uzun saplı korunmuş gül."
+      }
+    },
+    "variants": [
+      {
+        "sku": "ENR-P01",
+        "colour": "Rood",
+        "expectedCanonicalVariantKey": null,
+        "canonicalVariantKey": "long-stem-rose-box-display-red"
+      },
+      {
+        "sku": "ENR-P02",
+        "colour": "Roze",
+        "expectedCanonicalVariantKey": null,
+        "canonicalVariantKey": "long-stem-rose-box-display-pink"
+      },
+      {
+        "sku": "ENR-P03",
+        "colour": "Wit",
+        "expectedCanonicalVariantKey": null,
+        "canonicalVariantKey": "long-stem-rose-box-display-white"
+      },
+      {
+        "sku": "ENR-P04",
+        "colour": "Navy",
+        "expectedCanonicalVariantKey": null,
+        "canonicalVariantKey": "long-stem-rose-box-display-navy"
+      }
+    ]
+  },
+  "familyMedia": {
+    "familyKey": "preserved-single-rose-in-display",
+    "expectedSkus": [
+      "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-RED",
+      "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-PINK",
+      "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-BLUE",
+      "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-WHITE"
+    ],
+    "orderedSourceKeys": [
+      "34987448959145",
+      "34988100944041",
+      "34988100354217",
+      "34988101664937",
+      "admin-ec75183e04a40ffcf62b378f9ec5bd19f420118429bba74081bcadbf66d50b4b",
+      "admin-a848719b0c92e60f3f1c8748739d9dccdc8c66502aa80eeff04d7273c6d8230b",
+      "admin-070ee69e34777d4ab3dc2070880c4d8c940d831df349ff43c32caca957e836ea",
+      "admin-bdfda9a3cf6e81772d01bd27f4147b2f361df86d342b89936aff7ae556d2d926",
+      "admin-7355a4301c5a004f777946b728bc7bad48eab0de4db8387520da7cbec5494be0"
+    ],
+    "internalOnlySourceKeys": [
+      "admin-a848719b0c92e60f3f1c8748739d9dccdc8c66502aa80eeff04d7273c6d8230b",
+      "admin-070ee69e34777d4ab3dc2070880c4d8c940d831df349ff43c32caca957e836ea",
+      "admin-bdfda9a3cf6e81772d01bd27f4147b2f361df86d342b89936aff7ae556d2d926",
+      "admin-7355a4301c5a004f777946b728bc7bad48eab0de4db8387520da7cbec5494be0"
+    ]
+  },
+  "categories": {
+    "rose-bears": {
+      "position": 5,
+      "featuredSku": null,
+      "base": {
+        "name": "Foam Roses & Bears",
+        "eyebrow": "Decorative foam",
+        "description": "Hearts and bears made from foam roses for gift retail, seasonal displays and events.",
+        "mobileName": "Foam & bears",
+        "navigationName": "Foam & bears",
+        "footerName": "Foam roses & bears"
+      },
+      "translations": {
+        "NL": {
+          "name": "Schuimrozen en rozenberen",
+          "eyebrow": "Decoratieve foam",
+          "description": "Harten en rozenberen van schuimrozen voor cadeauverkoop, seizoensdisplays en evenementen.",
+          "mobileName": "Foam & beren",
+          "navigationName": "Foam & beren",
+          "footerName": "Schuimrozen & rozenberen"
+        },
+        "FR": {
+          "name": "Roses en mousse et ours en roses",
+          "eyebrow": "Décors en mousse",
+          "description": "Cœurs et ours composés de roses en mousse pour la vente de cadeaux, les présentations saisonnières et les événements.",
+          "mobileName": "Mousse & ours",
+          "navigationName": "Mousse & ours",
+          "footerName": "Roses en mousse & ours"
+        },
+        "EN": {
+          "name": "Foam Roses & Bears",
+          "eyebrow": "Decorative foam",
+          "description": "Hearts and bears made from foam roses for gift retail, seasonal displays and events.",
+          "mobileName": "Foam & bears",
+          "navigationName": "Foam & bears",
+          "footerName": "Foam roses & bears"
+        },
+        "DE": {
+          "name": "Schaumrosen und Rosenbären",
+          "eyebrow": "Schaumstoff-Dekorationen",
+          "description": "Herzen und Bären aus Schaumrosen für den Geschenkverkauf, saisonale Displays und Events.",
+          "mobileName": "Schaum & Bären",
+          "navigationName": "Schaum & Bären",
+          "footerName": "Schaumrosen & Rosenbären"
+        },
+        "ES": {
+          "name": "Rosas de espuma y osos de rosas",
+          "eyebrow": "Decoración de espuma",
+          "description": "Corazones y osos hechos con rosas de espuma para regalos, expositores de temporada y eventos.",
+          "mobileName": "Espuma y osos",
+          "navigationName": "Espuma y osos",
+          "footerName": "Rosas de espuma y osos de rosas"
+        },
+        "PL": {
+          "name": "Róże piankowe i misie z róż",
+          "eyebrow": "Dekoracje z pianki",
+          "description": "Serca i misie z róż piankowych do sprzedaży upominkowej, ekspozycji sezonowych i dekoracji wydarzeń.",
+          "mobileName": "Pianka i misie",
+          "navigationName": "Pianka i misie",
+          "footerName": "Róże piankowe i misie z róż"
+        },
+        "PT": {
+          "name": "Rosas de espuma e ursos de rosas",
+          "eyebrow": "Decoração em espuma",
+          "description": "Corações e ursos feitos com rosas de espuma para presentes, expositores sazonais e eventos.",
+          "mobileName": "Espuma e ursos",
+          "navigationName": "Espuma e ursos",
+          "footerName": "Rosas de espuma e ursos de rosas"
+        },
+        "TR": {
+          "name": "Köpük güller ve gül ayıcıkları",
+          "eyebrow": "Köpük dekorlar",
+          "description": "Hediye satışı, sezonluk teşhirler ve etkinlikler için köpük güllerden yapılmış kalpler ve ayıcıklar.",
+          "mobileName": "Köpük ve ayıcıklar",
+          "navigationName": "Köpük ve ayıcıklar",
+          "footerName": "Köpük güller ve gül ayıcıkları"
+        }
+      }
+    },
+    "soap-roses": {
+      "position": 6,
+      "featuredSku": "ENR-SOAP-ROSE-BOX-LED-RED",
+      "base": {
+        "name": "Soap Roses",
+        "eyebrow": "Gift-ready formats",
+        "description": "Gift-ready soap roses in window boxes, clear boxes and LED presentations for dependable year-round retail.",
+        "mobileName": "Soap roses",
+        "navigationName": "Soap roses",
+        "footerName": "Soap roses"
+      },
+      "translations": {
+        "NL": {
+          "name": "Zeeprozen",
+          "eyebrow": "Cadeauklare formaten",
+          "description": "Cadeauklare zeeprozen in vensterdozen, transparante boxen en LED-presentaties voor betrouwbare verkoop het hele jaar door.",
+          "mobileName": "Zeeprozen",
+          "navigationName": "Zeeprozen",
+          "footerName": "Zeeprozen"
+        },
+        "FR": {
+          "name": "Roses en savon",
+          "eyebrow": "Formats prêts à offrir",
+          "description": "Roses en savon prêtes à offrir, en boîtes à fenêtre, boîtes transparentes et présentations LED, pour des ventes régulières toute l’année.",
+          "mobileName": "Roses en savon",
+          "navigationName": "Roses en savon",
+          "footerName": "Roses en savon"
+        },
+        "EN": {
+          "name": "Soap Roses",
+          "eyebrow": "Gift-ready formats",
+          "description": "Gift-ready soap roses in window boxes, clear boxes and LED presentations for dependable year-round retail.",
+          "mobileName": "Soap roses",
+          "navigationName": "Soap roses",
+          "footerName": "Soap roses"
+        },
+        "DE": {
+          "name": "Seifenrosen",
+          "eyebrow": "Geschenkfertige Formate",
+          "description": "Geschenkfertige Seifenrosen in Fensterboxen, transparenten Boxen und LED-Präsentationen für verlässlichen Ganzjahresverkauf.",
+          "mobileName": "Seifenrosen",
+          "navigationName": "Seifenrosen",
+          "footerName": "Seifenrosen"
+        },
+        "ES": {
+          "name": "Rosas de jabón",
+          "eyebrow": "Formatos listos para regalar",
+          "description": "Rosas de jabón listas para regalar, en cajas con ventana, cajas transparentes y presentaciones LED, para una venta estable durante todo el año.",
+          "mobileName": "Rosas de jabón",
+          "navigationName": "Rosas de jabón",
+          "footerName": "Rosas de jabón"
+        },
+        "PL": {
+          "name": "Róże mydlane",
+          "eyebrow": "Formaty gotowe na prezent",
+          "description": "Gotowe na prezent róże mydlane w pudełkach z okienkiem, przezroczystych pudełkach i prezentacjach LED do regularnej sprzedaży przez cały rok.",
+          "mobileName": "Róże mydlane",
+          "navigationName": "Róże mydlane",
+          "footerName": "Róże mydlane"
+        },
+        "PT": {
+          "name": "Rosas de sabão",
+          "eyebrow": "Formatos prontos a oferecer",
+          "description": "Rosas de sabão prontas a oferecer, em caixas com janela, caixas transparentes e apresentações LED, para vendas regulares durante todo o ano.",
+          "mobileName": "Rosas de sabão",
+          "navigationName": "Rosas de sabão",
+          "footerName": "Rosas de sabão"
+        },
+        "TR": {
+          "name": "Sabun Gülleri",
+          "eyebrow": "Hediyeye hazır formatlar",
+          "description": "Yıl boyu düzenli satış için pencereli kutularda, şeffaf kutularda ve LED sunumlarında hediyeye hazır sabun gülleri.",
+          "mobileName": "Sabun gülleri",
+          "navigationName": "Sabun gülleri",
+          "footerName": "Sabun gülleri"
+        }
+      }
+    }
+  },
+  "familyMoves": [
+    {
+      "familyKey": "soaproos-in-vensterdoos",
+      "sourceCategoryKeys": ["rose-bears"],
+      "targetCategoryKey": "soap-roses",
+      "position": 0,
+      "required": true
+    },
+    {
+      "familyKey": "soap-rose-box-led",
+      "sourceCategoryKeys": ["rose-bears"],
+      "targetCategoryKey": "soap-roses",
+      "position": 1,
+      "required": true
+    },
+    {
+      "familyKey": "soap-roos-in-box",
+      "sourceCategoryKeys": ["rose-bears"],
+      "targetCategoryKey": "soap-roses",
+      "position": 2,
+      "required": true
+    },
+    {
+      "familyKey": "odoo-half-heart-foam-25",
+      "sourceCategoryKeys": ["foam-rose"],
+      "targetCategoryKey": "rose-bears",
+      "position": 0,
+      "required": true
+    },
+    {
+      "familyKey": "odoo-half-heart-foam-40",
+      "sourceCategoryKeys": ["foam-rose"],
+      "targetCategoryKey": "rose-bears",
+      "position": 1,
+      "required": true
+    },
+    {
+      "familyKey": "model-108-109",
+      "sourceCategoryKeys": ["foam-rose"],
+      "targetCategoryKey": "rose-bears",
+      "position": 2,
+      "required": true
+    },
+    {
+      "familyKey": "model-111-112",
+      "sourceCategoryKeys": ["foam-rose"],
+      "targetCategoryKey": "rose-bears",
+      "position": 3,
+      "required": true
+    }
+  ]
+}

@@ -28,6 +28,7 @@ class PublicQuoteServiceTest {
     private CustomerService customers;
     private SalesOrderService salesOrders;
     private CarrierRepository carriers;
+    private DiscountTierService tiers;
     private Event<WebsiteQuotePushNotifier.Ready> websiteQuoteReady;
     private PublicQuoteService service;
     private Product pricedProduct;
@@ -42,7 +43,7 @@ class PublicQuoteServiceTest {
         salesOrders = mock(SalesOrderService.class);
         carriers = mock(CarrierRepository.class);
         websiteQuoteReady = mock(Event.class);
-        DiscountTierService tiers = mock(DiscountTierService.class);
+        tiers = mock(DiscountTierService.class);
         when(tiers.list(any())).thenReturn(List.of());
         SalesSettings settings = new SalesSettings();
         settings.defaultMarkupPct = decimal("45");
@@ -91,11 +92,36 @@ class PublicQuoteServiceTest {
         assertEquals(2, result.lines().getFirst().cartons());
         assertEquals(decimal("10.0000"), result.lines().getFirst().unitPriceNet());
         assertEquals(decimal("240.00"), result.totals().goodsNet());
+        assertEquals(decimal("240.00"), result.totals().goodsGrossNet());
+        assertEquals(decimal("0.00"), result.totals().lineDiscountNet());
+        assertEquals(decimal("240.00"), result.totals().goodsAfterLineDiscountNet());
+        assertEquals(decimal("0"), result.totals().orderDiscountPct());
+        assertEquals(decimal("0.00"), result.totals().orderDiscountNet());
         assertEquals("CALCULATED", result.shipping().status());
         assertEquals("COUNTRY_TARIFF", result.shipping().source());
         assertEquals(decimal("285.00"), result.shipping().totalNet());
         assertEquals(decimal("635.25"), result.totals().totalInclVat());
         assertEquals("ESTIMATE_NOT_BINDING", result.estimateStatus());
+    }
+
+    @Test
+    void previewExplainsServerCalculatedLineAndOrderDiscounts() {
+        when(tiers.list(TierScope.LINE)).thenReturn(List.of(
+                new DiscountTier(1L, TierScope.LINE, 24, decimal("5"))));
+        when(tiers.list(TierScope.ORDER)).thenReturn(List.of(
+                new DiscountTier(2L, TierScope.ORDER, 24, decimal("3"))));
+
+        PublicQuoteDtos.EstimateResponse result = service.preview(preview(1L, 2, "DELIVERY"));
+
+        assertEquals(decimal("5"), result.lines().getFirst().discountPct());
+        assertEquals(decimal("228.00"), result.lines().getFirst().lineTotalNet());
+        assertEquals(decimal("240.00"), result.totals().goodsGrossNet());
+        assertEquals(decimal("12.00"), result.totals().lineDiscountNet());
+        assertEquals(decimal("228.00"), result.totals().goodsAfterLineDiscountNet());
+        assertEquals(decimal("3"), result.totals().orderDiscountPct());
+        assertEquals(decimal("6.84"), result.totals().orderDiscountNet());
+        assertEquals(decimal("221.16"), result.totals().goodsNet());
+        assertTrue(result.validation().meetsMinimum());
     }
 
     @Test
@@ -108,6 +134,11 @@ class PublicQuoteServiceTest {
                 result.validation().messageCodes());
         assertFalse(result.lines().getFirst().priceAvailable());
         assertNull(result.lines().getFirst().unitPriceNet());
+        assertNull(result.totals().goodsGrossNet());
+        assertNull(result.totals().lineDiscountNet());
+        assertNull(result.totals().goodsAfterLineDiscountNet());
+        assertNull(result.totals().orderDiscountPct());
+        assertNull(result.totals().orderDiscountNet());
         assertNull(result.totals().goodsNet());
         assertNull(result.totals().totalInclVat());
         assertEquals("PICKUP", result.shipping().status());

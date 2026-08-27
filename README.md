@@ -36,7 +36,7 @@ npm start
 | API | <http://localhost:8080> |
 | Swagger UI | <http://localhost:8080/q/swagger-ui> |
 
-**Aanmelden:** `enrosedadmin` / het wachtwoord dat je hebt doorgegeven.
+**Aanmelden:** `emre` of `berat` / het gedeelde wachtwoord dat je hebt doorgegeven.
 
 ## Aanmelden en beveiliging
 
@@ -53,8 +53,9 @@ Op een server hoort die hash er helemaal niet in te staan. Gebruik daarvoor
 omgevingsvariabelen; de waarden in het bestand zijn alleen de standaard voor lokaal werken:
 
 ```bash
-ENROSED_ADMIN_USERNAME=...
+ENROSED_ADMIN_ACCOUNTS='emre|Emre,berat|Berat'
 ENROSED_ADMIN_PASSWORD_HASH=...
+ENROSED_ADMIN_SESSION_SECRET=...
 DB_USERNAME=...
 DB_PASSWORD=...
 ```
@@ -65,18 +66,37 @@ Een nieuw wachtwoord zetten:
 BcryptUtil.bcryptHash("nieuw wachtwoord")   // resultaat in enrosed.admin.password-hash
 ```
 
-De frontend stuurt HTTP Basic mee via een interceptor en bewaart de sleutel in
-`sessionStorage` — bij het sluiten van het tabblad is de sessie voorbij, wat op een
-gedeelde beurscomputer het verschil maakt.
+Na de eerste HTTP Basic-controle wisselt de frontend het echte wachtwoord om voor een
+ondertekende, aflopende sessiesleutel. Alleen die sleutel komt in `localStorage`, zodat
+dezelfde medewerker niet in elk tabblad opnieuw hoeft aan te melden zonder dat het echte
+wachtwoord daar bewaard blijft. Een wachtwoord- of session-secretwijziging trekt bestaande
+sessies meteen in.
+Op een gedeelde computer is **Afmelden** daarom verplicht: die actie verwijdert zowel de
+credentials als de canonieke serveridentiteit in alle open tabbladen.
 
 Een `<img src>` kan geen Authorization-header meesturen, dus foto's worden met de
 HttpClient opgehaald en als blob-URL getoond (`AuthImage`). Die URL wordt weer vrijgegeven
 zodra het element verdwijnt.
 
-**Wat dit nog niet is:** één account, één rol. Zodra er meerdere mensen met verschillende
-rechten bijkomen hoort daar een gebruikerstabel of OIDC te staan; de rest van de
-beveiliging verandert daar niet van, want die hangt aan de rol. Basic auth hoort ook
-alleen over HTTPS de deur uit — op localhost is het prima, op een server niet zonder TLS.
+De twee vaste accounts hebben dezelfde rol en voorlopig hetzelfde wachtwoord, maar de
+server zet `emre` en `berat` als afzonderlijke principals. Daardoor kan het logboek acties
+operationeel toewijzen. Met een gedeeld wachtwoord kan de ene persoon zich nog steeds als
+de andere aanmelden; voor bewijsbare attributie of verschillende rechten horen hier later
+unieke credentials of OIDC bij. Basic auth hoort alleen over HTTPS de deur uit — op
+localhost is het prima, op een server niet zonder TLS.
+
+### Logboek
+
+Succesvolle bedrijfsacties schrijven een compacte, append-only regel met tijd, server-
+principal, actie en onderwerp. Wachtwoorden, hashes, Authorization-headers en volledige
+requestbodies horen daar nooit in. Alleen services schrijven; de REST-route is read-only:
+
+```text
+GET /api/activity?actor=emre&entityType=PURCHASE_ORDER&entityId=42&before=100&limit=50
+```
+
+`before` is het laatste event-id van de vorige pagina. Het antwoord bevat `items` en
+`nextBefore`; `limit` is standaard 50 en maximaal 100.
 
 ## De offerteflow
 
@@ -488,7 +508,7 @@ Vertalen gebeurt in een spreadsheet, vaak door iemand buiten het bedrijf. Vandaa
 bestand eruit en hetzelfde bestand er weer in:
 
 ```bash
-curl -u enrosedadmin:WACHTWOORD http://localhost:8080/api/products/translations/csv -o vertalingen.csv
+curl -u emre:WACHTWOORD http://localhost:8080/api/products/translations/csv -o vertalingen.csv
 ```
 
 Terugladen kan via hetzelfde adres met een POST (multipart, veld `file`). Het antwoord zegt

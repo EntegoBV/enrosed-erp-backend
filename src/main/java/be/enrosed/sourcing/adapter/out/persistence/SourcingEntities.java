@@ -103,6 +103,14 @@ public final class SourcingEntities {
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
 
+        /** Immutable server-side creator snapshot; null only on historical rows. */
+        @Column(name = "created_by", length = 64)
+        public String createdBy;
+        @Column(name = "created_by_display_name", length = 120)
+        public String createdByDisplayName;
+        @Column(name = "created_at")
+        public Instant createdAt;
+
         @Column(length = 2000)
         public String notes;
 

@@ -7,6 +7,9 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -15,6 +18,8 @@ import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.Supplier;
 import org.junit.jupiter.api.Test;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,6 +31,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class PurchaseOrderServiceTest {
 
@@ -171,6 +181,51 @@ class PurchaseOrderServiceTest {
         assertEquals(new BigDecimal("2000"), created.extraRevenueEur());
         assertEquals("Ningbo", created.departurePort());
         assertEquals("Rotterdam", created.destinationPort());
+        assertEquals(ActorRef.SYSTEM, created.createdBy());
+        assertNotNull(created.createdAt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void authenticatedCreatorIsImmutableAndDrivesAuditAndAfterCommitPush() {
+        InMemoryOrders orders = new InMemoryOrders(null);
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        ActorRef emre = new ActorRef("emre", "Emre");
+
+        Instance<CurrentActor> actors = mock(Instance.class);
+        CurrentActor currentActor = mock(CurrentActor.class);
+        when(actors.isResolvable()).thenReturn(true);
+        when(actors.get()).thenReturn(currentActor);
+        when(currentActor.current()).thenReturn(emre);
+        service.actor = actors;
+
+        Instance<ActivityLogService> activities = mock(Instance.class);
+        ActivityLogService activityLog = mock(ActivityLogService.class);
+        when(activities.isResolvable()).thenReturn(true);
+        when(activities.get()).thenReturn(activityLog);
+        service.activity = activities;
+        service.purchasePush = mock(Event.class);
+
+        PurchaseOrder created = service.create(
+                7L, new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("5"));
+
+        assertEquals(emre, created.createdBy());
+        assertNotNull(created.createdAt());
+        verify(activityLog).record(ActivityLogService.ACTION_CREATED,
+                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", created.number(), "Inkooporder aangemaakt");
+        verify(service.purchasePush).fire(argThat(ready -> ready.kind() == PurchasePushNotifier.Kind.CREATED
+                && emre.equals(ready.actor()) && created.number().equals(ready.number())));
+
+        ActorRef berat = new ActorRef("berat", "Berat");
+        when(currentActor.current()).thenReturn(berat);
+        PurchaseOrder changed = created.withReceipt(created.status(), created.receivedOn(),
+                created.paidTotalEur(), created.stockBooked(), "Nieuwe interne notitie", created.lines());
+
+        PurchaseOrder updated = service.update(10L, changed).order();
+
+        assertEquals(emre, updated.createdBy(), "an editor must never replace the original creator");
+        verify(activityLog).record(ActivityLogService.ACTION_UPDATED,
+                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", updated.number(), "Inkooporder bijgewerkt");
     }
 
     @Test
@@ -319,14 +374,26 @@ class PurchaseOrderServiceTest {
 
         @Override
         public PurchaseOrder save(PurchaseOrder order) {
-            current = order;
-            return order;
+            current = order.id() == null ? withId(order, 10L) : order;
+            return current;
         }
 
         @Override
         public void deleteById(long id) {
             deleted = true;
             current = null;
+        }
+
+        private static PurchaseOrder withId(PurchaseOrder order, long id) {
+            return new PurchaseOrder(id, order.number(), order.alias(), order.supplierId(), order.orderDate(),
+                    order.status(), order.containerType(), order.cnyToUsd(), order.usdToEurGoods(),
+                    order.usdToEurTransport(), order.freightUsd(), order.originCosts(), order.originCurrency(),
+                    order.destinationCostsEur(), order.defaultDutyRatePct(), order.extraRevenueEur(),
+                    order.allocFreight(), order.allocOrigin(), order.allocDestination(), order.allocExtra(),
+                    order.departurePort(), order.destinationPort(), order.receivingLocationId(),
+                    order.groupVariants(), order.expectedArrival(), order.receivedOn(), order.paidTotalEur(),
+                    order.stockBooked(), order.paymentTerms(), order.shippedOn(), order.trackingReference(),
+                    order.createdBy(), order.createdAt(), order.notes(), order.lines());
         }
     }
 }

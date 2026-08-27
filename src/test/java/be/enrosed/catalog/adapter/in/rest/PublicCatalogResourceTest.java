@@ -40,16 +40,15 @@ import static org.mockito.Mockito.when;
 class PublicCatalogResourceTest {
 
     @Test
-    void catalogContainsOnlyActiveSkusPublishedForRequestedChannel() {
+    void websiteCatalogRendersTheCanonicalWebsiteOrderableProjection() {
         ProductService products = mock(ProductService.class);
         CategoryService categories = mock(CategoryService.class);
         UriInfo uriInfo = mock(UriInfo.class);
         when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
         when(categories.list()).thenReturn(List.of(category()));
-        when(products.list()).thenReturn(List.of(
+        when(products.websiteOrderableProducts()).thenReturn(List.of(
                 product(1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT),
-                product(2L, true, PublicationState.DRAFT, PublicationState.PUBLISHED),
-                product(3L, false, PublicationState.PUBLISHED, PublicationState.PUBLISHED)));
+                product(4L, true, PublicationState.DRAFT, PublicationState.DRAFT)));
 
         Response response = new PublicCatalogResource(products, categories)
                 .catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
@@ -57,10 +56,34 @@ class PublicCatalogResourceTest {
 
         assertEquals(200, response.getStatus());
         assertEquals(Language.EN, catalog.language());
-        assertEquals(List.of(1L), catalog.products().stream()
+        assertEquals(List.of(1L, 4L), catalog.products().stream()
                 .map(PublicCatalogDto.PublicProductDto::id).toList());
         assertEquals("public, max-age=60, stale-while-revalidate=300",
                 response.getHeaderString("Cache-Control"));
+    }
+
+    @Test
+    void legacyWebsiteCatalogUsesCanonicalWebsiteProjectionInsteadOfStaleSkuFlags() {
+        ProductService products = mock(ProductService.class);
+        CategoryService categories = mock(CategoryService.class);
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
+        when(categories.list()).thenReturn(List.of(category()));
+        Product stalePublishedSku = product(
+                1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT);
+        Product familyPublishedSku = product(
+                2L, true, PublicationState.DRAFT, PublicationState.DRAFT);
+        when(products.list()).thenReturn(List.of(stalePublishedSku));
+        when(products.websiteOrderableProducts()).thenReturn(List.of(familyPublishedSku));
+
+        Response response = new PublicCatalogResource(products, categories)
+                .catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
+        PublicCatalogDto catalog = (PublicCatalogDto) response.getEntity();
+
+        assertEquals(List.of(2L), catalog.products().stream()
+                .map(PublicCatalogDto.PublicProductDto::id).toList());
+        verify(products).websiteOrderableProducts();
+        verify(products, never()).list();
     }
 
     @Test
@@ -72,7 +95,7 @@ class PublicCatalogResourceTest {
         when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
         when(categories.list()).thenReturn(List.of(category()));
         Product domain = product(1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT);
-        when(products.list()).thenReturn(List.of(domain));
+        when(products.websiteOrderableProducts()).thenReturn(List.of(domain));
         ProductEntity row = new ProductEntity();
         row.id = 1L;
         row.name = "Internal invoice name";

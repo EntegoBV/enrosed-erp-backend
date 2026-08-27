@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @QuarkusTest
 /* Resource methods are called directly here; the admin role check on
    the resource class needs an identity, exactly as over HTTP. */
-@io.quarkus.test.security.TestSecurity(user = "enrosedadmin",
+@io.quarkus.test.security.TestSecurity(user = "emre",
         roles = be.enrosed.shared.security.AdminIdentityProvider.ADMIN_ROLE)
 class ProductFamilyVariantContractPersistenceTest {
     @Inject EntityManager entityManager;

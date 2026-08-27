@@ -2,8 +2,15 @@ package be.enrosed.planning;
 
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.push.StaffActionPushNotifier;
+import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.AdminIdentityProvider;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -28,8 +35,22 @@ import java.util.List;
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class PlannerResource {
 
-    @jakarta.inject.Inject
-    be.enrosed.push.WebPushNotifier phones;
+    private static final String ACTIVITY_ENTITY = "PLANNER_ITEM";
+
+    @Inject
+    Instance<ActivityLogService> activity;
+
+    @Inject
+    Instance<CurrentActor> actor;
+
+    @Inject
+    Event<StaffActionPushNotifier.Ready> staffPush;
+
+    @Inject
+    Event<PlannerAttachmentCleanup.DeleteReady> attachmentDeleteCleanup;
+
+    @Inject
+    Event<PlannerAttachmentCleanup.UploadReady> attachmentUploadCleanup;
 
     /** Files ride the same store as product photos: one backup, one place. */
     @jakarta.inject.Inject
@@ -75,10 +96,11 @@ public class PlannerResource {
         apply(entity, request);
         entity.createdAt = Instant.now();
         entity.persist();
-        String when = entity.onDate == null ? ""
-                : " op " + be.enrosed.shared.DocumentFormat.be(entity.onDate)
-                + (entity.atTime == null || entity.atTime.isBlank() ? "" : " om " + entity.atTime);
-        if (phones != null) phones.notifyAll("agenda", "\uD83D\uDCC5 In de agenda gezet", entity.title + when, "/");
+        recordActivity(ActivityLogService.ACTION_CREATED, entity, "Agendapunt aangemaakt");
+        if (staffPush != null && entity.id != null) {
+            staffPush.fire(StaffActionPushNotifier.Ready.plannerCreated(
+                    entity.id, entity.onDate, entity.atTime, currentActor()));
+        }
         return Response.status(Response.Status.CREATED).entity(PlannerItem.from(entity, List.of())).build();
     }
 
@@ -88,7 +110,14 @@ public class PlannerResource {
     public PlannerItem update(@PathParam("id") long id, PlannerItem request) {
         PlannerItemEntity entity = PlannerItemEntity.findById(id);
         if (entity == null) throw new NotFoundException("Agendapunt", id);
+        boolean wasDone = entity.done;
         apply(entity, request);
+        if (wasDone != entity.done) {
+            recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, entity,
+                    entity.done ? "Agendapunt afgerond" : "Agendapunt heropend");
+        } else {
+            recordActivity(ActivityLogService.ACTION_UPDATED, entity, "Agendapunt bijgewerkt");
+        }
         return PlannerItem.from(entity, attachmentsOf(entity.id));
     }
 
@@ -96,14 +125,19 @@ public class PlannerResource {
     @Path("/{id}")
     @Transactional
     public Response delete(@PathParam("id") long id) {
-        if (!PlannerItemEntity.deleteById(id)) throw new NotFoundException("Agendapunt", id);
+        PlannerItemEntity item = PlannerItemEntity.findById(id);
+        if (item == null) throw new NotFoundException("Agendapunt", id);
+        item.delete();
         /* Tasks under the appointment stay alive as planned tasks of their own. */
         PlannerItemEntity.update("parentId = null where parentId = ?1", id);
-        for (PlannerAttachmentEntity attachment
-                : PlannerAttachmentEntity.<PlannerAttachmentEntity>list("itemId = ?1", id)) {
-            try { photoStorage.get().delete(attachment.storageKey); } catch (RuntimeException ignored) { }
+        List<PlannerAttachmentEntity> attachments =
+                PlannerAttachmentEntity.<PlannerAttachmentEntity>list("itemId = ?1", id);
+        List<String> storageKeys = attachments.stream().map(attachment -> attachment.storageKey).toList();
+        for (PlannerAttachmentEntity attachment : attachments) {
             attachment.delete();
         }
+        recordActivity(ActivityLogService.ACTION_DELETED, item, "Agendapunt verwijderd");
+        fireAttachmentCleanup(storageKeys);
         return Response.noContent().build();
     }
 
@@ -125,6 +159,8 @@ public class PlannerResource {
         String type = file.contentType() == null || file.contentType().isBlank()
                 ? "application/octet-stream" : file.contentType();
         var stored = photoStorage.get().store(name, type, bytes);
+        fireAttachmentUploadCleanup(new PlannerAttachmentCleanup.UploadReady(
+                id, stored.storageKey()));
         PlannerAttachmentEntity entity = new PlannerAttachmentEntity();
         entity.itemId = id;
         entity.filename = name;
@@ -154,8 +190,9 @@ public class PlannerResource {
     public Response deleteAttachment(@PathParam("id") long id, @PathParam("attachmentId") long attachmentId) {
         PlannerAttachmentEntity entity = PlannerAttachmentEntity.findById(attachmentId);
         if (entity == null || !entity.itemId.equals(id)) throw new NotFoundException("Bijlage", attachmentId);
-        try { photoStorage.get().delete(entity.storageKey); } catch (RuntimeException ignored) { }
+        String storageKey = entity.storageKey;
         entity.delete();
+        fireAttachmentCleanup(List.of(storageKey));
         return Response.noContent().build();
     }
 
@@ -171,5 +208,28 @@ public class PlannerResource {
         entity.done = request.done();
         entity.pinned = request.pinned() != null && request.pinned();
         entity.parentId = request.parentId();
+    }
+
+    private ActorRef currentActor() {
+        return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
+    }
+
+    /** Audit joins the planner transaction and never accepts a client-supplied actor. */
+    private void recordActivity(String action, PlannerItemEntity item, String summary) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                item.id == null ? null : item.id.toString(), item.title, summary);
+    }
+
+    /** Attachment bytes are external state and may only disappear after the DB commit. */
+    private void fireAttachmentCleanup(List<String> storageKeys) {
+        if (attachmentDeleteCleanup != null && storageKeys != null && !storageKeys.isEmpty()) {
+            attachmentDeleteCleanup.fire(new PlannerAttachmentCleanup.DeleteReady(storageKeys));
+        }
+    }
+
+    /** Compensates an external upload if persisting its attachment row rolls back. */
+    private void fireAttachmentUploadCleanup(PlannerAttachmentCleanup.UploadReady ready) {
+        if (attachmentUploadCleanup != null) attachmentUploadCleanup.fire(ready);
     }
 }

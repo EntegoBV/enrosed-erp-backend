@@ -6,7 +6,12 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -54,6 +59,17 @@ public class QuoteService {
     private final be.enrosed.shared.company.CompanyProfileService company;
     private final be.enrosed.push.WebPushNotifier phones;
 
+    /* Field injection deliberately keeps the existing constructor available to small pure unit
+       tests. Runtime requests always receive these CDI-owned, server-authoritative collaborators. */
+    @Inject
+    CurrentActor currentActor;
+
+    @Inject
+    ActivityLogService activityLog;
+
+    @Inject
+    Event<SalesActivityPushNotifier.Ready> salesPushReady;
+
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
                         QuoteDocumentRenderer renderer, QuoteMailer mailer,
@@ -98,6 +114,8 @@ public class QuoteService {
                 iban, order.number());
 
         mailer.sendInvoice(order, customer, document, personalMessage, paymentSentence);
+        /* SalesOrderService owns the single SENT audit + after-commit push for both
+           this mail flow and the dashboard's manual 'mark sent' action. */
         return salesOrders.markInvoiceSent(order.id());
     }
 
@@ -233,7 +251,8 @@ public class QuoteService {
                         freightState == FreightState.TE_BEPALEN,
                         freightState == FreightState.AANGEVULD));
 
-        record(order, QuoteEvent.Type.VERSTUURD, false, null,
+        ActorRef actor = staffActor();
+        record(order, QuoteEvent.Type.VERSTUURD, false, actor.displayName(),
                 order.sentAt() == null ? "Offerte verstuurd" : "Offerte opnieuw verstuurd",
                 "Naar " + customer.email());
         if (terms == DeliveryTermsState.AANGEVULD) {
@@ -244,9 +263,14 @@ public class QuoteService {
             record(order, QuoteEvent.Type.VRACHT_INGEVULD, false, null, "Vracht ingevuld", null);
         }
 
-        return orders.save(withStatus(order, QuoteStatus.VERZONDEN,
+        SalesOrder sent = orders.save(withStatus(order, QuoteStatus.VERZONDEN,
                 token, Instant.now(), order.viewedAt(), order.viewCount(),
                 null, null, order.customerMessage(), terms, freightState));
+        recordActivity("SENT", order,
+                order.sentAt() == null ? "Offerte verstuurd" : "Offerte opnieuw verstuurd");
+        notifyAfterCommit(SalesActivityPushNotifier.Ready.staffQuoteSent(
+                order.id(), order.number(), actor));
+        return sent;
     }
 
     /** Rebuild the PDF, for instance to review or download it ourselves. */
@@ -297,8 +321,8 @@ public class QuoteService {
            on the order. */
         if (order.status() == QuoteStatus.VERZONDEN) {
             record(order, QuoteEvent.Type.BEKEKEN, true, null, "Klant heeft de offerte geopend", null);
-            phones.notifyAll("info", "\uD83D\uDC40 Offerte " + order.number() + " geopend",
-                    "De klant bekijkt de offerte in het portaal", "/sales/" + order.id());
+            notifyAfterCommit(SalesActivityPushNotifier.Ready.customerOpened(
+                    order.id(), order.number()));
         }
 
         return orders.save(withStatus(order, status, order.portalToken(),
@@ -352,11 +376,12 @@ public class QuoteService {
 
         record(order, QuoteEvent.Type.GETEKEND, true, signedByName.trim(),
                 "Offerte aanvaard en getekend", message);
+        recordActivity("CUSTOMER_ACCEPTED", order, "Klant aanvaardde de offerte");
 
         mailer.notifyInternal("Offerte " + order.number() + " geaccepteerd",
                 signedByName + " heeft offerte " + order.number() + " getekend.");
-        phones.notifyAll("sale-signed", "\u270D\uFE0F Offerte " + order.number() + " getekend",
-                signedByName.trim() + " heeft getekend - tijd om te leveren", "/sales/" + order.id());
+        notifyAfterCommit(SalesActivityPushNotifier.Ready.customerAccepted(
+                order.id(), order.number()));
         return accepted;
     }
 
@@ -371,12 +396,12 @@ public class QuoteService {
 
         record(order, QuoteEvent.Type.AFGEWEZEN, true, null, "Offerte afgewezen door de klant",
                 message);
+        recordActivity("CUSTOMER_REJECTED", order, "Klant wees de offerte af");
 
         mailer.notifyInternal("Offerte " + order.number() + " afgewezen",
                 "Reden van de klant: " + (message == null ? "geen" : message));
-        phones.notifyAll("info", "\u274C Offerte " + order.number() + " afgewezen",
-                message == null || message.isBlank() ? "Zonder reden" : message,
-                "/sales/" + order.id());
+        notifyAfterCommit(SalesActivityPushNotifier.Ready.customerRejected(
+                order.id(), order.number()));
         return rejected;
     }
 
@@ -423,14 +448,15 @@ public class QuoteService {
 
         record(order, QuoteEvent.Type.VOORSTEL, true, proposedBy,
                 "Klant stelt een wijziging voor", describe(order, rounded, message));
+        recordActivity("CUSTOMER_CHANGE_REQUESTED", order,
+                "Klant vroeg een wijziging aan");
 
         mailer.notifyInternal("Wijziging gevraagd op offerte " + order.number(),
                 (proposedBy == null ? "De klant" : proposedBy)
                         + " stelt wijzigingen voor op offerte " + order.number()
                         + (message == null || message.isBlank() ? "" : ":\n\n" + message));
-        phones.notifyAll("info", "\u270F\uFE0F Wijziging gevraagd op " + order.number(),
-                "De klant stelt een aanpassing voor - beoordeel het voorstel",
-                "/sales/" + order.id());
+        notifyAfterCommit(SalesActivityPushNotifier.Ready.customerChangeRequested(
+                order.id(), order.number()));
 
         return revision;
     }
@@ -473,6 +499,21 @@ public class QuoteService {
                         String actor, String summary, String detail) {
         events.add(new QuoteEvent(null, order.id(), type, Instant.now(),
                 actor, byCustomer, summary, detail));
+    }
+
+    private ActorRef staffActor() {
+        return currentActor == null ? ActorRef.SYSTEM : currentActor.current();
+    }
+
+    private void recordActivity(String action, SalesOrder order, String summary) {
+        if (activityLog == null) return; // Direct constructor-only unit tests have no CDI fields.
+        activityLog.record(action, "SALES_ORDER", String.valueOf(order.id()),
+                order.number(), summary);
+    }
+
+    private void notifyAfterCommit(SalesActivityPushNotifier.Ready ready) {
+        if (salesPushReady == null) return;
+        salesPushReady.fire(ready);
     }
 
     /** The history of a quote, oldest first. */

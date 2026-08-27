@@ -320,6 +320,11 @@ public class PublicQuoteService {
                 totals.palletsStrict(), totals.cartons());
         boolean complete = pricesComplete && prepared.shippingAvailable;
         TotalsEstimate publicTotals = new TotalsEstimate(
+                pricesComplete ? totals.gross() : null,
+                pricesComplete ? totals.lineDiscountTotal() : null,
+                pricesComplete ? totals.subtotal() : null,
+                pricesComplete ? totals.orderDiscountPercent() : null,
+                pricesComplete ? totals.orderDiscountAmount() : null,
                 pricesComplete ? totals.goodsTotal() : null,
                 prepared.shippingAvailable ? totals.shippingTotal() : null,
                 complete ? totals.total() : null,

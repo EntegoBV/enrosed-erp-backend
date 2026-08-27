@@ -37,7 +37,7 @@ class ProductServiceWebsiteOrderableTest {
         when(families.findById(20L)).thenReturn(family(20L, PublicationState.PUBLISHED));
 
         ProductService service = new ProductService(repository, mock(PhotoStorage.class),
-                mock(ProductValidator.class), null, families, null, null);
+                mock(ProductValidator.class), families, null, null);
 
         assertEquals(List.of(2L, 3L), service.websiteOrderableProducts().stream()
                 .map(Product::id).toList());

@@ -14,7 +14,11 @@ import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.VariantSizes;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.push.StaffActionPushNotifier;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
@@ -44,15 +48,13 @@ import java.util.Objects;
 @ApplicationScoped
 public class ProductService {
 
-    @jakarta.inject.Inject
-    be.enrosed.push.WebPushNotifier phones;
+    private static final String ACTIVITY_ENTITY = "PRODUCT";
 
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(ProductService.class);
 
     private final ProductRepository products;
     private final PhotoStorage photoStorage;
     private final ProductValidator validator;
-    private final PhotoReferenceService photoReferences;
     private final CanonicalCatalogDaos.Families families;
     private final ProductFamilyWriteGuard familyWrites;
     private final FamilyPhotoCompatibilityService familyPhotos;
@@ -65,6 +67,14 @@ public class ProductService {
     Instance<StockLedger> ledger;
     @Inject
     Instance<CurrentActor> actor;
+    @Inject
+    Instance<ActivityLogService> activity;
+    @Inject
+    Event<StaffActionPushNotifier.Ready> staffPush;
+    @Inject
+    Event<ProductPhotoCleanup.DeleteReady> photoDeleteCleanup;
+    @Inject
+    Event<ProductPhotoCleanup.UploadReady> photoUploadCleanup;
     /* Stock per location; pure unit tests run on the single figure. */
     @Inject
     Instance<StockService> stock;
@@ -82,13 +92,12 @@ public class ProductService {
     @Inject
     public ProductService(
             ProductRepository products, PhotoStorage photoStorage, ProductValidator validator,
-            PhotoReferenceService photoReferences, CanonicalCatalogDaos.Families families,
+            CanonicalCatalogDaos.Families families,
             ProductFamilyWriteGuard familyWrites,
             FamilyPhotoCompatibilityService familyPhotos) {
         this.products = products;
         this.photoStorage = photoStorage;
         this.validator = validator;
-        this.photoReferences = photoReferences;
         this.families = families;
         this.familyWrites = familyWrites;
         this.familyPhotos = familyPhotos;
@@ -97,7 +106,7 @@ public class ProductService {
     /** Test compatibility for pure domain tests that do not share family photo blobs. */
     public ProductService(ProductRepository products, PhotoStorage photoStorage,
                           ProductValidator validator) {
-        this(products, photoStorage, validator, null, null, null, null);
+        this(products, photoStorage, validator, null, null, null);
     }
 
     public List<Product> list() {
@@ -161,9 +170,11 @@ public class ProductService {
         syncFamilyPhotos(saved.id(), prepared.familyId());
         queueWebsite();
         Product created = saved.id() == null ? saved : get(saved.id());
-        if (phones != null) phones.notifyAll("product", "\uD83C\uDF39 Product toegevoegd: " + created.name(),
-                created.sku() == null ? "" : created.sku(),
-                created.id() == null ? "/products" : "/products/" + created.id());
+        recordActivity(ActivityLogService.ACTION_CREATED, created, "Product aangemaakt");
+        if (staffPush != null && created.id() != null) {
+            staffPush.fire(StaffActionPushNotifier.Ready.productCreated(
+                    created.id(), created.name(), created.sku(), currentActor()));
+        }
         return created;
     }
 
@@ -221,7 +232,9 @@ public class ProductService {
         validateFamilies(current.familyId(), merged.familyId());
         syncFamilyPhotos(saved.id(), current.familyId(), merged.familyId());
         queueWebsite();
-        return saved.id() == null ? saved : get(saved.id());
+        Product updated = saved.id() == null ? saved : get(saved.id());
+        recordActivity(ActivityLogService.ACTION_UPDATED, updated, "Product bijgewerkt");
+        return updated;
     }
 
     /** The photo series and purchasing-owned fields are never overwritten by a full product PUT. */
@@ -369,8 +382,14 @@ public class ProductService {
         draftEmptyFamily(product.familyId());
         validateFamilies(product.familyId());
         syncFamilyPhotos(null, product.familyId());
-        product.photos().forEach(photo -> deleteBlob(photo.storageKey()));
         queueWebsite();
+        recordActivity(ActivityLogService.ACTION_DELETED, product, "Product verwijderd");
+        if (photoDeleteCleanup != null) {
+            List<String> storageKeys = product.photos().stream().map(Photo::storageKey).toList();
+            if (!storageKeys.isEmpty()) {
+                photoDeleteCleanup.fire(new ProductPhotoCleanup.DeleteReady(storageKeys));
+            }
+        }
     }
 
     /**
@@ -487,7 +506,20 @@ public class ProductService {
     }
 
     private String actorName() {
-        return actor != null && actor.isResolvable() ? actor.get().name() : "systeem";
+        return currentActor().username();
+    }
+
+    private ActorRef currentActor() {
+        return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
+    }
+
+    /** Audit joins the catalogue write transaction and never accepts a client-supplied actor. */
+    private void recordActivity(String action, Product product, String summary) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                product.id() == null ? null : product.id().toString(),
+                product.sku() == null || product.sku().isBlank() ? product.name() : product.sku(),
+                summary);
     }
 
     /**
@@ -529,6 +561,10 @@ public class ProductService {
         rejectDuplicatePhoto(product, upload);
         PhotoStorage.Stored stored = photoStorage.store(
                 upload.originalFilename(), upload.contentType(), upload.bytes());
+        if (photoUploadCleanup != null) {
+            photoUploadCleanup.fire(new ProductPhotoCleanup.UploadReady(
+                    productId, stored.storageKey()));
+        }
 
         List<Photo> photos = new ArrayList<>(product.photos().size() + 1);
         product.photos().stream().filter(photo -> !photo.inherited()).forEach(photos::add);
@@ -579,8 +615,11 @@ public class ProductService {
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
         Product saved = products.save(updated);
-        deleteBlob(target.storageKey());
         queueWebsite();
+        if (photoDeleteCleanup != null) {
+            photoDeleteCleanup.fire(new ProductPhotoCleanup.DeleteReady(
+                    List.of(target.storageKey())));
+        }
         return saved;
     }
 
@@ -809,11 +848,6 @@ public class ProductService {
                     i, photo.familyPhotoId()));
         }
         return result;
-    }
-
-    private void deleteBlob(String storageKey) {
-        if (photoReferences == null) photoStorage.delete(storageKey);
-        else photoReferences.deleteIfUnreferenced(storageKey);
     }
 
     private void queueWebsite() {

@@ -31,7 +31,6 @@ class SalesOrderLogisticsValidationTest {
     private ProductService products;
     private Product product;
     private SalesPricingCalculator pricing;
-    private be.enrosed.push.WebPushNotifier phones;
 
     private final be.enrosed.shipping.application.CarrierRepository carriers =
             mock(be.enrosed.shipping.application.CarrierRepository.class);
@@ -43,7 +42,6 @@ class SalesOrderLogisticsValidationTest {
         CountryService countries = mock(CountryService.class);
         DiscountTierService tiers = mock(DiscountTierService.class);
         pricing = mock(SalesPricingCalculator.class);
-        phones = mock(be.enrosed.push.WebPushNotifier.class);
         CustomerService customers = mock(CustomerService.class);
         VatCalculator vat = mock(VatCalculator.class);
         SalesRepositories.Events events = mock(SalesRepositories.Events.class);
@@ -67,7 +65,8 @@ class SalesOrderLogisticsValidationTest {
 
         service = new SalesOrderService(orders, products, countries, tiers,
                 pricing, new PalletCalculator(), settings, customers, vat, events, revisions,
-                carriers, phones);
+                carriers);
+        service.salesCreationPush = mock(jakarta.enterprise.event.Event.class);
     }
 
     @Test
@@ -92,7 +91,7 @@ class SalesOrderLogisticsValidationTest {
     void websiteDraftCreationDoesNotPushBeforeItsFinalUpdateCommits() {
         service.createWebsiteRequest(1L, "BE", "EXW");
 
-        org.mockito.Mockito.verifyNoInteractions(phones);
+        org.mockito.Mockito.verifyNoInteractions(service.salesCreationPush);
     }
 
     @Test

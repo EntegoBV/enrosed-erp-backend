@@ -1,8 +1,11 @@
 package be.enrosed.sourcing.domain;
 
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.security.ActorRef;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -97,9 +100,34 @@ public record PurchaseOrder(
         /** Container or bill-of-lading number, carrier tracking link - whatever finds the box. */
         String trackingReference,
 
+        /** Server-owned creator snapshot. Kept outside the mutable REST order payload. */
+        @JsonIgnore ActorRef createdBy,
+        /** Exact creation moment; legacy orders legitimately have no value. */
+        @JsonIgnore Instant createdAt,
+
         String notes,
         List<PurchaseOrderLine> lines
 ) {
+    /** Compatibility for callers written before creator metadata existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            LocalDate expectedArrival, LocalDate receivedOn, BigDecimal paidTotalEur, Boolean stockBooked,
+            PaymentTerms paymentTerms, LocalDate shippedOn, String trackingReference,
+            String notes, List<PurchaseOrderLine> lines) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                null, null, notes, lines);
+    }
+
     /** Compatibility for callers written before payment terms and shipping facts existed. */
     public PurchaseOrder(
             Long id, String number, String alias, Long supplierId, LocalDate orderDate,
@@ -120,6 +148,16 @@ public record PurchaseOrder(
 
     public PaymentTerms paymentTerms() {
         return paymentTerms == null ? PaymentTerms.THIRDS : paymentTerms;
+    }
+
+    /** Adds immutable metadata while a brand-new order is still being assembled server-side. */
+    public PurchaseOrder withCreationMetadata(ActorRef actor, Instant at) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                actor, at, notes, lines);
     }
 
     /** Compatibility for callers written before receipts had their own fields. */
@@ -151,7 +189,8 @@ public record PurchaseOrder(
                 usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
-                receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference, notes, lines);
+                receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines);
     }
 
     /** Compatibility for callers written before variant grouping existed. */

@@ -4,15 +4,22 @@ import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.*;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import be.enrosed.catalog.domain.Carton;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -38,25 +45,30 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PurchaseOrderService {
 
-    @jakarta.inject.Inject
-    be.enrosed.push.WebPushNotifier phones;
-
     private static final Logger LOG = Logger.getLogger(PurchaseOrderService.class);
 
     private final SourcingRepositories.PurchaseOrders orders;
     private final SourcingRepositories.Suppliers suppliers;
     private final ProductService products;
     /* Payments and who records them; pure unit tests run without. */
-    @jakarta.inject.Inject
-    jakarta.enterprise.inject.Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Payments> payments;
-    @jakarta.inject.Inject
-    jakarta.enterprise.inject.Instance<be.enrosed.shared.security.CurrentActor> actor;
-    @jakarta.inject.Inject
-    jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.StockService> locationNames;
-    @jakarta.inject.Inject
-    jakarta.enterprise.inject.Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Documents> documents;
-    @jakarta.inject.Inject
-    jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.port.out.PhotoStorage> photoStorage;
+    @Inject
+    Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Payments> payments;
+    @Inject
+    Instance<CurrentActor> actor;
+    @Inject
+    Instance<ActivityLogService> activity;
+    @Inject
+    Event<PurchasePushNotifier.Ready> purchasePush;
+    @Inject
+    Instance<be.enrosed.catalog.application.StockService> locationNames;
+    @Inject
+    Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Documents> documents;
+    @Inject
+    Instance<be.enrosed.catalog.application.port.out.PhotoStorage> photoStorage;
+    @Inject
+    Event<PurchaseDocumentStorageCleanup.DeleteReady> documentDeleteCleanup;
+    @Inject
+    Event<PurchaseDocumentStorageCleanup.UploadReady> documentUploadCleanup;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -97,6 +109,7 @@ public class PurchaseOrderService {
         requirePositive(usdToEur, "USD/EUR-koers");
         requirePercentage(defaultDutyRatePct, "Standaard invoerrecht");
 
+        ActorRef creator = currentActor();
         PurchaseOrder draft = new PurchaseOrder(
                 null, nextNumber(), null, supplierId, LocalDate.now(),
                 PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
@@ -104,10 +117,12 @@ public class PurchaseOrderService {
                 BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
                 defaultDutyRatePct, new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
-                "Ningbo", "Rotterdam", "", List.of());
+                "Ningbo", "Rotterdam", "", List.of())
+                .withCreationMetadata(creator, Instant.now());
         PurchaseOrder created = orders.save(draft);
-        if (phones != null) phones.notifyAll("purchase", "\uD83D\uDCE6 Nieuwe inkooporder " + created.number(),
-                "Calculatie aangemaakt", "/purchasing/" + created.id());
+        recordActivity(ActivityLogService.ACTION_CREATED, created, "Inkooporder aangemaakt");
+        firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.CREATED,
+                created.id(), created.number(), created.destinationPort(), false, creator));
         return created;
     }
 
@@ -124,7 +139,8 @@ public class PurchaseOrderService {
         PurchaseOrder source = get(id);
         String alias = source.alias() == null || source.alias().isBlank()
                 ? null : source.alias() + " (kopie)";
-        return orders.save(new PurchaseOrder(
+        ActorRef creator = currentActor();
+        PurchaseOrder copy = orders.save(new PurchaseOrder(
                 null, nextNumber(), alias, source.supplierId(), LocalDate.now(),
                 /* Always a draft: otherwise a copy of a received order would
                    book the stock a second time. */
@@ -138,7 +154,10 @@ public class PurchaseOrderService {
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
                                 line.priceBasis()))
-                        .toList()));
+                        .toList()).withCreationMetadata(creator, Instant.now()));
+        recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
+                "Inkooporder gedupliceerd vanuit " + source.number());
+        return copy;
     }
 
     /**
@@ -244,16 +263,23 @@ public class PurchaseOrderService {
                 current.shippedOn() != null ? current.shippedOn()
                         : changes.status() == PurchaseOrderStatus.ONDERWEG ? LocalDate.now() : null,
                 changes.trackingReference(),
+                current.createdBy(), current.createdAt(),
                 withLateDamageNotes(changes.notes(), lateDamage), lines));
 
-        if (phones != null && current.status() != saved.status()) {
+        if (!saved.equals(current)) {
+            if (current.status() != saved.status()) {
+                recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, saved,
+                        "Status gewijzigd van " + statusLabel(current.status()) + " naar " + statusLabel(saved.status()));
+            } else {
+                recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inkooporder bijgewerkt");
+            }
+        }
+        if (current.status() != saved.status()) {
             switch (saved.status()) {
-                case BESTELD -> phones.notifyAll("purchase",
-                        "\uD83D\uDCE6 Inkooporder " + saved.number() + " besteld",
-                        "Bij de leverancier geplaatst", "/purchasing/" + saved.id());
-                case ONDERWEG -> phones.notifyAll("purchase",
-                        "\uD83D\uDEA2 Container vertrokken \u00b7 " + saved.number(),
-                        "Onderweg naar Rotterdam", "/purchasing/" + saved.id());
+                case BESTELD -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.ORDERED,
+                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
+                case ONDERWEG -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.DEPARTED,
+                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
                 default -> { }
             }
         }
@@ -355,10 +381,12 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
-                actor != null && actor.isResolvable() ? actor.get().name() : "systeem", java.time.Instant.now(), to));
+                currentActor().displayName(), java.time.Instant.now(), to));
 
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
+        recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
+                "Betaling aan " + to.dutchLabel().toLowerCase(java.util.Locale.ROOT) + " toegevoegd");
         return payment;
     }
 
@@ -401,7 +429,7 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseDocument addDocument(long orderId, PurchaseDocument.Kind kind, String label, Long paymentId,
                                         String filename, String contentType, byte[] bytes) {
-        get(orderId);
+        PurchaseOrder order = get(orderId);
         if (bytes == null || bytes.length == 0) throw new BusinessRuleException("Het bestand is leeg");
         if (bytes.length > 25 * 1024 * 1024) throw new BusinessRuleException("Een bestand mag hoogstens 25 MB zijn");
         if (paymentId != null) {
@@ -417,25 +445,34 @@ public class PurchaseOrderService {
         String name = filename == null || filename.isBlank() ? "document" : filename.strip();
         String type = contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType;
         var stored = photoStorage.get().store(name, type, bytes);
-        return documents.get().save(new PurchaseDocument(null, orderId, kind == null ? PurchaseDocument.Kind.OTHER : kind,
+        fireUploadCleanup(new PurchaseDocumentStorageCleanup.UploadReady(orderId, stored.storageKey()));
+        PurchaseDocument saved = documents.get().save(new PurchaseDocument(null, orderId,
+                kind == null ? PurchaseDocument.Kind.OTHER : kind,
                 label == null || label.isBlank() ? null : label.strip(), name, type, bytes.length, stored.storageKey(),
-                paymentId, actor != null && actor.isResolvable() ? actor.get().name() : "systeem", java.time.Instant.now()));
+                paymentId, currentActor().displayName(), java.time.Instant.now()));
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_ADDED, order, "Document toegevoegd");
+        return saved;
     }
 
     /** The pencil next to an uploaded file: the title stays editable afterwards. */
     @Transactional
     public PurchaseDocument renameDocument(long orderId, long documentId, String label) {
-        get(orderId);
+        PurchaseOrder order = get(orderId);
         String cleaned = label == null || label.isBlank() ? null : label.strip();
-        return documents.get().rename(orderId, documentId, cleaned)
+        PurchaseDocument renamed = documents.get().rename(orderId, documentId, cleaned)
                 .orElseThrow(() -> new NotFoundException("Document", documentId));
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_RENAMED, order, "Documentnaam gewijzigd");
+        return renamed;
     }
 
     @Transactional
     public void deleteDocument(long orderId, long documentId) {
+        PurchaseOrder order = get(orderId);
         PurchaseDocument document = document(orderId, documentId);
         documents.get().delete(orderId, documentId);
-        try { photoStorage.get().delete(document.storageKey()); } catch (RuntimeException ignored) { /* the row is gone; the blob is sweepable */ }
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, order, "Document verwijderd");
+        fireDocumentDeleteCleanup(new PurchaseDocumentStorageCleanup.DeleteReady(
+                orderId, List.of(document.storageKey())));
     }
 
     /**
@@ -528,6 +565,7 @@ public class PurchaseOrderService {
             orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), cleaned, order.lines()));
         }
+        recordActivity(ActivityLogService.ACTION_PAYMENT_DELETED, order, "Betaling verwijderd");
     }
 
     /** Removes the first line that matches, and nothing else someone wrote. */
@@ -597,12 +635,9 @@ public class PurchaseOrderService {
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
         PurchaseOrder received = orders.save(order.withReceipt(PurchaseOrderStatus.ONTVANGEN, day,
                 receipt.paidTotalEur(), false, notes, lines));
-        if (phones != null) {
-            phones.notifyAll("purchase",
-                    "\uD83D\uDCE6 Container ontvangen \u00b7 " + received.number(),
-                    receipt.bookStock() ? "Voorraad wordt bijgeboekt" : "Ontvangst geregistreerd",
-                    "/purchasing/" + received.id());
-        }
+        recordActivity(ActivityLogService.ACTION_RECEIVED, received, "Container ontvangen");
+        firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.RECEIVED,
+                received.id(), received.number(), received.destinationPort(), receipt.bookStock(), currentActor()));
         return receipt.bookStock() ? bookStock(received.id()) : received;
     }
 
@@ -630,8 +665,10 @@ public class PurchaseOrderService {
                 ? locationNames.get().location(order.receivingLocationId()).name() : "Magazijn";
         String note = "Voorraad bijgeboekt op " + LocalDate.now().format(DAY) + " (" + where + ").";
         String notes = order.notes() == null || order.notes().isBlank() ? note : order.notes().stripTrailing() + "\n" + note;
-        return orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), true,
-                notes, order.lines()));
+        PurchaseOrder booked = orders.save(order.withReceipt(order.status(), order.receivedOn(),
+                order.paidTotalEur(), true, notes, order.lines()));
+        recordActivity(ActivityLogService.ACTION_STOCK_BOOKED, booked, "Voorraad bijgeboekt");
+        return booked;
     }
 
     /** Pieces still on the water: per product the sum over ordered and shipped containers. */
@@ -689,11 +726,27 @@ public class PurchaseOrderService {
     @Transactional
     public void delete(long id) {
         PurchaseOrder order = getForUpdate(id);
-        if (order.status() == PurchaseOrderStatus.ONTVANGEN) {
+        if (order.status() == PurchaseOrderStatus.ONTVANGEN || order.isStockBooked()) {
             throw new BusinessRuleException(
                     "Een ontvangen inkooporder kan niet verwijderd worden omdat de voorraad al geboekt is");
         }
+        List<String> storageKeys = List.of();
+        if (documents != null && documents.isResolvable()) {
+            storageKeys = documents.get().forOrder(id).stream()
+                    .map(PurchaseDocument::storageKey)
+                    .filter(Objects::nonNull)
+                    .filter(key -> !key.isBlank())
+                    .map(String::strip)
+                    .distinct()
+                    .toList();
+            documents.get().deleteForOrder(id);
+        }
+        if (payments != null && payments.isResolvable()) payments.get().deleteForOrder(id);
         orders.deleteById(id);
+        recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
+        if (!storageKeys.isEmpty()) {
+            fireDocumentDeleteCleanup(new PurchaseDocumentStorageCleanup.DeleteReady(id, storageKeys));
+        }
     }
 
     /** Forward-only lifecycle; same-state saves remain possible for details. */
@@ -888,7 +941,45 @@ public class PurchaseOrderService {
                 + result.lines().size() + " product(en) bijgewerkt in de catalogus.";
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                 order.stockBooked(), appendNote(order.notes(), line), order.lines()));
+        recordActivity(ActivityLogService.ACTION_COSTS_APPLIED, order,
+                "Kostprijzen op " + result.lines().size() + " product(en) toegepast");
         return result;
+    }
+
+    private ActorRef currentActor() {
+        return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
+    }
+
+    /** Audit joins the business transaction: no order change may outlive a failed audit write. */
+    private void recordActivity(String action, PurchaseOrder order, String summary) {
+        if (activity == null || !activity.isResolvable()) return; // pure unit tests instantiate this service directly
+        activity.get().record(action, ActivityLogService.ENTITY_PURCHASE_ORDER,
+                order.id() == null ? null : order.id().toString(), order.number(), summary);
+    }
+
+    /** The observer sends only after this transaction commits successfully. */
+    private void firePush(PurchasePushNotifier.Ready ready) {
+        if (purchasePush != null) purchasePush.fire(ready);
+    }
+
+    /** Deletes the bytes only after the document row and audit entry committed. */
+    private void fireDocumentDeleteCleanup(PurchaseDocumentStorageCleanup.DeleteReady ready) {
+        if (documentDeleteCleanup != null) documentDeleteCleanup.fire(ready);
+    }
+
+    /** Compensates an uploaded external blob if the document transaction rolls back. */
+    private void fireUploadCleanup(PurchaseDocumentStorageCleanup.UploadReady ready) {
+        if (documentUploadCleanup != null) documentUploadCleanup.fire(ready);
+    }
+
+    private static String statusLabel(PurchaseOrderStatus status) {
+        if (status == null) return "onbekend";
+        return switch (status) {
+            case CONCEPT -> "concept";
+            case BESTELD -> "besteld";
+            case ONDERWEG -> "onderweg";
+            case ONTVANGEN -> "ontvangen";
+        };
     }
 
     private String nextNumber() {

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @QuarkusTest
-@io.quarkus.test.security.TestSecurity(user = "enrosedadmin",
+@io.quarkus.test.security.TestSecurity(user = "emre",
         roles = be.enrosed.shared.security.AdminIdentityProvider.ADMIN_ROLE)
 class PublishedFamilyEditTest {
     @Inject ProductFamilyResource resource;
@@ -61,5 +61,70 @@ class PublishedFamilyEditTest {
                 () -> resource.update(family.id, json.treeToValue(body, ProductFamilyDto.class)));
         assertTrue(blocked.getMessage().startsWith("Productfamilie kan nog niet gepubliceerd worden"),
                 blocked.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void quickWebsiteSwitchHidesOnlyTheWebsiteChannel() {
+        ProductFamilyEntity family = new ProductFamilyEntity();
+        family.familyKey = "fam-quick-hide";
+        family.name = "Rose display";
+        family.websiteStatus = PublicationState.PUBLISHED;
+        family.orderAppStatus = PublicationState.PUBLISHED;
+        family.catalogueStatus = PublicationState.PUBLISHED;
+        entityManager.persist(family);
+        entityManager.flush();
+
+        ProductFamilyResource.WebsiteVisibilityResult result = resource.setWebsiteVisibility(
+                family.id, new ProductFamilyResource.WebsiteVisibilityRequest(false));
+        ProductFamilyDto hidden = result.family();
+
+        assertEquals(PublicationState.DRAFT, hidden.websiteStatus());
+        assertEquals(PublicationState.PUBLISHED, hidden.orderAppStatus());
+        assertEquals(PublicationState.PUBLISHED, hidden.catalogueStatus());
+        assertEquals("Rose display", hidden.name());
+    }
+
+    @Test
+    @TestTransaction
+    void quickWebsiteSwitchReportsWhenAnotherPublishedFamilyBlocksTheRebuild() {
+        ProductFamilyEntity target = new ProductFamilyEntity();
+        target.familyKey = "fam-hide-with-blocker";
+        target.name = "Family to hide";
+        target.websiteStatus = PublicationState.PUBLISHED;
+        entityManager.persist(target);
+
+        ProductFamilyEntity blocker = new ProductFamilyEntity();
+        blocker.familyKey = "fam-incomplete-published-blocker";
+        blocker.name = "Incomplete published family";
+        blocker.websiteStatus = PublicationState.PUBLISHED;
+        entityManager.persist(blocker);
+        entityManager.flush();
+
+        ProductFamilyResource.WebsiteVisibilityResult result = resource.setWebsiteVisibility(
+                target.id, new ProductFamilyResource.WebsiteVisibilityRequest(false));
+
+        assertEquals(PublicationState.DRAFT, result.family().websiteStatus());
+        assertTrue(!result.rebuildQueued());
+        assertTrue(result.notice().contains("openstaande publicatiepunten"));
+    }
+
+    @Test
+    @TestTransaction
+    void quickWebsiteSwitchStillBlocksAnIncompleteDraft() {
+        ProductFamilyEntity family = new ProductFamilyEntity();
+        family.familyKey = "fam-quick-show";
+        family.name = "Incomplete rose display";
+        entityManager.persist(family);
+        entityManager.flush();
+
+        BusinessRuleException blocked = assertThrows(BusinessRuleException.class,
+                () -> resource.setWebsiteVisibility(
+                        family.id, new ProductFamilyResource.WebsiteVisibilityRequest(true)));
+
+        assertTrue(blocked.getMessage().startsWith("Productfamilie kan nog niet gepubliceerd worden"),
+                blocked.getMessage());
+        assertEquals(PublicationState.DRAFT, entityManager.find(
+                ProductFamilyEntity.class, family.id).websiteStatus);
     }
 }

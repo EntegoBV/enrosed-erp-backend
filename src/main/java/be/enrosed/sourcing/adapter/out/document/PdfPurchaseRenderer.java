@@ -175,6 +175,7 @@ public class PdfPurchaseRenderer {
                 .data("orderDate", DocumentFormat.be(order.orderDate()))
                 .data("statusLabel", statusLabel(order.status()))
                 .data("timeline", timeline(order))
+                .data("createdBy", internal ? order.createdBy() : null)
                 .data("paymentTermsLabel", order.paymentTerms().dutchLabel())
                 .data("schedule", schedule(order, payable))
                 .data("paymentRows", paymentRows(payments))

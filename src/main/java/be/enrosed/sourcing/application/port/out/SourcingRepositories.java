@@ -19,6 +19,13 @@ public interface SourcingRepositories {
         List<be.enrosed.sourcing.domain.PurchasePayment> forOrder(long orderId);
         be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment);
         boolean delete(long orderId, long paymentId);
+        default long deleteForOrder(long orderId) {
+            long deleted = 0;
+            for (be.enrosed.sourcing.domain.PurchasePayment payment : List.copyOf(forOrder(orderId))) {
+                if (delete(orderId, payment.id())) deleted++;
+            }
+            return deleted;
+        }
     }
 
     interface Documents {
@@ -27,6 +34,13 @@ public interface SourcingRepositories {
         be.enrosed.sourcing.domain.PurchaseDocument save(be.enrosed.sourcing.domain.PurchaseDocument document);
         java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> rename(long orderId, long documentId, String label);
         boolean delete(long orderId, long documentId);
+        default long deleteForOrder(long orderId) {
+            long deleted = 0;
+            for (be.enrosed.sourcing.domain.PurchaseDocument document : List.copyOf(forOrder(orderId))) {
+                if (delete(orderId, document.id())) deleted++;
+            }
+            return deleted;
+        }
     }
 
     interface PurchaseOrders {

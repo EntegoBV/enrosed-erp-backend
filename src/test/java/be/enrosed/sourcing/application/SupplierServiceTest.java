@@ -3,9 +3,12 @@ package be.enrosed.sourcing.application;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Supplier;
+import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.when;
 
 class SupplierServiceTest {
 
@@ -59,6 +64,33 @@ class SupplierServiceTest {
         assertThrows(BusinessRuleException.class, () -> service.save(invalid));
     }
 
+    @Test
+    void createUpdateAndDeleteAppendServerAttributedActivity() {
+        InMemorySuppliers repository = new InMemorySuppliers();
+        ProductRepository products = mock(ProductRepository.class);
+        SupplierService service = new SupplierService(repository, products);
+        ActivityLogService activities = mock(ActivityLogService.class);
+        @SuppressWarnings("unchecked")
+        Instance<ActivityLogService> activityInstance = mock(Instance.class);
+        when(activityInstance.isResolvable()).thenReturn(true);
+        when(activityInstance.get()).thenReturn(activities);
+        service.activity = activityInstance;
+
+        Supplier created = service.save(new Supplier(null, "Supplier One", "CN", "Yiwu",
+                null, null, null, Currency.CNY, "EXW", "Ningbo", 30, null));
+        Supplier updated = service.save(created.withId(created.id()));
+        service.delete(created.id());
+
+        InOrder auditOrder = inOrder(activities);
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_CREATED,
+                "SUPPLIER", "1", "Supplier One", "Leverancier aangemaakt");
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_UPDATED,
+                "SUPPLIER", "1", "Supplier One", "Leverancier bijgewerkt");
+        auditOrder.verify(activities).record(ActivityLogService.ACTION_DELETED,
+                "SUPPLIER", "1", "Supplier One", "Leverancier verwijderd");
+        assertEquals(1L, updated.id());
+    }
+
     private static final class InMemorySuppliers implements SourcingRepositories.Suppliers {
         private Supplier stored;
 
@@ -74,8 +106,8 @@ class SupplierServiceTest {
 
         @Override
         public Supplier save(Supplier supplier) {
-            stored = supplier;
-            return supplier;
+            stored = supplier.id() == null ? supplier.withId(1L) : supplier;
+            return stored;
         }
 
         @Override

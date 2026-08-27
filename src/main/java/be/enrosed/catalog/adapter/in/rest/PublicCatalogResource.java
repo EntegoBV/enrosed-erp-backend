@@ -72,8 +72,18 @@ public class PublicCatalogResource {
                 .thenComparing(product -> safe(publicName(product, language)), String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(product -> safe(product.sku()), String.CASE_INSENSITIVE_ORDER);
 
-        var publicProducts = products.list().stream()
-                .filter(product -> product.isPublishedTo(channel))
+        /* The canonical family owns WEBSITE publication. Reuse the same
+           projection as public quotations so the legacy flat endpoint cannot
+           keep exposing stale SKU publication flags after a family is hidden.
+           Unlinked pre-family products still use their own WEBSITE state in
+           ProductService.websiteOrderableProducts(). */
+        var candidates = channel == CatalogChannel.WEBSITE
+                ? products.websiteOrderableProducts()
+                : products.list().stream()
+                    .filter(product -> product.isPublishedTo(channel))
+                    .toList();
+
+        var publicProducts = candidates.stream()
                 .sorted(order)
                 .map(product -> PublicCatalogDto.product(
                         product, categoryById.get(product.categoryId()), language,

@@ -19,12 +19,14 @@ import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.UnprocessableBusinessRuleException;
+import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
@@ -65,6 +67,8 @@ public class ProductFamilyResource {
     private final FamilyCollectionAlignmentService familyCollections;
     private final FeaturedProductSelectionService featuredProducts;
     private final ProductFamilyWriteGuard familyWrites;
+    private final CanonicalCatalogDaos.ImportConflicts importConflicts;
+    private final CanonicalCatalogDaos.ImportBatches importBatches;
     private final ObjectMapper json;
 
     @Inject
@@ -72,6 +76,9 @@ public class ProductFamilyResource {
 
     @Inject
     be.enrosed.catalog.application.PublicLocalizationCompletenessService localization;
+
+    @Inject
+    Instance<ActivityLogService> activity;
 
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
@@ -88,6 +95,8 @@ public class ProductFamilyResource {
             FamilyCollectionAlignmentService familyCollections,
             FeaturedProductSelectionService featuredProducts,
             ProductFamilyWriteGuard familyWrites,
+            CanonicalCatalogDaos.ImportConflicts importConflicts,
+            CanonicalCatalogDaos.ImportBatches importBatches,
             ObjectMapper json) {
         this.families = families;
         this.familyDtos = familyDtos;
@@ -103,6 +112,8 @@ public class ProductFamilyResource {
         this.familyCollections = familyCollections;
         this.featuredProducts = featuredProducts;
         this.familyWrites = familyWrites;
+        this.importConflicts = importConflicts;
+        this.importBatches = importBatches;
         this.json = json;
     }
 
@@ -154,6 +165,293 @@ public class ProductFamilyResource {
         ensureRequestedPublicationIsValid(family, members, !wasPublished, !wasReady);
         families.flush();
         return changed(family);
+    }
+
+    public record WebsiteVisibilityRequest(boolean visible) {}
+
+    public record WebsiteVisibilityResult(
+            ProductFamilyDto family,
+            boolean rebuildQueued,
+            String notice) {}
+
+    /** One exact stock-bearing member in a guarded draft-identity finalization. */
+    public record VariantIdentityRequest(
+            String sku,
+            String expectedCanonicalVariantKey,
+            String canonicalVariantKey) {}
+
+    /**
+     * Optimistic preconditions and the complete target identity for a draft family. The SKU list
+     * is deliberately complete rather than incremental: a concurrently added, removed or moved
+     * member makes the whole command fail without changing any identity.
+     */
+    public record FinalizeDraftIdentityRequest(
+            String expectedFamilyKey,
+            String familyKey,
+            String publicHandle,
+            List<VariantIdentityRequest> variants) {}
+
+    /**
+     * Changes only the public website switch. This deliberately does not accept a full family
+     * snapshot, so a quick action in the website workspace cannot overwrite a concurrent title,
+     * translation, category, image, order-app or catalogue edit.
+     */
+    @PUT @Path("/{id}/website-visibility") @Transactional
+    public WebsiteVisibilityResult setWebsiteVisibility(
+            @PathParam("id") long id, WebsiteVisibilityRequest request) {
+        if (request == null) {
+            throw new BusinessRuleException("Kies of de productreeks zichtbaar is op de website");
+        }
+        lockFamily(id);
+        ProductFamilyEntity family = family(id);
+        PublicationState wanted = request.visible()
+                ? PublicationState.PUBLISHED : PublicationState.DRAFT;
+        if (family.websiteStatus == wanted) {
+            return new WebsiteVisibilityResult(dto(family), false, null);
+        }
+        if (request.visible() && !family.active) {
+            throw new BusinessRuleException(
+                    "Activeer de productreeks eerst in ERP voordat u ze op de website toont");
+        }
+
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", id);
+        if (request.visible()) {
+            PublicationState previous = family.websiteStatus;
+            family.websiteStatus = wanted;
+            try {
+                ensureRequestedPublicationIsValid(family, members, true, false);
+            } catch (RuntimeException failure) {
+                /* Keep the managed entity coherent even when this method is invoked inside a
+                   caller-owned transaction that catches the validation exception. */
+                family.websiteStatus = previous;
+                throw failure;
+            }
+        } else {
+            family.websiteStatus = wanted;
+        }
+        family.updatedAt = Instant.now();
+        families.flush();
+        recordWebsiteVisibility(family, request.visible());
+        boolean rebuildQueued = queueWebsite();
+        return new WebsiteVisibilityResult(
+                dto(family),
+                rebuildQueued,
+                rebuildQueued ? null
+                        : "Zichtbaarheid is opgeslagen. Websitepublicatie wacht tot de andere "
+                                + "openstaande publicatiepunten zijn opgelost.");
+    }
+
+    /**
+     * Finalizes imported placeholder identities while the complete family is still internal.
+     * Normal family and product editors keep their immutable-live-identity rules; this narrow
+     * command is the only supported path from an observed draft key to semantic canonical keys.
+     */
+    @PUT @Path("/{id}/finalize-draft-identity") @Transactional
+    public ProductFamilyDto finalizeDraftIdentity(
+            @PathParam("id") long id, FinalizeDraftIdentityRequest request) {
+        if (request == null) {
+            throw new BusinessRuleException("Geen identiteitsfinalisatie meegestuurd");
+        }
+        String expectedFamilyKey = technicalKey(
+                request.expectedFamilyKey(), "Verwachte familiecode");
+        String targetFamilyKey = technicalKey(request.familyKey(), "Nieuwe familiecode");
+        String targetHandle = technicalKey(request.publicHandle(), "Publieke handle");
+
+        lockFamily(id);
+        ProductFamilyEntity family = family(id);
+        List<ProductEntity> observedMembers = products.list(
+                "familyId = ?1 order by variantPosition, id", id);
+        familyWrites.lockProducts(observedMembers.stream().map(member -> member.id).toList());
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", id);
+
+        requireCompletelyDraft(family, members);
+        if (members.isEmpty()) {
+            throw new BusinessRuleException(
+                    "Een familie zonder SKU's kan geen variantidentiteit krijgen");
+        }
+
+        LinkedHashMap<String, ProductEntity> membersBySku = new LinkedHashMap<>();
+        for (ProductEntity member : members) {
+            String sku = required(member.sku, "SKU", MAX_SHORT);
+            if (membersBySku.put(sku, member) != null) {
+                throw new BusinessRuleException("Dubbele SKU in productfamilie: " + sku);
+            }
+        }
+        LinkedHashMap<String, String> requestedBySku = new LinkedHashMap<>();
+        LinkedHashMap<String, String> expectedBySku = new LinkedHashMap<>();
+        Set<String> requestedVariantKeys = new HashSet<>();
+        Set<String> expectedVariantKeys = new HashSet<>();
+        for (VariantIdentityRequest variant : safeList(request.variants())) {
+            if (variant == null) {
+                throw new BusinessRuleException("Een variantidentiteit mag niet leeg zijn");
+            }
+            String sku = required(variant.sku(), "SKU", MAX_SHORT);
+            String expectedVariantKey = optional(variant.expectedCanonicalVariantKey());
+            if (expectedVariantKey != null) {
+                expectedVariantKey = technicalKey(
+                        expectedVariantKey, "Verwachte canonieke variantcode");
+                if (!expectedVariantKeys.add(expectedVariantKey)) {
+                    throw new BusinessRuleException(
+                            "Verwachte canonieke variantcode " + expectedVariantKey
+                                    + " komt meer dan één keer voor");
+                }
+            }
+            String variantKey = technicalKey(
+                    variant.canonicalVariantKey(), "Canonieke variantcode");
+            if (requestedBySku.put(sku, variantKey) != null) {
+                throw new BusinessRuleException("SKU " + sku + " komt meer dan één keer voor");
+            }
+            expectedBySku.put(sku, expectedVariantKey);
+            if (!requestedVariantKeys.add(variantKey)) {
+                throw new BusinessRuleException(
+                        "Canonieke variantcode " + variantKey + " komt meer dan één keer voor");
+            }
+        }
+        if (!membersBySku.keySet().equals(requestedBySku.keySet())) {
+            throw new BusinessRuleException(
+                    "SKU-lidmaatschap is gewijzigd; verwacht exact "
+                            + requestedBySku.keySet() + " maar vond " + membersBySku.keySet());
+        }
+
+        boolean alreadyFinalized = Objects.equals(family.familyKey, targetFamilyKey)
+                && Objects.equals(family.publicHandle, targetHandle)
+                && membersBySku.entrySet().stream().allMatch(entry -> Objects.equals(
+                        entry.getValue().canonicalVariantKey, requestedBySku.get(entry.getKey())));
+        if (alreadyFinalized) return dto(family);
+
+        if (!Objects.equals(family.familyKey, expectedFamilyKey)) {
+            throw new BusinessRuleException(
+                    "Familiecode is gewijzigd; verwacht " + expectedFamilyKey
+                            + " maar vond " + family.familyKey);
+        }
+        if (family.publicHandle != null && !Objects.equals(family.publicHandle, targetHandle)) {
+            throw new BusinessRuleException(
+                    "De productfamilie heeft al een andere vaste publieke handle");
+        }
+        for (Map.Entry<String, ProductEntity> entry : membersBySku.entrySet()) {
+            String current = optional(entry.getValue().canonicalVariantKey);
+            String expected = expectedBySku.get(entry.getKey());
+            if (!Objects.equals(current, expected)) {
+                throw new BusinessRuleException(
+                        "Variantcode van SKU " + entry.getKey()
+                                + " is gewijzigd; verwacht " + expected + " maar vond " + current);
+            }
+        }
+
+        List<CatalogImportConflictEntity> ownedImportConflicts = requireOwnedImportConflicts(
+                family, expectedFamilyKey, expectedBySku, requestedBySku);
+        requireIdentityAvailable(family, members, targetFamilyKey, targetHandle, requestedVariantKeys);
+        family.familyKey = targetFamilyKey;
+        family.publicHandle = targetHandle;
+        family.updatedAt = Instant.now();
+        membersBySku.forEach((sku, member) ->
+                member.canonicalVariantKey = requestedBySku.get(sku));
+        migrateOwnedImportConflicts(
+                ownedImportConflicts, targetFamilyKey, expectedBySku, requestedBySku);
+        memberCache.sync(family);
+        families.flush();
+        recordIdentityFinalization(family, members.size());
+        return dto(family);
+    }
+
+    /**
+     * Conflict rows predate a family FK. They are moved only when their import batch proves that
+     * they came from this family's last canonical import; ambiguous historical rows block the
+     * command instead of being reassigned by a coincidentally matching text key.
+     */
+    private List<CatalogImportConflictEntity> requireOwnedImportConflicts(
+            ProductFamilyEntity family,
+            String expectedFamilyKey,
+            Map<String, String> expectedBySku,
+            Map<String, String> requestedBySku) {
+        List<CatalogImportConflictEntity> rows = importConflicts.find(
+                "familyKey", expectedFamilyKey)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list();
+        if (rows.isEmpty()) return rows;
+        String lastImportKey = optional(family.lastImportKey);
+        if (lastImportKey == null) {
+            throw new BusinessRuleException(
+                    "Historische importconflicten hebben geen bewijsbare eigenaar; "
+                            + "koppel ze eerst aan een importbatch");
+        }
+        Set<String> expectedVariantKeys = expectedBySku.values().stream()
+                .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        Set<String> targetVariantKeys = new HashSet<>(requestedBySku.values());
+        for (CatalogImportConflictEntity row : rows) {
+            CatalogImportBatchEntity batch = row.importBatchId == null
+                    ? null : importBatches.findById(row.importBatchId);
+            if (batch == null || !Objects.equals(lastImportKey, batch.importKey)) {
+                throw new BusinessRuleException(
+                        "Historisch importconflict " + row.id
+                                + " hoort niet bewijsbaar bij de laatste familie-import");
+            }
+            String variantKey = optional(row.canonicalVariantKey);
+            if (variantKey != null && !expectedVariantKeys.contains(variantKey)
+                    && !targetVariantKeys.contains(variantKey)) {
+                throw new BusinessRuleException(
+                        "Historisch importconflict " + row.id
+                                + " verwijst naar een onverwachte variantcode");
+            }
+        }
+        return rows;
+    }
+
+    private static void migrateOwnedImportConflicts(
+            List<CatalogImportConflictEntity> rows,
+            String targetFamilyKey,
+            Map<String, String> expectedBySku,
+            Map<String, String> requestedBySku) {
+        Map<String, String> variantRenames = new HashMap<>();
+        expectedBySku.forEach((sku, expected) -> {
+            if (expected != null) variantRenames.put(expected, requestedBySku.get(sku));
+        });
+        for (CatalogImportConflictEntity row : rows) {
+            row.familyKey = targetFamilyKey;
+            String replacement = variantRenames.get(optional(row.canonicalVariantKey));
+            if (replacement != null) row.canonicalVariantKey = replacement;
+        }
+    }
+
+    private void requireCompletelyDraft(
+            ProductFamilyEntity family, List<ProductEntity> members) {
+        if (state(family.websiteStatus) != PublicationState.DRAFT
+                || state(family.orderAppStatus) != PublicationState.DRAFT
+                || state(family.catalogueStatus) != PublicationState.DRAFT
+                || members.stream().anyMatch(member ->
+                        state(member.websiteStatus) != PublicationState.DRAFT
+                                || state(member.orderAppStatus) != PublicationState.DRAFT)) {
+            throw new BusinessRuleException(
+                    "Identiteit kan alleen worden gefinaliseerd wanneer familie en alle SKU's "
+                            + "op elk kanaal concept zijn");
+        }
+    }
+
+    private void requireIdentityAvailable(
+            ProductFamilyEntity family,
+            List<ProductEntity> members,
+            String familyKey,
+            String publicHandle,
+            Set<String> canonicalVariantKeys) {
+        ProductFamilyEntity keyOwner = families.find("familyKey", familyKey).firstResult();
+        if (keyOwner != null && !Objects.equals(keyOwner.id, family.id)) {
+            throw new BusinessRuleException("Familiecode " + familyKey + " bestaat al");
+        }
+        ProductFamilyEntity handleOwner = families.find("publicHandle", publicHandle).firstResult();
+        if (handleOwner != null && !Objects.equals(handleOwner.id, family.id)) {
+            throw new BusinessRuleException("Publieke handle " + publicHandle + " bestaat al");
+        }
+        Set<Long> memberIds = members.stream().map(member -> member.id).collect(
+                java.util.stream.Collectors.toSet());
+        for (String variantKey : canonicalVariantKeys) {
+            ProductEntity keyVariant = products.find(
+                    "canonicalVariantKey", variantKey).firstResult();
+            if (keyVariant != null && !memberIds.contains(keyVariant.id)) {
+                throw new BusinessRuleException(
+                        "Canonieke variantcode " + variantKey + " bestaat al");
+            }
+        }
     }
 
     private void requireStablePublicIdentity(
@@ -467,10 +765,34 @@ public class ProductFamilyResource {
         return dto(family);
     }
 
-    private void queueWebsite() {
+    private void recordWebsiteVisibility(ProductFamilyEntity family, boolean visible) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(
+                ActivityLogService.ACTION_STATUS_CHANGED,
+                ActivityLogService.ENTITY_PRODUCT_FAMILY,
+                String.valueOf(family.id),
+                family.name,
+                visible
+                        ? "Productreeks zichtbaar gemaakt op de website"
+                        : "Productreeks verborgen van de website");
+    }
+
+    private void recordIdentityFinalization(ProductFamilyEntity family, int variantCount) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(
+                ActivityLogService.ACTION_IDENTITY_FINALIZED,
+                ActivityLogService.ENTITY_PRODUCT_FAMILY,
+                String.valueOf(family.id),
+                family.name,
+                "Conceptidentiteit definitief gemaakt voor " + variantCount + " variant(en)");
+    }
+
+    private boolean queueWebsite() {
         if (websiteRebuild != null && familyWrites.websiteBuildReady()) {
             websiteRebuild.queue();
+            return true;
         }
+        return false;
     }
 
     private ProductFamilyEntity family(long id) {
@@ -633,6 +955,14 @@ public class ProductFamilyResource {
             throw new BusinessRuleException("Publieke handle mag alleen kleine letters, cijfers en koppeltekens bevatten");
         }
         return handle;
+    }
+    private static String technicalKey(String value, String label) {
+        String key = required(value, label, MAX_SHORT);
+        if (!key.matches("[a-z0-9]+(?:-[a-z0-9]+)*")) {
+            throw new BusinessRuleException(
+                    label + " mag alleen kleine letters, cijfers en koppeltekens bevatten");
+        }
+        return key;
     }
     private static String required(String value, String label) {
         return required(value, label, Integer.MAX_VALUE);

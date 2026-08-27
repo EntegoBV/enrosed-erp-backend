@@ -141,6 +141,11 @@ public final class PublicQuoteDtos {
     ) {}
 
     public record TotalsEstimate(
+            BigDecimal goodsGrossNet,
+            BigDecimal lineDiscountNet,
+            BigDecimal goodsAfterLineDiscountNet,
+            BigDecimal orderDiscountPct,
+            BigDecimal orderDiscountNet,
             BigDecimal goodsNet,
             BigDecimal shippingNet,
             BigDecimal totalNet,

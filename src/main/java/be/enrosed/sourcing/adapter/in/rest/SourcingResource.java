@@ -10,6 +10,7 @@ import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import be.enrosed.shared.security.AdminIdentityProvider;
+import be.enrosed.shared.security.ActorRef;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -45,7 +46,10 @@ public class SourcingResource {
                                     /** Who is owed what: supplier, road, and our own share. */
                                     PurchaseOrderService.Payable payable,
                                     /** What the order waits on from us, in words; empty when nothing. */
-                                    List<String> attention) {}
+                                    List<String> attention,
+                                    /** Immutable server-owned creator; null on historical rows. */
+                                    ActorRef createdBy,
+                                    java.time.Instant createdAt) {}
 
     /* ------------------------------------------------------ leveranciers */
 
@@ -123,18 +127,20 @@ public class SourcingResource {
     @POST
     @Path("/purchase-orders/{id}/preview")
     public PurchaseOrderView previewPurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
-        purchaseOrders.get(id);
-        PurchaseOrder draft = order.id() == null || order.id() != id ? withId(order, id) : order;
+        PurchaseOrder stored = purchaseOrders.get(id);
+        PurchaseOrder draft = withServerMetadata(order, id, stored.createdBy(), stored.createdAt());
         return view(draft, purchaseOrders.calculate(draft), List.of());
     }
 
-    private static PurchaseOrder withId(PurchaseOrder o, long id) {
+    private static PurchaseOrder withServerMetadata(PurchaseOrder o, long id, ActorRef createdBy,
+                                                    java.time.Instant createdAt) {
         return new PurchaseOrder(id, o.number(), o.alias(), o.supplierId(), o.orderDate(), o.status(),
                 o.containerType(), o.cnyToUsd(), o.usdToEurGoods(), o.usdToEurTransport(), o.freightUsd(),
                 o.originCosts(), o.originCurrency(), o.destinationCostsEur(), o.defaultDutyRatePct(),
                 o.extraRevenueEur(), o.allocFreight(), o.allocOrigin(), o.allocDestination(), o.allocExtra(),
-                o.departurePort(), o.destinationPort(), o.receivingLocationId(), o.groupVariants(), o.notes(),
-                o.lines());
+                o.departurePort(), o.destinationPort(), o.receivingLocationId(), o.groupVariants(),
+                o.expectedArrival(), o.receivedOn(), o.paidTotalEur(), o.stockBooked(), o.paymentTerms(),
+                o.shippedOn(), o.trackingReference(), createdBy, createdAt, o.notes(), o.lines());
     }
 
     @DELETE
@@ -314,6 +320,7 @@ public class SourcingResource {
         PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
                 supplier == null ? null : supplier.incoterm());
         return new PurchaseOrderView(order, costing, adjustments,
-                PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable));
+                PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
+                order.createdBy(), order.createdAt());
     }
 }
