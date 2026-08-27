@@ -173,11 +173,13 @@ public final class SalesEntities {
         public Instant goodsShippedAt;
 
         /** Immutable public collection snapshot for website requests. */
+        @Column(name = "pickup_location_id")
         public Long pickupLocationId;
+        @Column(name = "pickup_location_label")
         public String pickupLocationLabel;
-        @Column(length = 500)
+        @Column(name = "pickup_location_address", length = 500)
         public String pickupLocationAddress;
-        @Column(length = 2000)
+        @Column(name = "pickup_location_instructions", length = 2000)
         public String pickupLocationInstructions;
 
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)

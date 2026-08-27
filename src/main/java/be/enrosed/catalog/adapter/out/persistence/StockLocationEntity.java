@@ -17,11 +17,16 @@ public class StockLocationEntity {
     @Column(nullable = false) public boolean receivesByDefault;
     @Column(nullable = false) public int position;
     /** Nullable in JPA so schema-update can add it safely; null reads as false. */
+    @Column(name = "public_pickup_point", nullable = false)
     public Boolean publicPickupPoint;
+    @Column(name = "public_pickup_label")
     public String publicPickupLabel;
-    @Column(length = 500) public String publicPickupAddress;
-    @Column(length = 2000) public String publicPickupInstructions;
+    @Column(name = "public_pickup_address", length = 500)
+    public String publicPickupAddress;
+    @Column(name = "public_pickup_instructions", length = 2000)
+    public String publicPickupInstructions;
     /** Nullable in JPA so existing rows can be upgraded without a fake order. */
+    @Column(name = "public_pickup_position", nullable = false)
     public Integer publicPickupPosition;
 
     public StockLocation toDomain() {
