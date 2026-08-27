@@ -4,6 +4,7 @@ import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.FamilyVariantRules;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -77,7 +78,8 @@ public record ProductFamilyDto(
                            String largeSha256, Integer largeWidthPx, Integer largeHeightPx,
                            int position, Long variantProductId,
                            String variantExternalId, String variantColor,
-                           String altTextSource, List<AltTextDto> altTexts) {}
+                           String altTextSource, List<AltTextDto> altTexts,
+                           List<CatalogChannel> publishedChannels) {}
     public record MemberDto(Long productId, String canonicalVariantKey, String sku,
                             String name, String colour, String size, String colourHex,
                             int position, boolean active) {}
@@ -137,7 +139,8 @@ public record ProductFamilyDto(
                 photo.position, photo.variantProduct == null ? null : photo.variantProduct.id,
                 photo.variantExternalId, photo.variantColor,
                 photo.altTextSource,
-                read(json, photo.altTextsJson, new TypeReference<List<AltTextDto>>() {}))).toList();
+                read(json, photo.altTextsJson, new TypeReference<List<AltTextDto>>() {}),
+                FamilyPhotoPublicationPolicy.selectedChannels(photo, json))).toList();
         List<TextDto> texts = family.texts.stream().map(text -> new TextDto(
                 text.language, text.name, text.summary, text.description, text.format,
                 readStrings(json, text.highlightsJson), text.seoTitle, text.seoDescription)).toList();
@@ -251,6 +254,12 @@ public record ProductFamilyDto(
             issues.add("Minstens één publiceerbare foto met afmetingen, alt-tekst "
                     + "en actieve variantkoppeling is verplicht");
         }
+        channelPhotoIssue(issues, family, members, json, CatalogChannel.WEBSITE,
+                family.websiteStatus, "website");
+        channelPhotoIssue(issues, family, members, json, CatalogChannel.ORDER_APP,
+                family.orderAppStatus, "orderApp");
+        channelPhotoIssue(issues, family, members, json, CatalogChannel.CATALOGUE,
+                family.catalogueStatus, "catalog");
         if (members.stream().noneMatch(member -> member.active)) {
             issues.add("Minstens één actieve variant is verplicht");
         }
@@ -281,15 +290,34 @@ public record ProductFamilyDto(
     private static boolean publicPhoto(
             ProductFamilyPhotoEntity photo, List<ProductEntity> members, ObjectMapper json) {
         if (!FamilyPhotoPublicationPolicy.hasPublicMetadata(photo, json)) return false;
+        if (FamilyPhotoPublicationPolicy.selectedChannels(photo, json).isEmpty()) return false;
         ProductEntity resolved = FamilyPhotoVariantResolver.resolvePhoto(photo, members);
         return FamilyPhotoVariantResolver.familyWide(photo)
                 || resolved != null && resolved.active;
+    }
+
+    private static boolean publicPhoto(
+            ProductFamilyPhotoEntity photo, List<ProductEntity> members, ObjectMapper json,
+            CatalogChannel channel) {
+        return FamilyPhotoPublicationPolicy.isSelectedFor(photo, channel, json)
+                && publicPhoto(photo, members, json);
+    }
+
+    private static void channelPhotoIssue(
+            List<String> issues, ProductFamilyEntity family, List<ProductEntity> members,
+            ObjectMapper json, CatalogChannel channel, PublicationState publicationState,
+            String prefix) {
+        if (state(publicationState) == PublicationState.DRAFT) return;
+        if (family.photos.stream().anyMatch(photo ->
+                publicPhoto(photo, members, json, channel))) return;
+        issues.add(prefix + ".Minstens één foto moet voor dit kanaal gepubliceerd zijn");
     }
 
     private static boolean photoForVariant(
             ProductFamilyPhotoEntity photo, ProductEntity product,
             List<ProductEntity> members, ObjectMapper json) {
         if (!FamilyPhotoPublicationPolicy.hasPublicMetadata(photo, json)) return false;
+        if (FamilyPhotoPublicationPolicy.selectedChannels(photo, json).isEmpty()) return false;
         if (FamilyPhotoVariantResolver.familyWide(photo)) return true;
         ProductEntity resolved = FamilyPhotoVariantResolver.resolvePhoto(photo, members);
         return resolved != null && resolved.active

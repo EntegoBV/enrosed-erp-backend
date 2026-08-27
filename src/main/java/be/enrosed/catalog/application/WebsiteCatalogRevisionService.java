@@ -10,6 +10,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.WebsiteHomepageLayoutEntity;
 import be.enrosed.catalog.domain.ContentScope;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -31,6 +32,7 @@ public class WebsiteCatalogRevisionService {
     private final CanonicalCatalogDaos.DimensionObservations dimensions;
     private final CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts;
     private final PublicProductNameResolver publicProductNames;
+    private final FamilyPhotoPublicationPolicy photoPublication;
     private final ObjectMapper json;
 
     public WebsiteCatalogRevisionService(
@@ -42,6 +44,7 @@ public class WebsiteCatalogRevisionService {
             CanonicalCatalogDaos.DimensionObservations dimensions,
             CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts,
             PublicProductNameResolver publicProductNames,
+            FamilyPhotoPublicationPolicy photoPublication,
             ObjectMapper json) {
         this.content = content;
         this.families = families;
@@ -51,6 +54,7 @@ public class WebsiteCatalogRevisionService {
         this.dimensions = dimensions;
         this.homepageLayouts = homepageLayouts;
         this.publicProductNames = publicProductNames;
+        this.photoPublication = photoPublication;
         this.json = json;
     }
 
@@ -151,7 +155,11 @@ public class WebsiteCatalogRevisionService {
                     add(out, item.piecesPerPackage); add(out, item.weightValue);
                     add(out, item.weightUnit); add(out, item.variantExternalId);
                 });
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, canonicalVariantKey, sku", family.id);
         family.photos.stream()
+                .filter(image -> photoPublication.isPublic(
+                        image, members, CatalogChannel.WEBSITE))
                 .sorted(Comparator.comparingInt((ProductFamilyPhotoEntity image) -> image.position)
                         .thenComparing(image -> safe(image.sourceKey)))
                 .forEach(image -> {
@@ -165,8 +173,6 @@ public class WebsiteCatalogRevisionService {
                     add(out, image.variantExternalId); add(out, image.variantColor);
                     add(out, normalized(image.altTextsJson));
                 });
-        List<ProductEntity> members = products.list(
-                "familyId = ?1 order by variantPosition, canonicalVariantKey, sku", family.id);
         for (ProductEntity member : members) product(out, member);
         dimensions.list("familyId = ?1 order by position, id", family.id).forEach(item -> {
             add(out, "dimension"); add(out, item.dimensionType); add(out, item.position);

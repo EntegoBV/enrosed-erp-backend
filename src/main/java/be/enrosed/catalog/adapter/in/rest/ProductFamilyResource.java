@@ -2,6 +2,7 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.FamilyPhotoCompatibilityService;
+import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.FamilyImageVariantService;
 import be.enrosed.catalog.application.FamilyVariantRules;
 import be.enrosed.catalog.application.ProductFamilyWriteGuard;
@@ -14,6 +15,7 @@ import be.enrosed.catalog.application.PhotoReferenceService;
 import be.enrosed.catalog.application.PhotoUploadPolicy;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.UnprocessableBusinessRuleException;
@@ -56,6 +58,7 @@ public class ProductFamilyResource {
     private final PhotoStorage photoStorage;
     private final PhotoReferenceService photoReferences;
     private final FamilyPhotoCompatibilityService familyPhotoCompatibility;
+    private final FamilyPhotoPublicationPolicy photoPublication;
     private final FamilyImageVariantService familyImageVariants;
     private final PublishedFamilyGalleryGuard galleryGuard;
     private final FamilyMemberCacheService memberCache;
@@ -78,6 +81,7 @@ public class ProductFamilyResource {
             PhotoStorage photoStorage,
             PhotoReferenceService photoReferences,
             FamilyPhotoCompatibilityService familyPhotoCompatibility,
+            FamilyPhotoPublicationPolicy photoPublication,
             FamilyImageVariantService familyImageVariants,
             PublishedFamilyGalleryGuard galleryGuard,
             FamilyMemberCacheService memberCache,
@@ -92,6 +96,7 @@ public class ProductFamilyResource {
         this.photoStorage = photoStorage;
         this.photoReferences = photoReferences;
         this.familyPhotoCompatibility = familyPhotoCompatibility;
+        this.photoPublication = photoPublication;
         this.familyImageVariants = familyImageVariants;
         this.galleryGuard = galleryGuard;
         this.memberCache = memberCache;
@@ -221,6 +226,8 @@ public class ProductFamilyResource {
         }
         photo.altTextSource = "ADMIN";
         photo.altTextsJson = "[]";
+        /* Uploading is an internal asset action. Publication is a separate, visible command. */
+        photo.publishedChannelsJson = "[]";
         family.photos.add(photo);
         families.flush();
         familyPhotoCompatibility.sync(family);
@@ -263,6 +270,40 @@ public class ProductFamilyResource {
     }
 
     public record AltRequest(Language language, String alt) {}
+
+    public record ImagePublicationRequest(List<CatalogChannel> channels) {}
+
+    /**
+     * Explicit public action used by the image menu. A right-click UI may shortcut to this route,
+     * but publication remains a first-class authenticated command rather than an upload side effect.
+     */
+    @PUT @Path("/{id}/images/{imageId}/publication") @Transactional
+    public ProductFamilyDto setImagePublication(
+            @PathParam("id") long id,
+            @PathParam("imageId") long imageId,
+            ImagePublicationRequest request) {
+        if (request == null || request.channels() == null) {
+            throw new BusinessRuleException(
+                    "Kies voor welke kanalen de foto gepubliceerd wordt; geen kanaal betekent intern");
+        }
+        if (request.channels().stream().anyMatch(Objects::isNull)) {
+            throw new BusinessRuleException("Een publicatiekanaal mag niet leeg zijn");
+        }
+        lockFamily(id);
+        ProductFamilyEntity family = family(id);
+        ProductFamilyPhotoEntity photo = photo(family, imageId);
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", family.id);
+        if (!request.channels().isEmpty() && !photoPublication.isEligible(photo, members)) {
+            throw new BusinessRuleException(
+                    "Foto kan nog niet gepubliceerd worden: voeg geldige afmetingen en minstens "
+                            + "één alt-tekst toe en koppel ze aan een actieve variant of de hele familie");
+        }
+        photoPublication.replacePublishedChannels(photo, request.channels());
+        galleryGuard.validate(family);
+        families.flush();
+        return changed(family);
+    }
 
     @PUT @Path("/{id}/images/{imageId}/alt") @Transactional
     public ProductFamilyDto setImageAlt(@PathParam("id") long id,

@@ -103,6 +103,36 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void internalOnlyPhotoChangesDoNotAlterTheWebsiteRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        ProductFamilyPhotoEntity image = graph.family().photos.getFirst();
+        image.publishedChannelsJson = "[]";
+        String before = service(graph).currentRevision();
+
+        image.largeSha256 = "changed-internal-photo";
+        image.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Internal study\"}]";
+        String after = service(graph).currentRevision();
+
+        assertEquals(before, after,
+                "an internal asset must not queue a public website delivery");
+    }
+
+    @Test
+    void explicitlyPublishingAPhotoToWebsiteAltersTheWebsiteRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        ProductFamilyPhotoEntity image = graph.family().photos.getFirst();
+        image.publishedChannelsJson = "[]";
+        String internal = service(graph).currentRevision();
+
+        image.publishedChannelsJson = "[\"WEBSITE\"]";
+        String published = service(graph).currentRevision();
+
+        assertNotEquals(internal, published);
+    }
+
+    @Test
     void homepageDraftIsExcludedButPublishedLayoutIsCoveredByTheWebsiteRevision()
             throws Exception {
         Graph graph = graph(10L, 20L, 30L,
@@ -157,9 +187,11 @@ class WebsiteCatalogRevisionServiceTest {
                 graph.product().id)).thenReturn(List.of());
         when(dimensions.list("familyId = ?1 order by position, id", graph.family().id))
                 .thenReturn(List.of());
+        ObjectMapper json = new ObjectMapper();
         return new WebsiteCatalogRevisionService(
                 content, families, products, categories, prices, dimensions,
-                homepageLayouts, new PublicProductNameResolver(), new ObjectMapper());
+                homepageLayouts, new PublicProductNameResolver(),
+                new FamilyPhotoPublicationPolicy(new FamilyPhotoVariantResolver(), json), json);
     }
 
     private static Graph graph(
@@ -216,9 +248,17 @@ class WebsiteCatalogRevisionServiceTest {
         image.id = imageId;
         image.family = family;
         image.sourceKey = "hero";
+        image.smallStorageKey = "small";
+        image.largeStorageKey = "large";
+        image.smallWidthPx = 480;
+        image.smallHeightPx = 480;
+        image.largeWidthPx = 1200;
+        image.largeHeightPx = 1200;
+        image.smallSha256 = "small-sha";
+        image.largeSha256 = "large-sha";
         image.position = 0;
         image.variantProduct = product;
-        image.altTextsJson = "[]";
+        image.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Red rose\"}]";
         family.photos.add(image);
         return new Graph(copy, category, family, product);
     }

@@ -6,6 +6,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -36,11 +37,9 @@ public class PublishedFamilyGalleryGuard {
         if (!published(family)) return;
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        if (family.photos.stream().noneMatch(photo -> photoPublication.isPublic(photo, members))) {
-            throw new BusinessRuleException(
-                    "Een gepubliceerde productfamilie moet minstens één publiceerbare foto "
-                            + "met afmetingen en alt-tekst houden");
-        }
+        requireChannelPhoto(family, members, CatalogChannel.WEBSITE, family.websiteStatus);
+        requireChannelPhoto(family, members, CatalogChannel.ORDER_APP, family.orderAppStatus);
+        requireChannelPhoto(family, members, CatalogChannel.CATALOGUE, family.catalogueStatus);
         if (family.cardFeaturedProductId != null) {
             featuredProducts.requireFamilyMember(family, family.cardFeaturedProductId);
         }
@@ -66,5 +65,17 @@ public class PublishedFamilyGalleryGuard {
         return family.websiteStatus == PublicationState.PUBLISHED
                 || family.orderAppStatus == PublicationState.PUBLISHED
                 || family.catalogueStatus == PublicationState.PUBLISHED;
+    }
+
+    private void requireChannelPhoto(
+            ProductFamilyEntity family, List<ProductEntity> members,
+            CatalogChannel channel, PublicationState state) {
+        if (state != PublicationState.PUBLISHED) return;
+        if (family.photos.stream().anyMatch(photo ->
+                photoPublication.isPublic(photo, members, channel))) return;
+        throw new BusinessRuleException(
+                "Een op " + channel.name()
+                        + " gepubliceerde productfamilie moet minstens één publiceerbare foto "
+                        + "voor dat kanaal met afmetingen en alt-tekst houden");
     }
 }

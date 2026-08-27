@@ -41,4 +41,11 @@ public class ProductFamilyPhotoEntity {
     public String variantColor;
     public String altTextSource;
     @Column(length = 10000) public String altTextsJson;
+    /**
+     * Explicit public destinations for this image. A null value is the additive-migration
+     * compatibility state: images that already existed before this field remain available on
+     * every catalogue channel. Administrator uploads always persist an explicit empty array and
+     * therefore stay internal until a user publishes them.
+     */
+    @Column(length = 255) public String publishedChannelsJson;
 }

@@ -80,6 +80,7 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject CatalogContentBackfillService catalogBackfill;
     @Inject FamilyPhotoCompatibilityService familyPhotoCompatibility;
     @Inject PublishedFamilyGalleryGuard galleryGuard;
+    @Inject PublicLocalizationCompletenessService localization;
     @Inject FamilyMemberCacheService familyMemberCache;
     @Inject FamilyCollectionAlignmentService familyCollections;
     @Inject ObjectMapper json;
@@ -587,6 +588,133 @@ class ProductFamilyVariantContractPersistenceTest {
         PublicFamilyCatalogDto.FamilyDto after = publicFamily("EN", family.publicHandle);
         assertEquals(Set.of(ready.id, pending.id), after.images().stream().map(
                 PublicFamilyCatalogDto.ImageDto::id).collect(Collectors.toSet()));
+    }
+
+    @Test
+    @TestTransaction
+    void explicitPhotoPublicationChannelsPersistAndRoundTripInTheAdminDto() {
+        ProductFamilyEntity family = family("photo-channel-persistence");
+        family.websiteStatus = PublicationState.DRAFT;
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity member = product(
+                family, "SKU-CHANNELS", "photo-channels", "Red", null, "#A91F32", 0);
+        entityManager.persist(member);
+        ProductFamilyPhotoEntity image = photo(family, "channel-image", 0);
+        image.publishedChannelsJson = "[]";
+        entityManager.persist(image);
+        entityManager.flush();
+
+        ProductFamilyDto updated = familyResource.setImagePublication(
+                family.id, image.id, new ProductFamilyResource.ImagePublicationRequest(
+                        List.of(CatalogChannel.WEBSITE, CatalogChannel.CATALOGUE)));
+
+        assertEquals(List.of(CatalogChannel.WEBSITE, CatalogChannel.CATALOGUE),
+                updated.images().getFirst().publishedChannels());
+        entityManager.flush();
+        entityManager.clear();
+        ProductFamilyPhotoEntity stored = entityManager.find(
+                ProductFamilyPhotoEntity.class, image.id);
+        assertEquals("[\"WEBSITE\",\"CATALOGUE\"]", stored.publishedChannelsJson);
+    }
+
+    @Test
+    @TestTransaction
+    void internalPhotoDoesNotCreateTranslationBlockersUntilItsChannelIsPublished() {
+        FamilyContext context = completeFamilyContext("internal-photo-copy");
+        ProductFamilyPhotoEntity internal = photo(
+                context.family, "internal-study", context.family.photos.size());
+        internal.altTextsJson = "[]";
+        internal.publishedChannelsJson = "[]";
+        entityManager.persist(internal);
+        entityManager.flush();
+
+        List<String> whileInternal = localization.missing(
+                context.family, List.of(), CatalogChannel.WEBSITE);
+        assertTrue(whileInternal.stream().noneMatch(path -> path.contains("internal-study")),
+                whileInternal.toString());
+
+        internal.publishedChannelsJson = "[\"WEBSITE\"]";
+        List<String> afterPublication = localization.missing(
+                context.family, List.of(), CatalogChannel.WEBSITE);
+        assertEquals(Language.values().length, afterPublication.stream()
+                .filter(path -> path.contains("internal-study") && path.endsWith(".alt"))
+                .count());
+    }
+
+    @Test
+    @TestTransaction
+    void publicFamilyCatalogFiltersImagesAndVariantPrimaryPerRequestedChannel() {
+        ProductFamilyEntity family = family("channel-specific-gallery");
+        family.catalogueStatus = PublicationState.PUBLISHED;
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity member = product(
+                family, "SKU-CHANNEL-GALLERY", "channel-gallery", "Red", null,
+                "#A91F32", 0);
+        entityManager.persist(member);
+        ProductFamilyPhotoEntity website = photo(family, "website-image", 0);
+        website.variantProduct = member;
+        website.publishedChannelsJson = "[\"WEBSITE\"]";
+        ProductFamilyPhotoEntity catalogue = photo(family, "catalogue-image", 1);
+        catalogue.variantProduct = member;
+        catalogue.publishedChannelsJson = "[\"CATALOGUE\"]";
+        entityManager.persist(website);
+        entityManager.persist(catalogue);
+        entityManager.flush();
+
+        PublicFamilyCatalogDto.FamilyDto websiteFamily = publicFamily(
+                CatalogChannel.WEBSITE, "EN", family.publicHandle);
+        PublicFamilyCatalogDto.FamilyDto catalogueFamily = publicFamily(
+                CatalogChannel.CATALOGUE, "EN", family.publicHandle);
+
+        assertEquals(List.of(website.id), websiteFamily.images().stream()
+                .map(PublicFamilyCatalogDto.ImageDto::id).toList());
+        assertEquals(website.id, variant(websiteFamily, member.id).primaryImageId());
+        assertEquals(List.of(catalogue.id), catalogueFamily.images().stream()
+                .map(PublicFamilyCatalogDto.ImageDto::id).toList());
+        assertEquals(catalogue.id, variant(catalogueFamily, member.id).primaryImageId());
+    }
+
+    @Test
+    @TestTransaction
+    void internalImageBytesAreNotAvailableOnTheAnonymousStableUrl() {
+        ProductFamilyEntity family = family("private-image-bytes");
+        entityManager.persist(family);
+        entityManager.flush();
+        entityManager.persist(product(
+                family, "SKU-PRIVATE-BYTES", "private-bytes", "Red", null, "#A91F32", 0));
+        entityManager.persist(photo(family, "public-cover", 0));
+        ProductFamilyPhotoEntity internal = photo(family, "internal-original", 1);
+        internal.publishedChannelsJson = "[]";
+        entityManager.persist(internal);
+        entityManager.flush();
+
+        assertThrows(jakarta.ws.rs.NotFoundException.class,
+                () -> publicFamilies.image(
+                        family.publicHandle, internal.sourceKey, "large"));
+    }
+
+    @Test
+    @TestTransaction
+    void removingTheLastWebsitePublishedPhotoFromALiveFamilyIsRejected() {
+        ProductFamilyEntity family = family("last-website-channel-photo");
+        entityManager.persist(family);
+        entityManager.flush();
+        entityManager.persist(product(
+                family, "SKU-LAST-WEBSITE", "last-website", "Red", null, "#A91F32", 0));
+        ProductFamilyPhotoEntity image = photo(family, "last-website-image", 0);
+        image.publishedChannelsJson = "[\"WEBSITE\",\"CATALOGUE\"]";
+        entityManager.persist(image);
+        entityManager.flush();
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class,
+                () -> familyResource.setImagePublication(
+                        family.id, image.id,
+                        new ProductFamilyResource.ImagePublicationRequest(
+                                List.of(CatalogChannel.CATALOGUE))));
+
+        assertTrue(error.getMessage().contains("WEBSITE"), error.getMessage());
     }
 
     @Test
@@ -1687,7 +1815,12 @@ class ProductFamilyVariantContractPersistenceTest {
     }
 
     private PublicFamilyCatalogDto.FamilyDto publicFamily(String language, String handle) {
-        Response response = publicFamilies.catalog(CatalogChannel.WEBSITE, language, null);
+        return publicFamily(CatalogChannel.WEBSITE, language, handle);
+    }
+
+    private PublicFamilyCatalogDto.FamilyDto publicFamily(
+            CatalogChannel channel, String language, String handle) {
+        Response response = publicFamilies.catalog(channel, language, null);
         PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
         return catalog.families().stream()
                 .filter(item -> handle.equals(item.publicHandle())).findFirst().orElseThrow();

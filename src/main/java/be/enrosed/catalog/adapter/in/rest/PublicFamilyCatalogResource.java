@@ -169,7 +169,9 @@ public class PublicFamilyCatalogResource {
                 .findFirst().orElseThrow(NotFoundException::new);
         List<ProductEntity> familyMembers = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        if (!photoPublication.isPublic(image, familyMembers)) throw new NotFoundException();
+        if (!publishedOnAnActiveChannel(family, image, familyMembers)) {
+            throw new NotFoundException();
+        }
         boolean small = "small".equalsIgnoreCase(rendition);
         if (!small && !"large".equalsIgnoreCase(rendition)) throw new NotFoundException();
         String storageKey = small ? image.smallStorageKey : image.largeStorageKey;
@@ -206,7 +208,7 @@ public class PublicFamilyCatalogResource {
         /* Demo pieces are ours to show, never the website's to sell. */
         List<ProductEntity> variants = familyMembers.stream().filter(item -> item.active && !item.demo).toList();
         List<PublicFamilyCatalogDto.ImageDto> images = family.photos.stream()
-                .filter(image -> photoPublication.isPublic(image, familyMembers))
+                .filter(image -> photoPublication.isPublic(image, familyMembers, channel))
                 .sorted(Comparator.comparingInt(item -> item.position))
                 .map(image -> image(family, image, familyMembers, language))
                 .toList();
@@ -214,7 +216,7 @@ public class PublicFamilyCatalogResource {
         if (images.isEmpty() || variants.isEmpty()) return null;
 
         List<PublicFamilyCatalogDto.VariantDto> publicVariants = variants.stream()
-                .map(variant -> variant(family, variant, familyMembers, language))
+                .map(variant -> variant(family, variant, familyMembers, language, channel))
                 .toList();
 
         PublicFamilyCatalogDto.DimensionsDto dimensions = channel == CatalogChannel.WEBSITE
@@ -261,9 +263,10 @@ public class PublicFamilyCatalogResource {
 
     private PublicFamilyCatalogDto.VariantDto variant(
             ProductFamilyEntity family, ProductEntity product,
-            List<ProductEntity> familyMembers, Language language) {
+            List<ProductEntity> familyMembers, Language language, CatalogChannel channel) {
         ProductFamilyPhotoEntity primary = family.photos.stream()
-                .filter(image -> photoPublication.isUsableBy(image, product, familyMembers))
+                .filter(image -> photoPublication.isUsableBy(
+                        image, product, familyMembers, channel))
                 .min(Comparator
                         .comparingInt((ProductFamilyPhotoEntity image) ->
                                 variantResolver.rank(image, product, familyMembers))
@@ -414,7 +417,7 @@ public class PublicFamilyCatalogResource {
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
         boolean hasPhoto = family.photos.stream().anyMatch(image ->
-                photoPublication.isUsableBy(image, product, members));
+                photoPublication.isUsableBy(image, product, members, channel));
         return hasPhoto ? productId : null;
     }
 
@@ -650,6 +653,17 @@ public class PublicFamilyCatalogResource {
         return status(family, CatalogChannel.WEBSITE) == PublicationState.PUBLISHED
                 || status(family, CatalogChannel.ORDER_APP) == PublicationState.PUBLISHED
                 || status(family, CatalogChannel.CATALOGUE) == PublicationState.PUBLISHED;
+    }
+
+    private boolean publishedOnAnActiveChannel(
+            ProductFamilyEntity family, ProductFamilyPhotoEntity image,
+            List<ProductEntity> members) {
+        return status(family, CatalogChannel.WEBSITE) == PublicationState.PUBLISHED
+                    && photoPublication.isPublic(image, members, CatalogChannel.WEBSITE)
+                || status(family, CatalogChannel.ORDER_APP) == PublicationState.PUBLISHED
+                    && photoPublication.isPublic(image, members, CatalogChannel.ORDER_APP)
+                || status(family, CatalogChannel.CATALOGUE) == PublicationState.PUBLISHED
+                    && photoPublication.isPublic(image, members, CatalogChannel.CATALOGUE);
     }
 
     private static boolean noDimensions(ProductFamilyEntity family) {
