@@ -26,6 +26,32 @@ class StockLocationPersistenceTest {
 
     @Test
     @TestTransaction
+    void publicPickupChoicesUseDedicatedCopyAndHideInactiveLocations() {
+        StockLocation later = stock.saveLocation(new StockLocation(null, null, "Internal Mol",
+                StockLocation.Kind.WAREHOUSE, "Loading dock 4", true, true, false, 3,
+                true, "ENROSED Mol", "Rose Street 12, 2400 Mol",
+                "Report at reception", 20));
+        StockLocation first = stock.saveLocation(new StockLocation(null, null, "Internal Aalsmeer",
+                StockLocation.Kind.SALES_POINT, "Hall B", true, false, false, 4,
+                true, "ENROSED Aalsmeer", "Legmeerdijk 313, Aalsmeer",
+                null, 10));
+        stock.saveLocation(new StockLocation(null, null, "Temporarily closed",
+                StockLocation.Kind.WAREHOUSE, null, false, false, false, 5,
+                true, "Closed pickup", "Old Street 1", null, 0));
+
+        List<StockLocation> choices = stock.publicPickupLocations();
+
+        assertEquals(List.of(first.id(), later.id()),
+                choices.stream().map(StockLocation::id).toList());
+        assertEquals("ENROSED Aalsmeer", choices.getFirst().publicPickupLabel());
+        assertEquals("Legmeerdijk 313, Aalsmeer",
+                choices.getFirst().publicPickupAddress());
+        assertEquals("Loading dock 4", later.address(),
+                "internal address remains separate from public pickup copy");
+    }
+
+    @Test
+    @TestTransaction
     void theWebsiteFigureCountsOnlyTheWarehouseWhileTheBookTellsTheWholeStory() {
         ProductEntity product = product("SKU-LOC-1");
         StockLocation main = stock.mainLocation();

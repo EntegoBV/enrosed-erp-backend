@@ -18,8 +18,26 @@ public record StockLocation(
         boolean countsForWebsite,
         /** Purchase receipts land here unless the order says otherwise. */
         boolean receivesByDefault,
-        int position
+        int position,
+        /** Customer may select this active location when requesting collection. */
+        boolean publicPickupPoint,
+        /** Customer-facing name; deliberately separate from the internal stock name. */
+        String publicPickupLabel,
+        /** Complete customer-facing collection address. */
+        String publicPickupAddress,
+        /** Optional practical collection instructions. */
+        String publicPickupInstructions,
+        /** Ordering among the collection choices shown on the public website. */
+        int publicPickupPosition
 ) {
+    /** Compatibility for inventory callers written before public collection existed. */
+    public StockLocation(Long id, String code, String name, Kind kind, String address,
+                         boolean active, boolean countsForWebsite,
+                         boolean receivesByDefault, int position) {
+        this(id, code, name, kind, address, active, countsForWebsite, receivesByDefault,
+                position, false, null, null, null, 0);
+    }
+
     public enum Kind {
         WAREHOUSE, SALES_POINT;
 

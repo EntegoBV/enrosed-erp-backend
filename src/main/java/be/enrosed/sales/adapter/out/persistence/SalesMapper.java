@@ -91,7 +91,16 @@ final class SalesMapper {
                 entity.freightCarrierId, entity.freightCarrierExtraEur,
                 entity.docType, entity.invoiceDueDate,
                 entity.paidAt, entity.sourceQuoteId, entity.goodsShippedAt,
-                lines, pallets);
+                lines, pallets, pickupSnapshot(entity));
+    }
+
+    private static PickupLocationSnapshot pickupSnapshot(SalesOrderEntity entity) {
+        if (entity.pickupLocationId == null && entity.pickupLocationLabel == null
+                && entity.pickupLocationAddress == null
+                && entity.pickupLocationInstructions == null) return null;
+        return new PickupLocationSnapshot(entity.pickupLocationId,
+                entity.pickupLocationLabel, entity.pickupLocationAddress,
+                entity.pickupLocationInstructions);
     }
 
     static void apply(SalesOrder order, SalesOrderEntity entity) {
@@ -131,6 +140,14 @@ final class SalesMapper {
         entity.paidAt = order.paidAt();
         entity.sourceQuoteId = order.sourceQuoteId();
         entity.goodsShippedAt = order.goodsShippedAt();
+        /* Null means an older update client omitted the new field. Preserve an
+           already captured website snapshot instead of silently erasing it. */
+        if (order.pickupLocation() != null) {
+            entity.pickupLocationId = order.pickupLocation().locationId();
+            entity.pickupLocationLabel = order.pickupLocation().label();
+            entity.pickupLocationAddress = order.pickupLocation().address();
+            entity.pickupLocationInstructions = order.pickupLocation().instructions();
+        }
 
         List<SalesOrderLine> wanted = order.lines();
         entity.lines.removeIf(existing -> wanted.stream()

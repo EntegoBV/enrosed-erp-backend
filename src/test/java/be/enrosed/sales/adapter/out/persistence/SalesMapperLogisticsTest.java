@@ -101,6 +101,26 @@ class SalesMapperLogisticsTest {
         assertEquals(decimal("0.00"), priced.totals().totalInclVat());
     }
 
+    @Test
+    void websitePickupSnapshotSurvivesOlderUpdatesThatOmitTheNewField() {
+        SalesEntities.SalesOrderEntity entity = new SalesEntities.SalesOrderEntity();
+        entity.pickupLocationId = 12L;
+        entity.pickupLocationLabel = "ENROSED Mol";
+        entity.pickupLocationAddress = "Rose Street 12, 2400 Mol";
+        entity.pickupLocationInstructions = "Aanmelden bij receptie";
+        SalesOrder olderClientPayload = order(LoadMode.PALLETS,
+                PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.PICKUP, null, null, List.of());
+
+        SalesMapper.apply(olderClientPayload, entity);
+        SalesOrder restored = SalesMapper.toDomain(entity);
+
+        assertEquals(12L, restored.pickupLocation().locationId());
+        assertEquals("ENROSED Mol", restored.pickupLocation().label());
+        assertEquals("Rose Street 12, 2400 Mol", restored.pickupLocation().address());
+        assertEquals("Aanmelden bij receptie", restored.pickupLocation().instructions());
+    }
+
     private static SalesOrder order(LoadMode loadMode, PalletProfile profile,
                                     BigDecimal maxHeight, FreightPricingStrategy strategy,
                                     BigDecimal perCbm, BigDecimal fixed,

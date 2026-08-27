@@ -1,8 +1,10 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.sales.adapter.in.rest.PublicQuoteDtos;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Language;
@@ -34,6 +36,7 @@ public class PublicQuoteService {
     private static final Pattern VAT = Pattern.compile("^[A-Z]{2}[0-9A-Z]{2,12}$");
 
     private final ProductService products;
+    private final StockService stock;
     private final CountryService countries;
     private final CustomerService customers;
     private final SalesOrderService salesOrders;
@@ -44,13 +47,15 @@ public class PublicQuoteService {
     private final CarrierRepository carriers;
     private final Event<WebsiteQuotePushNotifier.Ready> websiteQuoteReady;
 
-    public PublicQuoteService(ProductService products, CountryService countries,
+    public PublicQuoteService(ProductService products, StockService stock,
+                              CountryService countries,
                               CustomerService customers, SalesOrderService salesOrders,
                               DiscountTierService tiers, SalesPricingCalculator pricing,
                               SalesSettings settings, VatCalculator vat,
                               CarrierRepository carriers,
                               Event<WebsiteQuotePushNotifier.Ready> websiteQuoteReady) {
         this.products = products;
+        this.stock = stock;
         this.countries = countries;
         this.customers = customers;
         this.salesOrders = salesOrders;
@@ -80,9 +85,14 @@ public class PublicQuoteService {
                 .map(country -> new CountryOption(country.code(), country.name(),
                         country.minOrderValue(), country.transitDays()))
                 .toList();
+        List<PickupLocation> pickupLocations = stock.publicPickupLocations().stream()
+                .map(PublicQuoteService::publicPickupLocation)
+                .toList();
+        List<String> fulfillmentMethods = pickupLocations.isEmpty()
+                ? List.of("DELIVERY") : List.of("DELIVERY", "PICKUP");
         return new ConfigurationResponse("EUR", "NET_EXCL_VAT", "FULL_CARTONS",
-                List.of("DELIVERY", "PICKUP"), "ESTIMATE_NOT_BINDING",
-                destinations, publicPrices);
+                fulfillmentMethods, "ESTIMATE_NOT_BINDING",
+                destinations, publicPrices, pickupLocations);
     }
 
     public EstimateResponse preview(PreviewRequest request) {
@@ -101,7 +111,7 @@ public class PublicQuoteService {
         try {
             prepared = prepare(request == null ? null : new PreviewRequest(
                     request.language(), request.fulfillment(), request.vatNumber(),
-                    request.destination(), request.items()));
+                    request.destination(), request.items(), request.pickupLocationId()));
         } catch (PublicQuoteValidationException validation) {
             /* Return one actionable field map: correcting the contact block
                should not reveal a second, previously hidden address/product
@@ -157,7 +167,8 @@ public class PublicQuoteService {
                 null, LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
                 prepared.strategy, null,
                 prepared.carrier == null ? null : prepared.carrier.id(), null,
-                DocumentType.OFFERTE, null, null, null, null, frozenLines, List.of());
+                DocumentType.OFFERTE, null, null, null, null, frozenLines, List.of(),
+                pickupSnapshot(prepared.pickupLocation));
         salesOrders.update(created.id(), changes);
         websiteQuoteReady.fire(new WebsiteQuotePushNotifier.Ready(
                 created.id(), created.number()));
@@ -173,6 +184,8 @@ public class PublicQuoteService {
         }
         Language language = requireLanguage(request.language(), errors);
         Fulfillment fulfillment = fulfillment(request.fulfillment(), errors);
+        StockLocation pickupLocation = fulfillment == Fulfillment.PICKUP
+                ? selectedPickupLocation(request.pickupLocationId(), errors) : null;
         Destination destination = request.destination();
         String countryCode = destination == null || isBlank(destination.countryCode())
                 ? fulfillment == Fulfillment.PICKUP ? "BE" : null
@@ -273,7 +286,7 @@ public class PublicQuoteService {
                 && priced.validation().productsWithoutPalletFit().isEmpty()
                 && priced.totals().shippingTotal().signum() > 0;
         return new Prepared(language, fulfillment, country, carrier, strategy,
-                preparedItems, priced, shippingAvailable);
+                pickupLocation, preparedItems, priced, shippingAvailable);
     }
 
     private EstimateResponse toResponse(Prepared prepared) {
@@ -298,10 +311,12 @@ public class PublicQuoteService {
         String source = prepared.fulfillment == Fulfillment.PICKUP ? "PICKUP"
                 : !prepared.shippingAvailable ? null
                 : prepared.carrier == null ? "COUNTRY_TARIFF" : "CARRIER_TARIFF";
+        boolean pickup = prepared.fulfillment == Fulfillment.PICKUP;
+        BigDecimal freightNet = pickup ? decimalZero() : prepared.shippingAvailable ? totals.freight() : null;
+        BigDecimal handlingNet = pickup ? decimalZero() : prepared.shippingAvailable ? totals.handling() : null;
+        BigDecimal shippingNet = pickup ? decimalZero() : prepared.shippingAvailable ? totals.shippingTotal() : null;
         ShippingEstimate shipping = new ShippingEstimate(shippingStatus, source,
-                prepared.shippingAvailable ? totals.freight() : null,
-                prepared.shippingAvailable ? totals.handling() : null,
-                prepared.shippingAvailable ? totals.shippingTotal() : null,
+                freightNet, handlingNet, shippingNet,
                 totals.palletsStrict(), totals.cartons());
         boolean complete = pricesComplete && prepared.shippingAvailable;
         TotalsEstimate publicTotals = new TotalsEstimate(
@@ -327,8 +342,44 @@ public class PublicQuoteService {
                 prepared.priced.validation().minOrderValue(),
                 prepared.priced.validation().shortfall(), List.copyOf(messages));
         return new EstimateResponse("EUR", "NET_EXCL_VAT", prepared.fulfillment.name(),
+                prepared.pickupLocation == null ? null : publicPickupLocation(prepared.pickupLocation),
                 "ESTIMATE_NOT_BINDING", "FINAL_QUOTE_FOLLOWS", lines, shipping,
                 publicTotals, validation);
+    }
+
+    private StockLocation selectedPickupLocation(Long requestedId,
+                                                 Map<String, String> errors) {
+        List<StockLocation> available = stock.publicPickupLocations();
+        if (requestedId == null) {
+            /* One configured location keeps older clients working without making
+               an ambiguous choice when the administrator exposes several. */
+            if (available.size() == 1) return available.getFirst();
+            errors.put("pickupLocationId", available.isEmpty() ? "UNAVAILABLE" : "REQUIRED");
+            return null;
+        }
+        return available.stream()
+                .filter(location -> Objects.equals(location.id(), requestedId))
+                .findFirst()
+                .orElseGet(() -> {
+                    errors.put("pickupLocationId", "UNAVAILABLE");
+                    return null;
+                });
+    }
+
+    private static PickupLocation publicPickupLocation(StockLocation location) {
+        return new PickupLocation(location.id(), location.publicPickupLabel(),
+                location.publicPickupAddress(), location.publicPickupInstructions(),
+                location.publicPickupPosition());
+    }
+
+    private static PickupLocationSnapshot pickupSnapshot(StockLocation location) {
+        if (location == null) return null;
+        return new PickupLocationSnapshot(location.id(), location.publicPickupLabel(),
+                location.publicPickupAddress(), location.publicPickupInstructions());
+    }
+
+    private static BigDecimal decimalZero() {
+        return new BigDecimal("0.00");
     }
 
     private void validateContact(SubmitRequest request, Map<String, String> errors) {
@@ -485,6 +536,7 @@ public class PublicQuoteService {
 
     private record Prepared(Language language, Fulfillment fulfillment, Country country,
                             Carrier carrier, FreightPricingStrategy strategy,
+                            StockLocation pickupLocation,
                             List<PreparedItem> items, PricedOrder priced,
                             boolean shippingAvailable) {}
 }

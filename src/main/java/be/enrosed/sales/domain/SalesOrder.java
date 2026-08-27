@@ -107,8 +107,39 @@ public record SalesOrder(
          * Hand-built pallet layout; empty means the calculator's stacking
          * applies. Once pallets exist the freight counts them instead.
          */
-        List<OrderPallet> pallets
+        List<OrderPallet> pallets,
+
+        /** Public collection facts frozen when a website request was submitted. */
+        PickupLocationSnapshot pickupLocation
 ) {
+
+    /** Compatibility for order callers written before public collection points existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, null);
+    }
 
     /** Every order that predates invoices is a quote. */
     public DocumentType docType() {

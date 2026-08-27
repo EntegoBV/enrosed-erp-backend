@@ -24,8 +24,15 @@ public final class PublicQuoteDtos {
             String fulfillment,
             String vatNumber,
             Destination destination,
-            List<ItemRequest> items
-    ) {}
+            List<ItemRequest> items,
+            Long pickupLocationId
+    ) {
+        /** Compatibility for clients written before selectable collection points. */
+        public PreviewRequest(String language, String fulfillment, String vatNumber,
+                              Destination destination, List<ItemRequest> items) {
+            this(language, fulfillment, vatNumber, destination, items, null);
+        }
+    }
 
     public record SubmitRequest(
             String language,
@@ -42,8 +49,19 @@ public final class PublicQuoteDtos {
             String notes,
             Boolean privacyAccepted,
             /** Honeypot. Real clients leave this field empty. */
-            String website
-    ) {}
+            String website,
+            Long pickupLocationId
+    ) {
+        /** Compatibility for clients written before selectable collection points. */
+        public SubmitRequest(String language, String fulfillment, String vatNumber,
+                             Destination destination, List<ItemRequest> items,
+                             String companyCountryCode, String companyName, String contactName,
+                             String email, String phone, String notes, Boolean privacyAccepted,
+                             String website) {
+            this(language, fulfillment, vatNumber, destination, items, companyCountryCode,
+                    companyName, contactName, email, phone, notes, privacyAccepted, website, null);
+        }
+    }
 
     public record ConfigurationResponse(
             String currency,
@@ -52,7 +70,25 @@ public final class PublicQuoteDtos {
             List<String> fulfillmentMethods,
             String disclaimerCode,
             List<CountryOption> countries,
-            List<ProductPrice> products
+            List<ProductPrice> products,
+            List<PickupLocation> pickupLocations
+    ) {
+        /** Compatibility for server/resource tests predating public pickup choices. */
+        public ConfigurationResponse(String currency, String priceBasis, String quantityBasis,
+                                     List<String> fulfillmentMethods, String disclaimerCode,
+                                     List<CountryOption> countries, List<ProductPrice> products) {
+            this(currency, priceBasis, quantityBasis, fulfillmentMethods, disclaimerCode,
+                    countries, products, List.of());
+        }
+    }
+
+    /** Public, customer-safe projection of one enabled stock location. */
+    public record PickupLocation(
+            Long id,
+            String label,
+            String address,
+            String instructions,
+            int position
     ) {}
 
     public record CountryOption(
@@ -73,6 +109,7 @@ public final class PublicQuoteDtos {
             String currency,
             String priceBasis,
             String fulfillment,
+            PickupLocation pickupLocation,
             String estimateStatus,
             String disclaimerCode,
             List<LineEstimate> lines,

@@ -66,6 +66,19 @@ public class StockService {
                 .toList();
     }
 
+    /** Active customer-facing collection choices, in their own public order. */
+    public List<StockLocation> publicPickupLocations() {
+        return locations.listAll().stream()
+                .map(StockLocationEntity::toDomain)
+                .filter(StockLocation::active)
+                .filter(StockLocation::publicPickupPoint)
+                .sorted(Comparator.comparingInt(StockLocation::publicPickupPosition)
+                        .thenComparing(StockLocation::publicPickupLabel,
+                                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                        .thenComparing(StockLocation::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
     public StockLocation location(long id) {
         StockLocationEntity entity = locations.findById(id);
         if (entity == null) throw new NotFoundException("Voorraadlocatie", id);
@@ -94,6 +107,13 @@ public class StockService {
     @Transactional
     public StockLocation saveLocation(StockLocation input) {
         String name = required(input.name(), "Naam");
+        if (input.publicPickupPoint()) {
+            required(input.publicPickupLabel(), "Publieke afhaalnaam");
+            required(input.publicPickupAddress(), "Publiek afhaaladres");
+        }
+        if (input.publicPickupPosition() < 0) {
+            throw new BusinessRuleException("Volgorde voor afhalen kan niet negatief zijn");
+        }
         String code = input.code() == null || input.code().isBlank()
                 ? codeFor(name) : input.code().trim().toUpperCase();
         StockLocationEntity entity = input.id() == null ? new StockLocationEntity() : locations.findById(input.id());
@@ -113,6 +133,11 @@ public class StockService {
         entity.countsForWebsite = input.countsForWebsite();
         entity.receivesByDefault = input.receivesByDefault();
         entity.position = input.position();
+        entity.publicPickupPoint = input.publicPickupPoint();
+        entity.publicPickupLabel = blankToNull(input.publicPickupLabel());
+        entity.publicPickupAddress = blankToNull(input.publicPickupAddress());
+        entity.publicPickupInstructions = blankToNull(input.publicPickupInstructions());
+        entity.publicPickupPosition = input.publicPickupPosition();
         if (entity.id == null) locations.persist(entity);
         locations.flush();
         /* A change in "counts for the website" moves the cached figure on every product. */

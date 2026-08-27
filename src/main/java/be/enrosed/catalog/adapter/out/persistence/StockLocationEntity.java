@@ -16,9 +16,18 @@ public class StockLocationEntity {
     @Column(nullable = false) public boolean countsForWebsite;
     @Column(nullable = false) public boolean receivesByDefault;
     @Column(nullable = false) public int position;
+    /** Nullable in JPA so schema-update can add it safely; null reads as false. */
+    public Boolean publicPickupPoint;
+    public String publicPickupLabel;
+    @Column(length = 500) public String publicPickupAddress;
+    @Column(length = 2000) public String publicPickupInstructions;
+    /** Nullable in JPA so existing rows can be upgraded without a fake order. */
+    public Integer publicPickupPosition;
 
     public StockLocation toDomain() {
         return new StockLocation(id, code, name, kind, address, active, countsForWebsite,
-                receivesByDefault, position);
+                receivesByDefault, position, Boolean.TRUE.equals(publicPickupPoint),
+                publicPickupLabel, publicPickupAddress, publicPickupInstructions,
+                publicPickupPosition == null ? 0 : publicPickupPosition);
     }
 }

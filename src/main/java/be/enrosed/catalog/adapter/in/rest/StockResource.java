@@ -28,16 +28,32 @@ public class StockResource {
 
     public record LocationDto(Long id, String code, String name, StockLocation.Kind kind, String kindLabel,
                               String address, boolean active, boolean countsForWebsite,
-                              boolean receivesByDefault, int position) {
+                              boolean receivesByDefault, int position,
+                              Boolean publicPickupPoint, String publicPickupLabel,
+                              String publicPickupAddress, String publicPickupInstructions,
+                              Integer publicPickupPosition) {
         static LocationDto from(StockLocation location) {
             return new LocationDto(location.id(), location.code(), location.name(), location.kind(),
                     location.kind().dutchLabel(), location.address(), location.active(),
-                    location.countsForWebsite(), location.receivesByDefault(), location.position());
+                    location.countsForWebsite(), location.receivesByDefault(), location.position(),
+                    location.publicPickupPoint(), location.publicPickupLabel(),
+                    location.publicPickupAddress(), location.publicPickupInstructions(),
+                    location.publicPickupPosition());
         }
 
-        StockLocation toDomain(Long id) {
+        StockLocation toDomain(Long id, StockLocation existing) {
             return new StockLocation(id, code, name, kind, address, active, countsForWebsite,
-                    receivesByDefault, position);
+                    receivesByDefault, position,
+                    publicPickupPoint != null ? publicPickupPoint
+                            : existing != null && existing.publicPickupPoint(),
+                    publicPickupLabel != null ? publicPickupLabel
+                            : existing == null ? null : existing.publicPickupLabel(),
+                    publicPickupAddress != null ? publicPickupAddress
+                            : existing == null ? null : existing.publicPickupAddress(),
+                    publicPickupInstructions != null ? publicPickupInstructions
+                            : existing == null ? null : existing.publicPickupInstructions(),
+                    publicPickupPosition != null ? publicPickupPosition
+                            : existing == null ? 0 : existing.publicPickupPosition());
         }
     }
 
@@ -57,14 +73,14 @@ public class StockResource {
     @POST
     @Path("/locations")
     public Response createLocation(LocationDto dto) {
-        StockLocation saved = stock.saveLocation(dto.toDomain(null));
+        StockLocation saved = stock.saveLocation(dto.toDomain(null, null));
         return Response.status(Response.Status.CREATED).entity(LocationDto.from(saved)).build();
     }
 
     @PUT
     @Path("/locations/{id}")
     public LocationDto updateLocation(@PathParam("id") long id, LocationDto dto) {
-        return LocationDto.from(stock.saveLocation(dto.toDomain(id)));
+        return LocationDto.from(stock.saveLocation(dto.toDomain(id, stock.location(id))));
     }
 
     @DELETE

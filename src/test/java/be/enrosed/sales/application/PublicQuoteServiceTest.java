@@ -1,6 +1,7 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.*;
 import be.enrosed.sales.adapter.in.rest.PublicQuoteDtos;
 import be.enrosed.sales.domain.*;
@@ -22,6 +23,7 @@ import static org.mockito.Mockito.*;
 
 class PublicQuoteServiceTest {
     private ProductService products;
+    private StockService stock;
     private CountryService countries;
     private CustomerService customers;
     private SalesOrderService salesOrders;
@@ -34,6 +36,7 @@ class PublicQuoteServiceTest {
     @BeforeEach
     void setUp() {
         products = mock(ProductService.class);
+        stock = mock(StockService.class);
         countries = mock(CountryService.class);
         customers = mock(CustomerService.class);
         salesOrders = mock(SalesOrderService.class);
@@ -50,7 +53,7 @@ class PublicQuoteServiceTest {
         settings.palletMaxWeightKg = decimal("700");
         VatCalculator vat = new VatCalculator();
         vat.homeCountry = "BE";
-        service = new PublicQuoteService(products, countries, customers, salesOrders,
+        service = new PublicQuoteService(products, stock, countries, customers, salesOrders,
                 tiers, new SalesPricingCalculator(new PalletCalculator(), new DeliveryCalculator()),
                 settings, vat, carriers, websiteQuoteReady);
 
@@ -61,6 +64,8 @@ class PublicQuoteServiceTest {
         when(countries.find("BE")).thenReturn(country());
         when(countries.list()).thenReturn(List.of(country()));
         when(carriers.findAll()).thenReturn(List.of());
+        when(stock.publicPickupLocations()).thenReturn(List.of(pickupLocation(10L,
+                "ENROSED warehouse", "Rose Street 12, 2400 Mol", 0)));
     }
 
     @Test
@@ -72,6 +77,10 @@ class PublicQuoteServiceTest {
         assertEquals(12, result.products().get(0).piecesPerCarton());
         assertNull(result.products().get(1).unitPriceNet());
         assertFalse(result.products().get(1).priceAvailable());
+        assertEquals(List.of("DELIVERY", "PICKUP"), result.fulfillmentMethods());
+        assertEquals("ENROSED warehouse", result.pickupLocations().getFirst().label());
+        assertEquals("Rose Street 12, 2400 Mol",
+                result.pickupLocations().getFirst().address());
     }
 
     @Test
@@ -102,7 +111,42 @@ class PublicQuoteServiceTest {
         assertNull(result.totals().goodsNet());
         assertNull(result.totals().totalInclVat());
         assertEquals("PICKUP", result.shipping().status());
+        assertEquals("ENROSED warehouse", result.pickupLocation().label());
+        assertEquals(decimal("0.00"), result.shipping().freightNet());
+        assertEquals(decimal("0.00"), result.shipping().handlingNet());
         assertEquals(decimal("0.00"), result.shipping().totalNet());
+    }
+
+    @Test
+    void pickupRequiresAnExplicitChoiceWhenSeveralLocationsArePublic() {
+        when(stock.publicPickupLocations()).thenReturn(List.of(
+                pickupLocation(10L, "Mol", "Rose Street 12, 2400 Mol", 1),
+                pickupLocation(11L, "Aalsmeer", "Legmeerdijk 313, Aalsmeer", 2)));
+
+        PublicQuoteValidationException missing = assertThrows(
+                PublicQuoteValidationException.class,
+                () -> service.preview(new PublicQuoteDtos.PreviewRequest(
+                        "EN", "PICKUP", null, null,
+                        List.of(new PublicQuoteDtos.ItemRequest(1L, 1)), null)));
+        assertEquals("REQUIRED", missing.fieldErrors().get("pickupLocationId"));
+
+        PublicQuoteDtos.EstimateResponse selected = service.preview(
+                new PublicQuoteDtos.PreviewRequest("EN", "PICKUP", null, null,
+                        List.of(new PublicQuoteDtos.ItemRequest(1L, 1)), 11L));
+        assertEquals(11L, selected.pickupLocation().id());
+        assertEquals("Aalsmeer", selected.pickupLocation().label());
+        assertEquals(decimal("0.00"), selected.totals().shippingNet());
+    }
+
+    @Test
+    void disabledOrUnknownPickupLocationIsNeverAccepted() {
+        PublicQuoteValidationException unavailable = assertThrows(
+                PublicQuoteValidationException.class,
+                () -> service.preview(new PublicQuoteDtos.PreviewRequest(
+                        "EN", "PICKUP", null, null,
+                        List.of(new PublicQuoteDtos.ItemRequest(1L, 1)), 999L)));
+
+        assertEquals("UNAVAILABLE", unavailable.fieldErrors().get("pickupLocationId"));
     }
 
     @Test
@@ -180,6 +224,7 @@ class PublicQuoteServiceTest {
         SalesOrder quote = saved.getValue();
         assertEquals(36, quote.lines().getFirst().quantity());
         assertEquals(decimal("10.0000"), quote.lines().getFirst().unitPriceEur());
+        assertNull(quote.pickupLocation(), "delivery must not carry collection facts");
         assertEquals(FreightState.TE_BEPALEN, quote.freight());
         assertFalse(quote.internalNotes().contains(
                 SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER));
@@ -250,6 +295,10 @@ class PublicQuoteServiceTest {
         assertTrue(saved.getValue().internalNotes().contains(
                 "[DOOSINHOUD_TE_BEPALEN] productId=3; sku=NO-CARTON; cartons=4; "
                         + "quantityPieces=TE_BEPALEN"));
+        assertEquals(10L, saved.getValue().pickupLocation().locationId());
+        assertEquals("ENROSED warehouse", saved.getValue().pickupLocation().label());
+        assertEquals("Rose Street 12, 2400 Mol",
+                saved.getValue().pickupLocation().address());
     }
 
     @Test
@@ -428,6 +477,13 @@ class PublicQuoteServiceTest {
     private static Country country(String code) {
         return new Country(code, code, decimal("100"), decimal("90"),
                 decimal("250"), decimal("35"), decimal("21"), 1, true);
+    }
+
+    private static StockLocation pickupLocation(long id, String label, String address,
+                                                int publicPosition) {
+        return new StockLocation(id, "LOC-" + id, "Internal " + label,
+                StockLocation.Kind.WAREHOUSE, "Internal address", true, true, false, 0,
+                true, label, address, "Report at reception", publicPosition);
     }
 
     private static Customer identified(Customer source, long id) {

@@ -172,6 +172,14 @@ public final class SalesEntities {
         public Long sourceQuoteId;
         public Instant goodsShippedAt;
 
+        /** Immutable public collection snapshot for website requests. */
+        public Long pickupLocationId;
+        public String pickupLocationLabel;
+        @Column(length = 500)
+        public String pickupLocationAddress;
+        @Column(length = 2000)
+        public String pickupLocationInstructions;
+
         @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")
         public List<SalesOrderLineEntity> lines = new ArrayList<>();
