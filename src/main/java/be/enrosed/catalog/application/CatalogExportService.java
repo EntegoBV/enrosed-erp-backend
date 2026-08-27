@@ -159,7 +159,12 @@ public class CatalogExportService {
             throw new BusinessRuleException("Selecteer minstens een product voor de catalogus");
         }
 
-        List<Product> selected = select(products.list(), request.productIds());
+        /* Customer documents exclude internal assessment products, even when an older saved
+           "select all" request still contains their ids. They remain fully available in ERP. */
+        List<Product> customerCatalogue = products.list().stream()
+                .filter(product -> !product.demo())
+                .toList();
+        List<Product> selected = select(customerCatalogue, request.productIds());
         if (selected.isEmpty()) {
             throw new BusinessRuleException("Selecteer minstens een product voor de catalogus");
         }

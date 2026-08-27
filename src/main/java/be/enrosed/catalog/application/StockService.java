@@ -97,6 +97,8 @@ public class StockService {
             main.countsForWebsite = true;
             main.receivesByDefault = true;
             main.position = 0;
+            main.publicPickupPoint = false;
+            main.publicPickupPosition = 0;
             locations.persist(main);
             locations.flush();
             LOG.info("Voorraadlocatie Magazijn aangemaakt");

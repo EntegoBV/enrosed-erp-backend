@@ -126,6 +126,34 @@ public class CatalogExportServiceTest {
         assertTrue(model.getValue().families().get(1).synthetic());
     }
 
+    @Test
+    void internalAssessmentProductsNeverEnterCustomerCataloguesFromSavedSelections() {
+        Product accepted = product(1L, "ACCEPTED", null, 1L, 0);
+        Product assessment = product(2L, "ASSESSMENT", null, 1L, 1).withDemo(true);
+
+        ProductService products = mock(ProductService.class);
+        CategoryService categories = mock(CategoryService.class);
+        CatalogFamilyReader families = mock(CatalogFamilyReader.class);
+        CatalogDocumentRenderer renderer = mock(CatalogDocumentRenderer.class);
+        when(products.list()).thenReturn(List.of(accepted, assessment));
+        when(categories.list()).thenReturn(List.of(category()));
+        when(families.findByIds(Set.of())).thenReturn(List.of());
+        when(renderer.render(any())).thenReturn(document());
+
+        CatalogExportService service = new CatalogExportService(
+                products, categories, families, renderer);
+        service.export(new CatalogExportService.Request(
+                List.of(assessment.id(), accepted.id()), false, false, null,
+                null, null, "nl", CatalogExportService.Layout.BROCHURE, null));
+
+        ArgumentCaptor<CatalogExportService.Model> model =
+                ArgumentCaptor.forClass(CatalogExportService.Model.class);
+        verify(renderer).render(model.capture());
+        assertEquals(List.of(accepted), model.getValue().products());
+        assertEquals(1, model.getValue().families().size());
+        assertTrue(model.getValue().families().getFirst().synthetic());
+    }
+
     private static CatalogDocumentRenderer.Document document() {
         return new CatalogDocumentRenderer.Document("catalog.pdf", new byte[] {1}, "application/pdf");
     }

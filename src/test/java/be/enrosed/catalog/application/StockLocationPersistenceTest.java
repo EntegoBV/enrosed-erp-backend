@@ -1,6 +1,7 @@
 package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.StockLocationEntity;
 import be.enrosed.catalog.domain.StockLevel;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.catalog.domain.StockMovement;
@@ -23,6 +24,18 @@ class StockLocationPersistenceTest {
     @Inject EntityManager entityManager;
     @Inject StockService stock;
     @Inject ProductService products;
+
+    @Test
+    @TestTransaction
+    void mainWarehouseStartsWithExplicitPrivatePickupDefaults() {
+        StockLocation main = stock.mainLocation();
+        StockLocationEntity stored = entityManager.find(StockLocationEntity.class, main.id());
+
+        assertEquals(false, main.publicPickupPoint());
+        assertEquals(0, main.publicPickupPosition());
+        assertEquals(Boolean.FALSE, stored.publicPickupPoint);
+        assertEquals(0, stored.publicPickupPosition);
+    }
 
     @Test
     @TestTransaction
