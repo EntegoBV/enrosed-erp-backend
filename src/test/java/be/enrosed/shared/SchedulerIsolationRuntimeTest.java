@@ -40,7 +40,10 @@ class SchedulerIsolationRuntimeTest {
                     "quarkus.scheduler.enabled", "true",
                     "enrosed.push.daily-agenda.cron", "off",
                     "enrosed.market.refresh.cron", "off",
-                    "enrosed.catalog.photo-rendition.cron", "off");
+                    "enrosed.catalog.photo-rendition.cron", "off",
+                    "enrosed.public-forms.cleanup.every", "off",
+                    "enrosed.contact.outbox.every", "off",
+                    "enrosed.contact.retention.every", "off");
         }
     }
 }

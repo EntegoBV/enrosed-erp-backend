@@ -81,7 +81,7 @@ class CatalogContentBackfillResourceTest {
     @Test
     void publicCopyResourcesKeepTheReviewedEightLocaleContract() throws Exception {
         List<List<String>> website = csv("/i18n/website-content.csv");
-        assertEquals(549, website.size(), "one header plus 548 website keys");
+        assertEquals(585, website.size(), "one header plus 584 website keys");
         assertTrue(website.stream().skip(1).allMatch(row -> row.size() == 11
                 && row.subList(3, 11).stream().noneMatch(String::isBlank)));
         List<String> stemRoses = row(website, "home.counter.item3.title", 0);

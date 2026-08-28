@@ -50,7 +50,11 @@ public final class PublicQuoteDtos {
             Boolean privacyAccepted,
             /** Honeypot. Real clients leave this field empty. */
             String website,
-            Long pickupLocationId
+            Long pickupLocationId,
+            /** Server-minted proof that this form was open for a plausible amount of time. */
+            String formToken,
+            /** Cloudflare Turnstile token; required only when Turnstile is configured. */
+            String challengeToken
     ) {
         /** Compatibility for clients written before selectable collection points. */
         public SubmitRequest(String language, String fulfillment, String vatNumber,
@@ -59,7 +63,19 @@ public final class PublicQuoteDtos {
                              String email, String phone, String notes, Boolean privacyAccepted,
                              String website) {
             this(language, fulfillment, vatNumber, destination, items, companyCountryCode,
-                    companyName, contactName, email, phone, notes, privacyAccepted, website, null);
+                    companyName, contactName, email, phone, notes, privacyAccepted, website,
+                    null, null, null);
+        }
+
+        /** Compatibility for clients/tests with collection points but before form protection. */
+        public SubmitRequest(String language, String fulfillment, String vatNumber,
+                             Destination destination, List<ItemRequest> items,
+                             String companyCountryCode, String companyName, String contactName,
+                             String email, String phone, String notes, Boolean privacyAccepted,
+                             String website, Long pickupLocationId) {
+            this(language, fulfillment, vatNumber, destination, items, companyCountryCode,
+                    companyName, contactName, email, phone, notes, privacyAccepted, website,
+                    pickupLocationId, null, null);
         }
     }
 

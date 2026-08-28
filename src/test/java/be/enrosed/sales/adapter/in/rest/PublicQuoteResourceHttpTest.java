@@ -1,5 +1,11 @@
 package be.enrosed.sales.adapter.in.rest;
 
+import be.enrosed.publicform.ClientIdentityResolver;
+import be.enrosed.publicform.PublicFormAction;
+import be.enrosed.publicform.PublicFormIdempotencyService;
+import be.enrosed.publicform.PublicFormPurpose;
+import be.enrosed.publicform.PublicFormRateLimiter;
+import be.enrosed.publicform.PublicFormSecurityService;
 import be.enrosed.sales.application.*;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -9,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import static io.restassured.RestAssured.given;
@@ -19,13 +26,21 @@ import static org.mockito.Mockito.*;
 @QuarkusTest
 class PublicQuoteResourceHttpTest {
     @InjectMock PublicQuoteService quotes;
-    @InjectMock PublicQuoteAbuseGuard abuse;
+    @InjectMock PublicFormSecurityService security;
+    @InjectMock PublicFormRateLimiter rateLimiter;
+    @InjectMock PublicFormIdempotencyService idempotency;
+    @InjectMock ClientIdentityResolver identities;
 
     @BeforeEach
     void allowNormalRequests() {
-        when(abuse.submitOnce(any(), anyString(), any())).thenAnswer(invocation -> {
+        when(identities.resolve(any())).thenReturn("127.0.0.1");
+        when(idempotency.replay(any(), nullable(String.class), anyString(), any()))
+                .thenReturn(Optional.empty());
+        when(idempotency.executeAccepted(any(), nullable(String.class), anyString(), any(),
+                anyString(), any(), any()))
+                .thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            Supplier<PublicQuoteDtos.SubmissionResponse> action = invocation.getArgument(2);
+            Supplier<PublicQuoteDtos.SubmissionResponse> action = invocation.getArgument(6);
             return action.get();
         });
     }
@@ -99,8 +114,9 @@ class PublicQuoteResourceHttpTest {
                 .body("code", equalTo("VALIDATION_ERROR"))
                 .body("fieldErrors.items", equalTo("REQUIRED"));
 
-        reset(quotes, abuse);
-        doThrow(new PublicQuoteRateLimitException(42)).when(abuse).checkPreview(anyString());
+        reset(quotes);
+        doThrow(new PublicQuoteRateLimitException(42)).when(rateLimiter)
+                .checkIp(eq(PublicFormAction.QUOTE_PREVIEW), anyString());
         given().contentType("application/json").body("{}")
                 .header("Origin", "http://localhost:4334")
                 .when().post("/api/v1/public/quotes/preview")
@@ -115,7 +131,8 @@ class PublicQuoteResourceHttpTest {
     @Test
     void conflictingIdempotencyKeyIsAConflictAndMalformedJsonIsActionable() {
         doThrow(new PublicQuoteValidationException(Map.of("idempotencyKey", "CONFLICT")))
-                .when(abuse).submitOnce(any(), anyString(), any());
+                .when(idempotency).replay(eq(PublicFormPurpose.QUOTE), anyString(),
+                        anyString(), eq(PublicQuoteDtos.SubmissionResponse.class));
 
         given().contentType("application/json")
                 .header("Idempotency-Key", "browser-12345678")
@@ -126,7 +143,7 @@ class PublicQuoteResourceHttpTest {
                 .body("code", equalTo("VALIDATION_ERROR"))
                 .body("fieldErrors.idempotencyKey", equalTo("CONFLICT"));
 
-        reset(quotes, abuse);
+        reset(quotes);
         given().contentType("application/json").body("{")
                 .when().post("/api/v1/public/quotes/requests")
                 .then().statusCode(400)

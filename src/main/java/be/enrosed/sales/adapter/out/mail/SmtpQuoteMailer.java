@@ -8,6 +8,7 @@ import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.mail.InternalMessageSender;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -45,7 +46,7 @@ import org.jboss.logging.Logger;
  * real customer.
  */
 @ApplicationScoped
-public class SmtpQuoteMailer implements QuoteMailer {
+public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
 
     private static final Logger LOG = Logger.getLogger(SmtpQuoteMailer.class);
     private static final URI BREVO_ENDPOINT = URI.create("https://api.brevo.com/v3/smtp/email");
@@ -116,8 +117,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
         if (mock) {
             mailer.send(Mail.withHtml(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
-            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN mail naar %s voor %s.",
-                    customer.email(), number);
+            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail voor %s.", number);
             return;
         }
         String brevoKey = brevoApiKey.orElse("").trim();
@@ -125,12 +125,12 @@ public class SmtpQuoteMailer implements QuoteMailer {
             try {
                 sendViaBrevo(customer.email(), subject, body, null, document);
             } catch (Exception e) {
-                LOG.errorf(e, "Mail naar %s via Brevo mislukt", customer.email());
+                LOG.errorf(e, "Klantmail voor %s via Brevo mislukt", number);
                 throw new BusinessRuleException(
                         "De mail kon niet verzonden worden via de maildienst: " + e.getMessage()
                         + " Het document staat nog klaar en is niet als verzonden gemarkeerd.");
             }
-            LOG.infof("%s via Brevo verstuurd naar %s", number, customer.email());
+            LOG.infof("Klantmail voor %s via Brevo verstuurd", number);
             return;
         }
         if (host.isBlank() || host.endsWith("example.com")) {
@@ -180,9 +180,8 @@ public class SmtpQuoteMailer implements QuoteMailer {
         if (mock) {
             mailer.send(Mail.withHtml(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
-            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN mail naar %s. De offerte %s is"
-                            + " wel opgebouwd.",
-                    customer.email(), order.number());
+            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail. De offerte %s is"
+                            + " wel opgebouwd.", order.number());
             return;
         }
 
@@ -191,13 +190,12 @@ public class SmtpQuoteMailer implements QuoteMailer {
             try {
                 sendViaBrevo(customer.email(), subject, body, null, document);
             } catch (Exception e) {
-                LOG.errorf(e, "Mail naar %s via Brevo mislukt", customer.email());
+                LOG.errorf(e, "Klantmail voor offerte %s via Brevo mislukt", order.number());
                 throw new BusinessRuleException(
                         "De mail kon niet verzonden worden via de maildienst: " + e.getMessage()
                         + " De offerte staat nog klaar en is niet als verzonden gemarkeerd.");
             }
-            LOG.infof("Offerte %s via Brevo verstuurd naar %s (portaallink %s)",
-                    order.number(), customer.email(), portalUrl);
+            LOG.infof("Klantmail voor offerte %s via Brevo verstuurd", order.number());
             return;
         }
 
@@ -215,7 +213,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
             mailer.send(Mail.withHtml(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
         } catch (RuntimeException e) {
-            LOG.errorf(e, "Mail naar %s via %s mislukt", customer.email(), host);
+            LOG.errorf(e, "Klantmail via %s mislukt", host);
             throw new BusinessRuleException(
                     "De mail kon niet verzonden worden: mailserver \"" + host + "\" is"
                     + " onbereikbaar of weigert de aanmelding. Op hosting die SMTP blokkeert"
@@ -223,15 +221,21 @@ public class SmtpQuoteMailer implements QuoteMailer {
                     + " De offerte staat nog klaar en is niet als verzonden gemarkeerd.");
         }
 
-        LOG.infof("Offerte %s verstuurd naar %s (portaallink %s)",
-                order.number(), customer.email(), portalUrl);
+        LOG.infof("Offerte %s verstuurd (portaallink opgenomen)", order.number());
     }
 
     @Override
     public void notifyInternal(String subject, String body) {
-        /* This notification fires while a CUSTOMER is busy in the portal. A
-           faltering mail server must not block their action - the event is
-           already in the quote's history anyway. */
+        /* Portal actions must not fail when the notification provider is down. */
+        try {
+            sendInternal(subject, body);
+        } catch (RuntimeException exception) {
+            LOG.errorf(exception, "Interne melding kon niet gemaild worden");
+        }
+    }
+
+    @Override
+    public void sendInternal(String subject, String body) {
         try {
             if (!mock && !brevoApiKey.orElse("").isBlank()) {
                 sendViaBrevo(internalRecipient, subject, null, body, null);
@@ -240,7 +244,7 @@ public class SmtpQuoteMailer implements QuoteMailer {
             }
             LOG.infof("Interne melding: %s", subject);
         } catch (Exception e) {
-            LOG.errorf(e, "Interne melding \"%s\" kon niet gemaild worden", subject);
+            throw new IllegalStateException("Interne melding kon niet gemaild worden", e);
         }
     }
 

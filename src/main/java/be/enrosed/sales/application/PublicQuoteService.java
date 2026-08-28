@@ -99,27 +99,14 @@ public class PublicQuoteService {
         return toResponse(prepare(request));
     }
 
+    /** Read-only validation used before challenge verification and e-mail rate consumption. */
+    public void validateSubmission(SubmitRequest request) {
+        validateAndPrepareSubmission(request);
+    }
+
     @Transactional
     public SubmissionResponse submit(SubmitRequest request) {
-        Map<String, String> errors = new LinkedHashMap<>();
-        validateContact(request, errors);
-        if (request != null && !isBlank(request.website())) {
-            /* A filled honeypot receives the same generic validation response as any bad input. */
-            errors.put("request", "INVALID");
-        }
-        Prepared prepared = null;
-        try {
-            prepared = prepare(request == null ? null : new PreviewRequest(
-                    request.language(), request.fulfillment(), request.vatNumber(),
-                    request.destination(), request.items(), request.pickupLocationId()));
-        } catch (PublicQuoteValidationException validation) {
-            /* Return one actionable field map: correcting the contact block
-               should not reveal a second, previously hidden address/product
-               error on the next click. This path remains read-only. */
-            validation.fieldErrors().forEach(errors::putIfAbsent);
-        }
-        if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
-        if (prepared == null) throw new IllegalStateException("Quote preparation yielded no result");
+        Prepared prepared = validateAndPrepareSubmission(request);
 
         String companyCountryCode = upper(request.companyCountryCode());
         Customer buyer = customers.create(new Customer(null,
@@ -176,6 +163,29 @@ public class PublicQuoteService {
                 "REQUEST_RECEIVED_NOT_BINDING", "FINAL_QUOTE_FOLLOWS", toResponse(prepared));
     }
 
+    private Prepared validateAndPrepareSubmission(SubmitRequest request) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        validateContact(request, errors);
+        if (request != null && !isBlank(request.website())) {
+            /* A filled honeypot receives the same generic validation response as any bad input. */
+            errors.put("request", "INVALID");
+        }
+        Prepared prepared = null;
+        try {
+            prepared = prepare(request == null ? null : new PreviewRequest(
+                    request.language(), request.fulfillment(), request.vatNumber(),
+                    request.destination(), request.items(), request.pickupLocationId()));
+        } catch (PublicQuoteValidationException validation) {
+            /* Return one actionable field map: correcting the contact block
+               should not reveal a second, previously hidden address/product
+               error on the next click. This path remains read-only. */
+            validation.fieldErrors().forEach(errors::putIfAbsent);
+        }
+        if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
+        if (prepared == null) throw new IllegalStateException("Quote preparation yielded no result");
+        return prepared;
+    }
+
     private Prepared prepare(PreviewRequest request) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
@@ -196,9 +206,9 @@ public class PublicQuoteService {
                 && (destination == null || isBlank(destination.postalCode()))) {
             errors.put("destination.postalCode", "REQUIRED");
         }
-        checkLength(destination == null ? null : destination.postalCode(), 24,
+        checkSingleLine(destination == null ? null : destination.postalCode(), 24,
                 "destination.postalCode", errors);
-        checkLength(destination == null ? null : destination.city(), 100,
+        checkSingleLine(destination == null ? null : destination.city(), 100,
                 "destination.city", errors);
         checkLength(destination == null ? null : destination.address(), 200,
                 "destination.address", errors);
@@ -392,18 +402,18 @@ public class PublicQuoteService {
             errors.put("request", "REQUIRED");
             return;
         }
-        required(request.companyName(), 160, "companyName", errors);
-        required(request.companyCountryCode(), 2, "companyCountryCode", errors);
+        requiredSingleLine(request.companyName(), 160, "companyName", errors);
+        requiredSingleLine(request.companyCountryCode(), 2, "companyCountryCode", errors);
         if (!isBlank(request.companyCountryCode())
                 && countries.find(upper(request.companyCountryCode())) == null) {
             errors.put("companyCountryCode", "UNSUPPORTED");
         }
-        required(request.contactName(), 120, "contactName", errors);
-        required(request.email(), 254, "email", errors);
+        requiredSingleLine(request.contactName(), 120, "contactName", errors);
+        requiredSingleLine(request.email(), 254, "email", errors);
         if (!isBlank(request.email()) && !EMAIL.matcher(request.email().trim()).matches()) {
             errors.put("email", "INVALID");
         }
-        checkLength(request.phone(), 50, "phone", errors);
+        checkSingleLine(request.phone(), 50, "phone", errors);
         checkLength(request.notes(), 2000, "notes", errors);
         if (!Boolean.TRUE.equals(request.privacyAccepted())) {
             errors.put("privacyAccepted", "REQUIRED");
@@ -419,7 +429,7 @@ public class PublicQuoteService {
 
     private static void validateVat(String value, Map<String, String> errors) {
         if (isBlank(value)) return;
-        if (value.length() > 32) {
+        if (value.length() > 32 || containsControl(value)) {
             errors.put("vatNumber", "INVALID");
             return;
         }
@@ -509,6 +519,22 @@ public class PublicQuoteService {
     private static void required(String value, int max, String path, Map<String, String> errors) {
         if (isBlank(value)) errors.put(path, "REQUIRED");
         else checkLength(value, max, path, errors);
+    }
+
+    private static void requiredSingleLine(String value, int max, String path,
+                                           Map<String, String> errors) {
+        if (isBlank(value)) errors.put(path, "REQUIRED");
+        else checkSingleLine(value, max, path, errors);
+    }
+
+    private static void checkSingleLine(String value, int max, String path,
+                                        Map<String, String> errors) {
+        checkLength(value, max, path, errors);
+        if (value != null && containsControl(value)) errors.put(path, "INVALID");
+    }
+
+    private static boolean containsControl(String value) {
+        return value.codePoints().anyMatch(character -> character < 0x20 || character == 0x7f);
     }
 
     private static void checkLength(String value, int max, String path,

@@ -193,6 +193,31 @@ class PublicQuoteServiceTest {
     }
 
     @Test
+    void submissionRejectsControlsInEverySingleLineContactAndAddressField() {
+        PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "BE0123456789\n",
+                new PublicQuoteDtos.Destination("BE", "2400\t", "Mol\nInjected",
+                        "Street 1\nUnit 2"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                "BE", "Buyer\nBV", "Ana\tInjected", "ana@example.com\n",
+                "+32\r123", "Multiline notes\nare allowed", true, "");
+
+        PublicQuoteValidationException exception = assertThrows(
+                PublicQuoteValidationException.class,
+                () -> service.validateSubmission(request));
+
+        assertEquals("INVALID", exception.fieldErrors().get("vatNumber"));
+        assertEquals("INVALID", exception.fieldErrors().get("destination.postalCode"));
+        assertEquals("INVALID", exception.fieldErrors().get("destination.city"));
+        assertEquals("INVALID", exception.fieldErrors().get("companyName"));
+        assertEquals("INVALID", exception.fieldErrors().get("contactName"));
+        assertEquals("INVALID", exception.fieldErrors().get("email"));
+        assertEquals("INVALID", exception.fieldErrors().get("phone"));
+        assertFalse(exception.fieldErrors().containsKey("destination.address"));
+        assertFalse(exception.fieldErrors().containsKey("notes"));
+    }
+
+    @Test
     void missingCartonDataIsNeverInventedAsOnePiecePerCarton() {
         Product noCarton = new Product(3L, "NO-CARTON", "No carton", Dimensions.empty(),
                 null, null, 1L, 1L, true, Barcodes.none(), null,

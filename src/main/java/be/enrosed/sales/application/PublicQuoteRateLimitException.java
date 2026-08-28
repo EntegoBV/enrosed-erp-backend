@@ -1,14 +1,9 @@
 package be.enrosed.sales.application;
 
-public class PublicQuoteRateLimitException extends RuntimeException {
-    private final long retryAfterSeconds;
+import be.enrosed.publicform.PublicFormRateLimitException;
 
+public class PublicQuoteRateLimitException extends PublicFormRateLimitException {
     public PublicQuoteRateLimitException(long retryAfterSeconds) {
-        super("Too many quote requests");
-        this.retryAfterSeconds = retryAfterSeconds;
-    }
-
-    public long retryAfterSeconds() {
-        return retryAfterSeconds;
+        super(retryAfterSeconds);
     }
 }
