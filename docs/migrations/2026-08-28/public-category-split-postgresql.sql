@@ -65,6 +65,55 @@ FROM assignments assignment
 JOIN category ON category.id = assignment.categoryid
 WHERE family.familykey = assignment.familykey;
 
+WITH assignments(familykey, collection_id, position) AS (VALUES
+  ('rose-diamonds-within-display', 3::bigint, 0),
+  ('preserved-single-rose-in-display', 3, 1),
+  ('preserved-bowl-rose', 3, 2),
+  ('bowl-rose-xl', 3, 3),
+  ('long-stem-rose-box-display', 3, 4),
+  ('cobalt-blue-roos-in-glazen-stolp', 6, 0),
+  ('rose-in-dome-elite', 6, 1),
+  ('rose-in-dome-xl', 6, 2),
+  ('rose-in-dome-m', 6, 3),
+  ('odoo-dome-15x30-single-review', 6, 4),
+  ('single-rose-in-acryl-glass-box', 4, 0),
+  ('one-rose-in-box', 4, 1),
+  ('hearth-glass-flowerbox', 4, 2),
+  ('roses-in-box-16pcs', 4, 3),
+  ('roses-in-box-9pcs', 4, 4),
+  ('acrylic-flowerbox', 4, 5),
+  ('glass-flowerbox', 4, 6),
+  ('diamond-rose', 4, 7),
+  ('odoo-heart-flowerbox-28-review', 4, 8),
+  ('odoo-preserved-rose-windowbox', 4, 9),
+  ('odoo-half-heart-foam-25', 7, 0),
+  ('odoo-half-heart-foam-40', 7, 1),
+  ('model-108-109', 7, 2),
+  ('model-111-112', 7, 3),
+  ('soaproos-in-vensterdoos', 5, 0),
+  ('soap-rose-box-led', 5, 1),
+  ('soap-roos-in-box', 5, 2)
+)
+INSERT INTO product_family_collection(family_id, collection_id, position, primarycollection)
+SELECT family.id, assignment.collection_id, assignment.position, true
+FROM assignments assignment
+JOIN product_family family ON family.familykey = assignment.familykey
+ON CONFLICT (family_id, collection_id) DO UPDATE SET
+  position = EXCLUDED.position,
+  primarycollection = true;
+
+WITH targets(family_id, collection_id) AS (
+  SELECT family.id,
+         CASE family.categoryid WHEN 9 THEN 3 WHEN 12 THEN 6 WHEN 10 THEN 4
+              WHEN 13 THEN 7 WHEN 11 THEN 5 END
+  FROM product_family family
+  WHERE family.categoryid IN (9,10,11,12,13)
+)
+UPDATE product_family_collection membership
+SET primarycollection = membership.collection_id = targets.collection_id
+FROM targets
+WHERE membership.family_id = targets.family_id;
+
 WITH copy(category_id, language, name, eyebrow, description, mobile_name, navigation_name, footer_name) AS (VALUES
   (9::bigint,'NL','Displays','Klaar voor de toonbank','Complete verkoopdisplays met individueel verpakte gepreserveerde rozen voor directe plaatsing op de winkelvloer.','Displays','Displays','Displays'),
   (9,'EN','Displays','Counter ready','Complete retail displays with individually packed preserved roses, ready for immediate shop-floor placement.','Displays','Displays','Displays'),
