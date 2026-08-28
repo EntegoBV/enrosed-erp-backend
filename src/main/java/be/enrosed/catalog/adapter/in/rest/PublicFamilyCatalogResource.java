@@ -165,7 +165,8 @@ public class PublicFamilyCatalogResource {
     @Produces(MediaType.WILDCARD)
     public Response image(@PathParam("handle") String handle,
                           @PathParam("sourceId") String sourceId,
-                          @PathParam("rendition") String rendition) {
+                          @PathParam("rendition") String rendition,
+                          @QueryParam("v") String version) {
         ProductFamilyEntity family = families.find("publicHandle", handle).firstResult();
         if (family == null || !family.active || !publishedAnywhere(family)) {
             throw new NotFoundException();
@@ -182,9 +183,23 @@ public class PublicFamilyCatalogResource {
         if (!small && !"large".equalsIgnoreCase(rendition)) throw new NotFoundException();
         String storageKey = small ? image.smallStorageKey : image.largeStorageKey;
         String contentType = small ? image.smallContentType : image.largeContentType;
+        String checksum = small ? image.smallSha256 : image.largeSha256;
+        String requestedVersion = version == null ? null : version.strip();
+        /* Old statically deployed pages may briefly carry the preceding checksum while a new
+           website build is pending. They still receive the current bytes, but only an exact
+           content-addressed URL is immutable. */
+        boolean versioned = requestedVersion != null && !requestedVersion.isEmpty()
+                && checksum != null && checksum.equalsIgnoreCase(requestedVersion);
         return PhotoResponses.inline(photoStorage.read(storageKey), contentType, image.originalFilename)
-                .header("Cache-Control", "public, max-age=31536000, immutable")
+                .header("Cache-Control", versioned
+                        ? "public, max-age=31536000, immutable"
+                        : "public, max-age=60")
                 .build();
+    }
+
+    /** Direct-Java and legacy consumer compatibility for the pre-versioned public URL. */
+    public Response image(String handle, String sourceId, String rendition) {
+        return image(handle, sourceId, rendition, null);
     }
 
     private PublicFamilyCatalogDto.FamilyDto family(
@@ -322,8 +337,8 @@ public class PublicFamilyCatalogResource {
         source(sources, "alt", alt.sourceLanguage());
         return new PublicFamilyCatalogDto.ImageDto(
                 image.id,
-                imageUrl(family.publicHandle, image.sourceKey, "small"),
-                imageUrl(family.publicHandle, image.sourceKey, "large"),
+                imageUrl(family.publicHandle, image.sourceKey, "small", image.smallSha256),
+                imageUrl(family.publicHandle, image.sourceKey, "large", image.largeSha256),
                 image.smallWidthPx, image.smallHeightPx,
                 image.largeWidthPx, image.largeHeightPx,
                 alt.value(), image.position,
@@ -737,9 +752,10 @@ public class PublicFamilyCatalogResource {
                 && family.dimensionRaw == null;
     }
 
-    private static String imageUrl(String handle, String sourceId, String rendition) {
-        return "/api/v1/public/catalog/families/" + encode(handle)
+    static String imageUrl(String handle, String sourceId, String rendition, String sha256) {
+        String path = "/api/v1/public/catalog/families/" + encode(handle)
                 + "/images/" + encode(sourceId) + "/" + rendition;
+        return sha256 == null || sha256.isBlank() ? path : path + "?v=" + encode(sha256);
     }
 
     private static BigDecimal value(List<BigDecimal> values, int index) {

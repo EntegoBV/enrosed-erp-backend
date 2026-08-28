@@ -21,13 +21,15 @@ public final class PhotoResponses {
     public static Response.ResponseBuilder inline(
             InputStream data, String contentType, String filename) {
         return base(data, contentType)
-                .header("Content-Disposition", contentDisposition("inline", filename));
+                .header("Content-Disposition", contentDisposition(
+                        "inline", compatibleFilename(filename, contentType)));
     }
 
     public static Response.ResponseBuilder attachment(
             InputStream data, String contentType, String filename) {
         return base(data, contentType)
-                .header("Content-Disposition", contentDisposition("attachment", filename));
+                .header("Content-Disposition", contentDisposition(
+                        "attachment", compatibleFilename(filename, contentType)));
     }
 
     private static Response.ResponseBuilder base(InputStream data, String contentType) {
@@ -67,6 +69,28 @@ public final class PhotoResponses {
         if (fallback.isEmpty()) fallback.append("foto");
         return disposition + "; filename=\"" + fallback + "\"; filename*=UTF-8''"
                 + encodeRfc5987(name);
+    }
+
+    /** A generated JPEG/PNG small may differ from the exact WebP large source. */
+    static String compatibleFilename(String filename, String contentType) {
+        if (filename == null || filename.isBlank()) return filename;
+        String extension = switch (safeContentType(contentType)) {
+            case "image/jpeg" -> ".jpg";
+            case "image/png" -> ".png";
+            case "image/gif" -> ".gif";
+            case "image/webp" -> ".webp";
+            default -> null;
+        };
+        if (extension == null) return filename;
+        String lower = filename.toLowerCase(Locale.ROOT);
+        boolean matches = extension.equals(".jpg")
+                ? lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                : lower.endsWith(extension);
+        if (matches) return filename;
+        int slash = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+        int dot = filename.lastIndexOf('.');
+        String stem = dot > slash ? filename.substring(0, dot) : filename;
+        return stem + extension;
     }
 
     private static String encodeRfc5987(String value) {

@@ -31,4 +31,16 @@ class PhotoResponsesTest {
                 "attachment; filename=\"roos__t_.jpg\"; filename*=UTF-8''roos%20%C3%A9t%C3%A9.jpg",
                 disposition);
     }
+
+    @Test
+    void generatedRenditionUsesAnExtensionMatchingItsActualMimeType() {
+        try (Response response = PhotoResponses.inline(
+                new ByteArrayInputStream(new byte[] {1}),
+                "image/jpeg", "supplier-photo.webp").build()) {
+            assertEquals("inline; filename=\"supplier-photo.jpg\"; "
+                            + "filename*=UTF-8''supplier-photo.jpg",
+                    response.getHeaderString("Content-Disposition"));
+            assertEquals("image/jpeg", response.getMediaType().toString());
+        }
+    }
 }

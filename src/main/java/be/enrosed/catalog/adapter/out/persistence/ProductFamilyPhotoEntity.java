@@ -24,6 +24,9 @@ public class ProductFamilyPhotoEntity {
     public long smallSizeBytes;
     public Integer smallWidthPx;
     public Integer smallHeightPx;
+    /** Rendition policy that processed this row; null is legacy/imported data. */
+    @Column(name = "small_rendition_policy", length = 40)
+    public String smallRenditionVersion;
 
     @Column(nullable = false, length = 80) public String largeStorageKey;
     public String largeContentType;

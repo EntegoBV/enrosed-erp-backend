@@ -12,6 +12,7 @@ import be.enrosed.catalog.application.FamilyMemberCacheService;
 import be.enrosed.catalog.application.FamilyCollectionAlignmentService;
 import be.enrosed.catalog.application.FeaturedProductSelectionService;
 import be.enrosed.catalog.application.PhotoReferenceService;
+import be.enrosed.catalog.application.PhotoRenditionService;
 import be.enrosed.catalog.application.PhotoUploadPolicy;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.PublicationState;
@@ -58,6 +59,7 @@ public class ProductFamilyResource {
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
     private final PhotoStorage photoStorage;
+    private final PhotoRenditionService photoRenditions;
     private final PhotoReferenceService photoReferences;
     private final FamilyPhotoCompatibilityService familyPhotoCompatibility;
     private final FamilyPhotoPublicationPolicy photoPublication;
@@ -86,6 +88,7 @@ public class ProductFamilyResource {
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
             PhotoStorage photoStorage,
+            PhotoRenditionService photoRenditions,
             PhotoReferenceService photoReferences,
             FamilyPhotoCompatibilityService familyPhotoCompatibility,
             FamilyPhotoPublicationPolicy photoPublication,
@@ -103,6 +106,7 @@ public class ProductFamilyResource {
         this.products = products;
         this.categories = categories;
         this.photoStorage = photoStorage;
+        this.photoRenditions = photoRenditions;
         this.photoReferences = photoReferences;
         this.familyPhotoCompatibility = familyPhotoCompatibility;
         this.photoPublication = photoPublication;
@@ -496,25 +500,35 @@ public class ProductFamilyResource {
                 .filter(photo -> sourceKey.equals(photo.sourceKey)).findFirst();
         if (existing.isPresent()) return dto(family);
 
-        String storageKey = "sha256-" + checksum + extension(upload.contentType());
-        PhotoStorage.Stored stored = photoStorage.storeKnown(
-                storageKey, upload.originalFilename(), upload.contentType(), upload.bytes());
+        /* Decode and render before storing either blob: corrupt images cannot leave a half upload. */
+        PhotoRenditionService.Rendition small = photoRenditions.small(upload);
+        String largeStorageKey = "sha256-" + checksum + extension(upload.contentType());
+        PhotoStorage.Stored largeStored = photoStorage.storeKnown(
+                largeStorageKey, upload.originalFilename(), upload.contentType(), upload.bytes());
+        String smallStorageKey = "sha256-" + small.sha256() + small.extension();
+        PhotoStorage.Stored smallStored = Objects.equals(smallStorageKey, largeStorageKey)
+                ? largeStored
+                : photoStorage.storeKnown(
+                        smallStorageKey, small.filename(), small.contentType(), small.bytes());
         ProductFamilyPhotoEntity photo = new ProductFamilyPhotoEntity();
         photo.family = family;
         photo.sourceKey = sourceKey;
         photo.originalFilename = upload.originalFilename();
-        photo.smallStorageKey = storageKey;
-        photo.smallContentType = upload.contentType();
-        photo.smallSha256 = checksum;
-        photo.smallSizeBytes = stored.sizeBytes();
-        photo.smallWidthPx = stored.widthPx();
-        photo.smallHeightPx = stored.heightPx();
-        photo.largeStorageKey = storageKey;
+        photo.originalWidthPx = largeStored.widthPx();
+        photo.originalHeightPx = largeStored.heightPx();
+        photo.smallStorageKey = smallStorageKey;
+        photo.smallContentType = small.contentType();
+        photo.smallSha256 = small.sha256();
+        photo.smallSizeBytes = smallStored.sizeBytes();
+        photo.smallWidthPx = smallStored.widthPx();
+        photo.smallHeightPx = smallStored.heightPx();
+        photo.smallRenditionVersion = PhotoRenditionService.POLICY_VERSION;
+        photo.largeStorageKey = largeStorageKey;
         photo.largeContentType = upload.contentType();
         photo.largeSha256 = checksum;
-        photo.largeSizeBytes = stored.sizeBytes();
-        photo.largeWidthPx = stored.widthPx();
-        photo.largeHeightPx = stored.heightPx();
+        photo.largeSizeBytes = largeStored.sizeBytes();
+        photo.largeWidthPx = largeStored.widthPx();
+        photo.largeHeightPx = largeStored.heightPx();
         photo.position = family.photos.size();
         if (variant == null) {
             photo.variantExternalId = optional(variantExternalId);

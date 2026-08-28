@@ -39,7 +39,8 @@ class SchedulerIsolationRuntimeTest {
             return Map.of(
                     "quarkus.scheduler.enabled", "true",
                     "enrosed.push.daily-agenda.cron", "off",
-                    "enrosed.market.refresh.cron", "off");
+                    "enrosed.market.refresh.cron", "off",
+                    "enrosed.catalog.photo-rendition.cron", "off");
         }
     }
 }

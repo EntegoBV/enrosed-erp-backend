@@ -31,6 +31,7 @@ import java.net.URI;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -172,6 +173,25 @@ class PublicCatalogResourceTest {
                 PublicFamilyCatalogResource.requireStableRevision(oldRevision, oldRevision));
         assertThrows(ServiceUnavailableException.class, () ->
                 PublicFamilyCatalogResource.requireStableRevision(oldRevision, newRevision));
+    }
+
+    @Test
+    void familyImageUrlsAreCacheBustedByTheSelectedRenditionChecksum() {
+        String firstSmall = PublicFamilyCatalogResource.imageUrl(
+                "dome xl", "admin/rose", "small", "a".repeat(64));
+        String secondSmall = PublicFamilyCatalogResource.imageUrl(
+                "dome xl", "admin/rose", "small", "b".repeat(64));
+        String large = PublicFamilyCatalogResource.imageUrl(
+                "dome xl", "admin/rose", "large", "c".repeat(64));
+
+        assertNotEquals(firstSmall, secondSmall);
+        assertEquals("/api/v1/public/catalog/families/dome%20xl/images/admin%2Frose/small?v="
+                + "a".repeat(64), firstSmall);
+        assertEquals("/api/v1/public/catalog/families/dome%20xl/images/admin%2Frose/large?v="
+                + "c".repeat(64), large);
+        assertEquals("/api/v1/public/catalog/families/dome/images/admin-rose/small",
+                PublicFamilyCatalogResource.imageUrl(
+                        "dome", "admin-rose", "small", null));
     }
 
     private static Category category() {
