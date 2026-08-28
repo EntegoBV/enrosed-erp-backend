@@ -1,31 +1,25 @@
 package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.shared.Currency;
-import be.enrosed.sourcing.domain.Supplier;
 import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PdfPurchaseRendererTest {
 
     @Test
-    void addressIsAvailableOnlyToInternalPurchaseCalculation() {
-        Supplier supplier = new Supplier(1L, "Factory Ltd", "CN", "Guangzhou",
-                null, null, null, Currency.CNY, "EXW", "Guangzhou", 25, null,
-                "Factory Road 1", "Baiyun District", "510000", "Guangdong");
-
-        assertEquals(List.of(), PdfPurchaseRenderer.visibleSupplierAddress(supplier, false));
-        assertEquals(List.of("Factory Road 1", "Baiyun District",
-                        "510000 Guangzhou, Guangdong", "CHINA (CN)"),
-                PdfPurchaseRenderer.visibleSupplierAddress(supplier, true));
+    void missingProductMasterNeverInventsCartonDetails() {
+        assertNull(PdfPurchaseRenderer.productSpecs(null));
+        assertNull(PdfPurchaseRenderer.piecesPerCarton(null));
     }
 
     @Test

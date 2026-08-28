@@ -82,7 +82,7 @@ class PdfPurchaseRendererRenderTest {
                so the extracted text is compared in lowercase. */
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("interne inkoopcalculatie"));
+            assertTrue(text.contains("interne calculatie"));
             assertTrue(text.contains("preserved rose with stem - rood 1"));
             assertTrue(text.contains("preserved rose with stem - rood " + lineCount));
             assertTrue(text.contains("betaalplan"));
@@ -121,9 +121,12 @@ class PdfPurchaseRendererRenderTest {
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("inkooporder - leesversie"), text);
+            assertTrue(text.contains("inkooporder - verticaal"), text);
             assertTrue(text.contains("96"),
                     "de geplaatste-order snapshot moet zichtbaar blijven na ontvangst");
+            assertTrue(text.contains("st./karton"), text);
+            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
             assertTrue(text.contains("1.200,00"),
                     "96 besteld x 12,50 moet het leverancierstotaal bepalen");
             assertFalse(text.contains("1.125,00"),
@@ -141,6 +144,48 @@ class PdfPurchaseRendererRenderTest {
                     "geregistreerde leveranciersbetaling mag niet uitlekken");
             assertFalse(text.contains("24.136,80"),
                     "interne betaalstand mag niet uitlekken");
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void horizontalPurchaseOrderMatchesPortraitContentAndEmbedsThumbnail() throws Exception {
+        Product product = createProductWithPhoto();
+        PurchaseOrder order = portraitOrder(product.id());
+        LandedCost costing = portraitCosting(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, costing, supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.LANDSCAPE);
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-landscape-supplier.pdf"), document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
+            assertTrue(pdf.getPage(0).getMediaBox().getWidth()
+                            > pdf.getPage(0).getMediaBox().getHeight(),
+                    "de horizontale inkooporder hoort landscape te zijn");
+            assertTrue(imageCount(pdf) >= 2,
+                    "logo en server-embedded productfoto horen beide zichtbaar te zijn");
+
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("inkooporder - horizontaal"), text);
+            assertTrue(text.contains("96"), text);
+            assertTrue(text.contains("st./karton"), text);
+            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("1.200,00"), text);
+            assertFalse(text.contains("1.125,00"), text);
+            assertFalse(text.contains("douanewaarde"), text);
+            assertFalse(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("betaalplan"), text);
+            assertFalse(text.contains("geregistreerde betalingen"), text);
+            assertFalse(text.contains("dagboek"), text);
         }
     }
 
@@ -187,14 +232,14 @@ class PdfPurchaseRendererRenderTest {
             long placeholderCount = Pattern.compile("\\bEN\\b").matcher(rawText).results().count();
             assertEquals(lineCount, placeholderCount,
                     "elke regel zonder productfoto hoort een rustige printplaceholder te krijgen");
-            String text = rawText.toLowerCase();
+            String text = rawText.toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("preserved rose with stem - rood 1"), text);
             assertTrue(text.contains("preserved rose with stem - rood " + lineCount), text);
         }
     }
 
     @Test
-    void customerViewStaysFreeOfInternals() throws Exception {
+    void horizontalPurchaseOrderStaysFreeOfInternals() throws Exception {
         PurchaseOrder order = order(4);
         PdfPurchaseRenderer.Document document = renderer.render(
                 order, costing(4), supplier(), false, payments(),
@@ -207,12 +252,12 @@ class PdfPurchaseRendererRenderTest {
         Files.write(preview.resolve("purchase-customer.pdf"), document.content());
 
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            String text = new PDFTextStripper().getText(pdf).toLowerCase();
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
             assertEquals(1, pdf.getNumberOfPages());
-            assertTrue(text.contains("inkoopcalculatie"));
+            assertTrue(text.contains("inkooporder") && text.contains("horizontaal"), text);
             assertTrue(!text.contains("betaalplan"));
             assertTrue(!text.contains("dagboek"));
-            assertTrue(!text.contains("factory road"));
             assertTrue(!text.contains("aangemaakt door"));
             assertTrue(!text.contains("emre"));
         }

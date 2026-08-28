@@ -6,7 +6,7 @@
     @page {
       size: A4 portrait; margin: 13mm 13mm 17mm;
       @bottom-left {
-        content: "{order.number} - inkooporder leesversie";
+        content: "{order.number} - inkooporder verticaal";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
       }
       @bottom-right {
@@ -40,7 +40,7 @@
     }
     .badge--read { border-color: #dcc8a4; background: #f8f0e3; color: #8f2942; }
 
-    /* Safe read-copy notice */
+    /* Current-dossier verification notice */
     .read-note {
       margin-top: 7mm; padding: 3.2mm 4mm; border-left: 1.2mm solid #c6a15b;
       background: #fbf7f2; color: #584d47; font-size: 8pt;
@@ -80,18 +80,19 @@
     .lines td:last-child { padding-right: 0; }
     .product { table-layout: fixed; }
     .product td { border: 0; padding: 0; background: transparent; text-align: left; vertical-align: middle; }
-    .product__photo-cell { width: 15mm; padding-right: 2.5mm !important; }
+    .product__photo-cell { width: 16mm; padding-right: 2.5mm !important; }
     .product-photo {
-      display: block; width: auto; height: 12mm; max-width: 12mm;
+      display: block; width: auto; height: 13mm; max-width: 13mm;
       border: .35pt solid #d9c6a6; border-radius: 2.5mm;
     }
     .product-photo--empty {
-      display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center;
+      display: block; width: 13mm; height: 13mm; line-height: 13mm; text-align: center;
       border: .35pt solid #d9c6a6; border-radius: 2.5mm; background: #f7efe3;
       color: #8f2942; font-size: 6.5pt; font-weight: 700;
     }
     .product__name { font-size: 8.5pt; font-weight: 700; line-height: 1.25; }
     .product__meta { margin-top: .8mm; color: #8b8179; font-size: 6.6pt; }
+    .product__specs { margin-top: .8mm; color: #584d47; font-size: 6.4pt; line-height: 1.35; }
     .number { white-space: nowrap; }
     .price-main { font-weight: 700; }
     .price-sub { color: #8b8179; font-size: 6.4pt; }
@@ -120,17 +121,17 @@
       <div class="company-line">{company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}</div>
     </td>
     <td class="doc-meta">
-      <div class="doc-kicker">Inkooporder - leesversie</div>
+      <div class="doc-kicker">Inkooporder - verticaal</div>
       <div class="doc-number">{order.number}</div>
       {#if order.alias}<div class="doc-alias">{order.alias}</div>{/if}
-      <div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">Controlekopie</span></div>
+      <div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">A4 staand</span></div>
     </td>
   </tr>
 </table>
 
 <div class="read-note">
-  <b>Leesversie voor controle of overleg.</b> Deze versie toont alleen de afgesproken
-  inkoopprijzen en valuta. Andere dossiergegevens blijven afgeschermd.
+  <b>Inkooporder voor controle of verzending.</b> Deze versie toont de bestelde aantallen,
+  kartoninhoud en afgesproken inkoopprijzen. Interne kostopbouw en betaalhistoriek blijven afgeschermd.
 </div>
 
 <table class="parties">
@@ -167,11 +168,12 @@
 <table class="lines">
   <thead>
   <tr>
-    <th style="width:84mm">Product</th>
-    <th style="width:16mm">Stuks</th>
-    <th style="width:16mm">Dozen</th>
-    <th style="width:31mm">Per stuk</th>
-    <th style="width:31mm">Regeltotaal</th>
+    <th style="width:72mm">Product</th>
+    <th style="width:15mm">Stuks</th>
+    <th style="width:19mm">St./karton</th>
+    <th style="width:15mm">Kartons</th>
+    <th style="width:27mm">Per stuk</th>
+    <th style="width:30mm">Regeltotaal</th>
   </tr>
   </thead>
   <tbody>
@@ -186,10 +188,12 @@
           <td>
             <div class="product__name">{line.productName}</div>
             <div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
+            {#if line.productSpecs}<div class="product__specs">{line.productSpecs}</div>{/if}
           </td>
         </tr></table>
       </td>
       <td class="number">{line.purchaseQuantity}</td>
+      <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.purchaseCartons}</td>
       <td class="number">
         {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
@@ -216,7 +220,7 @@
       <div class="total-box">
         <div class="label">Ordertotaal per valuta</div>
         <table class="total-row">
-          {#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount}</td></tr>{/for}
+          {#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
           {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
         </table>
       </div>
@@ -228,8 +232,8 @@
 </table>
 
 <div class="footnote">
-  Leesversie uit het actuele Enrosed-dossier. Product- en leveranciersgegevens worden bij het maken
-  van deze PDF gelezen en zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
+  Inkooporder uit het actuele Enrosed-dossier. Product-, karton- en leveranciersgegevens worden bij
+  het maken van deze PDF gelezen en zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
 </div>
 
 </body>

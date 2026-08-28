@@ -3,14 +3,12 @@
 <head>
   <meta charset="utf-8"/>
   <style>
-    /* The internal purchase dossier: everything that was entered, on paper
-       the way the screen shows it. Landscape, because the cost of a line is
-       a story of eight numbers side by side - grouped under three banners
-       (Lading, Kostenopbouw, Resultaat) so the eye finds its column. */
+    /* Wide purchase order. Internal cost components stay in the summary
+       below instead of being repeated as a dense wall of line columns. */
     @page {
       size: A4 landscape; margin: 11mm 10mm 16mm;
       @bottom-left {
-        content: "{order.number}{#if showRevenue} · interne inkoopcalculatie{#else} · inkoopcalculatie{/if}";
+        content: "{order.number}{#if showRevenue} · interne calculatie{#else} · inkooporder horizontaal{/if}";
         font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
       }
       @bottom-right {
@@ -78,15 +76,25 @@
     .c-name { font-weight: 700; }
     table.product-cell { width: 100%; border-collapse: collapse; }
     table.product-cell td { border: 0; padding: 0; vertical-align: middle; background: transparent; }
-    table.product-cell td.product-cell__image { width: 11mm; padding-right: 2.2mm; }
-    .product-photo { display: block; width: auto; height: 9mm; max-width: 9mm; border: .35pt solid #d9c6a6; border-radius: 2mm; }
-    .product-photo--empty { display: block; width: 9mm; height: 9mm; line-height: 9mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
+    table.product-cell td.product-cell__image { width: 15mm; padding-right: 2.2mm; }
+    .product-photo { display: block; width: auto; height: 12mm; max-width: 12mm; border: .35pt solid #d9c6a6; border-radius: 2mm; }
+    .product-photo--empty { display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
     .product-name { font-weight: 700; line-height: 1.25; }
     .product-sku { margin-top: 1px; color: #8a807a; font-size: 6pt; letter-spacing: .05em; }
+    .product-specs { margin-top: 2px; color: #584d47; font-size: 6.2pt; line-height: 1.35; font-weight: 400; }
     tr.sumrow td {
       border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
       padding-top: 5px; background: none;
     }
+
+    .purchase-totals {
+      margin-top: 8px; padding: 7px 9px; border: 1px solid #e3d7c6;
+      border-left: 3px solid #c6a15b; background: #fbf7f2; page-break-inside: avoid;
+    }
+    .purchase-totals__title { color: #8f2942; font-size: 6.3pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .purchase-total { display: inline-block; margin: 4px 10px 0 0; font-size: 8.2pt; }
+    .purchase-total b { font-size: 9.2pt; }
+    .purchase-warning { margin-top: 4px; color: #762239; font-size: 6.8pt; }
 
     /* -- summary cards --------------------------------------------------- */
     table.cards { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 12px -6px 0; page-break-inside: avoid; }
@@ -124,12 +132,12 @@
       </div>
     </td>
     <td class="head__meta">
-      <div class="doc-kicker">{#if showRevenue}Interne inkoopcalculatie{#else}Inkoopcalculatie{/if}</div>
+      <div class="doc-kicker">{#if showRevenue}Interne calculatie{#else}Inkooporder - horizontaal{/if}</div>
       <div class="doc-number">{order.number}</div>
       {#if order.alias}<div class="doc-alias">{order.alias}</div>{/if}
       <div class="doc-badges">
         <span class="badge badge--status">{statusLabel}</span>
-        {#if showRevenue}<span class="badge badge--intern">Intern</span>{/if}
+        {#if showRevenue}<span class="badge badge--intern">Intern</span>{#else}<span class="badge">A4 liggend</span>{/if}
       </div>
     </td>
   </tr>
@@ -181,6 +189,8 @@
     <td class="band__cell" style="width:34%">
       <div class="band__label">Leverancier</div>
       <div class="band__value">{supplierName}</div>
+      {#for addressLine in supplierAddressLines}<div class="band__sub">{addressLine}</div>{/for}
+      {#if supplierContactLine}<div class="band__sub">{supplierContactLine}</div>{/if}
     </td>
     <td class="band__cell" style="width:33%">
       <div class="band__label">Traject</div>
@@ -197,30 +207,17 @@
 </table>
 {/if}
 
-{#if showRevenue}
 <table class="lines">
   <thead>
-  <tr class="grouprow">
-    <th colspan="5">Lading</th>
-    <th class="group-l" colspan="{#if hasExtraColumn}8{#else}7{/if}">Kostenopbouw per regel</th>
-    <th class="group-l" colspan="2">Resultaat</th>
-  </tr>
   <tr class="labelrow">
     <th class="l">#</th>
-    <th class="l" style="width:67mm">Product</th>
+    <th class="l" style="width:104mm">Product &amp; specificatie</th>
     <th>Stuks</th>
-    <th>Dozen</th>
-    <th>m³</th>
-    <th class="group-l">Goederen $</th>
-    <th>Goederen €</th>
-    <th>Oorsprong €</th>
-    <th>Zeevracht €</th>
-    <th>Douanewaarde €</th>
-    <th>Invoerrecht €</th>
-    <th>Bestemming €</th>
-    {#if hasExtraColumn}<th>Enrosed €</th>{/if}
-    <th class="group-l">Totaal €</th>
-    <th>Per stuk €</th>
+    <th>St./karton</th>
+    <th>Kartons</th>
+    <th class="group-l">Inkoop/stuk</th>
+    <th>Inkooptotaal</th>
+    {#if showRevenue}<th class="group-l">Geland/stuk</th><th>Geland totaal</th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -234,94 +231,38 @@
             {#else}<span class="product-photo--empty">EN</span>{/if}
           </td>
           <td><div class="product-name">{line.productName}</div>
-            {#if line.sku}<div class="product-sku">{line.sku}</div>{/if}
+            <div class="product-sku">{#if line.sku}{line.sku} · {/if}{line.priceBasis}</div>
+            {#if line.productSpecs}<div class="product-specs">{line.productSpecs}</div>{/if}
           </td>
         </tr></table>
       </td>
-      <td class="r">{line.quantity}</td>
-      <td class="r">{line.cartons}</td>
-      <td class="r">{line.cbm.amount}</td>
-      <td class="r group-l">{#if line.goodsUsd}{line.goodsUsd.money}{#else}—{/if}</td>
-      <td class="r">{line.goodsEur.money}</td>
-      <td class="r">{line.originEur.money}</td>
-      <td class="r">{line.freightEur.money}</td>
-      <td class="r">{line.customsValueEur.money}</td>
-      <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
-      <td class="r">{line.destinationEur.money}</td>
-      {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
-      <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
-      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b></td>
+      <td class="r">{line.purchaseQuantity}</td>
+      <td class="r">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r">{line.purchaseCartons}</td>
+      <td class="r group-l">{#if line.purchasePriceAvailable}<b>{line.purchaseUnitPrice.moneyUnit}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r">{#if line.purchasePriceAvailable}<b>{line.purchaseLineTotal.money}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      {#if showRevenue}<td class="r c-res group-l"><b>{line.landedUnitEur.moneyUnit}</b></td><td class="r c-res"><b>{line.totalEur.money}</b></td>{/if}
     </tr>
   {/for}
   <tr class="sumrow">
     <td></td>
     <td>Totaal</td>
-    <td class="r">{costing.totals.pieces}</td>
-    <td class="r">{costing.totals.cartons}</td>
-    <td class="r">{costing.totals.cbm.amount}</td>
-    <td class="r group-l">{#if costing.totals.goodsUsd}{costing.totals.goodsUsd.money}{/if}</td>
-    <td class="r">{costing.totals.goodsEur.money}</td>
-    <td class="r">{costing.totals.originEur.money}</td>
-    <td class="r">{costing.totals.freightEur.money}</td>
-    <td class="r">{costing.totals.customsValueEur.money}</td>
-    <td class="r">{costing.totals.dutyEur.money}</td>
-    <td class="r">{costing.totals.destinationEur.money}</td>
-    {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
-    <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
-    <td class="r c-res">{costing.totals.averageUnitEur.moneyUnit}</td>
-  </tr>
-  </tbody>
-</table>
-{#else}
-<!-- Customer view: only the landed price per piece, which already carries the
-     desired margin inside it. No component columns - a breakdown that does not
-     add up to its own total invites exactly the arithmetic we want to avoid. -->
-<table class="lines">
-  <thead>
-  <tr class="labelrow">
-    <th class="l">#</th>
-    <th class="l" style="width:92mm">Product</th>
-    <th>Stuks</th>
-    <th>Dozen</th>
-    <th>m³</th>
-    <th>Per stuk €</th>
-    <th>Totaal €</th>
-  </tr>
-  </thead>
-  <tbody>
-  {#for line in lines}
-    <tr class="{#if line_even}alt{/if}">
-      <td class="c-num">{line_count}</td>
-      <td class="c-name">
-        <table class="product-cell"><tr>
-          <td class="product-cell__image">
-            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
-            {#else}<span class="product-photo--empty">EN</span>{/if}
-          </td>
-          <td><div class="product-name">{line.productName}</div>
-            {#if line.sku}<div class="product-sku">{line.sku}</div>{/if}
-          </td>
-        </tr></table>
-      </td>
-      <td class="r">{line.quantity}</td>
-      <td class="r">{line.cartons}</td>
-      <td class="r">{line.cbm.amount}</td>
-      <td class="r"><b>{line.landedUnitEur.moneyUnit}</b></td>
-      <td class="r"><b>{line.totalEur.money}</b></td>
-    </tr>
-  {/for}
-  <tr class="sumrow">
+    <td class="r">{purchasePieces}</td>
     <td></td>
-    <td>Totaal</td>
-    <td class="r">{costing.totals.pieces}</td>
-    <td class="r">{costing.totals.cartons}</td>
-    <td class="r">{costing.totals.cbm.amount}</td>
-    <td class="r">{costing.totals.averageUnitEur.moneyUnit}</td>
-    <td class="r">{costing.totals.totalEur.money}</td>
+    <td class="r">{purchaseCartons}</td>
+    <td></td>
+    <td class="r">Per valuta hieronder</td>
+    {#if showRevenue}<td class="r c-res group-l">{costing.totals.averageUnitEur.moneyUnit}</td><td class="r c-res">{costing.totals.totalEur.money}</td>{/if}
   </tr>
   </tbody>
 </table>
-{/if}
+
+<div class="purchase-totals">
+  <div class="purchase-totals__title">Afgesproken inkoopwaarde</div>
+  {#for total in purchaseTotals}<span class="purchase-total"><b>{total.amount}</b> {total.currency}</span>{/for}
+  {#if purchaseTotals.isEmpty}<span class="purchase-total muted">Nog geen prijs ingevuld</span>{/if}
+  {#if missingPurchasePrices > 0}<div class="purchase-warning">{missingPurchasePrices} productregel(s) missen nog een eenduidige inkoopprijs of valuta.</div>{/if}
+</div>
 
 {#if showRevenue}
 <table class="cards">
@@ -402,17 +343,19 @@
 
 <div class="foot">
   {#if showRevenue}
-    Interne calculatie: bevat de Enrosed kost als aparte regel. Niet bedoeld
-    om buiten het bedrijf te delen - gebruik daarvoor de klantweergave.
+    Interne calculatie: de productregels tonen alleen de beslisbedragen; de kostcomponenten staan
+    één keer in de samenvatting. Niet bedoeld om buiten het bedrijf te delen.
     {#if unifiedUsdToEur}
       Koers: 1 USD = {usdRateGoods} EUR
     {#else}
       Historische koersen: 1 USD = {usdRateGoods} EUR (goederen),
       {usdRateTransport} EUR (transport)
     {/if}{#if cnyRate},
-    1 CNY = {cnyRate} USD{/if}.
+    1 CNY = {cnyRate} USD{/if}. Samenvattingsbedragen zijn in euro.
+  {#else}
+    Horizontale inkooporder uit het actuele dossier. Product-, karton- en leveranciersgegevens
+    zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
   {/if}
-  Alle bedragen in euro, inclusief transport, invoerrechten en lokale kosten.
 </div>
 
 </body>
