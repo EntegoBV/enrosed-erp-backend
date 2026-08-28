@@ -18,6 +18,7 @@ public record PublicFamilyCatalogDto(
         long siteCopyRevision,
         String catalogRevision,
         Map<String, LocalizedValueDto> siteCopy,
+        List<CategoryDto> categories,
         List<FamilyDto> families
 ) {
     public record FamilyDto(

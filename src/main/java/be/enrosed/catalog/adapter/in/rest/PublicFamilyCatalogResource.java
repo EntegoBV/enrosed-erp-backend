@@ -90,6 +90,11 @@ public class PublicFamilyCatalogResource {
         String revisionBeforeProjection = revisions == null
                 ? null : revisions.currentRevision();
         List<CategoryEntity> categoryRows = categories.listAll();
+        List<PublicFamilyCatalogDto.CategoryDto> publicCategories = categoryRows.stream()
+                .sorted(Comparator.comparingInt((CategoryEntity item) -> item.position)
+                        .thenComparing(item -> safe(item.code), String.CASE_INSENSITIVE_ORDER))
+                .map(item -> category(item, language, channel))
+                .toList();
         ContentTranslationService.ResolvedCopy siteCopy =
                 content.resolve(ContentScope.WEBSITE, language);
         List<ProductFamilyEntity> publishedRows = families.findAll().list().stream()
@@ -113,6 +118,7 @@ public class PublicFamilyCatalogResource {
         publicFamilies = List.copyOf(publicFamilies);
         if (strictLanguage) {
             List<String> missing = new ArrayList<>(projectionIssues);
+            missing.addAll(strictCategoryMissing(language, publicCategories));
             missing.addAll(strictMissing(language, publicFamilies));
             missing.addAll(content.missingRequired(ContentScope.WEBSITE, language).stream()
                     .map(key -> "siteCopy." + key).toList());
@@ -127,7 +133,7 @@ public class PublicFamilyCatalogResource {
         return Response.ok(new PublicFamilyCatalogDto(
                         channel, language, LanguageFallback.chain(language),
                         siteCopy.revision(), catalogRevision,
-                        siteCopy.values(), publicFamilies))
+                        siteCopy.values(), publicCategories, publicFamilies))
                 .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
                 .build();
     }
@@ -385,6 +391,43 @@ public class PublicFamilyCatalogResource {
                 Collections.unmodifiableMap(sources));
     }
 
+    private PublicFamilyCatalogDto.CategoryDto category(
+            CategoryEntity category, Language language, CatalogChannel channel) {
+        List<CategoryTextEntity> texts = category.texts;
+        LanguageFallback.Resolved<String> name = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.name, category.name);
+        LanguageFallback.Resolved<String> description = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.description,
+                category.description);
+        LanguageFallback.Resolved<String> eyebrow = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.eyebrow, category.eyebrow);
+        LanguageFallback.Resolved<String> mobileName = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.mobileName,
+                category.mobileName);
+        LanguageFallback.Resolved<String> navigationName = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.navigationName,
+                category.navigationName);
+        LanguageFallback.Resolved<String> footerName = LanguageFallback.text(
+                texts, language, item -> item.language, item -> item.footerName,
+                category.footerName);
+        Map<String, Language> sources = new LinkedHashMap<>();
+        source(sources, "name", name.sourceLanguage());
+        source(sources, "description", description.sourceLanguage());
+        source(sources, "eyebrow", eyebrow.sourceLanguage());
+        source(sources, "mobileName", optionalCategorySource(
+                texts, language, item -> item.mobileName, mobileName));
+        source(sources, "navigationName", optionalCategorySource(
+                texts, language, item -> item.navigationName, navigationName));
+        source(sources, "footerName", optionalCategorySource(
+                texts, language, item -> item.footerName, footerName));
+        return new PublicFamilyCatalogDto.CategoryDto(
+                CategoryPublicKey.from(category.code), name.value(), category.position,
+                eyebrow.value(), description.value(), mobileName.value(), navigationName.value(),
+                footerName.value(), publicFeaturedProductId(
+                        category.featuredProductId, null, null, channel),
+                Collections.unmodifiableMap(sources));
+    }
+
     private Long resolvedProductId(
             ProductFamilyPhotoEntity image, List<ProductEntity> familyMembers) {
         ProductEntity resolved = variantResolver.resolve(image, familyMembers);
@@ -622,6 +665,28 @@ public class PublicFamilyCatalogResource {
                 requireSource(missing, prefix + ".images." + image.id() + ".alt",
                         image.alt(), image.textSources().get("alt"), requested);
             }
+        }
+        return List.copyOf(new LinkedHashSet<>(missing));
+    }
+
+    private static List<String> strictCategoryMissing(
+            Language requested, List<PublicFamilyCatalogDto.CategoryDto> categories) {
+        List<String> missing = new ArrayList<>();
+        for (PublicFamilyCatalogDto.CategoryDto category : categories) {
+            String prefix = "categories." + category.key();
+            requireSource(missing, prefix + ".name", category.name(),
+                    category.textSources().get("name"), requested);
+            requireSource(missing, prefix + ".description", category.description(),
+                    category.textSources().get("description"), requested);
+            requireSource(missing, prefix + ".eyebrow", category.eyebrow(),
+                    category.textSources().get("eyebrow"), requested);
+            requireApplicableOptional(missing, prefix + ".mobileName", category.mobileName(),
+                    category.textSources(), "mobileName", requested);
+            requireApplicableOptional(missing, prefix + ".navigationName",
+                    category.navigationName(), category.textSources(),
+                    "navigationName", requested);
+            requireApplicableOptional(missing, prefix + ".footerName", category.footerName(),
+                    category.textSources(), "footerName", requested);
         }
         return List.copyOf(new LinkedHashSet<>(missing));
     }

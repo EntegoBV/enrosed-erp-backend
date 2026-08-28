@@ -70,15 +70,15 @@ class CatalogDurabilityBackfillResourceTest {
 
         JsonNode categories = root.path("categories");
         assertEquals(expected.path("categories").asInt(), categories.size());
-        assertEquals(Set.of("rose-bears", "soap-roses"), fieldNames(categories));
+        assertEquals(Set.of("foam-roses", "soap-roses"), fieldNames(categories));
         categories.fields().forEachRemaining(category -> assertEightLanguages(
                 category.getValue().path("translations"), List.of(
                         "name", "eyebrow", "description", "mobileName",
                         "navigationName", "footerName")));
         assertEquals("Foam Roses & Bears",
-                categories.path("rose-bears").path("translations").path("EN")
+                categories.path("foam-roses").path("translations").path("EN")
                         .path("name").asText());
-        assertTrue(categories.path("rose-bears").path("featuredSku").isNull());
+        assertTrue(categories.path("foam-roses").path("featuredSku").isNull());
         assertEquals("ENR-SOAP-ROSE-BOX-LED-RED",
                 categories.path("soap-roses").path("featuredSku").asText());
 
@@ -91,7 +91,7 @@ class CatalogDurabilityBackfillResourceTest {
                 new HashSet<>(values(moves, "familyKey")));
         assertEquals(List.of(0, 1, 2), movesFor(moves, "soap-roses").stream()
                 .map(move -> move.path("position").asInt()).toList());
-        assertEquals(List.of(0, 1, 2, 3), movesFor(moves, "rose-bears").stream()
+        assertEquals(List.of(0, 1, 2, 3), movesFor(moves, "foam-roses").stream()
                 .map(move -> move.path("position").asInt()).toList());
 
         /* The checked-in fixture must remain portable across TEST/PROD database sequences. */

@@ -144,7 +144,7 @@
     ]
   },
   "categories": {
-    "rose-bears": {
+    "foam-roses": {
       "position": 5,
       "featuredSku": null,
       "base": {
@@ -326,28 +326,28 @@
     {
       "familyKey": "odoo-half-heart-foam-25",
       "sourceCategoryKeys": ["foam-rose"],
-      "targetCategoryKey": "rose-bears",
+      "targetCategoryKey": "foam-roses",
       "position": 0,
       "required": true
     },
     {
       "familyKey": "odoo-half-heart-foam-40",
       "sourceCategoryKeys": ["foam-rose"],
-      "targetCategoryKey": "rose-bears",
+      "targetCategoryKey": "foam-roses",
       "position": 1,
       "required": true
     },
     {
       "familyKey": "model-108-109",
       "sourceCategoryKeys": ["foam-rose"],
-      "targetCategoryKey": "rose-bears",
+      "targetCategoryKey": "foam-roses",
       "position": 2,
       "required": true
     },
     {
       "familyKey": "model-111-112",
       "sourceCategoryKeys": ["foam-rose"],
-      "targetCategoryKey": "rose-bears",
+      "targetCategoryKey": "foam-roses",
       "position": 3,
       "required": true
     }
