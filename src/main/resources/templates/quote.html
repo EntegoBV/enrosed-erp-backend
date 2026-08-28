@@ -106,9 +106,34 @@
     .nowrap { white-space: nowrap; }
 
     /* -- totals -------------------------------------------------------- */
-    .totals-wrap { width: 100%; margin-top: 13px; page-break-inside: avoid; }
+    .closing-section { width: 100%; margin-top: 14px; page-break-inside: avoid; }
+    .invoice .closing-section { page-break-before: always; margin-top: 0; padding-top: 3mm; }
+    table.closing-grid {
+      width: 100%; border-collapse: separate; border-spacing: 7px 0;
+      page-break-inside: avoid;
+    }
+    table.closing-grid td { padding: 0; vertical-align: top; }
+    table.closing-grid td.closing-overview { width: 43%; }
+    table.closing-grid td.closing-totals { width: 57%; }
+    .overview-card {
+      min-height: 162px; padding: 12px 13px; color: #ffffff;
+      background: #181411; border-top: 3px solid #c9a45c;
+    }
+    .overview-kicker {
+      color: #f4dfac; font-size: 7.2pt; font-weight: bold; letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+    .overview-number { margin-top: 3px; font-size: 13pt; font-weight: bold; }
+    .overview-rule { margin: 10px 0 8px; border-top: 1px solid #4d4540; }
+    table.overview-facts { width: 100%; border-collapse: collapse; }
+    table.overview-facts td { padding: 3px 0; color: #eee8e2; font-size: 8.5pt; }
+    table.overview-facts td:last-child { color: #ffffff; font-weight: bold; text-align: right; }
+    .overview-note {
+      margin-top: 9px; padding-top: 8px; color: #d8d0c9; border-top: 1px solid #4d4540;
+      font-size: 7.8pt; line-height: 1.45;
+    }
     table.totals {
-      width: 51%; margin-left: 49%; border-collapse: collapse;
+      width: 100%; border-collapse: collapse;
       border-top: 3px solid #c9a45c; background: #f7f1e8;
     }
     table.totals td { padding: 4px 10px; font-size: 9.4pt; }
@@ -132,7 +157,10 @@
       margin-top: 13px; padding: 10px 12px; border: 1px solid #ded5cc;
       background: #fbf8f4; page-break-inside: avoid;
     }
-    .panel--accent { border-color: #d9aab6; background: #f8e9ed; }
+    .panel--accent {
+      padding: 12px 14px; border: 1.5px solid #b9687c; border-left: 5px solid #8f2942;
+      background: #f8e9ed;
+    }
     .panel-title {
       color: #8f2942; font-size: 7.2pt; font-weight: bold; letter-spacing: 1px;
       text-transform: uppercase;
@@ -168,7 +196,7 @@
     }
   </style>
 </head>
-<body>
+<body class="{#if isInvoice}invoice{#else}quote{/if}">
 
 <table class="head">
   <tr>
@@ -272,7 +300,25 @@
   </tbody>
 </table>
 
-<div class="totals-wrap">
+<div class="closing-section">
+<table class="closing-grid">
+<tr>
+<td class="closing-overview">
+  <div class="overview-card">
+    <div class="overview-kicker">{docLabel}</div>
+    <div class="overview-number">{order.number}</div>
+    <div class="overview-rule"></div>
+    <table class="overview-facts">
+      <tr><td>{t.customer}</td><td>{#if customer}{customer.company}{#else}-{/if}</td></tr>
+      <tr><td>{t.destination}</td><td>{order.countryCode ?: '-'}</td></tr>
+      <tr><td>{t.cartons}</td><td>{priced.totals.cartons}</td></tr>
+      <tr><td>{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</td>
+          <td>{#if looseCartons}{priced.totals.cbm} m³{#else}{effectivePallets}{/if}</td></tr>
+    </table>
+    {#if order.notes}<div class="overview-note"><b>{t.note}:</b> {order.notes}</div>{/if}
+  </div>
+</td>
+<td class="closing-totals">
 <table class="totals">
   <tr><td>{t.subtotal}</td><td class="r">{priced.totals.subtotal.eur}</td></tr>
   {#if priced.totals.orderDiscountAmount.isPositive}
@@ -303,11 +349,10 @@
         <td class="r">{priced.totals.totalInclVat.eur}</td></tr>
   {/if}
 </table>
+</td>
+</tr>
+</table>
 </div>
-
-{#if order.notes}
-  <div class="note-block"><b>{t.note}:</b> {order.notes}</div>
-{/if}
 
 {#if isInvoice}
   <div class="panel panel--accent">
