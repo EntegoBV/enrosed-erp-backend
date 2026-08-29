@@ -8,6 +8,8 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.CurrentActor;
@@ -427,7 +429,13 @@ public class SalesOrderService {
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
                 roundLinesToCartons(changes.lines()), changes.pallets());
         validateForSave(updated);
-        return orders.save(updated);
+        SalesOrder saved = orders.save(updated);
+        if (!saved.equals(current)) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved,
+                    saved.isInvoice() ? "Factuur bijgewerkt" : "Offerte bijgewerkt",
+                    salesChanges(current, saved));
+        }
+        return saved;
     }
 
     /** One line whose promised delivery week may be filled in separately. */
@@ -471,8 +479,13 @@ public class SalesOrderService {
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()))
                         : line)
                 .toList();
-        return orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(),
+        SalesOrder saved = orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(),
                 current.freightPricingStrategy(), current.freightRatePerCbmEur(), lines));
+        if (!saved.equals(current)) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Levertermijnen bijgewerkt",
+                    salesLineChanges(current, saved, true));
+        }
+        return saved;
     }
 
     /**
@@ -531,7 +544,12 @@ public class SalesOrderService {
             updated = withCarrier(updated, freightCarrierId);
         }
         validateNarrowFreightUpdate(updated);
-        return orders.save(updated);
+        SalesOrder saved = orders.save(updated);
+        if (!saved.equals(current)) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Vrachtgegevens bijgewerkt",
+                    freightChanges(current, saved));
+        }
+        return saved;
     }
 
     /**
@@ -977,6 +995,101 @@ public class SalesOrderService {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, SALES_ORDER_ACTIVITY_TYPE,
                 order.id() == null ? null : order.id().toString(), order.number(), summary);
+    }
+
+    private void recordActivity(String action, SalesOrder order, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, SALES_ORDER_ACTIVITY_TYPE,
+                order.id() == null ? null : order.id().toString(), order.number(), summary, changes);
+    }
+
+    private static List<ActivityChangeDto> salesChanges(SalesOrder before, SalesOrder after) {
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("customerId", "Klant", before.customerId(), after.customerId())
+                .add("countryCode", "Land", before.countryCode(), after.countryCode())
+                .add("orderDate", "Datum", before.orderDate(), after.orderDate())
+                .add("validUntil", "Geldig tot", before.validUntil(), after.validUntil())
+                .add("incoterm", "Incoterm", before.incoterm(), after.incoterm())
+                .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
+                .add("markupMode", "Margeberekening", before.markupMode(), after.markupMode())
+                .add("orderMarkupPct", "Ordermarge", before.orderMarkupPct(), after.orderMarkupPct())
+                .add("extraDiscountPct", "Extra korting", before.extraDiscountPct(), after.extraDiscountPct())
+                .privateValue("extraDiscountLabel", "Reden extra korting",
+                        before.extraDiscountLabel(), after.extraDiscountLabel())
+                .add("freight", "Vrachtstatus", before.freight(), after.freight())
+                .add("manualFreightEur", "Vrachtbedrag", before.manualFreightEur(), after.manualFreightEur())
+                .add("freightPricingStrategy", "Vrachtberekening",
+                        before.freightPricingStrategy(), after.freightPricingStrategy())
+                .add("freightRatePerCbmEur", "Vrachttarief per m³",
+                        before.freightRatePerCbmEur(), after.freightRatePerCbmEur())
+                .add("freightCarrierId", "Vervoerder", before.freightCarrierId(), after.freightCarrierId())
+                .add("loadMode", "Laadwijze", before.loadMode(), after.loadMode())
+                .add("palletProfile", "Pallettype", before.palletProfile(), after.palletProfile())
+                .add("maxPalletHeightCm", "Maximale pallethoogte",
+                        before.maxPalletHeightCm(), after.maxPalletHeightCm())
+                .add("freightCarrierExtraEur", "Extra vervoerderskost",
+                        before.freightCarrierExtraEur(), after.freightCarrierExtraEur())
+                .add("palletCount", "Aantal handmatige pallets",
+                        before.pallets().size(), after.pallets().size())
+                .privateValue("palletLayout", "Handmatige palletindeling",
+                        before.pallets(), after.pallets())
+                .add("invoiceDueDate", "Vervaldatum", before.invoiceDueDate(), after.invoiceDueDate())
+                .add("lineCount", "Aantal productregels", before.lines().size(), after.lines().size())
+                .add("pieceCount", "Totaal aantal stuks", totalSalesPieces(before), totalSalesPieces(after))
+                .privateValue("notes", "Notitie voor klant", before.notes(), after.notes())
+                .privateValue("internalNotes", "Interne notitie", before.internalNotes(), after.internalNotes());
+        salesLineChanges(before, after, false).forEach(change ->
+                changes.add(change.field(), change.label(), change.beforeValue(), change.afterValue()));
+        return changes.build();
+    }
+
+    private static List<ActivityChangeDto> freightChanges(SalesOrder before, SalesOrder after) {
+        return ActivityChangeSet.create()
+                .add("freight", "Vrachtstatus", before.freight(), after.freight())
+                .add("manualFreightEur", "Vrachtbedrag", before.manualFreightEur(), after.manualFreightEur())
+                .add("freightPricingStrategy", "Vrachtberekening",
+                        before.freightPricingStrategy(), after.freightPricingStrategy())
+                .add("freightRatePerCbmEur", "Vrachttarief per m³",
+                        before.freightRatePerCbmEur(), after.freightRatePerCbmEur())
+                .add("freightCarrierId", "Vervoerder", before.freightCarrierId(), after.freightCarrierId())
+                .build();
+    }
+
+    private static List<ActivityChangeDto> salesLineChanges(
+            SalesOrder before, SalesOrder after, boolean deliveryOnly) {
+        ActivityChangeSet changes = ActivityChangeSet.create();
+        Map<Long, SalesOrderLine> beforeLines = before.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(), (left, right) -> right));
+        Map<Long, SalesOrderLine> afterLines = after.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(), (left, right) -> right));
+        Set<Long> productIds = new java.util.TreeSet<>();
+        productIds.addAll(beforeLines.keySet());
+        productIds.addAll(afterLines.keySet());
+        for (Long productId : productIds) {
+            SalesOrderLine oldLine = beforeLines.get(productId);
+            SalesOrderLine newLine = afterLines.get(productId);
+            String suffix = " · Product " + productId;
+            if (!deliveryOnly) {
+                changes.add("line." + productId + ".quantity", "Aantal" + suffix,
+                        oldLine == null ? null : oldLine.quantity(), newLine == null ? null : newLine.quantity());
+                changes.add("line." + productId + ".unitPrice", "Stukprijs" + suffix,
+                        oldLine == null ? null : oldLine.unitPriceEur(), newLine == null ? null : newLine.unitPriceEur());
+                changes.add("line." + productId + ".discount", "Korting" + suffix,
+                        oldLine == null ? null : oldLine.manualDiscountPct(),
+                        newLine == null ? null : newLine.manualDiscountPct());
+            }
+            changes.add("line." + productId + ".deliveryWeek", "Levertermijn" + suffix,
+                    oldLine == null ? null : oldLine.deliveryWeek(),
+                    newLine == null ? null : newLine.deliveryWeek());
+        }
+        return changes.build();
+    }
+
+    private static int totalSalesPieces(SalesOrder order) {
+        return order.lines().stream().mapToInt(SalesOrderLine::quantity).sum();
     }
 
     /** CDI delivers this payload only after the transaction has committed successfully. */

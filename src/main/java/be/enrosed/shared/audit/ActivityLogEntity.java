@@ -49,9 +49,12 @@ public class ActivityLogEntity extends PanacheEntityBase {
     @Column(nullable = false, length = 500)
     public String summary;
 
-    ActivityDto toDto() {
+    @Column(name = "changes_json", length = 16000)
+    public String changesJson;
+
+    ActivityDto toDto(java.util.List<ActivityChangeDto> changes) {
         return new ActivityDto(id, occurredAt,
                 new ActorRef(actorUsername, actorDisplayName), action, entityType,
-                entityId, entityLabel, summary);
+                entityId, entityLabel, summary, ActivityCategory.forEntityType(entityType), changes);
     }
 }

@@ -2,6 +2,8 @@ package be.enrosed.planning;
 
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.push.StaffActionPushNotifier;
 import be.enrosed.shared.security.ActorRef;
@@ -110,13 +112,15 @@ public class PlannerResource {
     public PlannerItem update(@PathParam("id") long id, PlannerItem request) {
         PlannerItemEntity entity = PlannerItemEntity.findById(id);
         if (entity == null) throw new NotFoundException("Agendapunt", id);
+        PlannerItem before = PlannerItem.from(entity, List.of());
         boolean wasDone = entity.done;
         apply(entity, request);
+        List<ActivityChangeDto> changes = plannerChanges(before, entity);
         if (wasDone != entity.done) {
             recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, entity,
-                    entity.done ? "Agendapunt afgerond" : "Agendapunt heropend");
-        } else {
-            recordActivity(ActivityLogService.ACTION_UPDATED, entity, "Agendapunt bijgewerkt");
+                    entity.done ? "Agendapunt afgerond" : "Agendapunt heropend", changes);
+        } else if (!changes.isEmpty()) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, entity, "Agendapunt bijgewerkt", changes);
         }
         return PlannerItem.from(entity, attachmentsOf(entity.id));
     }
@@ -150,7 +154,8 @@ public class PlannerResource {
     public Attachment upload(@PathParam("id") long id,
                              @org.jboss.resteasy.reactive.RestForm("file") org.jboss.resteasy.reactive.multipart.FileUpload file)
             throws java.io.IOException {
-        if (PlannerItemEntity.findById(id) == null) throw new NotFoundException("Agendapunt", id);
+        PlannerItemEntity item = PlannerItemEntity.findById(id);
+        if (item == null) throw new NotFoundException("Agendapunt", id);
         if (file == null) throw new BusinessRuleException("Geen bestand meegestuurd");
         byte[] bytes = java.nio.file.Files.readAllBytes(file.uploadedFile());
         if (bytes.length == 0) throw new BusinessRuleException("Het bestand is leeg");
@@ -169,6 +174,11 @@ public class PlannerResource {
         entity.storageKey = stored.storageKey();
         entity.addedAt = java.time.Instant.now();
         entity.persist();
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_ADDED, item, "Bijlage toegevoegd",
+                ActivityChangeSet.create()
+                        .privateValue("attachment.filename", "Bestand", null, name)
+                        .add("attachment.size", "Bestandsgrootte", null, bytes.length + " bytes")
+                        .build());
         return Attachment.from(entity);
     }
 
@@ -190,8 +200,15 @@ public class PlannerResource {
     public Response deleteAttachment(@PathParam("id") long id, @PathParam("attachmentId") long attachmentId) {
         PlannerAttachmentEntity entity = PlannerAttachmentEntity.findById(attachmentId);
         if (entity == null || !entity.itemId.equals(id)) throw new NotFoundException("Bijlage", attachmentId);
+        PlannerItemEntity item = PlannerItemEntity.findById(id);
+        if (item == null) throw new NotFoundException("Agendapunt", id);
         String storageKey = entity.storageKey;
+        String filename = entity.filename;
         entity.delete();
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, item, "Bijlage verwijderd",
+                ActivityChangeSet.create()
+                        .privateValue("attachment.filename", "Bestand", filename, null)
+                        .build());
         fireAttachmentCleanup(List.of(storageKey));
         return Response.noContent().build();
     }
@@ -219,6 +236,26 @@ public class PlannerResource {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, ACTIVITY_ENTITY,
                 item.id == null ? null : item.id.toString(), item.title, summary);
+    }
+
+    private void recordActivity(String action, PlannerItemEntity item, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                item.id == null ? null : item.id.toString(), item.title, summary, changes);
+    }
+
+    private static List<ActivityChangeDto> plannerChanges(PlannerItem before, PlannerItemEntity after) {
+        return ActivityChangeSet.create()
+                .add("kind", "Type", before.kind(), after.kind)
+                .add("title", "Titel", before.title(), after.title)
+                .add("onDate", "Datum", before.onDate(), after.onDate)
+                .add("atTime", "Tijd", before.atTime(), after.atTime)
+                .add("done", "Afgerond", before.done(), after.done)
+                .add("pinned", "Vastgezet", before.pinned(), after.pinned)
+                .add("parentId", "Bovenliggend agendapunt", before.parentId(), after.parentId)
+                .privateValue("note", "Notitie", before.note(), after.note)
+                .build();
     }
 
     /** Attachment bytes are external state and may only disappear after the DB commit. */

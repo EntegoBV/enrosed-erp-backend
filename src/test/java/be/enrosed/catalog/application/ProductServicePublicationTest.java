@@ -16,6 +16,7 @@ import be.enrosed.push.StaffActionPushNotifier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.CurrentActor;
@@ -500,14 +501,15 @@ class ProductServicePublicationTest {
 
         Product created = service.create(product(82L, "ENR-BOWL-XL", "Beschrijving", "bowl-xl",
                 PublicationState.DRAFT, PublicationState.DRAFT, true));
-        Product updated = service.update(82L, created);
+        Product updated = service.update(82L, created.withActive(false));
         service.delete(82L);
 
         InOrder auditOrder = inOrder(activities);
         auditOrder.verify(activities).record(ActivityLogService.ACTION_CREATED,
                 "PRODUCT", "82", "ENR-BOWL-XL", "Product aangemaakt");
         auditOrder.verify(activities).record(ActivityLogService.ACTION_UPDATED,
-                "PRODUCT", "82", "ENR-BOWL-XL", "Product bijgewerkt");
+                "PRODUCT", "82", "ENR-BOWL-XL", "Product bijgewerkt",
+                List.of(new ActivityChangeDto("active", "Actief", "Ja", "Nee")));
         auditOrder.verify(activities).record(ActivityLogService.ACTION_DELETED,
                 "PRODUCT", "82", "ENR-BOWL-XL", "Product verwijderd");
 

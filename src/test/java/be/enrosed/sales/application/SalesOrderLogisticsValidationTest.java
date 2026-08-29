@@ -9,6 +9,9 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityLogService;
+import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SalesOrderLogisticsValidationTest {
@@ -31,6 +37,7 @@ class SalesOrderLogisticsValidationTest {
     private ProductService products;
     private Product product;
     private SalesPricingCalculator pricing;
+    private ActivityLogService activityLog;
 
     private final be.enrosed.shipping.application.CarrierRepository carriers =
             mock(be.enrosed.shipping.application.CarrierRepository.class);
@@ -67,6 +74,12 @@ class SalesOrderLogisticsValidationTest {
                 pricing, new PalletCalculator(), settings, customers, vat, events, revisions,
                 carriers);
         service.salesCreationPush = mock(jakarta.enterprise.event.Event.class);
+        @SuppressWarnings("unchecked")
+        Instance<ActivityLogService> activities = mock(Instance.class);
+        activityLog = mock(ActivityLogService.class);
+        when(activities.isResolvable()).thenReturn(true);
+        when(activities.get()).thenReturn(activityLog);
+        service.activity = activities;
     }
 
     @Test
@@ -85,6 +98,12 @@ class SalesOrderLogisticsValidationTest {
         assertNull(saved.maxPalletHeightCm(), "null resets the per-order height override");
         assertNull(saved.freightRatePerCbmEur(), "draft autosave accepts the next field still empty");
         assertEquals(1, saved.pallets().size(), "hidden manual layout is preserved for switching back");
+        verify(activityLog).record(eq(ActivityLogService.ACTION_UPDATED), eq("SALES_ORDER"), eq("1"),
+                eq("Q-VALIDATE"), eq("Offerte bijgewerkt"), argThat(auditChanges ->
+                        hasChange(auditChanges, "loadMode", "PALLETS", "LOOSE_CARTONS")
+                                && hasChange(auditChanges, "maxPalletHeightCm", "220", null)
+                                && hasChange(auditChanges, "freightPricingStrategy",
+                                        "COUNTRY_PALLET", "PER_CBM")));
     }
 
     @Test
@@ -254,5 +273,12 @@ class SalesOrderLogisticsValidationTest {
 
     private static BigDecimal decimal(String value) {
         return new BigDecimal(value);
+    }
+
+    private static boolean hasChange(List<ActivityChangeDto> changes, String field,
+                                     String before, String after) {
+        return changes.stream().anyMatch(change -> change.field().equals(field)
+                && java.util.Objects.equals(change.beforeValue(), before)
+                && java.util.Objects.equals(change.afterValue(), after));
     }
 }

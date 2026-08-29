@@ -3,6 +3,8 @@ package be.enrosed.sourcing.application;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Supplier;
@@ -60,10 +62,17 @@ public class SupplierService {
         if (country != null && !ISO_COUNTRY_CODES.contains(country.toUpperCase(Locale.ROOT))) {
             throw new BusinessRuleException("Onbekende ISO-landcode: " + country);
         }
-        boolean created = supplier.id() == null || suppliers.findById(supplier.id()).isEmpty();
+        Supplier current = supplier.id() == null ? null : suppliers.findById(supplier.id()).orElse(null);
+        boolean created = current == null;
         Supplier saved = suppliers.save(normalize(supplier, country));
-        recordActivity(created ? ActivityLogService.ACTION_CREATED : ActivityLogService.ACTION_UPDATED,
-                saved, created ? "Leverancier aangemaakt" : "Leverancier bijgewerkt");
+        if (created) {
+            recordActivity(ActivityLogService.ACTION_CREATED, saved, "Leverancier aangemaakt");
+        } else {
+            List<ActivityChangeDto> changesMade = supplierChanges(current, saved);
+            if (!changesMade.isEmpty()) {
+                recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Leverancier bijgewerkt", changesMade);
+            }
+        }
         return saved;
     }
 
@@ -101,5 +110,31 @@ public class SupplierService {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, ACTIVITY_ENTITY,
                 supplier.id() == null ? null : supplier.id().toString(), supplier.name(), summary);
+    }
+
+    private void recordActivity(String action, Supplier supplier, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                supplier.id() == null ? null : supplier.id().toString(), supplier.name(), summary, changes);
+    }
+
+    private static List<ActivityChangeDto> supplierChanges(Supplier before, Supplier after) {
+        return ActivityChangeSet.create()
+                .add("name", "Naam", before.name(), after.name())
+                .add("country", "Land", before.country(), after.country())
+                .add("city", "Plaats", before.city(), after.city())
+                .privateValue("contact", "Contactpersoon", before.contact(), after.contact())
+                .privateValue("email", "E-mail", before.email(), after.email())
+                .privateValue("phone", "Telefoon", before.phone(), after.phone())
+                .add("currency", "Valuta", before.currency(), after.currency())
+                .add("incoterm", "Incoterm", before.incoterm(), after.incoterm())
+                .add("portOfLoading", "Laadhaven", before.portOfLoading(), after.portOfLoading())
+                .add("leadTimeDays", "Levertijd (dagen)", before.leadTimeDays(), after.leadTimeDays())
+                .privateValue("address", "Adres", before.documentAddressLines(), after.documentAddressLines())
+                .privateValue("postalCode", "Postcode", before.postalCode(), after.postalCode())
+                .privateValue("region", "Regio", before.region(), after.region())
+                .privateValue("notes", "Notities", before.notes(), after.notes())
+                .build();
     }
 }

@@ -4,6 +4,8 @@ import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.CurrentActor;
@@ -267,11 +269,13 @@ public class PurchaseOrderService {
                 withLateDamageNotes(changes.notes(), lateDamage), lines));
 
         if (!saved.equals(current)) {
+            List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
             if (current.status() != saved.status()) {
                 recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, saved,
-                        "Status gewijzigd van " + statusLabel(current.status()) + " naar " + statusLabel(saved.status()));
+                        "Status gewijzigd van " + statusLabel(current.status()) + " naar " + statusLabel(saved.status()),
+                        auditChanges);
             } else {
-                recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inkooporder bijgewerkt");
+                recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inkooporder bijgewerkt", auditChanges);
             }
         }
         if (current.status() != saved.status()) {
@@ -386,7 +390,14 @@ public class PurchaseOrderService {
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
         recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
-                "Betaling aan " + to.dutchLabel().toLowerCase(java.util.Locale.ROOT) + " toegevoegd");
+                "Betaling aan " + to.dutchLabel().toLowerCase(java.util.Locale.ROOT) + " toegevoegd",
+                ActivityChangeSet.create()
+                        .add("payment.amount", "Bedrag", null, payment.amount())
+                        .add("payment.currency", "Valuta", null, payment.currency())
+                        .add("payment.date", "Betaald op", null, payment.paidOn())
+                        .add("payment.payee", "Begunstigde", null, payment.payee().dutchLabel())
+                        .privateValue("payment.label", "Omschrijving", null, payment.label())
+                        .build());
         return payment;
     }
 
@@ -450,7 +461,12 @@ public class PurchaseOrderService {
                 kind == null ? PurchaseDocument.Kind.OTHER : kind,
                 label == null || label.isBlank() ? null : label.strip(), name, type, bytes.length, stored.storageKey(),
                 paymentId, currentActor().displayName(), java.time.Instant.now()));
-        recordActivity(ActivityLogService.ACTION_DOCUMENT_ADDED, order, "Document toegevoegd");
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_ADDED, order, "Document toegevoegd",
+                ActivityChangeSet.create()
+                        .privateValue("document.filename", "Bestand", null, saved.originalFilename())
+                        .add("document.kind", "Documenttype", null, saved.kind())
+                        .privateValue("document.label", "Naam", null, saved.label())
+                        .build());
         return saved;
     }
 
@@ -458,10 +474,14 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseDocument renameDocument(long orderId, long documentId, String label) {
         PurchaseOrder order = get(orderId);
+        PurchaseDocument current = document(orderId, documentId);
         String cleaned = label == null || label.isBlank() ? null : label.strip();
         PurchaseDocument renamed = documents.get().rename(orderId, documentId, cleaned)
                 .orElseThrow(() -> new NotFoundException("Document", documentId));
-        recordActivity(ActivityLogService.ACTION_DOCUMENT_RENAMED, order, "Documentnaam gewijzigd");
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_RENAMED, order, "Documentnaam gewijzigd",
+                ActivityChangeSet.create()
+                        .privateValue("document.label", "Documentnaam", current.label(), renamed.label())
+                        .build());
         return renamed;
     }
 
@@ -470,7 +490,11 @@ public class PurchaseOrderService {
         PurchaseOrder order = get(orderId);
         PurchaseDocument document = document(orderId, documentId);
         documents.get().delete(orderId, documentId);
-        recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, order, "Document verwijderd");
+        recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, order, "Document verwijderd",
+                ActivityChangeSet.create()
+                        .privateValue("document.filename", "Bestand", document.originalFilename(), null)
+                        .privateValue("document.label", "Naam", document.label(), null)
+                        .build());
         fireDocumentDeleteCleanup(new PurchaseDocumentStorageCleanup.DeleteReady(
                 orderId, List.of(document.storageKey())));
     }
@@ -565,7 +589,13 @@ public class PurchaseOrderService {
             orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), cleaned, order.lines()));
         }
-        recordActivity(ActivityLogService.ACTION_PAYMENT_DELETED, order, "Betaling verwijderd");
+        recordActivity(ActivityLogService.ACTION_PAYMENT_DELETED, order, "Betaling verwijderd",
+                ActivityChangeSet.create()
+                        .add("payment.amount", "Bedrag", payment.amount(), null)
+                        .add("payment.currency", "Valuta", payment.currency(), null)
+                        .add("payment.date", "Betaald op", payment.paidOn(), null)
+                        .add("payment.payee", "Begunstigde", payment.payee().dutchLabel(), null)
+                        .build());
     }
 
     /** Removes the first line that matches, and nothing else someone wrote. */
@@ -952,9 +982,71 @@ public class PurchaseOrderService {
 
     /** Audit joins the business transaction: no order change may outlive a failed audit write. */
     private void recordActivity(String action, PurchaseOrder order, String summary) {
-        if (activity == null || !activity.isResolvable()) return; // pure unit tests instantiate this service directly
+        if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, ActivityLogService.ENTITY_PURCHASE_ORDER,
                 order.id() == null ? null : order.id().toString(), order.number(), summary);
+    }
+
+    private void recordActivity(String action, PurchaseOrder order, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return; // pure unit tests instantiate this service directly
+        activity.get().record(action, ActivityLogService.ENTITY_PURCHASE_ORDER,
+                order.id() == null ? null : order.id().toString(), order.number(), summary, changes);
+    }
+
+    private static List<ActivityChangeDto> purchaseChanges(
+            PurchaseOrder before, PurchaseOrder after, Map<Long, Product> products) {
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("alias", "Naam", before.alias(), after.alias())
+                .add("supplierId", "Leverancier", before.supplierId(), after.supplierId())
+                .add("orderDate", "Orderdatum", before.orderDate(), after.orderDate())
+                .add("status", "Status", statusLabel(before.status()), statusLabel(after.status()))
+                .add("containerType", "Container", before.containerType(), after.containerType())
+                .add("cnyToUsd", "Koers CNY/USD", before.cnyToUsd(), after.cnyToUsd())
+                .add("usdToEur", "Koers USD/EUR", before.usdToEurGoods(), after.usdToEurGoods())
+                .add("freightUsd", "Zeevracht", before.freightUsd(), after.freightUsd())
+                .add("originCosts", "Kosten oorsprong", before.originCosts(), after.originCosts())
+                .add("destinationCostsEur", "Kosten bestemming",
+                        before.destinationCostsEur(), after.destinationCostsEur())
+                .add("defaultDutyRatePct", "Invoerrecht",
+                        before.defaultDutyRatePct(), after.defaultDutyRatePct())
+                .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
+                .add("departurePort", "Vertrekhaven", before.departurePort(), after.departurePort())
+                .add("destinationPort", "Bestemmingshaven", before.destinationPort(), after.destinationPort())
+                .add("receivingLocationId", "Ontvangstlocatie",
+                        before.receivingLocationId(), after.receivingLocationId())
+                .add("groupVariants", "Varianten groeperen", before.groupsVariants(), after.groupsVariants())
+                .add("expectedArrival", "Verwachte aankomst", before.expectedArrival(), after.expectedArrival())
+                .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
+                .add("trackingReference", "Tracking", before.trackingReference(), after.trackingReference())
+                .add("lineCount", "Aantal productregels", before.lines().size(), after.lines().size())
+                .add("pieceCount", "Totaal aantal stuks", totalPieces(before), totalPieces(after))
+                .privateValue("notes", "Notities", before.notes(), after.notes());
+
+        Map<Long, PurchaseOrderLine> beforeLines = before.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(), (left, right) -> right));
+        Map<Long, PurchaseOrderLine> afterLines = after.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(), (left, right) -> right));
+        Set<Long> productIds = new java.util.TreeSet<>();
+        productIds.addAll(beforeLines.keySet());
+        productIds.addAll(afterLines.keySet());
+        for (Long productId : productIds) {
+            PurchaseOrderLine oldLine = beforeLines.get(productId);
+            PurchaseOrderLine newLine = afterLines.get(productId);
+            Product product = products.get(productId);
+            String label = product == null ? "Product " + productId : product.describe();
+            changes.add("line." + productId + ".quantity", "Aantal · " + label,
+                    oldLine == null ? null : oldLine.quantity(), newLine == null ? null : newLine.quantity());
+            changes.add("line." + productId + ".exwPrice", "EXW-prijs · " + label,
+                    oldLine == null ? null : oldLine.exwPrice(), newLine == null ? null : newLine.exwPrice());
+        }
+        return changes.build();
+    }
+
+    private static int totalPieces(PurchaseOrder order) {
+        return order.lines().stream().mapToInt(PurchaseOrderLine::quantity).sum();
     }
 
     /** The observer sends only after this transaction commits successfully. */

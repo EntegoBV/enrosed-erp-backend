@@ -2,6 +2,7 @@ package be.enrosed.sales.application;
 
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
+import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityLogService;
 import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,8 @@ class CustomerServiceActivityTest {
         auditOrder.verify(activities).record(ActivityLogService.ACTION_CREATED,
                 "CUSTOMER", "1", "Buyer BV", "Klant aangemaakt");
         auditOrder.verify(activities).record(ActivityLogService.ACTION_UPDATED,
-                "CUSTOMER", "1", "Buyer Group BV", "Klant bijgewerkt");
+                "CUSTOMER", "1", "Buyer Group BV", "Klant bijgewerkt",
+                List.of(new ActivityChangeDto("company", "Bedrijf", "Buyer BV", "Buyer Group BV")));
         auditOrder.verify(activities).record(ActivityLogService.ACTION_DELETED,
                 "CUSTOMER", "1", "Buyer Group BV", "Klant verwijderd");
         org.junit.jupiter.api.Assertions.assertEquals("Buyer Group BV", updated.company());

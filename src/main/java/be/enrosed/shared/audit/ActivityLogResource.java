@@ -2,6 +2,7 @@ package be.enrosed.shared.audit;
 
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -23,10 +24,15 @@ public class ActivityLogResource {
 
     @GET
     public ActivityPageDto list(@QueryParam("actor") String actor,
+                                @QueryParam("category") String category,
                                 @QueryParam("entityType") String entityType,
                                 @QueryParam("entityId") String entityId,
                                 @QueryParam("before") Long before,
                                 @QueryParam("limit") @DefaultValue("50") int limit) {
-        return activities.list(actor, entityType, entityId, before, limit);
+        try {
+            return activities.list(actor, category, entityType, entityId, before, limit);
+        } catch (IllegalArgumentException invalidFilter) {
+            throw new BadRequestException(invalidFilter.getMessage());
+        }
     }
 }

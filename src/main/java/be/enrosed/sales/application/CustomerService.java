@@ -4,6 +4,8 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -58,7 +60,10 @@ public class CustomerService {
                 changes.language(), changes.address(),
                 changes.postalCode(), changes.city(), changes.incoterm(), changes.paymentTerms(),
                 changes.notes(), current.createdAt()));
-        recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt");
+        List<ActivityChangeDto> changesMade = customerChanges(current, saved);
+        if (!changesMade.isEmpty()) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt", changesMade);
+        }
         return saved;
     }
 
@@ -84,5 +89,30 @@ public class CustomerService {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, ACTIVITY_ENTITY,
                 customer.id() == null ? null : customer.id().toString(), customer.company(), summary);
+    }
+
+    private void recordActivity(String action, Customer customer, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                customer.id() == null ? null : customer.id().toString(), customer.company(), summary, changes);
+    }
+
+    private static List<ActivityChangeDto> customerChanges(Customer before, Customer after) {
+        return ActivityChangeSet.create()
+                .add("company", "Bedrijf", before.company(), after.company())
+                .privateValue("contact", "Contactpersoon", before.contact(), after.contact())
+                .privateValue("email", "E-mail", before.email(), after.email())
+                .privateValue("phone", "Telefoon", before.phone(), after.phone())
+                .privateValue("vatNumber", "Btw-nummer", before.vatNumber(), after.vatNumber())
+                .add("countryCode", "Land", before.countryCode(), after.countryCode())
+                .add("language", "Taal", before.language(), after.language())
+                .privateValue("postalCode", "Postcode", before.postalCode(), after.postalCode())
+                .add("city", "Plaats", before.city(), after.city())
+                .add("incoterm", "Incoterm", before.incoterm(), after.incoterm())
+                .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
+                .privateValue("address", "Adres", before.address(), after.address())
+                .privateValue("notes", "Notities", before.notes(), after.notes())
+                .build();
     }
 }

@@ -20,6 +20,7 @@ import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.UnprocessableBusinessRuleException;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.Language;
@@ -144,6 +145,7 @@ public class ProductFamilyResource {
         ensureRequestedPublicationIsValid(family, List.of(), true, true);
         families.persist(family);
         families.flush();
+        recordFamilyCreated(family);
         queueWebsite();
         return Response.status(Response.Status.CREATED).entity(dto(family)).build();
     }
@@ -152,6 +154,7 @@ public class ProductFamilyResource {
     public ProductFamilyDto update(@PathParam("id") long id, ProductFamilyDto request) {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
+        FamilyAuditSnapshot before = FamilyAuditSnapshot.from(family);
         requireStablePublicIdentity(family, request);
         boolean wasPublished = isPublished(family);
         boolean wasReady = family.websiteStatus == PublicationState.READY
@@ -168,6 +171,7 @@ public class ProductFamilyResource {
         validateCardFeature(family);
         ensureRequestedPublicationIsValid(family, members, !wasPublished, !wasReady);
         families.flush();
+        recordFamilyUpdated(family, before);
         return changed(family);
     }
 
@@ -543,6 +547,7 @@ public class ProductFamilyResource {
         family.photos.add(photo);
         families.flush();
         familyPhotoCompatibility.sync(family);
+        recordPhotoUploaded(family, photo);
         return changed(family);
     }
 
@@ -558,8 +563,22 @@ public class ProductFamilyResource {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
+        Long beforeVariantId = variantProductId(photo);
         familyImageVariants.link(family, photo, request.variantProductId());
         galleryGuard.validate(family);
+        Long afterVariantId = variantProductId(photo);
+        recordPhotoActivity(
+                family,
+                afterVariantId == null
+                        ? "Variantkoppeling van foto verwijderd"
+                        : beforeVariantId == null
+                                ? "Foto aan variant gekoppeld"
+                                : "Variantkoppeling van foto aangepast",
+                ActivityChangeSet.create().add(
+                        photoField(photo, "variantProductId"),
+                        "Variantkoppeling foto #" + photo.id,
+                        beforeVariantId,
+                        afterVariantId));
         return changed(family);
     }
 
@@ -567,6 +586,7 @@ public class ProductFamilyResource {
     public ProductFamilyDto reorderImages(@PathParam("id") long id, List<Long> imageIds) {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
+        Map<Long, Integer> beforePositions = photoPositions(family);
         List<Long> wanted = imageIds == null ? List.of() : imageIds;
         if (wanted.size() != family.photos.size() || new HashSet<>(wanted).size() != wanted.size()
                 || family.photos.stream().anyMatch(photo -> !wanted.contains(photo.id))) {
@@ -578,6 +598,18 @@ public class ProductFamilyResource {
         family.photos.sort(Comparator.comparingInt(photo -> photo.position));
         families.flush();
         familyPhotoCompatibility.sync(family);
+        ActivityChangeSet changes = ActivityChangeSet.create();
+        Map<Long, Integer> afterPositions = photoPositions(family);
+        beforePositions.forEach((photoId, beforePosition) -> changes.add(
+                "photo." + photoId + ".position",
+                "Positie foto #" + photoId,
+                displayPosition(beforePosition),
+                displayPosition(afterPositions.get(photoId))));
+        recordPhotoActivity(
+                ActivityLogService.ACTION_PHOTO_REORDERED,
+                family,
+                "Fotovolgorde aangepast",
+                changes);
         return changed(family);
     }
 
@@ -604,16 +636,27 @@ public class ProductFamilyResource {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
+        List<CatalogChannel> beforeChannels = photoPublication.publishedChannels(photo);
+        List<CatalogChannel> wantedChannels = canonicalChannels(request.channels());
+        if (beforeChannels.equals(wantedChannels)) return dto(family);
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        if (!request.channels().isEmpty() && !photoPublication.isEligible(photo, members)) {
+        if (!wantedChannels.isEmpty() && !photoPublication.isEligible(photo, members)) {
             throw new BusinessRuleException(
                     "Foto kan nog niet gepubliceerd worden: voeg geldige afmetingen en minstens "
                             + "één alt-tekst toe en koppel ze aan een actieve variant of de hele familie");
         }
-        photoPublication.replacePublishedChannels(photo, request.channels());
+        photoPublication.replacePublishedChannels(photo, wantedChannels);
         galleryGuard.validate(family);
         families.flush();
+        recordPhotoActivity(
+                family,
+                "Fotopublicatie aangepast",
+                ActivityChangeSet.create().add(
+                        photoField(photo, "publishedChannels"),
+                        "Publicatiekanalen foto #" + photo.id,
+                        channelLabel(beforeChannels),
+                        channelLabel(wantedChannels)));
         return changed(family);
     }
 
@@ -634,12 +677,28 @@ public class ProductFamilyResource {
             values.put(current.language(), current.alt());
         }
         String alt = optional(request.alt());
+        String beforeAlt = values.get(request.language());
+        if (Objects.equals(beforeAlt, alt)) return dto(family);
         if (alt == null) values.remove(request.language()); else values.put(request.language(), alt);
         photo.altTextsJson = write(values.entrySet().stream()
                 .map(entry -> new ProductFamilyDto.AltTextDto(entry.getKey(), entry.getValue()))
                 .toList());
         galleryGuard.validate(family);
         families.flush();
+        recordPhotoActivity(
+                family,
+                alt == null ? "Alt-tekst verwijderd" : "Alt-tekst aangepast",
+                ActivityChangeSet.create()
+                        .add(
+                                photoField(photo, "alt." + request.language() + ".present"),
+                                "Alt-tekst aanwezig (" + request.language() + ")",
+                                beforeAlt != null,
+                                alt != null)
+                        .privateValue(
+                                photoField(photo, "alt." + request.language()),
+                                "Alt-tekst (" + request.language() + ") foto #" + photo.id,
+                                beforeAlt,
+                                alt));
         return changed(family);
     }
 
@@ -648,6 +707,9 @@ public class ProductFamilyResource {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
+        int beforePosition = photo.position;
+        Long beforeVariantId = variantProductId(photo);
+        List<CatalogChannel> beforeChannels = photoPublication.publishedChannels(photo);
         String small = photo.smallStorageKey;
         String large = photo.largeStorageKey;
         family.photos.remove(photo);
@@ -657,6 +719,31 @@ public class ProductFamilyResource {
         familyPhotoCompatibility.sync(family);
         photoReferences.deleteIfUnreferenced(small);
         if (!Objects.equals(small, large)) photoReferences.deleteIfUnreferenced(large);
+        recordPhotoActivity(
+                ActivityLogService.ACTION_PHOTO_DELETED,
+                family,
+                "Foto verwijderd",
+                ActivityChangeSet.create()
+                        .add(
+                                "photo." + imageId + ".deleted",
+                                "Foto #" + imageId + " verwijderd",
+                                false,
+                                true)
+                        .add(
+                                "photo." + imageId + ".position",
+                                "Positie foto #" + imageId,
+                                displayPosition(beforePosition),
+                                null)
+                        .add(
+                                "photo." + imageId + ".variantProductId",
+                                "Variantkoppeling foto #" + imageId,
+                                beforeVariantId,
+                                null)
+                        .add(
+                                "photo." + imageId + ".publishedChannels",
+                                "Publicatiekanalen foto #" + imageId,
+                                channelLabel(beforeChannels),
+                                null));
         return changed(family);
     }
 
@@ -779,6 +866,327 @@ public class ProductFamilyResource {
         return dto(family);
     }
 
+    private void recordFamilyCreated(ProductFamilyEntity family) {
+        recordFamilyActivity(
+                ActivityLogService.ACTION_CREATED,
+                family,
+                "Productreeks aangemaakt",
+                familyChanges(FamilyAuditSnapshot.empty(), FamilyAuditSnapshot.from(family)));
+    }
+
+    private void recordFamilyUpdated(
+            ProductFamilyEntity family, FamilyAuditSnapshot before) {
+        recordFamilyActivity(
+                ActivityLogService.ACTION_UPDATED,
+                family,
+                "Productreeks bijgewerkt",
+                familyChanges(before, FamilyAuditSnapshot.from(family)));
+    }
+
+    private void recordPhotoUploaded(
+            ProductFamilyEntity family, ProductFamilyPhotoEntity photo) {
+        recordPhotoActivity(
+                ActivityLogService.ACTION_PHOTO_ADDED,
+                family,
+                "Foto toegevoegd",
+                ActivityChangeSet.create()
+                        .add(
+                                photoField(photo, "uploaded"),
+                                "Foto #" + photo.id + " toegevoegd",
+                                false,
+                                true)
+                        .add(
+                                photoField(photo, "position"),
+                                "Positie foto #" + photo.id,
+                                null,
+                                displayPosition(photo.position))
+                        .add(
+                                photoField(photo, "variantProductId"),
+                                "Variantkoppeling foto #" + photo.id,
+                                null,
+                                variantProductId(photo))
+                        .add(
+                                photoField(photo, "contentType"),
+                                "Bestandsformaat foto #" + photo.id,
+                                null,
+                                photo.largeContentType)
+                        .add(
+                                photoField(photo, "widthPx"),
+                                "Breedte foto #" + photo.id,
+                                null,
+                                photo.largeWidthPx)
+                        .add(
+                                photoField(photo, "heightPx"),
+                                "Hoogte foto #" + photo.id,
+                                null,
+                                photo.largeHeightPx));
+    }
+
+    private void recordPhotoActivity(
+            ProductFamilyEntity family, String summary, ActivityChangeSet changes) {
+        recordFamilyActivity(
+                ActivityLogService.ACTION_UPDATED, family, summary, changes);
+    }
+
+    private void recordPhotoActivity(
+            String action,
+            ProductFamilyEntity family,
+            String summary,
+            ActivityChangeSet changes) {
+        recordFamilyActivity(action, family, summary, changes);
+    }
+
+    private void recordFamilyActivity(
+            String action,
+            ProductFamilyEntity family,
+            String summary,
+            ActivityChangeSet changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        if (changes == null) return;
+        var details = changes.build();
+        if (details.isEmpty()) return;
+        activity.get().record(
+                action,
+                ActivityLogService.ENTITY_PRODUCT_FAMILY,
+                String.valueOf(family.id),
+                family.name,
+                summary,
+                details);
+    }
+
+    private static ActivityChangeSet familyChanges(
+            FamilyAuditSnapshot before, FamilyAuditSnapshot after) {
+        return ActivityChangeSet.create()
+                .add("familyKey", "Familiecode", before.familyKey(), after.familyKey())
+                .add("publicHandle", "Publieke handle", before.publicHandle(), after.publicHandle())
+                .add("active", "Actief", before.active(), after.active())
+                .privateValue("name", "Naam", before.name(), after.name())
+                .privateValue("summary", "Samenvatting", before.summary(), after.summary())
+                .privateValue("description", "Beschrijving", before.description(), after.description())
+                .privateValue("format", "Formaattekst", before.format(), after.format())
+                .privateValue("highlights", "Highlights", before.highlights(), after.highlights())
+                .add("categoryId", "Categorie", before.categoryId(), after.categoryId())
+                .add("categoryKey", "Categoriecode", before.categoryKey(), after.categoryKey())
+                .add(
+                        "categoryPosition",
+                        "Categoriepositie",
+                        before.categoryPosition(),
+                        after.categoryPosition())
+                .add(
+                        "productPosition",
+                        "Productpositie",
+                        before.productPosition(),
+                        after.productPosition())
+                .add(
+                        "cardFeaturedProductId",
+                        "Uitgelicht kaartproduct",
+                        before.cardFeaturedProductId(),
+                        after.cardFeaturedProductId())
+                .add(
+                        "primaryCollection",
+                        "Primaire collectie",
+                        before.primaryCollection(),
+                        after.primaryCollection())
+                .add(
+                        "collectionCount",
+                        "Aantal collecties",
+                        before.collectionCount(),
+                        after.collectionCount())
+                .privateValue(
+                        "collections",
+                        "Collectielidmaatschappen",
+                        before.collections(),
+                        after.collections())
+                .privateValue("tags", "Tags", before.tags(), after.tags())
+                .add(
+                        "websiteStatus",
+                        "Websitestatus",
+                        before.websiteStatus(),
+                        after.websiteStatus())
+                .add(
+                        "orderAppStatus",
+                        "Orderapp-status",
+                        before.orderAppStatus(),
+                        after.orderAppStatus())
+                .add(
+                        "catalogueStatus",
+                        "Catalogusstatus",
+                        before.catalogueStatus(),
+                        after.catalogueStatus())
+                .privateValue("seoTitle", "SEO-titel", before.seoTitle(), after.seoTitle())
+                .privateValue(
+                        "seoDescription",
+                        "SEO-beschrijving",
+                        before.seoDescription(),
+                        after.seoDescription())
+                .add(
+                        "dimensionLength",
+                        "Lengte",
+                        before.dimensionLength(),
+                        after.dimensionLength())
+                .add(
+                        "dimensionWidth",
+                        "Breedte",
+                        before.dimensionWidth(),
+                        after.dimensionWidth())
+                .add(
+                        "dimensionHeight",
+                        "Hoogte",
+                        before.dimensionHeight(),
+                        after.dimensionHeight())
+                .add(
+                        "dimensionUnit",
+                        "Afmetingseenheid",
+                        before.dimensionUnit(),
+                        after.dimensionUnit())
+                .privateValue(
+                        "dimensionRaw",
+                        "Ruwe afmetingsnotitie",
+                        before.dimensionRaw(),
+                        after.dimensionRaw())
+                .add(
+                        "translationCount",
+                        "Aantal vertalingen",
+                        before.translationCount(),
+                        after.translationCount())
+                .privateValue(
+                        "translations",
+                        "Vertalingen",
+                        before.translations(),
+                        after.translations());
+    }
+
+    private static String photoField(ProductFamilyPhotoEntity photo, String suffix) {
+        return "photo." + photo.id + "." + suffix;
+    }
+
+    private static Long variantProductId(ProductFamilyPhotoEntity photo) {
+        return photo.variantProduct == null ? null : photo.variantProduct.id;
+    }
+
+    private static Map<Long, Integer> photoPositions(ProductFamilyEntity family) {
+        Map<Long, Integer> positions = new LinkedHashMap<>();
+        family.photos.stream()
+                .sorted(Comparator.comparingInt(item -> item.position))
+                .forEach(photo -> positions.put(photo.id, photo.position));
+        return positions;
+    }
+
+    private static Integer displayPosition(Integer storedPosition) {
+        return storedPosition == null ? null : storedPosition + 1;
+    }
+
+    private static List<CatalogChannel> canonicalChannels(
+            Collection<CatalogChannel> requested) {
+        EnumSet<CatalogChannel> selected = EnumSet.noneOf(CatalogChannel.class);
+        selected.addAll(requested);
+        return Arrays.stream(CatalogChannel.values()).filter(selected::contains).toList();
+    }
+
+    private static String channelLabel(Collection<CatalogChannel> channels) {
+        if (channels == null || channels.isEmpty()) return "Intern";
+        return channels.stream().map(Enum::name).collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    private record FamilyAuditSnapshot(
+            String familyKey,
+            String publicHandle,
+            Boolean active,
+            String name,
+            String summary,
+            String description,
+            String format,
+            String highlights,
+            Long categoryId,
+            String categoryKey,
+            Integer categoryPosition,
+            Integer productPosition,
+            Long cardFeaturedProductId,
+            String primaryCollection,
+            Integer collectionCount,
+            String collections,
+            String tags,
+            PublicationState websiteStatus,
+            PublicationState orderAppStatus,
+            PublicationState catalogueStatus,
+            String seoTitle,
+            String seoDescription,
+            java.math.BigDecimal dimensionLength,
+            java.math.BigDecimal dimensionWidth,
+            java.math.BigDecimal dimensionHeight,
+            String dimensionUnit,
+            String dimensionRaw,
+            Integer translationCount,
+            String translations) {
+
+        private static FamilyAuditSnapshot empty() {
+            return new FamilyAuditSnapshot(
+                    null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null,
+                    null, null, null);
+        }
+
+        private static FamilyAuditSnapshot from(ProductFamilyEntity family) {
+            String memberships = family.collections.stream()
+                    .filter(item -> item.collection != null)
+                    .sorted(Comparator
+                            .comparing((ProductFamilyCollectionEntity item) ->
+                                    safe(item.collection.collectionKey))
+                            .thenComparingInt(item -> item.position))
+                    .map(item -> safe(item.collection.collectionKey)
+                            + ":" + item.position + ":" + item.primaryCollection)
+                    .collect(java.util.stream.Collectors.joining("|"));
+            String primary = family.collections.stream()
+                    .filter(item -> item.primaryCollection && item.collection != null)
+                    .map(item -> item.collection.collectionKey)
+                    .filter(Objects::nonNull)
+                    .findFirst().orElse(family.collectionKey);
+            String translations = family.texts.stream()
+                    .sorted(Comparator.comparing(item -> item.language))
+                    .map(item -> String.join("\u001f",
+                            String.valueOf(item.language),
+                            safe(item.name),
+                            safe(item.summary),
+                            safe(item.description),
+                            safe(item.format),
+                            safe(item.highlightsJson),
+                            safe(item.seoTitle),
+                            safe(item.seoDescription)))
+                    .collect(java.util.stream.Collectors.joining("\u001e"));
+            return new FamilyAuditSnapshot(
+                    family.familyKey,
+                    family.publicHandle,
+                    family.active,
+                    family.name,
+                    family.summary,
+                    family.description,
+                    family.format,
+                    family.highlightsJson,
+                    family.categoryId,
+                    family.categoryKey,
+                    family.categoryPosition,
+                    family.productPosition,
+                    family.cardFeaturedProductId,
+                    primary,
+                    family.collections.size(),
+                    memberships,
+                    family.tagsJson,
+                    family.websiteStatus,
+                    family.orderAppStatus,
+                    family.catalogueStatus,
+                    family.seoTitle,
+                    family.seoDescription,
+                    family.dimensionLength,
+                    family.dimensionWidth,
+                    family.dimensionHeight,
+                    family.dimensionUnit,
+                    family.dimensionRaw,
+                    family.texts.size(),
+                    translations);
+        }
+    }
+
     private void recordWebsiteVisibility(ProductFamilyEntity family, boolean visible) {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(
@@ -788,7 +1196,10 @@ public class ProductFamilyResource {
                 family.name,
                 visible
                         ? "Productreeks zichtbaar gemaakt op de website"
-                        : "Productreeks verborgen van de website");
+                        : "Productreeks verborgen van de website",
+                ActivityChangeSet.create()
+                        .add("websiteVisible", "Zichtbaar op website", !visible, visible)
+                        .build());
     }
 
     private void recordIdentityFinalization(ProductFamilyEntity family, int variantCount) {
@@ -798,7 +1209,11 @@ public class ProductFamilyResource {
                 ActivityLogService.ENTITY_PRODUCT_FAMILY,
                 String.valueOf(family.id),
                 family.name,
-                "Conceptidentiteit definitief gemaakt voor " + variantCount + " variant(en)");
+                "Conceptidentiteit definitief gemaakt voor " + variantCount + " variant(en)",
+                ActivityChangeSet.create()
+                        .add("identityFinalized", "Conceptidentiteit", "Concept", "Definitief")
+                        .add("variantCount", "Aantal varianten", null, variantCount)
+                        .build());
     }
 
     private boolean queueWebsite() {

@@ -6,6 +6,8 @@ import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.CatalogChannel;
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
@@ -14,6 +16,8 @@ import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.VariantSizes;
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.push.StaffActionPushNotifier;
@@ -233,7 +237,10 @@ public class ProductService {
         syncFamilyPhotos(saved.id(), current.familyId(), merged.familyId());
         queueWebsite();
         Product updated = saved.id() == null ? saved : get(saved.id());
-        recordActivity(ActivityLogService.ACTION_UPDATED, updated, "Product bijgewerkt");
+        List<ActivityChangeDto> changesMade = productChanges(current, updated);
+        if (!changesMade.isEmpty()) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, updated, "Product bijgewerkt", changesMade);
+        }
         return updated;
     }
 
@@ -522,6 +529,71 @@ public class ProductService {
                 summary);
     }
 
+    private void recordActivity(String action, Product product, String summary,
+                                List<ActivityChangeDto> changes) {
+        if (activity == null || !activity.isResolvable()) return;
+        activity.get().record(action, ACTIVITY_ENTITY,
+                product.id() == null ? null : product.id().toString(),
+                product.sku() == null || product.sku().isBlank() ? product.name() : product.sku(),
+                summary, changes);
+    }
+
+    private static List<ActivityChangeDto> productChanges(Product before, Product after) {
+        Dimensions beforeDimensions = before.dimensions() == null ? Dimensions.empty() : before.dimensions();
+        Dimensions afterDimensions = after.dimensions() == null ? Dimensions.empty() : after.dimensions();
+        Carton beforeCarton = before.carton() == null ? Carton.empty() : before.carton();
+        Carton afterCarton = after.carton() == null ? Carton.empty() : after.carton();
+        Barcodes beforeCodes = before.barcodes() == null ? Barcodes.none() : before.barcodes();
+        Barcodes afterCodes = after.barcodes() == null ? Barcodes.none() : after.barcodes();
+        return ActivityChangeSet.create()
+                .add("name", "Naam", before.name(), after.name())
+                .add("sku", "SKU", before.sku(), after.sku())
+                .add("colour", "Kleur", before.colour(), after.colour())
+                .add("variantSize", "Variantformaat", before.variantSize(), after.variantSize())
+                .add("colourHex", "Kleurstaal", before.colourHex(), after.colourHex())
+                .add("categoryId", "Categorie", before.categoryId(), after.categoryId())
+                .add("supplierId", "Leverancier", before.supplierId(), after.supplierId())
+                .add("active", "Actief", before.active(), after.active())
+                .add("demo", "Demo", before.demo(), after.demo())
+                .add("familyId", "Productreeks", before.familyId(), after.familyId())
+                .add("canonicalVariantKey", "Variantcode",
+                        before.canonicalVariantKey(), after.canonicalVariantKey())
+                .add("canonicalBarcode", "Canonieke barcode",
+                        before.canonicalBarcode(), after.canonicalBarcode())
+                .add("variantPosition", "Variantvolgorde",
+                        before.variantPosition(), after.variantPosition())
+                .add("inventoryKnown", "Voorraad gekend",
+                        before.inventoryKnown(), after.inventoryKnown())
+                .add("familyKey", "Reekssleutel", before.familyKey(), after.familyKey())
+                .add("publicHandle", "Publieke URL", before.publicHandle(), after.publicHandle())
+                .add("websiteStatus", "Website", before.websiteStatus(), after.websiteStatus())
+                .add("orderAppStatus", "Bestelapp", before.orderAppStatus(), after.orderAppStatus())
+                .add("packaging", "Verpakking", before.packaging().label(), after.packaging().label())
+                .add("packagingPieces", "Stuks per display",
+                        before.packaging().piecesPerUnit(), after.packaging().piecesPerUnit())
+                .add("packagingBarcode", "Verpakkingsbarcode",
+                        before.packaging().barcode(), after.packaging().barcode())
+                .add("dimensions", "Productafmetingen", beforeDimensions.label(), afterDimensions.label())
+                .add("innerBarcode", "Stukbarcode", beforeCodes.inner(), afterCodes.inner())
+                .add("outerBarcode", "Omdoosbarcode", beforeCodes.outer(), afterCodes.outer())
+                .add("hsCode", "HS-code", before.hsCode(), after.hsCode())
+                .add("piecesPerCarton", "Stuks per karton",
+                        beforeCarton.piecesPerCarton(), afterCarton.piecesPerCarton())
+                .add("cartonDimensions", "Kartonafmetingen",
+                        beforeCarton.dimensions().label(), afterCarton.dimensions().label())
+                .add("cartonWeight", "Kartongewicht", beforeCarton.weightKg(), afterCarton.weightKg())
+                .add("piecesPerHc", "Stuks per 40' HC", beforeCarton.piecesPerHc(), afterCarton.piecesPerHc())
+                .add("exwPrice", "EXW-prijs", before.exwPrice(), after.exwPrice())
+                .add("exwCurrency", "EXW-valuta", before.exwCurrency(), after.exwCurrency())
+                .add("extraUnitCost", "Extra kost per stuk",
+                        before.extraUnitCost(), after.extraUnitCost())
+                .add("fixedSalesPriceEur", "Vaste verkoopprijs",
+                        before.fixedSalesPriceEur(), after.fixedSalesPriceEur())
+                .add("markupPct", "Marge", before.markupPct(), after.markupPct())
+                .privateValue("description", "Beschrijving", before.description(), after.description())
+                .build();
+    }
+
     /**
      * Manual stock correction after a recount: the new count replaces the
      * old one, and the stock book gets a line saying so.
@@ -573,6 +645,12 @@ public class ProductService {
         product.photos().stream().filter(Photo::inherited).forEach(photos::add);
 
         Product saved = products.save(product.withPhotos(renumber(photos)));
+        recordActivity(ActivityLogService.ACTION_PHOTO_ADDED, saved, "Productfoto toegevoegd",
+                ActivityChangeSet.create()
+                        .add("photoCount", "Aantal productfoto's",
+                                product.photos().size(), saved.photos().size())
+                        .privateValue("photo.filename", "Bestand", null, upload.originalFilename())
+                        .build());
         queueWebsite();
         return saved;
     }
@@ -615,6 +693,12 @@ public class ProductService {
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
         Product saved = products.save(updated);
+        recordActivity(ActivityLogService.ACTION_PHOTO_DELETED, saved, "Productfoto verwijderd",
+                ActivityChangeSet.create()
+                        .add("photoCount", "Aantal productfoto's",
+                                product.photos().size(), saved.photos().size())
+                        .privateValue("photo.filename", "Bestand", target.originalFilename(), null)
+                        .build());
         queueWebsite();
         if (photoDeleteCleanup != null) {
             photoDeleteCleanup.fire(new ProductPhotoCleanup.DeleteReady(
@@ -654,6 +738,14 @@ public class ProductService {
         photos.stream().filter(Photo::inherited).forEach(ordered::add);
 
         Product saved = products.save(product.withPhotos(renumber(ordered)));
+        List<Long> previousOrder = productOwned.stream().map(Photo::id).toList();
+        if (!previousOrder.equals(wanted)) {
+            recordActivity(ActivityLogService.ACTION_PHOTO_REORDERED, saved,
+                    "Volgorde van productfoto's gewijzigd",
+                    ActivityChangeSet.create()
+                            .privateValue("photoOrder", "Fotovolgorde", previousOrder, wanted)
+                            .build());
+        }
         queueWebsite();
         return saved;
     }

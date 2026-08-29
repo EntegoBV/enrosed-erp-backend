@@ -7,6 +7,7 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.CurrentActor;
@@ -225,7 +226,9 @@ class PurchaseOrderServiceTest {
 
         assertEquals(emre, updated.createdBy(), "an editor must never replace the original creator");
         verify(activityLog).record(ActivityLogService.ACTION_UPDATED,
-                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", updated.number(), "Inkooporder bijgewerkt");
+                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", updated.number(),
+                "Inkooporder bijgewerkt",
+                List.of(new ActivityChangeDto("notes", "Notities", null, null)));
     }
 
     @Test

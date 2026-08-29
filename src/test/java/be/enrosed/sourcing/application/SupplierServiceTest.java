@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class SupplierServiceTest {
@@ -84,10 +85,9 @@ class SupplierServiceTest {
         InOrder auditOrder = inOrder(activities);
         auditOrder.verify(activities).record(ActivityLogService.ACTION_CREATED,
                 "SUPPLIER", "1", "Supplier One", "Leverancier aangemaakt");
-        auditOrder.verify(activities).record(ActivityLogService.ACTION_UPDATED,
-                "SUPPLIER", "1", "Supplier One", "Leverancier bijgewerkt");
         auditOrder.verify(activities).record(ActivityLogService.ACTION_DELETED,
                 "SUPPLIER", "1", "Supplier One", "Leverancier verwijderd");
+        verifyNoMoreInteractions(activities);
         assertEquals(1L, updated.id());
     }
 
