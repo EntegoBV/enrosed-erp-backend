@@ -15,8 +15,15 @@ create table if not exists activity_log (
     entity_type varchar(64) not null,
     entity_id varchar(100),
     entity_label varchar(255),
-    summary varchar(500) not null
+    summary varchar(500) not null,
+    changes_json varchar(16000)
 );
+
+-- CREATE TABLE IF NOT EXISTS does not add new columns to an existing table.
+-- Keep this base migration independently rerunnable for environments that
+-- already installed the original activity-log schema.
+alter table activity_log
+    add column if not exists changes_json varchar(16000);
 
 create index if not exists idx_activity_log_occurred_at
     on activity_log (occurred_at);
