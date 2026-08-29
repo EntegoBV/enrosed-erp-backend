@@ -16,6 +16,9 @@ public final class SalesDaos {
     public static class Countries implements PanacheRepositoryBase<SalesEntities.CountryEntity, String> {}
 
     @ApplicationScoped
+    public static class CountryPolicyVersions implements PanacheRepositoryBase<SalesEntities.CountryPolicyVersionEntity, String> {}
+
+    @ApplicationScoped
     public static class Tiers implements PanacheRepository<SalesEntities.DiscountTierEntity> {}
 
     @ApplicationScoped

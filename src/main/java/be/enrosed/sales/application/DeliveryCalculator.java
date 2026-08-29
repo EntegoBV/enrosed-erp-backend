@@ -1,9 +1,9 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.sales.domain.Country;
+import be.enrosed.shared.BusinessDays;
 import jakarta.enterprise.context.ApplicationScoped;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.WeekFields;
 
@@ -59,23 +59,13 @@ public class DeliveryCalculator {
                         + "Vul zelf een leverweek in zodra de container geboekt is.");
     }
 
-    /** Today when it is a working day, otherwise the next Monday. */
+    /** The first working day after the supplied date. */
     public LocalDate nextWorkingDay(LocalDate from) {
-        LocalDate date = from.plusDays(1);
-        while (isWeekend(date)) {
-            date = date.plusDays(1);
-        }
-        return date;
+        return BusinessDays.next(from);
     }
 
     public LocalDate addWorkingDays(LocalDate from, int days) {
-        LocalDate date = from;
-        int added = 0;
-        while (added < days) {
-            date = date.plusDays(1);
-            if (!isWeekend(date)) added++;
-        }
-        return date;
+        return BusinessDays.add(from, days);
     }
 
     /** ISO week notation, like "2026-W34"; that is how logistics talks. */
@@ -87,8 +77,4 @@ public class DeliveryCalculator {
                 date.get(weekFields.weekOfWeekBasedYear()));
     }
 
-    private static boolean isWeekend(LocalDate date) {
-        return date.getDayOfWeek() == DayOfWeek.SATURDAY
-                || date.getDayOfWeek() == DayOfWeek.SUNDAY;
-    }
 }

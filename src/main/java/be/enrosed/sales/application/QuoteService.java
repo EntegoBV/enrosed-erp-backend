@@ -5,6 +5,7 @@ import be.enrosed.sales.application.port.out.QuoteMailer;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.BusinessDays;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
@@ -682,7 +683,7 @@ public class QuoteService {
 
         return orders.save(new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
-                order.orderDate(), LocalDate.now().plusDays(30), QuoteStatus.CONCEPT,
+                order.orderDate(), BusinessDays.add(LocalDate.now(), 30), QuoteStatus.CONCEPT,
                 order.incoterm(), order.paymentTerms(), order.notes(),
                 order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(),
@@ -730,7 +731,7 @@ public class QuoteService {
         SalesOrder reopened = withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, null);
-        return orders.save(withValidity(reopened, LocalDate.now().plusDays(30)));
+        return orders.save(withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
     }
 
     /** We do not adopt the proposal; the quote stays as it was. */

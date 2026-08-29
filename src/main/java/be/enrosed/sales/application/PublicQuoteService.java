@@ -8,6 +8,7 @@ import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.sales.adapter.in.rest.PublicQuoteDtos;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.BusinessDays;
 import be.enrosed.shipping.application.CarrierRepository;
 import be.enrosed.shipping.domain.Carrier;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -454,7 +455,7 @@ public class PublicQuoteService {
                              FreightState freightState) {
         LocalDate today = LocalDate.now();
         return new SalesOrder(null, "PUBLIC-PREVIEW", null, countryCode,
-                today, today.plusDays(30), QuoteStatus.CONCEPT,
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
                 fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP", null, null,
                 MarkupMode.PRODUCT, settings.defaultMarkupPct(), null, null,
                 null, null, null, 0, null, null, null, null,

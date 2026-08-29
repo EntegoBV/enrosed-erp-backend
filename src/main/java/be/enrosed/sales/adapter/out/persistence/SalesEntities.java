@@ -64,6 +64,17 @@ public final class SalesEntities {
         public boolean euMember = true;
     }
 
+    /** One-time country-policy rollouts; later dashboard edits must survive restarts. */
+    @Entity
+    @Table(name = "country_policy_version")
+    public static class CountryPolicyVersionEntity {
+        @Id
+        @Column(length = 80)
+        public String version;
+        @Column(nullable = false)
+        public Instant appliedAt;
+    }
+
     @Entity
     @Table(name = "discount_tier")
     public static class DiscountTierEntity {

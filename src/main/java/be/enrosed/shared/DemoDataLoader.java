@@ -5,9 +5,9 @@ import be.enrosed.catalog.application.HsCodeService;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.*;
 import be.enrosed.sales.application.CountryService;
+import be.enrosed.sales.application.CountryDefaults;
 import be.enrosed.sales.application.CustomerService;
 import be.enrosed.sales.application.DiscountTierService;
-import be.enrosed.sales.domain.Country;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.DiscountTier;
 import be.enrosed.sales.domain.TierScope;
@@ -36,7 +36,7 @@ import java.util.List;
  * CAUTION - to be reconciled with real figures:
  *  - EXW prices of P01..P10 derive from the old EUR list
  *  - carton weights are estimates; they help decide cartons per pallet
- *  - pallet freight and minimum order values per country are indicative
+ *  - pallet freight is only a fallback when no carrier tariff is chosen
  *  - import duty percentages should be checked in the EU's TARIC database
  */
 @ApplicationScoped
@@ -172,16 +172,7 @@ public class DemoDataLoader {
         purchaseOrders.list().forEach(order -> purchaseOrders.applyToProducts(order.id()));
 
         /* ---- landen ----------------------------------------------------- */
-        country("BE", "Belgie", "1500", "55", "120", "25", "21", 1);
-        country("NL", "Nederland", "1500", "65", "150", "25", "21", 1);
-        country("DE", "Duitsland", "2000", "80", "200", "35", "19", 2);
-        country("FR", "Frankrijk", "2000", "85", "220", "35", "20", 2);
-        country("ES", "Spanje", "3000", "130", "320", "45", "21", 4);
-        country("IT", "Italie", "3000", "135", "330", "45", "22", 4);
-        country("PL", "Polen", "2500", "115", "280", "40", "23", 3);
-        /* No longer an EU member since Brexit: deliveries there are exports. */
-        country("GB", "Verenigd Koninkrijk", "3500", "130", "350", "95", "20", 4, false);
-        country("CH", "Zwitserland", "4000", "150", "380", "120", "8.1", 3, false);
+        CountryDefaults.all().forEach(countries::save);
 
         /* ---- staffels --------------------------------------------------- */
         tiers.replace(TierScope.LINE, List.of(
@@ -270,19 +261,6 @@ public class DemoDataLoader {
                 placed.destinationCostsEur(), placed.defaultDutyRatePct(), placed.extraRevenueEur(),
                 placed.allocFreight(), placed.allocOrigin(), placed.allocDestination(), placed.allocExtra(),
                 placed.departurePort(), placed.destinationPort(), placed.notes(), placed.lines()));
-    }
-
-    private void country(String code, String name, String minOrder, String perPallet,
-                         String minFreight, String handling, String vat, int transit) {
-        country(code, name, minOrder, perPallet, minFreight, handling, vat, transit, true);
-    }
-
-    private void country(String code, String name, String minOrder, String perPallet,
-                         String minFreight, String handling, String vat, int transit,
-                         boolean euMember) {
-        countries.save(new Country(code, name, new BigDecimal(minOrder), new BigDecimal(perPallet),
-                new BigDecimal(minFreight), new BigDecimal(handling), new BigDecimal(vat),
-                transit, euMember));
     }
 
     private DiscountTier tier(TierScope scope, int minQuantity, String percent) {

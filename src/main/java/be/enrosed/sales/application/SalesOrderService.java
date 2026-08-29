@@ -7,6 +7,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.BusinessDays;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityChangeSet;
@@ -151,7 +152,7 @@ public class SalesOrderService {
                 .findFirst().orElse(null);
         SalesOrder draft = new SalesOrder(
                 null, invoice ? nextInvoiceNumber() : nextNumber(),
-                customerId, countryCode, today, today.plusDays(30),
+                customerId, countryCode, today, BusinessDays.add(today, 30),
                 QuoteStatus.CONCEPT, incoterm == null ? "DAP" : incoterm, null, "",
                 MarkupMode.PRODUCT, settings.defaultMarkupPct(),
                 null, null,
@@ -161,7 +162,7 @@ public class SalesOrderService {
                 defaultCarrierId == null
                         ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
                 null, defaultCarrierId, null,
-                docType, invoice ? today.plusDays(30) : null, null, null, null,
+                docType, invoice ? BusinessDays.add(today, 30) : null, null, null, null,
                 List.of(), List.of());
         validateForSave(draft);
         SalesOrder created = orders.save(draft);
@@ -194,7 +195,7 @@ public class SalesOrderService {
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
                 null, nextInvoiceNumber(), source.customerId(), source.countryCode(),
-                today, today.plusDays(30), QuoteStatus.CONCEPT, source.incoterm(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
                 source.paymentTerms(), source.notes(),
                 source.markupMode(), source.orderMarkupPct(),
                 source.extraDiscountPct(), source.extraDiscountLabel(),
@@ -203,7 +204,7 @@ public class SalesOrderService {
                 source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
-                DocumentType.FACTUUR, today.plusDays(30), null, source.id(), null,
+                DocumentType.FACTUUR, BusinessDays.add(today, 30), null, source.id(), null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
@@ -649,7 +650,7 @@ public class SalesOrderService {
         SalesOrder duplicate = new SalesOrder(
                 null, source.isInvoice() ? nextInvoiceNumber() : nextNumber(),
                 source.customerId(), source.countryCode(),
-                today, today.plusDays(30), QuoteStatus.CONCEPT, source.incoterm(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
                 source.paymentTerms(), source.notes(),
                 source.markupMode(), source.orderMarkupPct(),
                 source.extraDiscountPct(), source.extraDiscountLabel(),
@@ -659,7 +660,7 @@ public class SalesOrderService {
                 source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
-                source.docType(), source.isInvoice() ? today.plusDays(30) : null, null, null, null,
+                source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
