@@ -74,11 +74,14 @@ class PdfCatalogStandaloneQaTest {
                 assertEquals("%PDF", new String(document.content(), 0, 4,
                         StandardCharsets.US_ASCII));
                 try (PDDocument pdf = Loader.loadPDF(document.content())) {
-                    assertEquals(layout == CatalogExportService.Layout.SIMPLE ? 1 : 9,
+                    assertEquals(layout == CatalogExportService.Layout.SIMPLE ? 1 : 7,
                             pdf.getNumberOfPages(), stem);
                     if (layout == CatalogExportService.Layout.BROCHURE) {
-                        assertTrue(pdf.getPage(3).getMediaBox().getWidth()
-                                > pdf.getPage(3).getMediaBox().getHeight(), stem);
+                        for (int page = 0; page < pdf.getNumberOfPages(); page++) {
+                            assertTrue(pdf.getPage(page).getMediaBox().getHeight()
+                                    > pdf.getPage(page).getMediaBox().getWidth(),
+                                    stem + " page " + (page + 1));
+                        }
                     }
                     String extracted = new PDFTextStripper().getText(pdf);
                     assertTrue(extracted.contains("B × D × H"), stem);

@@ -22,6 +22,7 @@ import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 
+import java.awt.Color;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,6 +42,9 @@ import java.util.Set;
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
+    private static final int OVERVIEW_CARDS_PER_PAGE = 8;
+    private static final int OVERVIEW_COLUMNS = 2;
+    private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
 
     private final Template simpleTemplate;
     private final Template brochureTemplate;
@@ -93,20 +97,26 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureFamily(
             String anchor, String number, String name, String summary, String description, String format,
             List<String> highlights, String categoryKey, String categoryName, String familySize,
-            String packageLine, String heroImage, String secondImage, String referencePriceLabel,
+            String packageLine, String overviewImage, String heroImage, String secondImage,
+            String referencePriceLabel, boolean compactDetail,
             List<String> gallery, List<BrochureVariant> variants) {}
 
     public record BrochureSection(
-            String number, String name, String description, String image,
+            String number, String name, String description, String categoryKey, String image,
             String familyCountLabel, List<BrochureFamily> families) {}
 
     public record OverviewCard(
-            boolean placeholder, String anchor, String number, String name,
+            boolean placeholder, boolean wide, String anchor, String number, String name,
             String categoryKey, String categoryName, String image, String variantCountLabel,
             String referencePriceLabel) {
 
         static OverviewCard empty() {
-            return new OverviewCard(true, "", "", "", "", "", null, "", null);
+            return new OverviewCard(true, false, "", "", "", "", "", null, "", null);
+        }
+
+        OverviewCard asWide() {
+            return new OverviewCard(placeholder, true, anchor, number, name, categoryKey,
+                    categoryName, image, variantCountLabel, referencePriceLabel);
         }
     }
 
@@ -141,6 +151,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = content.values(ContentScope.CATALOG, language);
         PhotoResolver photos = new PhotoResolver(700);
+        Set<Long> catalogueFamilyPhotoIds = catalog.families().stream()
+                .map(CatalogExportService.FamilyGroup::content)
+                .filter(Objects::nonNull)
+                .flatMap(family -> family.photos().stream())
+                .map(CatalogFamilyReader.GalleryPhoto::id)
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
         Map<Long, List<Item>> byCategory = new LinkedHashMap<>();
         List<Category> ordered = catalog.categoriesById().values().stream()
@@ -149,7 +166,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         for (Category category : ordered) byCategory.put(category.id(), new ArrayList<>());
         List<Item> uncategorised = new ArrayList<>();
         for (Product product : catalog.products()) {
-            Item item = simpleItem(product, language, request, photos, copy);
+            Item item = simpleItem(
+                    product, language, request, photos, copy, catalogueFamilyPhotoIds);
             List<Item> bucket = product.categoryId() == null
                     ? uncategorised : byCategory.get(product.categoryId());
             (bucket == null ? uncategorised : bucket).add(item);
@@ -223,6 +241,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     ? category.nameIn(language) : entry.getValue().getFirst().categoryName();
             String description = category == null ? null : category.descriptionIn(language);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
+                    entry.getValue().getFirst().categoryKey(),
                     editorial.image(categoryAsset(entry.getValue().getFirst().categoryKey())),
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
@@ -257,7 +276,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("copy", copy)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold.png"))
-                .data("coverImage", editorial.image("catalog-cover-v2.jpg"))
+                .data("coverImage", editorial.image("catalog-cover-v3.png"))
+                .data("backImage", editorial.image("catalog-back-cover-v1.png"))
                 .data("introDisplayImage", editorial.image("counter-bowl-retail.jpg"))
                 .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
                 .data("year", LocalDate.now().getYear())
@@ -267,11 +287,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private Item simpleItem(Product product, Language language,
                             CatalogExportService.Request request, PhotoResolver photos,
-                            Map<String, String> copy) {
+                            Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         int allowed = request.resolvedPhotosPerProduct();
         List<String> images = new ArrayList<>();
-        for (int index = 0; index < product.photos().size() && index < allowed; index++) {
-            String uri = photos.product(product.photos().get(index));
+        for (Photo photo : product.photos()) {
+            if (images.size() >= allowed) break;
+            /* Product projections can contain family photos from every publication channel.
+               An inherited photo is safe only when the CATALOGUE-filtered family reader
+               exposed that exact canonical family-photo row for this export. */
+            if (photo.inherited() && !catalogueFamilyPhotoIds.contains(photo.familyPhotoId())) {
+                continue;
+            }
+            String uri = photos.product(photo);
             if (uri != null) images.add(uri);
         }
         return new Item(
@@ -311,29 +338,48 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 : group.category().nameIn(language);
 
         int allowed = Math.min(4, request.resolvedPhotosPerProduct());
-        List<String> images = new ArrayList<>();
+        List<PhotoRef> imageRefs = new ArrayList<>();
+        Set<String> imageKeys = new LinkedHashSet<>();
         if (allowed > 0 && family != null) {
             Set<Long> selectedIds = group.variants().stream().map(Product::id)
                     .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
             for (CatalogFamilyReader.GalleryPhoto photo : family.photos()) {
-                if (images.size() >= allowed) break;
+                if (imageRefs.size() >= allowed) break;
                 if (photo.variantProductId() != null && !selectedIds.contains(photo.variantProductId())) {
                     continue;
                 }
-                String uri = photos.family(photo);
-                if (uri != null && !images.contains(uri)) images.add(uri);
-            }
-        }
-        if (allowed > 0 && images.isEmpty()) {
-            outer:
-            for (Product variant : group.variants()) {
-                for (Photo photo : variant.photos()) {
-                    String uri = photos.product(photo);
-                    if (uri != null && !images.contains(uri)) images.add(uri);
-                    if (images.size() >= allowed) break outer;
+                PhotoRef ref = photos.familyRef(photo);
+                if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
+                    imageRefs.add(ref);
                 }
             }
         }
+        if (allowed > 0 && imageRefs.isEmpty()) {
+            outer:
+            for (Product variant : group.variants()) {
+                for (Photo photo : variant.photos()) {
+                    /* Inherited photos may be internal or selected for another channel.
+                       Catalogue-family photos were already resolved through the channel-safe
+                       family projection above. */
+                    if (photo.inherited()) continue;
+                    PhotoRef ref = photos.productRef(photo);
+                    if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
+                        imageRefs.add(ref);
+                    }
+                    if (imageRefs.size() >= allowed) break outer;
+                }
+            }
+        }
+
+        String overviewImage = imageRefs.isEmpty() ? null : photos.overview(imageRefs.getFirst());
+        String heroImage = imageRefs.isEmpty() ? null
+                : photos.hero(imageRefs.getFirst(), imageRefs.size() < 2);
+        String secondImage = imageRefs.size() < 2 ? null : photos.side(imageRefs.get(1));
+        List<String> gallery = imageRefs.size() <= 2 ? List.of()
+                : imageRefs.subList(2, imageRefs.size()).stream()
+                        .map(photos::gallery)
+                        .filter(Objects::nonNull)
+                        .toList();
 
         List<BrochureVariant> variants = group.variants().stream()
                 .sorted(Comparator.comparingInt(Product::variantPosition)
@@ -352,41 +398,59 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return new BrochureFamily(
                 "family-" + number, number, defaultText(name, first.sku()), summary, description, format,
                 highlights, categoryKey, categoryName, familyDimension(family, first),
-                packageLine(family, group.variants(), copy), at(images, 0), at(images, 1),
+                packageLine(family, group.variants(), copy), overviewImage, heroImage, secondImage,
                 request.includePrices()
                         ? referencePriceLabel(group.variants(), language, copy) : null,
-                images.size() <= 2 ? List.of() : List.copyOf(images.subList(2, images.size())),
+                compactDetail(summary, description, highlights, variants.size(), gallery.size()),
+                gallery,
                 variants);
     }
 
     private static List<OverviewPage> overviewPages(
             List<BrochureFamily> families, Map<String, String> copy) {
         if (families.isEmpty()) return List.of();
-        int pageCount = families.size() <= 10 ? 1 : 2;
-        int perPage = (int) Math.ceil(families.size() / (double) pageCount);
+        int pageCount = (int) Math.ceil(families.size() / (double) OVERVIEW_CARDS_PER_PAGE);
+        int basePageSize = families.size() / pageCount;
+        int largerPages = families.size() % pageCount;
         List<OverviewPage> pages = new ArrayList<>();
+        int from = 0;
         for (int page = 0; page < pageCount; page++) {
-            int from = page * perPage;
-            int to = Math.min(from + perPage, families.size());
+            int pageSize = basePageSize + (page < largerPages ? 1 : 0);
+            int to = Math.min(from + pageSize, families.size());
             if (from >= to) break;
             List<BrochureFamily> slice = families.subList(from, to);
-            int rows = Math.max(1, Math.min(5, (int) Math.ceil(slice.size() / 5d)));
-            int columns = (int) Math.ceil(slice.size() / (double) rows);
             List<OverviewCard> cards = slice.stream().map(family -> new OverviewCard(
-                    false, family.anchor(), family.number(), family.name(), family.categoryKey(),
-                    family.categoryName(), family.heroImage(), countLabel(family.variants().size(),
+                    false, false, family.anchor(), family.number(), family.name(), family.categoryKey(),
+                    family.categoryName(), family.overviewImage(), countLabel(family.variants().size(),
                             copy(copy, "catalog.common.variant.singular"),
                             copy(copy, "catalog.common.variant.plural")),
                     family.referencePriceLabel())).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-            while (cards.size() % columns != 0) cards.add(OverviewCard.empty());
             List<List<OverviewCard>> cardRows = new ArrayList<>();
-            for (int index = 0; index < cards.size(); index += columns) {
-                cardRows.add(List.copyOf(cards.subList(index, index + columns)));
+            for (int index = 0; index < cards.size(); index += OVERVIEW_COLUMNS) {
+                int end = Math.min(index + OVERVIEW_COLUMNS, cards.size());
+                if (end - index == 1) {
+                    cardRows.add(List.of(cards.get(index).asWide()));
+                } else {
+                    cardRows.add(List.copyOf(cards.subList(index, end)));
+                }
             }
-            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() > 2,
+            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() == 4,
                     List.copyOf(cardRows)));
+            from = to;
         }
         return List.copyOf(pages);
+    }
+
+    private static boolean compactDetail(
+            String summary, String description, List<String> highlights,
+            int variantCount, int galleryCount) {
+        int copyLength = textLength(summary) + textLength(description)
+                + highlights.stream().mapToInt(PdfCatalogRenderer::textLength).sum();
+        return variantCount >= 4 || galleryCount > 0 || copyLength > 520;
+    }
+
+    private static int textLength(String value) {
+        return value == null ? 0 : value.strip().length();
     }
 
     private static String familyDimension(CatalogFamilyReader.Family family, Product first) {
@@ -633,9 +697,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return value != null && !value.isBlank();
     }
 
+    private enum PhotoOwner { PRODUCT, FAMILY }
+
+    private record PhotoRef(String storageKey, PhotoOwner owner) {}
+
     /** One render-local cache keeps all-collection exports from decoding the same blob repeatedly. */
     private final class PhotoResolver {
-        private final Map<String, String> cache = new HashMap<>();
+        private final Map<String, byte[]> sourceCache = new HashMap<>();
+        private final Map<String, String> renditionCache = new HashMap<>();
         private final Set<String> failed = new LinkedHashSet<>();
         private final int maxEdge;
 
@@ -645,34 +714,79 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
         String product(Photo photo) {
             if (photo == null || !present(photo.storageKey())) return null;
-            String value = cache.computeIfAbsent(photo.storageKey(), key -> {
-                try (InputStream in = products.photoData(key)) {
-                    return defaultText(encoded(key, in.readAllBytes()), "");
-                } catch (Exception exception) {
-                    failed(key, exception);
-                    return "";
-                }
+            PhotoRef ref = productRef(photo);
+            String value = renditionCache.computeIfAbsent(cacheKey(ref, "simple"), ignored ->
+                    defaultText(encoded(ref, source(ref)), ""));
+            return present(value) ? value : null;
+        }
+
+        PhotoRef productRef(Photo photo) {
+            return photo == null || !present(photo.storageKey())
+                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.PRODUCT);
+        }
+
+        PhotoRef familyRef(CatalogFamilyReader.GalleryPhoto photo) {
+            return photo == null || !present(photo.storageKey())
+                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY);
+        }
+
+        String overview(PhotoRef ref) {
+            return contained(ref, "overview-square", 720, 720);
+        }
+
+        String hero(PhotoRef ref, boolean solo) {
+            return solo
+                    ? contained(ref, "hero-solo", 1_600, 900)
+                    : contained(ref, "hero-paired", 1_100, 900);
+        }
+
+        String side(PhotoRef ref) {
+            return contained(ref, "side", 600, 900);
+        }
+
+        String gallery(PhotoRef ref) {
+            return contained(ref, "gallery", 480, 320);
+        }
+
+        /** A tiny cached rendition proves storage and decoding before a ref consumes a slot. */
+        boolean usable(PhotoRef ref) {
+            return contained(ref, "probe", 32, 32) != null;
+        }
+
+        private String contained(
+                PhotoRef ref, String rendition, int canvasWidth, int canvasHeight) {
+            if (ref == null) return null;
+            String value = renditionCache.computeIfAbsent(cacheKey(ref, rendition), ignored -> {
+                String uri = imageEncoder.encodeContained(
+                        source(ref), canvasWidth, canvasHeight, CATALOG_IMAGE_BACKGROUND);
+                if (uri == null) failed(ref.storageKey(), null);
+                return defaultText(uri, "");
             });
             return present(value) ? value : null;
         }
 
-        String family(CatalogFamilyReader.GalleryPhoto photo) {
-            if (photo == null || !present(photo.storageKey())) return null;
-            String value = cache.computeIfAbsent(photo.storageKey(), key -> {
-                try (InputStream in = photoStorage.read(key)) {
-                    return defaultText(encoded(key, in.readAllBytes()), "");
+        private byte[] source(PhotoRef ref) {
+            if (ref == null) return new byte[0];
+            return sourceCache.computeIfAbsent(cacheKey(ref, "source"), ignored -> {
+                try (InputStream in = ref.owner() == PhotoOwner.FAMILY
+                        ? photoStorage.read(ref.storageKey())
+                        : products.photoData(ref.storageKey())) {
+                    return in.readAllBytes();
                 } catch (Exception exception) {
-                    failed(key, exception);
-                    return "";
+                    failed(ref.storageKey(), exception);
+                    return new byte[0];
                 }
             });
-            return present(value) ? value : null;
         }
 
-        private String encoded(String key, byte[] bytes) {
+        private String encoded(PhotoRef ref, byte[] bytes) {
             String uri = imageEncoder.encode(bytes, maxEdge);
-            if (uri == null) failed(key, null);
+            if (uri == null) failed(ref.storageKey(), null);
             return uri;
+        }
+
+        private String cacheKey(PhotoRef ref, String rendition) {
+            return ref.owner().name() + ':' + ref.storageKey() + ':' + rendition;
         }
 
         private void failed(String key, Exception exception) {

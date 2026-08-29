@@ -53,6 +53,7 @@ public class PublicContentSeedLoader {
     private final CanonicalCatalogDaos.Families families;
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
+    private final CatalogFoamPhotoBackfillService foamPhotoBackfill;
     private final CatalogContentBackfillService catalogBackfill;
     private final WebsiteCatalogRevisionService websiteRevision;
     private final WebsiteRebuildService websiteRebuild;
@@ -64,6 +65,7 @@ public class PublicContentSeedLoader {
             CanonicalCatalogDaos.Families families,
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
+            CatalogFoamPhotoBackfillService foamPhotoBackfill,
             CatalogContentBackfillService catalogBackfill,
             WebsiteCatalogRevisionService websiteRevision,
             WebsiteRebuildService websiteRebuild,
@@ -73,6 +75,7 @@ public class PublicContentSeedLoader {
         this.families = families;
         this.products = products;
         this.categories = categories;
+        this.foamPhotoBackfill = foamPhotoBackfill;
         this.catalogBackfill = catalogBackfill;
         this.websiteRevision = websiteRevision;
         this.websiteRebuild = websiteRebuild;
@@ -128,6 +131,7 @@ public class PublicContentSeedLoader {
         mutationLock.acquire();
         int retired = deleteRetiredWebsiteKeys();
         int seeded = seedPublicCopy();
+        foamPhotoBackfill.apply();
         return new SeedResult(retired, seeded, catalogBackfill.apply());
     }
 

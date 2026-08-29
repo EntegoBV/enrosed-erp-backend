@@ -20,13 +20,18 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +39,7 @@ import java.util.Map;
 import static be.enrosed.catalog.application.CatalogExportServiceTest.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -43,6 +49,8 @@ class PdfCatalogRendererTest {
 
     @Inject PdfCatalogRenderer renderer;
     @Inject PhotoStorage photoStorage;
+    @Inject CatalogEditorialAssets editorialAssets;
+    @Inject PdfImageEncoder imageEncoder;
 
     @Test
     void simpleAndBrochureUseDistinctBrandedTemplatesWithoutInternalAuditCopy() throws Exception {
@@ -108,10 +116,11 @@ class PdfCatalogRendererTest {
         Path qa = Path.of("target", "catalog-qa");
         Files.createDirectories(qa);
         Files.write(qa.resolve("simple.pdf"), simplePdf.content());
+        Files.write(qa.resolve("brochure-single.pdf"), brochurePdf.content());
         CatalogDocumentRenderer.Document qaBrochure = renderer.render(
                 comparisonQaModel(counterFixture, preservedFixture, fixture));
         try (PDDocument pdf = Loader.loadPDF(qaBrochure.content())) {
-            assertEquals(23, pdf.getNumberOfPages());
+            assertEquals(24, pdf.getNumberOfPages());
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
                 assertTrue(pdf.getPage(page).getMediaBox().getHeight()
                         > pdf.getPage(page).getMediaBox().getWidth());
@@ -121,16 +130,189 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void overviewIncludesEverySelectedFamilyAcrossNoMoreThanTwoPages() {
+    void overviewIncludesEverySelectedFamilyAcrossAsManyEightCardPagesAsNeeded() {
         String html = renderer.renderHtml(model(57, CatalogExportService.Layout.BROCHURE));
-        assertEquals(2, occurrences(html, "class=\"page overview-page\""));
+        assertEquals(3, occurrences(html, "class=\"page overview-page\""));
         assertEquals(19, occurrences(html, "class=\"overview-card overview-card--"));
+        List<String> overviewPages = overviewPageFragments(html);
+        assertEquals(List.of(7, 6, 6), overviewPages.stream()
+                .map(page -> occurrences(page, "class=\"overview-card overview-card--"))
+                .toList());
+        for (String overviewPage : overviewPages) {
+            assertTrue(occurrences(overviewPage, "class=\"overview-card overview-card--") <= 8,
+                    "an A4 overview page must never exceed eight fixed cards");
+        }
         assertTrue(html.contains("href=\"#family-19\""));
         assertTrue(html.contains("id=\"family-19\""));
         assertFalse(html.contains("family-20"));
         assertTrue(html.indexOf("class=\"page overview-page\"")
                 < html.indexOf("id=\"family-01\""),
                 "the complete glance must precede every family detail page");
+    }
+
+    @Test
+    void anOddFinalOverviewCardIntentionallySpansBothColumns() {
+        String html = renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE));
+
+        assertTrue(html.contains("class=\"overview-cell overview-cell--wide\" colspan=\"2\""));
+        assertEquals(1, occurrences(html, "class=\"overview-card overview-card--"));
+        assertFalse(html.contains("class=\"overview-cell overview-empty\""));
+    }
+
+    @Test
+    void missingCatalogueFamilyPhotoFallsBackToAValidProductOwnedPhoto() throws Exception {
+        Photo owned = storedPhoto(94L, "/images/soap-roos-in-box-480.webp",
+                "owned-soap-rose.webp", "image/webp");
+        CatalogExportService.Model pictured = withPhoto(
+                model(1, CatalogExportService.Layout.BROCHURE), owned);
+        CatalogExportService.FamilyGroup originalGroup = pictured.families().getFirst();
+        CatalogFamilyReader.Family original = originalGroup.content();
+        CatalogFamilyReader.Family missingFamilyPhoto = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), original.name(),
+                original.summary(), original.description(), original.format(), original.highlights(),
+                original.dimensions(), original.texts(), original.packages(),
+                List.of(new CatalogFamilyReader.GalleryPhoto(
+                        999L, "missing-catalogue-photo.webp", "image/webp", 0,
+                        pictured.products().getFirst().id())));
+        CatalogExportService.Model fallback = new CatalogExportService.Model(
+                pictured.products(), pictured.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        missingFamilyPhoto, originalGroup.variants(), originalGroup.category(), false)),
+                pictured.request());
+
+        String html = renderer.renderHtml(fallback);
+
+        assertFalse(html.contains("class=\"image-placeholder\""),
+                "a missing catalogue-family blob must not suppress a valid product fallback");
+        String expectedHero = imageEncoder.encodeContained(
+                photoBytes(owned), 1_600, 900, new Color(255, 252, 248));
+        assertTrue(html.contains(expectedHero));
+    }
+
+    @Test
+    void internalInheritedPhotoNeverLeaksIntoSimpleOrBrochureFallback() throws Exception {
+        Photo inheritedSource = storedPhoto(95L, "/catalog-assets/counter-bowl-retail.jpg",
+                "internal-family-photo.jpg", "image/jpeg");
+        Photo inherited = new Photo(
+                inheritedSource.id(), inheritedSource.storageKey(), inheritedSource.originalFilename(),
+                inheritedSource.contentType(), inheritedSource.sizeBytes(), inheritedSource.widthPx(),
+                inheritedSource.heightPx(), 0, 501L);
+        Photo owned = storedPhoto(96L, "/images/soap-roos-in-box-480.webp",
+                "owned-product-photo.webp", "image/webp");
+        List<Photo> photos = List.of(inherited, owned);
+        CatalogExportService.Model simple = withPhotos(
+                model(1, CatalogExportService.Layout.SIMPLE), photos);
+        CatalogExportService.Model brochure = withPhotos(
+                model(1, CatalogExportService.Layout.BROCHURE), photos);
+
+        String simpleHtml = renderer.renderHtml(simple);
+        String brochureHtml = renderer.renderHtml(brochure);
+        String inheritedSimple = imageEncoder.encode(photoBytes(inherited), 700);
+        String ownedSimple = imageEncoder.encode(photoBytes(owned), 700);
+        String inheritedHero = imageEncoder.encodeContained(
+                photoBytes(inherited), 1_600, 900, new Color(255, 252, 248));
+        String ownedHero = imageEncoder.encodeContained(
+                photoBytes(owned), 1_600, 900, new Color(255, 252, 248));
+
+        assertFalse(simpleHtml.contains(inheritedSimple));
+        assertTrue(simpleHtml.contains(ownedSimple));
+        assertFalse(brochureHtml.contains(inheritedHero));
+        assertTrue(brochureHtml.contains(ownedHero));
+    }
+
+    @Test
+    void catalogueInheritedPhotoRemainsAvailableToTheSimpleLayout() throws Exception {
+        Photo inheritedSource = storedPhoto(97L, "/catalog-assets/counter-bowl-retail.jpg",
+                "catalogue-family-photo.jpg", "image/jpeg");
+        long familyPhotoId = 502L;
+        Photo inherited = new Photo(
+                inheritedSource.id(), inheritedSource.storageKey(), inheritedSource.originalFilename(),
+                inheritedSource.contentType(), inheritedSource.sizeBytes(), inheritedSource.widthPx(),
+                inheritedSource.heightPx(), 0, familyPhotoId);
+        CatalogExportService.Model pictured = withPhoto(
+                model(1, CatalogExportService.Layout.SIMPLE), inherited);
+        CatalogExportService.FamilyGroup originalGroup = pictured.families().getFirst();
+        CatalogFamilyReader.Family original = originalGroup.content();
+        CatalogFamilyReader.Family catalogueFamily = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), original.name(),
+                original.summary(), original.description(), original.format(), original.highlights(),
+                original.dimensions(), original.texts(), original.packages(),
+                List.of(new CatalogFamilyReader.GalleryPhoto(
+                        familyPhotoId, inherited.storageKey(), inherited.contentType(), 0,
+                        pictured.products().getFirst().id())));
+        CatalogExportService.Model catalogue = new CatalogExportService.Model(
+                pictured.products(), pictured.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        catalogueFamily, originalGroup.variants(), originalGroup.category(), false)),
+                pictured.request());
+
+        String html = renderer.renderHtml(catalogue);
+
+        assertTrue(html.contains(imageEncoder.encode(photoBytes(inherited), 700)),
+                "a CATALOGUE-published inherited family photo must remain usable");
+    }
+
+    @Test
+    void brochureUsesDifferentPrintResolutionEditorialAssetsForFrontAndBackCover()
+            throws Exception {
+        String front = editorialAssets.image("catalog-cover-v3.png");
+        String back = editorialAssets.image("catalog-back-cover-v1.png");
+        String html = renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE));
+
+        assertFalse(front.isBlank());
+        assertFalse(back.isBlank());
+        assertNotEquals(front, back);
+        BufferedImage frontImage = dataImage(front);
+        BufferedImage backImage = dataImage(back);
+        assertEquals(2_480, frontImage.getWidth());
+        assertEquals(3_508, frontImage.getHeight());
+        assertEquals(2_480, backImage.getWidth());
+        assertEquals(3_508, backImage.getHeight());
+        assertEquals(1, occurrences(html, front));
+        assertEquals(1, occurrences(html, back));
+    }
+
+    @Test
+    void longFamilyCopyAndFourVariantsUseCompactDetailWithoutClippingOrExtraPages()
+            throws Exception {
+        CatalogExportService.Model source = model(4, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        String finalMarker = "FINAL-CATALOG-COPY-MARKER";
+        String description = ("Wholesale presentation details, care guidance, display advice and "
+                + "ordering context for professional buyers. ").repeat(12) + finalMarker;
+        CatalogFamilyReader.Family detailed = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), original.name(),
+                "A complete retail presentation with practical buying information for trade.",
+                description, original.format(),
+                List.of("Gift-ready presentation", "No daily water",
+                        "Four coordinated wholesale variants"),
+                original.dimensions(), original.texts(), original.packages(), original.photos());
+        CatalogExportService.Model dense = new CatalogExportService.Model(
+                source.products(), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        detailed, source.products(), source.families().getFirst().category(), false)),
+                source.request());
+
+        String html = renderer.renderHtml(dense);
+        assertTrue(html.contains(
+                "class=\"page family-page family-page--counter family-page--compact\""));
+        CatalogDocumentRenderer.Document document = renderer.render(dense);
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(7, pdf.getNumberOfPages());
+            for (int page = 0; page < pdf.getNumberOfPages(); page++) {
+                assertTrue(pdf.getPage(page).getMediaBox().getHeight()
+                        > pdf.getPage(page).getMediaBox().getWidth());
+            }
+            String text = new PDFTextStripper().getText(pdf);
+            assertTrue(text.contains(finalMarker));
+            assertTrue(text.contains("SKU-4"));
+        }
     }
 
     @Test
@@ -357,7 +539,12 @@ class PdfCatalogRendererTest {
 
     private static CatalogExportService.Model withPhoto(
             CatalogExportService.Model model, Photo photo) {
-        Product pictured = model.products().getFirst().withPhotos(List.of(photo));
+        return withPhotos(model, List.of(photo));
+    }
+
+    private static CatalogExportService.Model withPhotos(
+            CatalogExportService.Model model, List<Photo> photos) {
+        Product pictured = model.products().getFirst().withPhotos(photos);
         CatalogExportService.FamilyGroup oldGroup = model.families().getFirst();
         CatalogExportService.FamilyGroup group = new CatalogExportService.FamilyGroup(
                 oldGroup.content(), List.of(pictured), oldGroup.category(), oldGroup.synthetic());
@@ -368,6 +555,12 @@ class PdfCatalogRendererTest {
                 oldRequest.layout(), oldRequest.brochure());
         return new CatalogExportService.Model(
                 List.of(pictured), model.categoriesById(), List.of(group), request);
+    }
+
+    private byte[] photoBytes(Photo photo) throws Exception {
+        try (var input = photoStorage.read(photo.storageKey())) {
+            return input.readAllBytes();
+        }
     }
 
     private static Product withoutReferencePrice(Product base) {
@@ -385,6 +578,23 @@ class PdfCatalogRendererTest {
 
     private static int occurrences(String haystack, String needle) {
         return (haystack.length() - haystack.replace(needle, "").length()) / needle.length();
+    }
+
+    private static BufferedImage dataImage(String dataUri) throws Exception {
+        byte[] bytes = Base64.getDecoder().decode(dataUri.substring(dataUri.indexOf(',') + 1));
+        return ImageIO.read(new ByteArrayInputStream(bytes));
+    }
+
+    private static List<String> overviewPageFragments(String html) {
+        List<String> pages = new ArrayList<>();
+        String marker = "<section class=\"page overview-page\">";
+        int from = 0;
+        while ((from = html.indexOf(marker, from)) >= 0) {
+            int to = html.indexOf("</section>", from);
+            pages.add(html.substring(from, to < 0 ? html.length() : to));
+            from += marker.length();
+        }
+        return pages;
     }
 
     static CatalogExportService.Model localizedQaModel(

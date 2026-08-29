@@ -30,13 +30,15 @@ class CatalogContentBackfillResourceTest {
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
         assertEquals(3, backfill.path("expectedCounts").path("categories").asInt());
-        assertEquals(24, backfill.path("expectedCounts").path("families").asInt());
-        assertEquals(58, backfill.path("expectedCounts").path("variants").asInt());
-        assertEquals(80, backfill.path("expectedCounts").path("images").asInt());
-        assertEquals(58, backfill.path("targetVariantKeys").size());
-        assertEquals(80, backfill.path("targetImageKeys").size());
-        assertEquals(58, values(backfill.path("targetVariantKeys")).size());
-        assertEquals(80, values(backfill.path("targetImageKeys")).size());
+        assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
+        assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
+        assertEquals(85, backfill.path("expectedCounts").path("images").asInt());
+        assertEquals(64, backfill.path("targetVariantKeys").size());
+        assertEquals(85, backfill.path("targetImageKeys").size());
+        assertEquals(64, values(backfill.path("targetVariantKeys")).size());
+        assertEquals(85, values(backfill.path("targetImageKeys")).size());
+        assertTrue(values(backfill.path("targetImageKeys"))
+                .containsAll(CatalogFoamPhotoBackfillService.targetImageKeys()));
         assertEquals(Set.of("display-roses", "divers", "rose-bears"),
                 fieldNames(backfill.path("categories")));
         backfill.path("categories").fields().forEachRemaining(category -> {
@@ -56,7 +58,11 @@ class CatalogContentBackfillResourceTest {
         assertEquals("Soap & foam roses", backfill.path("categories")
                 .path("rose-bears").path("EN").path("footerName").asText());
         assertEquals("FOAM_DECORATIVE", backfill.path("families")
-                .path("odoo-half-heart-foam-25").path("profile").asText());
+                .path("foam-half-heart-25").path("profile").asText());
+        assertEquals("Foam Rose Bear 25 cm", backfill.path("families")
+                .path("foam-bear-25").path("EN").asText());
+        assertTrue(values(backfill.path("targetVariantKeys")).contains("foam-bear-25-mixed"));
+        assertEquals("#DD92C9", backfill.path("colourHexes").path("Mixed").asText());
 
         JsonNode copy = resource("/i18n/catalog-family-copy.json");
         assertEquals(19, copy.path("families").size());

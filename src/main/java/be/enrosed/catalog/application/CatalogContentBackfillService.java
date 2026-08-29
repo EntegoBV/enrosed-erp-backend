@@ -188,6 +188,10 @@ public class CatalogContentBackfillService {
                         knownFamilyCopy(entry.getKey(), "summary", text.summary,
                                 summaryCandidate, language),
                         correctKnownStale, counter);
+                text.seoTitle = merge(text.seoTitle, name + " | Enrosed Wholesale",
+                        null, false, counter);
+                text.seoDescription = merge(text.seoDescription, summaryCandidate,
+                        null, false, counter);
                 String knownDescription = approved != null
                         && Objects.equals(normalize(text.description),
                                 normalize(approved.knownStaleDescription()))

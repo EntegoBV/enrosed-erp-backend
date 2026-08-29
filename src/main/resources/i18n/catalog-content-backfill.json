@@ -1,6 +1,6 @@
 {
-  "version": "2026-08-21-complete-catalog-v6",
-  "expectedCounts": { "categories": 3, "families": 24, "variants": 58, "images": 80 },
+  "version": "2026-08-29-complete-catalog-v7",
+  "expectedCounts": { "categories": 3, "families": 27, "variants": 64, "images": 85 },
   "targetVariantKeys": [
     "shopify-46685757931689",
     "shopify-46685588127913",
@@ -55,10 +55,16 @@
     "odoo-rose-in-dome-15x30cm-red",
     "odoo-rose-in-dome-15x30cm-pink",
     "odoo-rose-in-dome-15x30cm-white",
-    "odoo-half-heart-rose-foam-25cm-pink",
-    "odoo-half-heart-rose-foam-25cm-red",
-    "odoo-half-heart-rose-foam-40cm-pink",
-    "odoo-half-heart-rose-foam-40cm-red",
+    "foam-half-heart-25-pink",
+    "foam-half-heart-25-red",
+    "foam-half-heart-40-pink",
+    "foam-half-heart-40-red",
+    "foam-bear-25-red",
+    "foam-bear-25-pink",
+    "foam-bear-25-mixed",
+    "foam-heart-15-red",
+    "foam-heart-15-pink",
+    "foam-bear-with-heart-25-red",
     "odoo-preserved-rose-in-windowbox"
   ],
   "targetImageKeys": [
@@ -141,7 +147,12 @@
     "soap-rose-box-led:34988077645993",
     "soap-rose-box-led:34988078203049",
     "soap-rose-box-led:34988078465193",
-    "soap-roos-in-box:34988120899753"
+    "soap-roos-in-box:34988120899753",
+    "foam-half-heart-25:catalog-primary-red",
+    "foam-half-heart-40:catalog-primary-red",
+    "foam-bear-25:catalog-primary-red",
+    "foam-heart-15:catalog-primary-red",
+    "foam-bear-with-heart-25:catalog-primary-red"
   ],
   "familyProfiles": {
     "COUNTER_PRESERVED": {
@@ -287,8 +298,11 @@
     "soap-roos-in-box": {"profile":"SOAP_DECORATIVE","NL":"Zeeproos in box","FR":"Rose en savon dans une boîte","EN":"Soap Rose in Box","DE":"Seifenrose in Box","ES":"Rosa de jabón en caja","PL":"Róża mydlana w pudełku","PT":"Rosa de sabão em caixa","TR":"Kutuda Sabun Gülü"},
     "odoo-heart-flowerbox-28-review": {"profile":"PRESERVED_GIFT","NL":"Hartvormige flowerbox 28 cm (controle)","FR":"Flowerbox cœur 28 cm (à contrôler)","EN":"Heart-Shaped Flowerbox 28 cm (Review)","DE":"Herzförmige Flowerbox 28 cm (Prüfung)","ES":"Flowerbox con forma de corazón de 28 cm (revisión)","PL":"Flowerbox w kształcie serca 28 cm (do weryfikacji)","PT":"Flowerbox em forma de coração de 28 cm (revisão)","TR":"Kalp Şeklinde Flowerbox 28 cm (İnceleme)"},
     "odoo-dome-15x30-single-review": {"profile":"PRESERVED_GIFT","NL":"Enkele roos in stolp 15 × 30 cm (controle)","FR":"Rose unique sous cloche 15 × 30 cm (à contrôler)","EN":"Single Rose in 15 × 30 cm Dome (Review)","DE":"Einzelne Rose unter 15 × 30 cm Glasglocke (Prüfung)","ES":"Rosa única en cúpula de 15 × 30 cm (revisión)","PL":"Pojedyncza róża pod kopułą 15 × 30 cm (do weryfikacji)","PT":"Rosa única em cúpula de 15 × 30 cm (revisão)","TR":"15 × 30 cm Fanusta Tek Gül (İnceleme)"},
-    "odoo-half-heart-foam-25": {"profile":"FOAM_DECORATIVE","NL":"Halve hartvorm met foamrozen 25 cm","FR":"Demi-cœur de roses en mousse 25 cm","EN":"Half-Heart Foam Roses 25 cm","DE":"Halbherz mit Schaumrosen 25 cm","ES":"Medio corazón de rosas de espuma de 25 cm","PL":"Półserce z róż piankowych 25 cm","PT":"Meio coração de rosas de espuma 25 cm","TR":"Yarım Kalp Köpük Güller 25 cm"},
-    "odoo-half-heart-foam-40": {"profile":"FOAM_DECORATIVE","NL":"Halve hartvorm met foamrozen 40 cm","FR":"Demi-cœur de roses en mousse 40 cm","EN":"Half-Heart Foam Roses 40 cm","DE":"Halbherz mit Schaumrosen 40 cm","ES":"Medio corazón de rosas de espuma de 40 cm","PL":"Półserce z róż piankowych 40 cm","PT":"Meio coração de rosas de espuma 40 cm","TR":"Yarım Kalp Köpük Güller 40 cm"},
+    "foam-half-heart-25": {"profile":"FOAM_DECORATIVE","NL":"Halve hartvorm met foamrozen 25 cm","FR":"Demi-cœur de roses en mousse 25 cm","EN":"Half-Heart Foam Roses 25 cm","DE":"Halbherz mit Schaumrosen 25 cm","ES":"Medio corazón de rosas de espuma de 25 cm","PL":"Półserce z róż piankowych 25 cm","PT":"Meio coração de rosas de espuma 25 cm","TR":"Yarım Kalp Köpük Güller 25 cm"},
+    "foam-half-heart-40": {"profile":"FOAM_DECORATIVE","NL":"Halve hartvorm met foamrozen 40 cm","FR":"Demi-cœur de roses en mousse 40 cm","EN":"Half-Heart Foam Roses 40 cm","DE":"Halbherz mit Schaumrosen 40 cm","ES":"Medio corazón de rosas de espuma de 40 cm","PL":"Półserce z róż piankowych 40 cm","PT":"Meio coração de rosas de espuma 40 cm","TR":"Yarım Kalp Köpük Güller 40 cm"},
+    "foam-bear-25": {"profile":"FOAM_DECORATIVE","NL":"Foamrozenbeer 25 cm","FR":"Ours en roses mousse 25 cm","EN":"Foam Rose Bear 25 cm","DE":"Schaumrosen-Bär 25 cm","ES":"Oso de rosas de espuma de 25 cm","PL":"Miś z róż piankowych 25 cm","PT":"Urso de rosas de espuma 25 cm","TR":"Köpük Gül Ayıcık 25 cm"},
+    "foam-heart-15": {"profile":"FOAM_DECORATIVE","NL":"Hart met foamrozen 15 cm","FR":"Cœur de roses en mousse 15 cm","EN":"Foam Rose Heart 15 cm","DE":"Herz aus Schaumrosen 15 cm","ES":"Corazón de rosas de espuma de 15 cm","PL":"Serce z róż piankowych 15 cm","PT":"Coração de rosas de espuma 15 cm","TR":"Köpük Gül Kalp 15 cm"},
+    "foam-bear-with-heart-25": {"profile":"FOAM_DECORATIVE","NL":"Foamrozenbeer met hart 25 cm","FR":"Ours en roses mousse avec cœur 25 cm","EN":"Foam Rose Bear with Heart 25 cm","DE":"Schaumrosen-Bär mit Herz 25 cm","ES":"Oso de rosas de espuma con corazón de 25 cm","PL":"Miś z róż piankowych z sercem 25 cm","PT":"Urso de rosas de espuma com coração 25 cm","TR":"Kalpli Köpük Gül Ayıcık 25 cm"},
     "odoo-preserved-rose-windowbox": {"profile":"PRESERVED_GIFT","NL":"Gepreserveerde roos in vensterdoos","FR":"Rose stabilisée dans une boîte à fenêtre","EN":"Preserved Rose in Window Box","DE":"Konservierte Rose in Fensterbox","ES":"Rosa preservada en caja con ventana","PL":"Róża stabilizowana w pudełku z okienkiem","PT":"Rosa preservada em caixa com janela","TR":"Pencereli Kutuda Korunmuş Gül"}
   },
   "variantNames": {
@@ -302,7 +316,8 @@
     "White": {"NL":"Wit","FR":"Blanc","EN":"White","DE":"Weiß","ES":"Blanco","PL":"Biały","PT":"Branco","TR":"Beyaz"},
     "Light Blue": {"NL":"Lichtblauw","FR":"Bleu clair","EN":"Light Blue","DE":"Hellblau","ES":"Azul claro","PL":"Jasnoniebieski","PT":"Azul-claro","TR":"Açık mavi"},
     "Blue": {"NL":"Blauw","FR":"Bleu","EN":"Blue","DE":"Blau","ES":"Azul","PL":"Niebieski","PT":"Azul","TR":"Mavi"},
-    "Pink": {"NL":"Roze","FR":"Rose","EN":"Pink","DE":"Rosa","ES":"Rosa","PL":"Różowy","PT":"Rosa","TR":"Pembe"}
+    "Pink": {"NL":"Roze","FR":"Rose","EN":"Pink","DE":"Rosa","ES":"Rosa","PL":"Różowy","PT":"Rosa","TR":"Pembe"},
+    "Mixed": {"NL":"Gemengd","FR":"Multicolore","EN":"Mixed","DE":"Gemischt","ES":"Mixto","PL":"Mieszany","PT":"Misto","TR":"Karışık"}
   },
   "colourHexes": {
     "Red":"#A91F32",
@@ -311,7 +326,8 @@
     "White":"#EEE8DD",
     "Light Blue":"#9CC5DE",
     "Blue":"#6C8FC4",
-    "Pink":"#D889A2"
+    "Pink":"#D889A2",
+    "Mixed":"#DD92C9"
   },
   "imageAltPatterns": {
     "NL": "{family} in {color}", "FR": "{family} en {color}",

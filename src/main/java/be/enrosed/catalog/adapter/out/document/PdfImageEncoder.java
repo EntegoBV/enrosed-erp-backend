@@ -42,6 +42,24 @@ public class PdfImageEncoder {
         }
     }
 
+    /**
+     * Places an image on a predictable print canvas without cropping it. Keeping the canvas
+     * dimensions stable prevents mixed portrait and landscape uploads from changing the PDF
+     * card geometry.
+     */
+    String encodeContained(byte[] source, int canvasWidth, int canvasHeight, Color background) {
+        if (source == null || source.length == 0 || canvasWidth < 1 || canvasHeight < 1) return null;
+        try {
+            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
+            if (decoded == null) return null;
+            BufferedImage canvas = contain(decoded, canvasWidth, canvasHeight,
+                    background == null ? Color.WHITE : background);
+            return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg(canvas));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private static BufferedImage scale(BufferedImage source, int maxEdge) {
         double factor = Math.min(1d, (double) maxEdge
                 / Math.max(source.getWidth(), source.getHeight()));
@@ -67,6 +85,32 @@ public class PdfImageEncoder {
             graphics.dispose();
         }
         return target;
+    }
+
+    private static BufferedImage contain(
+            BufferedImage source, int canvasWidth, int canvasHeight, Color background) {
+        BufferedImage canvas = new BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = canvas.createGraphics();
+        try {
+            graphics.setColor(background);
+            graphics.fillRect(0, 0, canvasWidth, canvasHeight);
+            double factor = Math.min((double) canvasWidth / source.getWidth(),
+                    (double) canvasHeight / source.getHeight());
+            int width = Math.max(1, (int) Math.round(source.getWidth() * factor));
+            int height = Math.max(1, (int) Math.round(source.getHeight() * factor));
+            int x = (canvasWidth - width) / 2;
+            int y = (canvasHeight - height) / 2;
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING,
+                    RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.drawImage(source, x, y, width, height, null);
+        } finally {
+            graphics.dispose();
+        }
+        return canvas;
     }
 
     private static byte[] png(BufferedImage image) throws Exception {
