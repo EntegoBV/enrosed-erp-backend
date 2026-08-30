@@ -194,25 +194,111 @@ class ContentTranslationContractTest {
 
     @Test
     @TestTransaction
-    void privacySeedMigratesOnlyTheFormerNoFormClaim() {
-        ContentTranslationEntity entity = rows.find(
+    void privacySeedMigratesOnlyExactFormerDefaultsAcrossTheContactCopy() {
+        ContentTranslationEntity data = rows.find(
                 "scope = ?1 and key = ?2", ContentScope.WEBSITE,
                 "legal.privacy.data.p2").firstResult();
-        ContentTranslationTextEntity dutch = entity.texts.stream()
-                .filter(text -> text.language == Language.NL).findFirst().orElseThrow();
-        ContentTranslationTextEntity french = entity.texts.stream()
-                .filter(text -> text.language == Language.FR).findFirst().orElseThrow();
-        String currentDutchSeed = dutch.value;
-        dutch.value = "Deze website maakt gebruik van e-mail- en telefoonlinks in plaats van een offerteformulier op de website. Informatie die u in een e-mail opneemt, wordt verwerkt via de e-mailservice die wordt gebruikt door Enrosed.";
-        french.value = "Texte de confidentialité approuvé dans le dashboard";
+        ContentTranslationEntity purpose = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.privacy.purposes.item1").firstResult();
+        ContentTranslationEntity cookies = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.privacy.cookies.p1").firstResult();
+
+        ContentTranslationTextEntity dataDutch = translation(data, Language.NL);
+        ContentTranslationTextEntity dataGerman = translation(data, Language.DE);
+        ContentTranslationTextEntity dataFrench = translation(data, Language.FR);
+        ContentTranslationTextEntity purposeSpanish = translation(purpose, Language.ES);
+        ContentTranslationTextEntity purposePolish = translation(purpose, Language.PL);
+        ContentTranslationTextEntity cookiesDutch = translation(cookies, Language.NL);
+        ContentTranslationTextEntity cookiesTurkish = translation(cookies, Language.TR);
+        ContentTranslationTextEntity cookiesPortuguese = translation(cookies, Language.PT);
+
+        String expectedDataDutch = dataDutch.value;
+        String expectedDataGerman = dataGerman.value;
+        String expectedPurposeSpanish = purposeSpanish.value;
+        String expectedCookiesDutch = cookiesDutch.value;
+        String expectedCookiesTurkish = cookiesTurkish.value;
+
+        dataDutch.value = "Deze website maakt gebruik van e-mail- en telefoonlinks in plaats van een offerteformulier op de website. Informatie die u in een e-mail opneemt, wordt verwerkt via de e-mailservice die wordt gebruikt door Enrosed.";
+        dataGerman.value = "Diese Website stellt ein Formular für Großhandelsangebote bereit. Wenn Sie es absenden, verarbeitet Enrosed Ihre Unternehmens- und Kontaktdaten, die ausgewählten Produkte und Mengen, den Lieferort, die Umsatzsteuer-Identifikationsnummer und etwaige Anmerkungen, um Ihr Angebot zu erstellen und nachzuverfolgen.";
+        dataFrench.value = "Texte de confidentialité approuvé dans le dashboard";
+        purposeSpanish.value = "preparar y hacer el seguimiento de un presupuesto solicitado;";
+        purposePolish.value = "Tekst celu zatwierdzony w panelu";
+        cookiesDutch.value = "Deze groothandelswebsite gebruikt momenteel geen analyse- of advertentiecookies. Alleen de technische functionaliteit die nodig is om de website weer te geven en de gekozen links te openen, wordt gebruikt. De knop Cookievoorkeuren in de footer toont de huidige status.";
+        cookiesTurkish.value = "Bu toptan satış sitesi analiz veya reklam çerezi kullanmaz. Yalnızca gerekli teknik işlevler kullanılır. Form koruması etkin olduğunda güvenlik sağlayıcısı teknik verileri işleyebilir ve otomatik gönderimleri saptamak için kesinlikle gerekli depolamayı kullanabilir. Alt bilgideki çerez tercihleri güncel durumu gösterir.";
+        cookiesPortuguese.value = "Texto de cookies aprovado no dashboard";
         entityManager.flush();
 
         seeds.onStart(null);
 
-        assertEquals(currentDutchSeed, dutch.value,
-                "the exact former seed must migrate to the secure-form privacy copy");
-        assertEquals("Texte de confidentialité approuvé dans le dashboard", french.value,
-                "a dashboard-authored value must never be overwritten");
+        assertEquals(expectedDataDutch, dataDutch.value,
+                "the exact former no-form seed must migrate");
+        assertEquals(expectedDataGerman, dataGerman.value,
+                "the exact quote-only seed must migrate");
+        assertEquals(expectedPurposeSpanish, purposeSpanish.value,
+                "the exact quote-only purpose must migrate");
+        assertEquals(expectedCookiesDutch, cookiesDutch.value,
+                "the exact pre-security cookie seed must migrate");
+        assertEquals(expectedCookiesTurkish, cookiesTurkish.value,
+                "the exact generic-security cookie seed must migrate");
+        assertEquals("Texte de confidentialité approuvé dans le dashboard", dataFrench.value);
+        assertEquals("Tekst celu zatwierdzony w panelu", purposePolish.value);
+        assertEquals("Texto de cookies aprovado no dashboard", cookiesPortuguese.value,
+                "dashboard-authored values must never be overwritten");
+    }
+
+    @Test
+    @TestTransaction
+    void legalSeedMigratesOnlyExactFormerDatesHeadingsAndLimburgClause() {
+        ContentTranslationEntity shippingDate = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.shipping.updated").firstResult();
+        ContentTranslationEntity tradeDate = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.trade.updated").firstResult();
+        ContentTranslationEntity lawTitle = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.trade.lawContact.title").firstResult();
+        ContentTranslationEntity lawClause = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.trade.lawContact.p1").firstResult();
+
+        ContentTranslationTextEntity shippingDutch = translation(shippingDate, Language.NL);
+        ContentTranslationTextEntity shippingFrench = translation(shippingDate, Language.FR);
+        ContentTranslationTextEntity tradePolish = translation(tradeDate, Language.PL);
+        ContentTranslationTextEntity tradePortuguese = translation(tradeDate, Language.PT);
+        ContentTranslationTextEntity titleEnglish = translation(lawTitle, Language.EN);
+        ContentTranslationTextEntity titleTurkish = translation(lawTitle, Language.TR);
+        ContentTranslationTextEntity clauseGerman = translation(lawClause, Language.DE);
+        ContentTranslationTextEntity clauseSpanish = translation(lawClause, Language.ES);
+
+        String expectedShippingDutch = shippingDutch.value;
+        String expectedTradePolish = tradePolish.value;
+        String expectedTitleEnglish = titleEnglish.value;
+        String expectedClauseGerman = clauseGerman.value;
+
+        shippingDutch.value = "20 augustus 2026";
+        shippingFrench.value = "Date juridique approuvée dans le dashboard";
+        tradePolish.value = "20 sierpnia 2026 r";
+        tradePortuguese.value = "Data jurídica aprovada no dashboard";
+        titleEnglish.value = "8. Applicable law and contact";
+        titleTurkish.value = "Panelde onaylanan hukuk başlığı";
+        clauseGerman.value = "Für die Geschäftsbeziehung gilt belgisches Recht. Sofern nicht zwingendes Recht etwas anderes vorsieht, fallen Streitigkeiten in die Zuständigkeit der zuständigen Gerichte in Limburg, Belgien.";
+        clauseSpanish.value = "Cláusula jurídica aprobada en el panel";
+        entityManager.flush();
+
+        seeds.onStart(null);
+
+        assertEquals(expectedShippingDutch, shippingDutch.value);
+        assertEquals(expectedTradePolish, tradePolish.value);
+        assertEquals(expectedTitleEnglish, titleEnglish.value);
+        assertEquals(expectedClauseGerman, clauseGerman.value);
+        assertEquals("Date juridique approuvée dans le dashboard", shippingFrench.value);
+        assertEquals("Data jurídica aprovada no dashboard", tradePortuguese.value);
+        assertEquals("Panelde onaylanan hukuk başlığı", titleTurkish.value);
+        assertEquals("Cláusula jurídica aprobada en el panel", clauseSpanish.value,
+                "dashboard-authored legal copy must never be overwritten");
     }
 
     @Test
@@ -280,5 +366,12 @@ class ContentTranslationContractTest {
                 .map(language -> new LocalizedValueDto(
                         language, prefix + " " + language.code()))
                 .toList();
+    }
+
+    private static ContentTranslationTextEntity translation(
+            ContentTranslationEntity owner, Language language) {
+        return owner.texts.stream()
+                .filter(text -> text.language == language)
+                .findFirst().orElseThrow();
     }
 }
