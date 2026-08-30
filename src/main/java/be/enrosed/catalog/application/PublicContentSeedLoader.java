@@ -58,6 +58,8 @@ public class PublicContentSeedLoader {
             Map.entry(Language.PL, "Ta strona zawiera formularz zapytania o ofertę hurtową. Po jego wysłaniu Enrosed przetwarza dane firmy i dane kontaktowe, wybrane produkty i ilości, miejsce dostawy, numer VAT oraz ewentualne uwagi w celu przygotowania i obsługi oferty."),
             Map.entry(Language.PT, "Este website disponibiliza um formulário de pedido de orçamento para grossistas. Ao enviá-lo, a Enrosed trata os dados da empresa e de contacto, os produtos e quantidades selecionados, o destino da entrega, o número de IVA e eventuais observações para preparar e acompanhar o orçamento."),
             Map.entry(Language.TR, "Bu web sitesinde toptan satış teklif formu sunulur. Formu gönderdiğinizde Enrosed; teklifinizi hazırlamak ve takip etmek için şirket ve iletişim bilgilerinizi, seçilen ürünleri ve miktarları, teslimat yerini, KDV numarasını ve notlarınızı işler."));
+    private static final String LEGACY_PRIVACY_EN_ONSITE_QUOTE_FORM =
+            "This website provides an onsite wholesale quotation form. When you submit it, Enrosed processes your company and contact details, selected products and quantities, delivery destination, VAT number and any notes to prepare and follow up your quotation.";
     private static final Map<Language, String> LEGACY_PRIVACY_QUOTE_ONLY_PURPOSE = Map.ofEntries(
             Map.entry(Language.NL, "het opstellen en opvolgen van een aangevraagde offerte;"),
             Map.entry(Language.FR, "préparer et suivre un devis demandé ;"),
@@ -67,6 +69,8 @@ public class PublicContentSeedLoader {
             Map.entry(Language.PL, "przygotowanie i realizacja żądanej wyceny;"),
             Map.entry(Language.PT, "elaborar e acompanhar o orçamento pedido;"),
             Map.entry(Language.TR, "talep edilen bir teklifin hazırlanması ve takibi;"));
+    private static final String LEGACY_PRIVACY_EN_QUOTE_ONLY_PURPOSE =
+            "preparing and following up a requested quotation;";
     /** Exact defaults before the privacy text named the current anti-spam implementation. */
     private static final Map<Language, String> LEGACY_PRIVACY_GENERIC_FORM_SECURITY = Map.ofEntries(
             Map.entry(Language.NL, "Deze groothandelswebsite gebruikt momenteel geen analyse- of advertentiecookies. Alleen de technische functionaliteit die nodig is om de website weer te geven en de gekozen links te openen, wordt gebruikt. De knop Cookievoorkeuren in de footer toont de huidige status."),
@@ -77,6 +81,15 @@ public class PublicContentSeedLoader {
             Map.entry(Language.PL, "Ta strona hurtowa nie używa analitycznych ani reklamowych plików cookie. Stosowane są wyłącznie niezbędne funkcje techniczne. Gdy ochrona formularzy jest aktywna, dostawca zabezpieczeń może przetwarzać dane techniczne i używać niezbędnej pamięci do wykrywania automatycznych zgłoszeń. Ustawienia cookie w stopce pokazują aktualny stan."),
             Map.entry(Language.PT, "Este website grossista não utiliza cookies analíticos ou publicitários. Apenas são usadas funções técnicas necessárias. Quando a proteção dos formulários está ativa, o fornecedor de segurança pode tratar dados técnicos e usar armazenamento estritamente necessário para detetar envios automáticos. As preferências de cookies no rodapé mostram o estado atual."),
             Map.entry(Language.TR, "Bu toptan satış sitesi analiz veya reklam çerezi kullanmaz. Yalnızca gerekli teknik işlevler kullanılır. Form koruması etkin olduğunda güvenlik sağlayıcısı teknik verileri işleyebilir ve otomatik gönderimleri saptamak için kesinlikle gerekli depolamayı kullanabilir. Alt bilgideki çerez tercihleri güncel durumu gösterir."));
+    /** Exact link-only defaults still present in production before form protection was documented. */
+    private static final Map<Language, String> LEGACY_PRIVACY_LINK_ONLY_COOKIES = Map.ofEntries(
+            Map.entry(Language.FR, "Ce site Web de vente en gros n'utilise actuellement aucun cookie d'analyse ou publicitaire. Seules les fonctionnalités techniques nécessaires à la fourniture du site Web et des liens que vous choisissez sont utilisées. Le contrôle des préférences des cookies dans le pied de page indique l'état actuel."),
+            Map.entry(Language.EN, "This wholesale website currently uses no analytics or advertising cookies. Only technical functionality required to deliver the website and the links you choose is used. The Cookie preferences control in the footer shows the current status."),
+            Map.entry(Language.DE, "Diese Großhandelswebsite verwendet derzeit keine Analyse- oder Werbecookies. Es werden ausschließlich technische Funktionen genutzt, die zur Bereitstellung der Website und der von Ihnen ausgewählten Links erforderlich sind. Das Steuerelement „Cookie-Einstellungen“ in der Fußzeile zeigt den aktuellen Status an."),
+            Map.entry(Language.ES, "Este sitio web mayorista actualmente no utiliza cookies analíticas ni publicitarias. Solo se utiliza la funcionalidad técnica necesaria para ofrecer el sitio web y los enlaces que elija. El control de preferencias de cookies en el pie de página muestra el estado actual."),
+            Map.entry(Language.PL, "Ta witryna hurtowni nie wykorzystuje obecnie żadnych plików cookie do celów analitycznych ani reklamowych. Wykorzystywane są wyłącznie funkcje techniczne wymagane do dostarczenia witryny internetowej i wybranych linków. Kontrolka preferencji plików cookie w stopce pokazuje aktualny stan."),
+            Map.entry(Language.PT, "Este website de venda por grosso não utiliza atualmente cookies analíticos ou publicitários. Apenas são utilizadas as funcionalidades técnicas necessárias para fornecer o site e os links que escolher. O controlo de preferências de cookies no rodapé mostra o estado atual."),
+            Map.entry(Language.TR, "Bu toptan satış web sitesi şu anda hiçbir analiz veya reklam çerezi kullanmamaktadır. Yalnızca web sitesini ve seçtiğiniz bağlantıları sunmak için gereken teknik işlevler kullanılır. Alt bilgideki Çerez tercihleri kontrolü mevcut durumu gösterir."));
     private static final Map<Language, String> LEGACY_LEGAL_REVIEW_DATE = Map.ofEntries(
             Map.entry(Language.NL, "20 augustus 2026"),
             Map.entry(Language.FR, "20 août 2026"),
@@ -382,13 +395,18 @@ public class PublicContentSeedLoader {
         if (scope == ContentScope.WEBSITE) {
             if ("legal.privacy.data.p2".equals(key)) {
                 return Objects.equals(LEGACY_PRIVACY_NO_QUOTE_FORM.get(language), current)
-                        || Objects.equals(LEGACY_PRIVACY_QUOTE_ONLY_FORM.get(language), current);
+                        || Objects.equals(LEGACY_PRIVACY_QUOTE_ONLY_FORM.get(language), current)
+                        || (language == Language.EN
+                            && LEGACY_PRIVACY_EN_ONSITE_QUOTE_FORM.equals(current));
             }
             if ("legal.privacy.purposes.item1".equals(key)) {
-                return Objects.equals(LEGACY_PRIVACY_QUOTE_ONLY_PURPOSE.get(language), current);
+                return Objects.equals(LEGACY_PRIVACY_QUOTE_ONLY_PURPOSE.get(language), current)
+                        || (language == Language.EN
+                            && LEGACY_PRIVACY_EN_QUOTE_ONLY_PURPOSE.equals(current));
             }
             if ("legal.privacy.cookies.p1".equals(key)) {
-                return Objects.equals(LEGACY_PRIVACY_GENERIC_FORM_SECURITY.get(language), current);
+                return Objects.equals(LEGACY_PRIVACY_GENERIC_FORM_SECURITY.get(language), current)
+                        || Objects.equals(LEGACY_PRIVACY_LINK_ONLY_COOKIES.get(language), current);
             }
             if ("legal.shipping.updated".equals(key) || "legal.trade.updated".equals(key)) {
                 return Objects.equals(LEGACY_LEGAL_REVIEW_DATE.get(language), current);
