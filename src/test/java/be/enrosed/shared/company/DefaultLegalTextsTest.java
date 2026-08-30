@@ -35,6 +35,10 @@ class DefaultLegalTextsTest {
         assertTrue(DefaultLegalTexts.TERMS_EN.contains("full payment in cleared funds"));
         assertTrue(DefaultLegalTexts.TERMS_FR.contains("paiement intégral"));
         assertTrue(DefaultLegalTexts.TERMS_DE.contains("vollständige Zahlung"));
+        assertTrue(DefaultLegalTexts.TERMS_NL.contains("schriftelijke retourautorisatie"));
+        assertTrue(DefaultLegalTexts.TERMS_EN.contains("written return authorisation"));
+        assertTrue(DefaultLegalTexts.TERMS_FR.contains("autorisation écrite de retour"));
+        assertTrue(DefaultLegalTexts.TERMS_DE.contains("schriftliche Rücksendeautorisierung"));
     }
 
     @Test
