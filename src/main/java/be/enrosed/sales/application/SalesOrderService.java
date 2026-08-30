@@ -187,6 +187,7 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder createInvoiceFrom(long quoteId) {
+        orders.lockById(quoteId);
         SalesOrder source = get(quoteId);
         if (source.isInvoice()) {
             throw new BusinessRuleException("Dit is al een factuur; maak facturen vanuit een offerte");
@@ -633,9 +634,15 @@ public class SalesOrderService {
 
     @Transactional
     public void delete(long id) {
+        orders.lockById(id);
         SalesOrder order = get(id);
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
         SalesLifecycle.requireDeletable(order, hasRevisions);
+        boolean hasDerivedInvoice = !order.isInvoice() && orders.existsBySourceQuoteId(id);
+        if (hasDerivedInvoice) {
+            throw new BusinessRuleException(
+                    "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
+        }
         events.deleteByOrder(id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order,

@@ -30,8 +30,11 @@ public interface SalesRepositories {
     interface Orders {
         List<SalesOrder> findAll();
         Optional<SalesOrder> findById(long id);
+        /** Serialises workflows that may create a derived invoice or delete its source quote. */
+        default void lockById(long id) {}
         Optional<SalesOrder> findByPortalToken(String token);
         long countByCustomer(long customerId);
+        boolean existsBySourceQuoteId(long sourceQuoteId);
         SalesOrder save(SalesOrder order);
         void deleteById(long id);
     }

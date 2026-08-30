@@ -15,6 +15,7 @@ import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.sales.domain.SalesOrderLine;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
@@ -33,8 +34,10 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,6 +136,49 @@ class SalesOrderLifecycleActivityTest {
     }
 
     @Test
+    void deletingUnusedDraftInvoiceKeepsAnInvoiceSpecificTombstone() {
+        SalesOrder draft = invoice(74L, QuoteStatus.CONCEPT, null);
+        when(orders.findById(74L)).thenReturn(Optional.of(draft));
+        when(revisions.findByOrder(74L)).thenReturn(List.of());
+
+        service.delete(74L);
+
+        verify(history).deleteByOrder(74L);
+        verify(orders).deleteById(74L);
+        verify(activityLog).record(ActivityLogService.ACTION_DELETED,
+                SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "74", "F-2026-0074",
+                "Factuur verwijderd");
+    }
+
+    @Test
+    void quoteUsedAsInvoiceSourceCannotBeDeleted() {
+        SalesOrder draft = quote(75L);
+        when(orders.findById(75L)).thenReturn(Optional.of(draft));
+        when(revisions.findByOrder(75L)).thenReturn(List.of());
+        when(orders.existsBySourceQuoteId(75L)).thenReturn(true);
+
+        assertThrows(BusinessRuleException.class, () -> service.delete(75L));
+
+        verify(orders).lockById(75L);
+        verify(history, never()).deleteByOrder(75L);
+        verify(orders, never()).deleteById(75L);
+    }
+
+    @Test
+    void sentInvoiceDeletionExplainsTheInvoiceRule() {
+        SalesOrder sentInvoice = invoice(77L, QuoteStatus.VERZONDEN, null);
+        when(orders.findById(77L)).thenReturn(Optional.of(sentInvoice));
+        when(revisions.findByOrder(77L)).thenReturn(List.of());
+
+        BusinessRuleException failure = assertThrows(
+                BusinessRuleException.class, () -> service.delete(77L));
+
+        assertEquals("Alleen een conceptfactuur die nog nooit verstuurd of gebruikt is kan verwijderd worden",
+                failure.getMessage());
+        verify(orders, never()).deleteById(77L);
+    }
+
+    @Test
     void manualInvoiceSentUsesTheServerActorInHistoryAuditAndAfterCommitPayload() {
         SalesOrder invoice = invoice(73L, QuoteStatus.CONCEPT, null);
         when(orders.findById(73L)).thenReturn(Optional.of(invoice));
@@ -156,6 +202,11 @@ class SalesOrderLifecycleActivityTest {
     }
 
     private static SalesOrder invoice(long id, QuoteStatus status, Instant goodsShippedAt) {
+        return invoice(id, status, goodsShippedAt, null);
+    }
+
+    private static SalesOrder invoice(long id, QuoteStatus status, Instant goodsShippedAt,
+                                      Long sourceQuoteId) {
         LocalDate today = LocalDate.now();
         return new SalesOrder(id, "F-2026-00" + id, 7L, "BE", today, today.plusDays(30),
                 status, "DAP", null, null, MarkupMode.PRODUCT, new BigDecimal("45"),
@@ -163,7 +214,7 @@ class SalesOrderLifecycleActivityTest {
                 null, 0, null, null, null, null, DeliveryTermsState.VOLLEDIG,
                 FreightState.BEREKEND, null, LoadMode.PALLETS, PalletProfile.EURO_120X80,
                 null, FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
-                DocumentType.FACTUUR, today.plusDays(30), null, null, goodsShippedAt,
+                DocumentType.FACTUUR, today.plusDays(30), null, sourceQuoteId, goodsShippedAt,
                 List.of(new SalesOrderLine(1L, 9L, 2, BigDecimal.TEN, null, null)),
                 List.of());
     }

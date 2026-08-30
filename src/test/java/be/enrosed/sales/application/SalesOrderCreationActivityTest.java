@@ -138,6 +138,7 @@ class SalesOrderCreationActivityTest {
 
         service.createInvoiceFrom(41L);
 
+        verify(orders).lockById(41L);
         verify(activityLog).record(ActivityLogService.ACTION_CREATED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "61", "F-2026-0001",
                 "Factuur aangemaakt vanuit offerte");

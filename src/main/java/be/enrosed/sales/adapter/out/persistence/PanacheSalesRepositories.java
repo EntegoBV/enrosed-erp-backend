@@ -4,6 +4,7 @@ import be.enrosed.sales.adapter.out.persistence.SalesEntities.*;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Optional;
@@ -135,6 +136,11 @@ public final class PanacheSalesRepositories {
         }
 
         @Override
+        public void lockById(long id) {
+            dao.findById(id, LockModeType.PESSIMISTIC_WRITE);
+        }
+
+        @Override
         public Optional<SalesOrder> findByPortalToken(String token) {
             return dao.find("portalToken", token).firstResultOptional().map(SalesMapper::toDomain);
         }
@@ -142,6 +148,11 @@ public final class PanacheSalesRepositories {
         @Override
         public long countByCustomer(long customerId) {
             return dao.count("customerId", customerId);
+        }
+
+        @Override
+        public boolean existsBySourceQuoteId(long sourceQuoteId) {
+            return dao.count("sourceQuoteId", sourceQuoteId) > 0;
         }
 
         @Override

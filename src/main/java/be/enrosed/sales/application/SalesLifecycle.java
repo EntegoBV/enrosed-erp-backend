@@ -73,8 +73,10 @@ final class SalesLifecycle {
                 && order.decidedAt() == null
                 && !hasRevisions;
         if (!unusedDraft) {
+            String document = order.isInvoice() ? "conceptfactuur" : "conceptofferte";
             throw new BusinessRuleException(
-                    "Alleen een conceptofferte die nog nooit verstuurd of gebruikt is kan verwijderd worden");
+                    "Alleen een " + document
+                            + " die nog nooit verstuurd of gebruikt is kan verwijderd worden");
         }
     }
 
