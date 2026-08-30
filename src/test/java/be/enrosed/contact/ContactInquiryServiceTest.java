@@ -13,6 +13,8 @@ class ContactInquiryServiceTest {
     @Test
     void enforcesMessageBoundsAndSingleLineControls() {
         assertDoesNotThrow(() -> service.validate(request("A useful message", "Buyer BV")));
+        assertEquals("REQUIRED", error(request("A useful message", null), "companyName"));
+        assertEquals("REQUIRED", error(request("A useful message", "   "), "companyName"));
         assertEquals("TOO_SHORT", error(request("123456789", "Buyer BV"), "message"));
         assertEquals("TOO_LONG", error(request("x".repeat(2_001), "Buyer BV"), "message"));
         assertEquals("INVALID", error(request("A useful message", "Buyer\nBV"), "companyName"));

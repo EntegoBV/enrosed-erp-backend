@@ -30,7 +30,7 @@ public class ContactInquiryService {
         if (!blank(request.email()) && !EMAIL.matcher(request.email().strip()).matches()) {
             errors.put("email", "INVALID");
         }
-        optionalSingleLine(request.companyName(), 160, "companyName", errors);
+        requiredSingleLine(request.companyName(), 160, "companyName", errors);
         optionalSingleLine(request.phone(), 50, "phone", errors);
         requiredMessage(request.message(), errors);
         validateSourcePage(request.sourcePage(), errors);
