@@ -179,6 +179,17 @@ public class SourcingResource {
      *                    requires PORTRAIT. INTERNAL and STANDARD keep the
      *                    existing layout/showRevenue behaviour. Missing keeps
      *                    the historical STANDARD behaviour.
+     * @param showSupplier whether the supplier block appears on the normal
+     *                     portrait export; ignored for other contracts.
+     * @param showPrices whether product prices and their totals appear on the
+     *                   normal portrait export; ignored for other contracts.
+     * @param showEur whether a subtle euro equivalent appears below a foreign
+     *                agreed product price, using the pinned goods rate.
+     * @param showFreight whether the portrait export shows origin, sea freight,
+     *                    duty and destination costs.
+     * @param includeFreight whether those costs are added to an explicit euro
+     *                       grand total. This is normalized off unless freight
+     *                       and product prices are both shown.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -186,7 +197,12 @@ public class SourcingResource {
     public Response purchasePdf(@PathParam("id") long id,
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue,
                                 @QueryParam("layout") @DefaultValue("LANDSCAPE") String layout,
-                                @QueryParam("audience") String audience) {
+                                @QueryParam("audience") String audience,
+                                @QueryParam("showSupplier") @DefaultValue("true") boolean showSupplier,
+                                @QueryParam("showPrices") @DefaultValue("true") boolean showPrices,
+                                @QueryParam("showEur") @DefaultValue("false") boolean showEur,
+                                @QueryParam("showFreight") @DefaultValue("false") boolean showFreight,
+                                @QueryParam("includeFreight") @DefaultValue("false") boolean includeFreight) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -200,12 +216,20 @@ public class SourcingResource {
                 purchaseOrders.payments(id),
                 purchaseOrders.payable(order, costing,
                         supplier == null ? null : supplier.incoterm()),
-                resolvedLayout, resolvedAudience);
+                resolvedLayout, resolvedAudience,
+                new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur,
+                        showFreight, includeFreight));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
                         "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /** Java-call compatibility for tests and callers predating portrait options. */
+    public Response purchasePdf(long id, boolean showRevenue, String layout, String audience) {
+        return purchasePdf(id, showRevenue, layout, audience,
+                true, true, false, false, false);
     }
 
     /** Copies the calculation to price a variant quickly. */

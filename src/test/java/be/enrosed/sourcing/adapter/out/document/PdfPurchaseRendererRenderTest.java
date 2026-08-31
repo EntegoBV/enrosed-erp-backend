@@ -1,10 +1,12 @@
 package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.sourcing.application.PurchaseOrderService;
@@ -12,6 +14,7 @@ import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
+import be.enrosed.sourcing.domain.PriceBasis;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
@@ -55,6 +58,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Inject PdfPurchaseRenderer renderer;
     @Inject ProductService products;
+    @Inject StockService stock;
 
     @Test
     void internalDossierSurvivesManyLinesAcrossPages() throws Exception {
@@ -160,7 +164,8 @@ class PdfPurchaseRendererRenderTest {
                         new BigDecimal("1125.00"), new BigDecimal("480.00"),
                         new BigDecimal("375.00"), false, false),
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.SUPPLIER);
+                PdfPurchaseRenderer.Audience.SUPPLIER,
+                new PdfPurchaseRenderer.PdfOptions(false, false, true, true, true));
 
         assertEquals("PO-2026-PORTRAIT-supplier.pdf", document.filename());
         Path preview = Path.of("target", "pdf-preview");
@@ -176,6 +181,8 @@ class PdfPurchaseRendererRenderTest {
                     .toLowerCase().replaceAll("\\s+", " ");
 
             assertTrue(text.contains("leveranciersorder"), text);
+            assertTrue(text.contains("culinan preserved flowers"),
+                    "portrait options must not alter the fixed supplier contract: " + text);
             assertTrue(text.contains("glass bowl bestseller"), text);
             assertTrue(text.contains("po-pdf-thumbnail"), text);
             assertTrue(text.contains("5410000000019"), text);
@@ -213,6 +220,118 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("actuele enrosed-dossier"), text);
             assertFalse(text.contains("uitgiftesnapshot"), text);
             assertFalse(text.contains("secret customer project"), text);
+            assertFalse(text.contains("vracht en bijkomende logistiek"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void portraitOptionsShowSubtleEurAndFreightWhileHidingSupplier() throws Exception {
+        Product product = createProductWithPhoto();
+        StockLocation zaltbommel = stock.saveLocation(new StockLocation(
+                null, "ZALTBOMMEL", "Zaltbommel", StockLocation.Kind.WAREHOUSE,
+                "Zaltbommel", true, false, false, 10));
+        PurchaseOrder order = withReceivingLocation(
+                portraitOrder(product.id()), zaltbommel.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(false, true, true, true, true));
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-options.pdf"), document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertFalse(text.contains("culinan preserved flowers"), text);
+            assertFalse(text.contains("lily@culinan.cn"), text);
+            assertTrue(text.contains("12,50") && text.contains("usd"), text);
+            assertTrue(text.contains("ca. 11,125 eur"), text);
+            assertTrue(text.contains("ca. 1.068,00 eur"), text);
+            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
+            assertTrue(text.contains("lokale kosten china"), text);
+            assertTrue(text.contains("zeevracht"), text);
+            assertTrue(text.contains("invoerrechten"), text);
+            assertTrue(text.contains("rotterdam") && text.contains("zaltbommel"), text);
+            assertTrue(text.contains("7.435,24 eur"), text);
+            assertTrue(text.contains("8.503,24 eur"), text);
+            assertFalse(text.contains("2.500,42"),
+                    "Enrosed's extra revenue must stay outside the freight total: " + text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void fullyDdpPortraitNeverAddsRawHeaderFreightTwice() throws Exception {
+        Product product = createProductWithPhoto();
+        PurchaseOrder base = portraitOrder(product.id());
+        PurchaseOrderLine source = base.lines().getFirst();
+        PurchaseOrderLine ddpLine = new PurchaseOrderLine(
+                source.id(), source.productId(), source.quantity(), source.exwPrice(),
+                source.exwCurrency(), source.extraUnitCost(), source.orderedQuantity(),
+                PriceBasis.DDP);
+        PurchaseOrder order = withLines(base, base.number(), base.alias(), List.of(ddpLine));
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, ddpCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1068.00"), BigDecimal.ZERO, BigDecimal.ZERO,
+                        true, true),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(true, true, true, true, true));
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
+            assertTrue(Pattern.compile("0,00 eur").matcher(text).results().count() >= 5,
+                    "four applied legs and their subtotal must be zero: " + text);
+            assertTrue(text.contains("1.068,00 eur"),
+                    "the included grand total must remain the converted goods value: " + text);
+            assertTrue(text.contains("ddp: vracht en invoer zijn al in de leveranciersprijs opgenomen"),
+                    text);
+            assertFalse(text.contains("450,82 eur"), text);
+            assertFalse(text.contains("3.799,60 eur"), text);
+            assertFalse(text.contains("1.936,02 eur"), text);
+            assertFalse(text.contains("1.248,80 eur"), text);
+            assertFalse(text.contains("1.327,06 eur"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void portraitCanHidePricesAndNormalizesDependentOptionsOff() throws Exception {
+        Product product = createProductWithPhoto();
+        PurchaseOrder order = portraitOrder(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(true, false, true, true, true));
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("culinan preserved flowers"), text);
+            assertFalse(text.contains("per stuk"), text);
+            assertFalse(text.contains("regeltotaal"), text);
+            assertFalse(text.contains("ordertotaal per valuta"), text);
+            assertFalse(text.contains("12,50"), text);
+            assertFalse(text.contains("ca. 11,125 eur"), text);
+            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
+            assertTrue(text.contains("niet bij het ordertotaal opgeteld"), text);
+            assertFalse(text.contains("ordertotaal incl."), text);
+            assertFalse(text.contains("1.327,06 eur"), text);
         }
     }
 
@@ -459,6 +578,19 @@ class PdfPurchaseRendererRenderTest {
                 base.trackingReference(), base.createdBy(), base.createdAt(), base.notes(), lines);
     }
 
+    private static PurchaseOrder withReceivingLocation(PurchaseOrder base, Long locationId) {
+        return new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(),
+                base.status(), base.containerType(), base.cnyToUsd(), base.usdToEurGoods(),
+                base.usdToEurTransport(), base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.departurePort(), base.destinationPort(), locationId, base.groupVariants(),
+                base.expectedArrival(), base.receivedOn(), base.paidTotalEur(), base.stockBooked(),
+                base.paymentTerms(), base.shippedOn(), base.trackingReference(), base.createdBy(),
+                base.createdAt(), base.notes(), base.lines());
+    }
+
     private static LandedCost portraitCosting(long productId) {
         LandedCost source = costing(1);
         LandedCost.Line base = source.lines().getFirst();
@@ -471,6 +603,20 @@ class PdfPurchaseRendererRenderTest {
                 new BigDecimal("16.6444"), base.cbmShare(),
                 base.valueShare(), base.pieceShare());
         return new LandedCost(List.of(received), source.totals(), source.containerFill());
+    }
+
+    /** Raw header logistics remain non-zero, while DDP applies none to its line. */
+    private static LandedCost ddpCosting(long productId) {
+        LandedCost source = portraitCosting(productId);
+        LandedCost.Line line = source.lines().getFirst();
+        LandedCost.Line ddp = new LandedCost.Line(
+                line.productId(), line.productName(), line.quantity(), line.cartons(), line.cbm(),
+                line.goodsUsd(), line.goodsEur(), BigDecimal.ZERO, BigDecimal.ZERO,
+                line.goodsEur(), BigDecimal.ZERO, "DDP - inbegrepen", BigDecimal.ZERO,
+                BigDecimal.ZERO, line.extraRevenueEur(),
+                line.goodsEur().add(line.extraRevenueEur()), line.landedUnitEur(),
+                line.cbmShare(), line.valueShare(), line.pieceShare());
+        return new LandedCost(List.of(ddp), source.totals(), source.containerFill());
     }
 
     private static int imageCount(PDDocument document) throws Exception {

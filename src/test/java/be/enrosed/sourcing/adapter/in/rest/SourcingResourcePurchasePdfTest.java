@@ -47,7 +47,8 @@ class SourcingResourcePurchasePdfTest {
         when(purchases.payable(order, costing, null)).thenReturn(payable);
         when(renderer.render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.SUPPLIER)).thenReturn(document);
+                PdfPurchaseRenderer.Audience.SUPPLIER,
+                PdfPurchaseRenderer.PdfOptions.defaults())).thenReturn(document);
 
         var response = resource.purchasePdf(41L, true, "portrait", "supplier");
 
@@ -57,7 +58,8 @@ class SourcingResourcePurchasePdfTest {
                 response.getHeaderString("Content-Disposition"));
         verify(renderer).render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.SUPPLIER);
+                PdfPurchaseRenderer.Audience.SUPPLIER,
+                PdfPurchaseRenderer.PdfOptions.defaults());
     }
 
     @Test
@@ -79,13 +81,45 @@ class SourcingResourcePurchasePdfTest {
         when(purchases.payable(order, costing, null)).thenReturn(payable);
         when(renderer.render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.STANDARD)).thenReturn(document);
+                PdfPurchaseRenderer.Audience.STANDARD,
+                PdfPurchaseRenderer.PdfOptions.defaults())).thenReturn(document);
 
         resource.purchasePdf(42L, true, "PORTRAIT", null);
 
         verify(renderer).render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.STANDARD);
+                PdfPurchaseRenderer.Audience.STANDARD,
+                PdfPurchaseRenderer.PdfOptions.defaults());
+    }
+
+    @Test
+    void portraitQueryOptionsReachRendererWithTheirExactApiMeaning() {
+        PurchaseOrderService purchases = mock(PurchaseOrderService.class);
+        PdfPurchaseRenderer renderer = mock(PdfPurchaseRenderer.class);
+        SourcingResource resource = new SourcingResource(
+                mock(SupplierService.class), purchases, renderer);
+        PurchaseOrder order = order(44L);
+        List<PurchasePayment> payments = List.of();
+        PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false);
+        PdfPurchaseRenderer.PdfOptions options = new PdfPurchaseRenderer.PdfOptions(
+                false, true, true, true, true);
+        PdfPurchaseRenderer.Document document = new PdfPurchaseRenderer.Document(
+                "portrait-options.pdf", new byte[] {4}, "application/pdf");
+        when(purchases.get(44L)).thenReturn(order);
+        when(purchases.payments(44L)).thenReturn(payments);
+        when(purchases.payable(order, null, null)).thenReturn(payable);
+        when(renderer.render(order, null, null, false, payments, payable,
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD, options)).thenReturn(document);
+
+        var response = resource.purchasePdf(44L, false, "PORTRAIT", "STANDARD",
+                false, true, true, true, true);
+
+        assertEquals(200, response.getStatus());
+        verify(renderer).render(order, null, null, false, payments, payable,
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD, options);
     }
 
     @Test

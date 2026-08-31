@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Packaging;
@@ -12,6 +13,7 @@ import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
+import be.enrosed.sourcing.application.CurrencyConverter;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
@@ -26,6 +28,8 @@ import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
 import org.jboss.logging.Logger;
 
@@ -114,11 +118,17 @@ public class PdfPurchaseRenderer {
     private final PdfFonts fonts;
     private final ProductService products;
     private final PdfImageEncoder imageEncoder;
+    private final CurrencyConverter currencies;
+
+    /** Optional in pure tests; production resolves names such as Zaltbommel. */
+    @Inject
+    Instance<StockService> locations;
 
     public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
                                @Location("purchase-portrait.html") Template portraitTemplate,
                                Brand brand, CompanyProfileService company, PdfFonts fonts,
-                               ProductService products, PdfImageEncoder imageEncoder) {
+                               ProductService products, PdfImageEncoder imageEncoder,
+                               CurrencyConverter currencies) {
         this.landscapeTemplate = landscapeTemplate;
         this.portraitTemplate = portraitTemplate;
         this.brand = brand;
@@ -126,6 +136,7 @@ public class PdfPurchaseRenderer {
         this.fonts = fonts;
         this.products = products;
         this.imageEncoder = imageEncoder;
+        this.currencies = currencies;
     }
 
     public record Document(String filename, byte[] content, String contentType) {}
@@ -147,6 +158,25 @@ public class PdfPurchaseRenderer {
                               String openSupplier, boolean overpaid) {}
 
     /**
+     * Optional fields on the normal portrait export. Supplier and landscape
+     * documents intentionally retain their fixed historical contracts.
+     */
+    public record PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                             boolean showFreight, boolean includeFreight) {
+        public static PdfOptions defaults() {
+            return new PdfOptions(true, true, false, false, false);
+        }
+
+        PdfOptions normalized(Layout layout, Audience audience) {
+            if (layout != Layout.PORTRAIT || audience != Audience.STANDARD) return defaults();
+            boolean prices = showPrices;
+            boolean freight = showFreight;
+            return new PdfOptions(showSupplier, prices, showEur && prices, freight,
+                    includeFreight && freight && prices);
+        }
+    }
+
+    /**
      * One PDF line enriched with print-safe catalogue data.
      *
      * <p>The thumbnail is embedded in the server-rendered HTML as a data URI.
@@ -164,7 +194,9 @@ public class PdfPurchaseRenderer {
             BigDecimal destinationEur, BigDecimal extraRevenueEur,
             BigDecimal totalEur, BigDecimal landedUnitEur,
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
-            Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable) {}
+            BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
+            Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
+            boolean eurEquivalentAvailable) {}
 
     /**
      * Deliberately small supplier contract. No landed costs, revenue,
@@ -196,9 +228,16 @@ public class PdfPurchaseRenderer {
     /** One portrait-order total; separate currencies are never silently combined. */
     public record PurchaseTotal(String currency, String amount) {}
 
+    /** Optional logistics block; Enrosed's own extra revenue is deliberately absent. */
+    public record FreightView(String originLabel, BigDecimal originEur,
+                              String seaFreightLabel, BigDecimal seaFreightEur,
+                              String destinationLabel, BigDecimal dutyEur,
+                              BigDecimal destinationEur, BigDecimal logisticsTotalEur,
+                              BigDecimal totalIncludingFreightEur) {}
+
     private record Prepared(List<LineView> lines, List<PurchaseTotal> purchaseTotals,
                             int missingPurchasePrices, int purchasePieces,
-                            int purchaseCartons) {}
+                            int purchaseCartons, BigDecimal purchaseTotalEur) {}
 
     private record SupplierPrepared(List<SupplierLineView> lines) {}
 
@@ -232,12 +271,24 @@ public class PdfPurchaseRenderer {
                            boolean showRevenue, List<PurchasePayment> payments,
                            PurchaseOrderService.Payable payable, Layout requestedLayout,
                            Audience requestedAudience) {
+        return render(order, costing, supplier, showRevenue, payments, payable,
+                requestedLayout, requestedAudience, PdfOptions.defaults());
+    }
+
+    /** Renders the optional normal-portrait fields without changing the other contracts. */
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
+                           boolean showRevenue, List<PurchasePayment> payments,
+                           PurchaseOrderService.Payable payable, Layout requestedLayout,
+                           Audience requestedAudience, PdfOptions requestedOptions) {
         Layout layout = requestedLayout == null ? Layout.LANDSCAPE : requestedLayout;
         Audience audience = requestedAudience == null ? Audience.STANDARD : requestedAudience;
         audience.validate(layout);
+        PdfOptions options = (requestedOptions == null ? PdfOptions.defaults() : requestedOptions)
+                .normalized(layout, audience);
         boolean supplierAudience = audience == Audience.SUPPLIER;
         boolean internal = !supplierAudience && layout == Layout.LANDSCAPE && showRevenue;
-        PurchaseCostLabels costLabels = PurchaseCostLabels.forOrder(order, supplier);
+        PurchaseCostLabels costLabels = PurchaseCostLabels.forOrder(
+                order, supplier, receivingLocationName(order));
         String notes = order.notes() == null || order.notes().isBlank()
                 ? null : order.notes().strip();
         Template template = layout == Layout.PORTRAIT ? portraitTemplate : landscapeTemplate;
@@ -251,19 +302,28 @@ public class PdfPurchaseRenderer {
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
                 .data("portrait", layout == Layout.PORTRAIT)
-                .data("supplierMode", supplierAudience);
+                .data("supplierMode", supplierAudience)
+                .data("showSupplier", options.showSupplier())
+                .data("showPrices", options.showPrices())
+                .data("showEur", options.showEur())
+                .data("showFreight", options.showFreight())
+                .data("includeFreight", options.includeFreight());
 
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines());
         } else {
             Prepared prepared = prepare(order, costing);
+            FreightView freight = freightView(costing, costLabels,
+                    options.includeFreight() ? prepared.purchaseTotalEur() : null,
+                    payable != null && payable.ddp());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
                     .data("missingPurchasePrices", prepared.missingPurchasePrices())
                     .data("purchasePieces", prepared.purchasePieces())
                     .data("purchaseCartons", prepared.purchaseCartons())
+                    .data("freightView", freight)
                     .data("statusLabel", statusLabel(order.status()))
                     .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                     .data("unifiedUsdToEur", sameRate(order))
@@ -338,6 +398,8 @@ public class PdfPurchaseRenderer {
         int missingPrices = 0;
         int purchasePieces = 0;
         int purchaseCartonCount = 0;
+        BigDecimal purchaseTotalEur = BigDecimal.ZERO;
+        boolean purchaseTotalEurComplete = true;
 
         for (LandedCost.Line costingLine : costing.lines()) {
             Product product = byId.get(costingLine.productId());
@@ -354,10 +416,19 @@ public class PdfPurchaseRenderer {
             boolean priceAvailable = price.available();
             BigDecimal lineTotal = priceAvailable
                     ? unitPrice.multiply(BigDecimal.valueOf(purchaseQuantity)) : null;
+            BigDecimal unitEur = priceAvailable
+                    ? purchasePriceEur(unitPrice, currency, order) : null;
+            BigDecimal lineTotalEur = unitEur == null
+                    ? null : unitEur.multiply(BigDecimal.valueOf(purchaseQuantity));
             if (priceAvailable) {
                 totals.merge(currency, lineTotal, BigDecimal::add);
             } else {
                 missingPrices++;
+            }
+            if (lineTotalEur == null) {
+                purchaseTotalEurComplete = false;
+            } else {
+                purchaseTotalEur = purchaseTotalEur.add(lineTotalEur);
             }
             String priceBasis = orderLine == null
                     ? "EXW" : orderLine.priceBasis().name();
@@ -372,14 +443,75 @@ public class PdfPurchaseRenderer {
                     costingLine.dutyRatePct(), costingLine.dutyEur(),
                     costingLine.destinationEur(), costingLine.extraRevenueEur(),
                     costingLine.totalEur(), costingLine.landedUnitEur(),
-                    unitPrice, lineTotal, currency, priceBasis, priceAvailable));
+                    unitPrice, lineTotal, unitEur, lineTotalEur,
+                    currency, priceBasis, priceAvailable,
+                    priceAvailable && currency != Currency.EUR && unitEur != null));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
         totals.forEach((currency, amount) -> purchaseTotals.add(
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
         return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), missingPrices,
-                purchasePieces, purchaseCartonCount);
+                purchasePieces, purchaseCartonCount,
+                purchaseTotalEurComplete ? purchaseTotalEur : null);
+    }
+
+    /**
+     * Converts the agreed purchase snapshot with the order's pinned goods
+     * rate. It deliberately does not reuse landed-cost goodsEur: that figure
+     * can contain extra unit costs and received rather than ordered quantity.
+     */
+    private BigDecimal purchasePriceEur(BigDecimal amount, Currency currency,
+                                        PurchaseOrder order) {
+        if (amount == null || currency == null) return null;
+        if (currency == Currency.EUR) return amount;
+        if (!positive(order.usdToEurGoods())) return null;
+        if (currency == Currency.CNY && !positive(order.cnyToUsd())) return null;
+        return currencies.toEur(amount, currency, order.cnyToUsd(), order.usdToEurGoods());
+    }
+
+    static FreightView freightView(LandedCost costing, PurchaseCostLabels labels,
+                                   BigDecimal purchaseTotalEur, boolean fullyDdp) {
+        /* Canonical totals retain the exact entered order amounts. Summing
+           rounded line shares can lose a cent (for example 100 / 3 = 99.99).
+           Fully DDP is the one explicit exception: those header quotes are not
+           applied because freight and import already sit in the unit price. */
+        LandedCost.Totals totals = costing == null ? null : costing.totals();
+        BigDecimal origin = fullyDdp || totals == null
+                ? BigDecimal.ZERO : zero(totals.originEur());
+        BigDecimal sea = fullyDdp || totals == null
+                ? BigDecimal.ZERO : zero(totals.freightEur());
+        BigDecimal duty = fullyDdp || totals == null
+                ? BigDecimal.ZERO : zero(totals.dutyEur());
+        BigDecimal destination = fullyDdp || totals == null
+                ? BigDecimal.ZERO : zero(totals.destinationEur());
+        BigDecimal logistics = origin.add(sea).add(duty).add(destination);
+        return new FreightView(
+                labels.originCostsLabel() + " - " + labels.originRoute(), origin,
+                labels.seaFreightLabel() + " - " + labels.seaFreightRoute(), sea,
+                labels.destinationCostsLabel(), duty, destination, logistics,
+                purchaseTotalEur == null ? null : purchaseTotalEur.add(logistics));
+    }
+
+    private String receivingLocationName(PurchaseOrder order) {
+        if (order == null || order.receivingLocationId() == null
+                || locations == null || !locations.isResolvable()) return null;
+        try {
+            String name = locations.get().location(order.receivingLocationId()).name();
+            return name == null || name.isBlank() ? null : name.strip();
+        } catch (RuntimeException unavailable) {
+            LOG.warnf("Ontvangstlocatie %s kon niet in inkoop-PDF worden benoemd: %s",
+                    order.receivingLocationId(), unavailable.getMessage());
+            return null;
+        }
+    }
+
+    private static boolean positive(BigDecimal value) {
+        return value != null && value.signum() > 0;
+    }
+
+    private static BigDecimal zero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     /**

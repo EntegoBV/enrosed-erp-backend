@@ -22,6 +22,15 @@ public record PurchaseCostLabels(
     private static final Locale DUTCH = Locale.forLanguageTag("nl-NL");
 
     public static PurchaseCostLabels forOrder(PurchaseOrder order, Supplier supplier) {
+        return forOrder(order, supplier, null);
+    }
+
+    /**
+     * Builds the route labels with the actual receiving location when it is
+     * known. Historical callers keep the truthful generic "magazijn" fallback.
+     */
+    public static PurchaseCostLabels forOrder(PurchaseOrder order, Supplier supplier,
+                                              String receivingLocationName) {
         String originCountry = countryName(supplier == null ? null : supplier.country());
         String loadingPort = first(
                 order == null ? null : order.departurePort(),
@@ -29,6 +38,7 @@ public record PurchaseCostLabels(
                 first(supplier == null ? null : supplier.city(), null, "Ningbo"));
         String destinationPort = first(order == null ? null : order.destinationPort(),
                 null, "Rotterdam");
+        String receivingLocation = first(receivingLocationName, null, "magazijn");
 
         return new PurchaseCostLabels(
                 originCountry,
@@ -38,7 +48,7 @@ public record PurchaseCostLabels(
                 "Fabriek → " + loadingPort,
                 "Zeevracht",
                 loadingPort + " → " + destinationPort,
-                destinationPort + " → magazijn");
+                destinationPort + " → " + receivingLocation);
     }
 
     private static String countryName(String code) {

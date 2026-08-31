@@ -50,6 +50,7 @@
     /* Parties */
     .parties { margin-top: 6mm; border: .35pt solid #e3d7c6; }
     .parties td { width: 50%; padding: 4mm; }
+    .parties--single td { width: 100%; }
     .parties td + td { border-left: .35pt solid #e3d7c6; }
     .label { margin-bottom: 1.5mm; color: #8f2942; font-size: 6.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
     .party-name { font-size: 10.5pt; font-weight: 700; }
@@ -102,6 +103,9 @@
     .number { white-space: nowrap; }
     .price-main { font-weight: 700; }
     .price-sub { color: #8b8179; font-size: 6.4pt; }
+    .price-eur { color: #9b928c; font-size: 5.9pt; font-weight: 400; }
+    .standard-lines .product-column { width: 72mm; }
+    .standard-lines--no-prices .product-column { width: 122mm; }
 
     /* Totals and footer note */
     .closing { margin-top: 5mm; page-break-inside: avoid; }
@@ -113,6 +117,13 @@
     .total-row td { padding: 1mm 0; font-size: 8.5pt; }
     .total-row td:last-child { text-align: right; font-size: 10pt; font-weight: 700; white-space: nowrap; }
     .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
+    .freight-box { margin-top: 5mm; padding: 4mm; border: .35pt solid #e3d7c6; page-break-inside: avoid; }
+    .freight-row { width: 100%; }
+    .freight-row td { padding: 1mm 0; color: #645b55; font-size: 7.7pt; }
+    .freight-row td:last-child { text-align: right; white-space: nowrap; }
+    .freight-row tr.subtotal td { padding-top: 1.8mm; border-top: .35pt solid #e3d7c6; color: #1c1715; font-weight: 700; }
+    .freight-row tr.grand td { padding-top: 2mm; border-top: 1pt solid #c6a15b; color: #8f2942; font-size: 9pt; font-weight: 700; }
+    .freight-note { margin-top: 1.5mm; color: #8b8179; font-size: 6.4pt; }
     .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; }
   </style>
 </head>
@@ -136,11 +147,11 @@
 </table>
 
 {#if !supplierMode}<div class="read-note">
-  <b>Inkooporder voor controle of verzending.</b> Deze versie toont de bestelde aantallen,
-  kartoninhoud en afgesproken inkoopprijzen. Interne kostopbouw en betaalhistoriek blijven afgeschermd.
+  <b>Inkooporder voor controle of verzending.</b> Deze versie toont de bestelde aantallen en
+  kartoninhoud{#if showPrices}, met de gekozen inkoopprijzen{/if}. Niet-geselecteerde gegevens blijven buiten de PDF.
 </div>{/if}
 
-<table class="parties">
+<table class="parties {#if !supplierMode && !showSupplier}parties--single{/if}">
   <tr>
     <td>
       <div class="label">Van</div>
@@ -150,14 +161,14 @@
         {#if company.email}{company.email}{/if}{#if company.phone} - {company.phone}{/if}
       </div>
     </td>
-    <td>
+    {#if supplierMode || showSupplier}<td>
       <div class="label">Aan leverancier</div>
       <div class="party-name">{supplierName}</div>
       <div class="party-lines">
         {#for addressLine in supplierAddressLines}{addressLine}<br/>{/for}
         {#if supplierContactLine}{supplierContactLine}{/if}
       </div>
-    </td>
+    </td>{/if}
   </tr>
 </table>
 
@@ -170,10 +181,10 @@
   </tr>
   {#else}
   <tr>
-    <td style="width:20%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
-    <td style="width:29%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
-    <td style="width:22%"><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>
-    <td style="width:29%"><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div>{#if order.expectedArrival}<div class="facts__sub">Verwacht {order.expectedArrival.be}</div>{/if}</td>
+    <td style="width:{#if showPrices}20{#else}25{/if}%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
+    <td style="width:{#if showPrices}29{#else}43{/if}%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
+    {#if showPrices}<td style="width:22%"><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>{/if}
+    <td style="width:{#if showPrices}29{#else}32{/if}%"><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div>{#if order.expectedArrival}<div class="facts__sub">Verwacht {order.expectedArrival.be}</div>{/if}</td>
   </tr>
   {/if}
 </table>
@@ -216,15 +227,15 @@
   </tbody>
 </table>
 {#else}
-<table class="lines">
+<table class="lines standard-lines {#if !showPrices}standard-lines--no-prices{/if}">
   <thead>
   <tr>
-    <th style="width:72mm">Product</th>
+    <th class="product-column">Product</th>
     <th style="width:15mm">Stuks</th>
     <th style="width:19mm">St./karton</th>
     <th style="width:15mm">Kartons</th>
-    <th style="width:27mm">Per stuk</th>
-    <th style="width:30mm">Regeltotaal</th>
+    {#if showPrices}<th style="width:27mm">Per stuk</th>
+    <th style="width:30mm">Regeltotaal</th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -238,7 +249,8 @@
           </td>
           <td>
             <div class="product__name">{line.productName}</div>
-            <div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
+            {#if showPrices}<div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
+            {#else if line.sku}<div class="product__meta">{line.sku}</div>{/if}
             {#if line.productSpecs}<div class="product__specs">{line.productSpecs}</div>{/if}
           </td>
         </tr></table>
@@ -246,14 +258,16 @@
       <td class="number">{line.purchaseQuantity}</td>
       <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.purchaseCartons}</td>
-      <td class="number">
+      {#if showPrices}<td class="number">
         {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+        {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseUnitEur.moneyUnit} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>
       <td class="number">
         {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseLineTotal.money}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+        {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
-      </td>
+      </td>{/if}
     </tr>
   {/for}
   </tbody>
@@ -268,7 +282,7 @@
       {order.containerType.label}{#if order.trackingReference} - {order.trackingReference}{/if}<br/>
       {#if order.expectedArrival}Verwachte aankomst: {order.expectedArrival.be}{/if}
     </td>
-    {#if !supplierMode}<td class="closing__total">
+    {#if !supplierMode && showPrices}<td class="closing__total">
       <div class="total-box">
         <div class="label">Ordertotaal per valuta</div>
         <table class="total-row">
@@ -282,6 +296,26 @@
     </td>{/if}
   </tr>
 </table>
+
+{#if !supplierMode && showFreight}
+<div class="freight-box">
+  <div class="label">Vracht en bijkomende logistiek</div>
+  <table class="freight-row">
+    <tr><td>{freightView.originLabel}</td><td>{freightView.originEur.eur}</td></tr>
+    <tr><td>{freightView.seaFreightLabel}</td><td>{freightView.seaFreightEur.eur}</td></tr>
+    <tr><td>Invoerrechten</td><td>{freightView.dutyEur.eur}</td></tr>
+    <tr><td>{freightView.destinationLabel}</td><td>{freightView.destinationEur.eur}</td></tr>
+    <tr class="subtotal"><td>Subtotaal vracht en logistiek</td><td>{freightView.logisticsTotalEur.eur}</td></tr>
+    {#if includeFreight}<tr class="grand">
+      <td>Ordertotaal incl. vracht en logistiek</td>
+      <td>{#if freightView.totalIncludingFreightEur}{freightView.totalIncludingFreightEur.eur}{#else}Niet berekenbaar{/if}</td>
+    </tr>{/if}
+  </table>
+  {#if payableView && payableView.ddp}<div class="freight-note">DDP: vracht en invoer zijn al in de leveranciersprijs opgenomen en worden niet opnieuw toegevoegd.</div>
+  {#else if includeFreight}<div class="freight-note">Goederen zijn omgerekend met de vastgelegde goederenkoers. Enrosed-kost is niet inbegrepen.</div>
+  {#else}<div class="freight-note">Deze kosten worden apart getoond en niet bij het ordertotaal opgeteld.</div>{/if}
+</div>
+{/if}
 
 {#if !supplierMode}<div class="footnote">
   Inkooporder uit het actuele Enrosed-dossier. Product-, karton- en leveranciersgegevens worden bij

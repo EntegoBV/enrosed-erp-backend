@@ -44,6 +44,14 @@ class PurchaseCostLabelsTest {
         assertEquals("Ningbo → Rotterdam", missing.seaFreightRoute());
     }
 
+    @Test
+    void destinationCostNamesTheActualReceivingLocationWhenKnown() {
+        PurchaseCostLabels labels = PurchaseCostLabels.forOrder(
+                order("Ningbo", "Rotterdam"), null, "Zaltbommel");
+
+        assertEquals("Rotterdam → Zaltbommel", labels.destinationCostsLabel());
+    }
+
     private static PurchaseOrder order(String departurePort, String destinationPort) {
         return new PurchaseOrder(1L, "PO-LABEL", null, 1L, LocalDate.now(),
                 PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
