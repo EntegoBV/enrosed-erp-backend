@@ -187,6 +187,29 @@ class LandedCostCalculatorTest {
     }
 
     @Test
+    @DisplayName("kostregels volgen de vaste variantpositie, niet de invoervolgorde")
+    void costingLinesFollowCanonicalVariantPosition() {
+        PurchaseOrder base = excelOrder();
+        Product first = preservedRose().withCanonicalIdentity(7L, "red", null, 0, true);
+        Product second = new Product(
+                2L, "ENR-P12", first.name(), first.dimensions(), first.packaging(), "White",
+                first.variantSize(), first.colourHex(), first.description(), first.categoryId(),
+                first.supplierId(), first.active(), 7L, "white", null, 1, true,
+                first.familyKey(), first.publicHandle(), first.websiteStatus(), first.orderAppStatus(),
+                first.barcodes(), first.hsCode(), first.carton(), first.exwPrice(), first.exwCurrency(),
+                first.extraUnitCost(), first.landedCostEur(), first.landedCostSource(), first.markupPct(),
+                first.fixedSalesPriceEur(), first.stockQuantity(), first.photos(), first.texts());
+        List<PurchaseOrderLine> reversed = List.of(
+                new PurchaseOrderLine(2L, 2L, 100, null, null, null, 100),
+                new PurchaseOrderLine(1L, 1L, 100, null, null, null, 100));
+
+        LandedCost result = calculator(BigDecimal.TEN).calculate(
+                orderWith(base, reversed, false), Map.of(1L, first, 2L, second));
+
+        assertEquals(List.of(1L, 2L), result.lines().stream().map(LandedCost.Line::productId).toList());
+    }
+
+    @Test
     @DisplayName("de verdeelsleutel van de Enrosed kost verdeelt echt anders")
     void enrosedKostFollowsItsOwnAllocationKey() {
         PurchaseOrder base = excelOrder();

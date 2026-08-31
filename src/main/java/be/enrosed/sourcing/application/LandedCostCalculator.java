@@ -1,16 +1,19 @@
 package be.enrosed.sourcing.application;
 
 import be.enrosed.catalog.application.HsCodeService;
+import be.enrosed.catalog.application.ProductOverviewOrder;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Money;
 import be.enrosed.sourcing.domain.*;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -44,10 +47,21 @@ public class LandedCostCalculator {
 
     private final CurrencyConverter currencies;
     private final HsCodeService hsCodes;
+    private final ProductOverviewOrder productOrder;
 
-    public LandedCostCalculator(CurrencyConverter currencies, HsCodeService hsCodes) {
+    @Inject
+    public LandedCostCalculator(
+            CurrencyConverter currencies,
+            HsCodeService hsCodes,
+            ProductOverviewOrder productOrder) {
         this.currencies = currencies;
         this.hsCodes = hsCodes;
+        this.productOrder = productOrder;
+    }
+
+    /** Compatibility constructor for the pure calculation tests. */
+    public LandedCostCalculator(CurrencyConverter currencies, HsCodeService hsCodes) {
+        this(currencies, hsCodes, null);
     }
 
     public LandedCost calculate(PurchaseOrder order, Map<Long, Product> productsById) {
@@ -146,6 +160,15 @@ public class LandedCostCalculator {
 
         /* ---- 3b. Varianten als één product ------------------------------ */
         if (order.groupsVariants()) levelVariants(working);
+
+        /* ---- 3c. Catalogusvolgorde ------------------------------------- */
+        /* Sorting happens only after all financial allocation. It therefore
+           changes presentation order, never amounts. The editor, reopened
+           order and both PDF layouts all consume these same costing lines. */
+        Comparator<Product> overview = productOrder == null
+                ? ProductOverviewOrder.fallbackComparator()
+                : productOrder.comparatorFor(working.stream().map(row -> row.product).toList());
+        working.sort((left, right) -> overview.compare(left.product, right.product));
 
         /* ---- 4. Totalen ------------------------------------------------ */
         List<LandedCost.Line> lines = working.stream()

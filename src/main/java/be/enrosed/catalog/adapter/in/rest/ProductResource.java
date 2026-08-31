@@ -9,10 +9,12 @@ import be.enrosed.catalog.domain.StockMovement;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.ProductOverviewOrder;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -36,23 +38,38 @@ public class ProductResource {
     private final ProductVariantLinkService variantLinks;
     private final ProductFamilyDtoFactory familyDtos;
     private final StockService stock;
+    private final ProductOverviewOrder overviewOrder;
 
+    @Inject
+    public ProductResource(
+            ProductService products,
+            BarcodeValidator barcodes,
+            ProductVariantLinkService variantLinks,
+            ProductFamilyDtoFactory familyDtos,
+            StockService stock,
+            ProductOverviewOrder overviewOrder) {
+        this.products = products;
+        this.barcodes = barcodes;
+        this.variantLinks = variantLinks;
+        this.familyDtos = familyDtos;
+        this.stock = stock;
+        this.overviewOrder = overviewOrder;
+    }
+
+    /** Compatibility constructor for focused resource tests. */
     public ProductResource(
             ProductService products,
             BarcodeValidator barcodes,
             ProductVariantLinkService variantLinks,
             ProductFamilyDtoFactory familyDtos,
             StockService stock) {
-        this.products = products;
-        this.barcodes = barcodes;
-        this.variantLinks = variantLinks;
-        this.familyDtos = familyDtos;
-        this.stock = stock;
+        this(products, barcodes, variantLinks, familyDtos, stock, null);
     }
 
     @GET
     public List<ProductDto> list(@QueryParam("supplierId") Long supplierId) {
         var found = supplierId == null ? products.list() : products.listBySupplier(supplierId);
+        if (supplierId != null && overviewOrder != null) found = overviewOrder.sort(found);
         return found.stream().map(ProductDto::from).toList();
     }
 
