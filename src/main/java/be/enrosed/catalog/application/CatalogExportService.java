@@ -139,6 +139,13 @@ public class CatalogExportService {
         }
     }
 
+    /** Lightweight exact-language validation result used before generating a PDF. */
+    public record Preflight(boolean ready, List<String> missingPaths) {
+        public Preflight {
+            missingPaths = List.copyOf(missingPaths);
+        }
+    }
+
     private final ProductService products;
     private final CategoryService categories;
     private final CatalogFamilyReader families;
@@ -154,6 +161,15 @@ public class CatalogExportService {
     }
 
     public CatalogDocumentRenderer.Document export(Request incoming) {
+        return renderer.render(prepare(incoming));
+    }
+
+    public Preflight preflight(Request incoming) {
+        List<String> missingPaths = renderer.missingTranslations(prepare(incoming));
+        return new Preflight(missingPaths.isEmpty(), missingPaths);
+    }
+
+    private Model prepare(Request incoming) {
         Request request = incoming == null ? Request.defaults() : incoming;
         if (request.productIds() != null && request.productIds().isEmpty()) {
             throw new BusinessRuleException("Selecteer minstens een product voor de catalogus");
@@ -171,8 +187,8 @@ public class CatalogExportService {
 
         Map<Long, Category> categoriesById = categories.list().stream()
                 .collect(Collectors.toMap(Category::id, Function.identity()));
-        return renderer.render(new Model(selected, categoriesById,
-                group(selected, categoriesById), request));
+        return new Model(selected, categoriesById,
+                group(selected, categoriesById), request);
     }
 
     /** Keeps the explicit builder order and removes duplicate ids without duplicating pages. */

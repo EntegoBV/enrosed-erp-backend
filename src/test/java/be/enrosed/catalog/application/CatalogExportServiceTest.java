@@ -18,10 +18,12 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -152,6 +154,41 @@ public class CatalogExportServiceTest {
         assertEquals(List.of(accepted), model.getValue().products());
         assertEquals(1, model.getValue().families().size());
         assertTrue(model.getValue().families().getFirst().synthetic());
+    }
+
+    @Test
+    void preflightPreparesTheSelectionOnceAndReturnsExactMissingPathsWithoutRendering() {
+        Product accepted = product(1L, "ACCEPTED", null, 1L, 0);
+        Product assessment = product(2L, "ASSESSMENT", null, 1L, 1).withDemo(true);
+
+        ProductService products = mock(ProductService.class);
+        CategoryService categories = mock(CategoryService.class);
+        CatalogFamilyReader families = mock(CatalogFamilyReader.class);
+        CatalogDocumentRenderer renderer = mock(CatalogDocumentRenderer.class);
+        when(products.list()).thenReturn(List.of(accepted, assessment));
+        when(categories.list()).thenReturn(List.of(category()));
+        when(families.findByIds(Set.of())).thenReturn(List.of());
+        when(renderer.missingTranslations(any())).thenReturn(List.of(
+                "catalog.copy.catalog.cover.title", "products.1.name"));
+
+        CatalogExportService service = new CatalogExportService(
+                products, categories, families, renderer);
+        CatalogExportService.Preflight result = service.preflight(
+                new CatalogExportService.Request(
+                        null, false, false, null, null, null, "fr"));
+
+        assertFalse(result.ready());
+        assertEquals(List.of("catalog.copy.catalog.cover.title", "products.1.name"),
+                result.missingPaths());
+        ArgumentCaptor<CatalogExportService.Model> model =
+                ArgumentCaptor.forClass(CatalogExportService.Model.class);
+        verify(renderer).missingTranslations(model.capture());
+        verify(renderer, never()).render(any());
+        verify(products).list();
+        verify(categories).list();
+        verify(families).findByIds(Set.of());
+        assertEquals(List.of(accepted), model.getValue().products());
+        assertEquals("fr", model.getValue().request().language());
     }
 
     private static CatalogDocumentRenderer.Document document() {

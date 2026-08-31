@@ -11,6 +11,7 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LanguageFallback;
@@ -43,6 +44,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
     private static final int OVERVIEW_CARDS_PER_PAGE = 8;
+    private static final int FAMILY_PAGE_CAPACITY = 2_600;
     private static final int OVERVIEW_COLUMNS = 2;
     private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
 
@@ -136,7 +138,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     String renderHtml(CatalogExportService.Model catalog) {
         Language language = catalogLanguage(catalog.request().language());
         if (catalog.request().resolvedStrictLanguage()) {
-            List<String> missing = strictMissing(catalog, language);
+            List<String> missing = missingTranslations(catalog);
             if (!missing.isEmpty()) {
                 throw new LocalizationIncompleteException(
                         "Cataloguscopy voor " + language.code() + " is onvolledig", missing);
@@ -144,6 +146,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
         return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
                 ? brochureHtml(catalog) : simpleHtml(catalog);
+    }
+
+    @Override
+    public List<String> missingTranslations(CatalogExportService.Model catalog) {
+        return strictMissing(catalog, catalogLanguage(catalog.request().language()));
     }
 
     private String simpleHtml(CatalogExportService.Model catalog) {
@@ -371,11 +378,22 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             }
         }
 
-        String overviewImage = imageRefs.isEmpty() ? null : photos.overview(imageRefs.getFirst());
-        String heroImage = imageRefs.isEmpty() ? null
-                : photos.hero(imageRefs.getFirst(), imageRefs.size() < 2);
-        String secondImage = imageRefs.size() < 2 ? null : photos.side(imageRefs.get(1));
-        List<String> gallery = imageRefs.size() <= 2 ? List.of()
+        String editorialAsset = allowed > 0 && family != null
+                ? familyEditorialAsset(family.familyKey()) : null;
+        String editorialOverview = editorialAsset == null ? null
+                : editorial.contained(editorialAsset, 720, 720);
+        String editorialHero = editorialAsset == null ? null
+                : editorial.contained(editorialAsset, 1_600, 900);
+        if (!present(editorialOverview)) editorialOverview = null;
+        if (!present(editorialHero)) editorialHero = null;
+        String overviewImage = editorialOverview != null ? editorialOverview
+                : imageRefs.isEmpty() ? null : photos.overview(imageRefs.getFirst());
+        String heroImage = editorialHero != null ? editorialHero
+                : imageRefs.isEmpty() ? null : photos.hero(imageRefs.getFirst(), imageRefs.size() < 2);
+        String secondImage = editorialHero != null
+                ? (allowed <= 1 || imageRefs.isEmpty() ? null : photos.side(imageRefs.getFirst()))
+                : imageRefs.size() < 2 ? null : photos.side(imageRefs.get(1));
+        List<String> gallery = editorialHero != null || imageRefs.size() <= 2 ? List.of()
                 : imageRefs.subList(2, imageRefs.size()).stream()
                         .map(photos::gallery)
                         .filter(Objects::nonNull)
@@ -394,13 +412,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         request.includePrices() ? priceLabel(product, language) : null))
                 .toList();
 
+        String familySize = familyDimension(family, first);
+        String packageLine = packageLine(family, group.variants(), copy);
+        String referencePriceLabel = request.includePrices()
+                ? referencePriceLabel(group.variants(), language, copy) : null;
         String number = twoDigits(index);
+        ensureFamilyPageCapacity(name, summary, description, format, highlights,
+                categoryName, familySize, packageLine, referencePriceLabel,
+                variants, gallery.size());
         return new BrochureFamily(
                 "family-" + number, number, defaultText(name, first.sku()), summary, description, format,
-                highlights, categoryKey, categoryName, familyDimension(family, first),
-                packageLine(family, group.variants(), copy), overviewImage, heroImage, secondImage,
-                request.includePrices()
-                        ? referencePriceLabel(group.variants(), language, copy) : null,
+                highlights, categoryKey, categoryName, familySize,
+                packageLine, overviewImage, heroImage, secondImage, referencePriceLabel,
                 compactDetail(summary, description, highlights, variants.size(), gallery.size()),
                 gallery,
                 variants);
@@ -447,6 +470,48 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         int copyLength = textLength(summary) + textLength(description)
                 + highlights.stream().mapToInt(PdfCatalogRenderer::textLength).sum();
         return variantCount >= 4 || galleryCount > 0 || copyLength > 520;
+    }
+
+    /** Prevents a fixed print sheet from silently clipping extreme dashboard content. */
+    private static void ensureFamilyPageCapacity(
+            String name, String summary, String description, String format,
+            List<String> highlights, String categoryName, String familySize,
+            String packageLine, String referencePriceLabel,
+            List<BrochureVariant> variants, int galleryCount) {
+        int capacityUse = capacityText(name, 80)
+                + textLength(summary)
+                + textLength(description)
+                + capacityText(format, 120)
+                + highlights.stream().mapToInt(PdfCatalogRenderer::textLength).sum()
+                + capacityText(categoryName, 48)
+                + capacityText(familySize, 48)
+                + capacityText(packageLine, 80)
+                + capacityText(referencePriceLabel, 24)
+                + variants.size() * 150
+                + variants.stream().mapToInt(PdfCatalogRenderer::variantCapacityUse).sum()
+                + galleryCount * 180;
+        if (capacityUse <= FAMILY_PAGE_CAPACITY) return;
+        throw new BusinessRuleException("Cataloguspagina voor '" + defaultText(name, "product")
+                + "' bevat te veel tekst, varianten of beelden voor één vaste A4-pagina. "
+                + "Verkort de teksten of uitzonderlijk lange productvelden, of maak een "
+                + "kleinere productselectie.");
+    }
+
+    private static int variantCapacityUse(BrochureVariant variant) {
+        return capacityText(variant.sku(), 24)
+                + capacityText(variant.name(), 80)
+                + capacityText(variant.colour(), 32)
+                + capacityText(variant.size(), 24)
+                + capacityText(variant.productSize(), 40)
+                + capacityText(variant.cartonSize(), 48)
+                + capacityText(variant.ean(), 24)
+                + capacityText(variant.priceLabel(), 24);
+    }
+
+    /** Narrow table cells consume extra vertical space once their comfortable line length is exceeded. */
+    private static int capacityText(String value, int comfortableLength) {
+        int length = textLength(value);
+        return length + Math.max(0, length - comfortableLength) * 5;
     }
 
     private static int textLength(String value) {
@@ -565,6 +630,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return "soap-roses.jpg";
         }
         return "preserved-roses.jpg";
+    }
+
+    /** Print-curated hero images for families whose source-primary image is an outlier. */
+    private static String familyEditorialAsset(String familyKey) {
+        return switch (defaultText(familyKey, "")) {
+            case "preserved-single-rose-in-display" ->
+                    "families/preserved-single-rose-in-display.jpg";
+            case "acrylic-flowerbox" -> "families/acrylic-flowerbox.jpg";
+            case "soap-rose-box-led" -> "families/soap-rose-box-led.png";
+            default -> null;
+        };
     }
 
     private static String at(List<String> values, int index) {

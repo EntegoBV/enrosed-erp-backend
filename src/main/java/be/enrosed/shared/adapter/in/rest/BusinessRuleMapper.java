@@ -3,6 +3,7 @@ package be.enrosed.shared.adapter.in.rest;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.UnprocessableBusinessRuleException;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
@@ -16,7 +17,10 @@ public class BusinessRuleMapper implements ExceptionMapper<BusinessRuleException
     public Response toResponse(BusinessRuleException exception) {
         if (exception instanceof LocalizationIncompleteException localized) {
             return Response.status(409)
-                    .entity(Map.of("message", localized.getMessage(),
+                    .type(MediaType.APPLICATION_JSON_TYPE)
+                    .entity(Map.of("status", 409,
+                            "code", "LOCALIZATION_INCOMPLETE",
+                            "message", localized.getMessage(),
                             "missingPaths", localized.missingPaths()))
                     .build();
         }

@@ -9,6 +9,7 @@ import be.enrosed.catalog.domain.CategoryText;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LocalizationIncompleteException;
 import io.quarkus.test.junit.QuarkusTest;
@@ -17,6 +18,7 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.TextPosition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 
@@ -24,6 +26,7 @@ import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -192,6 +195,72 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void curatedCatalogHeroReplacesAnOutlierPrimaryButKeepsTheActualPhotoBesideIt()
+            throws Exception {
+        Photo actual = storedPhoto(941L, "/images/soap-roos-in-box-480.webp",
+                "soap-led-actual.webp", "image/webp");
+        CatalogExportService.Model catalog = withFamilyKey(withPhoto(
+                model(1, CatalogExportService.Layout.BROCHURE), actual),
+                "soap-rose-box-led");
+
+        String html = renderer.renderHtml(catalog);
+        String curatedHero = editorialAssets.contained(
+                "families/soap-rose-box-led.png", 1_600, 900);
+        String actualSide = imageEncoder.encodeContained(
+                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+
+        assertFalse(curatedHero.isBlank());
+        assertTrue(html.contains(curatedHero));
+        assertTrue(html.contains(actualSide));
+
+        CatalogDocumentRenderer.Document document = renderer.render(catalog);
+        Path qa = Path.of("target", "catalog-qa");
+        Files.createDirectories(qa);
+        Files.write(qa.resolve("curated-soap-led.pdf"), document.content());
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(7, pdf.getNumberOfPages());
+        }
+    }
+
+    @Test
+    void curatedCatalogHeroStaysHiddenWhenProductPhotosAreDisabled() throws Exception {
+        Photo actual = storedPhoto(942L, "/images/soap-roos-in-box-480.webp",
+                "soap-led-disabled.webp", "image/webp");
+        CatalogExportService.Model catalog = withPhotoBudget(withFamilyKey(withPhoto(
+                model(1, CatalogExportService.Layout.BROCHURE), actual),
+                "soap-rose-box-led"), false, 0);
+
+        String html = renderer.renderHtml(catalog);
+        String curatedHero = editorialAssets.contained(
+                "families/soap-rose-box-led.png", 1_600, 900);
+        String actualSide = imageEncoder.encodeContained(
+                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+
+        assertFalse(html.contains(curatedHero));
+        assertFalse(html.contains(actualSide));
+        assertTrue(html.contains("class=\"image-placeholder\""));
+    }
+
+    @Test
+    void curatedCatalogHeroConsumesTheSinglePhotoBudgetWithoutAnActualSideImage()
+            throws Exception {
+        Photo actual = storedPhoto(943L, "/images/soap-roos-in-box-480.webp",
+                "soap-led-single.webp", "image/webp");
+        CatalogExportService.Model catalog = withPhotoBudget(withFamilyKey(withPhoto(
+                model(1, CatalogExportService.Layout.BROCHURE), actual),
+                "soap-rose-box-led"), true, 1);
+
+        String html = renderer.renderHtml(catalog);
+        String curatedHero = editorialAssets.contained(
+                "families/soap-rose-box-led.png", 1_600, 900);
+        String actualSide = imageEncoder.encodeContained(
+                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+
+        assertTrue(html.contains(curatedHero));
+        assertFalse(html.contains(actualSide));
+    }
+
+    @Test
     void internalInheritedPhotoNeverLeaksIntoSimpleOrBrochureFallback() throws Exception {
         Photo inheritedSource = storedPhoto(95L, "/catalog-assets/counter-bowl-retail.jpg",
                 "internal-family-photo.jpg", "image/jpeg");
@@ -303,6 +372,9 @@ class PdfCatalogRendererTest {
         assertTrue(html.contains(
                 "class=\"page family-page family-page--counter family-page--compact\""));
         CatalogDocumentRenderer.Document document = renderer.render(dense);
+        Path qa = Path.of("target", "catalog-qa");
+        Files.createDirectories(qa);
+        Files.write(qa.resolve("dense-family.pdf"), document.content());
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
             assertEquals(7, pdf.getNumberOfPages());
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
@@ -312,6 +384,108 @@ class PdfCatalogRendererTest {
             String text = new PDFTextStripper().getText(pdf);
             assertTrue(text.contains(finalMarker));
             assertTrue(text.contains("SKU-4"));
+            assertTrue(maxTextBottom(pdf, 4) < pdf.getPage(3).getMediaBox().getHeight() - 4,
+                    "dense family text must remain inside the visible A4 sheet");
+        }
+    }
+
+    @Test
+    void extremeFamilyContentFailsClearlyInsteadOfBeingSilentlyClipped() {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        CatalogFamilyReader.Family extreme = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), original.name(),
+                original.summary(), "Veel te lange catalogustekst. ".repeat(140),
+                original.format(), original.highlights(), original.dimensions(), original.texts(),
+                original.packages(), original.photos());
+        CatalogExportService.Model oversized = new CatalogExportService.Model(
+                source.products(), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        extreme, source.products(), source.families().getFirst().category(), false)),
+                source.request());
+
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> renderer.renderHtml(oversized));
+        assertTrue(error.getMessage().contains("te veel tekst, varianten of beelden"));
+        assertTrue(error.getMessage().contains(original.name()));
+    }
+
+    @Test
+    void extremeFormatAndVariantCellsFailClearlyBeforeTheFixedPageCanClipThem() {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        CatalogExportService.FamilyGroup originalGroup = source.families().getFirst();
+        CatalogFamilyReader.Family original = originalGroup.content();
+        CatalogFamilyReader.Family extreme = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), original.name(),
+                original.summary(), original.description(),
+                "Uitzonderlijk lange retailpresentatie ".repeat(9), original.highlights(),
+                original.dimensions(), original.texts(), original.packages(), original.photos());
+        Product base = source.products().getFirst();
+        Product extremeVariant = base.withVariantAttributes(
+                "Ceremonieel bordeaux met een uitzonderlijk lange kleurnaam ".repeat(7),
+                "Professionele presentatiemaat voor een zeer brede toonbank ".repeat(7),
+                base.colourHex());
+        CatalogExportService.Model oversized = new CatalogExportService.Model(
+                List.of(extremeVariant), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        extreme, List.of(extremeVariant), originalGroup.category(), false)),
+                source.request());
+
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> renderer.renderHtml(oversized));
+        assertTrue(error.getMessage().contains("te veel tekst, varianten of beelden"));
+        assertTrue(error.getMessage().contains(original.name()));
+    }
+
+    @Test
+    void longDutchCoverAndFamilyTitlesStayOnTheirAssignedA4Pages() throws Exception {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        String familyTitle = "Gepreserveerde Bowl rozen in een luxe presentatie voor de toonbank";
+        CatalogFamilyReader.Family renamed = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), familyTitle,
+                original.summary(), original.description(), original.format(), original.highlights(),
+                original.dimensions(), original.texts(), original.packages(), original.photos());
+        String coverTitle = "Nederlandse handelscatalogus voor professionele bloemisten";
+        CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
+                true, true, true, true, true, coverTitle, "Collectie voor retailpresentaties");
+        CatalogExportService.Request oldRequest = source.request();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                oldRequest.productIds(), oldRequest.includePrices(), oldRequest.includePhotos(),
+                oldRequest.photosPerProduct(), oldRequest.title(), oldRequest.intro(), "nl",
+                oldRequest.layout(), options);
+        CatalogExportService.Model localized = new CatalogExportService.Model(
+                source.products(), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        renamed, source.families().getFirst().variants(),
+                        source.families().getFirst().category(), false)), request);
+
+        String html = renderer.renderHtml(localized);
+        assertTrue(html.contains("height: 297mm; min-height: 297mm; max-height: 297mm"));
+        assertTrue(html.contains("page-break-inside: avoid"));
+
+        CatalogDocumentRenderer.Document document = renderer.render(localized);
+        Path qa = Path.of("target", "catalog-qa");
+        Files.createDirectories(qa);
+        Files.write(qa.resolve("long-dutch-titles.pdf"), document.content());
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(7, pdf.getNumberOfPages());
+            PDFTextStripper cover = new PDFTextStripper();
+            cover.setStartPage(1);
+            cover.setEndPage(1);
+            assertTrue(normalizeWhitespace(cover.getText(pdf)).contains(coverTitle));
+            PDFTextStripper detail = new PDFTextStripper();
+            detail.setStartPage(4);
+            detail.setEndPage(4);
+            assertTrue(normalizeWhitespace(detail.getText(pdf)).contains(familyTitle));
+            assertTrue(maxTextBottom(pdf, 4) < pdf.getPage(3).getMediaBox().getHeight() - 4,
+                    "long Dutch title and footer must remain inside the visible A4 sheet");
         }
     }
 
@@ -542,6 +716,33 @@ class PdfCatalogRendererTest {
         return withPhotos(model, List.of(photo));
     }
 
+    private static CatalogExportService.Model withFamilyKey(
+            CatalogExportService.Model model, String familyKey) {
+        CatalogExportService.FamilyGroup oldGroup = model.families().getFirst();
+        CatalogFamilyReader.Family oldFamily = oldGroup.content();
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                oldFamily.id(), familyKey, oldFamily.publicHandle(), oldFamily.categoryId(),
+                oldFamily.categoryKey(), oldFamily.categoryName(), oldFamily.categoryPosition(),
+                oldFamily.productPosition(), oldFamily.name(), oldFamily.summary(),
+                oldFamily.description(), oldFamily.format(), oldFamily.highlights(),
+                oldFamily.dimensions(), oldFamily.texts(), oldFamily.packages(), oldFamily.photos());
+        CatalogExportService.FamilyGroup group = new CatalogExportService.FamilyGroup(
+                family, oldGroup.variants(), oldGroup.category(), oldGroup.synthetic());
+        return new CatalogExportService.Model(
+                model.products(), model.categoriesById(), List.of(group), model.request());
+    }
+
+    private static CatalogExportService.Model withPhotoBudget(
+            CatalogExportService.Model model, boolean includePhotos, int photosPerProduct) {
+        CatalogExportService.Request oldRequest = model.request();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                oldRequest.productIds(), oldRequest.includePrices(), includePhotos, photosPerProduct,
+                oldRequest.title(), oldRequest.intro(), oldRequest.language(), oldRequest.layout(),
+                oldRequest.brochure(), oldRequest.strictLanguage());
+        return new CatalogExportService.Model(
+                model.products(), model.categoriesById(), model.families(), request);
+    }
+
     private static CatalogExportService.Model withPhotos(
             CatalogExportService.Model model, List<Photo> photos) {
         Product pictured = model.products().getFirst().withPhotos(photos);
@@ -578,6 +779,32 @@ class PdfCatalogRendererTest {
 
     private static int occurrences(String haystack, String needle) {
         return (haystack.length() - haystack.replace(needle, "").length()) / needle.length();
+    }
+
+    private static String normalizeWhitespace(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
+    }
+
+    private static double maxTextBottom(PDDocument pdf, int oneBasedPage) throws IOException {
+        TextBoundsStripper stripper = new TextBoundsStripper();
+        stripper.setStartPage(oneBasedPage);
+        stripper.setEndPage(oneBasedPage);
+        stripper.getText(pdf);
+        return stripper.maxBottom;
+    }
+
+    private static final class TextBoundsStripper extends PDFTextStripper {
+        private double maxBottom;
+
+        private TextBoundsStripper() throws IOException {
+            setSortByPosition(true);
+        }
+
+        @Override
+        protected void processTextPosition(TextPosition text) {
+            maxBottom = Math.max(maxBottom, text.getYDirAdj() + text.getHeightDir());
+            super.processTextPosition(text);
+        }
     }
 
     private static BufferedImage dataImage(String dataUri) throws Exception {

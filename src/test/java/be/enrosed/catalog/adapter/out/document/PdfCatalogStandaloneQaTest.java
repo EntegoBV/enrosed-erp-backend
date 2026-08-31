@@ -134,6 +134,7 @@ class PdfCatalogStandaloneQaTest {
                 List.of(new CatalogExportService.FamilyGroup(
                         null, List.of(withoutFrenchName), canonicalSource.category(), true)),
                 complete.request());
+        assertEquals(List.of("products.1.name"), renderer.missingTranslations(standalone));
         LocalizationIncompleteException failure = assertThrows(
                 LocalizationIncompleteException.class, () -> renderer.renderHtml(standalone));
         assertEquals(List.of("products.1.name"), failure.missingPaths());

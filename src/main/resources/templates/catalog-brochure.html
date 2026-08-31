@@ -20,10 +20,10 @@
     .cover { padding: 0; background: #120c0a; }
     .cover-photo { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
     .cover-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: linear-gradient(90deg, rgba(12,7,6,.36) 0%, rgba(12,7,6,.10) 58%, rgba(12,7,6,.02) 100%); }
-    .cover-panel { position: absolute; top: 20mm; left: 15mm; width: 98mm; padding: 7mm 8mm 7mm 9mm; color: #f8f1e9; background: rgba(18,12,10,.46); border-left: 1mm solid #d6b25e; }
+    .cover-panel { position: absolute; top: 20mm; left: 15mm; width: 104mm; padding: 7mm 8mm 7mm 9mm; color: #f8f1e9; background: rgba(18,12,10,.46); border-left: 1mm solid #d6b25e; }
     .cover-logo { max-width: 44mm; max-height: 10mm; margin-bottom: 7mm; }
-    .cover h1 { margin-top: 8mm; font-size: 30pt; line-height: .94; }
-    .cover h1 span { display: block; color: #d6b25e; font-style: italic; font-weight: 400; }
+    .cover h1 { max-width: 100%; margin-top: 8mm; font-size: 27pt; line-height: .96; word-wrap: break-word; hyphens: auto; }
+    .cover h1 span { display: block; margin-top: 1mm; color: #d6b25e; font-size: .82em; font-style: italic; font-weight: 400; }
     .cover-intro { margin-top: 7mm; color: #e7dcd3; font-size: 9pt; line-height: 1.52; }
     .cover-bottom { position: absolute; right: 15mm; bottom: 10mm; left: 15mm; padding-top: 3mm; color: #f8f1e9; border-top: .35mm solid #c9a65b; font-size: 7.5pt; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
 
@@ -46,21 +46,21 @@
     .overview-image img { display: block; width: 100%; height: auto; }
     .overview-copy { padding: 3.2mm 3.5mm; vertical-align: top; }
     .overview-meta { color: #806b5e; font-size: 6.8pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
-    .overview-name { height: 14mm; margin-top: 1.5mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 12.5pt; font-weight: 600; line-height: .95; }
+    .overview-name { height: 18mm; margin-top: 1.5mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; word-wrap: break-word; hyphens: auto; }
     .overview-variants { margin-top: 1.2mm; color: #806b5e; font-size: 6.8pt; }
     .overview-price { margin-top: 1.2mm; color: #8f223c; font-size: 8.5pt; font-weight: 700; }
     .overview-detail { margin-top: 1.5mm; color: #67584e; font-size: 6.7pt; font-weight: 700; letter-spacing: .45px; text-transform: uppercase; }
     .overview-cell--wide .overview-image { width: 20%; }
-    .overview-cell--wide .overview-name { height: auto; max-height: 14mm; font-size: 14pt; }
+    .overview-cell--wide .overview-name { height: auto; max-height: 18mm; font-size: 13pt; }
     .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7.5pt; line-height: 1.4; }
     .overview-footnote span { position: absolute; top: 2.5mm; right: 0; color: #9b7735; font-weight: 700; }
 
     .category-page { padding: 0; }
-    .category-page .bg { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
+    .category-page .bg { position: absolute; top: 0; left: -6.5mm; width: 223mm; height: 297mm; }
     .category-page .shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.64); }
     .category-copy { position: absolute; top: 0; bottom: 0; left: 0; width: 64%; padding: 25mm 14mm; background: rgba(18,12,10,.88); border-right: .35mm solid #d6b25e; }
     .category-number { margin-top: 20mm; color: #5d4927; font-family: "Cormorant Garamond"; font-size: 70pt; line-height: .7; }
-    .category-page h2 { margin-top: 5mm; font-size: 38pt; line-height: .93; }
+    .category-page h2 { margin-top: 5mm; font-size: 34pt; line-height: .95; word-wrap: break-word; hyphens: auto; }
     .category-page p { margin-top: 8mm; color: #e0d5cc; font-size: 10pt; line-height: 1.65; }
     .category-count { margin-top: 11mm; color: #d6b25e; font-size: 7.5pt; letter-spacing: 1.4px; text-transform: uppercase; }
     .category-page--display-roses .category-copy, .category-page--counter .category-copy { border-right-color: #b88946; }
@@ -68,12 +68,12 @@
     .category-page--soap-roses .category-copy { border-right-color: #b04f6d; }
     .category-page--foam-roses .category-copy, .category-page--foam-rose .category-copy, .category-page--rose-bears .category-copy { border-right-color: #79528e; }
 
-    .family-page { height: auto; min-height: 297mm; padding-top: 11mm; overflow: visible; page-break-inside: auto; color: #241815; background: #f7e7e9; }
+    .family-page { height: 297mm; min-height: 297mm; max-height: 297mm; padding-top: 11mm; overflow: hidden; page-break-inside: avoid; page-break-after: always; color: #241815; background: #f7e7e9; }
     .family-page--display-roses, .family-page--counter { background: #f3ecdf; }
     .family-page--preserved-roses, .family-page--divers, .family-page--rose-in-dome { background: #e8f0e5; }
     .family-page--soap-roses { background: #f5e7eb; }
     .family-page--foam-roses, .family-page--foam-rose, .family-page--rose-bears { background: #eee6f2; }
-    .family-head { width: 100%; border-collapse: collapse; }
+    .family-head { width: 100%; border-collapse: collapse; table-layout: fixed; }
     .family-head td { vertical-align: bottom; }
     .family-head .number { width: 17mm; color: #9b7735; font-family: "Cormorant Garamond"; font-size: 31pt; font-weight: 600; }
     .family-category { color: #8b3147; font-size: 7pt; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; }
@@ -81,7 +81,7 @@
     .family-page--preserved-roses .family-category, .family-page--divers .family-category, .family-page--rose-in-dome .family-category { color: #52735c; }
     .family-page--soap-roses .family-category { color: #9c3d5a; }
     .family-page--foam-roses .family-category, .family-page--foam-rose .family-category, .family-page--rose-bears .family-category { color: #79528e; }
-    .family-head h2 { margin-top: 1mm; font-size: 25pt; line-height: .92; }
+    .family-head h2 { margin-top: 1mm; font-size: 23pt; line-height: .95; word-wrap: break-word; hyphens: auto; }
     .family-price { width: 48mm; padding-bottom: 1mm; text-align: right; }
     .family-price small { display: block; color: #806b5e; font-size: 6.8pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
     .family-price strong { display: block; margin-top: 1mm; color: #8f223c; font-size: 11pt; }
@@ -93,6 +93,7 @@
     .family-media .hero.solo { width: 100%; }
     .family-media .side { width: 34%; }
     .family-media img { display: block; width: 100%; height: auto; max-height: 107mm; margin: 0 auto; }
+    .family-media .side img { width: auto; max-width: 100%; height: auto; max-height: 107mm; }
     .image-placeholder { color: #8b7a70; font-size: 7pt; letter-spacing: 1px; text-transform: uppercase; }
     .gallery-strip { height: 18mm; margin-top: 2.5mm; white-space: nowrap; }
     .gallery-strip img { width: auto; height: 18mm; max-width: 34mm; margin-right: 2.5mm; background: #fff; border: .25mm solid #d5c4b8; }
@@ -116,7 +117,7 @@
     .variants .ean { width: 17%; }
     .swatch { display: inline-block; width: 3.4mm; height: 3.4mm; margin-right: 1.3mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
     .variant-price { display: block; margin-top: .8mm; color: #8f223c; font-size: 8.2pt; font-weight: 700; }
-    .family-page--compact .family-head h2 { font-size: 22pt; }
+    .family-page--compact .family-head h2 { font-size: 20pt; }
     .family-page--compact .family-media { height: 76mm; }
     .family-page--compact .family-media img { max-height: 75mm; }
     .family-page--compact .gallery-strip { height: 13mm; margin-top: 1.8mm; }

@@ -680,7 +680,7 @@ public class CatalogContentBackfillService {
         return language == Language.EN ? base : null;
     }
 
-    private static String knownFamilyName(
+    static String knownFamilyName(
             String familyKey, String base, Language language, String current) {
         if (language == Language.EN) return base;
         if (language == Language.NL
@@ -688,7 +688,16 @@ public class CatalogContentBackfillService {
                 && "Roos op spiegeldoos".equals(current)) {
             return current;
         }
-        return null;
+        String previousSeed = switch (familyKey + ":" + language.name()) {
+            case "preserved-bowl-rose:NL" -> "Gepreserveerde bowlrozen met display";
+            case "preserved-bowl-rose:FR" -> "Roses stabilisées en coupe avec présentoir";
+            case "preserved-bowl-rose:DE" -> "Konservierte Schalenrosen mit Display";
+            case "bowl-rose-xl:NL" -> "XL bowlrozen met display";
+            case "bowl-rose-xl:FR" -> "Roses XL en coupe avec présentoir";
+            case "bowl-rose-xl:DE" -> "XL-Schalenrosen mit Display";
+            default -> null;
+        };
+        return Objects.equals(previousSeed, current) ? current : null;
     }
 
     private static String knownFamilyCopy(

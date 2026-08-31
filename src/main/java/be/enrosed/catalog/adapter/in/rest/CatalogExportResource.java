@@ -25,6 +25,14 @@ public class CatalogExportResource {
     }
 
     @POST
+    @Path("/preflight")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public CatalogExportService.Preflight preflight(CatalogExportService.Request request) {
+        return export.preflight(request);
+    }
+
+    @POST
     @Path("/export")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces("application/pdf")

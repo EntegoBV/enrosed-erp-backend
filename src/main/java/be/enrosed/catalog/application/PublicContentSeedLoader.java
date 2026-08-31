@@ -390,9 +390,18 @@ public class PublicContentSeedLoader {
     }
 
     /** Corrects only exact values shipped by an older system seed; dashboard edits survive. */
-    private static boolean isKnownStaleSeedValue(
+    static boolean isKnownStaleSeedValue(
             ContentScope scope, String key, Language language, String current) {
         if (scope == ContentScope.WEBSITE) {
+            if ("home.counter.item2.title".equals(key)) {
+                String previousSeed = switch (language) {
+                    case NL -> "De kom XL";
+                    case FR -> "Le Bol XL";
+                    case DE -> "Die Schüssel XL";
+                    default -> null;
+                };
+                return Objects.equals(previousSeed, current);
+            }
             if ("legal.privacy.data.p2".equals(key)) {
                 return Objects.equals(LEGACY_PRIVACY_NO_QUOTE_FORM.get(language), current)
                         || Objects.equals(LEGACY_PRIVACY_QUOTE_ONLY_FORM.get(language), current)
