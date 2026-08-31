@@ -233,7 +233,7 @@ public class ProductCsv {
                 text(cells, 24, current.variantSize()),
                 text(cells, 25, current.colourHex()),
                 text(cells, 2, current.description()),
-                current.categoryId(), current.supplierId(),
+                current.categoryId(), current.supplierId(), current.supplierNote(),
                 bool(cells, 19, current.active()),
                 current.familyId(), current.canonicalVariantKey(), current.canonicalBarcode(),
                 current.variantPosition(),

@@ -149,6 +149,152 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
+    void explicitSupplierAudienceRendersOnlyAgreedUnitAndOperationalProductFacts() throws Exception {
+        Product product = createProductWithPhoto();
+        PurchaseOrder order = portraitOrder(product.id());
+        order = withLines(order, order.number(), "SECRET CUSTOMER PROJECT", order.lines());
+        LandedCost costing = portraitCosting(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, costing, supplier(), true, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.SUPPLIER);
+
+        assertEquals("PO-2026-PORTRAIT-supplier.pdf", document.filename());
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-explicit-supplier.pdf"), document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
+            assertTrue(pdf.getPage(0).getMediaBox().getWidth()
+                            < pdf.getPage(0).getMediaBox().getHeight(),
+                    "de leveranciersorder hoort altijd portrait te zijn");
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+
+            assertTrue(text.contains("leveranciersorder"), text);
+            assertTrue(text.contains("glass bowl bestseller"), text);
+            assertTrue(text.contains("po-pdf-thumbnail"), text);
+            assertTrue(text.contains("5410000000019"), text);
+            assertTrue(text.contains("gebruik witte binnendozen"), text);
+            assertTrue(text.contains("96"), text);
+            assertTrue(text.contains("8"), text);
+            assertTrue(text.contains("0,048 m³"), text);
+            assertTrue(text.contains("12,50"), text);
+            assertTrue(text.contains("usd") && text.contains("exw"), text);
+            assertFalse(text.contains("fob"),
+                    "alleen de prijsbasis van de productregel is gezaghebbend: " + text);
+            assertFalse(text.contains("prijsbasis"), text);
+            assertFalse(text.contains("99,99"),
+                    "de actuele productprijs mag de afgesproken orderregelsnapshot niet vervangen: " + text);
+
+            assertFalse(text.contains("regeltotaal"), text);
+            assertFalse(text.contains("ordertotaal"), text);
+            assertFalse(text.contains("1.200,00"), text);
+            assertFalse(text.contains("1.125,00"), text);
+            assertFalse(text.contains("douanewaarde"), text);
+            assertFalse(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("opbrengst"), text);
+            assertFalse(text.contains("betaal"), text);
+            assertFalse(text.contains("aangemaakt door"), text);
+            assertFalse(text.contains("10.344,47"), text);
+            assertFalse(text.contains("24.136,80"), text);
+            assertFalse(text.contains("intern"),
+                    "de leveranciers-PDF mag geen interne labels of aanduidingen tonen: " + text);
+            assertFalse(text.contains("supplier-safe"), text);
+            assertFalse(text.contains("onderweg"), text);
+            assertFalse(text.contains("a4 staand"), text);
+            assertFalse(text.contains("inkooporder verticaal"), text);
+            assertFalse(text.contains("order voor de leverancier"), text);
+            assertFalse(text.contains("controleer dit voor delen"), text);
+            assertFalse(text.contains("actuele enrosed-dossier"), text);
+            assertFalse(text.contains("uitgiftesnapshot"), text);
+            assertFalse(text.contains("secret customer project"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void longSupplierNoteRemainsCompleteAcrossPortraitPages() throws Exception {
+        String longNote = "Controleer elke doos op kleur, verpakking en juiste EAN. ".repeat(68)
+                + "EINDE NOTITIE ZICHTBAAR";
+        assertTrue(longNote.length() <= 4_000, "fixture moet binnen het productcontract blijven");
+        Product product = createProductWithPhoto(longNote);
+        PurchaseOrder order = portraitOrder(product.id());
+        order = withLines(order, order.number(), "SECRET CUSTOMER PROJECT", order.lines());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, List.of(),
+                new PurchaseOrderService.Payable(
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.SUPPLIER);
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-supplier-long-note.pdf"), document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertTrue(pdf.getNumberOfPages() >= 2,
+                    "een bijna maximale leveranciersnotitie hoort gecontroleerd door te lopen");
+            for (var page : pdf.getPages()) {
+                assertTrue(page.getMediaBox().getWidth() < page.getMediaBox().getHeight(),
+                        "elke vervolgpagina moet A4 portrait blijven");
+            }
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("controleer elke doos"), text);
+            assertTrue(text.contains("einde notitie zichtbaar"),
+                    "het einde van de lange notitie mag niet worden afgesneden: " + text);
+            assertFalse(text.contains("intern"), text);
+            assertFalse(text.contains("a4 staand"), text);
+            assertFalse(text.contains("actuele enrosed-dossier"), text);
+            assertFalse(text.contains("secret customer project"), text);
+            PDFTextStripper pageStripper = new PDFTextStripper();
+            int notePages = 0;
+            for (int pageNumber = 1; pageNumber <= pdf.getNumberOfPages(); pageNumber++) {
+                pageStripper.setStartPage(pageNumber);
+                pageStripper.setEndPage(pageNumber);
+                String pageText = pageStripper.getText(pdf).toLowerCase();
+                if (pageText.contains("leveranciersnotitie")) {
+                    notePages++;
+                    assertTrue(pageText.contains("po-pdf-thumbnail"),
+                            "elk notitiefragment moet het product identificeren op pagina " + pageNumber);
+                }
+            }
+            assertTrue(notePages >= 2,
+                    "een bijna maximale notitie moet leesbaar over vervolgpagina's lopen");
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void supplierNoteNeverLeaksFromAProductThatNowBelongsToAnotherSupplier() throws Exception {
+        Product product = createProductWithPhoto(
+                "SECRET NOTE FOR A DIFFERENT SUPPLIER", 8L);
+        PurchaseOrder order = portraitOrder(product.id());
+
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, List.of(),
+                new PurchaseOrderService.Payable(
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.SUPPLIER);
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("po-pdf-thumbnail"), text);
+            assertFalse(text.contains("secret note for a different supplier"),
+                    "a current note for another supplier must never enter a historical PDF");
+            assertFalse(text.contains("leveranciersnotitie"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
     void horizontalPurchaseOrderMatchesPortraitContentAndEmbedsThumbnail() throws Exception {
         Product product = createProductWithPhoto();
         PurchaseOrder order = portraitOrder(product.id());
@@ -264,15 +410,26 @@ class PdfPurchaseRendererRenderTest {
     }
 
     private Product createProductWithPhoto() throws Exception {
+        return createProductWithPhoto("Gebruik witte binnendozen");
+    }
+
+    private Product createProductWithPhoto(String supplierNote) throws Exception {
+        return createProductWithPhoto(supplierNote, 7L);
+    }
+
+    private Product createProductWithPhoto(String supplierNote, Long supplierId) throws Exception {
         Product created = products.create(new Product(
                 null, "PO-PDF-THUMBNAIL", "Glass bowl bestseller",
                 new Dimensions(new BigDecimal("18"), new BigDecimal("18"),
                         new BigDecimal("22")), "Bordeaux", "Testproduct voor PDF QA",
-                null, null, true, Barcodes.none(), "7013.99.00",
+                null, supplierId, true,
+                new Barcodes("5410000000019", "15410000000016"), "7013.99.00",
                 new Carton(new Dimensions(new BigDecimal("40"), new BigDecimal("40"),
                         new BigDecimal("30")), 12, new BigDecimal("6.2")),
-                new BigDecimal("12.50"), Currency.USD, BigDecimal.ZERO,
+                new BigDecimal("99.99"), Currency.USD, BigDecimal.ZERO,
                 null, null, BigDecimal.ZERO, null, 0, List.of(), List.of()));
+        created = products.update(created.id(),
+                created.withSupplierNote(supplierNote));
         try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
             if (image == null) throw new IllegalStateException("Testfoto P05.jpg ontbreekt");
             return products.addPhoto(created.id(), "P05.jpg", image);

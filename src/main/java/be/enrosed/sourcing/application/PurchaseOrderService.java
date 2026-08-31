@@ -203,6 +203,8 @@ public class PurchaseOrderService {
         List<CartonAdjustment> warnings = new ArrayList<>();
         List<PurchaseOrderLine> lines = new ArrayList<>();
         Set<Long> seenProducts = new HashSet<>();
+        boolean placingNow = current.status() == PurchaseOrderStatus.CONCEPT
+                && changes.status() != PurchaseOrderStatus.CONCEPT;
 
         for (PurchaseOrderLine line : changes.lines()) {
             if (line == null || line.productId() == null) {
@@ -216,11 +218,18 @@ public class PurchaseOrderService {
             if (product == null) {
                 throw new BusinessRuleException("Product " + line.productId() + " bestaat niet meer");
             }
+            if (!Objects.equals(product.supplierId(), changes.supplierId())
+                    && !keepsHistoricalSupplierLine(current, changes, line, placingNow)) {
+                throw new BusinessRuleException("Product " + product.sku()
+                        + " hoort niet bij de gekozen leverancier");
+            }
             if (line.quantity() < 0) {
                 throw new BusinessRuleException("Een besteld of ontvangen aantal kan niet negatief zijn");
             }
             requireNonNegative(line.exwPrice(), "EXW-prijs");
             requireNonNegative(line.extraUnitCost(), "Extra kost per stuk");
+            LinePurchasePrice purchasePrice = purchasePriceForSave(
+                    current, line, product, placingNow);
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
             int perCarton = Math.max(1, carton.piecesPerCarton());
@@ -238,7 +247,7 @@ public class PurchaseOrderService {
             }
             /* Saved as entered; the warning is the whole intervention. */
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
-                    line.exwPrice(), line.exwCurrency(), line.extraUnitCost(),
+                    purchasePrice.amount(), purchasePrice.currency(), line.extraUnitCost(),
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
                     line.damagedQuantity(), storedReceiptUnitValue(current, line)));
         }
@@ -288,6 +297,69 @@ public class PurchaseOrderService {
             }
         }
         return new UpdateResult(saved, warnings);
+    }
+
+    private record LinePurchasePrice(BigDecimal amount, Currency currency) {}
+
+    /**
+     * A product can be reassigned after an order was placed. That must not
+     * make an unrelated tracking/header correction impossible, but it also
+     * must not authorize a new product line or a supplier switch.
+     */
+    private static boolean keepsHistoricalSupplierLine(
+            PurchaseOrder current, PurchaseOrder changes,
+            PurchaseOrderLine incoming, boolean placingNow) {
+        if (placingNow || current.status() == PurchaseOrderStatus.CONCEPT
+                || !Objects.equals(current.supplierId(), changes.supplierId())
+                || incoming.id() == null) {
+            return false;
+        }
+        return current.lines().stream().anyMatch(stored ->
+                Objects.equals(stored.id(), incoming.id())
+                        && Objects.equals(stored.productId(), incoming.productId()));
+    }
+
+    /**
+     * Price and currency are one agreement: never combine a line currency with
+     * a product amount (or vice versa). When a draft is placed, a line without
+     * an override snapshots the then-current product purchase-price pair.
+     */
+    private LinePurchasePrice purchasePriceForSave(PurchaseOrder current,
+                                                   PurchaseOrderLine incoming,
+                                                   Product product,
+                                                   boolean placingNow) {
+        boolean hasAmount = incoming.exwPrice() != null;
+        boolean hasCurrency = incoming.exwCurrency() != null;
+        if (hasAmount != hasCurrency) {
+            throw new BusinessRuleException("Vul voor product " + product.sku()
+                    + " zowel de inkoopprijs als de valuta in, of laat beide leeg");
+        }
+        if (hasAmount) {
+            return new LinePurchasePrice(incoming.exwPrice(), incoming.exwCurrency());
+        }
+
+        if (placingNow) {
+            return completePrice(product.exwPrice(), product.exwCurrency());
+        }
+
+        /* Once placed, a full PUT from an older client may omit the snapshot.
+           Preserve storage instead of silently returning to a live master price. */
+        if (current.status() != PurchaseOrderStatus.CONCEPT && incoming.id() != null) {
+            PurchaseOrderLine stored = current.lines().stream()
+                    .filter(line -> incoming.id().equals(line.id()))
+                    .findFirst()
+                    .orElse(null);
+            if (stored != null) {
+                return completePrice(stored.exwPrice(), stored.exwCurrency());
+            }
+        }
+        return new LinePurchasePrice(null, null);
+    }
+
+    private static LinePurchasePrice completePrice(BigDecimal amount, Currency currency) {
+        return amount == null || currency == null
+                ? new LinePurchasePrice(null, null)
+                : new LinePurchasePrice(amount, currency);
     }
 
     /**

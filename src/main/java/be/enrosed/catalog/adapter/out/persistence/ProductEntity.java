@@ -61,6 +61,9 @@ public class ProductEntity {
 
     public Long categoryId;
     public Long supplierId;
+    /** Internal purchasing note; never exposed by the public catalogue projection. */
+    @Column(length = 4000)
+    public String supplierNote;
     public boolean active = true;
     /** A demo piece: shown, never sold; invisible to every public channel. */
     @org.hibernate.annotations.ColumnDefault("false")

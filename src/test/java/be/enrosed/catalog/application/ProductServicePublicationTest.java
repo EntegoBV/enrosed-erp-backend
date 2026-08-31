@@ -129,7 +129,8 @@ class ProductServicePublicationTest {
     void aVariantCopyKeepsTheGiftBoxButNotItsBarcode() {
         Product boxed = withCodes(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true),
-                new Barcodes("5410000000019", "15410000000016"), "5410000000026");
+                new Barcodes("5410000000019", "15410000000016"), "5410000000026")
+                .withSupplierNote("Altijd per zes verpakken");
         repository.add(boxed);
 
         Product copy = service.duplicate(1L, "Roze");
@@ -139,6 +140,7 @@ class ProductServicePublicationTest {
         assertNull(copy.packaging().barcode(), "the box's EAN is unique and stays behind");
         assertNull(copy.barcodes().inner());
         assertNull(copy.barcodes().outer());
+        assertEquals("Altijd per zes verpakken", copy.supplierNote());
     }
 
     @Test
@@ -165,6 +167,20 @@ class ProductServicePublicationTest {
                 base.exwCurrency(), base.extraUnitCost(), base.landedCostEur(), base.landedCostSource(),
                 base.markupPct(), base.fixedSalesPriceEur(), base.stockQuantity(), base.photos(),
                 base.texts());
+    }
+
+    private static Product withSupplier(
+            Product base, Long supplierId, String supplierNote) {
+        return new Product(base.id(), base.sku(), base.name(), base.dimensions(), base.packaging(),
+                base.colour(), base.variantSize(), base.colourHex(), base.description(),
+                base.categoryId(), supplierId, base.active(), base.familyId(),
+                base.canonicalVariantKey(), base.canonicalBarcode(), base.variantPosition(),
+                base.inventoryKnown(), base.familyKey(), base.publicHandle(), base.websiteStatus(),
+                base.orderAppStatus(), base.barcodes(), base.hsCode(), base.carton(),
+                base.exwPrice(), base.exwCurrency(), base.extraUnitCost(), base.landedCostEur(),
+                base.landedCostSource(), base.markupPct(), base.fixedSalesPriceEur(),
+                base.stockQuantity(), base.photos(), base.texts(), base.demo())
+                .withSupplierNote(supplierNote);
     }
 
     @Test
@@ -304,6 +320,94 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void supplierNoteIsNormalizedPreservedForLegacyPutsAndExplicitlyClearable() {
+        Product created = service.create(product(null, "ENR-P-NOTE", "Beschrijving", null,
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("  Gebruik kartonnen hoekbeschermers  "));
+        assertEquals("Gebruik kartonnen hoekbeschermers", created.supplierNote());
+
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("Alleen volle omdozen");
+        repository.add(current);
+
+        Product preserved = service.update(1L, current.withSupplierNote(null));
+        assertEquals("Alleen volle omdozen", preserved.supplierNote(),
+                "null is omitted by older full-PUT clients");
+
+        Product cleared = service.update(1L, current.withSupplierNote(" \n "));
+        assertNull(cleared.supplierNote(), "blank text is the explicit clear operation");
+
+        Product tooLong = product(null, "ENR-P-NOTE-LONG", "Beschrijving", null,
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("x".repeat(4_001));
+        BusinessRuleException error = assertThrows(
+                BusinessRuleException.class, () -> service.create(tooLong));
+        assertTrue(error.getMessage().contains("4000"), error.getMessage());
+    }
+
+    @Test
+    void changingSupplierClearsOmittedOrEchoedOldNoteButKeepsAnExplicitNewNote() {
+        Product oldRelationship = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("Vertrouwelijke afspraak met leverancier A");
+        repository.add(oldRelationship);
+
+        Product cleared = service.update(
+                1L, withSupplier(oldRelationship, 3L, null));
+
+        assertEquals(3L, cleared.supplierId());
+        assertNull(cleared.supplierNote(),
+                "an omitted note must not follow a product to another supplier");
+
+        Product echoedRelationship = product(3L, "ENR-P03", "Beschrijving", "roze-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("Oude afspraak die een full-PUT client terugstuurt");
+        repository.add(echoedRelationship);
+
+        Product staleEchoCleared = service.update(3L, withSupplier(
+                echoedRelationship, 3L, echoedRelationship.supplierNote()));
+
+        assertEquals(3L, staleEchoCleared.supplierId());
+        assertNull(staleEchoCleared.supplierNote(),
+                "an unchanged note echoed by an older full-PUT client is stale supplier data");
+
+        Product anotherRelationship = product(2L, "ENR-P02", "Beschrijving", "witte-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("Oude afspraak met leverancier A");
+        repository.add(anotherRelationship);
+
+        Product replaced = service.update(2L, withSupplier(
+                anotherRelationship, 3L, "Nieuwe afspraak met leverancier B"));
+
+        assertEquals(3L, replaced.supplierId());
+        assertEquals("Nieuwe afspraak met leverancier B", replaced.supplierNote());
+    }
+
+    @Test
+    void supplierNoteAuditRecordsOnlyThatPrivateTextChanged() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withSupplierNote("Oude afspraak");
+        repository.add(current);
+        ActivityLogService activities = mock(ActivityLogService.class);
+        @SuppressWarnings("unchecked")
+        Instance<ActivityLogService> activityInstance = mock(Instance.class);
+        when(activityInstance.isResolvable()).thenReturn(true);
+        when(activityInstance.get()).thenReturn(activities);
+        service.activity = activityInstance;
+
+        Product updated = service.update(
+                1L, current.withSupplierNote("Nieuwe vertrouwelijke afspraak"));
+
+        assertEquals("Nieuwe vertrouwelijke afspraak", updated.supplierNote());
+        verify(activities).record(ActivityLogService.ACTION_UPDATED,
+                "PRODUCT", "1", "ENR-P01", "Product bijgewerkt",
+                List.of(new ActivityChangeDto(
+                        "supplierNote", "Leveranciersnotitie", null, null)));
+    }
+
+    @Test
     void productCreateValidatesTranslationDuplicatesAndDatabaseBoundariesBeforeSave() {
         Product boundary = product(null, "ENR-P255", "Beschrijving", null,
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
@@ -334,7 +438,8 @@ class ProductServicePublicationTest {
     void masterDataCsvRoundTripsPublicIdentityAndChannelStates() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.PUBLISHED, PublicationState.READY, true)
-                .withVariantAttributes("Rood", "XL", "#A91F32");
+                .withVariantAttributes("Rood", "XL", "#A91F32")
+                .withSupplierNote("Niet wissen bij bulkimport");
         repository.add(current);
         ProductCsv csv = new ProductCsv(
                 repository, new ProductValidator(new BarcodeValidator()));
@@ -352,6 +457,8 @@ class ProductServicePublicationTest {
                 repository.findById(1L).orElseThrow().publicationState(CatalogChannel.WEBSITE));
         assertEquals("XL", repository.findById(1L).orElseThrow().variantSize());
         assertEquals("#A91F32", repository.findById(1L).orElseThrow().colourHex());
+        assertEquals("Niet wissen bij bulkimport",
+                repository.findById(1L).orElseThrow().supplierNote());
     }
 
     @Test

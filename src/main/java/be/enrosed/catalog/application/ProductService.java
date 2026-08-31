@@ -156,7 +156,8 @@ public class ProductService {
         Product withSku = product.sku() == null || product.sku().isBlank()
                 ? product.withSku(nextSku())
                 : product;
-        Product prepared = withSku.withPublicationMetadata(
+        Product prepared = withSku.withSupplierNote(normalizeOptional(withSku.supplierNote()))
+                .withPublicationMetadata(
                 normalizeOptional(withSku.familyKey()), normalizeHandle(withSku.publicHandle()),
                 withSku.websiteStatus() == null ? PublicationState.DRAFT : withSku.websiteStatus(),
                 withSku.orderAppStatus() == null ? PublicationState.DRAFT : withSku.orderAppStatus());
@@ -263,6 +264,7 @@ public class ProductService {
                 changes.description(),
                 changes.categoryId(),
                 changes.supplierId(),
+                supplierNoteForUpdate(current, changes),
                 changes.active(),
                 /* Legacy full PUTs omitted this new field. Only the dedicated family command
                    treats null as an explicit unlink. */
@@ -300,6 +302,22 @@ public class ProductService {
                    general product PUT must never overwrite that independently saved snapshot. */
                 current.texts(),
                 changes.demo());
+    }
+
+    /**
+     * Older full-PUT clients echo the complete product, including the old
+     * supplier note, when only the supplier changes. Treat an omitted or
+     * unchanged note as stale relationship data; only a genuinely different
+     * explicit note belongs to the new supplier.
+     */
+    private static String supplierNoteForUpdate(Product current, Product changes) {
+        if (Objects.equals(current.supplierId(), changes.supplierId())) {
+            return changes.supplierNote() == null
+                    ? current.supplierNote() : normalizeOptional(changes.supplierNote());
+        }
+        String requested = normalizeOptional(changes.supplierNote());
+        return requested == null || Objects.equals(requested, current.supplierNote())
+                ? null : requested;
     }
 
     /**
@@ -347,7 +365,7 @@ public class ProductService {
                 null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
                 source.description(),
-                source.categoryId(), source.supplierId(), source.active(),
+                source.categoryId(), source.supplierId(), source.supplierNote(), source.active(),
                 source.familyId(), null, null, source.variantPosition() + 1, false,
                 source.familyKey(), null, PublicationState.DRAFT, PublicationState.DRAFT,
                 Barcodes.none(), source.hsCode(), source.carton(),
@@ -553,6 +571,8 @@ public class ProductService {
                 .add("colourHex", "Kleurstaal", before.colourHex(), after.colourHex())
                 .add("categoryId", "Categorie", before.categoryId(), after.categoryId())
                 .add("supplierId", "Leverancier", before.supplierId(), after.supplierId())
+                .privateValue("supplierNote", "Leveranciersnotitie",
+                        before.supplierNote(), after.supplierNote())
                 .add("active", "Actief", before.active(), after.active())
                 .add("demo", "Demo", before.demo(), after.demo())
                 .add("familyId", "Productreeks", before.familyId(), after.familyId())

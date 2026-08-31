@@ -51,6 +51,7 @@ final class CatalogMapper {
                 entity.description,
                 entity.categoryId,
                 entity.supplierId,
+                entity.supplierNote,
                 entity.active,
                 entity.familyId,
                 entity.canonicalVariantKey,
@@ -112,6 +113,7 @@ final class CatalogMapper {
         entity.description = blankToNull(product.description());
         entity.categoryId = product.categoryId();
         entity.supplierId = product.supplierId();
+        entity.supplierNote = blankToNull(product.supplierNote());
         entity.active = product.active();
         entity.demo = product.demo();
         entity.familyId = product.familyId();

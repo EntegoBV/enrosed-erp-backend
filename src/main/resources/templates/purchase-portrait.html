@@ -6,7 +6,7 @@
     @page {
       size: A4 portrait; margin: 13mm 13mm 17mm;
       @bottom-left {
-        content: "{order.number} - inkooporder verticaal";
+        content: "{order.number} - {#if supplierMode}leveranciersorder{#else}inkooporder verticaal{/if}";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
       }
       @bottom-right {
@@ -93,6 +93,12 @@
     .product__name { font-size: 8.5pt; font-weight: 700; line-height: 1.25; }
     .product__meta { margin-top: .8mm; color: #8b8179; font-size: 6.6pt; }
     .product__specs { margin-top: .8mm; color: #584d47; font-size: 6.4pt; line-height: 1.35; }
+    .supplier-note {
+      padding-left: 2mm; border-left: .7pt solid #c6a15b;
+      color: #584d47; font-size: 8pt; line-height: 1.45; white-space: pre-line;
+    }
+    .supplier-note b { color: #8f2942; font-size: 6.1pt; letter-spacing: .05em; text-transform: uppercase; }
+    .lines .supplier-note-cell { padding: 2.5mm 3mm; text-align: left; background: #fdfaf6; }
     .number { white-space: nowrap; }
     .price-main { font-weight: 700; }
     .price-sub { color: #8b8179; font-size: 6.4pt; }
@@ -121,18 +127,18 @@
       <div class="company-line">{company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}</div>
     </td>
     <td class="doc-meta">
-      <div class="doc-kicker">Inkooporder - verticaal</div>
+      <div class="doc-kicker">{#if supplierMode}Leveranciersorder{#else}Inkooporder - verticaal{/if}</div>
       <div class="doc-number">{order.number}</div>
-      {#if order.alias}<div class="doc-alias">{order.alias}</div>{/if}
-      <div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">A4 staand</span></div>
+      {#if !supplierMode && order.alias}<div class="doc-alias">{order.alias}</div>{/if}
+      {#if !supplierMode}<div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">A4 staand</span></div>{/if}
     </td>
   </tr>
 </table>
 
-<div class="read-note">
+{#if !supplierMode}<div class="read-note">
   <b>Inkooporder voor controle of verzending.</b> Deze versie toont de bestelde aantallen,
   kartoninhoud en afgesproken inkoopprijzen. Interne kostopbouw en betaalhistoriek blijven afgeschermd.
-</div>
+</div>{/if}
 
 <table class="parties">
   <tr>
@@ -156,15 +162,60 @@
 </table>
 
 <table class="facts">
+  {#if supplierMode}
+  <tr>
+    <td style="width:25%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
+    <td style="width:45%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
+    <td style="width:30%"><div class="facts__label">Verwachte levering</div><div class="facts__value">{#if order.expectedArrival}{order.expectedArrival.be}{#else}-{/if}</div></td>
+  </tr>
+  {#else}
   <tr>
     <td style="width:20%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
     <td style="width:29%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
     <td style="width:22%"><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>
     <td style="width:29%"><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div>{#if order.expectedArrival}<div class="facts__sub">Verwacht {order.expectedArrival.be}</div>{/if}</td>
   </tr>
+  {/if}
 </table>
 
 <div class="section-title">Producten</div>
+{#if supplierMode}
+<table class="lines">
+  <thead>
+  <tr>
+    <th style="width:66mm">Product</th>
+    <th style="width:28mm">EAN</th>
+    <th style="width:14mm">Besteld</th>
+    <th style="width:14mm">Kartons</th>
+    <th style="width:23mm">Karton CBM</th>
+    <th style="width:33mm">Prijs / stuk</th>
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in supplierLines}
+    <tr class="{#if line_even}alt{/if}">
+      <td>
+        <div class="product__name">{line.productName}</div>
+        {#if line.sku}<div class="product__meta">{line.sku}</div>{/if}
+      </td>
+      <td class="number">{#if line.ean}{line.ean}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="number">{line.orderedQuantity}</td>
+      <td class="number">{line.orderedCartons}</td>
+      <td class="number">{#if line.cartonCbm}{line.cartonCbm} m³{#else}<span class="muted">-</span>{/if}</td>
+      <td class="number">
+        {#if line.priceAvailable}<span class="price-main">{line.agreedUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.currency} · {line.priceBasis}</span>
+        {#else}<span class="muted">-</span>{/if}
+      </td>
+    </tr>
+    {#for noteChunk in line.supplierNoteChunks}
+      <tr class="supplier-note-row">
+        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Leveranciersnotitie</b><br/>{noteChunk}</div></td>
+      </tr>
+    {/for}
+  {/for}
+  </tbody>
+</table>
+{#else}
 <table class="lines">
   <thead>
   <tr>
@@ -207,6 +258,7 @@
   {/for}
   </tbody>
 </table>
+{/if}
 
 <table class="closing">
   <tr>
@@ -216,7 +268,7 @@
       {order.containerType.label}{#if order.trackingReference} - {order.trackingReference}{/if}<br/>
       {#if order.expectedArrival}Verwachte aankomst: {order.expectedArrival.be}{/if}
     </td>
-    <td class="closing__total">
+    {#if !supplierMode}<td class="closing__total">
       <div class="total-box">
         <div class="label">Ordertotaal per valuta</div>
         <table class="total-row">
@@ -227,14 +279,14 @@
       {#if missingPurchasePrices > 0}
         <div class="warning">{missingPurchasePrices} productregel(s) hebben nog geen eenduidige inkoopprijs of valuta. Controleer dit voor delen.</div>
       {/if}
-    </td>
+    </td>{/if}
   </tr>
 </table>
 
-<div class="footnote">
+{#if !supplierMode}<div class="footnote">
   Inkooporder uit het actuele Enrosed-dossier. Product-, karton- en leveranciersgegevens worden bij
   het maken van deze PDF gelezen en zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
-</div>
+</div>{/if}
 
 </body>
 </html>

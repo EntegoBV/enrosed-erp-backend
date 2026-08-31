@@ -13,6 +13,7 @@ import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
@@ -23,6 +24,7 @@ import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
+import io.quarkus.qute.TemplateInstance;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.BadRequestException;
 import org.jboss.logging.Logger;
@@ -30,12 +32,14 @@ import org.jboss.logging.Logger;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -69,6 +73,36 @@ public class PdfPurchaseRenderer {
                 return valueOf(value.strip().toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException exception) {
                 throw new BadRequestException("Onbekende PDF-layout. Kies PORTRAIT of LANDSCAPE");
+            }
+        }
+    }
+
+    /**
+     * Who the generated document is meant for.
+     *
+     * <p>{@link #INTERNAL} and {@link #STANDARD} deliberately retain the
+     * historical {@code showRevenue + layout} behaviour. {@link #SUPPLIER}
+     * is a separate, minimal contract and can only use the portrait sheet.</p>
+     */
+    public enum Audience {
+        INTERNAL,
+        STANDARD,
+        SUPPLIER;
+
+        public static Audience parse(String value) {
+            if (value == null || value.isBlank()) return STANDARD;
+            try {
+                return valueOf(value.strip().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new BadRequestException(
+                        "Onbekend PDF-publiek. Kies INTERNAL, STANDARD of SUPPLIER");
+            }
+        }
+
+        public void validate(Layout layout) {
+            if (this == SUPPLIER && layout != Layout.PORTRAIT) {
+                throw new BadRequestException(
+                        "De leveranciers-PDF is alleen beschikbaar in PORTRAIT-layout");
             }
         }
     }
@@ -132,12 +166,41 @@ public class PdfPurchaseRenderer {
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable) {}
 
+    /**
+     * Deliberately small supplier contract. No landed costs, revenue,
+     * payment figures or calculated line totals can enter this view.
+     */
+    public record SupplierLineView(
+            Long productId, String sku, String productName, String ean,
+            List<String> supplierNoteChunks,
+            int orderedQuantity, int orderedCartons,
+            String cartonCbm, BigDecimal agreedUnitPrice, Currency currency,
+            String priceBasis, boolean priceAvailable) {}
+
+    record AgreedUnitPrice(BigDecimal amount, Currency currency) {
+        boolean available() {
+            return amount != null && currency != null;
+        }
+    }
+
+    /** Only order fields that may enter the external supplier template context. */
+    public record SupplierOrderView(
+            String number, ContainerType containerType, LocalDate expectedArrival,
+            String trackingReference) {
+        static SupplierOrderView from(PurchaseOrder order) {
+            return new SupplierOrderView(order.number(), order.containerType(),
+                    order.expectedArrival(), order.trackingReference());
+        }
+    }
+
     /** One portrait-order total; separate currencies are never silently combined. */
     public record PurchaseTotal(String currency, String amount) {}
 
     private record Prepared(List<LineView> lines, List<PurchaseTotal> purchaseTotals,
                             int missingPurchasePrices, int purchasePieces,
                             int purchaseCartons) {}
+
+    private record SupplierPrepared(List<SupplierLineView> lines) {}
 
     /**
      * @param showRevenue shows the desired extra revenue as its own line.
@@ -157,50 +220,108 @@ public class PdfPurchaseRenderer {
     public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
                            boolean showRevenue, List<PurchasePayment> payments,
                            PurchaseOrderService.Payable payable, Layout requestedLayout) {
+        return render(order, costing, supplier, showRevenue, payments, payable,
+                requestedLayout, Audience.STANDARD);
+    }
+
+    /**
+     * Renders an explicit audience. Supplier output uses a distinct minimal
+     * data model even though it reuses the portrait paper design.
+     */
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
+                           boolean showRevenue, List<PurchasePayment> payments,
+                           PurchaseOrderService.Payable payable, Layout requestedLayout,
+                           Audience requestedAudience) {
         Layout layout = requestedLayout == null ? Layout.LANDSCAPE : requestedLayout;
-        boolean internal = layout == Layout.LANDSCAPE && showRevenue;
-        Prepared prepared = prepare(order, costing);
+        Audience audience = requestedAudience == null ? Audience.STANDARD : requestedAudience;
+        audience.validate(layout);
+        boolean supplierAudience = audience == Audience.SUPPLIER;
+        boolean internal = !supplierAudience && layout == Layout.LANDSCAPE && showRevenue;
         PurchaseCostLabels costLabels = PurchaseCostLabels.forOrder(order, supplier);
         String notes = order.notes() == null || order.notes().isBlank()
                 ? null : order.notes().strip();
         Template template = layout == Layout.PORTRAIT ? portraitTemplate : landscapeTemplate;
-        String html = template
-                .data("order", order)
-                .data("costing", costing)
-                .data("lines", prepared.lines())
-                .data("purchaseTotals", prepared.purchaseTotals())
-                .data("missingPurchasePrices", prepared.missingPurchasePrices())
-                .data("purchasePieces", prepared.purchasePieces())
-                .data("purchaseCartons", prepared.purchaseCartons())
+        TemplateInstance instance = template
+                .data("order", supplierAudience ? SupplierOrderView.from(order) : order)
                 .data("supplierName", supplier == null ? "-" : supplier.name())
                 .data("supplierAddressLines", supplierAddress(supplier))
                 .data("supplierContactLine", contactLine(supplier))
-                .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                 .data("costLabels", costLabels)
-                .data("unifiedUsdToEur", sameRate(order))
                 .data("orderDate", DocumentFormat.be(order.orderDate()))
-                .data("statusLabel", statusLabel(order.status()))
-                .data("timeline", timeline(order))
-                .data("createdBy", internal ? order.createdBy() : null)
-                .data("paymentTermsLabel", order.paymentTerms().dutchLabel())
-                .data("schedule", schedule(order, payable))
-                .data("paymentRows", paymentRows(payments))
-                .data("payableView", payableView(payments, payable))
-                .data("notesText", internal ? notes : null)
-                .data("usdRateGoods", rate(order.usdToEurGoods()))
-                .data("usdRateTransport", rate(order.usdToEurTransport()))
-                .data("cnyRate", rate(order.cnyToUsd()))
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())
-                .data("showRevenue", internal)
                 .data("portrait", layout == Layout.PORTRAIT)
-                .render();
+                .data("supplierMode", supplierAudience);
 
-        String suffix = layout == Layout.PORTRAIT
+        if (supplierAudience) {
+            SupplierPrepared prepared = prepareSupplier(order, costing);
+            instance.data("supplierLines", prepared.lines());
+        } else {
+            Prepared prepared = prepare(order, costing);
+            instance.data("costing", costing)
+                    .data("lines", prepared.lines())
+                    .data("purchaseTotals", prepared.purchaseTotals())
+                    .data("missingPurchasePrices", prepared.missingPurchasePrices())
+                    .data("purchasePieces", prepared.purchasePieces())
+                    .data("purchaseCartons", prepared.purchaseCartons())
+                    .data("statusLabel", statusLabel(order.status()))
+                    .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
+                    .data("unifiedUsdToEur", sameRate(order))
+                    .data("timeline", timeline(order))
+                    .data("createdBy", internal ? order.createdBy() : null)
+                    .data("paymentTermsLabel", order.paymentTerms().dutchLabel())
+                    .data("schedule", schedule(order, payable))
+                    .data("paymentRows", paymentRows(payments))
+                    .data("payableView", payableView(payments, payable))
+                    .data("notesText", internal ? notes : null)
+                    .data("usdRateGoods", rate(order.usdToEurGoods()))
+                    .data("usdRateTransport", rate(order.usdToEurTransport()))
+                    .data("cnyRate", rate(order.cnyToUsd()))
+                    .data("showRevenue", internal);
+        }
+        String html = instance.render();
+
+        String suffix = supplierAudience
+                ? "-supplier"
+                : layout == Layout.PORTRAIT
                 ? "-inkooporder-verticaal"
                 : internal ? "-interne-calculatie" : "-inkooporder-horizontaal";
         return new Document(order.number() + suffix + ".pdf", fonts.render(html),
                 "application/pdf");
+    }
+
+    private SupplierPrepared prepareSupplier(PurchaseOrder order, LandedCost costing) {
+        Map<Long, Product> byId = products.list().stream()
+                .filter(product -> product.id() != null)
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        Map<Long, PurchaseOrderLine> orderLines = order.lines().stream()
+                .filter(line -> line != null && line.productId() != null)
+                .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(),
+                        (left, right) -> left));
+        List<SupplierLineView> lines = new ArrayList<>();
+
+        for (LandedCost.Line costingLine : costing.lines()) {
+            Product product = byId.get(costingLine.productId());
+            PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
+            AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
+            int orderedQuantity = orderLine == null
+                    ? Math.max(0, costingLine.quantity()) : orderLine.ordered();
+            int orderedCartons = product == null || product.carton() == null
+                    ? Math.max(0, costingLine.cartons())
+                    : product.carton().cartonsFor(orderedQuantity);
+            boolean matchingSupplier = product != null && order.supplierId() != null
+                    && Objects.equals(product.supplierId(), order.supplierId());
+
+            lines.add(new SupplierLineView(
+                    costingLine.productId(), product == null ? null : product.sku(),
+                    product == null ? costingLine.productName() : product.nameWithColour(),
+                    ean(product), supplierNoteChunks(matchingSupplier ? product : null),
+                    orderedQuantity, orderedCartons, cartonCbm(product),
+                    price.amount(), price.currency(),
+                    orderLine == null ? "EXW" : orderLine.priceBasis().name(),
+                    price.available()));
+        }
+        return new SupplierPrepared(List.copyOf(lines));
     }
 
     private Prepared prepare(PurchaseOrder order, LandedCost costing) {
@@ -221,17 +342,16 @@ public class PdfPurchaseRenderer {
         for (LandedCost.Line costingLine : costing.lines()) {
             Product product = byId.get(costingLine.productId());
             PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
-            BigDecimal unitPrice = orderLine != null && orderLine.exwPrice() != null
-                    ? orderLine.exwPrice() : product == null ? null : product.exwPrice();
-            Currency currency = orderLine != null && orderLine.exwCurrency() != null
-                    ? orderLine.exwCurrency() : product == null ? null : product.exwCurrency();
+            AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
+            BigDecimal unitPrice = price.amount();
+            Currency currency = price.currency();
             int purchaseQuantity = orderLine != null && orderLine.orderedQuantity() != null
                     ? orderLine.orderedQuantity() : costingLine.quantity();
             int purchaseCartons = product == null || product.carton() == null
                     ? costingLine.cartons() : product.carton().cartonsFor(purchaseQuantity);
             purchasePieces += purchaseQuantity;
             purchaseCartonCount += purchaseCartons;
-            boolean priceAvailable = unitPrice != null && currency != null;
+            boolean priceAvailable = price.available();
             BigDecimal lineTotal = priceAvailable
                     ? unitPrice.multiply(BigDecimal.valueOf(purchaseQuantity)) : null;
             if (priceAvailable) {
@@ -260,6 +380,28 @@ public class PdfPurchaseRenderer {
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
         return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), missingPrices,
                 purchasePieces, purchaseCartonCount);
+    }
+
+    /**
+     * A purchase amount and its currency are one value. An explicit line pair
+     * wins; a wholly empty legacy line falls back to the complete product pair.
+     * A partial pair is treated as unavailable instead of inventing a mixture.
+     */
+    static AgreedUnitPrice agreedUnitPrice(PurchaseOrderLine line, Product product) {
+        if (line != null) {
+            boolean hasAmount = line.exwPrice() != null;
+            boolean hasCurrency = line.exwCurrency() != null;
+            if (hasAmount && hasCurrency) {
+                return new AgreedUnitPrice(line.exwPrice(), line.exwCurrency());
+            }
+            if (hasAmount || hasCurrency) {
+                return new AgreedUnitPrice(null, null);
+            }
+        }
+        if (product != null && product.exwPrice() != null && product.exwCurrency() != null) {
+            return new AgreedUnitPrice(product.exwPrice(), product.exwCurrency());
+        }
+        return new AgreedUnitPrice(null, null);
     }
 
     private String photo(Product product, Map<String, String> cache) {
@@ -310,6 +452,58 @@ public class PdfPurchaseRenderer {
         if (product == null || product.carton() == null
                 || product.carton().piecesPerCarton() < 1) return null;
         return product.carton().piecesPerCarton();
+    }
+
+    /** Product EAN, with the legacy editable piece barcode as a truthful fallback. */
+    static String ean(Product product) {
+        if (product == null) return null;
+        if (notBlank(product.canonicalBarcode())) return product.canonicalBarcode().strip();
+        if (product.barcodes() == null || !notBlank(product.barcodes().inner())) return null;
+        return product.barcodes().inner().strip();
+    }
+
+    /** Supplier instructions are trimmed, but line breaks remain meaningful on paper. */
+    static String supplierNote(Product product) {
+        if (product == null || !notBlank(product.supplierNote())) return null;
+        return product.supplierNote().strip();
+    }
+
+    /**
+     * Keeps a long note complete without creating one unbreakable table row.
+     * The product validator permits 4,000 characters, so one note may span
+     * several pages in a supplier order.
+     */
+    static List<String> supplierNoteChunks(Product product) {
+        String note = supplierNote(product);
+        if (note == null) return List.of();
+        final int targetSize = 700;
+        List<String> chunks = new ArrayList<>();
+        int start = 0;
+        while (start < note.length()) {
+            int end = Math.min(note.length(), start + targetSize);
+            if (end < note.length()) {
+                int whitespace = -1;
+                for (int index = end; index > start + targetSize / 2; index--) {
+                    if (Character.isWhitespace(note.charAt(index - 1))) {
+                        whitespace = index - 1;
+                        break;
+                    }
+                }
+                if (whitespace > start) end = whitespace;
+            }
+            String chunk = note.substring(start, end).strip();
+            if (!chunk.isEmpty()) chunks.add(chunk);
+            start = end;
+            while (start < note.length() && Character.isWhitespace(note.charAt(start))) start++;
+        }
+        return List.copyOf(chunks);
+    }
+
+    /** One outer carton's volume, not the full order-line volume. */
+    static String cartonCbm(Product product) {
+        if (product == null || product.carton() == null || product.carton().cbm() == null
+                || product.carton().cbm().signum() <= 0) return null;
+        return product.carton().cbm().stripTrailingZeros().toPlainString().replace('.', ',');
     }
 
     private static void add(List<String> parts, String value) {

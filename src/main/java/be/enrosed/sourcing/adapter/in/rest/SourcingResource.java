@@ -175,24 +175,32 @@ public class SourcingResource {
      * @param layout      LANDSCAPE keeps the historical wide calculation;
      *                    PORTRAIT is the compact purchase-order read copy.
      *                    Missing means LANDSCAPE for existing clients.
+     * @param audience    SUPPLIER selects the minimal supplier contract and
+     *                    requires PORTRAIT. INTERNAL and STANDARD keep the
+     *                    existing layout/showRevenue behaviour. Missing keeps
+     *                    the historical STANDARD behaviour.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
     @Produces("application/pdf")
     public Response purchasePdf(@PathParam("id") long id,
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue,
-                                @QueryParam("layout") @DefaultValue("LANDSCAPE") String layout) {
+                                @QueryParam("layout") @DefaultValue("LANDSCAPE") String layout,
+                                @QueryParam("audience") String audience) {
+        PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
+        PdfPurchaseRenderer.Audience resolvedAudience =
+                PdfPurchaseRenderer.Audience.parse(audience);
+        resolvedAudience.validate(resolvedLayout);
         PurchaseOrder order = purchaseOrders.get(id);
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         LandedCost costing = purchaseOrders.calculate(order);
-        PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
 
         PdfPurchaseRenderer.Document document = purchasePdf.render(
                 order, costing, supplier, showRevenue,
                 purchaseOrders.payments(id),
                 purchaseOrders.payable(order, costing,
                         supplier == null ? null : supplier.incoterm()),
-                resolvedLayout);
+                resolvedLayout, resolvedAudience);
 
         return Response.ok(document.content())
                 .header("Content-Disposition",

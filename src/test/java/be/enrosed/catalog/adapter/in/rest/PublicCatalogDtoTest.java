@@ -49,7 +49,7 @@ class PublicCatalogDtoTest {
                 publicProduct.path("photos").get(0).path("url").asText());
 
         List<String> forbiddenFields = List.of(
-                "supplierId", "exwPrice", "exwCurrency", "extraUnitCost",
+                "supplierId", "supplierNote", "exwPrice", "exwCurrency", "extraUnitCost",
                 "landedCostEur", "landedCostSource", "markupPct", "fixedSalesPriceEur",
                 "hsCode", "barcodes", "barcodeInner", "barcodeOuter", "stockQuantity",
                 "storageKey", "originalFilename", "texts", "publicationIssues");
@@ -58,6 +58,7 @@ class PublicCatalogDtoTest {
         assertFalse(json.contains("vendor-secret-key"), json);
         assertFalse(json.contains("supplier-private-name.jpg"), json);
         assertFalse(json.contains("PO-SECRET"), json);
+        assertFalse(json.contains("supplier secret"), json);
         assertTrue(publicProduct.has("familyKey"));
         assertTrue(publicProduct.has("publicHandle"));
         assertTrue(publicProduct.has("category"));
@@ -84,6 +85,7 @@ class PublicCatalogDtoTest {
                 List.of(new Photo(9L, "vendor-secret-key", "supplier-private-name.jpg",
                         "image/jpeg", 654321, 1200, 800, 0)),
                 List.of(new ProductText(Language.EN, "English rose",
-                        "English public description", "Red")));
+                        "English public description", "Red")))
+                .withSupplierNote("supplier secret");
     }
 }

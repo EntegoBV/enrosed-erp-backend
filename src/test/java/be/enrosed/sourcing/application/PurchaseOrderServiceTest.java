@@ -390,6 +390,102 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
+    void placingOrderSnapshotsTheCompleteProductPurchasePricePair() {
+        PurchaseOrder concept = withLinePrice(
+                order(PurchaseOrderStatus.CONCEPT, 6, null), null, null);
+        InMemoryOrders orders = new InMemoryOrders(concept);
+        RecordingProducts products = new RecordingProducts(
+                product(7L, new BigDecimal("12.34"), Currency.CNY));
+        PurchaseOrderService service = service(orders, products);
+
+        PurchaseOrder placed = service.update(
+                10L, withStatus(concept, PurchaseOrderStatus.BESTELD)).order();
+
+        assertEquals(new BigDecimal("12.34"), placed.lines().getFirst().exwPrice());
+        assertEquals(Currency.CNY, placed.lines().getFirst().exwCurrency());
+
+        products.current = product(7L, new BigDecimal("99.99"), Currency.EUR);
+        PurchaseOrder savedAgain = service.update(10L, placed).order();
+        assertEquals(new BigDecimal("12.34"), savedAgain.lines().getFirst().exwPrice(),
+                "a later product-master change must not alter the placed agreement");
+        assertEquals(Currency.CNY, savedAgain.lines().getFirst().exwCurrency());
+    }
+
+    @Test
+    void placingOrderKeepsAnExplicitLinePriceInsteadOfTheProductMaster() {
+        PurchaseOrder concept = withLinePrice(
+                order(PurchaseOrderStatus.CONCEPT, 6, null),
+                new BigDecimal("8.75"), Currency.EUR);
+        RecordingProducts products = new RecordingProducts(
+                product(7L, new BigDecimal("12.34"), Currency.CNY));
+
+        PurchaseOrder placed = service(new InMemoryOrders(concept), products)
+                .update(10L, withStatus(concept, PurchaseOrderStatus.BESTELD)).order();
+
+        assertEquals(new BigDecimal("8.75"), placed.lines().getFirst().exwPrice());
+        assertEquals(Currency.EUR, placed.lines().getFirst().exwCurrency());
+    }
+
+    @Test
+    void purchasePriceAmountAndCurrencyMustBeProvidedTogether() {
+        PurchaseOrder amountOnly = withLinePrice(
+                order(PurchaseOrderStatus.CONCEPT, 6, null),
+                new BigDecimal("8.75"), null);
+        PurchaseOrder currencyOnly = withLinePrice(
+                order(PurchaseOrderStatus.CONCEPT, 6, null), null, Currency.EUR);
+
+        BusinessRuleException missingCurrency = assertThrows(BusinessRuleException.class,
+                () -> service(new InMemoryOrders(amountOnly), new RecordingProducts())
+                        .update(10L, amountOnly));
+        assertTrue(missingCurrency.getMessage().contains("zowel de inkoopprijs als de valuta"));
+
+        BusinessRuleException missingAmount = assertThrows(BusinessRuleException.class,
+                () -> service(new InMemoryOrders(currencyOnly), new RecordingProducts())
+                        .update(10L, currencyOnly));
+        assertTrue(missingAmount.getMessage().contains("zowel de inkoopprijs als de valuta"));
+    }
+
+    @Test
+    void orderRejectsAProductOwnedByAnotherSupplier() {
+        PurchaseOrder concept = order(PurchaseOrderStatus.CONCEPT, 6, null);
+        RecordingProducts products = new RecordingProducts(
+                product(8L, new BigDecimal("4"), Currency.USD));
+
+        BusinessRuleException exception = assertThrows(BusinessRuleException.class,
+                () -> service(new InMemoryOrders(concept), products).update(10L, concept));
+
+        assertTrue(exception.getMessage().contains("hoort niet bij de gekozen leverancier"));
+    }
+
+    @Test
+    void historicalSupplierReassignmentAllowsHeaderEditButNotANewLine() {
+        PurchaseOrder historical = order(PurchaseOrderStatus.BESTELD, 6, 6);
+        InMemoryOrders orders = new InMemoryOrders(historical);
+        RecordingProducts products = new RecordingProducts(
+                product(8L, new BigDecimal("4"), Currency.USD));
+        PurchaseOrderService service = service(orders, products);
+
+        PurchaseOrder updated = service.update(
+                10L, withTrackingReference(historical, "MSCU-HISTORICAL-123")).order();
+
+        assertEquals("MSCU-HISTORICAL-123", updated.trackingReference(),
+                "a later product reassignment must not block an unrelated header edit");
+
+        PurchaseOrderLine stored = updated.lines().getFirst();
+        PurchaseOrderLine newLine = new PurchaseOrderLine(
+                null, stored.productId(), stored.quantity(), stored.exwPrice(),
+                stored.exwCurrency(), stored.extraUnitCost(), stored.orderedQuantity(),
+                stored.priceBasis(), stored.damagedQuantity(), stored.receiptUnitValueEur());
+        PurchaseOrder replacedByNewLine = updated.withReceipt(
+                updated.status(), updated.receivedOn(), updated.paidTotalEur(),
+                updated.stockBooked(), updated.notes(), List.of(newLine));
+
+        BusinessRuleException exception = assertThrows(BusinessRuleException.class,
+                () -> service.update(10L, replacedByNewLine));
+        assertTrue(exception.getMessage().contains("hoort niet bij de gekozen leverancier"));
+    }
+
+    @Test
     void duplicateOfHistoricalOrderBecomesSingleRateDraft() {
         PurchaseOrder historical = withRates(
                 order(PurchaseOrderStatus.BESTELD, 6, 6), "0.80", "0.93");
@@ -461,24 +557,59 @@ class PurchaseOrderServiceTest {
                 source.departurePort(), source.destinationPort(), source.notes(), source.lines());
     }
 
+    private static PurchaseOrder withLinePrice(PurchaseOrder source, BigDecimal amount,
+                                               Currency currency) {
+        PurchaseOrderLine line = source.lines().getFirst();
+        PurchaseOrderLine changed = new PurchaseOrderLine(
+                line.id(), line.productId(), line.quantity(), amount, currency,
+                line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(),
+                line.damagedQuantity(), line.receiptUnitValueEur());
+        return source.withReceipt(source.status(), source.receivedOn(), source.paidTotalEur(),
+                source.stockBooked(), source.notes(), List.of(changed));
+    }
+
+    private static PurchaseOrder withTrackingReference(PurchaseOrder source, String tracking) {
+        return new PurchaseOrder(
+                source.id(), source.number(), source.alias(), source.supplierId(), source.orderDate(),
+                source.status(), source.containerType(), source.cnyToUsd(), source.usdToEurGoods(),
+                source.usdToEurTransport(), source.freightUsd(), source.originCosts(),
+                source.originCurrency(), source.destinationCostsEur(), source.defaultDutyRatePct(),
+                source.extraRevenueEur(), source.allocFreight(), source.allocOrigin(),
+                source.allocDestination(), source.allocExtra(), source.departurePort(),
+                source.destinationPort(), source.receivingLocationId(), source.groupVariants(),
+                source.expectedArrival(), source.receivedOn(), source.paidTotalEur(),
+                source.stockBooked(), source.paymentTerms(), source.shippedOn(), tracking,
+                source.createdBy(), source.createdAt(), source.notes(), source.lines());
+    }
+
     private static Product product() {
+        return product(7L, new BigDecimal("4"), Currency.USD);
+    }
+
+    private static Product product(Long supplierId, BigDecimal price, Currency currency) {
         return new Product(1L, "SKU-1", "Testproduct", Dimensions.empty(), null, null,
-                1L, 7L, true, Barcodes.none(), null,
+                1L, supplierId, true, Barcodes.none(), null,
                 new Carton(Dimensions.empty(), 6, BigDecimal.ONE),
-                new BigDecimal("4"), Currency.USD, BigDecimal.ZERO,
+                price, currency, BigDecimal.ZERO,
                 null, null, BigDecimal.ZERO, null, 0, List.of(), List.of());
     }
 
     private static final class RecordingProducts extends ProductService {
         private int stockDelta;
+        private Product current;
 
         private RecordingProducts() {
+            this(product());
+        }
+
+        private RecordingProducts(Product current) {
             super(null, null, null);
+            this.current = current;
         }
 
         @Override
         public List<Product> list() {
-            return List.of(product());
+            return List.of(current);
         }
 
         @Override

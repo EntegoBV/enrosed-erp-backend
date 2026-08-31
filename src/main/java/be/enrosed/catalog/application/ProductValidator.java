@@ -35,6 +35,7 @@ public class ProductValidator {
         }
         bounded(product.name(), 255, "Naam");
         bounded(product.description(), 2_000, "Beschrijving");
+        bounded(product.supplierNote(), 4_000, "Leveranciersnotitie");
         bounded(product.colour(), 255, "Kleur");
         bounded(product.variantSize(), 255, "Variantmaat");
         EnumSet<be.enrosed.shared.Language> languages =
