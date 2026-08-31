@@ -346,6 +346,26 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void frontCoverIsDarkenedBeforePdfEmbedding() throws Exception {
+        byte[] source;
+        try (var input = java.util.Objects.requireNonNull(getClass().getClassLoader()
+                .getResourceAsStream("catalog-assets/catalog-cover-v3.png"))) {
+            source = input.readAllBytes();
+        }
+        BufferedImage original = dataImage(imageEncoder.encodeContained(
+                source, 2_480, 3_508, new Color(18, 12, 10)));
+        String darkened = editorialAssets.image("catalog-cover-v3.png");
+        BufferedImage cover = dataImage(darkened);
+
+        assertEquals(original.getWidth(), cover.getWidth());
+        assertEquals(original.getHeight(), cover.getHeight());
+        assertTrue(sampledLuminance(cover) < sampledLuminance(original) * .72,
+                "the embedded cover must remain visibly darker than its source image");
+        assertEquals(1, occurrences(
+                renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE)), darkened));
+    }
+
+    @Test
     void longFamilyCopyAndFourVariantsUseCompactDetailWithoutClippingOrExtraPages()
             throws Exception {
         CatalogExportService.Model source = model(4, CatalogExportService.Layout.BROCHURE);
@@ -1062,6 +1082,21 @@ class PdfCatalogRendererTest {
                 key, filename, contentType, bytes);
         return new Photo(id, key, filename, contentType, stored.sizeBytes(),
                 stored.widthPx(), stored.heightPx(), 0);
+    }
+
+    private static double sampledLuminance(BufferedImage image) {
+        double total = 0;
+        int samples = 0;
+        for (int y = 0; y < image.getHeight(); y += 32) {
+            for (int x = 0; x < image.getWidth(); x += 32) {
+                Color color = new Color(image.getRGB(x, y));
+                total += .2126 * color.getRed()
+                        + .7152 * color.getGreen()
+                        + .0722 * color.getBlue();
+                samples++;
+            }
+        }
+        return samples == 0 ? 0 : total / samples;
     }
 
     private static void assertPdf(CatalogDocumentRenderer.Document document) {

@@ -19,7 +19,6 @@
 
     .cover { padding: 0; background: #120c0a; }
     .cover-photo { position: absolute; top: 0; left: 0; width: 210mm; height: 297mm; }
-    .cover-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: linear-gradient(90deg, rgba(12,7,6,.36) 0%, rgba(12,7,6,.10) 58%, rgba(12,7,6,.02) 100%); }
     .cover-panel { position: absolute; top: 20mm; left: 15mm; width: 104mm; padding: 7mm 8mm 7mm 9mm; color: #f8f1e9; background: rgba(18,12,10,.46); border-left: 1mm solid #d6b25e; }
     .cover-logo { max-width: 44mm; max-height: 10mm; margin-bottom: 7mm; }
     .cover h1 { max-width: 100%; margin-top: 8mm; font-size: 27pt; line-height: .96; word-wrap: break-word; hyphens: auto; }
@@ -161,7 +160,6 @@
 
 <section class="page cover">
   {#if coverImage}<img class="cover-photo" src="{coverImage}" alt="{copy['catalog.brochure.cover.imagealt']}"/>{/if}
-  <div class="cover-shade"></div>
   <div class="cover-panel">
     {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
     <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
