@@ -1,94 +1,121 @@
 <!DOCTYPE html>
-<html lang="nl">
-<head><meta charset="utf-8"/></head>
-<body style="font-family:Helvetica,Arial,sans-serif;color:#1a1614;font-size:15px;line-height:1.55">
+<html lang="{languageCode}">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light"/>
+  <meta name="supported-color-schemes" content="light"/>
+  <title>Enrosed</title>
+</head>
+<body style="margin:0;padding:0;background:#f4efeb;color:#1a1614;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+    {intro}
+  </div>
 
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#f4efeb">
+    <tr>
+      <td align="center" style="padding:24px 12px">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+               style="width:100%;max-width:640px;border-collapse:separate;overflow:hidden;border:1px solid #e7ded8;border-radius:18px;background:#ffffff;box-shadow:0 12px 36px rgba(42,24,20,.08)">
+          <tr>
+            <td style="padding:26px 30px;background:#180d11;border-bottom:1px solid #382126">
+              <a href="https://enrosed.com" style="display:inline-block;color:#e0be73;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:600;letter-spacing:2px;text-decoration:none">
+                <img src="{logoUrl}" width="180" height="47" alt="ENROSED LONDON"
+                     style="display:block;width:180px;max-width:100%;height:auto;border:0;color:#e0be73;font-family:Georgia,'Times New Roman',serif;font-size:24px"/>
+              </a>
+            </td>
+          </tr>
 
-  <p>{t.mailGreeting}{#if customer.contact} {customer.contact}{/if},</p>
+          <tr>
+            <td style="padding:32px 30px 30px">
+              <p style="margin:0 0 18px">{t.mailGreeting}{#if customer.contact} {customer.contact}{/if},</p>
 
-  {#if termsJustAdded}
-    <div style="margin:0 0 18px;padding:14px 16px;border-left:3px solid #2e7d4f;background:#f2f8f4">
-      <p style="margin:0 0 4px;font-weight:600;color:#2e7d4f">{t.mailTermsAddedTitle}</p>
-      <p style="margin:0;font-size:14px">{t.mailTermsAddedText}</p>
-    </div>
-  {/if}
+              {#if termsJustAdded}
+                <div style="margin:0 0 20px;padding:14px 16px;border-left:3px solid #2e7d4f;border-radius:0 8px 8px 0;background:#f2f8f4">
+                  <p style="margin:0 0 4px;font-weight:700;color:#2e7d4f">{t.mailTermsAddedTitle}</p>
+                  <p style="margin:0;font-size:14px">{t.mailTermsAddedText}</p>
+                </div>
+              {/if}
 
-  {#if freightPending}
-    <div style="margin:0 0 18px;padding:14px 16px;border-left:3px solid #a85e10;background:#fdf7f0">
-      <p style="margin:0 0 4px;font-weight:600;color:#a85e10">{t.freight}</p>
-      <p style="margin:0;font-size:14px">{t.mailFreightPending}</p>
-    </div>
-  {/if}
+              {#if freightPending}
+                <div style="margin:0 0 20px;padding:14px 16px;border-left:3px solid #a85e10;border-radius:0 8px 8px 0;background:#fdf7f0">
+                  <p style="margin:0 0 4px;font-weight:700;color:#a85e10">{t.freight}</p>
+                  <p style="margin:0;font-size:14px">{t.mailFreightPending}</p>
+                </div>
+              {/if}
 
-  {#if personalMessage}
-    <p>{personalMessage}</p>
-  {#else}
-    <p>{intro}</p>
-  {/if}
+              {#if personalMessage}
+                <p style="margin:0 0 18px">{personalMessage}</p>
+              {#else}
+                <p style="margin:0 0 18px">{intro}</p>
+              {/if}
 
-  {#if deliveryLines && deliveryLines.size > 0}
-    <div style="margin:22px 0;padding:14px 16px;border:1px solid #e9e3de;background:#fcfaf8">
-      <p style="margin:0 0 8px;font-weight:600">
-        {#if allDeliveryKnown && !termsJustAdded}{t.mailDeliveryTitle}{#else}{t.mailDeliveryPerItem}{/if}
-      </p>
-      {#for line in deliveryLines}
-        <div style="font-size:14px;padding:3px 0">
-          {line.description} —
-          {#if line.known}
-            <b>{line.term}</b>
-          {#else}
-            <span style="color:#a85e10">{line.term}</span>
-          {/if}
-        </div>
-      {/for}
-      {#if !allDeliveryKnown}
-        <p style="margin:10px 0 0;font-size:13px;color:#a85e10">{t.mailDeliveryPending}</p>
-      {/if}
-    </div>
-  {/if}
+              {#if deliveryLines && deliveryLines.size > 0}
+                <div style="margin:22px 0;padding:16px;border:1px solid #e9e3de;border-radius:10px;background:#fcfaf8">
+                  <p style="margin:0 0 9px;font-weight:700;color:#312723">
+                    {#if allDeliveryKnown && !termsJustAdded}{t.mailDeliveryTitle}{#else}{t.mailDeliveryPerItem}{/if}
+                  </p>
+                  {#for line in deliveryLines}
+                    <div style="padding:4px 0;font-size:14px">
+                      {line.description} —
+                      {#if line.known}
+                        <strong>{line.term}</strong>
+                      {#else}
+                        <span style="color:#a85e10">{line.term}</span>
+                      {/if}
+                    </div>
+                  {/for}
+                  {#if !allDeliveryKnown}
+                    <p style="margin:10px 0 0;font-size:13px;color:#a85e10">{t.mailDeliveryPending}</p>
+                  {/if}
+                </div>
+              {/if}
 
-  {#if paymentSentence??}
-    <div style="margin:22px 0;padding:14px 16px;border:1px solid #f0d2d9;background:#fbecef">
-      <p style="margin:0;font-size:14px">{paymentSentence}</p>
-    </div>
-  {/if}
+              {#if paymentSentence??}
+                <div style="margin:22px 0;padding:14px 16px;border:1px solid #f0d2d9;border-radius:10px;background:#fbecef">
+                  <p style="margin:0;font-size:14px">{paymentSentence}</p>
+                </div>
+              {/if}
 
-  {#if portalUrl??}
-    <p>{t.portalText}</p>
+              {#if portalUrl??}
+                <p style="margin:20px 0 0">{t.portalText}</p>
 
-    <p style="margin:26px 0">
-      <a href="{portalUrl}"
-         style="background:#b01f3f;color:#ffffff;text-decoration:none;padding:13px 22px;
-                border-radius:8px;font-weight:600;display:inline-block">
-        {t.mailButton}
-      </a>
-    </p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0 18px;border-collapse:separate">
+                  <tr>
+                    <td align="center" bgcolor="#e0be73" style="border-radius:9px;background:#e0be73">
+                      <a href="{portalUrl}"
+                         style="display:inline-block;padding:13px 22px;color:#241a17;font-size:15px;font-weight:700;text-decoration:none">
+                        {t.mailButton}
+                      </a>
+                    </td>
+                  </tr>
+                </table>
 
-    <p style="color:#8a807a;font-size:13px">
-      {portalUrl}
-    </p>
-  {/if}
+                <p style="margin:0;overflow-wrap:anywhere;color:#8a807a;font-size:12px">
+                  <a href="{portalUrl}" style="color:#8a807a;text-decoration:underline">{portalUrl}</a>
+                </p>
+              {/if}
 
-  {#if validUntilSentence}
-    <p style="color:#8a807a;font-size:13px">
-      {validUntilSentence}
-    </p>
-  {/if}
+              {#if validUntilSentence}
+                <p style="margin:18px 0 0;color:#8a807a;font-size:13px">{validUntilSentence}</p>
+              {/if}
 
-  <p style="margin:26px 0 0">{t.mailClosing},</p>
+              <p style="margin:28px 0 0">{t.mailClosing},</p>
 
-  <!-- Signature: the wordmark as text, not an image - mail clients that
-       block images cannot break it then. -->
-  <p style="font-family:Georgia,serif;font-size:20px;letter-spacing:2px;margin:16px 0 2px">
-    ENR<span style="color:#b01f3f">O</span>SED
-  </p>
-  <p style="margin:0 0 12px;color:#8a807a;font-size:12.5px">Advice | Sales &amp; Support</p>
-
-  <p style="margin:0;font-size:13px;color:#5b534e;line-height:1.75">
-    T: <a href="tel:+32470024207" style="color:#5b534e;text-decoration:none">+32 4 70 02 42 07</a><br/>
-    M: <a href="mailto:hello@enrosed.com" style="color:#5b534e;text-decoration:none">hello@enrosed.com</a><br/>
-    W: <a href="https://enrosed.com" style="color:#5b534e;text-decoration:none">enrosed.com</a>
-  </p>
-
+              <div style="margin-top:16px;padding-top:18px;border-top:1px solid #ece5df">
+                <p style="margin:0;color:#241a17;font-size:16px;font-weight:700">Enrosed BV</p>
+                <p style="margin:2px 0 12px;color:#8a807a;font-size:12.5px">Advice | Sales &amp; Support</p>
+                <p style="margin:0;color:#5b534e;font-size:13px;line-height:1.75">
+                  T: <a href="tel:+32470024207" style="color:#5b534e;text-decoration:none">+32 470 02 42 07</a><br/>
+                  M: <a href="mailto:hello@enrosed.com" style="color:#5b534e;text-decoration:none">hello@enrosed.com</a><br/>
+                  W: <a href="https://enrosed.com" style="color:#5b534e;text-decoration:none">enrosed.com</a>
+                </p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>

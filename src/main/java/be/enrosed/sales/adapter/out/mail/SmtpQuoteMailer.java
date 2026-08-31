@@ -50,6 +50,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
 
     private static final Logger LOG = Logger.getLogger(SmtpQuoteMailer.class);
     private static final URI BREVO_ENDPOINT = URI.create("https://api.brevo.com/v3/smtp/email");
+    private static final String BRAND_LOGO_URL = "https://enrosed.com/photos/logo-gold.png";
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -92,6 +93,8 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         Map<String, String> text = DocumentText.of(language);
 
         String body = quoteMailTemplate
+                .data("languageCode", language.code())
+                .data("logoUrl", BRAND_LOGO_URL)
                 .data("order", order)
                 .data("customer", customer)
                 .data("portalUrl", null)
@@ -153,6 +156,8 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         Map<String, String> text = DocumentText.of(language);
 
         String body = quoteMailTemplate
+                .data("languageCode", language.code())
+                .data("logoUrl", BRAND_LOGO_URL)
                 .data("order", order)
                 .data("customer", customer)
                 .data("portalUrl", portalUrl)
