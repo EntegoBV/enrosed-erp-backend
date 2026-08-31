@@ -275,14 +275,17 @@ public class CatalogFoamPhotoBackfillService {
         ProductFamilyPhotoEntity existing = family.photos.stream()
                 .filter(photo -> PRIMARY_SOURCE_KEY.equals(photo.sourceKey)).findFirst().orElse(null);
         if (existing != null) {
+            List<CatalogChannel> currentChannels = publication.publishedChannels(existing);
+            List<CatalogChannel> requiredChannels = withCatalogueChannel(currentChannels);
             boolean changed = existing.position != 0
                     || existing.variantProduct == null
                     || !Objects.equals(existing.variantProduct.id, red.id)
-                    || !publication.publishedChannels(existing)
-                            .equals(List.of(CatalogChannel.CATALOGUE));
+                    || !currentChannels.equals(requiredChannels);
             makePrimary(family, existing);
             imageVariants.assign(existing, red);
-            publication.replacePublishedChannels(existing, List.of(CatalogChannel.CATALOGUE));
+            if (!currentChannels.equals(requiredChannels)) {
+                publication.replacePublishedChannels(existing, requiredChannels);
+            }
             return changed;
         }
 
@@ -346,6 +349,14 @@ public class CatalogFoamPhotoBackfillService {
         family.photos.sort(Comparator.comparingInt(item -> item.position));
         families.flush();
         return true;
+    }
+
+    /** Keep an administrator's public-channel choices while retaining the catalogue seed. */
+    private static List<CatalogChannel> withCatalogueChannel(List<CatalogChannel> channels) {
+        if (channels.contains(CatalogChannel.CATALOGUE)) return channels;
+        LinkedHashSet<CatalogChannel> selected = new LinkedHashSet<>(channels);
+        selected.add(CatalogChannel.CATALOGUE);
+        return List.of(CatalogChannel.values()).stream().filter(selected::contains).toList();
     }
 
     private static void makePrimary(ProductFamilyEntity family, ProductFamilyPhotoEntity primary) {

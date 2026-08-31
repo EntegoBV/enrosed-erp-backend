@@ -94,6 +94,9 @@ class CatalogFoamPhotoBackfillPersistenceTest {
                 photo.familyPhotoId == null && photo.storageKey.equals(stored.storageKey())),
                 "the original product-owned photo must stay available");
 
+        publication.replacePublishedChannels(
+                familyPhoto, List.of(CatalogChannel.WEBSITE, CatalogChannel.CATALOGUE));
+        entityManager.flush();
         CatalogFoamPhotoBackfillService.Result second = backfill.apply();
         entityManager.flush();
         entityManager.clear();
@@ -101,6 +104,9 @@ class CatalogFoamPhotoBackfillPersistenceTest {
         assertEquals(0, second.linkedPhotos());
         assertEquals(1, repeated.photos.stream().filter(photo ->
                 CatalogFoamPhotoBackfillService.PRIMARY_SOURCE_KEY.equals(photo.sourceKey)).count());
+        assertEquals(List.of(CatalogChannel.WEBSITE, CatalogChannel.CATALOGUE),
+                publication.publishedChannels(repeated.photos.getFirst()),
+                "a later seed pass must preserve an administrator's website selection");
     }
 
     @Test
