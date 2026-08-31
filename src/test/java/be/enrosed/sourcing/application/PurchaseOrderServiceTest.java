@@ -14,6 +14,7 @@ import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
+import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
@@ -33,7 +34,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,6 +79,10 @@ class PurchaseOrderServiceTest {
         assertEquals(5, received.lines().getFirst().quantity());
         assertEquals(6, received.lines().getFirst().orderedQuantity(), "the order remembers what was ordered");
         assertEquals(1, received.lines().getFirst().damaged());
+        assertEquals(new BigDecimal("3.6000"), received.lines().getFirst().receiptUnitValueEur());
+        assertEquals(new BigDecimal("3.60"), received.lines().getFirst().missingValueEur());
+        assertEquals(new BigDecimal("3.60"), received.lines().getFirst().damagedValueEur());
+        assertEquals(new BigDecimal("7.20"), received.lines().getFirst().totalLossValueEur());
         assertEquals(new java.math.BigDecimal("1234.56"), received.paidTotalEur());
         assertTrue(received.isStockBooked());
         assertTrue(received.notes().contains("Ontvangst 23/08/2026:"), received.notes());
@@ -96,10 +104,144 @@ class PurchaseOrderServiceTest {
         assertEquals(0, products.stockDelta, "received, not booked");
         assertFalse(received.isStockBooked());
         assertTrue(received.notes().contains("alles volgens bestelling"), received.notes());
+        PurchaseOrderService.ReceiptVarianceTotals summary = service.receiptVarianceSummary(received);
+        assertEquals(0, summary.affectedLines());
+        assertEquals(6, summary.orderedPieces());
+        assertEquals(6, summary.receivedPieces());
+        assertEquals(6, summary.usablePieces(),
+                "a perfect receipt still needs meaningful quantities on its order card");
 
         PurchaseOrder booked = service.bookStock(10L);
         assertEquals(6, products.stockDelta);
         assertTrue(booked.isStockBooked());
+    }
+
+    @Test
+    void explicitReceiptValueDrivesHistoricalMetricsAndCanBeCorrectedOrCleared() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(
+                        1L, 4, 1, new BigDecimal("7.25"))), false,
+                null, LocalDate.of(2026, 8, 23), null));
+
+        assertEquals(new BigDecimal("7.2500"), received.lines().getFirst().receiptUnitValueEur());
+        PurchaseOrderService.ReceiptVarianceReport report = service.receiptVariances(
+                null, null, null, null, null);
+        assertEquals(1, report.rows().size());
+        PurchaseOrderService.ReceiptVarianceRow row = report.rows().getFirst();
+        assertEquals(6, row.orderedPieces());
+        assertEquals(4, row.receivedPieces());
+        assertEquals(2, row.missingPieces());
+        assertEquals(1, row.damagedPieces());
+        assertEquals(3, row.usablePieces());
+        assertEquals(new BigDecimal("14.50"), row.missingValueEur());
+        assertEquals(new BigDecimal("7.25"), row.damagedValueEur());
+        assertEquals(new BigDecimal("21.75"), row.totalLossValueEur());
+        assertEquals("Leverancier", row.supplierName());
+        assertEquals(1, report.totals().affectedOrders());
+        assertEquals(1, report.totals().affectedLines());
+        assertEquals(0, report.totals().unvaluedLossPieces(),
+                "all three lost pieces are valued");
+        assertTrue(report.totals().valuationComplete());
+        assertTrue(service.receiptVariances(LocalDate.of(2026, 8, 24), null,
+                null, null, null).rows().isEmpty());
+        assertTrue(service.receiptVariances(null, null, null, 999L, null).rows().isEmpty());
+
+        service.setReceiptUnitValue(10L, 100L, new BigDecimal("8"));
+        assertEquals(new BigDecimal("24.00"), service.receiptVariances(
+                null, null, null, null, null).totals().totalLossValueEur());
+
+        service.setReceiptUnitValue(10L, 100L, null);
+        PurchaseOrderService.ReceiptVarianceReport unvalued = service.receiptVariances(
+                null, null, null, null, null);
+        assertEquals(3, unvalued.totals().unvaluedLossPieces());
+        assertFalse(unvalued.totals().valuationComplete());
+        assertEquals(new BigDecimal("0.00"), unvalued.totals().totalLossValueEur());
+        assertThrows(BusinessRuleException.class,
+                () -> service.setReceiptUnitValue(10L, 100L, new BigDecimal("-0.01")));
+    }
+
+    @Test
+    void receiptRejectsDuplicateAndUnknownProductCounts() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        assertThrows(BusinessRuleException.class, () -> service.receive(10L,
+                new PurchaseOrderService.Receipt(List.of(
+                        new PurchaseOrderService.ReceivedLine(1L, 5, 0),
+                        new PurchaseOrderService.ReceivedLine(1L, 4, 0)),
+                        false, null, null, null)));
+        assertThrows(BusinessRuleException.class, () -> service.receive(10L,
+                new PurchaseOrderService.Receipt(List.of(
+                        new PurchaseOrderService.ReceivedLine(999L, 1, 0)),
+                        false, null, null, null)));
+    }
+
+    @Test
+    void receiptSnapshotUsesCostingBeforeReceivedCountsReplaceOrderedCounts() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        LandedCostCalculator calculator = mock(LandedCostCalculator.class);
+        LandedCost costing = costing(1L, new BigDecimal("24.00"));
+        when(calculator.calculate(any(PurchaseOrder.class), anyMap())).thenAnswer(invocation -> {
+            PurchaseOrder beforeReceipt = invocation.getArgument(0);
+            assertEquals(6, beforeReceipt.lines().getFirst().quantity(),
+                    "costing must run while the ordered count is still present");
+            return costing;
+        });
+        PurchaseOrderService service = new PurchaseOrderService(
+                orders, new FixedSuppliers(true), new RecordingProducts(), calculator);
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(1L, 3, 0)),
+                false, null, null, null));
+
+        assertEquals(new BigDecimal("4.0000"), received.lines().getFirst().receiptUnitValueEur(),
+                "24 euro ordered goods / 6 ordered pieces is the frozen unit basis");
+    }
+
+    @Test
+    void missingExchangeRateLeavesReceiptValueUnknownInsteadOfInventingZero() {
+        PurchaseOrder historical = withRates(
+                order(PurchaseOrderStatus.BESTELD, 6, 6),
+                (BigDecimal) null, (BigDecimal) null);
+        InMemoryOrders orders = new InMemoryOrders(historical);
+        LandedCostCalculator calculator = mock(LandedCostCalculator.class);
+        LandedCost costing = costing(1L, BigDecimal.ZERO);
+        when(calculator.calculate(any(PurchaseOrder.class), anyMap())).thenReturn(costing);
+        PurchaseOrderService service = new PurchaseOrderService(
+                orders, new FixedSuppliers(true), new RecordingProducts(), calculator);
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(1L, 5, 0)),
+                false, null, null, null));
+
+        assertNull(received.lines().getFirst().receiptUnitValueEur());
+        assertEquals(1, service.receiptVariances(null, null, null, null, null)
+                .totals().unvaluedLossPieces());
+    }
+
+    @Test
+    void fullOrderUpdatesCannotOverwriteReceiptValueSnapshot() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(1L, 5, 1)),
+                false, null, LocalDate.of(2026, 8, 23), null));
+        PurchaseOrderLine line = received.lines().getFirst();
+        PurchaseOrder malicious = received.withReceipt(received.status(), received.receivedOn(),
+                received.paidTotalEur(), received.stockBooked(), received.notes(),
+                List.of(new PurchaseOrderLine(line.id(), line.productId(), line.quantity(),
+                        new BigDecimal("99"), line.exwCurrency(), line.extraUnitCost(),
+                        line.orderedQuantity(), line.priceBasis(), line.damagedQuantity(),
+                        new BigDecimal("999"))));
+
+        PurchaseOrder saved = service.update(10L, malicious).order();
+
+        assertEquals(new BigDecimal("3.6000"), saved.lines().getFirst().receiptUnitValueEur());
+        assertEquals(new BigDecimal("99"), saved.lines().getFirst().exwPrice(),
+                "commercial edits remain independent from the frozen receipt value");
     }
 
     @Test
@@ -251,6 +393,13 @@ class PurchaseOrderServiceTest {
     void duplicateOfHistoricalOrderBecomesSingleRateDraft() {
         PurchaseOrder historical = withRates(
                 order(PurchaseOrderStatus.BESTELD, 6, 6), "0.80", "0.93");
+        PurchaseOrderLine historicalLine = historical.lines().getFirst();
+        historical = historical.withReceipt(PurchaseOrderStatus.ONTVANGEN,
+                LocalDate.of(2026, 8, 23), null, true, historical.notes(),
+                List.of(new PurchaseOrderLine(historicalLine.id(), historicalLine.productId(), 5,
+                        historicalLine.exwPrice(), historicalLine.exwCurrency(),
+                        historicalLine.extraUnitCost(), historicalLine.orderedQuantity(),
+                        historicalLine.priceBasis(), 1, new BigDecimal("3.2000"))));
         InMemoryOrders orders = new InMemoryOrders(historical);
 
         PurchaseOrder copy = service(orders, new RecordingProducts()).duplicate(10L);
@@ -259,6 +408,8 @@ class PurchaseOrderServiceTest {
         assertEquals(new BigDecimal("0.80"), copy.usdToEurGoods());
         assertEquals(copy.usdToEurGoods(), copy.usdToEurTransport());
         assertEquals(historical.departurePort(), copy.departurePort());
+        assertNull(copy.lines().getFirst().receiptUnitValueEur(),
+                "a duplicate is a fresh draft, never another copy of historical receipt loss");
     }
 
     private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
@@ -278,13 +429,26 @@ class PurchaseOrderServiceTest {
     }
 
     private static PurchaseOrder withRates(PurchaseOrder source, String goods, String transport) {
+        return withRates(source, new BigDecimal(goods), new BigDecimal(transport));
+    }
+
+    private static PurchaseOrder withRates(PurchaseOrder source, BigDecimal goods, BigDecimal transport) {
         return new PurchaseOrder(source.id(), source.number(), source.alias(), source.supplierId(),
                 source.orderDate(), source.status(), source.containerType(), source.cnyToUsd(),
-                new BigDecimal(goods), new BigDecimal(transport), source.freightUsd(),
+                goods, transport, source.freightUsd(),
                 source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
                 source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
                 source.allocOrigin(), source.allocDestination(), source.allocExtra(),
                 source.departurePort(), source.destinationPort(), source.notes(), source.lines());
+    }
+
+    private static LandedCost costing(long productId, BigDecimal goodsEur) {
+        LandedCost.Line line = new LandedCost.Line(
+                productId, "Testproduct", 0, 0, null,
+                null, goodsEur, null, null, null,
+                null, null, null, null, null,
+                null, null, null, null, null);
+        return new LandedCost(List.of(line), null, null);
     }
 
     private static PurchaseOrder withStatus(PurchaseOrder source, PurchaseOrderStatus status) {

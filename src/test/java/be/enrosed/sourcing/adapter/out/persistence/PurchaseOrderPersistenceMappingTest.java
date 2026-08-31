@@ -3,6 +3,7 @@ package be.enrosed.sourcing.adapter.out.persistence;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderLineEntity;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.PurchaseOrder;
@@ -99,5 +100,29 @@ class PurchaseOrderPersistenceMappingTest {
         assertEquals("Shenzhen", restored.departurePort());
         assertEquals("Antwerpen", restored.destinationPort());
         assertEquals(new BigDecimal("2000"), restored.extraRevenueEur());
+    }
+
+    @Test
+    void receiptUnitValueSurvivesDatabaseRead() {
+        PurchaseOrderEntity entity = new PurchaseOrderEntity();
+        entity.id = 41L;
+        entity.number = "PO-RECEIPT";
+        entity.status = PurchaseOrderStatus.ONTVANGEN;
+        PurchaseOrderLineEntity line = new PurchaseOrderLineEntity();
+        line.id = 9L;
+        line.order = entity;
+        line.productId = 77L;
+        line.quantity = 8;
+        line.orderedQuantity = 10;
+        line.damagedQuantity = 1;
+        line.receiptUnitValueEur = new BigDecimal("4.1250");
+        entity.lines.add(line);
+
+        PurchaseOrder restored = PanacheSourcingRepositories.PurchaseOrderAdapter.toDomain(entity);
+
+        assertEquals(new BigDecimal("4.1250"), restored.lines().getFirst().receiptUnitValueEur());
+        assertEquals(2, restored.lines().getFirst().missing());
+        assertEquals(new BigDecimal("8.25"), restored.lines().getFirst().missingValueEur());
+        assertEquals(new BigDecimal("4.13"), restored.lines().getFirst().damagedValueEur());
     }
 }

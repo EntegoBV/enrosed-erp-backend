@@ -240,7 +240,7 @@ public class PurchaseOrderService {
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     line.exwPrice(), line.exwCurrency(), line.extraUnitCost(),
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
-                    line.damagedQuantity()));
+                    line.damagedQuantity(), storedReceiptUnitValue(current, line)));
         }
 
         if (changes.status() != PurchaseOrderStatus.CONCEPT
@@ -320,6 +320,16 @@ public class PurchaseOrderService {
                 .map(PurchaseOrderLine::orderedQuantity)
                 .findFirst()
                 .orElse(null);
+    }
+
+    /** Receipt valuations are server-owned snapshots, never mutable through the full order payload. */
+    private static BigDecimal storedReceiptUnitValue(PurchaseOrder current, PurchaseOrderLine incoming) {
+        if (current.status() != PurchaseOrderStatus.ONTVANGEN || incoming.id() == null) return null;
+        PurchaseOrderLine stored = current.lines().stream()
+                .filter(candidate -> incoming.id().equals(candidate.id()))
+                .findFirst()
+                .orElse(null);
+        return stored == null ? null : stored.receiptUnitValueEur();
     }
 
     /**
@@ -612,8 +622,14 @@ public class PurchaseOrderService {
         return joined.isBlank() ? null : joined;
     }
 
-    /** One line of a receipt: what arrived, and how much of that was broken. */
-    public record ReceivedLine(Long productId, Integer received, Integer damaged) {}
+    /** One line of a receipt: what arrived, what broke, and an optional explicit euro value per piece. */
+    public record ReceivedLine(Long productId, Integer received, Integer damaged,
+                               BigDecimal unitValueEur) {
+        /** Compatibility for clients and tests from before receipt valuation. */
+        public ReceivedLine(Long productId, Integer received, Integer damaged) {
+            this(productId, received, damaged, null);
+        }
+    }
 
     public record Receipt(List<ReceivedLine> lines, boolean bookStock, BigDecimal paidTotalEur,
                           LocalDate receivedOn, String note) {}
@@ -631,15 +647,34 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Deze container is al ontvangen");
         }
         requireForwardTransition(order.status(), PurchaseOrderStatus.ONTVANGEN);
+        if (receipt == null) receipt = new Receipt(List.of(), true, null, null, null);
         LocalDate day = receipt.receivedOn() != null ? receipt.receivedOn() : LocalDate.now();
 
         Map<Long, ReceivedLine> counted = new HashMap<>();
+        Set<Long> orderedProducts = order.lines().stream()
+                .map(PurchaseOrderLine::productId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
         for (ReceivedLine line : receipt.lines() == null ? List.<ReceivedLine>of() : receipt.lines()) {
-            if (line != null && line.productId() != null) counted.put(line.productId(), line);
+            if (line == null || line.productId() == null) {
+                throw new BusinessRuleException("Elke ontvangstregel moet bij een product horen");
+            }
+            if (!orderedProducts.contains(line.productId())) {
+                throw new BusinessRuleException("Product " + line.productId()
+                        + " staat niet op deze inkooporder");
+            }
+            if (counted.putIfAbsent(line.productId(), line) != null) {
+                throw new BusinessRuleException("Product " + line.productId()
+                        + " staat dubbel in de ontvangst");
+            }
         }
         List<PurchaseOrderLine> lines = new ArrayList<>();
         List<String> remarks = new ArrayList<>();
         Map<Long, Product> byId = productNames(order);
+        /* Calculate against the still-ordered quantities. Recalculating after
+           replacement by received counts would silently change the historical
+           per-piece basis for a short delivery. */
+        Map<Long, BigDecimal> automaticUnitValues = receiptUnitValues(order, byId);
         for (PurchaseOrderLine line : order.lines()) {
             ReceivedLine count = counted.get(line.productId());
             int received = count == null || count.received() == null ? line.quantity() : count.received();
@@ -651,6 +686,13 @@ public class PurchaseOrderService {
                 throw new BusinessRuleException("Meer beschadigd dan ontvangen bij "
                         + describe(byId, line.productId()));
             }
+            BigDecimal explicitUnitValue = count == null ? null : count.unitValueEur();
+            if (explicitUnitValue != null && explicitUnitValue.signum() < 0) {
+                throw new BusinessRuleException("Waarde per stuk kan niet negatief zijn bij "
+                        + describe(byId, line.productId()));
+            }
+            BigDecimal receiptUnitValue = explicitUnitValue == null
+                    ? automaticUnitValues.get(line.productId()) : Money.unit(explicitUnitValue);
             int ordered = line.orderedQuantity() != null ? line.orderedQuantity() : line.quantity();
             if (received != ordered || damaged > 0) {
                 StringBuilder remark = new StringBuilder(describe(byId, line.productId()))
@@ -659,13 +701,15 @@ public class PurchaseOrderService {
                 remarks.add(remark.toString());
             }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), received, line.exwPrice(),
-                    line.exwCurrency(), line.extraUnitCost(), ordered, line.priceBasis(), damaged));
+                    line.exwCurrency(), line.extraUnitCost(), ordered, line.priceBasis(), damaged,
+                    receiptUnitValue));
         }
 
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
         PurchaseOrder received = orders.save(order.withReceipt(PurchaseOrderStatus.ONTVANGEN, day,
                 receipt.paidTotalEur(), false, notes, lines));
-        recordActivity(ActivityLogService.ACTION_RECEIVED, received, "Container ontvangen");
+        recordActivity(ActivityLogService.ACTION_RECEIVED, received, "Container ontvangen",
+                purchaseChanges(order, received, byId));
         firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.RECEIVED,
                 received.id(), received.number(), received.destinationPort(), receipt.bookStock(), currentActor()));
         return receipt.bookStock() ? bookStock(received.id()) : received;
@@ -732,6 +776,201 @@ public class PurchaseOrderService {
     public record ExpectedStock(long productId, int quantity, LocalDate expectedArrival, List<String> orderNumbers,
                                 List<Long> orderIds) {}
 
+    /** Aggregate counters for the affected receipt lines in the selected scope. */
+    public record ReceiptVarianceTotals(
+            long affectedOrders,
+            long affectedLines,
+            long orderedPieces,
+            long receivedPieces,
+            long missingPieces,
+            long overReceivedPieces,
+            long damagedPieces,
+            long usablePieces,
+            BigDecimal missingValueEur,
+            BigDecimal damagedValueEur,
+            BigDecimal totalLossValueEur,
+            long unvaluedLossPieces,
+            boolean valuationComplete
+    ) {}
+
+    /** One damaged or short purchase line, enriched for the historical metric screen. */
+    public record ReceiptVarianceRow(
+            long orderId,
+            String orderNumber,
+            String orderAlias,
+            LocalDate receivedOn,
+            LocalDate expectedArrival,
+            Long supplierId,
+            String supplierName,
+            Long lineId,
+            Long productId,
+            String productSku,
+            String productName,
+            int orderedPieces,
+            int receivedPieces,
+            int missingPieces,
+            int overReceivedPieces,
+            int damagedPieces,
+            int usablePieces,
+            BigDecimal receiptUnitValueEur,
+            BigDecimal missingValueEur,
+            BigDecimal damagedValueEur,
+            BigDecimal totalLossValueEur,
+            boolean valuationComplete
+    ) {}
+
+    public record ReceiptVarianceReport(ReceiptVarianceTotals totals,
+                                        List<ReceiptVarianceRow> rows) {}
+
+    /** All historical receipt exceptions, optionally narrowed for dashboard metrics. */
+    public ReceiptVarianceReport receiptVariances(LocalDate from, LocalDate to, Long supplierId,
+                                                  Long productId, Long orderId) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new BusinessRuleException("Begindatum kan niet na einddatum liggen");
+        }
+        Map<Long, Product> productsById = products.list().stream()
+                .filter(product -> product.id() != null)
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        Map<Long, Supplier> suppliersById = suppliers.findAll().stream()
+                .filter(supplier -> supplier.id() != null)
+                .collect(Collectors.toMap(Supplier::id, Function.identity(), (left, right) -> left));
+
+        List<ReceiptVarianceRow> rows = new ArrayList<>();
+        for (PurchaseOrder order : orders.findAll()) {
+            if (order.status() != PurchaseOrderStatus.ONTVANGEN) continue;
+            if (orderId != null && !orderId.equals(order.id())) continue;
+            if (supplierId != null && !supplierId.equals(order.supplierId())) continue;
+            if (from != null && (order.receivedOn() == null || order.receivedOn().isBefore(from))) continue;
+            if (to != null && (order.receivedOn() == null || order.receivedOn().isAfter(to))) continue;
+
+            Supplier supplier = order.supplierId() == null ? null : suppliersById.get(order.supplierId());
+            for (PurchaseOrderLine line : order.lines()) {
+                if (productId != null && !productId.equals(line.productId())) continue;
+                if (line.missing() == 0 && line.damaged() == 0) continue;
+                Product product = line.productId() == null ? null : productsById.get(line.productId());
+                rows.add(receiptVarianceRow(order, supplier, line, product));
+            }
+        }
+        rows.sort(java.util.Comparator
+                .comparing(ReceiptVarianceRow::receivedOn,
+                        java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))
+                .thenComparing(ReceiptVarianceRow::orderId, java.util.Comparator.reverseOrder())
+                .thenComparing(ReceiptVarianceRow::productSku,
+                        java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return new ReceiptVarianceReport(receiptVarianceTotals(rows), List.copyOf(rows));
+    }
+
+    /** Compact per-order summary included with the ordinary purchase-order view. */
+    public ReceiptVarianceTotals receiptVarianceSummary(PurchaseOrder order) {
+        if (order == null || order.status() != PurchaseOrderStatus.ONTVANGEN) {
+            return receiptVarianceTotals(List.of());
+        }
+        List<ReceiptVarianceRow> rows = order.lines().stream()
+                .map(line -> receiptVarianceRow(order, null, line, null))
+                .toList();
+        List<ReceiptVarianceRow> affected = rows.stream()
+                .filter(row -> row.missingPieces() > 0 || row.damagedPieces() > 0)
+                .toList();
+        ReceiptVarianceTotals losses = receiptVarianceTotals(affected);
+        return new ReceiptVarianceTotals(
+                losses.affectedOrders(), losses.affectedLines(),
+                rows.stream().mapToLong(ReceiptVarianceRow::orderedPieces).sum(),
+                rows.stream().mapToLong(ReceiptVarianceRow::receivedPieces).sum(),
+                losses.missingPieces(),
+                rows.stream().mapToLong(ReceiptVarianceRow::overReceivedPieces).sum(),
+                losses.damagedPieces(),
+                rows.stream().mapToLong(ReceiptVarianceRow::usablePieces).sum(),
+                losses.missingValueEur(), losses.damagedValueEur(), losses.totalLossValueEur(),
+                losses.unvaluedLossPieces(), losses.valuationComplete());
+    }
+
+    private static ReceiptVarianceRow receiptVarianceRow(PurchaseOrder order, Supplier supplier,
+                                                         PurchaseOrderLine line, Product product) {
+        String productName = product == null
+                ? "Product " + line.productId() : product.describe();
+        String supplierName = supplier == null || supplier.name() == null || supplier.name().isBlank()
+                ? "Onbekende leverancier" : supplier.name();
+        return new ReceiptVarianceRow(
+                order.id(), order.number(), order.alias(), order.receivedOn(), order.expectedArrival(),
+                order.supplierId(), supplierName,
+                line.id(), line.productId(),
+                product == null ? null : product.sku(), productName,
+                line.ordered(), line.received(), line.missing(), line.overReceived(), line.damaged(), line.usable(),
+                line.receiptUnitValueEur(), line.missingValueEur(), line.damagedValueEur(),
+                line.totalLossValueEur(), line.valuationComplete());
+    }
+
+    private static ReceiptVarianceTotals receiptVarianceTotals(List<ReceiptVarianceRow> rows) {
+        Set<Long> orders = rows.stream().map(ReceiptVarianceRow::orderId).collect(Collectors.toSet());
+        long ordered = 0;
+        long received = 0;
+        long missing = 0;
+        long overReceived = 0;
+        long damaged = 0;
+        long usable = 0;
+        long unvalued = 0;
+        BigDecimal missingValue = BigDecimal.ZERO;
+        BigDecimal damagedValue = BigDecimal.ZERO;
+        for (ReceiptVarianceRow row : rows) {
+            ordered += row.orderedPieces();
+            received += row.receivedPieces();
+            missing += row.missingPieces();
+            overReceived += row.overReceivedPieces();
+            damaged += row.damagedPieces();
+            usable += row.usablePieces();
+            if (row.missingValueEur() != null) missingValue = missingValue.add(row.missingValueEur());
+            if (row.damagedValueEur() != null) damagedValue = damagedValue.add(row.damagedValueEur());
+            if (!row.valuationComplete()) {
+                unvalued += (long) row.missingPieces() + row.damagedPieces();
+            }
+        }
+        BigDecimal valuedMissing = Money.money(missingValue);
+        BigDecimal valuedDamaged = Money.money(damagedValue);
+        return new ReceiptVarianceTotals(orders.size(), rows.size(), ordered, received, missing,
+                overReceived, damaged, usable, valuedMissing, valuedDamaged,
+                Money.money(valuedMissing.add(valuedDamaged)), unvalued, unvalued == 0);
+    }
+
+    /** Changes only the receipt valuation, without touching counts, stock, prices, or rates. */
+    @Transactional
+    public void setReceiptUnitValue(long orderId, long lineId, BigDecimal unitValueEur) {
+        PurchaseOrder order = getForUpdate(orderId);
+        if (order.status() != PurchaseOrderStatus.ONTVANGEN) {
+            throw new BusinessRuleException("Alleen een ontvangen inkooporder heeft ontvangstwaardes");
+        }
+        if (unitValueEur != null && unitValueEur.signum() < 0) {
+            throw new BusinessRuleException("Waarde per stuk kan niet negatief zijn");
+        }
+        PurchaseOrderLine selected = order.lines().stream()
+                .filter(line -> line.id() != null && line.id() == lineId)
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("Inkooporderregel", lineId));
+        BigDecimal normalized = unitValueEur == null ? null : Money.unit(unitValueEur);
+        if (sameAmount(selected.receiptUnitValueEur(), normalized)) return;
+
+        List<PurchaseOrderLine> lines = order.lines().stream()
+                .map(line -> line.id() != null && line.id() == lineId
+                        ? new PurchaseOrderLine(line.id(), line.productId(), line.quantity(), line.exwPrice(),
+                                line.exwCurrency(), line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(),
+                                line.damagedQuantity(), normalized)
+                        : line)
+                .toList();
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
+                order.stockBooked(), order.notes(), lines));
+        Map<Long, Product> byId = productNames(order);
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, "Ontvangstwaarde bijgewerkt",
+                ActivityChangeSet.create()
+                        .add("line." + selected.productId() + ".receiptUnitValueEur",
+                                "Waarde per stuk · " + describe(byId, selected.productId()),
+                                selected.receiptUnitValueEur(), normalized)
+                        .build());
+    }
+
+    private static boolean sameAmount(BigDecimal left, BigDecimal right) {
+        if (left == null || right == null) return left == null && right == null;
+        return left.compareTo(right) == 0;
+    }
+
     private static String appendReceiptNote(String notes, LocalDate day, List<String> remarks, String extra) {
         StringBuilder note = new StringBuilder("Ontvangst ").append(day.format(DAY));
         if (remarks.isEmpty()) note.append(": alles volgens bestelling.");
@@ -744,6 +983,71 @@ public class PurchaseOrderService {
         Map<Long, Product> byId = new HashMap<>();
         for (Product product : products.list()) byId.put(product.id(), product);
         return byId;
+    }
+
+    /**
+     * Stable purchase-value basis for a receipt, calculated before received
+     * quantities replace ordered quantities.
+     */
+    private Map<Long, BigDecimal> receiptUnitValues(PurchaseOrder order, Map<Long, Product> byId) {
+        Map<Long, LandedCost.Line> calculated = new HashMap<>();
+        if (calculator != null) {
+            for (LandedCost.Line line : calculator.calculate(order, byId).lines()) {
+                calculated.put(line.productId(), line);
+            }
+        }
+
+        Map<Long, BigDecimal> values = new HashMap<>();
+        for (PurchaseOrderLine line : order.lines()) {
+            Product product = byId.get(line.productId());
+            BigDecimal price = line.exwPrice() != null
+                    ? line.exwPrice() : product == null ? null : product.exwPrice();
+            if (price == null) {
+                values.put(line.productId(), null);
+                continue;
+            }
+
+            BigDecimal direct = directPurchaseUnitEur(order, line, product, price);
+            if (direct == null) {
+                /* Live costing uses zero for absent rates so previews remain
+                   calculable. A historical receipt must instead stay unknown;
+                   zero would be a false loss metric. */
+                values.put(line.productId(), null);
+                continue;
+            }
+
+            LandedCost.Line cost = calculated.get(line.productId());
+            if (cost != null && line.quantity() > 0) {
+                values.put(line.productId(), Money.unit(Money.divide(
+                        cost.goodsEur(), BigDecimal.valueOf(line.quantity()))));
+                continue;
+            }
+            values.put(line.productId(), direct);
+        }
+        return values;
+    }
+
+    /** Pure-test and zero-quantity fallback matching the calculator's goods conversion. */
+    private static BigDecimal directPurchaseUnitEur(PurchaseOrder order, PurchaseOrderLine line,
+                                                    Product product, BigDecimal price) {
+        Currency currency = line.exwCurrency() != null
+                ? line.exwCurrency() : product == null ? null : product.exwCurrency();
+        if (currency == null) currency = Currency.USD;
+        BigDecimal extra = line.extraUnitCost() != null
+                ? line.extraUnitCost() : product == null ? null : product.extraUnitCost();
+        BigDecimal amount = price.add(Money.nz(extra));
+        BigDecimal eur = switch (currency) {
+            case EUR -> amount;
+            case USD -> positiveRate(order.usdToEurGoods())
+                    ? amount.multiply(order.usdToEurGoods()) : null;
+            case CNY -> positiveRate(order.cnyToUsd()) && positiveRate(order.usdToEurGoods())
+                    ? amount.multiply(order.cnyToUsd()).multiply(order.usdToEurGoods()) : null;
+        };
+        return eur == null ? null : Money.unit(eur);
+    }
+
+    private static boolean positiveRate(BigDecimal rate) {
+        return rate != null && rate.signum() > 0;
     }
 
     private static String describe(Map<Long, Product> byId, Long productId) {
@@ -1017,6 +1321,7 @@ public class PurchaseOrderService {
                         before.receivingLocationId(), after.receivingLocationId())
                 .add("groupVariants", "Varianten groeperen", before.groupsVariants(), after.groupsVariants())
                 .add("expectedArrival", "Verwachte aankomst", before.expectedArrival(), after.expectedArrival())
+                .add("receivedOn", "Ontvangen op", before.receivedOn(), after.receivedOn())
                 .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
                 .add("trackingReference", "Tracking", before.trackingReference(), after.trackingReference())
                 .add("lineCount", "Aantal productregels", before.lines().size(), after.lines().size())
@@ -1039,6 +1344,11 @@ public class PurchaseOrderService {
             String label = product == null ? "Product " + productId : product.describe();
             changes.add("line." + productId + ".quantity", "Aantal · " + label,
                     oldLine == null ? null : oldLine.quantity(), newLine == null ? null : newLine.quantity());
+            changes.add("line." + productId + ".damagedQuantity", "Beschadigd · " + label,
+                    oldLine == null ? null : oldLine.damaged(), newLine == null ? null : newLine.damaged());
+            changes.add("line." + productId + ".receiptUnitValueEur", "Ontvangstwaarde/stuk · " + label,
+                    oldLine == null ? null : oldLine.receiptUnitValueEur(),
+                    newLine == null ? null : newLine.receiptUnitValueEur());
             changes.add("line." + productId + ".exwPrice", "EXW-prijs · " + label,
                     oldLine == null ? null : oldLine.exwPrice(), newLine == null ? null : newLine.exwPrice());
         }

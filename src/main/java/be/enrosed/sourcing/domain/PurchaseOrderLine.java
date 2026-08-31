@@ -1,6 +1,7 @@
 package be.enrosed.sourcing.domain;
 
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.Money;
 
 import java.math.BigDecimal;
 
@@ -27,19 +28,54 @@ public record PurchaseOrderLine(
         /** What the agreed price covers; null means EXW, as every line was before. */
         PriceBasis priceBasis,
         /** Pieces that arrived broken; they are in {@code quantity} but never in stock. */
-        Integer damagedQuantity
+        Integer damagedQuantity,
+        /**
+         * Purchase value of one piece in euro, snapshotted at receipt time.
+         *
+         * <p>Unlike the live landed-cost calculation this value must not move
+         * when a price or exchange rate is corrected later: historical
+         * shortage and damage metrics need the value that was attached to the
+         * receipt. Null means that no reliable value is known yet.</p>
+         */
+        BigDecimal receiptUnitValueEur
 ) {
     /** Compatibility for callers written before DDP prices existed. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity) {
-        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, null, null);
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost,
+                orderedQuantity, null, null, null);
     }
 
     /** Compatibility for callers written before damage was counted. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
                              PriceBasis priceBasis) {
-        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, priceBasis, null);
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost,
+                orderedQuantity, priceBasis, null, null);
+    }
+
+    /** Compatibility for callers written before receipt values were snapshotted. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
+                             PriceBasis priceBasis, Integer damagedQuantity) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost,
+                orderedQuantity, priceBasis, damagedQuantity, null);
+    }
+
+    public int ordered() {
+        return Math.max(0, orderedQuantity == null ? quantity : orderedQuantity);
+    }
+
+    public int received() {
+        return Math.max(0, quantity);
+    }
+
+    public int missing() {
+        return Math.max(0, ordered() - received());
+    }
+
+    public int overReceived() {
+        return Math.max(0, received() - ordered());
     }
 
     public int damaged() {
@@ -48,7 +84,37 @@ public record PurchaseOrderLine(
 
     /** What goes on the shelf: arrived minus broken. */
     public int usable() {
-        return Math.max(0, quantity - damaged());
+        return Math.max(0, received() - damaged());
+    }
+
+    public int lost() {
+        return missing() + damaged();
+    }
+
+    public BigDecimal missingValueEur() {
+        return valueFor(missing());
+    }
+
+    public BigDecimal damagedValueEur() {
+        return valueFor(damaged());
+    }
+
+    public BigDecimal totalLossValueEur() {
+        BigDecimal missingValue = missingValueEur();
+        BigDecimal damagedValue = damagedValueEur();
+        return missingValue == null || damagedValue == null
+                ? null : Money.money(missingValue.add(damagedValue));
+    }
+
+    public boolean valuationComplete() {
+        return lost() == 0 || receiptUnitValueEur != null;
+    }
+
+    private BigDecimal valueFor(int pieces) {
+        if (pieces == 0) return Money.money(BigDecimal.ZERO);
+        return receiptUnitValueEur == null
+                ? null
+                : Money.money(receiptUnitValueEur.multiply(BigDecimal.valueOf(pieces)));
     }
 
     public PriceBasis priceBasis() {

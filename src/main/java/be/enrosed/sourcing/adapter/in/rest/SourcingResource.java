@@ -47,6 +47,8 @@ public class SourcingResource {
                                     PurchaseOrderService.Payable payable,
                                     /** What the order waits on from us, in words; empty when nothing. */
                                     List<String> attention,
+                                    /** Durable shortage/damage totals for this received order. */
+                                    PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
                                     /** Immutable server-owned creator; null on historical rows. */
                                     ActorRef createdBy,
                                     java.time.Instant createdAt) {}
@@ -93,6 +95,19 @@ public class SourcingResource {
         return purchaseOrders.list().stream()
                 .map(order -> view(order, purchaseOrders.calculate(order), List.of()))
                 .toList();
+    }
+
+    /** Historical damaged and short receipts, with stable purchase-value metrics. */
+    @GET
+    @Path("/purchase-orders/receipt-variances")
+    public PurchaseOrderService.ReceiptVarianceReport receiptVariances(
+            @QueryParam("from") String from,
+            @QueryParam("to") String to,
+            @QueryParam("supplierId") Long supplierId,
+            @QueryParam("productId") Long productId,
+            @QueryParam("orderId") Long orderId) {
+        return purchaseOrders.receiptVariances(dateFilter(from, "Begindatum"),
+                dateFilter(to, "Einddatum"), supplierId, productId, orderId);
     }
 
     @GET
@@ -201,6 +216,21 @@ public class SourcingResource {
     public PurchaseOrderView bookStock(@PathParam("id") long id) {
         PurchaseOrder order = purchaseOrders.bookStock(id);
         return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
+    public record ReceiptUnitValueRequest(BigDecimal unitValueEur) {}
+
+    /** Adds, corrects, or clears the durable euro value attached to one receipt line. */
+    @PUT
+    @Path("/purchase-orders/{orderId}/receipt-lines/{lineId}/value")
+    public Response setReceiptUnitValue(@PathParam("orderId") long orderId,
+                                        @PathParam("lineId") long lineId,
+                                        ReceiptUnitValueRequest request) {
+        if (request == null) {
+            throw new be.enrosed.shared.BusinessRuleException("Geen ontvangstwaarde meegestuurd");
+        }
+        purchaseOrders.setReceiptUnitValue(orderId, lineId, request.unitValueEur());
+        return Response.noContent().build();
     }
 
     /* ---- payments ---- */
@@ -321,6 +351,16 @@ public class SourcingResource {
                 supplier == null ? null : supplier.incoterm());
         return new PurchaseOrderView(order, costing, adjustments,
                 PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
+                purchaseOrders.receiptVarianceSummary(order),
                 order.createdBy(), order.createdAt());
+    }
+
+    private static java.time.LocalDate dateFilter(String value, String label) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return java.time.LocalDate.parse(value.strip());
+        } catch (java.time.format.DateTimeParseException invalid) {
+            throw new be.enrosed.shared.BusinessRuleException(label + " moet JJJJ-MM-DD zijn");
+        }
     }
 }

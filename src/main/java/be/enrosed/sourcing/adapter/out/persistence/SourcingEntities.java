@@ -138,6 +138,9 @@ public final class SourcingEntities {
         @Enumerated(EnumType.STRING) public PriceBasis priceBasis;
         /** Pieces that arrived broken. */
         public Integer damagedQuantity;
+        /** Receipt-time purchase value per piece; null when it could not be valued reliably. */
+        @Column(precision = 19, scale = 4)
+        public BigDecimal receiptUnitValueEur;
     }
     /** One amount paid on a purchase order, kept as it left the bank. */
     @Entity

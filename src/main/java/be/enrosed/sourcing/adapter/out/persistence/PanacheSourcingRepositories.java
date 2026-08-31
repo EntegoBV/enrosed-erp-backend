@@ -283,6 +283,7 @@ public final class PanacheSourcingRepositories {
                 target.extraUnitCost = line.extraUnitCost();
                 target.priceBasis = line.priceBasis();
                 target.damagedQuantity = line.damagedQuantity();
+                target.receiptUnitValueEur = line.receiptUnitValueEur();
             }
 
             if (entity.id == null) dao.persist(entity);
@@ -300,7 +301,8 @@ public final class PanacheSourcingRepositories {
             for (PurchaseOrderLineEntity line : entity.lines) {
                 lines.add(new PurchaseOrderLine(line.id, line.productId, line.quantity,
                         line.exwPrice, line.exwCurrency, line.extraUnitCost,
-                        line.orderedQuantity, line.priceBasis, line.damagedQuantity));
+                        line.orderedQuantity, line.priceBasis, line.damagedQuantity,
+                        line.receiptUnitValueEur));
             }
             return new PurchaseOrder(entity.id, entity.number, entity.alias,
                     entity.supplierId, entity.orderDate,

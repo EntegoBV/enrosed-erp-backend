@@ -35,7 +35,7 @@ class SourcingResourcePurchaseMetadataTest {
                 "Ningbo", "Rotterdam", null, List.of())
                 .withCreationMetadata(creator, createdAt);
         SourcingResource.PurchaseOrderView view = new SourcingResource.PurchaseOrderView(
-                order, null, List.of(), null, null, List.of(), creator, createdAt);
+                order, null, List.of(), null, null, List.of(), null, creator, createdAt);
 
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules()
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
