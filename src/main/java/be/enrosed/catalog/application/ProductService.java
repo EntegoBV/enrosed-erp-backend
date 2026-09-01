@@ -14,6 +14,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.VariantSizes;
 import be.enrosed.shared.audit.ActivityChangeDto;
@@ -37,10 +38,16 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Everything that happens to a product.
@@ -154,6 +161,25 @@ public class ProductService {
         return products.findById(id).orElseThrow(() -> new NotFoundException("Product", id));
     }
 
+    /** Explicit groups that may be copied between colour/size variants. */
+    public enum SharedField {
+        NAME,
+        DESCRIPTION,
+        DIMENSIONS,
+        PACKAGING,
+        CARTON,
+        PURCHASE_PRICE,
+        SALES_PRICE,
+        HS_CODE
+    }
+
+    public record SharedFieldsResult(List<Long> updatedProductIds, int updatedProducts) {
+        public SharedFieldsResult {
+            updatedProductIds = updatedProductIds == null
+                    ? List.of() : List.copyOf(updatedProductIds);
+        }
+    }
+
     @Transactional
     public Product create(Product product) {
         Product withSku = product.sku() == null || product.sku().isBlank()
@@ -189,6 +215,247 @@ public class ProductService {
     @Transactional
     public Product update(long id, Product changes) {
         return update(id, changes, false);
+    }
+
+    /**
+     * Copies only explicitly selected operational fields from one family member to selected
+     * siblings. The family and every product row are locked before their membership is checked
+     * again. All candidates are validated before the first save, so one invalid target rolls the
+     * complete command back instead of leaving half a colour series changed.
+     */
+    @Transactional
+    public SharedFieldsResult applySharedFields(
+            long sourceId,
+            Long expectedFamilyId,
+            List<Long> requestedTargetIds,
+            Set<SharedField> requestedFields) {
+        if (expectedFamilyId == null) {
+            throw new BusinessRuleException("De verwachte productfamilie is verplicht");
+        }
+        if (requestedTargetIds == null || requestedTargetIds.isEmpty()) {
+            throw new BusinessRuleException("Kies minstens één kleur of maat om bij te werken");
+        }
+        if (requestedFields == null || requestedFields.isEmpty()) {
+            throw new BusinessRuleException("Kies minstens één gedeeld veld om toe te passen");
+        }
+        if (requestedFields.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessRuleException("Elk gedeeld veld moet een geldige naam hebben");
+        }
+        if (requestedTargetIds.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessRuleException("Elk doelproduct moet een geldig product-id hebben");
+        }
+
+        LinkedHashSet<Long> uniqueTargetIds = new LinkedHashSet<>(requestedTargetIds);
+        if (uniqueTargetIds.size() != requestedTargetIds.size()) {
+            throw new BusinessRuleException("Een doelproduct mag maar één keer voorkomen");
+        }
+        if (uniqueTargetIds.contains(sourceId)) {
+            throw new BusinessRuleException("Het bronproduct kan niet ook een doelproduct zijn");
+        }
+        List<Long> targetIds = uniqueTargetIds.stream().sorted().toList();
+        Set<SharedField> fields = Set.copyOf(requestedFields);
+
+        /* Observe first so every potentially involved family can be locked in canonical order.
+           Membership is authoritative only after the product locks below are held. */
+        Product observedSource = get(sourceId);
+        List<Product> observedTargets = targetIds.stream().map(this::get).toList();
+        if (familyWrites != null) {
+            List<Long> familyIds = new ArrayList<>();
+            familyIds.add(expectedFamilyId);
+            familyIds.add(observedSource.familyId());
+            observedTargets.stream().map(Product::familyId).forEach(familyIds::add);
+            familyWrites.lockFamilies(familyIds);
+
+            List<Long> productIds = new ArrayList<>(targetIds.size() + 1);
+            productIds.add(sourceId);
+            productIds.addAll(targetIds);
+            familyWrites.lockProducts(productIds);
+        }
+
+        Product source = get(sourceId);
+        requireSharedFieldFamily(source, expectedFamilyId, "Bronproduct");
+        List<Product> targets = targetIds.stream().map(this::get).toList();
+        targets.forEach(target -> requireSharedFieldFamily(
+                target, expectedFamilyId, "Doelproduct " + productIdentity(target)));
+
+        /* Validate the entire prospective state before persisting any target. */
+        Map<Long, Product> candidates = new LinkedHashMap<>();
+        for (Product target : targets) {
+            Product candidate = copySharedFields(source, target, fields);
+            validator.validate(candidate);
+            ensurePublishable(candidate);
+            candidates.put(target.id(), candidate);
+        }
+
+        List<Long> updatedIds = new ArrayList<>();
+        for (Product target : targets) {
+            Product candidate = candidates.get(target.id());
+            if (candidate.equals(target)) continue;
+
+            Product saved = products.save(candidate);
+            Product updated = saved.id() == null ? saved : get(saved.id());
+            updatedIds.add(updated.id());
+            List<ActivityChangeDto> changes = productChanges(target, updated);
+            if (changes.isEmpty()) {
+                /* Translation-only changes are real product work too, even though their private
+                   text is deliberately absent from the activity delta. */
+                recordActivity(ActivityLogService.ACTION_UPDATED, updated,
+                        "Gedeelde productgegevens toegepast");
+            } else {
+                recordActivity(ActivityLogService.ACTION_UPDATED, updated,
+                        "Gedeelde productgegevens toegepast", changes);
+            }
+        }
+
+        if (!updatedIds.isEmpty()) {
+            if (familyWrites != null) {
+                familyWrites.validateFamilies(
+                        List.of(expectedFamilyId),
+                        ProductFamilyWriteGuard.WriteKind.INCREMENTAL_EDIT);
+            }
+            queueWebsite();
+        }
+        return new SharedFieldsResult(updatedIds, updatedIds.size());
+    }
+
+    private static void requireSharedFieldFamily(
+            Product product, long expectedFamilyId, String label) {
+        if (product.familyId() == null) {
+            throw new BusinessRuleException(label + " hoort niet bij een productfamilie");
+        }
+        if (!Objects.equals(product.familyId(), expectedFamilyId)) {
+            throw new BusinessRuleException(
+                    label + " hoort niet bij de verwachte productfamilie " + expectedFamilyId);
+        }
+    }
+
+    private static String productIdentity(Product product) {
+        if (product.sku() != null && !product.sku().isBlank()) return product.sku();
+        if (product.name() != null && !product.name().isBlank()) return product.name();
+        return "#" + product.id();
+    }
+
+    /** Build from the target and replace only whitelisted groups from the source. */
+    private static Product copySharedFields(
+            Product source, Product target, Set<SharedField> fields) {
+        boolean name = fields.contains(SharedField.NAME);
+        boolean description = fields.contains(SharedField.DESCRIPTION);
+
+        Packaging packaging = target.packaging();
+        if (fields.contains(SharedField.PACKAGING)) {
+            Packaging sourcePackaging = source.packaging();
+            packaging = new Packaging(
+                    sourcePackaging.kind(),
+                    sourcePackaging.dimensions(),
+                    target.packaging().barcode(),
+                    sourcePackaging.piecesPerUnit());
+        }
+
+        List<ProductText> texts = name || description
+                ? copySharedTexts(source, target, name, description)
+                : target.texts();
+
+        return new Product(
+                target.id(),
+                target.sku(),
+                name ? source.name() : target.name(),
+                fields.contains(SharedField.DIMENSIONS)
+                        ? source.dimensions() : target.dimensions(),
+                packaging,
+                target.colour(),
+                target.variantSize(),
+                target.colourHex(),
+                description ? source.description() : target.description(),
+                target.categoryId(),
+                target.supplierId(),
+                target.supplierNote(),
+                target.active(),
+                target.familyId(),
+                target.canonicalVariantKey(),
+                target.canonicalBarcode(),
+                target.variantPosition(),
+                target.inventoryKnown(),
+                target.familyKey(),
+                target.publicHandle(),
+                target.websiteStatus(),
+                target.orderAppStatus(),
+                target.barcodes(),
+                fields.contains(SharedField.HS_CODE) ? source.hsCode() : target.hsCode(),
+                fields.contains(SharedField.CARTON) ? source.carton() : target.carton(),
+                fields.contains(SharedField.PURCHASE_PRICE)
+                        ? source.exwPrice() : target.exwPrice(),
+                fields.contains(SharedField.PURCHASE_PRICE)
+                        ? source.exwCurrency() : target.exwCurrency(),
+                fields.contains(SharedField.PURCHASE_PRICE)
+                        ? source.extraUnitCost() : target.extraUnitCost(),
+                target.landedCostEur(),
+                target.landedCostSource(),
+                fields.contains(SharedField.SALES_PRICE)
+                        ? source.markupPct() : target.markupPct(),
+                fields.contains(SharedField.SALES_PRICE)
+                        ? source.fixedSalesPriceEur() : target.fixedSalesPriceEur(),
+                target.stockQuantity(),
+                target.photos(),
+                texts,
+                target.demo());
+    }
+
+    /**
+     * Name and description may be shared; colour and size translations always remain attached to
+     * their target variant. Only filled source cells are applied, so an incomplete master never
+     * erases a translation that was already present on another colour.
+     */
+    private static List<ProductText> copySharedTexts(
+            Product source, Product target, boolean copyName, boolean copyDescription) {
+        Map<Language, ProductText> sourceByLanguage = source.texts().stream()
+                .collect(Collectors.toMap(
+                        ProductText::language,
+                        text -> text,
+                        (left, right) -> right,
+                        () -> new EnumMap<>(Language.class)));
+        Map<Language, ProductText> targetByLanguage = target.texts().stream()
+                .collect(Collectors.toMap(
+                        ProductText::language,
+                        text -> text,
+                        (left, right) -> right,
+                        () -> new EnumMap<>(Language.class)));
+        /* Keep the target's persisted ordering so a semantic no-op cannot become an apparent
+           change merely because enum order differs. New source-only languages are appended in
+           their existing source order. */
+        Set<Language> languages = new LinkedHashSet<>();
+        target.texts().stream().map(ProductText::language).forEach(languages::add);
+        source.texts().stream().map(ProductText::language).forEach(languages::add);
+
+        List<ProductText> result = new ArrayList<>();
+        for (Language language : languages) {
+            ProductText sourceText = sourceByLanguage.get(language);
+            ProductText targetText = targetByLanguage.get(language);
+            ProductText merged = new ProductText(
+                    language,
+                    copyName
+                            ? filledSourceOrTarget(textName(sourceText), textName(targetText))
+                            : textName(targetText),
+                    copyDescription
+                            ? filledSourceOrTarget(
+                                    textDescription(sourceText), textDescription(targetText))
+                            : textDescription(targetText),
+                    targetText == null ? null : targetText.colour(),
+                    targetText == null ? null : targetText.variantSize());
+            if (!merged.isEmpty()) result.add(merged);
+        }
+        return List.copyOf(result);
+    }
+
+    private static String textName(ProductText text) {
+        return text == null ? null : text.name();
+    }
+
+    private static String textDescription(ProductText text) {
+        return text == null ? null : text.description();
+    }
+
+    private static String filledSourceOrTarget(String source, String target) {
+        return source == null || source.isBlank() ? target : source;
     }
 
     /** Dedicated command: unlike the backward-compatible full PUT, null explicitly unlinks. */

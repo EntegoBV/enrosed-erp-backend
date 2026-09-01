@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Set;
 
 @Path("/api/products")
 @Produces(MediaType.APPLICATION_JSON)
@@ -92,6 +93,26 @@ public class ProductResource {
         var changes = dto.toDomainForUpdate(current);
         return ProductDto.from(products.update(id, changes));
     }
+
+    /** Applies explicitly selected common master data to selected variants in one transaction. */
+    @POST
+    @Path("/{sourceId}/apply-shared-fields")
+    public ProductService.SharedFieldsResult applySharedFields(
+            @PathParam("sourceId") long sourceId, ApplySharedFieldsRequest request) {
+        if (request == null) {
+            throw new BusinessRuleException("Geen gedeelde productgegevens meegestuurd");
+        }
+        return products.applySharedFields(
+                sourceId,
+                request.expectedFamilyId(),
+                request.targetProductIds(),
+                request.fields());
+    }
+
+    public record ApplySharedFieldsRequest(
+            Long expectedFamilyId,
+            List<Long> targetProductIds,
+            Set<ProductService.SharedField> fields) {}
 
     /** Explicit family assignment; a null id intentionally unlinks the SKU. */
     @PUT
