@@ -1,6 +1,7 @@
 package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.ProductSupplierAgreementPhotoService;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
@@ -57,6 +58,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Inject PdfPurchaseRenderer renderer;
     @Inject ProductService products;
+    @Inject ProductSupplierAgreementPhotoService supplierAgreementPhotos;
     @Inject StockService stock;
 
     @Test
@@ -157,6 +159,11 @@ class PdfPurchaseRendererRenderTest {
     @TestTransaction
     void explicitSupplierAudienceRendersOnlyAgreedUnitAndOperationalProductFacts() throws Exception {
         Product product = createProductWithPhoto();
+        try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
+            if (image == null) throw new IllegalStateException("Testfoto P05.jpg ontbreekt");
+            supplierAgreementPhotos.upload(product.id(), "approved-packing.jpg", image,
+                    "Use this exact inner-box layout and protective spacing.");
+        }
         PurchaseOrder order = portraitOrder(product.id());
         order = withLines(order, order.number(), "SECRET CUSTOMER PROJECT", order.lines());
         LandedCost costing = portraitCosting(product.id());
@@ -175,20 +182,25 @@ class PdfPurchaseRendererRenderTest {
         Files.write(preview.resolve("purchase-portrait-explicit-supplier.pdf"), document.content());
 
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(1, pdf.getNumberOfPages());
+            assertEquals(2, pdf.getNumberOfPages(),
+                    "de leveranciersorder hoort productregels op pagina 1 en afspraken op pagina 2 te hebben");
             assertTrue(pdf.getPage(0).getMediaBox().getWidth()
                             < pdf.getPage(0).getMediaBox().getHeight(),
                     "de leveranciersorder hoort altijd portrait te zijn");
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
 
-            assertTrue(text.contains("leveranciersorder"), text);
+            assertTrue(text.contains("purchase order agreement"), text);
             assertTrue(text.contains("culinan preserved flowers"),
                     "portrait options must not alter the fixed supplier contract: " + text);
             assertTrue(text.contains("glass bowl bestseller"), text);
             assertTrue(text.contains("po-pdf-thumbnail"), text);
             assertTrue(text.contains("5410000000019"), text);
-            assertTrue(text.contains("gebruik witte binnendozen"), text);
+            assertTrue(text.contains("use white inner boxes"), text);
+            assertTrue(text.contains("use this exact inner-box layout"), text);
+            assertTrue(text.contains("product w × d × h"), text);
+            assertTrue(text.contains("outer carton w × d × h"), text);
+            assertFalse(text.contains("omdoos"), text);
             assertTrue(text.contains("96"), text);
             assertTrue(text.contains("8"), text);
             assertTrue(text.contains("0,048 m³"), text);
@@ -196,7 +208,19 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("usd") && text.contains("exw"), text);
             assertFalse(text.contains("fob"),
                     "alleen de prijsbasis van de productregel is gezaghebbend: " + text);
-            assertFalse(text.contains("prijsbasis"), text);
+            assertTrue(text.contains("quality and 1% maximum tolerance"), text);
+            assertTrue(text.contains("no more than 1% damaged"), text);
+            assertTrue(text.contains("shipping schedule and deviations"), text);
+            assertTrue(text.contains("authorised signatures"), text);
+            assertTrue(text.contains("buyer initials"), text);
+            assertTrue(text.contains("supplier initials"), text);
+            assertTrue(imageCount(pdf) >= 2,
+                    "product photo and agreement reference must be embedded in the supplier agreement");
+            PDFTextStripper secondPageStripper = new PDFTextStripper();
+            secondPageStripper.setStartPage(2);
+            secondPageStripper.setEndPage(2);
+            String secondPage = secondPageStripper.getText(pdf).toLowerCase();
+            assertTrue(secondPage.contains("authorised signatures"), secondPage);
             assertFalse(text.contains("99,99"),
                     "de actuele productprijs mag de afgesproken orderregelsnapshot niet vervangen: " + text);
 
@@ -372,9 +396,9 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void longSupplierNoteRemainsCompleteAcrossPortraitPages() throws Exception {
-        String longNote = "Controleer elke doos op kleur, verpakking en juiste EAN. ".repeat(68)
-                + "EINDE NOTITIE ZICHTBAAR";
+    void longSupplierNoteRemainsCompleteAndKeepsPortraitPages() throws Exception {
+        String longNote = "Check every carton for colour, packing and the correct EAN. ".repeat(60)
+                + "END OF NOTE VISIBLE";
         assertTrue(longNote.length() <= 4_000, "fixture moet binnen het productcontract blijven");
         Product product = createProductWithPhoto(longNote);
         PurchaseOrder order = portraitOrder(product.id());
@@ -399,8 +423,8 @@ class PdfPurchaseRendererRenderTest {
             }
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("controleer elke doos"), text);
-            assertTrue(text.contains("einde notitie zichtbaar"),
+            assertTrue(text.contains("check every carton"), text);
+            assertTrue(text.contains("end of note visible"),
                     "het einde van de lange notitie mag niet worden afgesneden: " + text);
             assertFalse(text.contains("intern"), text);
             assertFalse(text.contains("a4 staand"), text);
@@ -412,14 +436,14 @@ class PdfPurchaseRendererRenderTest {
                 pageStripper.setStartPage(pageNumber);
                 pageStripper.setEndPage(pageNumber);
                 String pageText = pageStripper.getText(pdf).toLowerCase();
-                if (pageText.contains("leveranciersnotitie")) {
+                if (pageText.contains("agreed product instruction")) {
                     notePages++;
                     assertTrue(pageText.contains("po-pdf-thumbnail"),
                             "elk notitiefragment moet het product identificeren op pagina " + pageNumber);
                 }
             }
-            assertTrue(notePages >= 2,
-                    "een bijna maximale notitie moet leesbaar over vervolgpagina's lopen");
+            assertTrue(notePages >= 1,
+                    "een lange notitie moet zichtbaar blijven met een identificeerbare productkop");
         }
     }
 
@@ -428,6 +452,11 @@ class PdfPurchaseRendererRenderTest {
     void supplierNoteNeverLeaksFromAProductThatNowBelongsToAnotherSupplier() throws Exception {
         Product product = createProductWithPhoto(
                 "SECRET NOTE FOR A DIFFERENT SUPPLIER", 8L);
+        try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
+            if (image == null) throw new IllegalStateException("Testfoto P05.jpg ontbreekt");
+            supplierAgreementPhotos.upload(product.id(), "other-supplier-only.jpg", image,
+                    "SECRET PHOTO CAPTION FOR A DIFFERENT SUPPLIER");
+        }
         PurchaseOrder order = portraitOrder(product.id());
 
         PdfPurchaseRenderer.Document document = renderer.render(
@@ -443,7 +472,9 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("po-pdf-thumbnail"), text);
             assertFalse(text.contains("secret note for a different supplier"),
                     "a current note for another supplier must never enter a historical PDF");
-            assertFalse(text.contains("leveranciersnotitie"), text);
+            assertFalse(text.contains("secret photo caption for a different supplier"),
+                    "agreement photos for another supplier must never enter the PDF");
+            assertFalse(text.contains("agreed product instruction"), text);
         }
     }
 
@@ -564,11 +595,11 @@ class PdfPurchaseRendererRenderTest {
     }
 
     private Product createProductWithPhoto() throws Exception {
-        return createProductWithPhoto("Gebruik witte binnendozen");
+        return createProductWithPhoto("Use white inner boxes.");
     }
 
     private Product createProductWithPhotoForAllInCost() throws Exception {
-        return createProductWithPhoto("Gebruik witte binnendozen", 7L, "PDF-UNKNOWN");
+        return createProductWithPhoto("Use white inner boxes.", 7L, "PDF-UNKNOWN");
     }
 
     private Product createProductWithPhoto(String supplierNote) throws Exception {

@@ -47,7 +47,7 @@ public class PdfImageEncoder {
      * dimensions stable prevents mixed portrait and landscape uploads from changing the PDF
      * card geometry.
      */
-    String encodeContained(byte[] source, int canvasWidth, int canvasHeight, Color background) {
+    public String encodeContained(byte[] source, int canvasWidth, int canvasHeight, Color background) {
         if (source == null || source.length == 0 || canvasWidth < 1 || canvasHeight < 1) return null;
         try {
             BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));

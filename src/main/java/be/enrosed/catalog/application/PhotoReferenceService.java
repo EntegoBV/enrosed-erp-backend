@@ -24,7 +24,8 @@ public class PhotoReferenceService {
                 select
                   (select count(*) from product_photo where storageKey = :key) +
                   (select count(*) from product_family_photo where smallStorageKey = :key) +
-                  (select count(*) from product_family_photo where largeStorageKey = :key)
+                  (select count(*) from product_family_photo where largeStorageKey = :key) +
+                  (select count(*) from product_supplier_agreement_photo where storage_key = :key)
                 """)
                 .setParameter("key", storageKey)
                 .getSingleResult();

@@ -92,6 +92,9 @@ public class ProductService {
     /* The company's free EAN list; a saved product's codes leave it. */
     @Inject
     Instance<BarcodePoolService> barcodePool;
+    /* Supplier-agreement history owns separate photo rows and blobs. */
+    @Inject
+    Instance<ProductSupplierAgreementPhotoService> supplierAgreementPhotos;
 
     @Inject
     public ProductService(
@@ -402,6 +405,9 @@ public class ProductService {
         ProductRepository.ReferenceCounts references = products.referenceCounts(id);
         if (references.total() > 0) {
             throw new BusinessRuleException(deleteBlockedMessage(product, references));
+        }
+        if (supplierAgreementPhotos != null && supplierAgreementPhotos.isResolvable()) {
+            supplierAgreementPhotos.get().deleteAllForProduct(id);
         }
         products.deleteById(id);
         draftEmptyFamily(product.familyId());

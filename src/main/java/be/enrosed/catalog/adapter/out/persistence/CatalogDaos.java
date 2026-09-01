@@ -25,4 +25,8 @@ public final class CatalogDaos {
 
     @ApplicationScoped
     public static class HsCodes implements PanacheRepository<HsCodeEntity> {}
+
+    @ApplicationScoped
+    public static class SupplierAgreementPhotos
+            implements PanacheRepository<ProductSupplierAgreementPhotoEntity> {}
 }

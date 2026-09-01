@@ -1,17 +1,21 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="{#if supplierMode}en{#else}nl{/if}">
 <head>
   <meta charset="utf-8"/>
   <style>
     @page {
       size: A4 portrait; margin: 13mm 13mm 17mm;
       @bottom-left {
-        content: "{order.number} - {#if supplierMode}leveranciersorder{#else}ENROSED{/if}";
+        content: "{order.number} - {#if supplierMode}Purchase Order Agreement{#else}ENROSED{/if}";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
       }
+      @bottom-center {
+        content: "{#if supplierMode}Buyer initials: ______   Supplier initials: ______{/if}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.2pt; color: #8b8179;
+      }
       @bottom-right {
-        content: "Pagina " counter(page) " van " counter(pages);
-        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
+        content: "{#if supplierMode}Page {#else}Pagina {/if}" counter(page) " {#if supplierMode}/{#else}van{/if} " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.2pt; color: #8b8179;
       }
     }
 
@@ -140,21 +144,96 @@
     .combined-total td:last-child { color: #762239; font-size: 11pt; }
     .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
     .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; text-align: center; }
+
+    /* Supplier agreement: intentionally separate from the internal Dutch read copy. */
+    .supplier-sheet .top-rule { margin-bottom: 10.8mm; }
+    .supplier-sheet .company-line { margin-top: 1.1mm; font-size: 6.7pt; line-height: 1.35; }
+    .supplier-sheet .doc-number { margin-top: .5mm; font-size: 18pt; }
+    .supplier-doc-label { margin-top: .8mm; color: #8f2942; font-size: 6.4pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    .supplier-sheet .parties { margin-top: 4mm; }
+    .supplier-sheet .parties td { padding: 2.7mm 3.2mm; }
+    .supplier-sheet .party-name { font-size: 9pt; }
+    .supplier-sheet .party-lines { margin-top: .6mm; font-size: 7pt; line-height: 1.35; }
+    .supplier-sheet .facts { margin-top: 3mm; }
+    .supplier-sheet .facts td { padding: 2.5mm 2.7mm; }
+    .supplier-sheet .section-title { margin-top: 4.5mm; }
+    .supplier-sheet .lines { margin-top: 1.5mm; table-layout: fixed; }
+    .supplier-sheet .lines th { box-sizing: border-box; padding: 1.7mm 1.1mm; font-size: 5.7pt; white-space: normal; }
+    .supplier-sheet .lines td { box-sizing: border-box; padding: 2.2mm 1.1mm; font-size: 7.4pt; }
+    .supplier-sheet .lines th:last-child, .supplier-sheet .lines td:last-child { padding-left: 2.5mm; text-align: left; }
+    .supplier-sheet .supplier-product { table-layout: fixed; }
+    .supplier-sheet .supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
+    .supplier-sheet .product__photo-cell { width: 18mm; }
+    .supplier-sheet .product-photo { width: 15mm; height: auto; max-width: 15mm; }
+    .supplier-sheet .product-photo--empty { width: 15mm; height: 15mm; line-height: 15mm; }
+    .supplier-sheet .product__name { font-size: 7.8pt; }
+    .supplier-sheet .product__meta, .supplier-sheet .product__specs { font-size: 5.8pt; }
+    .supplier-sheet .supplier-note { font-size: 7.3pt; }
+    .supplier-sheet .supplier-note b { font-size: 5.8pt; }
+    .agreement-gallery { padding: 2.5mm 2mm 1.5mm; text-align: left; }
+    .agreement-photo {
+      display: inline-block; width: 31%; margin: 0 1.4% 2mm 0; vertical-align: top;
+      page-break-inside: avoid;
+    }
+    .agreement-photo img {
+      display: block; width: 100%; height: auto;
+      border: .35pt solid #d9c6a6; border-radius: 1.5mm; background: #ffffff;
+    }
+    .agreement-photo__caption { margin-top: 1mm; color: #584d47; font-size: 6pt; line-height: 1.3; }
+    .supplier-closing {
+      margin-top: 3.5mm; padding: 3mm 3.4mm; border: .35pt solid #e3d7c6;
+      border-left: 1.2pt solid #c6a15b; color: #584d47; font-size: 7pt; line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    .agreement-page { page-break-before: always; }
+    .agreement-title { margin: 0; color: #1c1715; font-size: 15pt; line-height: 1.15; }
+    .agreement-lead { margin: 2.5mm 0 4mm; color: #584d47; font-size: 7.7pt; line-height: 1.45; }
+    .term-grid { table-layout: fixed; }
+    .term-grid td { width: 50%; padding: 0 3mm 3mm 0; }
+    .term-grid td + td { padding-right: 0; padding-left: 3mm; border-left: .35pt solid #e3d7c6; }
+    .term { page-break-inside: avoid; }
+    .term + .term { margin-top: 3mm; }
+    .term__number {
+      display: inline-block; min-width: 5mm; margin-right: 1.2mm; color: #8f2942;
+      font-size: 7pt; font-weight: 700;
+    }
+    .term b { font-size: 7.4pt; }
+    .term p { margin: .7mm 0 0 6.7mm; color: #584d47; font-size: 6.8pt; line-height: 1.45; }
+    .acceptance {
+      margin-top: 2mm; padding: 3mm 3.4mm; border: .7pt solid #c6a15b;
+      background: #fdfaf6; color: #4b403b; font-size: 7pt; line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    .signature-title { margin-top: 4mm; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .signatures { margin-top: 2mm; table-layout: fixed; page-break-inside: avoid; }
+    .signatures td { width: 50%; padding-right: 5mm; }
+    .signatures td + td { padding-right: 0; padding-left: 5mm; }
+    .signature-party { font-size: 8.2pt; font-weight: 700; }
+    .signature-line { height: 12mm; border-bottom: .45pt solid #8b8179; }
+    .signature-meta { margin-top: 1.5mm; color: #8b8179; font-size: 6.2pt; line-height: 1.7; }
+    .agreement-footer { margin-top: 3mm; color: #8b8179; font-size: 5.9pt; text-align: center; }
   </style>
 </head>
-<body>
+<body class="{#if supplierMode}supplier-sheet{/if}">
 
 <div class="top-rule"></div>
 
 <table class="head">
   <tr>
     <td>
-      {#if logo}<img class="logo" src="{logo}" alt="Enrosed"/>{#else}<b style="font-size:18pt">ENROSED</b>{/if}
-      <div class="company-line">{company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}</div>
+      {#if supplierMode}<div class="doc-number">ENROSED</div>
+      {#else if logo}<img class="logo" src="{logo}" alt="Enrosed"/>
+      {#else}<b style="font-size:18pt">ENROSED</b>{/if}
+      <div class="company-line">
+        {company.legalName}{#if company.addressOneLine} · {company.addressOneLine}{/if}
+        {#if company.vatNumber} · {#if supplierMode}VAT{#else}BTW{/if} {company.vatNumber}{/if}<br/>
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}{#if company.website} · {company.website}{/if}
+      </div>
     </td>
     <td class="doc-meta">
-      <div class="doc-kicker">{#if supplierMode}Leveranciersorder{#else}Inkooporder{/if}</div>
+      {#if !supplierMode}<div class="doc-kicker">Inkooporder</div>{/if}
       <div class="doc-number">{order.number}</div>
+      {#if supplierMode}<div class="supplier-doc-label">Production · Supply · Acceptance</div>{/if}
       {#if !supplierMode && order.alias}<div class="doc-alias">{order.alias}</div>{/if}
       {#if !supplierMode}<div class="badges"><span class="badge">{statusLabel}</span></div>{/if}
     </td>
@@ -164,15 +243,15 @@
 <table class="parties {#if !supplierMode && !showSupplier}parties--single{/if}">
   <tr>
     <td>
-      <div class="label">Van</div>
+      <div class="label">{#if supplierMode}Buyer{#else}Van{/if}</div>
       <div class="party-name">{company.legalName}</div>
       <div class="party-lines">
         {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
-        {#if company.email}{company.email}{/if}{#if company.phone} - {company.phone}{/if}
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}
       </div>
     </td>
     {#if supplierMode || showSupplier}<td>
-      <div class="label">Aan leverancier</div>
+      <div class="label">{#if supplierMode}Supplier{#else}Aan leverancier{/if}</div>
       <div class="party-name">{supplierName}</div>
       <div class="party-lines">
         {#for addressLine in supplierAddressLines}{addressLine}<br/>{/for}
@@ -185,9 +264,10 @@
 <table class="facts">
   {#if supplierMode}
   <tr>
-    <td style="width:25%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
-    <td style="width:45%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
-    <td style="width:30%"><div class="facts__label">Verwachte levering</div><div class="facts__value">{#if order.expectedArrival}{order.expectedArrival.be}{#else}-{/if}</div></td>
+    <td style="width:20%"><div class="facts__label">PO date</div><div class="facts__value">{orderDate}</div></td>
+    <td style="width:38%"><div class="facts__label">Shipping route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
+    <td style="width:20%"><div class="facts__label">Trade term</div><div class="facts__value">{supplierTradeTerm}</div></td>
+    <td style="width:22%"><div class="facts__label">Required arrival</div><div class="facts__value">{#if order.expectedArrival}{order.expectedArrival.be}{#else}To confirm{/if}</div></td>
   </tr>
   {#else}
   <tr>
@@ -199,28 +279,37 @@
   {/if}
 </table>
 
-<div class="section-title">Producten</div>
+<div class="section-title">{#if supplierMode}Products and agreed specifications{#else}Producten{/if}</div>
 {#if supplierMode}
 <table class="lines">
   <thead>
   <tr>
     <th style="width:66mm">Product</th>
     <th style="width:28mm">EAN</th>
-    <th style="width:14mm">Besteld</th>
-    <th style="width:14mm">Kartons</th>
-    <th style="width:23mm">Karton CBM</th>
-    <th style="width:33mm">Prijs / stuk</th>
+    <th style="width:19mm">Quantity</th>
+    <th style="width:15mm">Cartons</th>
+    <th style="width:21mm">Carton CBM</th>
+    <th style="width:29mm">Unit price</th>
   </tr>
   </thead>
   <tbody>
   {#for line in supplierLines}
     <tr class="{#if line_even}alt{/if}">
       <td>
-        <div class="product__name">{line.productName}</div>
-        {#if line.sku}<div class="product__meta">{line.sku}</div>{/if}
+        <table class="supplier-product"><tr>
+          <td class="product__photo-cell">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td>
+            <div class="product__name">{line.productName}</div>
+            {#if line.sku}<div class="product__meta">SKU {line.sku}</div>{/if}
+            {#if line.productSpecs}<div class="product__specs">{line.productSpecs}</div>{/if}
+          </td>
+        </tr></table>
       </td>
       <td class="number">{#if line.ean}{line.ean}{#else}<span class="muted">-</span>{/if}</td>
-      <td class="number">{line.orderedQuantity}</td>
+      <td class="number">{line.orderedQuantity} pcs{#if line.piecesPerCarton}<br/><span class="price-sub">{line.piecesPerCarton} / carton</span>{/if}</td>
       <td class="number">{line.orderedCartons}</td>
       <td class="number">{#if line.cartonCbm}{line.cartonCbm} m³{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">
@@ -230,9 +319,21 @@
     </tr>
     {#for noteChunk in line.supplierNoteChunks}
       <tr class="supplier-note-row">
-        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Leveranciersnotitie</b><br/>{noteChunk}</div></td>
+        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Agreed product instruction</b><br/>{noteChunk}</div></td>
       </tr>
     {/for}
+    {#if !line.agreementPhotos.isEmpty}
+      <tr class="supplier-agreement-photo-row">
+        <td colspan="6" class="agreement-gallery">
+          {#for agreementPhoto in line.agreementPhotos}
+            <div class="agreement-photo">
+              <img src="{agreementPhoto.dataUri}" alt=""/>
+              <div class="agreement-photo__caption"><b>Reference {agreementPhoto.position}</b>{#if agreementPhoto.caption}<br/>{agreementPhoto.caption}{/if}</div>
+            </div>
+          {/for}
+        </td>
+      </tr>
+    {/if}
   {/for}
   </tbody>
 </table>
@@ -286,6 +387,14 @@
 </table>
 {/if}
 
+{#if supplierMode}
+<div class="supplier-closing">
+  <b>Shipping instruction.</b> Planned route: {costLabels.loadingPort} to {costLabels.destinationPort}
+  ({order.containerType.label}).{#if order.expectedArrival} Required arrival: {order.expectedArrival.be}.{/if}
+  The supplier must obtain ENROSED's written approval before any change to the agreed product,
+  packing, quantity, timing, route or transport booking.
+</div>
+{#else}
 <table class="closing">
   <tr>
     <td class="closing__copy">
@@ -309,6 +418,86 @@
     </td>{/if}
   </tr>
 </table>
+{/if}
+
+{#if supplierMode}
+<section class="agreement-page">
+  <div class="doc-kicker">Binding order terms</div>
+  <h1 class="agreement-title">Purchase Order Agreement</h1>
+  <p class="agreement-lead">
+    This Purchase Order Agreement forms the complete production and supply instruction for
+    <b>{order.number}</b>. By signing this document, confirming it in writing, or commencing
+    production, the Supplier accepts the product lines, reference images, product instructions
+    and terms below. A specific written product instruction takes precedence over a general term.
+  </p>
+
+  <table class="term-grid"><tr>
+    <td>
+      <div class="term"><span class="term__number">01</span><b>Approved specification only</b>
+        <p>No substitution or change in material, colour, dimensions, construction, finish, scent,
+          packaging, EAN, carton quantity or labelling is permitted without ENROSED's prior written approval.</p>
+      </div>
+      <div class="term"><span class="term__number">02</span><b>Quality and 1% maximum tolerance</b>
+        <p>Products must be new, clean, saleable and compliant with every instruction and reference image.
+          ENROSED accepts no more than 1% damaged, defective, incomplete or non-conforming units per SKU.
+          Any amount above 1% must, at ENROSED's choice, be replaced or credited by the Supplier.</p>
+      </div>
+      <div class="term"><span class="term__number">03</span><b>Quantity and packing accuracy</b>
+        <p>Ordered quantities, pieces per carton, carton dimensions and CBM must be checked before production.
+          Short shipment, over shipment, mixed packing, unauthorised split shipment or incorrect carton marks
+          require prior written approval. The Supplier remains responsible for resulting reasonable direct costs.</p>
+      </div>
+      <div class="term"><span class="term__number">04</span><b>Inspection and remedy</b>
+        <p>ENROSED may inspect before shipment and after receipt. Payment, inspection or receipt does not waive
+          hidden defects. A claim may be supported by counts, photographs or video. The agreed remedy must be
+          completed promptly and without disrupting the next shipment.</p>
+      </div>
+    </td>
+    <td>
+      <div class="term"><span class="term__number">05</span><b>Shipping schedule and deviations</b>
+        <p>The Supplier must immediately report any risk to production completion, booking, departure, route or
+          arrival. No shipment may leave earlier, later, partially or by a different route or mode without
+          ENROSED's written approval. Unauthorised deviations remain for the Supplier's account.</p>
+      </div>
+      <div class="term"><span class="term__number">06</span><b>Pre-shipment confirmation</b>
+        <p>Before release, the Supplier must provide final carton count, gross and net weight, measurements, CBM,
+          packing list and clear production and packing photographs. Commercial invoice and labels must match this PO.</p>
+      </div>
+      <div class="term"><span class="term__number">07</span><b>Safe packing and transport protection</b>
+        <p>The Supplier must use export-worthy packing suitable for the agreed transport and protect the goods
+          against pressure, moisture, movement, breakage and contamination. Approval of a packing photo does not
+          release the Supplier from responsibility for inadequate packing.</p>
+      </div>
+      <div class="term"><span class="term__number">08</span><b>Written changes and records</b>
+        <p>Only changes confirmed in writing by ENROSED are valid. The Supplier must retain the approved samples,
+          specifications and production records needed to trace any deviation. English text in this agreement
+          governs the supplier-facing order.</p>
+      </div>
+    </td>
+  </tr></table>
+
+  <div class="acceptance">
+    <b>Acceptance.</b> The parties confirm that the prices shown are the agreed purchase prices for this PO.
+    Signing below confirms authority to accept this Purchase Order Agreement. Electronic confirmation and the
+    start of production have the same acceptance effect for operational purposes.
+  </div>
+
+  <div class="signature-title">Authorised signatures</div>
+  <table class="signatures"><tr>
+    <td>
+      <div class="signature-party">For {company.legalName}</div>
+      <div class="signature-line"></div>
+      <div class="signature-meta">Name / title: __________________________________<br/>Date: __________________ &#160; Signature / stamp</div>
+    </td>
+    <td>
+      <div class="signature-party">For {supplierName}</div>
+      <div class="signature-line"></div>
+      <div class="signature-meta">Name / title: __________________________________<br/>Date: __________________ &#160; Signature / stamp</div>
+    </td>
+  </tr></table>
+  <div class="agreement-footer">{order.number} · Buyer and Supplier must initial every page.</div>
+</section>
+{/if}
 
 {#if !supplierMode}<div class="footnote">
   {company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}

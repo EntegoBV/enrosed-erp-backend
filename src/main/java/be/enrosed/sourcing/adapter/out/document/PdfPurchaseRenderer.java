@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.out.document;
 
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.ProductSupplierAgreementPhotoService;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
@@ -11,6 +12,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
@@ -34,6 +36,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
 import org.jboss.logging.Logger;
 
+import java.awt.Color;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -117,6 +120,7 @@ public class PdfPurchaseRenderer {
     private final CompanyProfileService company;
     private final PdfFonts fonts;
     private final ProductService products;
+    private final ProductSupplierAgreementPhotoService supplierAgreementPhotos;
     private final PdfImageEncoder imageEncoder;
     private final CurrencyConverter currencies;
     private final LandedCostCalculator landedCosts;
@@ -129,13 +133,15 @@ public class PdfPurchaseRenderer {
                                @Location("purchase-portrait.html") Template portraitTemplate,
                                Brand brand, CompanyProfileService company, PdfFonts fonts,
                                ProductService products, PdfImageEncoder imageEncoder,
-                               CurrencyConverter currencies, LandedCostCalculator landedCosts) {
+                               CurrencyConverter currencies, LandedCostCalculator landedCosts,
+                               ProductSupplierAgreementPhotoService supplierAgreementPhotos) {
         this.landscapeTemplate = landscapeTemplate;
         this.portraitTemplate = portraitTemplate;
         this.brand = brand;
         this.company = company;
         this.fonts = fonts;
         this.products = products;
+        this.supplierAgreementPhotos = supplierAgreementPhotos;
         this.imageEncoder = imageEncoder;
         this.currencies = currencies;
         this.landedCosts = landedCosts;
@@ -213,11 +219,17 @@ public class PdfPurchaseRenderer {
      * payment figures or calculated line totals can enter this view.
      */
     public record SupplierLineView(
-            Long productId, String sku, String productName, String ean,
+            Long productId, String sku, String productName, String photoDataUri,
+            String productSpecs, Integer piecesPerCarton, String ean,
             List<String> supplierNoteChunks,
+            List<SupplierAgreementPhotoView> agreementPhotos,
             int orderedQuantity, int orderedCartons,
             String cartonCbm, BigDecimal agreedUnitPrice, Currency currency,
             String priceBasis, boolean priceAvailable) {}
+
+    /** One private, supplier-facing visual instruction embedded into the PDF. */
+    public record SupplierAgreementPhotoView(
+            int position, String caption, String dataUri) {}
 
     record AgreedUnitPrice(BigDecimal amount, Currency currency) {
         boolean available() {
@@ -309,11 +321,13 @@ public class PdfPurchaseRenderer {
                 .data("showSupplier", options.showSupplier())
                 .data("showPrices", options.showPrices())
                 .data("showEur", options.showEur())
+                .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                 .data("showEnrosedCost", options.includeEnrosedCost());
 
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
-            instance.data("supplierLines", prepared.lines());
+            instance.data("supplierLines", prepared.lines())
+                    .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
             Prepared prepared = prepare(order, costing, options.includeEnrosedCost());
             instance.data("costing", costing)
@@ -324,7 +338,6 @@ public class PdfPurchaseRenderer {
                     .data("purchaseCartons", prepared.purchaseCartons())
                     .data("enrosedTotalEur", prepared.enrosedTotalEur())
                     .data("statusLabel", statusLabel(order.status()))
-                    .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                     .data("unifiedUsdToEur", sameRate(order))
                     .data("timeline", timeline(order))
                     .data("createdBy", internal ? order.createdBy() : null)
@@ -357,6 +370,8 @@ public class PdfPurchaseRenderer {
                 .filter(line -> line != null && line.productId() != null)
                 .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(),
                         (left, right) -> left));
+        Map<String, String> photoCache = new HashMap<>();
+        Map<Long, List<SupplierAgreementPhotoView>> agreementPhotoCache = new HashMap<>();
         List<SupplierLineView> lines = new ArrayList<>();
 
         for (LandedCost.Line costingLine : costing.lines()) {
@@ -373,14 +388,50 @@ public class PdfPurchaseRenderer {
 
             lines.add(new SupplierLineView(
                     costingLine.productId(), product == null ? null : product.sku(),
-                    product == null ? costingLine.productName() : product.nameWithColour(),
-                    ean(product), supplierNoteChunks(matchingSupplier ? product : null),
+                    product == null ? costingLine.productName() : supplierProductName(product),
+                    photo(product, photoCache, true), supplierProductSpecs(product),
+                    piecesPerCarton(product), ean(product),
+                    supplierNoteChunks(matchingSupplier ? product : null),
+                    matchingSupplier
+                            ? agreementPhotoCache.computeIfAbsent(costingLine.productId(),
+                                    this::supplierAgreementPhotoViews)
+                            : List.of(),
                     orderedQuantity, orderedCartons, cartonCbm(product),
                     price.amount(), price.currency(),
                     orderLine == null ? "EXW" : orderLine.priceBasis().name(),
                     price.available()));
         }
         return new SupplierPrepared(List.copyOf(lines));
+    }
+
+    private List<SupplierAgreementPhotoView> supplierAgreementPhotoViews(long productId) {
+        List<SupplierAgreementPhotoView> views = new ArrayList<>();
+        for (ProductSupplierAgreementPhotoService.AgreementPhoto photo
+                : supplierAgreementPhotos.list(productId)) {
+            String dataUri = null;
+            try (InputStream data = supplierAgreementPhotos.open(productId, photo.id()).data()) {
+                dataUri = imageEncoder.encodeContained(data.readAllBytes(), 900, 600, Color.WHITE);
+            } catch (Exception exception) {
+                LOG.warnf("Afspraakfoto %d kon niet in leveranciers-PDF: %s",
+                        photo.id(), exception.getMessage());
+            }
+            if (dataUri != null && !dataUri.isBlank()) {
+                views.add(new SupplierAgreementPhotoView(
+                        photo.position() + 1, photo.caption(), dataUri));
+            }
+        }
+        return List.copyOf(views);
+    }
+
+    private static String supplierTradeTerm(List<SupplierLineView> lines) {
+        List<String> bases = lines.stream()
+                .filter(SupplierLineView::priceAvailable)
+                .map(SupplierLineView::priceBasis)
+                .filter(PdfPurchaseRenderer::notBlank)
+                .map(String::strip)
+                .distinct()
+                .toList();
+        return bases.size() == 1 ? bases.getFirst() : "Per line";
     }
 
     private Prepared prepare(PurchaseOrder order, LandedCost costing,
@@ -512,11 +563,18 @@ public class PdfPurchaseRenderer {
     }
 
     private String photo(Product product, Map<String, String> cache) {
+        return photo(product, cache, false);
+    }
+
+    private String photo(Product product, Map<String, String> cache, boolean contained) {
         Photo photo = product == null ? null : product.primaryPhoto();
         if (photo == null || photo.storageKey() == null || photo.storageKey().isBlank()) return null;
         String encoded = cache.computeIfAbsent(photo.storageKey(), storageKey -> {
             try (InputStream data = products.photoData(storageKey)) {
-                String value = imageEncoder.encode(data.readAllBytes(), 320);
+                byte[] bytes = data.readAllBytes();
+                String value = contained
+                        ? imageEncoder.encodeContained(bytes, 360, 360, Color.WHITE)
+                        : imageEncoder.encode(bytes, 320);
                 return value == null ? "" : value;
             } catch (Exception exception) {
                 LOG.warnf("Productfoto %s kon niet in inkoop-PDF: %s",
@@ -552,6 +610,61 @@ public class PdfPurchaseRenderer {
             parts.add("Omdoos " + carton.dimensions().label());
         }
         return parts.isEmpty() ? null : String.join(" · ", parts);
+    }
+
+    /** English product and packing detail for the supplier agreement. */
+    static String supplierProductSpecs(Product product) {
+        if (product == null) return null;
+        List<String> parts = new ArrayList<>();
+        add(parts, product.variantSizeIn(Language.EN));
+
+        Dimensions dimensions = product.dimensions();
+        if (dimensions != null && !dimensions.isBlank()) {
+            parts.add("Product " + supplierDimensionLabel(dimensions));
+        }
+
+        Packaging packaging = product.packaging();
+        if (packaging != null && packaging.isPresent()) {
+            String label = switch (packaging.kind()) {
+                case GIFT_BOX -> "Gift box";
+                case DISPLAY -> "Display";
+                case NONE -> "No retail packaging";
+            };
+            if (!packaging.dimensions().isBlank()) {
+                label += " " + supplierDimensionLabel(packaging.dimensions());
+            }
+            if (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                    && packaging.unitPieces() > 1) {
+                label += " · " + packaging.unitPieces() + " pcs/display";
+            }
+            parts.add(label);
+        }
+
+        Carton carton = product.carton();
+        if (carton != null && carton.dimensions() != null && !carton.dimensions().isBlank()) {
+            parts.add("Outer carton " + supplierDimensionLabel(carton.dimensions()));
+        }
+        return parts.isEmpty() ? null : String.join(" · ", parts);
+    }
+
+    /** Supplier-facing product label resolved from the English document translation. */
+    static String supplierProductName(Product product) {
+        if (product == null) return null;
+        String name = product.nameIn(Language.EN);
+        String colour = product.colourIn(Language.EN);
+        if (!notBlank(colour)) return name;
+        return name + " - " + colour;
+    }
+
+    private static String supplierDimensionLabel(Dimensions dimensions) {
+        return "W × D × H: " + dimension(dimensions.lengthCm())
+                + " × " + dimension(dimensions.widthCm())
+                + " × " + dimension(dimensions.heightCm()) + " cm";
+    }
+
+    private static String dimension(BigDecimal value) {
+        return value == null || value.signum() <= 0
+                ? "—" : value.stripTrailingZeros().toPlainString();
     }
 
     /** Null means unknown; never turn missing carton master data into '1'. */
