@@ -46,6 +46,7 @@ class SalesLifecycleTest {
     @Test
     void onlyNeverSentUnusedConceptCanBeDeleted() {
         assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(order(QuoteStatus.CONCEPT), false));
+        assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(tokenOnlyConcept(), false));
         assertThrows(BusinessRuleException.class,
                 () -> SalesLifecycle.requireDeletable(sentConcept(), false));
         assertThrows(BusinessRuleException.class,
@@ -83,11 +84,25 @@ class SalesLifecycleTest {
     }
 
     private static SalesOrder sentConcept() {
+        SalesOrder draft = tokenOnlyConcept();
+        return new SalesOrder(draft.id(), draft.number(), draft.customerId(), draft.countryCode(),
+                draft.orderDate(), draft.validUntil(), draft.status(), draft.incoterm(),
+                draft.paymentTerms(), draft.notes(), draft.markupMode(), draft.orderMarkupPct(),
+                draft.extraDiscountPct(), draft.extraDiscountLabel(), draft.portalToken(), Instant.now(),
+                null, 0, null, null, null, null, draft.deliveryTerms(), draft.freight(),
+                draft.manualFreightEur(), draft.loadMode(), draft.palletProfile(),
+                draft.maxPalletHeightCm(), draft.freightPricingStrategy(),
+                draft.freightRatePerCbmEur(),
+                null, null, null, null, null, null, null,
+                draft.lines(), draft.pallets());
+    }
+
+    private static SalesOrder tokenOnlyConcept() {
         SalesOrder draft = order(QuoteStatus.CONCEPT);
         return new SalesOrder(draft.id(), draft.number(), draft.customerId(), draft.countryCode(),
                 draft.orderDate(), draft.validUntil(), draft.status(), draft.incoterm(),
                 draft.paymentTerms(), draft.notes(), draft.markupMode(), draft.orderMarkupPct(),
-                draft.extraDiscountPct(), draft.extraDiscountLabel(), "existing-token", Instant.now(),
+                draft.extraDiscountPct(), draft.extraDiscountLabel(), "existing-token", null,
                 null, 0, null, null, null, null, draft.deliveryTerms(), draft.freight(),
                 draft.manualFreightEur(), draft.loadMode(), draft.palletProfile(),
                 draft.maxPalletHeightCm(), draft.freightPricingStrategy(),

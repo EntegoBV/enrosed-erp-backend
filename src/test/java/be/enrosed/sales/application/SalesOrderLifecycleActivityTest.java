@@ -136,6 +136,22 @@ class SalesOrderLifecycleActivityTest {
     }
 
     @Test
+    void deletingUnusedDraftQuoteAlsoRemovesAReservedPortalToken() {
+        SalesOrder draft = withPortalToken(quote(76L), "reserved-but-never-sent");
+        when(orders.findById(76L)).thenReturn(Optional.of(draft));
+        when(revisions.findByOrder(76L)).thenReturn(List.of());
+
+        service.delete(76L);
+
+        verify(orders).lockById(76L);
+        verify(history).deleteByOrder(76L);
+        verify(orders).deleteById(76L);
+        verify(activityLog).record(ActivityLogService.ACTION_DELETED,
+                SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "76", "ENR-2026-0076",
+                "Offerte verwijderd");
+    }
+
+    @Test
     void deletingUnusedDraftInvoiceKeepsAnInvoiceSpecificTombstone() {
         SalesOrder draft = invoice(74L, QuoteStatus.CONCEPT, null);
         when(orders.findById(74L)).thenReturn(Optional.of(draft));
@@ -228,6 +244,21 @@ class SalesOrderLifecycleActivityTest {
                 FreightState.BEREKEND, null, LoadMode.PALLETS, PalletProfile.EURO_120X80,
                 null, FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
                 DocumentType.OFFERTE, null, null, null, null, List.of(), List.of());
+    }
+
+    private static SalesOrder withPortalToken(SalesOrder order, String portalToken) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), portalToken,
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(), order.loadMode(),
+                order.palletProfile(), order.maxPalletHeightCm(), order.freightPricingStrategy(),
+                order.freightRatePerCbmEur(), order.freightCarrierId(),
+                order.freightCarrierExtraEur(), order.docType(), order.invoiceDueDate(),
+                order.paidAt(), order.sourceQuoteId(), order.goodsShippedAt(), order.lines(),
+                order.pallets(), order.pickupLocation());
     }
 
     private static Country country() {

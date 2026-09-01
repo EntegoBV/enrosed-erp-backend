@@ -63,10 +63,16 @@ final class SalesLifecycle {
         }
     }
 
-    /** Only a draft that has never left the company may be removed. */
+    /**
+     * Only a draft that has never left the company may be removed.
+     *
+     * A portal token on its own is not proof that a quote was sent or used.
+     * Older drafts can already have one while the portal still fails closed
+     * for concept documents. Usage timestamps, the view counter and revisions
+     * are the durable evidence that must keep a sales document.
+     */
     static void requireDeletable(SalesOrder order, boolean hasRevisions) {
         boolean unusedDraft = order.status() == QuoteStatus.CONCEPT
-                && order.portalToken() == null
                 && order.sentAt() == null
                 && order.viewedAt() == null
                 && order.viewCount() == 0
