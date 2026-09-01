@@ -44,7 +44,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
     private static final int OVERVIEW_CARDS_PER_PAGE = 8;
-    private static final int FAMILY_PAGE_CAPACITY = 2_600;
+    /* Real four-variant families with complete translated sales copy still fit the compact
+       A4 composition. Keep a generous guard for pathological dashboard content without
+       rejecting normal, print-ready product families. */
+    private static final int FAMILY_PAGE_CAPACITY = 3_400;
     private static final int OVERVIEW_COLUMNS = 2;
     private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
 
