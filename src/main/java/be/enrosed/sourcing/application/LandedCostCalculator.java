@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.ToIntFunction;
 
 /**
  * Calculates the landed cost per piece of a container.
@@ -65,6 +66,22 @@ public class LandedCostCalculator {
     }
 
     public LandedCost calculate(PurchaseOrder order, Map<Long, Product> productsById) {
+        return calculate(order, productsById, PurchaseOrderLine::received);
+    }
+
+    /**
+     * Recalculates the complete order on the immutable quantity agreed with
+     * the supplier. This is intentionally a set-wide calculation: fixed
+     * origin, freight, destination and Enrosed amounts stay fixed while their
+     * CBM/value/piece shares are redistributed over the ordered quantities.
+     */
+    public LandedCost calculateForOrderedQuantities(
+            PurchaseOrder order, Map<Long, Product> productsById) {
+        return calculate(order, productsById, PurchaseOrderLine::ordered);
+    }
+
+    private LandedCost calculate(PurchaseOrder order, Map<Long, Product> productsById,
+                                 ToIntFunction<PurchaseOrderLine> quantityFor) {
 
         /* ---- 1. Goederenwaarde per regel ------------------------------- */
         List<Working> working = new ArrayList<>();
@@ -74,7 +91,7 @@ public class LandedCostCalculator {
             if (product == null) continue;
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
-            int quantity = Math.max(0, line.quantity());
+            int quantity = Math.max(0, quantityFor.applyAsInt(line));
 
             BigDecimal exwPrice = line.exwPrice() != null ? line.exwPrice() : product.exwPrice();
             Currency exwCurrency = line.exwCurrency() != null ? line.exwCurrency() : product.exwCurrency();

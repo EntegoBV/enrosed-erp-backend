@@ -279,7 +279,7 @@
         {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>{/if}
-      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalEur}<span class="price-main">{line.totalEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
+      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.enrosedOrderTotalEur}<span class="price-main">{line.enrosedOrderTotalEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
     </tr>
   {/for}
   </tbody>

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -88,6 +89,47 @@ class LandedCostCalculatorTest {
 
         assertEquals(1968, totals.pieces());
         assertEquals(492, totals.cartons());
+    }
+
+    @Test
+    @DisplayName("bestelhoeveelheden herverdelen vaste orderkosten zonder ze op te schalen")
+    void orderedQuantityBasisRecalculatesWholeOrderWithoutScalingFixedCosts() {
+        PurchaseOrder base = excelOrder();
+        Product first = preservedRose();
+        Product second = new Product(
+                2L, "ENR-P12", first.name(), first.dimensions(), first.colour(),
+                first.description(), first.categoryId(), first.supplierId(), first.active(),
+                first.barcodes(), first.hsCode(), first.carton(), first.exwPrice(),
+                first.exwCurrency(), first.extraUnitCost(), first.landedCostEur(),
+                first.landedCostSource(), first.markupPct(), first.fixedSalesPriceEur(),
+                first.stockQuantity(), first.photos(), first.texts());
+        List<PurchaseOrderLine> receivedShort = List.of(
+                new PurchaseOrderLine(1L, 1L, 5, null, null, null, 10),
+                new PurchaseOrderLine(2L, 2L, 5, null, null, null, 20));
+        PurchaseOrder order = orderWith(base, receivedShort, false);
+        LandedCostCalculator calculator = calculator(new BigDecimal("10"));
+
+        LandedCost received = calculator.calculate(order, Map.of(1L, first, 2L, second));
+        LandedCost ordered = calculator.calculateForOrderedQuantities(
+                order, Map.of(1L, first, 2L, second));
+
+        assertEquals(List.of(10, 20),
+                ordered.lines().stream().map(LandedCost.Line::quantity).toList());
+        assertEquals(30, ordered.totals().pieces());
+        assertEquals(received.totals().originEur(), ordered.totals().originEur());
+        assertEquals(received.totals().freightEur(), ordered.totals().freightEur());
+        assertEquals(received.totals().destinationEur(), ordered.totals().destinationEur());
+        assertEquals(received.totals().extraRevenueEur(), ordered.totals().extraRevenueEur());
+        assertEquals(ordered.totals().freightEur(), ordered.lines().stream()
+                .map(LandedCost.Line::freightEur).reduce(BigDecimal.ZERO, BigDecimal::add));
+        BigDecimal visibleDestination = ordered.lines().stream()
+                .map(LandedCost.Line::destinationEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertTrue(visibleDestination.subtract(ordered.totals().destinationEur()).abs()
+                        .compareTo(new BigDecimal("0.01")) <= 0,
+                "alleen een cent afrondingsverschil tussen zichtbare regels en het vaste totaal");
+        assertNotEquals(received.totals().totalEur().multiply(new BigDecimal("3.00")),
+                ordered.totals().totalEur(),
+                "vaste vracht en orderkosten mogen niet met 30/10 worden vermenigvuldigd");
     }
 
     @Test

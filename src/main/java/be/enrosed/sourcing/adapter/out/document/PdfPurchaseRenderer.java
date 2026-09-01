@@ -14,6 +14,7 @@ import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
+import be.enrosed.sourcing.application.LandedCostCalculator;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
@@ -118,6 +119,7 @@ public class PdfPurchaseRenderer {
     private final ProductService products;
     private final PdfImageEncoder imageEncoder;
     private final CurrencyConverter currencies;
+    private final LandedCostCalculator landedCosts;
 
     /** Optional in pure tests; production resolves names such as Zaltbommel. */
     @Inject
@@ -127,7 +129,7 @@ public class PdfPurchaseRenderer {
                                @Location("purchase-portrait.html") Template portraitTemplate,
                                Brand brand, CompanyProfileService company, PdfFonts fonts,
                                ProductService products, PdfImageEncoder imageEncoder,
-                               CurrencyConverter currencies) {
+                               CurrencyConverter currencies, LandedCostCalculator landedCosts) {
         this.landscapeTemplate = landscapeTemplate;
         this.portraitTemplate = portraitTemplate;
         this.brand = brand;
@@ -136,6 +138,7 @@ public class PdfPurchaseRenderer {
         this.products = products;
         this.imageEncoder = imageEncoder;
         this.currencies = currencies;
+        this.landedCosts = landedCosts;
     }
 
     public record Document(String filename, byte[] content, String contentType) {}
@@ -199,7 +202,7 @@ public class PdfPurchaseRenderer {
             BigDecimal freightEur, BigDecimal customsValueEur,
             BigDecimal dutyRatePct, BigDecimal dutyEur,
             BigDecimal destinationEur, BigDecimal extraRevenueEur,
-            BigDecimal totalEur, BigDecimal landedUnitEur,
+            BigDecimal totalEur, BigDecimal landedUnitEur, BigDecimal enrosedOrderTotalEur,
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
             BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
@@ -312,7 +315,7 @@ public class PdfPurchaseRenderer {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines());
         } else {
-            Prepared prepared = prepare(order, costing);
+            Prepared prepared = prepare(order, costing, options.includeEnrosedCost());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
@@ -380,10 +383,17 @@ public class PdfPurchaseRenderer {
         return new SupplierPrepared(List.copyOf(lines));
     }
 
-    private Prepared prepare(PurchaseOrder order, LandedCost costing) {
+    private Prepared prepare(PurchaseOrder order, LandedCost costing,
+                             boolean includeEnrosedCost) {
         Map<Long, Product> byId = products.list().stream()
                 .filter(product -> product.id() != null)
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        LandedCost orderedCosting = includeEnrosedCost
+                ? landedCosts.calculateForOrderedQuantities(order, byId) : null;
+        Map<Long, LandedCost.Line> orderedCostsByProduct = orderedCosting == null
+                ? Map.of()
+                : orderedCosting.lines().stream().collect(Collectors.toMap(
+                        LandedCost.Line::productId, Function.identity(), (left, right) -> left));
         Map<Long, PurchaseOrderLine> orderLines = order.lines().stream()
                 .filter(line -> line != null && line.productId() != null)
                 .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(),
@@ -394,7 +404,8 @@ public class PdfPurchaseRenderer {
         int missingPrices = 0;
         int purchasePieces = 0;
         int purchaseCartonCount = 0;
-        BigDecimal enrosedTotalEur = BigDecimal.ZERO;
+        BigDecimal enrosedTotalEur = orderedCosting == null
+                ? BigDecimal.ZERO : orderedCosting.totals().totalEur();
 
         for (LandedCost.Line costingLine : costing.lines()) {
             Product product = byId.get(costingLine.productId());
@@ -408,9 +419,7 @@ public class PdfPurchaseRenderer {
                     ? costingLine.cartons() : product.carton().cartonsFor(purchaseQuantity);
             purchasePieces += purchaseQuantity;
             purchaseCartonCount += purchaseCartons;
-            if (costingLine.totalEur() != null) {
-                enrosedTotalEur = enrosedTotalEur.add(costingLine.totalEur());
-            }
+            LandedCost.Line orderedCostLine = orderedCostsByProduct.get(costingLine.productId());
             boolean priceAvailable = price.available();
             BigDecimal lineTotal = priceAvailable
                     ? unitPrice.multiply(BigDecimal.valueOf(purchaseQuantity)) : null;
@@ -436,6 +445,7 @@ public class PdfPurchaseRenderer {
                     costingLine.dutyRatePct(), costingLine.dutyEur(),
                     costingLine.destinationEur(), costingLine.extraRevenueEur(),
                     costingLine.totalEur(), costingLine.landedUnitEur(),
+                    orderedCostLine == null ? null : orderedCostLine.totalEur(),
                     unitPrice, lineTotal, unitEur, lineTotalEur,
                     currency, priceBasis, priceAvailable,
                     priceAvailable && currency != Currency.EUR && unitEur != null));

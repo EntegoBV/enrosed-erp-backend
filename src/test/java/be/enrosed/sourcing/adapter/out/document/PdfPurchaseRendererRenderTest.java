@@ -269,7 +269,7 @@ class PdfPurchaseRendererRenderTest {
     @Test
     @TestTransaction
     void portraitCanShowOneAllInEnrosedCostWithoutSeparateCostLegs() throws Exception {
-        Product product = createProductWithPhoto();
+        Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());
         PdfPurchaseRenderer.Document document = renderer.render(
                 order, portraitCosting(product.id()), supplier(), false, payments(),
@@ -291,8 +291,12 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("regeltotaal"), text);
             assertTrue(text.contains("enrosed-kost"), text);
             assertTrue(text.contains("incl. verzending"), text);
-            assertTrue(text.contains("1.498,00"),
-                    "de volledige toegerekende regelkost hoort in de ene all-in kolom");
+            assertTrue(text.contains("8.843,03"),
+                    "de all-in regelkost moet op dezelfde 96 bestelde stuks zijn berekend");
+            assertFalse(text.contains("1.498,00"),
+                    "de ontvangen 90 stuks mogen niet de kostenbasis van de bestel-PDF zijn");
+            assertFalse(text.contains("1.597,87"),
+                    "vaste vrachtkosten mogen niet via 96/90 worden opgeschaald");
             assertFalse(text.contains("inkooporder voor controle"), text);
             assertFalse(text.contains("controleer voor verzending"), text);
             assertFalse(text.contains("goederenwaarde"), text);
@@ -303,6 +307,36 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("invoerrechten"), text);
             assertFalse(text.contains("bestemmingskosten"), text);
             assertFalse(text.contains("betaalplan"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void portraitKeepsOrderedAllInCostWhenSupplierPricesAreHidden() throws Exception {
+        Product product = createProductWithPhotoForAllInCost();
+        PurchaseOrder order = portraitOrder(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(true, false, true, true, true, true));
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("96"), text);
+            assertTrue(text.contains("enrosed-kost"), text);
+            assertTrue(text.contains("incl. verzending"), text);
+            assertTrue(text.contains("8.843,03"), text);
+            assertFalse(text.contains("per stuk"), text);
+            assertFalse(text.contains("regeltotaal"), text);
+            assertFalse(text.contains("ordertotaal per valuta"), text);
+            assertFalse(text.contains("12,50"), text);
+            assertFalse(text.contains("1.200,00"), text);
+            assertFalse(text.contains("vracht en bijkomende logistiek"), text);
         }
     }
 
@@ -533,17 +567,26 @@ class PdfPurchaseRendererRenderTest {
         return createProductWithPhoto("Gebruik witte binnendozen");
     }
 
+    private Product createProductWithPhotoForAllInCost() throws Exception {
+        return createProductWithPhoto("Gebruik witte binnendozen", 7L, "PDF-UNKNOWN");
+    }
+
     private Product createProductWithPhoto(String supplierNote) throws Exception {
         return createProductWithPhoto(supplierNote, 7L);
     }
 
     private Product createProductWithPhoto(String supplierNote, Long supplierId) throws Exception {
+        return createProductWithPhoto(supplierNote, supplierId, "7013.99.00");
+    }
+
+    private Product createProductWithPhoto(String supplierNote, Long supplierId,
+                                           String hsCode) throws Exception {
         Product created = products.create(new Product(
                 null, "PO-PDF-THUMBNAIL", "Glass bowl bestseller",
                 new Dimensions(new BigDecimal("18"), new BigDecimal("18"),
                         new BigDecimal("22")), "Bordeaux", "Testproduct voor PDF QA",
                 null, supplierId, true,
-                new Barcodes("5410000000019", "15410000000016"), "7013.99.00",
+                new Barcodes("5410000000019", "15410000000016"), hsCode,
                 new Carton(new Dimensions(new BigDecimal("40"), new BigDecimal("40"),
                         new BigDecimal("30")), 12, new BigDecimal("6.2")),
                 new BigDecimal("99.99"), Currency.USD, BigDecimal.ZERO,
