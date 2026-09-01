@@ -292,7 +292,44 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void portraitCanShowOneAllInEnrosedCostWithoutSeparateCostLegs() throws Exception {
+    void portraitCanShowOnlyEurPricesAndTotalDeliveryCostTogether() throws Exception {
+        Product product = createProductWithPhotoForAllInCost();
+        PurchaseOrder order = portraitOrder(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(
+                        true, true, true, true, false, false, true));
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-eur-only-total-cost.pdf"), document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("11,125"), text);
+            assertTrue(text.contains("1.068,00 eur"), text);
+            assertTrue(text.contains("ordertotaal in eur"), text);
+            assertTrue(text.contains("totale kost"), text);
+            assertTrue(text.contains("t/m levering"), text);
+            assertTrue(text.contains("8.843,03 eur"), text);
+            assertFalse(text.contains("12,50"), text);
+            assertFalse(text.contains("1.200,00"), text);
+            assertFalse(text.contains(" usd"), text);
+            assertFalse(text.contains("ca. 11,125"), text);
+            assertFalse(text.contains("enrosed-kost"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void portraitCanShowTotalCostThroughDeliveryWithoutSeparateCostLegs() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());
         PdfPurchaseRenderer.Document document = renderer.render(
@@ -313,10 +350,13 @@ class PdfPurchaseRendererRenderTest {
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("regeltotaal"), text);
-            assertTrue(text.contains("enrosed-kost"), text);
-            assertTrue(text.contains("incl. verzending"), text);
+            assertTrue(text.contains("totale kost"), text);
+            assertTrue(text.contains("t/m levering"), text);
+            assertTrue(text.contains("inkoop en producttoeslagen"), text);
+            assertTrue(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("enrosed-kost"), text);
             assertTrue(text.contains("8.843,03"),
-                    "de all-in regelkost moet op dezelfde 96 bestelde stuks zijn berekend");
+                    "de totale regelkost moet op dezelfde 96 bestelde stuks zijn berekend");
             assertFalse(text.contains("1.498,00"),
                     "de ontvangen 90 stuks mogen niet de kostenbasis van de bestel-PDF zijn");
             assertFalse(text.contains("1.597,87"),
@@ -328,7 +368,6 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("lokale kosten china"), text);
             assertFalse(text.contains("zeevracht"), text);
             assertFalse(text.contains("douanewaarde"), text);
-            assertFalse(text.contains("invoerrechten"), text);
             assertFalse(text.contains("bestemmingskosten"), text);
             assertFalse(text.contains("betaalplan"), text);
         }
@@ -336,7 +375,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void portraitKeepsOrderedAllInCostWhenSupplierPricesAreHidden() throws Exception {
+    void portraitKeepsOrderedTotalDeliveryCostWhenSupplierPricesAreHidden() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());
         PdfPurchaseRenderer.Document document = renderer.render(
@@ -352,8 +391,9 @@ class PdfPurchaseRendererRenderTest {
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("96"), text);
-            assertTrue(text.contains("enrosed-kost"), text);
-            assertTrue(text.contains("incl. verzending"), text);
+            assertTrue(text.contains("totale kost"), text);
+            assertTrue(text.contains("t/m levering"), text);
+            assertFalse(text.contains("enrosed-kost"), text);
             assertTrue(text.contains("8.843,03"), text);
             assertFalse(text.contains("per stuk"), text);
             assertFalse(text.contains("regeltotaal"), text);

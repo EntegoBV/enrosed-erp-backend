@@ -170,16 +170,25 @@ public class PdfPurchaseRenderer {
      * documents intentionally retain their fixed historical contracts.
      */
     public record PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
-                             boolean showFreight, boolean includeFreight,
+                             boolean eurOnly, boolean showFreight, boolean includeFreight,
                              boolean includeEnrosedCost) {
+        /** Compatibility for callers written before the EUR-only option. */
+        public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                          boolean showFreight, boolean includeFreight,
+                          boolean includeEnrosedCost) {
+            this(showSupplier, showPrices, showEur, false,
+                    showFreight, includeFreight, includeEnrosedCost);
+        }
+
         /** Compatibility for callers written before the combined-cost option. */
         public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                           boolean showFreight, boolean includeFreight) {
-            this(showSupplier, showPrices, showEur, showFreight, includeFreight, false);
+            this(showSupplier, showPrices, showEur, false,
+                    showFreight, includeFreight, false);
         }
 
         public static PdfOptions defaults() {
-            return new PdfOptions(true, true, false, false, false, false);
+            return new PdfOptions(true, true, false, false, false, false, false);
         }
 
         PdfOptions normalized(Layout layout, Audience audience) {
@@ -187,8 +196,9 @@ public class PdfPurchaseRenderer {
             boolean prices = showPrices;
             /* Freight components are never printed separately anymore. The
                legacy flags stay in the API contract but normalize off. */
-            return new PdfOptions(showSupplier, prices, showEur && prices,
-                    false, false, includeEnrosedCost);
+            boolean onlyEur = eurOnly && prices;
+            return new PdfOptions(showSupplier, prices, showEur && prices && !onlyEur,
+                    onlyEur, false, false, includeEnrosedCost);
         }
     }
 
@@ -208,11 +218,11 @@ public class PdfPurchaseRenderer {
             BigDecimal freightEur, BigDecimal customsValueEur,
             BigDecimal dutyRatePct, BigDecimal dutyEur,
             BigDecimal destinationEur, BigDecimal extraRevenueEur,
-            BigDecimal totalEur, BigDecimal landedUnitEur, BigDecimal enrosedOrderTotalEur,
+            BigDecimal totalEur, BigDecimal landedUnitEur, BigDecimal totalDeliveryCostEur,
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
             BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
-            boolean eurEquivalentAvailable) {}
+            boolean eurPriceAvailable, boolean eurEquivalentAvailable) {}
 
     /**
      * Deliberately small supplier contract. No landed costs, revenue,
@@ -251,8 +261,9 @@ public class PdfPurchaseRenderer {
     public record PurchaseTotal(String currency, String amount) {}
 
     private record Prepared(List<LineView> lines, List<PurchaseTotal> purchaseTotals,
-                            int missingPurchasePrices, int purchasePieces,
-                            int purchaseCartons, BigDecimal enrosedTotalEur) {}
+                            BigDecimal purchaseTotalEur, int missingPurchasePrices,
+                            int missingEurPrices, int purchasePieces,
+                            int purchaseCartons, BigDecimal totalDeliveryCostEur) {}
 
     private record SupplierPrepared(List<SupplierLineView> lines) {}
 
@@ -321,6 +332,7 @@ public class PdfPurchaseRenderer {
                 .data("showSupplier", options.showSupplier())
                 .data("showPrices", options.showPrices())
                 .data("showEur", options.showEur())
+                .data("eurOnly", options.eurOnly())
                 .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
                 .data("showEnrosedCost", options.includeEnrosedCost());
 
@@ -333,10 +345,14 @@ public class PdfPurchaseRenderer {
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
+                    .data("purchaseTotalEur", prepared.purchaseTotalEur())
+                    .data("purchaseTotalEurAvailable", prepared.missingEurPrices() == 0)
                     .data("missingPurchasePrices", prepared.missingPurchasePrices())
+                    .data("missingDisplayedPrices", options.eurOnly()
+                            ? prepared.missingEurPrices() : prepared.missingPurchasePrices())
                     .data("purchasePieces", prepared.purchasePieces())
                     .data("purchaseCartons", prepared.purchaseCartons())
-                    .data("enrosedTotalEur", prepared.enrosedTotalEur())
+                    .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
                     .data("timeline", timeline(order))
@@ -453,9 +469,11 @@ public class PdfPurchaseRenderer {
         Map<Currency, BigDecimal> totals = new EnumMap<>(Currency.class);
         List<LineView> lines = new ArrayList<>();
         int missingPrices = 0;
+        int missingEurPrices = 0;
         int purchasePieces = 0;
         int purchaseCartonCount = 0;
-        BigDecimal enrosedTotalEur = orderedCosting == null
+        BigDecimal purchaseTotalEur = BigDecimal.ZERO;
+        BigDecimal totalDeliveryCostEur = orderedCosting == null
                 ? BigDecimal.ZERO : orderedCosting.totals().totalEur();
 
         for (LandedCost.Line costingLine : costing.lines()) {
@@ -483,6 +501,12 @@ public class PdfPurchaseRenderer {
             } else {
                 missingPrices++;
             }
+            boolean eurPriceAvailable = unitEur != null && lineTotalEur != null;
+            if (eurPriceAvailable) {
+                purchaseTotalEur = purchaseTotalEur.add(lineTotalEur);
+            } else {
+                missingEurPrices++;
+            }
             String priceBasis = orderLine == null
                     ? "EXW" : orderLine.priceBasis().name();
             lines.add(new LineView(
@@ -499,14 +523,16 @@ public class PdfPurchaseRenderer {
                     orderedCostLine == null ? null : orderedCostLine.totalEur(),
                     unitPrice, lineTotal, unitEur, lineTotalEur,
                     currency, priceBasis, priceAvailable,
+                    eurPriceAvailable,
                     priceAvailable && currency != Currency.EUR && unitEur != null));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
         totals.forEach((currency, amount) -> purchaseTotals.add(
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
-        return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), missingPrices,
-                purchasePieces, purchaseCartonCount, enrosedTotalEur);
+        return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), purchaseTotalEur,
+                missingPrices, missingEurPrices, purchasePieces,
+                purchaseCartonCount, totalDeliveryCostEur);
     }
 
     /**

@@ -129,6 +129,7 @@
     .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
     .enrosed-cost .price-main { color: #762239; }
     .cost-hint { margin-top: .5mm; color: #8b8179; font-size: 5.8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .cost-definition { margin-top: 2mm; color: #756b65; font-size: 5.9pt; line-height: 1.4; }
 
     /* Totals and footer note */
     .closing { margin-top: 5mm; page-break-inside: avoid; }
@@ -347,7 +348,7 @@
     <th class="col-cartons">Kartons</th>
     {#if showPrices}<th class="col-unit">Per stuk</th>
     <th class="col-line-total">Regeltotaal</th>{/if}
-    {#if showEnrosedCost}<th class="col-enrosed enrosed-cost">ENROSED-kost<div class="cost-hint">incl. verzending</div></th>{/if}
+    {#if showEnrosedCost}<th class="col-enrosed enrosed-cost">Totale kost<div class="cost-hint">t/m levering · EUR</div></th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -371,16 +372,22 @@
       <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.purchaseCartons}</td>
       {#if showPrices}<td class="number">
-        {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
-        {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseUnitEur.moneyUnit} EUR</span>{/if}
+        {#if eurOnly}
+          {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseUnitEur.moneyUnit}</span><br/><span class="price-sub">EUR · {line.priceBasis}</span>
+          {#else}<span class="muted">EUR niet beschikbaar</span>{/if}
+        {#else if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+          {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseUnitEur.moneyUnit} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>
       <td class="number">
-        {#if line.purchasePriceAvailable}<span class="price-main">{line.purchaseLineTotal.money}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
-        {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
+        {#if eurOnly}
+          {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseLineTotalEur.money}</span><br/><span class="price-sub">EUR</span>
+          {#else}<span class="muted">EUR niet beschikbaar</span>{/if}
+        {#else if line.purchasePriceAvailable}<span class="price-main">{line.purchaseLineTotal.money}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+          {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>{/if}
-      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.enrosedOrderTotalEur}<span class="price-main">{line.enrosedOrderTotalEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
+      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
     </tr>
   {/for}
   </tbody>
@@ -405,15 +412,22 @@
     </td>
     {#if !supplierMode && (showPrices || showEnrosedCost)}<td class="closing__total">
       <div class="total-box">
-        <div class="label">{#if showPrices}Ordertotaal per valuta{#else}ENROSED-kost{/if}</div>
+        <div class="label">{#if showPrices}{#if eurOnly}Ordertotaal in EUR{#else}Ordertotaal per valuta{/if}{#else}Totale orderkost t/m levering{/if}</div>
         <table class="total-row">
-          {#if showPrices}{#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
-          {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}{/if}
-          {#if showEnrosedCost}<tr class="combined-total"><td>ENROSED-kost<br/><span class="price-sub">all-in incl. verzending</span></td><td>{enrosedTotalEur.money} EUR</td></tr>{/if}
+          {#if showPrices}
+            {#if eurOnly}
+              {#if purchaseTotalEurAvailable}<tr><td>EUR</td><td>{purchaseTotalEur.money} EUR</td></tr>
+              {#else}<tr><td colspan="2" class="muted">EUR-totaal niet volledig beschikbaar</td></tr>{/if}
+            {#else}{#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
+              {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
+            {/if}
+          {/if}
+          {#if showEnrosedCost}<tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>{/if}
         </table>
+        {#if showEnrosedCost}<div class="cost-definition">Inkoop en producttoeslagen, oorsprong, vracht, invoerrechten, transport en afhandeling tot het magazijn en interne kost; exclusief btw. Bij DDP zijn vracht en invoer al in de inkoopprijs opgenomen.</div>{/if}
       </div>
-      {#if showPrices && missingPurchasePrices > 0}
-        <div class="warning">Bij {missingPurchasePrices} productregel(s) ontbreekt nog een eenduidige inkoopprijs of valuta.</div>
+      {#if showPrices && missingDisplayedPrices > 0}
+        <div class="warning">Bij {missingDisplayedPrices} productregel(s) ontbreekt nog een eenduidige inkoopprijs, valuta of benodigde wisselkoers.</div>
       {/if}
     </td>{/if}
   </tr>

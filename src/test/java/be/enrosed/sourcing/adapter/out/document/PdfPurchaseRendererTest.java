@@ -94,6 +94,28 @@ class PdfPurchaseRendererTest {
     }
 
     @Test
+    void eurOnlyWinsFromTheSubtleEquivalentAndStaysInStandardPortrait() {
+        var requested = new PdfPurchaseRenderer.PdfOptions(
+                true, true, true, true, true, true, false);
+
+        assertEquals(new PdfPurchaseRenderer.PdfOptions(
+                        true, true, false, true, false, false, false),
+                requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                        PdfPurchaseRenderer.Audience.STANDARD));
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.LANDSCAPE,
+                        PdfPurchaseRenderer.Audience.STANDARD));
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                        PdfPurchaseRenderer.Audience.SUPPLIER));
+
+        var hiddenPrices = new PdfPurchaseRenderer.PdfOptions(
+                true, false, false, true, false, false, false);
+        assertFalse(hiddenPrices.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD).eurOnly());
+    }
+
+    @Test
     void supplierEanPrefersCanonicalButFallsBackToEditablePieceBarcode() {
         Product legacy = new Product(
                 1L, "SKU-EAN", "EAN product", Dimensions.empty(), null, null,
