@@ -30,11 +30,16 @@
     table.grid { width: 100%; border-collapse: separate; border-spacing: 3.2mm 3.2mm; margin: 0 -3.2mm; }
     td.cell { width: 33.333%; padding: 0; vertical-align: top; background: #fff; border: 1px solid #dfd3c5; page-break-inside: avoid; }
     td.empty { border: 0; background: transparent; }
-    .media { height: 42mm; background: #f8f4ee; border-bottom: 1px solid #eadfd4; text-align: center; }
-    .media table, .media td { width: 100%; height: 42mm; border-collapse: collapse; vertical-align: middle; text-align: center; }
-    .media.duo table td { width: 50%; }
-    .media.duo table td + td { border-left: 1px solid #eadfd4; }
-    .media img { max-width: 95%; max-height: 40mm; }
+    .media { height: 42mm; overflow: hidden; background: #f8f4ee; border-bottom: 1px solid #eadfd4; text-align: center; }
+    .media table { width: 100%; height: 42mm; border-collapse: collapse; table-layout: fixed; }
+    .media--one tr, .media--two tr { height: 42mm; }
+    .media--three tr, .media--four-plus tr { height: 21mm; }
+    .media td { padding: 0; overflow: hidden; vertical-align: middle; text-align: center; border-right: 1px solid #eadfd4; border-bottom: 1px solid #eadfd4; }
+    .media .tile--single { width: 100%; }
+    .media .tile--half, .media .tile--quarter { width: 50%; }
+    .media .tile--lead { width: 66%; }
+    .media .tile--stack { width: 34%; }
+    .media img { display: block; width: 100%; height: auto; margin: 0; }
     .strip { height: 9mm; padding: 1mm 2mm; white-space: nowrap; border-bottom: 1px solid #eadfd4; }
     .strip img { width: auto; height: 7mm; max-width: 10mm; margin-right: 1mm; border: 1px solid #eadfd4; }
     .noimage { padding-top: 19mm; color: #b4a394; font-size: 6pt; letter-spacing: 1px; text-transform: uppercase; }
@@ -85,16 +90,9 @@
       <tr>
       {#for it in row}
         <td class="cell">
-          {#if it.photoDataUri}
-            {#if it.secondPhotoDataUri}
-              <div class="media duo"><table><tr>
-                <td><img src="{it.photoDataUri}" alt="{it.name}"/></td>
-                <td><img src="{it.secondPhotoDataUri}" alt=""/></td>
-              </tr></table></div>
-            {#else}
-              <div class="media"><table><tr><td><img src="{it.photoDataUri}" alt="{it.name}"/></td></tr></table></div>
-            {/if}
-            {#if it.extraPhotos.size > 0}<div class="strip">{#for extra in it.extraPhotos}<img src="{extra}" alt=""/>{/for}</div>{/if}
+          {#if it.photos.present}
+            <div class="media media--{it.photos.kind}"><table>{#for photoRow in it.photos.rows}<tr>{#for tile in photoRow.tiles}<td class="tile--{tile.cssClass}" rowspan="{tile.rowSpan}"><img src="{tile.image}" alt="{it.name}"/></td>{/for}</tr>{/for}</table></div>
+            {#if it.photos.extras.size > 0}<div class="strip">{#for extra in it.photos.extras}<img src="{extra}" alt=""/>{/for}</div>{/if}
           {#else}<div class="media"><div class="noimage">{copy['catalog.common.imageunavailable']}</div></div>{/if}
           <div class="body">
             <div class="sku">{it.sku}</div>

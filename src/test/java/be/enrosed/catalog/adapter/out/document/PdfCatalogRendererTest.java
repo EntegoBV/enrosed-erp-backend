@@ -22,10 +22,7 @@ import org.apache.pdfbox.text.TextPosition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 
-import javax.imageio.ImageIO;
 import java.awt.Color;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -34,7 +31,6 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +38,6 @@ import java.util.Map;
 import static be.enrosed.catalog.application.CatalogExportServiceTest.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -78,7 +73,9 @@ class PdfCatalogRendererTest {
         assertTrue(brochureHtml.contains("A lasting collection"));
         assertTrue(brochureHtml.contains("Product B × D × H"));
         assertTrue(brochureHtml.contains("The complete range at a glance."));
+        assertFalse(brochureHtml.contains("Select a product to open its detail page."));
         assertTrue(brochureHtml.contains("Reference prices per piece in EUR"));
+        assertFalse(brochureHtml.contains("View product detail"));
         assertTrue(brochureHtml.contains("href=\"#family-01\""));
         assertTrue(brochureHtml.contains("id=\"family-01\""));
         assertFalse(brochureHtml.contains("€0.00"));
@@ -189,13 +186,13 @@ class PdfCatalogRendererTest {
 
         assertFalse(html.contains("class=\"image-placeholder\""),
                 "a missing catalogue-family blob must not suppress a valid product fallback");
-        String expectedHero = imageEncoder.encodeContained(
-                photoBytes(owned), 1_600, 900, new Color(255, 252, 248));
+        String expectedHero = imageEncoder.encodeCoverCropped(
+                photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
         assertTrue(html.contains(expectedHero));
     }
 
     @Test
-    void curatedCatalogHeroReplacesAnOutlierPrimaryButKeepsTheActualPhotoBesideIt()
+    void actualSelectedPhotoIsNeverReplacedByACuratedFamilyOverride()
             throws Exception {
         Photo actual = storedPhoto(941L, "/images/soap-roos-in-box-480.webp",
                 "soap-led-actual.webp", "image/webp");
@@ -206,24 +203,17 @@ class PdfCatalogRendererTest {
         String html = renderer.renderHtml(catalog);
         String curatedHero = editorialAssets.contained(
                 "families/soap-rose-box-led.png", 1_600, 900);
-        String actualSide = imageEncoder.encodeContained(
-                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+        String actualHero = imageEncoder.encodeCoverCropped(
+                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertFalse(curatedHero.isBlank());
-        assertTrue(html.contains(curatedHero));
-        assertTrue(html.contains(actualSide));
-
-        CatalogDocumentRenderer.Document document = renderer.render(catalog);
-        Path qa = Path.of("target", "catalog-qa");
-        Files.createDirectories(qa);
-        Files.write(qa.resolve("curated-soap-led.pdf"), document.content());
-        try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(7, pdf.getNumberOfPages());
-        }
+        assertFalse(html.contains(curatedHero));
+        assertTrue(html.contains(actualHero));
+        assertTrue(html.contains("class=\"family-media family-media--one\""));
     }
 
     @Test
-    void curatedCatalogHeroStaysHiddenWhenProductPhotosAreDisabled() throws Exception {
+    void selectedPhotosStayHiddenEverywhereWhenProductPhotosAreDisabled() throws Exception {
         Photo actual = storedPhoto(942L, "/images/soap-roos-in-box-480.webp",
                 "soap-led-disabled.webp", "image/webp");
         CatalogExportService.Model catalog = withPhotoBudget(withFamilyKey(withPhoto(
@@ -231,18 +221,16 @@ class PdfCatalogRendererTest {
                 "soap-rose-box-led"), false, 0);
 
         String html = renderer.renderHtml(catalog);
-        String curatedHero = editorialAssets.contained(
-                "families/soap-rose-box-led.png", 1_600, 900);
-        String actualSide = imageEncoder.encodeContained(
-                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+        String actualHero = imageEncoder.encodeCoverCropped(
+                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
-        assertFalse(html.contains(curatedHero));
-        assertFalse(html.contains(actualSide));
+        assertFalse(html.contains(actualHero));
+        assertFalse(html.contains("editorial-grid--one"));
         assertTrue(html.contains("class=\"image-placeholder\""));
     }
 
     @Test
-    void curatedCatalogHeroConsumesTheSinglePhotoBudgetWithoutAnActualSideImage()
+    void onePhotoBudgetUsesOneActualPhotoWithoutDuplicatingItIntoAnotherTile()
             throws Exception {
         Photo actual = storedPhoto(943L, "/images/soap-roos-in-box-480.webp",
                 "soap-led-single.webp", "image/webp");
@@ -251,13 +239,45 @@ class PdfCatalogRendererTest {
                 "soap-rose-box-led"), true, 1);
 
         String html = renderer.renderHtml(catalog);
-        String curatedHero = editorialAssets.contained(
-                "families/soap-rose-box-led.png", 1_600, 900);
-        String actualSide = imageEncoder.encodeContained(
-                photoBytes(actual), 600, 900, new Color(255, 252, 248));
+        String actualHero = imageEncoder.encodeCoverCropped(
+                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
-        assertTrue(html.contains(curatedHero));
-        assertFalse(html.contains(actualSide));
+        assertTrue(html.contains(actualHero));
+        assertEquals(1, occurrences(html, actualHero));
+        assertTrue(html.contains("class=\"family-media family-media--one\""));
+        assertFalse(html.contains("class=\"tile--half\""));
+    }
+
+    @Test
+    void uniquePhotosUsePurposeBuiltOneTwoThreeAndFourPlusCompositions() throws Exception {
+        Photo one = storedPhoto(951L, "/catalog-assets/counter-bowl-retail.jpg",
+                "layout-one.jpg", "image/jpeg");
+        Photo two = storedPhoto(952L, "/catalog-assets/preserved-roses.jpg",
+                "layout-two.jpg", "image/jpeg");
+        Photo three = storedPhoto(953L, "/catalog-assets/soap-roses.jpg",
+                "layout-three.jpg", "image/jpeg");
+        Photo four = storedPhoto(954L, "/catalog-assets/atelier.jpg",
+                "layout-four.jpg", "image/jpeg");
+        Photo five = storedPhoto(955L, "/catalog-assets/hero-open-desktop.jpg",
+                "layout-five.jpg", "image/jpeg");
+        CatalogExportService.Model pictured = withPhotos(
+                model(1, CatalogExportService.Layout.BROCHURE),
+                List.of(one, two, one, three, four, five));
+
+        String single = renderer.renderHtml(withPhotoBudget(pictured, true, 1));
+        String duo = renderer.renderHtml(withPhotoBudget(pictured, true, 2));
+        String trio = renderer.renderHtml(withPhotoBudget(pictured, true, 3));
+        String mosaic = renderer.renderHtml(withPhotoBudget(pictured, true, 6));
+
+        assertTrue(single.contains("class=\"family-media family-media--one\""));
+        assertTrue(duo.contains("class=\"family-media family-media--two\""));
+        assertEquals(2, occurrences(familyMediaFragment(duo), "class=\"tile--half\""));
+        assertTrue(trio.contains("class=\"family-media family-media--three\""));
+        assertEquals(1, occurrences(familyMediaFragment(trio), "rowspan=\"2\""));
+        assertTrue(mosaic.contains("class=\"family-media family-media--four-plus\""));
+        assertEquals(4, occurrences(familyMediaFragment(mosaic), "class=\"tile--quarter\""));
+        assertEquals(1, occurrences(mosaic, "<div class=\"gallery-strip\"><img"),
+                "the duplicate source key must not consume a tile or create a second extra image");
     }
 
     @Test
@@ -278,12 +298,14 @@ class PdfCatalogRendererTest {
 
         String simpleHtml = renderer.renderHtml(simple);
         String brochureHtml = renderer.renderHtml(brochure);
-        String inheritedSimple = imageEncoder.encode(photoBytes(inherited), 700);
-        String ownedSimple = imageEncoder.encode(photoBytes(owned), 700);
-        String inheritedHero = imageEncoder.encodeContained(
-                photoBytes(inherited), 1_600, 900, new Color(255, 252, 248));
-        String ownedHero = imageEncoder.encodeContained(
-                photoBytes(owned), 1_600, 900, new Color(255, 252, 248));
+        String inheritedSimple = imageEncoder.encodeCoverCropped(
+                photoBytes(inherited), 4, 3, 1_000, new Color(255, 252, 248));
+        String ownedSimple = imageEncoder.encodeCoverCropped(
+                photoBytes(owned), 4, 3, 1_000, new Color(255, 252, 248));
+        String inheritedHero = imageEncoder.encodeCoverCropped(
+                photoBytes(inherited), 16, 9, 2_400, new Color(255, 252, 248));
+        String ownedHero = imageEncoder.encodeCoverCropped(
+                photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertFalse(simpleHtml.contains(inheritedSimple));
         assertTrue(simpleHtml.contains(ownedSimple));
@@ -321,48 +343,62 @@ class PdfCatalogRendererTest {
 
         String html = renderer.renderHtml(catalogue);
 
-        assertTrue(html.contains(imageEncoder.encode(photoBytes(inherited), 700)),
+        assertTrue(html.contains(imageEncoder.encodeCoverCropped(
+                        photoBytes(inherited), 4, 3, 1_000, new Color(255, 252, 248))),
                 "a CATALOGUE-published inherited family photo must remain usable");
     }
 
     @Test
-    void brochureUsesDifferentPrintResolutionEditorialAssetsForFrontAndBackCover()
+    void coverBackAndCategoryUseOnlyActualSelectedPhotosInDistinctMosaics()
             throws Exception {
-        String front = editorialAssets.image("catalog-cover-v3.png");
-        String back = editorialAssets.image("catalog-back-cover-v1.png");
-        String html = renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE));
+        List<Photo> selected = List.of(
+                storedPhoto(981L, "/catalog-assets/counter-bowl-retail.jpg",
+                        "selected-counter.jpg", "image/jpeg"),
+                storedPhoto(982L, "/catalog-assets/preserved-roses.jpg",
+                        "selected-preserved.jpg", "image/jpeg"),
+                storedPhoto(983L, "/catalog-assets/soap-roses.jpg",
+                        "selected-soap.jpg", "image/jpeg"),
+                storedPhoto(984L, "/catalog-assets/atelier.jpg",
+                        "selected-atelier.jpg", "image/jpeg"));
+        CatalogExportService.Model catalog = withPhotoBudget(withPhotos(
+                model(1, CatalogExportService.Layout.BROCHURE), selected), true, 4);
+        String oldFront = editorialAssets.image("catalog-cover-v3.png");
+        String oldBack = editorialAssets.image("catalog-back-cover-v1.png");
 
-        assertFalse(front.isBlank());
-        assertFalse(back.isBlank());
-        assertNotEquals(front, back);
-        BufferedImage frontImage = dataImage(front);
-        BufferedImage backImage = dataImage(back);
-        assertEquals(2_480, frontImage.getWidth());
-        assertEquals(3_508, frontImage.getHeight());
-        assertEquals(2_480, backImage.getWidth());
-        assertEquals(3_508, backImage.getHeight());
-        assertEquals(1, occurrences(html, front));
-        assertEquals(1, occurrences(html, back));
+        String html = renderer.renderHtml(catalog);
+
+        assertFalse(html.contains(oldFront));
+        assertFalse(html.contains(oldBack));
+        assertEquals(2, occurrences(html, "editorial-grid--four-plus"),
+                "cover and category must use all four selected photos");
+        assertEquals(1, occurrences(html, "editorial-grid--three"),
+                "the back cover must omit the front lead and use the other three photos");
+        String cover = sectionFragment(html, "<section class=\"page cover\">");
+        String back = sectionFragment(html, "<section class=\"page back\">");
+        String frontLead = imageEncoder.encodeCoverCropped(
+                photoBytes(selected.get(1)), 105, 149, 1_600, new Color(255, 252, 248));
+        String backLead = imageEncoder.encodeCoverCropped(
+                photoBytes(selected.get(2)), 210, 178, 2_200, new Color(255, 252, 248));
+        assertTrue(cover.contains(frontLead));
+        assertFalse(back.contains(frontLead));
+        assertTrue(back.contains(backLead));
+        assertFalse(cover.contains(backLead));
+        assertTrue(html.indexOf("class=\"page cover\"")
+                < html.indexOf("class=\"page overview-page\""));
+        assertTrue(html.contains("class=\"page back\""));
     }
 
     @Test
-    void frontCoverIsDarkenedBeforePdfEmbedding() throws Exception {
-        byte[] source;
-        try (var input = java.util.Objects.requireNonNull(getClass().getClassLoader()
-                .getResourceAsStream("catalog-assets/catalog-cover-v3.png"))) {
-            source = input.readAllBytes();
-        }
-        BufferedImage original = dataImage(imageEncoder.encodeContained(
-                source, 2_480, 3_508, new Color(18, 12, 10)));
-        String darkened = editorialAssets.image("catalog-cover-v3.png");
-        BufferedImage cover = dataImage(darkened);
+    void coverKeepsAReadableShadeAboveTheSelectedPhotoMosaic() throws Exception {
+        Photo selected = storedPhoto(985L, "/catalog-assets/preserved-roses.jpg",
+                "selected-cover.jpg", "image/jpeg");
+        String html = renderer.renderHtml(withPhoto(
+                model(1, CatalogExportService.Layout.BROCHURE), selected));
 
-        assertEquals(original.getWidth(), cover.getWidth());
-        assertEquals(original.getHeight(), cover.getHeight());
-        assertTrue(sampledLuminance(cover) < sampledLuminance(original) * .72,
-                "the embedded cover must remain visibly darker than its source image");
-        assertEquals(1, occurrences(
-                renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE)), darkened));
+        assertTrue(html.contains("<div class=\"cover-shade\"></div>"));
+        assertTrue(html.contains("background: rgba(18,12,10,.56)"));
+        assertTrue(html.indexOf("editorial-grid editorial-grid--one")
+                < html.indexOf("<div class=\"cover-shade\"></div>"));
     }
 
     @Test
@@ -510,7 +546,7 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void overviewProductLinksUseTheRequestedLocaleAndReachTheDetailPage() {
+    void overviewNamesStayLocalizedWithoutRenderingTheViewProductCta() {
         Photo photo = new Photo(93L, "unused.jpg", "unused.jpg", "image/jpeg",
                 1L, 1, 1, 0);
         for (Language language : Language.values()) {
@@ -519,6 +555,7 @@ class PdfCatalogRendererTest {
             assertTrue(html.contains("href=\"#family-01\""), language.code());
             assertTrue(html.contains("id=\"family-01\""), language.code());
             assertTrue(html.contains(localizedFamilyName(language)), language.code());
+            assertFalse(html.contains("class=\"overview-detail\""), language.code());
         }
     }
 
@@ -801,6 +838,20 @@ class PdfCatalogRendererTest {
         return (haystack.length() - haystack.replace(needle, "").length()) / needle.length();
     }
 
+    private static String familyMediaFragment(String html) {
+        int from = html.indexOf("<table class=\"family-media family-media--");
+        if (from < 0) return "";
+        int to = html.indexOf("</table>", from);
+        return html.substring(from, to < 0 ? html.length() : to);
+    }
+
+    private static String sectionFragment(String html, String marker) {
+        int from = html.indexOf(marker);
+        if (from < 0) return "";
+        int to = html.indexOf("</section>", from);
+        return html.substring(from, to < 0 ? html.length() : to);
+    }
+
     private static String normalizeWhitespace(String value) {
         return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
@@ -825,11 +876,6 @@ class PdfCatalogRendererTest {
             maxBottom = Math.max(maxBottom, text.getYDirAdj() + text.getHeightDir());
             super.processTextPosition(text);
         }
-    }
-
-    private static BufferedImage dataImage(String dataUri) throws Exception {
-        byte[] bytes = Base64.getDecoder().decode(dataUri.substring(dataUri.indexOf(',') + 1));
-        return ImageIO.read(new ByteArrayInputStream(bytes));
     }
 
     private static List<String> overviewPageFragments(String html) {
@@ -1082,21 +1128,6 @@ class PdfCatalogRendererTest {
                 key, filename, contentType, bytes);
         return new Photo(id, key, filename, contentType, stored.sizeBytes(),
                 stored.widthPx(), stored.heightPx(), 0);
-    }
-
-    private static double sampledLuminance(BufferedImage image) {
-        double total = 0;
-        int samples = 0;
-        for (int y = 0; y < image.getHeight(); y += 32) {
-            for (int x = 0; x < image.getWidth(); x += 32) {
-                Color color = new Color(image.getRGB(x, y));
-                total += .2126 * color.getRed()
-                        + .7152 * color.getGreen()
-                        + .0722 * color.getBlue();
-                samples++;
-            }
-        }
-        return samples == 0 ? 0 : total / samples;
     }
 
     private static void assertPdf(CatalogDocumentRenderer.Document document) {

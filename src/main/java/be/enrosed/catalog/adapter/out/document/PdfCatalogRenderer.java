@@ -86,8 +86,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize,
                        String priceLabel, boolean inventoryKnown, Integer stockQuantity,
-                       String photoDataUri, String secondPhotoDataUri,
-                       List<String> extraPhotos) {}
+                       PhotoLayout photos) {}
 
     public record Section(String number, String name, String description, List<List<Item>> rows) {}
 
@@ -99,13 +98,36 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureFamily(
             String anchor, String number, String name, String summary, String description, String format,
             List<String> highlights, String categoryKey, String categoryName, String familySize,
-            String packageLine, String overviewImage, String heroImage, String secondImage,
+            String packageLine, String overviewImage, PhotoLayout photos,
             String referencePriceLabel, boolean compactDetail,
-            List<String> gallery, List<BrochureVariant> variants) {}
+            List<BrochureVariant> variants) {}
 
     public record BrochureSection(
-            String number, String name, String description, String categoryKey, String image,
+            String number, String name, String description, String categoryKey,
+            EditorialLayout images,
             String familyCountLabel, List<BrochureFamily> families) {}
+
+    public record PhotoTile(String image, String cssClass, int rowSpan) {}
+
+    public record PhotoRow(List<PhotoTile> tiles) {}
+
+    public record PhotoLayout(
+            String kind, boolean present, int count, List<PhotoRow> rows, List<String> extras) {
+        static PhotoLayout empty() {
+            return new PhotoLayout("empty", false, 0, List.of(), List.of());
+        }
+    }
+
+    public record EditorialTile(String image, int columnSpan) {}
+
+    public record EditorialRow(String cssClass, List<EditorialTile> tiles) {}
+
+    public record EditorialLayout(
+            String kind, boolean present, List<EditorialRow> rows) {
+        static EditorialLayout empty() {
+            return new EditorialLayout("empty", false, List.of());
+        }
+    }
 
     public record OverviewCard(
             boolean placeholder, boolean wide, String anchor, String number, String name,
@@ -157,7 +179,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = content.values(ContentScope.CATALOG, language);
-        PhotoResolver photos = new PhotoResolver(700);
+        PhotoResolver photos = new PhotoResolver();
         Set<Long> catalogueFamilyPhotoIds = catalog.families().stream()
                 .map(CatalogExportService.FamilyGroup::content)
                 .filter(Objects::nonNull)
@@ -224,37 +246,45 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         copy(copy, "catalog.brochure.defaulttitle")),
                 defaultText(requestedOptions.coverSubtitle(),
                         copy(copy, "catalog.brochure.defaultsubtitle")));
-        PhotoResolver photos = new PhotoResolver(1_600);
+        PhotoResolver photos = new PhotoResolver();
         List<BrochureFamily> allFamilies = new ArrayList<>();
-        Map<String, List<BrochureFamily>> byCategory = new LinkedHashMap<>();
+        List<FamilyRenderData> renderedFamilies = new ArrayList<>();
+        Map<String, List<FamilyRenderData>> byCategory = new LinkedHashMap<>();
         Map<String, Category> categoryByKey = new LinkedHashMap<>();
         CompanyProfile profile = company.get();
 
         int index = 1;
         for (CatalogExportService.FamilyGroup group : catalog.families()) {
-            BrochureFamily family = brochureFamily(
+            FamilyRenderData rendered = brochureFamily(
                     group, language, request, photos, copy, index++);
+            BrochureFamily family = rendered.family();
             allFamilies.add(family);
+            renderedFamilies.add(rendered);
             String key = categoryKey(group.category(), group.content());
-            byCategory.computeIfAbsent(key, ignored -> new ArrayList<>()).add(family);
+            byCategory.computeIfAbsent(key, ignored -> new ArrayList<>()).add(rendered);
             categoryByKey.putIfAbsent(key, group.category());
         }
 
         List<BrochureSection> sections = new ArrayList<>();
         int sectionIndex = 1;
-        for (Map.Entry<String, List<BrochureFamily>> entry : byCategory.entrySet()) {
+        for (Map.Entry<String, List<FamilyRenderData>> entry : byCategory.entrySet()) {
             Category category = categoryByKey.get(entry.getKey());
             String name = category != null && present(category.nameIn(language))
-                    ? category.nameIn(language) : entry.getValue().getFirst().categoryName();
+                    ? category.nameIn(language) : entry.getValue().getFirst().family().categoryName();
             String description = category == null ? null : category.descriptionIn(language);
+            List<PhotoRef> categoryPhotos = photos.diverseFamilyPhotos(entry.getValue());
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
-                    entry.getValue().getFirst().categoryKey(),
-                    editorial.image(categoryAsset(entry.getValue().getFirst().categoryKey())),
+                    entry.getValue().getFirst().family().categoryKey(),
+                    photos.editorialLayout(categoryPhotos, false),
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
                             copy(copy, "catalog.common.selectedfamily.plural")),
-                    List.copyOf(entry.getValue())));
+                    entry.getValue().stream().map(FamilyRenderData::family).toList()));
         }
+
+        List<PhotoRef> selectedPhotos = photos.diverseFamilyPhotos(renderedFamilies);
+        EditorialLayout coverImages = photos.editorialLayout(selectedPhotos, false);
+        EditorialLayout backImages = photos.editorialLayout(selectedPhotos, true);
 
         List<OverviewPage> overviewPages = overviewPages(allFamilies, copy);
         String title = present(request.title())
@@ -283,9 +313,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("copy", copy)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold.png"))
-                .data("coverImage", editorial.image("catalog-cover-v3.png"))
-                .data("backImage", editorial.image("catalog-back-cover-v1.png"))
-                .data("introDisplayImage", editorial.image("counter-bowl-retail.jpg"))
+                .data("coverImages", coverImages)
+                .data("backImages", backImages)
                 .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
                 .data("year", LocalDate.now().getYear())
                 .data("languageCode", language.code())
@@ -296,17 +325,20 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                             CatalogExportService.Request request, PhotoResolver photos,
                             Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         int allowed = request.resolvedPhotosPerProduct();
-        List<String> images = new ArrayList<>();
+        List<PhotoRef> imageRefs = new ArrayList<>();
+        Set<String> imageKeys = new LinkedHashSet<>();
         for (Photo photo : product.photos()) {
-            if (images.size() >= allowed) break;
+            if (imageRefs.size() >= allowed) break;
             /* Product projections can contain family photos from every publication channel.
                An inherited photo is safe only when the CATALOGUE-filtered family reader
                exposed that exact canonical family-photo row for this export. */
             if (photo.inherited() && !catalogueFamilyPhotoIds.contains(photo.familyPhotoId())) {
                 continue;
             }
-            String uri = photos.product(photo);
-            if (uri != null) images.add(uri);
+            PhotoRef ref = photos.productRef(photo);
+            if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
+                imageRefs.add(ref);
+            }
         }
         return new Item(
                 product.sku(), product.nameIn(language), dimensionLabel(product.dimensions()),
@@ -321,11 +353,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                                 copy(copy, "catalog.brochure.overview.priceonrequest"))
                         : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
-                at(images, 0), at(images, 1), images.size() <= 2
-                        ? List.of() : List.copyOf(images.subList(2, images.size())));
+                photos.simpleLayout(imageRefs));
     }
 
-    private BrochureFamily brochureFamily(
+    private FamilyRenderData brochureFamily(
             CatalogExportService.FamilyGroup group, Language language,
             CatalogExportService.Request request, PhotoResolver photos,
             Map<String, String> copy, int index) {
@@ -344,7 +375,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 ? copy(copy, "catalog.common.collection")
                 : group.category().nameIn(language);
 
-        int allowed = Math.min(4, request.resolvedPhotosPerProduct());
+        int allowed = request.resolvedPhotosPerProduct();
         List<PhotoRef> imageRefs = new ArrayList<>();
         Set<String> imageKeys = new LinkedHashSet<>();
         if (allowed > 0 && family != null) {
@@ -361,8 +392,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 }
             }
         }
-        if (allowed > 0 && imageRefs.isEmpty()) {
-            outer:
+        if (allowed > 0 && imageRefs.size() < allowed) {
             for (Product variant : group.variants()) {
                 for (Photo photo : variant.photos()) {
                     /* Inherited photos may be internal or selected for another channel.
@@ -373,31 +403,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
                         imageRefs.add(ref);
                     }
-                    if (imageRefs.size() >= allowed) break outer;
+                    if (imageRefs.size() >= allowed) break;
                 }
+                if (imageRefs.size() >= allowed) break;
             }
         }
-
-        String editorialAsset = allowed > 0 && family != null
-                ? familyEditorialAsset(family.familyKey()) : null;
-        String editorialOverview = editorialAsset == null ? null
-                : editorial.contained(editorialAsset, 720, 720);
-        String editorialHero = editorialAsset == null ? null
-                : editorial.contained(editorialAsset, 1_600, 900);
-        if (!present(editorialOverview)) editorialOverview = null;
-        if (!present(editorialHero)) editorialHero = null;
-        String overviewImage = editorialOverview != null ? editorialOverview
-                : imageRefs.isEmpty() ? null : photos.overview(imageRefs.getFirst());
-        String heroImage = editorialHero != null ? editorialHero
-                : imageRefs.isEmpty() ? null : photos.hero(imageRefs.getFirst(), imageRefs.size() < 2);
-        String secondImage = editorialHero != null
-                ? (allowed <= 1 || imageRefs.isEmpty() ? null : photos.side(imageRefs.getFirst()))
-                : imageRefs.size() < 2 ? null : photos.side(imageRefs.get(1));
-        List<String> gallery = editorialHero != null || imageRefs.size() <= 2 ? List.of()
-                : imageRefs.subList(2, imageRefs.size()).stream()
-                        .map(photos::gallery)
-                        .filter(Objects::nonNull)
-                        .toList();
+        List<PhotoRef> detailOrder = photos.preferLargeLead(imageRefs);
+        String overviewImage = detailOrder.isEmpty()
+                ? null : photos.overview(detailOrder.getFirst());
+        PhotoLayout photoLayout = photos.brochureLayout(detailOrder);
 
         List<BrochureVariant> variants = group.variants().stream()
                 .sorted(Comparator.comparingInt(Product::variantPosition)
@@ -419,14 +433,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String number = twoDigits(index);
         ensureFamilyPageCapacity(name, summary, description, format, highlights,
                 categoryName, familySize, packageLine, referencePriceLabel,
-                variants, gallery.size());
-        return new BrochureFamily(
+                variants, photoLayout.extras().size());
+        BrochureFamily rendered = new BrochureFamily(
                 "family-" + number, number, defaultText(name, first.sku()), summary, description, format,
                 highlights, categoryKey, categoryName, familySize,
-                packageLine, overviewImage, heroImage, secondImage, referencePriceLabel,
-                compactDetail(summary, description, highlights, variants.size(), gallery.size()),
-                gallery,
+                packageLine, overviewImage, photoLayout, referencePriceLabel,
+                compactDetail(summary, description, highlights, variants.size(),
+                        photoLayout.extras().size()),
                 variants);
+        return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
     private static List<OverviewPage> overviewPages(
@@ -623,28 +638,46 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return "uncategorised";
     }
 
-    private static String categoryAsset(String name) {
-        String key = defaultText(name, "").toLowerCase(Locale.ROOT);
-        if (key.contains("counter") || key.contains("signature")) return "counter-display.jpg";
-        if (key.contains("soap") || key.contains("foam") || key.contains("zeep")) {
-            return "soap-roses.jpg";
+    private static List<PhotoRef> uniquePhotos(List<PhotoRef> refs) {
+        Map<String, PhotoRef> unique = new LinkedHashMap<>();
+        for (PhotoRef ref : refs) {
+            if (ref != null && present(ref.storageKey())) unique.putIfAbsent(ref.storageKey(), ref);
         }
-        return "preserved-roses.jpg";
+        return List.copyOf(unique.values());
     }
 
-    /** Print-curated hero images for families whose source-primary image is an outlier. */
-    private static String familyEditorialAsset(String familyKey) {
-        return switch (defaultText(familyKey, "")) {
-            case "preserved-single-rose-in-display" ->
-                    "families/preserved-single-rose-in-display.jpg";
-            case "acrylic-flowerbox" -> "families/acrylic-flowerbox.jpg";
-            case "soap-rose-box-led" -> "families/soap-rose-box-led.png";
-            default -> null;
-        };
-    }
-
-    private static String at(List<String> values, int index) {
-        return index < values.size() ? values.get(index) : null;
+    private static PhotoLayout photoLayout(List<String> rawImages) {
+        List<String> images = rawImages.stream().filter(PdfCatalogRenderer::present)
+                .distinct().toList();
+        int count = images.size();
+        if (count == 0) return PhotoLayout.empty();
+        if (count == 1) {
+            return new PhotoLayout("one", true, 1,
+                    List.of(new PhotoRow(List.of(
+                            new PhotoTile(images.getFirst(), "single", 1)))), List.of());
+        }
+        if (count == 2) {
+            return new PhotoLayout("two", true, 2,
+                    List.of(new PhotoRow(List.of(
+                            new PhotoTile(images.get(0), "half", 1),
+                            new PhotoTile(images.get(1), "half", 1)))), List.of());
+        }
+        if (count == 3) {
+            return new PhotoLayout("three", true, 3, List.of(
+                    new PhotoRow(List.of(
+                            new PhotoTile(images.get(0), "lead", 2),
+                            new PhotoTile(images.get(1), "stack", 1))),
+                    new PhotoRow(List.of(
+                            new PhotoTile(images.get(2), "stack", 1)))), List.of());
+        }
+        return new PhotoLayout("four-plus", true, count, List.of(
+                new PhotoRow(List.of(
+                        new PhotoTile(images.get(0), "quarter", 1),
+                        new PhotoTile(images.get(1), "quarter", 1))),
+                new PhotoRow(List.of(
+                        new PhotoTile(images.get(2), "quarter", 1),
+                        new PhotoTile(images.get(3), "quarter", 1)))),
+                count == 4 ? List.of() : List.copyOf(images.subList(4, count)));
     }
 
     private static String twoDigits(int value) {
@@ -777,24 +810,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private record PhotoRef(String storageKey, PhotoOwner owner) {}
 
+    private record FamilyRenderData(BrochureFamily family, List<PhotoRef> sourcePhotos) {}
+
     /** One render-local cache keeps all-collection exports from decoding the same blob repeatedly. */
     private final class PhotoResolver {
         private final Map<String, byte[]> sourceCache = new HashMap<>();
         private final Map<String, String> renditionCache = new HashMap<>();
+        private final Map<String, PdfImageEncoder.ImageSize> dimensionsCache = new HashMap<>();
         private final Set<String> failed = new LinkedHashSet<>();
-        private final int maxEdge;
-
-        private PhotoResolver(int maxEdge) {
-            this.maxEdge = maxEdge;
-        }
-
-        String product(Photo photo) {
-            if (photo == null || !present(photo.storageKey())) return null;
-            PhotoRef ref = productRef(photo);
-            String value = renditionCache.computeIfAbsent(cacheKey(ref, "simple"), ignored ->
-                    defaultText(encoded(ref, source(ref)), ""));
-            return present(value) ? value : null;
-        }
 
         PhotoRef productRef(Photo photo) {
             return photo == null || !present(photo.storageKey())
@@ -806,39 +829,197 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY);
         }
 
+        List<PhotoRef> preferLargeLead(List<PhotoRef> refs) {
+            List<PhotoRef> result = new ArrayList<>(uniquePhotos(refs));
+            /* Only the three-photo composition has one materially larger tile. Equal two/four
+               grids retain the user's variantPosition/photo order exactly. */
+            if (result.size() != 3) return List.copyOf(result);
+            int best = bestLeadIndex(result, 7d / 6d);
+            if (best > 0) result.add(0, result.remove(best));
+            return List.copyOf(result);
+        }
+
+        List<PhotoRef> diverseFamilyPhotos(List<FamilyRenderData> families) {
+            Map<String, PhotoRef> diverse = new LinkedHashMap<>();
+            /* First pass: one strongest portrait/editorial candidate per family. This prevents
+               a cover from becoming four colour variants of the first product range. */
+            for (FamilyRenderData family : families) {
+                List<PhotoRef> refs = uniquePhotos(family.sourcePhotos());
+                if (refs.isEmpty()) continue;
+                PhotoRef lead = refs.get(bestLeadIndex(refs, 210d / 297d));
+                diverse.putIfAbsent(lead.storageKey(), lead);
+            }
+            /* Second pass: only after family diversity is secured may extra family photos fill
+               an editorial mosaic. Explicit photo order stays the fallback order. */
+            for (FamilyRenderData family : families) {
+                for (PhotoRef ref : uniquePhotos(family.sourcePhotos())) {
+                    diverse.putIfAbsent(ref.storageKey(), ref);
+                }
+            }
+            return List.copyOf(diverse.values());
+        }
+
+        PhotoLayout simpleLayout(List<PhotoRef> refs) {
+            List<PhotoRef> unique = uniquePhotos(refs);
+            List<String> images = new ArrayList<>();
+            for (int index = 0; index < unique.size(); index++) {
+                String image = simple(unique.get(index), unique.size(), index);
+                if (present(image)) images.add(image);
+            }
+            return photoLayout(images);
+        }
+
+        PhotoLayout brochureLayout(List<PhotoRef> refs) {
+            List<PhotoRef> unique = uniquePhotos(refs);
+            List<String> images = new ArrayList<>();
+            for (int index = 0; index < unique.size(); index++) {
+                String image = detail(unique.get(index), unique.size(), index);
+                if (present(image)) images.add(image);
+            }
+            return photoLayout(images);
+        }
+
+        EditorialLayout editorialLayout(List<PhotoRef> refs, boolean reverseOrder) {
+            List<PhotoRef> forward = new ArrayList<>(uniquePhotos(refs));
+            PhotoRef forwardLead = forward.isEmpty()
+                    ? null : forward.get(bestLeadIndex(forward, 210d / 297d));
+            List<PhotoRef> explicit = new ArrayList<>(forward);
+            if (reverseOrder) {
+                for (int left = 0, right = explicit.size() - 1; left < right; left++, right--) {
+                    PhotoRef value = explicit.get(left);
+                    explicit.set(left, explicit.get(right));
+                    explicit.set(right, value);
+                }
+                /* Give the back cover a genuinely different lead whenever the selection allows
+                   it; with four or fewer images the remaining mosaic is still reversed. */
+                if (explicit.size() > 1) explicit.remove(forwardLead);
+            }
+            if (explicit.isEmpty()) return EditorialLayout.empty();
+
+            int leadIndex = bestLeadIndex(explicit, 210d / 297d);
+            List<PhotoRef> selected = new ArrayList<>();
+            selected.add(explicit.get(leadIndex));
+            for (PhotoRef ref : explicit) {
+                if (selected.size() >= 4) break;
+                if (!selected.contains(ref)) selected.add(ref);
+            }
+
+            int count = selected.size();
+            List<String> images = new ArrayList<>();
+            for (int index = 0; index < count; index++) {
+                String image = editorial(selected.get(index), count, index);
+                if (present(image)) images.add(image);
+            }
+            return editorialRows(images);
+        }
+
         String overview(PhotoRef ref) {
-            return contained(ref, "overview-square", 720, 720);
+            return cropped(ref, "overview-portrait", 3, 4, 1_200);
         }
 
-        String hero(PhotoRef ref, boolean solo) {
-            return solo
-                    ? contained(ref, "hero-solo", 1_600, 900)
-                    : contained(ref, "hero-paired", 1_100, 900);
+        private String simple(PhotoRef ref, int count, int index) {
+            if (count == 1) return cropped(ref, "simple-one", 4, 3, 1_000);
+            if (count == 2) return cropped(ref, "simple-two", 2, 3, 900);
+            if (count == 3) return cropped(ref,
+                    index == 0 ? "simple-three-lead" : "simple-three-stack", 7, 8, 900);
+            return cropped(ref, index < 4 ? "simple-grid" : "simple-extra",
+                    index < 4 ? 4 : 3, index < 4 ? 3 : 2, index < 4 ? 800 : 600);
         }
 
-        String side(PhotoRef ref) {
-            return contained(ref, "side", 600, 900);
+        private String detail(PhotoRef ref, int count, int index) {
+            if (count == 1) return cropped(ref, "detail-one", 16, 9, 2_400);
+            if (count == 2) return cropped(ref, "detail-two", 5, 6, 1_600);
+            if (count == 3) return cropped(ref,
+                    index == 0 ? "detail-three-lead" : "detail-three-stack",
+                    7, 6, index == 0 ? 1_900 : 1_300);
+            return cropped(ref, index < 4 ? "detail-grid" : "detail-extra",
+                    index < 4 ? 16 : 17, 9, index < 4 ? 1_500 : 900);
         }
 
-        String gallery(PhotoRef ref) {
-            return contained(ref, "gallery", 480, 320);
+        private String editorial(PhotoRef ref, int count, int index) {
+            if (count == 1) return cropped(ref, "editorial-one", 210, 297, 2_400);
+            if (count == 2) return cropped(ref, "editorial-two", 210, 149, 2_200);
+            if (count == 3) return cropped(ref,
+                    index == 0 ? "editorial-three-lead" : "editorial-three-tail",
+                    index == 0 ? 210 : 105, index == 0 ? 178 : 119,
+                    index == 0 ? 2_200 : 1_400);
+            return cropped(ref, "editorial-four", 105, 149, 1_600);
         }
 
-        /** A tiny cached rendition proves storage and decoding before a ref consumes a slot. */
         boolean usable(PhotoRef ref) {
-            return contained(ref, "probe", 32, 32) != null;
+            PdfImageEncoder.ImageSize size = dimensions(ref);
+            return size.width() > 0 && size.height() > 0;
         }
 
-        private String contained(
-                PhotoRef ref, String rendition, int canvasWidth, int canvasHeight) {
+        private int bestLeadIndex(List<PhotoRef> refs, double targetAspect) {
+            int best = 0;
+            double bestScore = Double.NEGATIVE_INFINITY;
+            for (int index = 0; index < refs.size(); index++) {
+                PdfImageEncoder.ImageSize size = dimensions(refs.get(index));
+                double megapixels = Math.min(4d, size.pixels() / 1_000_000d);
+                double aspect = size.aspect();
+                double orientation = aspect <= 0d ? 0d
+                        : Math.exp(-Math.abs(Math.log(aspect / targetAspect)));
+                double order = 1d / (1d + index);
+                double score = megapixels * 1.9d + orientation * 2.4d + order * .8d;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = index;
+                }
+            }
+            return best;
+        }
+
+        private EditorialLayout editorialRows(List<String> rawImages) {
+            List<String> images = rawImages.stream().filter(PdfCatalogRenderer::present)
+                    .distinct().toList();
+            int count = images.size();
+            if (count == 0) return EditorialLayout.empty();
+            if (count == 1) {
+                return new EditorialLayout("one", true, List.of(
+                        new EditorialRow("full", List.of(
+                                new EditorialTile(images.getFirst(), 1)))));
+            }
+            if (count == 2) {
+                return new EditorialLayout("two", true, List.of(
+                        new EditorialRow("half", List.of(
+                                new EditorialTile(images.get(0), 1))),
+                        new EditorialRow("half", List.of(
+                                new EditorialTile(images.get(1), 1)))));
+            }
+            if (count == 3) {
+                return new EditorialLayout("three", true, List.of(
+                        new EditorialRow("lead", List.of(
+                                new EditorialTile(images.get(0), 2))),
+                        new EditorialRow("tail", List.of(
+                                new EditorialTile(images.get(1), 1),
+                                new EditorialTile(images.get(2), 1)))));
+            }
+            return new EditorialLayout("four-plus", true, List.of(
+                    new EditorialRow("half", List.of(
+                            new EditorialTile(images.get(0), 1),
+                            new EditorialTile(images.get(1), 1))),
+                    new EditorialRow("half", List.of(
+                            new EditorialTile(images.get(2), 1),
+                            new EditorialTile(images.get(3), 1)))));
+        }
+
+        private String cropped(
+                PhotoRef ref, String rendition, int aspectWidth, int aspectHeight, int maxEdge) {
             if (ref == null) return null;
             String value = renditionCache.computeIfAbsent(cacheKey(ref, rendition), ignored -> {
-                String uri = imageEncoder.encodeContained(
-                        source(ref), canvasWidth, canvasHeight, CATALOG_IMAGE_BACKGROUND);
+                String uri = imageEncoder.encodeCoverCropped(
+                        source(ref), aspectWidth, aspectHeight, maxEdge, CATALOG_IMAGE_BACKGROUND);
                 if (uri == null) failed(ref.storageKey(), null);
                 return defaultText(uri, "");
             });
             return present(value) ? value : null;
+        }
+
+        private PdfImageEncoder.ImageSize dimensions(PhotoRef ref) {
+            if (ref == null) return new PdfImageEncoder.ImageSize(0, 0);
+            return dimensionsCache.computeIfAbsent(cacheKey(ref, "dimensions"),
+                    ignored -> imageEncoder.inspect(source(ref)));
         }
 
         private byte[] source(PhotoRef ref) {
@@ -853,12 +1034,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     return new byte[0];
                 }
             });
-        }
-
-        private String encoded(PhotoRef ref, byte[] bytes) {
-            String uri = imageEncoder.encode(bytes, maxEdge);
-            if (uri == null) failed(ref.storageKey(), null);
-            return uri;
         }
 
         private String cacheKey(PhotoRef ref, String rendition) {

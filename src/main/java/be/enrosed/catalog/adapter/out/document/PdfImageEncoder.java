@@ -20,8 +20,8 @@ import java.util.Iterator;
 @ApplicationScoped
 public class PdfImageEncoder {
 
-    private static final int MAX_PRINT_EDGE = 1_800;
-    private static final float JPEG_QUALITY = 0.88f;
+    private static final int MAX_PRINT_EDGE = 2_400;
+    private static final float JPEG_QUALITY = 0.92f;
 
     public String encode(byte[] source) {
         return encode(source, MAX_PRINT_EDGE);
@@ -57,6 +57,53 @@ public class PdfImageEncoder {
             return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg(canvas));
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    /**
+     * Produces a full-bleed print rendition from the actual source image. Near-white upload
+     * margins are removed before the requested aspect ratio is cropped. Unlike a fixed print
+     * canvas, this method never enlarges the source pixels merely to claim a higher resolution;
+     * the PDF renderer may scale the resulting image visually without bloating the document.
+     */
+    String encodeCoverCropped(
+            byte[] source, int aspectWidth, int aspectHeight, int maxEdge, Color background) {
+        if (source == null || source.length == 0 || aspectWidth < 1 || aspectHeight < 1) return null;
+        try {
+            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
+            if (decoded == null) return null;
+            BufferedImage trimmed = trimNearWhite(decoded);
+            BufferedImage cropped = cropToAspect(trimmed, aspectWidth, aspectHeight);
+            BufferedImage scaled = scale(cropped,
+                    Math.max(320, Math.min(MAX_PRINT_EDGE, maxEdge)));
+            BufferedImage printable = flatten(scaled,
+                    background == null ? Color.WHITE : background);
+            return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg(printable));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    ImageSize inspect(byte[] source) {
+        if (source == null || source.length == 0) return ImageSize.EMPTY;
+        try {
+            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
+            return decoded == null ? ImageSize.EMPTY
+                    : new ImageSize(decoded.getWidth(), decoded.getHeight());
+        } catch (Exception ignored) {
+            return ImageSize.EMPTY;
+        }
+    }
+
+    record ImageSize(int width, int height) {
+        private static final ImageSize EMPTY = new ImageSize(0, 0);
+
+        long pixels() {
+            return (long) width * height;
+        }
+
+        double aspect() {
+            return height <= 0 ? 0d : (double) width / height;
         }
     }
 
@@ -111,6 +158,75 @@ public class PdfImageEncoder {
             graphics.dispose();
         }
         return canvas;
+    }
+
+    private static BufferedImage trimNearWhite(BufferedImage source) {
+        int minX = source.getWidth();
+        int minY = source.getHeight();
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < source.getHeight(); y++) {
+            for (int x = 0; x < source.getWidth(); x++) {
+                if (nearWhiteOrTransparent(source.getRGB(x, y))) continue;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        if (maxX < minX || maxY < minY) return source;
+
+        int x = minX;
+        int y = minY;
+        int right = maxX + 1;
+        int bottom = maxY + 1;
+        if (x == 0 && y == 0 && right == source.getWidth() && bottom == source.getHeight()) {
+            return source;
+        }
+        return source.getSubimage(x, y, right - x, bottom - y);
+    }
+
+    private static boolean nearWhiteOrTransparent(int argb) {
+        int alpha = (argb >>> 24) & 0xff;
+        if (alpha < 24) return true;
+        int red = (argb >>> 16) & 0xff;
+        int green = (argb >>> 8) & 0xff;
+        int blue = argb & 0xff;
+        int darkest = Math.min(red, Math.min(green, blue));
+        int lightest = Math.max(red, Math.max(green, blue));
+        return darkest >= 238 && lightest - darkest <= 18;
+    }
+
+    private static BufferedImage cropToAspect(
+            BufferedImage source, int aspectWidth, int aspectHeight) {
+        double requested = (double) aspectWidth / aspectHeight;
+        double current = (double) source.getWidth() / source.getHeight();
+        int width = source.getWidth();
+        int height = source.getHeight();
+        int x = 0;
+        int y = 0;
+        if (current > requested) {
+            width = Math.max(1, (int) Math.round(height * requested));
+            x = Math.max(0, (source.getWidth() - width) / 2);
+        } else if (current < requested) {
+            height = Math.max(1, (int) Math.round(width / requested));
+            y = Math.max(0, (source.getHeight() - height) / 2);
+        }
+        return source.getSubimage(x, y, width, height);
+    }
+
+    private static BufferedImage flatten(BufferedImage source, Color background) {
+        BufferedImage target = new BufferedImage(
+                source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = target.createGraphics();
+        try {
+            graphics.setColor(background);
+            graphics.fillRect(0, 0, target.getWidth(), target.getHeight());
+            graphics.drawImage(source, 0, 0, null);
+        } finally {
+            graphics.dispose();
+        }
+        return target;
     }
 
     private static byte[] png(BufferedImage image) throws Exception {

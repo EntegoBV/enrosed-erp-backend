@@ -70,6 +70,34 @@ class PdfImageEncoderTest {
                 "landscape must be contained instead of stretched vertically");
     }
 
+    @Test
+    void coverCropRemovesNearWhiteUploadMarginsAndFillsTheRequestedAspect() throws Exception {
+        BufferedImage source = solid(600, 600, Color.WHITE);
+        Graphics2D graphics = source.createGraphics();
+        graphics.setColor(new Color(166, 31, 62));
+        graphics.fillRect(150, 120, 300, 360);
+        graphics.dispose();
+
+        BufferedImage cropped = decode(encoder.encodeCoverCropped(
+                png(source), 16, 9, 1_200, new Color(255, 252, 248)));
+
+        assertEquals(16d / 9d, (double) cropped.getWidth() / cropped.getHeight(), .01d);
+        assertTrue(red(cropped.getRGB(0, 0)) > 120,
+                "near-white source margins must not survive inside a full-bleed image tile");
+        assertTrue(red(cropped.getRGB(cropped.getWidth() - 1, cropped.getHeight() - 1)) > 120);
+    }
+
+    @Test
+    void coverCropNeverUpscalesALowResolutionSourceToAFakePrintCanvas() throws Exception {
+        BufferedImage source = solid(800, 600, new Color(56, 105, 72));
+
+        BufferedImage cropped = decode(encoder.encodeCoverCropped(
+                png(source), 16, 9, 2_400, Color.WHITE));
+
+        assertEquals(800, cropped.getWidth());
+        assertEquals(450, cropped.getHeight());
+    }
+
     private static BufferedImage solid(int width, int height, Color colour) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
