@@ -4,6 +4,7 @@ import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
+import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseDocument;
 import be.enrosed.sourcing.domain.PurchasePayment;
@@ -38,7 +39,7 @@ public class SourcingResource {
     }
 
     public record CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
-                                      BigDecimal defaultDutyRatePct) {}
+                                      BigDecimal defaultDutyRatePct, ContainerType containerType) {}
 
     public record PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                     List<PurchaseOrderService.CartonAdjustment> adjustments,
@@ -121,7 +122,7 @@ public class SourcingResource {
     @Path("/purchase-orders")
     public Response createPurchaseOrder(CreatePurchaseOrder request) {
         PurchaseOrder created = purchaseOrders.create(request.supplierId(), request.cnyToUsd(),
-                request.usdToEur(), request.defaultDutyRatePct());
+                request.usdToEur(), request.defaultDutyRatePct(), request.containerType());
         return Response.status(Response.Status.CREATED)
                 .entity(view(created, purchaseOrders.calculate(created), List.of()))
                 .build();

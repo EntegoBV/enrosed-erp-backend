@@ -63,6 +63,8 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
             BigDecimal usedCbm,
             BigDecimal fillPercent,
             BigDecimal freeCbm,
-            BigDecimal overflowCbm
+            BigDecimal overflowCbm,
+            /** Minimum number of this container type required by CBM alone. */
+            int minimumContainerCount
     ) {}
 }

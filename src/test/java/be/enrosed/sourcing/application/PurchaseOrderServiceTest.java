@@ -319,6 +319,8 @@ class PurchaseOrderServiceTest {
         PurchaseOrder created = service(orders, new RecordingProducts()).create(
                 7L, new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("5"));
 
+        assertEquals(ContainerType.FORTY_HQ, created.containerType(),
+                "older clients that omit the choice keep the former default");
         assertEquals(new BigDecimal("0.91"), created.usdToEurGoods());
         assertEquals(created.usdToEurGoods(), created.usdToEurTransport());
         assertEquals(new BigDecimal("2000"), created.extraRevenueEur());
@@ -326,6 +328,26 @@ class PurchaseOrderServiceTest {
         assertEquals("Rotterdam", created.destinationPort());
         assertEquals(ActorRef.SYSTEM, created.createdBy());
         assertNotNull(created.createdAt());
+    }
+
+    @Test
+    void createStoresEveryChosenFullContainerAndRejectsLcl() {
+        for (ContainerType type : List.of(
+                ContainerType.TWENTY_GP, ContainerType.FORTY_GP, ContainerType.FORTY_HQ)) {
+            PurchaseOrder created = service(new InMemoryOrders(null), new RecordingProducts()).create(
+                    7L, new BigDecimal("0.14"), new BigDecimal("0.91"),
+                    new BigDecimal("5"), type);
+            assertEquals(type, created.containerType());
+        }
+
+        PurchaseOrder legacyClient = service(new InMemoryOrders(null), new RecordingProducts()).create(
+                7L, new BigDecimal("0.14"), new BigDecimal("0.91"), new BigDecimal("5"), null);
+        assertEquals(ContainerType.FORTY_HQ, legacyClient.containerType());
+
+        assertThrows(BusinessRuleException.class, () ->
+                service(new InMemoryOrders(null), new RecordingProducts()).create(
+                        7L, new BigDecimal("0.14"), new BigDecimal("0.91"),
+                        new BigDecimal("5"), ContainerType.LCL));
     }
 
     @Test

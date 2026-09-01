@@ -92,6 +92,39 @@ class LandedCostCalculatorTest {
     }
 
     @Test
+    @DisplayName("20 ft, 40 ft en 40 ft HQ gebruiken hun eigen laadruimte zonder kosten te schalen")
+    void selectedContainerControlsFillButNeverInventsExtraFreight() {
+        PurchaseOrder base = excelOrder();
+        LandedCost twenty = calculator(new BigDecimal("10")).calculate(
+                withContainerType(base, ContainerType.TWENTY_GP), Map.of(1L, preservedRose()));
+        LandedCost forty = calculator(new BigDecimal("10")).calculate(
+                withContainerType(base, ContainerType.FORTY_GP), Map.of(1L, preservedRose()));
+        LandedCost highCube = calculator(new BigDecimal("10")).calculate(
+                withContainerType(base, ContainerType.FORTY_HQ), Map.of(1L, preservedRose()));
+
+        assertEquals(new BigDecimal("66.912"), twenty.containerFill().usedCbm());
+        assertEquals(new BigDecimal("28"), twenty.containerFill().capacityCbm());
+        assertEquals(new BigDecimal("239.0"), twenty.containerFill().fillPercent());
+        assertEquals(new BigDecimal("38.912"), twenty.containerFill().overflowCbm());
+        assertEquals(3, twenty.containerFill().minimumContainerCount());
+
+        assertEquals(new BigDecimal("58"), forty.containerFill().capacityCbm());
+        assertEquals(new BigDecimal("115.4"), forty.containerFill().fillPercent());
+        assertEquals(new BigDecimal("8.912"), forty.containerFill().overflowCbm());
+        assertEquals(2, forty.containerFill().minimumContainerCount());
+
+        assertEquals(new BigDecimal("68"), highCube.containerFill().capacityCbm());
+        assertEquals(new BigDecimal("98.4"), highCube.containerFill().fillPercent());
+        assertEquals(new BigDecimal("1.088"), highCube.containerFill().freeCbm());
+        assertEquals(1, highCube.containerFill().minimumContainerCount());
+
+        assertEquals(twenty.totals().freightEur(), forty.totals().freightEur());
+        assertEquals(forty.totals().freightEur(), highCube.totals().freightEur());
+        assertEquals(twenty.totals().totalEur(), highCube.totals().totalEur(),
+                "the entered quote is a fixed order cost, not a volume-derived estimate");
+    }
+
+    @Test
     @DisplayName("bestelhoeveelheden herverdelen vaste orderkosten zonder ze op te schalen")
     void orderedQuantityBasisRecalculatesWholeOrderWithoutScalingFixedCosts() {
         PurchaseOrder base = excelOrder();
@@ -288,6 +321,17 @@ class LandedCostCalculatorTest {
                 base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
                 base.departurePort(), base.destinationPort(), base.receivingLocationId(), groupVariants,
                 base.notes(), lines);
+    }
+
+    private static PurchaseOrder withContainerType(PurchaseOrder base, ContainerType type) {
+        return new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
+                type, base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(),
+                base.freightUsd(), base.originCosts(), base.originCurrency(),
+                base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.departurePort(), base.destinationPort(), base.receivingLocationId(), base.groupVariants(),
+                base.notes(), base.lines());
     }
 
     private static PurchaseOrder allocExtra(PurchaseOrder base, List<PurchaseOrderLine> lines, Allocation extra) {

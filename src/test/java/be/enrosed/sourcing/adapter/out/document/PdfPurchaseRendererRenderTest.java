@@ -787,7 +787,7 @@ class PdfPurchaseRendererRenderTest {
                 new BigDecimal("5.0"));
         LandedCost.ContainerFill fill = new LandedCost.ContainerFill("40HQ",
                 new BigDecimal("68.00"), new BigDecimal("66.90"), new BigDecimal("98.4"),
-                new BigDecimal("1.10"), BigDecimal.ZERO);
+                new BigDecimal("1.10"), BigDecimal.ZERO, 1);
         return new LandedCost(lines, totals, fill);
     }
 

@@ -158,7 +158,8 @@
       <div class="band__sub">{order.containerType.label}{#if order.trackingReference} · {order.trackingReference}{/if}</div>
       {#if costing.containerFill}
         <div class="band__sub">Gevuld {costing.containerFill.usedCbm.amount} van {costing.containerFill.capacityCbm.amount} m³
-          ({costing.containerFill.fillPercent.pct})</div>
+          ({costing.containerFill.fillPercent.pct}){#if costing.containerFill.minimumContainerCount > 1}
+          · minimaal {costing.containerFill.minimumContainerCount} containers{/if}</div>
       {/if}
     </td>
     <td class="band__cell" style="width:22%">

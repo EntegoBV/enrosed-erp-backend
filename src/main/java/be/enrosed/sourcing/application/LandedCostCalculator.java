@@ -231,14 +231,17 @@ public class LandedCostCalculator {
         if (type == null || !type.hasCapacity()) return null;
         BigDecimal capacity = type.capacityCbm();
         BigDecimal fill = Money.divide(usedCbm.multiply(Money.HUNDRED), capacity).setScale(1, RoundingMode.HALF_UP);
+        int minimumContainerCount = usedCbm.signum() == 0 ? 0
+                : usedCbm.divide(capacity, 0, RoundingMode.CEILING).intValueExact();
         return new LandedCost.ContainerFill(
                 type.code(),
                 capacity,
                 usedCbm,
-                /* The honest figure, past 100 too: 104% is squeezable, 112% is a second container. */
+                /* Keep the honest percentage past 100; the UI distinguishes a tight load from a split. */
                 fill,
                 capacity.subtract(usedCbm).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP),
-                usedCbm.subtract(capacity).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP));
+                usedCbm.subtract(capacity).max(BigDecimal.ZERO).setScale(3, RoundingMode.HALF_UP),
+                minimumContainerCount);
     }
 
     /**

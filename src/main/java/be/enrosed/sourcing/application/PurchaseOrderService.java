@@ -106,15 +106,30 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                 BigDecimal defaultDutyRatePct) {
+        return create(supplierId, cnyToUsd, usdToEur, defaultDutyRatePct, ContainerType.FORTY_HQ);
+    }
+
+    /**
+     * Creates a calculation for one full container. The nullable fallback is
+     * deliberate: older app versions did not send a container type and must
+     * keep their historical 40 ft HQ default during a rolling deployment.
+     */
+    @Transactional
+    public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
+                                BigDecimal defaultDutyRatePct, ContainerType containerType) {
         requireSupplier(supplierId);
         requirePositive(cnyToUsd, "CNY/USD-koers");
         requirePositive(usdToEur, "USD/EUR-koers");
         requirePercentage(defaultDutyRatePct, "Standaard invoerrecht");
+        ContainerType selectedContainer = containerType == null ? ContainerType.FORTY_HQ : containerType;
+        if (!selectedContainer.hasCapacity()) {
+            throw new BusinessRuleException("Kies 20 ft, 40 ft of 40 ft HQ voor een nieuwe inkooporder");
+        }
 
         ActorRef creator = currentActor();
         PurchaseOrder draft = new PurchaseOrder(
                 null, nextNumber(), null, supplierId, LocalDate.now(),
-                PurchaseOrderStatus.CONCEPT, ContainerType.FORTY_HQ,
+                PurchaseOrderStatus.CONCEPT, selectedContainer,
                 cnyToUsd, usdToEur, usdToEur,
                 BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
                 defaultDutyRatePct, new BigDecimal("2000"),
