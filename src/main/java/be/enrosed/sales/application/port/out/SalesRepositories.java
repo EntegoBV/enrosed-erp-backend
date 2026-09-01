@@ -24,7 +24,9 @@ public interface SalesRepositories {
 
     interface Tiers {
         List<DiscountTier> findByScope(TierScope scope);
+        List<DiscountTier> findByScopeAndProduct(TierScope scope, long productId);
         void replaceScope(TierScope scope, List<DiscountTier> tiers);
+        void replaceProduct(TierScope scope, long productId, List<DiscountTier> tiers);
     }
 
     interface Orders {

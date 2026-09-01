@@ -59,7 +59,8 @@ final class SalesMapper {
     /* ---------------------------------------------------------- staffel */
 
     static DiscountTier toDomain(DiscountTierEntity entity) {
-        return new DiscountTier(entity.id, entity.scope, entity.minQuantity, entity.percent);
+        return new DiscountTier(entity.id, entity.scope, entity.minQuantity, entity.percent,
+                entity.productId);
     }
 
     /* ------------------------------------------------------------ order */

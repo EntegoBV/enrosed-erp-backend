@@ -103,6 +103,13 @@ public final class PanacheSalesRepositories {
         }
 
         @Override
+        public List<DiscountTier> findByScopeAndProduct(TierScope scope, long productId) {
+            return dao.list("scope = ?1 and productId = ?2", scope, productId).stream()
+                    .map(SalesMapper::toDomain)
+                    .toList();
+        }
+
+        @Override
         public void replaceScope(TierScope scope, List<DiscountTier> tiers) {
             dao.delete("scope", scope);
             for (DiscountTier tier : tiers) {
@@ -110,6 +117,21 @@ public final class PanacheSalesRepositories {
                 entity.scope = scope;
                 entity.minQuantity = tier.minQuantity();
                 entity.percent = tier.percent();
+                entity.productId = scope == TierScope.LINE ? tier.productId() : null;
+                dao.persist(entity);
+            }
+            dao.flush();
+        }
+
+        @Override
+        public void replaceProduct(TierScope scope, long productId, List<DiscountTier> tiers) {
+            dao.delete("scope = ?1 and productId = ?2", scope, productId);
+            for (DiscountTier tier : tiers) {
+                DiscountTierEntity entity = new DiscountTierEntity();
+                entity.scope = scope;
+                entity.minQuantity = tier.minQuantity();
+                entity.percent = tier.percent();
+                entity.productId = productId;
                 dao.persist(entity);
             }
             dao.flush();

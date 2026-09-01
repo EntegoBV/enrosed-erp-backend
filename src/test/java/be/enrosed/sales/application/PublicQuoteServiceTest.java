@@ -107,7 +107,7 @@ class PublicQuoteServiceTest {
     @Test
     void previewExplainsServerCalculatedLineAndOrderDiscounts() {
         when(tiers.list(TierScope.LINE)).thenReturn(List.of(
-                new DiscountTier(1L, TierScope.LINE, 24, decimal("5"))));
+                new DiscountTier(1L, TierScope.LINE, 24, decimal("5"), pricedProduct.id())));
         when(tiers.list(TierScope.ORDER)).thenReturn(List.of(
                 new DiscountTier(2L, TierScope.ORDER, 24, decimal("3"))));
 

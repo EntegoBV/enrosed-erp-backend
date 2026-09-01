@@ -57,4 +57,17 @@ public class CountryResource {
     public List<DiscountTier> replaceTiers(@PathParam("scope") TierScope scope, List<DiscountTier> replacement) {
         return tiers.replace(scope, replacement);
     }
+
+    @GET
+    @Path("/discount-tiers/LINE/products/{productId}")
+    public List<DiscountTier> listProductLineTiers(@PathParam("productId") long productId) {
+        return tiers.listForProduct(productId);
+    }
+
+    @PUT
+    @Path("/discount-tiers/LINE/products/{productId}")
+    public List<DiscountTier> replaceProductLineTiers(
+            @PathParam("productId") long productId, List<DiscountTier> replacement) {
+        return tiers.replaceForProduct(productId, replacement);
+    }
 }
