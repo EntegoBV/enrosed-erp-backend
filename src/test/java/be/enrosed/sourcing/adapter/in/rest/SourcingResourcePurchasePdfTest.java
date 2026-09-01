@@ -103,7 +103,7 @@ class SourcingResourcePurchasePdfTest {
         PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false);
         PdfPurchaseRenderer.PdfOptions options = new PdfPurchaseRenderer.PdfOptions(
-                false, true, true, true, true);
+                false, true, true, true, true, true);
         PdfPurchaseRenderer.Document document = new PdfPurchaseRenderer.Document(
                 "portrait-options.pdf", new byte[] {4}, "application/pdf");
         when(purchases.get(44L)).thenReturn(order);
@@ -114,7 +114,7 @@ class SourcingResourcePurchasePdfTest {
                 PdfPurchaseRenderer.Audience.STANDARD, options)).thenReturn(document);
 
         var response = resource.purchasePdf(44L, false, "PORTRAIT", "STANDARD",
-                false, true, true, true, true);
+                false, true, true, true, true, true);
 
         assertEquals(200, response.getStatus());
         verify(renderer).render(order, null, null, false, payments, payable,

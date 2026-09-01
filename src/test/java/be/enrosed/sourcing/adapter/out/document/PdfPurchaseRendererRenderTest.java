@@ -14,7 +14,6 @@ import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
-import be.enrosed.sourcing.domain.PriceBasis;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
@@ -125,10 +124,13 @@ class PdfPurchaseRendererRenderTest {
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("inkooporder - verticaal"), text);
+            assertTrue(text.contains("inkooporder"), text);
+            assertFalse(text.contains("inkooporder voor controle"), text);
+            assertFalse(text.contains("controleer voor verzending"), text);
+            assertFalse(text.contains("uitgiftesnapshot"), text);
             assertTrue(text.contains("96"),
                     "de geplaatste-order snapshot moet zichtbaar blijven na ontvangst");
-            assertTrue(text.contains("st./karton"), text);
+            assertTrue(text.contains("stuks per karton"), text);
             assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
             assertTrue(text.contains("1.200,00"),
@@ -136,7 +138,7 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("1.125,00"),
                     "90 ontvangen mag het afgesproken ordertotaal niet herschrijven");
             assertFalse(text.contains("interne inkoopcalculatie"), text);
-            assertFalse(text.contains("enrosed kost"), text);
+            assertFalse(text.contains("enrosed-kost"), text);
             assertFalse(text.contains("douanewaarde"), text);
             assertFalse(text.contains("invoerrechten"), text);
             assertFalse(text.contains("betaalplan"), text);
@@ -226,7 +228,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void portraitOptionsShowSubtleEurAndFreightWhileHidingSupplier() throws Exception {
+    void portraitOptionsShowSubtleEurWhileHidingSupplierAndLegacyFreight() throws Exception {
         Product product = createProductWithPhoto();
         StockLocation zaltbommel = stock.saveLocation(new StockLocation(
                 null, "ZALTBOMMEL", "Zaltbommel", StockLocation.Kind.WAREHOUSE,
@@ -255,53 +257,52 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("12,50") && text.contains("usd"), text);
             assertTrue(text.contains("ca. 11,125 eur"), text);
             assertTrue(text.contains("ca. 1.068,00 eur"), text);
-            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
-            assertTrue(text.contains("lokale kosten china"), text);
-            assertTrue(text.contains("zeevracht"), text);
-            assertTrue(text.contains("invoerrechten"), text);
-            assertTrue(text.contains("rotterdam") && text.contains("zaltbommel"), text);
-            assertTrue(text.contains("7.435,24 eur"), text);
-            assertTrue(text.contains("8.503,24 eur"), text);
-            assertFalse(text.contains("2.500,42"),
-                    "Enrosed's extra revenue must stay outside the freight total: " + text);
+            assertFalse(text.contains("vracht en bijkomende logistiek"), text);
+            assertFalse(text.contains("lokale kosten china"), text);
+            assertFalse(text.contains("zeevracht"), text);
+            assertFalse(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("7.435,24 eur"), text);
+            assertFalse(text.contains("8.503,24 eur"), text);
         }
     }
 
     @Test
     @TestTransaction
-    void fullyDdpPortraitNeverAddsRawHeaderFreightTwice() throws Exception {
+    void portraitCanShowOneAllInEnrosedCostWithoutSeparateCostLegs() throws Exception {
         Product product = createProductWithPhoto();
-        PurchaseOrder base = portraitOrder(product.id());
-        PurchaseOrderLine source = base.lines().getFirst();
-        PurchaseOrderLine ddpLine = new PurchaseOrderLine(
-                source.id(), source.productId(), source.quantity(), source.exwPrice(),
-                source.exwCurrency(), source.extraUnitCost(), source.orderedQuantity(),
-                PriceBasis.DDP);
-        PurchaseOrder order = withLines(base, base.number(), base.alias(), List.of(ddpLine));
+        PurchaseOrder order = portraitOrder(product.id());
         PdfPurchaseRenderer.Document document = renderer.render(
-                order, ddpCosting(product.id()), supplier(), false, payments(),
+                order, portraitCosting(product.id()), supplier(), false, payments(),
                 new PurchaseOrderService.Payable(
-                        new BigDecimal("1068.00"), BigDecimal.ZERO, BigDecimal.ZERO,
-                        true, true),
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.STANDARD,
-                new PdfPurchaseRenderer.PdfOptions(true, true, true, true, true));
+                new PdfPurchaseRenderer.PdfOptions(true, true, false, true, true, true));
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-enrosed-cost.pdf"), document.content());
 
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
-            assertTrue(Pattern.compile("0,00 eur").matcher(text).results().count() >= 5,
-                    "four applied legs and their subtotal must be zero: " + text);
-            assertTrue(text.contains("1.068,00 eur"),
-                    "the included grand total must remain the converted goods value: " + text);
-            assertTrue(text.contains("ddp: vracht en invoer zijn al in de leveranciersprijs opgenomen"),
-                    text);
-            assertFalse(text.contains("450,82 eur"), text);
-            assertFalse(text.contains("3.799,60 eur"), text);
-            assertFalse(text.contains("1.936,02 eur"), text);
-            assertFalse(text.contains("1.248,80 eur"), text);
-            assertFalse(text.contains("1.327,06 eur"), text);
+            assertTrue(text.contains("regeltotaal"), text);
+            assertTrue(text.contains("enrosed-kost"), text);
+            assertTrue(text.contains("incl. verzending"), text);
+            assertTrue(text.contains("1.498,00"),
+                    "de volledige toegerekende regelkost hoort in de ene all-in kolom");
+            assertFalse(text.contains("inkooporder voor controle"), text);
+            assertFalse(text.contains("controleer voor verzending"), text);
+            assertFalse(text.contains("goederenwaarde"), text);
+            assertFalse(text.contains("vracht en bijkomende logistiek"), text);
+            assertFalse(text.contains("lokale kosten china"), text);
+            assertFalse(text.contains("zeevracht"), text);
+            assertFalse(text.contains("douanewaarde"), text);
+            assertFalse(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("bestemmingskosten"), text);
+            assertFalse(text.contains("betaalplan"), text);
         }
     }
 
@@ -328,8 +329,8 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("ordertotaal per valuta"), text);
             assertFalse(text.contains("12,50"), text);
             assertFalse(text.contains("ca. 11,125 eur"), text);
-            assertTrue(text.contains("vracht en bijkomende logistiek"), text);
-            assertTrue(text.contains("niet bij het ordertotaal opgeteld"), text);
+            assertFalse(text.contains("vracht en bijkomende logistiek"), text);
+            assertFalse(text.contains("niet bij het ordertotaal opgeteld"), text);
             assertFalse(text.contains("ordertotaal incl."), text);
             assertFalse(text.contains("1.327,06 eur"), text);
         }
@@ -603,20 +604,6 @@ class PdfPurchaseRendererRenderTest {
                 new BigDecimal("16.6444"), base.cbmShare(),
                 base.valueShare(), base.pieceShare());
         return new LandedCost(List.of(received), source.totals(), source.containerFill());
-    }
-
-    /** Raw header logistics remain non-zero, while DDP applies none to its line. */
-    private static LandedCost ddpCosting(long productId) {
-        LandedCost source = portraitCosting(productId);
-        LandedCost.Line line = source.lines().getFirst();
-        LandedCost.Line ddp = new LandedCost.Line(
-                line.productId(), line.productName(), line.quantity(), line.cartons(), line.cbm(),
-                line.goodsUsd(), line.goodsEur(), BigDecimal.ZERO, BigDecimal.ZERO,
-                line.goodsEur(), BigDecimal.ZERO, "DDP - inbegrepen", BigDecimal.ZERO,
-                BigDecimal.ZERO, line.extraRevenueEur(),
-                line.goodsEur().add(line.extraRevenueEur()), line.landedUnitEur(),
-                line.cbmShare(), line.valueShare(), line.pieceShare());
-        return new LandedCost(List.of(ddp), source.totals(), source.containerFill());
     }
 
     private static int imageCount(PDDocument document) throws Exception {

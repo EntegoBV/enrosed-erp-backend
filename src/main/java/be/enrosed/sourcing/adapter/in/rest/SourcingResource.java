@@ -185,11 +185,14 @@ public class SourcingResource {
      *                   normal portrait export; ignored for other contracts.
      * @param showEur whether a subtle euro equivalent appears below a foreign
      *                agreed product price, using the pinned goods rate.
-     * @param showFreight whether the portrait export shows origin, sea freight,
-     *                    duty and destination costs.
-     * @param includeFreight whether those costs are added to an explicit euro
-     *                       grand total. This is normalized off unless freight
-     *                       and product prices are both shown.
+     * @param showFreight legacy option retained for compatible clients; the
+     *                    portrait export no longer prints separate cost legs.
+     * @param includeFreight legacy option retained for compatible clients;
+     *                       separate freight totals are always suppressed.
+     * @param includeEnrosedCost adds one all-in Enrosed cost column to the
+     *                           standard portrait layout. Allocated freight,
+     *                           duty and destination costs remain folded into
+     *                           that amount and are not separately displayed.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -202,7 +205,9 @@ public class SourcingResource {
                                 @QueryParam("showPrices") @DefaultValue("true") boolean showPrices,
                                 @QueryParam("showEur") @DefaultValue("false") boolean showEur,
                                 @QueryParam("showFreight") @DefaultValue("false") boolean showFreight,
-                                @QueryParam("includeFreight") @DefaultValue("false") boolean includeFreight) {
+                                @QueryParam("includeFreight") @DefaultValue("false") boolean includeFreight,
+                                @QueryParam("includeEnrosedCost") @DefaultValue("false")
+                                boolean includeEnrosedCost) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -218,7 +223,7 @@ public class SourcingResource {
                         supplier == null ? null : supplier.incoterm()),
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur,
-                        showFreight, includeFreight));
+                        showFreight, includeFreight, includeEnrosedCost));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
@@ -229,7 +234,7 @@ public class SourcingResource {
     /** Java-call compatibility for tests and callers predating portrait options. */
     public Response purchasePdf(long id, boolean showRevenue, String layout, String audience) {
         return purchasePdf(id, showRevenue, layout, audience,
-                true, true, false, false, false);
+                true, true, false, false, false, false);
     }
 
     /** Copies the calculation to price a variant quickly. */

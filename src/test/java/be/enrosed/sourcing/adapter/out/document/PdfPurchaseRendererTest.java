@@ -5,8 +5,6 @@ import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Currency;
-import be.enrosed.sourcing.domain.LandedCost;
-import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;
@@ -73,37 +71,26 @@ class PdfPurchaseRendererTest {
                 PdfPurchaseRenderer.Layout.LANDSCAPE, PdfPurchaseRenderer.Audience.STANDARD));
         assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(), requested.normalized(
                 PdfPurchaseRenderer.Layout.PORTRAIT, PdfPurchaseRenderer.Audience.SUPPLIER));
-        assertEquals(new PdfPurchaseRenderer.PdfOptions(false, false, false, true, false),
+        assertEquals(new PdfPurchaseRenderer.PdfOptions(false, false, false, false, false),
                 requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
                         PdfPurchaseRenderer.Audience.STANDARD));
     }
 
     @Test
-    void freightUsesCanonicalOrderTotalsButNeverAddsThemToFullyDdp() {
-        LandedCost costing = new LandedCost(
-                List.of(logisticsLine(1L), logisticsLine(2L), logisticsLine(3L)),
-                new LandedCost.Totals(
-                        3, 3, BigDecimal.ONE, BigDecimal.ZERO, new BigDecimal("1000.00"),
-                        new BigDecimal("100.00"), new BigDecimal("20.00"),
-                        BigDecimal.ZERO, new BigDecimal("10.00"), new BigDecimal("5.00"),
-                        BigDecimal.ZERO, new BigDecimal("1135.00"),
-                        new BigDecimal("378.333"), BigDecimal.ZERO),
-                null);
-        PurchaseCostLabels labels = new PurchaseCostLabels(
-                "China", "Ningbo", "Rotterdam", "Lokale kosten China",
-                "Fabriek - Ningbo", "Zeevracht", "Ningbo - Rotterdam",
-                "Rotterdam - Zaltbommel");
+    void combinedCostCanStandAloneAndSuppressesLegacyFreightFlags() {
+        var requested = new PdfPurchaseRenderer.PdfOptions(
+                false, false, true, true, true, true);
 
-        PdfPurchaseRenderer.FreightView standard = PdfPurchaseRenderer.freightView(
-                costing, labels, new BigDecimal("1000.00"), false);
-        assertEquals(new BigDecimal("100.00"), standard.originEur(),
-                "three rounded 33.33 line shares must not turn canonical 100.00 into 99.99");
-        assertEquals(new BigDecimal("1135.00"), standard.totalIncludingFreightEur());
-
-        PdfPurchaseRenderer.FreightView ddp = PdfPurchaseRenderer.freightView(
-                costing, labels, new BigDecimal("1000.00"), true);
-        assertEquals(BigDecimal.ZERO, ddp.logisticsTotalEur());
-        assertEquals(new BigDecimal("1000.00"), ddp.totalIncludingFreightEur());
+        assertEquals(new PdfPurchaseRenderer.PdfOptions(
+                        false, false, false, false, false, true),
+                requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                        PdfPurchaseRenderer.Audience.STANDARD));
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.LANDSCAPE,
+                        PdfPurchaseRenderer.Audience.STANDARD));
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                        PdfPurchaseRenderer.Audience.SUPPLIER));
     }
 
     @Test
@@ -154,17 +141,6 @@ class PdfPurchaseRendererTest {
                 "a line amount must never be combined with the product currency");
         assertNull(amountOnly.amount());
         assertNull(amountOnly.currency());
-    }
-
-    private static LandedCost.Line logisticsLine(long id) {
-        return new LandedCost.Line(
-                id, "Product " + id, 1, 1, BigDecimal.ONE,
-                BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("33.33"),
-                new BigDecimal("6.66"), BigDecimal.ZERO,
-                BigDecimal.ZERO, null, new BigDecimal("3.33"),
-                new BigDecimal("1.66"), BigDecimal.ZERO,
-                BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     private static be.enrosed.sourcing.domain.PurchaseOrder order(String goods, String transport) {

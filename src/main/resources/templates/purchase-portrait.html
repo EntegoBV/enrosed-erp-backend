@@ -6,7 +6,7 @@
     @page {
       size: A4 portrait; margin: 13mm 13mm 17mm;
       @bottom-left {
-        content: "{order.number} - {#if supplierMode}leveranciersorder{#else}inkooporder verticaal{/if}";
+        content: "{order.number} - {#if supplierMode}leveranciersorder{#else}ENROSED{/if}";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
       }
       @bottom-right {
@@ -19,7 +19,7 @@
       margin: 0; color: #1c1715; font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
       font-size: 9.5pt; line-height: 1.38;
     }
-    .top-rule { height: 2.2mm; margin: -13mm -13mm 9mm; background: #8f2942; border-bottom: 1.2mm solid #c6a15b; }
+    .top-rule { height: 2.4mm; margin: -13mm -13mm 8mm; background: #8f2942; border-bottom: 1.1mm solid #c6a15b; }
     table { width: 100%; border-collapse: collapse; }
     td, th { vertical-align: top; }
     .muted { color: #8b8179; }
@@ -29,8 +29,8 @@
     .logo { display: block; height: 11mm; }
     .company-line { margin-top: 2mm; color: #8b8179; font-size: 7.5pt; }
     .doc-meta { text-align: right; }
-    .doc-kicker { color: #8f2942; font-size: 7.5pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-    .doc-number { margin-top: 1mm; font-size: 20pt; font-weight: 700; letter-spacing: -.02em; }
+    .doc-kicker { color: #8f2942; font-size: 8pt; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+    .doc-number { margin-top: .8mm; font-size: 22pt; font-weight: 700; letter-spacing: -.025em; }
     .doc-alias { margin-top: .5mm; color: #8b8179; font-size: 8.5pt; }
     .badges { margin-top: 2mm; }
     .badge {
@@ -38,18 +38,10 @@
       border-radius: 8mm; color: #744f12; font-size: 6.5pt; font-weight: 700;
       letter-spacing: .08em; text-transform: uppercase;
     }
-    .badge--read { border-color: #dcc8a4; background: #f8f0e3; color: #8f2942; }
-
-    /* Current-dossier verification notice */
-    .read-note {
-      margin-top: 7mm; padding: 3.2mm 4mm; border-left: 1.2mm solid #c6a15b;
-      background: #fbf7f2; color: #584d47; font-size: 8pt;
-    }
-    .read-note b { color: #1c1715; }
 
     /* Parties */
-    .parties { margin-top: 6mm; border: .35pt solid #e3d7c6; }
-    .parties td { width: 50%; padding: 4mm; }
+    .parties { margin-top: 7mm; border: .35pt solid #e3d7c6; border-top: 1pt solid #c6a15b; }
+    .parties td { width: 50%; padding: 4.2mm; background: #fdfaf6; }
     .parties--single td { width: 100%; }
     .parties td + td { border-left: .35pt solid #e3d7c6; }
     .label { margin-bottom: 1.5mm; color: #8f2942; font-size: 6.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
@@ -65,7 +57,7 @@
     .facts__sub { margin-top: .5mm; color: #d6cfcb; font-size: 6.9pt; }
 
     /* Product rows */
-    .section-title { margin-top: 7mm; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .section-title { margin-top: 7mm; padding-bottom: 1.5mm; border-bottom: .7pt solid #c6a15b; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
     .lines { margin-top: 2mm; -fs-table-paginate: paginate; }
     .lines thead { display: table-header-group; }
     .lines tr { page-break-inside: avoid; }
@@ -104,27 +96,50 @@
     .price-main { font-weight: 700; }
     .price-sub { color: #8b8179; font-size: 6.4pt; }
     .price-eur { color: #9b928c; font-size: 5.9pt; font-weight: 400; }
-    .standard-lines .product-column { width: 72mm; }
-    .standard-lines--no-prices .product-column { width: 122mm; }
+    .standard-lines { margin-top: 1mm; table-layout: fixed; }
+    .standard-lines th, .standard-lines td { box-sizing: border-box; }
+    .standard-lines th { text-align: center; }
+    .standard-lines th:first-child { text-align: left; }
+    .standard-lines .col-product { width: 42%; }
+    .standard-lines .col-quantity { width: 8%; }
+    .standard-lines .col-pieces { width: 10%; }
+    .standard-lines .col-cartons { width: 8%; }
+    .standard-lines .col-unit { width: 14%; }
+    .standard-lines .col-line-total { width: 18%; }
+    .standard-lines--cost .col-product { width: 33%; }
+    .standard-lines--cost .col-quantity { width: 7%; }
+    .standard-lines--cost .col-pieces { width: 8%; }
+    .standard-lines--cost .col-cartons { width: 7%; }
+    .standard-lines--cost .col-unit { width: 12%; }
+    .standard-lines--cost .col-line-total { width: 14%; }
+    .standard-lines--cost .col-enrosed { width: 19%; }
+    .standard-lines--no-prices .col-product { width: 67%; }
+    .standard-lines--no-prices .col-quantity { width: 10%; }
+    .standard-lines--no-prices .col-pieces { width: 12%; }
+    .standard-lines--no-prices .col-cartons { width: 11%; }
+    .standard-lines--no-prices.standard-lines--cost .col-product { width: 49%; }
+    .standard-lines--no-prices.standard-lines--cost .col-quantity { width: 8%; }
+    .standard-lines--no-prices.standard-lines--cost .col-pieces { width: 10%; }
+    .standard-lines--no-prices.standard-lines--cost .col-cartons { width: 8%; }
+    .standard-lines--no-prices.standard-lines--cost .col-enrosed { width: 25%; }
+    .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
+    .enrosed-cost .price-main { color: #762239; }
+    .cost-hint { margin-top: .5mm; color: #8b8179; font-size: 5.8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
 
     /* Totals and footer note */
     .closing { margin-top: 5mm; page-break-inside: avoid; }
     .closing td { vertical-align: top; }
     .closing__copy { padding: 4mm; border: .35pt solid #e3d7c6; color: #645b55; font-size: 7.5pt; }
-    .closing__total { width: 68mm; padding-left: 5mm; }
+    .closing__total { width: 72mm; padding-left: 5mm; }
     .total-box { padding: 4mm; background: #f7efe3; border-top: 1.1pt solid #c6a15b; }
     .total-row { width: 100%; }
     .total-row td { padding: 1mm 0; font-size: 8.5pt; }
     .total-row td:last-child { text-align: right; font-size: 10pt; font-weight: 700; white-space: nowrap; }
+    .combined-total td { padding-top: 2.2mm; border-top: .7pt solid #c6a15b; }
+    .combined-total td:first-child { color: #762239; font-weight: 700; }
+    .combined-total td:last-child { color: #762239; font-size: 11pt; }
     .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
-    .freight-box { margin-top: 5mm; padding: 4mm; border: .35pt solid #e3d7c6; page-break-inside: avoid; }
-    .freight-row { width: 100%; }
-    .freight-row td { padding: 1mm 0; color: #645b55; font-size: 7.7pt; }
-    .freight-row td:last-child { text-align: right; white-space: nowrap; }
-    .freight-row tr.subtotal td { padding-top: 1.8mm; border-top: .35pt solid #e3d7c6; color: #1c1715; font-weight: 700; }
-    .freight-row tr.grand td { padding-top: 2mm; border-top: 1pt solid #c6a15b; color: #8f2942; font-size: 9pt; font-weight: 700; }
-    .freight-note { margin-top: 1.5mm; color: #8b8179; font-size: 6.4pt; }
-    .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; }
+    .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; text-align: center; }
   </style>
 </head>
 <body>
@@ -138,18 +153,13 @@
       <div class="company-line">{company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}</div>
     </td>
     <td class="doc-meta">
-      <div class="doc-kicker">{#if supplierMode}Leveranciersorder{#else}Inkooporder - verticaal{/if}</div>
+      <div class="doc-kicker">{#if supplierMode}Leveranciersorder{#else}Inkooporder{/if}</div>
       <div class="doc-number">{order.number}</div>
       {#if !supplierMode && order.alias}<div class="doc-alias">{order.alias}</div>{/if}
-      {#if !supplierMode}<div class="badges"><span class="badge">{statusLabel}</span><span class="badge badge--read">A4 staand</span></div>{/if}
+      {#if !supplierMode}<div class="badges"><span class="badge">{statusLabel}</span></div>{/if}
     </td>
   </tr>
 </table>
-
-{#if !supplierMode}<div class="read-note">
-  <b>Inkooporder voor controle of verzending.</b> Deze versie toont de bestelde aantallen en
-  kartoninhoud{#if showPrices}, met de gekozen inkoopprijzen{/if}. Niet-geselecteerde gegevens blijven buiten de PDF.
-</div>{/if}
 
 <table class="parties {#if !supplierMode && !showSupplier}parties--single{/if}">
   <tr>
@@ -227,15 +237,16 @@
   </tbody>
 </table>
 {#else}
-<table class="lines standard-lines {#if !showPrices}standard-lines--no-prices{/if}">
+<table class="lines standard-lines{#if !showPrices} standard-lines--no-prices{/if}{#if showEnrosedCost} standard-lines--cost{/if}">
   <thead>
   <tr>
-    <th class="product-column">Product</th>
-    <th style="width:15mm">Stuks</th>
-    <th style="width:19mm">St./karton</th>
-    <th style="width:15mm">Kartons</th>
-    {#if showPrices}<th style="width:27mm">Per stuk</th>
-    <th style="width:30mm">Regeltotaal</th>{/if}
+    <th class="col-product">Product</th>
+    <th class="col-quantity">Stuks</th>
+    <th class="col-pieces">Stuks<br/>per karton</th>
+    <th class="col-cartons">Kartons</th>
+    {#if showPrices}<th class="col-unit">Per stuk</th>
+    <th class="col-line-total">Regeltotaal</th>{/if}
+    {#if showEnrosedCost}<th class="col-enrosed enrosed-cost">ENROSED-kost<div class="cost-hint">incl. verzending</div></th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -268,6 +279,7 @@
         {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>{/if}
+      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalEur}<span class="price-main">{line.totalEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
     </tr>
   {/for}
   </tbody>
@@ -282,44 +294,25 @@
       {order.containerType.label}{#if order.trackingReference} - {order.trackingReference}{/if}<br/>
       {#if order.expectedArrival}Verwachte aankomst: {order.expectedArrival.be}{/if}
     </td>
-    {#if !supplierMode && showPrices}<td class="closing__total">
+    {#if !supplierMode && (showPrices || showEnrosedCost)}<td class="closing__total">
       <div class="total-box">
-        <div class="label">Ordertotaal per valuta</div>
+        <div class="label">{#if showPrices}Ordertotaal per valuta{#else}ENROSED-kost{/if}</div>
         <table class="total-row">
-          {#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
-          {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
+          {#if showPrices}{#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
+          {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}{/if}
+          {#if showEnrosedCost}<tr class="combined-total"><td>ENROSED-kost<br/><span class="price-sub">all-in incl. verzending</span></td><td>{enrosedTotalEur.money} EUR</td></tr>{/if}
         </table>
       </div>
-      {#if missingPurchasePrices > 0}
-        <div class="warning">{missingPurchasePrices} productregel(s) hebben nog geen eenduidige inkoopprijs of valuta. Controleer dit voor delen.</div>
+      {#if showPrices && missingPurchasePrices > 0}
+        <div class="warning">Bij {missingPurchasePrices} productregel(s) ontbreekt nog een eenduidige inkoopprijs of valuta.</div>
       {/if}
     </td>{/if}
   </tr>
 </table>
 
-{#if !supplierMode && showFreight}
-<div class="freight-box">
-  <div class="label">Vracht en bijkomende logistiek</div>
-  <table class="freight-row">
-    <tr><td>{freightView.originLabel}</td><td>{freightView.originEur.eur}</td></tr>
-    <tr><td>{freightView.seaFreightLabel}</td><td>{freightView.seaFreightEur.eur}</td></tr>
-    <tr><td>Invoerrechten</td><td>{freightView.dutyEur.eur}</td></tr>
-    <tr><td>{freightView.destinationLabel}</td><td>{freightView.destinationEur.eur}</td></tr>
-    <tr class="subtotal"><td>Subtotaal vracht en logistiek</td><td>{freightView.logisticsTotalEur.eur}</td></tr>
-    {#if includeFreight}<tr class="grand">
-      <td>Ordertotaal incl. vracht en logistiek</td>
-      <td>{#if freightView.totalIncludingFreightEur}{freightView.totalIncludingFreightEur.eur}{#else}Niet berekenbaar{/if}</td>
-    </tr>{/if}
-  </table>
-  {#if payableView && payableView.ddp}<div class="freight-note">DDP: vracht en invoer zijn al in de leveranciersprijs opgenomen en worden niet opnieuw toegevoegd.</div>
-  {#else if includeFreight}<div class="freight-note">Goederen zijn omgerekend met de vastgelegde goederenkoers. Enrosed-kost is niet inbegrepen.</div>
-  {#else}<div class="freight-note">Deze kosten worden apart getoond en niet bij het ordertotaal opgeteld.</div>{/if}
-</div>
-{/if}
-
 {#if !supplierMode}<div class="footnote">
-  Inkooporder uit het actuele Enrosed-dossier. Product-, karton- en leveranciersgegevens worden bij
-  het maken van deze PDF gelezen en zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
+  {company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}
+  {#if company.email} - {company.email}{/if}{#if company.phone} - {company.phone}{/if}
 </div>{/if}
 
 </body>
