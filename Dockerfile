@@ -18,12 +18,24 @@ RUN mvn -q -B package -DskipTests
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 
+# Railway runs schema migrations in this same image before starting the app.
+# The PostgreSQL client keeps that path independent from Quarkus/Hibernate, so
+# schema validation cannot run before the additive DDL has been applied.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Quarkus fast-jar layout: lib/ changes rarely, app code often — copy in
 # that order so image pushes stay small.
 COPY --from=build /build/target/quarkus-app/lib/ ./lib/
 COPY --from=build /build/target/quarkus-app/*.jar ./
 COPY --from=build /build/target/quarkus-app/app/ ./app/
 COPY --from=build /build/target/quarkus-app/quarkus/ ./quarkus/
+
+COPY scripts/run-postgresql-schema-migrations.sh ./scripts/
+COPY docs/migrations/2026-09-01/product-supplier-agreement-photos-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-01/product-line-discount-target-postgresql.sql ./migrations/
+RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Railway injects PORT; application.properties picks it up.
 EXPOSE 8080

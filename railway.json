@@ -5,6 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "preDeployCommand": [
+      "/app/scripts/run-postgresql-schema-migrations.sh"
+    ],
     "healthcheckPath": "/api/public/terms",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3

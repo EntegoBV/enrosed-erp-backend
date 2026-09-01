@@ -23,7 +23,10 @@ create table if not exists product_supplier_agreement_photo (
 -- PostgreSQL has no ADD CONSTRAINT IF NOT EXISTS, so guard both constraints explicitly.
 do $migration$
 begin
-    if not exists (
+    -- On a completely empty database Hibernate's update strategy creates the
+    -- product table after this pre-deploy step. In that case the next rerun
+    -- adds the foreign key; validate environments already have the base table.
+    if to_regclass('product') is not null and not exists (
         select 1
         from pg_constraint
         where conname = 'fk_supplier_agreement_photo_product'
