@@ -13,7 +13,7 @@
        printer keeps the hierarchy intact.
     */
     @page {
-      size: A4 portrait; margin: 15mm 14mm 20mm;
+      size: A4 portrait; margin: 18mm 14mm 20mm;
       @bottom-left {
         content: "{order.number}  ·  {docLabel}";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
@@ -37,9 +37,9 @@
     }
 
     /* -- identity ------------------------------------------------------ */
-    table.head { width: 100%; border-collapse: collapse; }
+    table.head { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
     table.head td { padding: 0; vertical-align: top; }
-    .brand-logo { height: 33px; max-width: 102mm; }
+    .brand-logo { display: block; width: auto; height: 33px; max-width: 102mm; }
     .brand-word { color: #181411; font-size: 19pt; font-weight: bold; letter-spacing: 2px; }
     .brand-details { margin-top: 6px; color: #5d5550; font-size: 8pt; line-height: 1.55; }
     .brand-details b { color: #181411; font-size: 8.5pt; }

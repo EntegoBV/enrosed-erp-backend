@@ -202,6 +202,9 @@ public class PdfPurchaseRenderer {
         }
     }
 
+    /** One compact, explicitly labelled product fact in a purchase-order row. */
+    public record ProductSpec(String label, String value) {}
+
     /**
      * One PDF line enriched with print-safe catalogue data.
      *
@@ -212,7 +215,7 @@ public class PdfPurchaseRenderer {
      */
     public record LineView(
             Long productId, String sku, String productName, String photoDataUri,
-            String productSpecs, Integer piecesPerCarton,
+            List<ProductSpec> productSpecs, Integer piecesPerCarton,
             int quantity, int cartons, int purchaseQuantity, int purchaseCartons, BigDecimal cbm,
             BigDecimal goodsUsd, BigDecimal goodsEur, BigDecimal originEur,
             BigDecimal freightEur, BigDecimal customsValueEur,
@@ -230,7 +233,7 @@ public class PdfPurchaseRenderer {
      */
     public record SupplierLineView(
             Long productId, String sku, String productName, String photoDataUri,
-            String productSpecs, Integer piecesPerCarton, String ean,
+            List<ProductSpec> productSpecs, Integer piecesPerCarton, String ean,
             List<String> supplierNoteChunks,
             List<SupplierAgreementPhotoView> agreementPhotos,
             int orderedQuantity, int orderedCartons,
@@ -616,61 +619,82 @@ public class PdfPurchaseRenderer {
     }
 
     /** Compact, factual product and packing detail; no long marketing copy. */
-    static String productSpecs(Product product) {
-        if (product == null) return null;
-        List<String> parts = new ArrayList<>();
-        add(parts, product.variantSize());
-
-        Dimensions dimensions = product.dimensions();
-        if (dimensions != null && !dimensions.isBlank()) {
-            parts.add("Product " + dimensions.label());
-        }
-
-        Packaging packaging = product.packaging();
-        if (packaging != null && packaging.isPresent()) {
-            add(parts, packaging.label());
-        }
-
-        Carton carton = product.carton();
-        if (carton != null && carton.dimensions() != null && !carton.dimensions().isBlank()) {
-            parts.add("Omdoos " + carton.dimensions().label());
-        }
-        return parts.isEmpty() ? null : String.join(" · ", parts);
+    static List<ProductSpec> productSpecs(Product product) {
+        return productSpecs(product, false);
     }
 
     /** English product and packing detail for the supplier agreement. */
-    static String supplierProductSpecs(Product product) {
-        if (product == null) return null;
-        List<String> parts = new ArrayList<>();
-        add(parts, product.variantSizeIn(Language.EN));
+    static List<ProductSpec> supplierProductSpecs(Product product) {
+        return productSpecs(product, true);
+    }
+
+    private static List<ProductSpec> productSpecs(Product product, boolean supplierFacing) {
+        if (product == null) return List.of();
+        List<ProductSpec> details = new ArrayList<>();
+        String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
+        if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
         Dimensions dimensions = product.dimensions();
-        if (dimensions != null && !dimensions.isBlank()) {
-            parts.add("Product " + supplierDimensionLabel(dimensions));
+        String productDimensions = dimensionLabel(dimensions, supplierFacing);
+        String pieceBarcode = ean(product);
+        if (productDimensions != null || pieceBarcode != null) {
+            details.add(new ProductSpec("Product", detailValue(
+                    productDimensions, null, pieceBarcode, supplierFacing, null)));
         }
 
         Packaging packaging = product.packaging();
         if (packaging != null && packaging.isPresent()) {
-            String label = switch (packaging.kind()) {
-                case GIFT_BOX -> "Gift box";
-                case DISPLAY -> "Display";
-                case NONE -> "No retail packaging";
-            };
-            if (!packaging.dimensions().isBlank()) {
-                label += " " + supplierDimensionLabel(packaging.dimensions());
+            Integer packagedPieces = packaging.unitPieces() > 1
+                    ? packaging.unitPieces() : null;
+            String packagingLabel = supplierFacing
+                    ? switch (packaging.kind()) {
+                        case GIFT_BOX -> "Gift packaging";
+                        case DISPLAY -> "Display";
+                        case NONE -> "Packaging";
+                    }
+                    : packaging.kind().dutchLabel();
+            String packagingDimensions = dimensionLabel(packaging.dimensions(), supplierFacing);
+            if (packagingDimensions != null || packagedPieces != null
+                    || notBlank(packaging.barcode())) {
+                details.add(new ProductSpec(packagingLabel, detailValue(
+                        packagingDimensions, packagedPieces, packaging.barcode(), supplierFacing,
+                        packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                                ? (supplierFacing ? "pcs/display" : "stuks/display")
+                                : null)));
             }
-            if (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                    && packaging.unitPieces() > 1) {
-                label += " · " + packaging.unitPieces() + " pcs/display";
-            }
-            parts.add(label);
         }
 
         Carton carton = product.carton();
-        if (carton != null && carton.dimensions() != null && !carton.dimensions().isBlank()) {
-            parts.add("Outer carton " + supplierDimensionLabel(carton.dimensions()));
+        String cartonDimensions = carton == null
+                ? null : dimensionLabel(carton.dimensions(), supplierFacing);
+        String outerBarcode = product.barcodes() == null ? null : product.barcodes().outer();
+        boolean cartonKnown = cartonDimensions != null || notBlank(outerBarcode)
+                || carton != null && carton.piecesPerCarton() > 1;
+        if (cartonKnown) {
+            Integer cartonPieces = carton != null && carton.piecesPerCarton() > 0
+                    ? carton.piecesPerCarton() : null;
+            details.add(new ProductSpec(supplierFacing ? "Outer carton" : "Omdoos", detailValue(
+                    cartonDimensions, cartonPieces, outerBarcode, supplierFacing,
+                    supplierFacing ? "pcs/carton" : "stuks/karton")));
         }
-        return parts.isEmpty() ? null : String.join(" · ", parts);
+        return List.copyOf(details);
+    }
+
+    private static String dimensionLabel(Dimensions dimensions, boolean supplierFacing) {
+        if (dimensions == null || dimensions.isBlank()) return null;
+        return supplierFacing ? supplierDimensionLabel(dimensions) : dimensions.label();
+    }
+
+    private static String detailValue(String dimensions, Integer pieces, String barcode,
+                                      boolean supplierFacing, String piecesSuffix) {
+        List<String> values = new ArrayList<>();
+        if (notBlank(dimensions)) values.add(dimensions);
+        if (pieces != null && pieces > 0) {
+            values.add(pieces + " " + (piecesSuffix == null
+                    ? (supplierFacing ? "pcs" : "stuks") : piecesSuffix));
+        }
+        if (notBlank(barcode)) values.add("Barcode " + barcode.strip());
+        return String.join(" · ", values);
     }
 
     /** Supplier-facing product label resolved from the English document translation. */
@@ -750,10 +774,6 @@ public class PdfPurchaseRenderer {
         if (product == null || product.carton() == null || product.carton().cbm() == null
                 || product.carton().cbm().signum() <= 0) return null;
         return product.carton().cbm().stripTrailingZeros().toPlainString().replace('.', ',');
-    }
-
-    private static void add(List<String> parts, String value) {
-        if (notBlank(value)) parts.add(value.strip());
     }
 
     static boolean sameRate(PurchaseOrder order) {
