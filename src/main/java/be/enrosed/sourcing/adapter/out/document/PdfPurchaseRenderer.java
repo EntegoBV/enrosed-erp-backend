@@ -171,7 +171,16 @@ public class PdfPurchaseRenderer {
      */
     public record PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                              boolean eurOnly, boolean showFreight, boolean includeFreight,
-                             boolean includeEnrosedCost, boolean includeUnitPrice) {
+                             boolean includeEnrosedCost, boolean includeUnitPrice,
+                             boolean includeEnrosedUnitCost, boolean showPaymentTerms) {
+        /** Compatibility for callers written before unit landed cost and payment terms. */
+        public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                          boolean eurOnly, boolean showFreight, boolean includeFreight,
+                          boolean includeEnrosedCost, boolean includeUnitPrice) {
+            this(showSupplier, showPrices, showEur, eurOnly, showFreight, includeFreight,
+                    includeEnrosedCost, includeUnitPrice, false, false);
+        }
+
         /** Compatibility for callers written before the unit-price switch. */
         public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                           boolean eurOnly, boolean showFreight, boolean includeFreight,
@@ -196,7 +205,8 @@ public class PdfPurchaseRenderer {
         }
 
         public static PdfOptions defaults() {
-            return new PdfOptions(true, true, false, false, false, false, false, true);
+            return new PdfOptions(false, false, false, false, false, false,
+                    false, false, false, false);
         }
 
         PdfOptions normalized(Layout layout, Audience audience) {
@@ -207,7 +217,8 @@ public class PdfPurchaseRenderer {
                legacy flags stay in the API contract but normalize off. */
             boolean onlyEur = eurOnly && prices;
             return new PdfOptions(showSupplier, prices, showEur && prices && !onlyEur,
-                    onlyEur, false, false, includeEnrosedCost, unitPrice);
+                    onlyEur, false, false, includeEnrosedCost, unitPrice,
+                    includeEnrosedUnitCost, showPaymentTerms);
         }
     }
 
@@ -231,6 +242,7 @@ public class PdfPurchaseRenderer {
             BigDecimal dutyRatePct, BigDecimal dutyEur,
             BigDecimal destinationEur, BigDecimal extraRevenueEur,
             BigDecimal totalEur, BigDecimal landedUnitEur, BigDecimal totalDeliveryCostEur,
+            BigDecimal totalDeliveryUnitCostEur,
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
             BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
@@ -347,14 +359,17 @@ public class PdfPurchaseRenderer {
                 .data("showEur", options.showEur())
                 .data("eurOnly", options.eurOnly())
                 .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
-                .data("showEnrosedCost", options.includeEnrosedCost());
+                .data("showEnrosedCost", options.includeEnrosedCost())
+                .data("showEnrosedUnitCost", options.includeEnrosedUnitCost())
+                .data("showPaymentTerms", options.showPaymentTerms());
 
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
-            Prepared prepared = prepare(order, costing, options.includeEnrosedCost());
+            Prepared prepared = prepare(order, costing,
+                    options.includeEnrosedCost() || options.includeEnrosedUnitCost());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
@@ -464,11 +479,11 @@ public class PdfPurchaseRenderer {
     }
 
     private Prepared prepare(PurchaseOrder order, LandedCost costing,
-                             boolean includeEnrosedCost) {
+                             boolean includeOrderedCosts) {
         Map<Long, Product> byId = products.list().stream()
                 .filter(product -> product.id() != null)
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
-        LandedCost orderedCosting = includeEnrosedCost
+        LandedCost orderedCosting = includeOrderedCosts
                 ? landedCosts.calculateForOrderedQuantities(order, byId) : null;
         Map<Long, LandedCost.Line> orderedCostsByProduct = orderedCosting == null
                 ? Map.of()
@@ -534,6 +549,7 @@ public class PdfPurchaseRenderer {
                     costingLine.destinationEur(), costingLine.extraRevenueEur(),
                     costingLine.totalEur(), costingLine.landedUnitEur(),
                     orderedCostLine == null ? null : orderedCostLine.totalEur(),
+                    orderedCostLine == null ? null : orderedCostLine.landedUnitEur(),
                     unitPrice, lineTotal, unitEur, lineTotalEur,
                     currency, priceBasis, priceAvailable,
                     eurPriceAvailable,

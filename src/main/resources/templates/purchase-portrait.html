@@ -113,37 +113,26 @@
     .standard-lines th, .standard-lines td { box-sizing: border-box; }
     .standard-lines th { text-align: center; }
     .standard-lines th:first-child { text-align: left; }
-    .standard-lines .col-product { width: 42%; }
-    .standard-lines .col-quantity { width: 8%; }
-    .standard-lines .col-pieces { width: 10%; }
-    .standard-lines .col-cartons { width: 8%; }
-    .standard-lines .col-unit { width: 14%; }
-    .standard-lines .col-line-total { width: 18%; }
-    .standard-lines--cost .col-product { width: 33%; }
-    .standard-lines--cost .col-quantity { width: 7%; }
-    .standard-lines--cost .col-pieces { width: 8%; }
-    .standard-lines--cost .col-cartons { width: 7%; }
-    .standard-lines--cost .col-unit { width: 12%; }
-    .standard-lines--cost .col-line-total { width: 14%; }
-    .standard-lines--cost .col-enrosed { width: 19%; }
-    .standard-lines--no-unit-price .col-product { width: 56%; }
-    .standard-lines--no-unit-price.standard-lines--cost .col-product { width: 45%; }
-    .standard-lines--no-prices .col-product { width: 67%; }
-    .standard-lines--no-prices .col-quantity { width: 10%; }
-    .standard-lines--no-prices .col-pieces { width: 12%; }
-    .standard-lines--no-prices .col-cartons { width: 11%; }
-    .standard-lines--no-prices.standard-lines--cost .col-product { width: 49%; }
-    .standard-lines--no-prices.standard-lines--cost .col-quantity { width: 8%; }
-    .standard-lines--no-prices.standard-lines--cost .col-pieces { width: 10%; }
-    .standard-lines--no-prices.standard-lines--cost .col-cartons { width: 8%; }
-    .standard-lines--no-prices.standard-lines--cost .col-enrosed { width: 25%; }
+    /* Fixed numeric widths keep the product column as the flexible remainder.
+       This remains balanced with zero, one or both all-in cost columns. */
+    .standard-lines .col-quantity { width: 12mm; }
+    .standard-lines .col-pieces { width: 16mm; }
+    .standard-lines .col-cartons { width: 13mm; }
+    .standard-lines .col-unit { width: 21mm; }
+    .standard-lines .col-line-total { width: 24mm; }
+    .standard-lines .col-enrosed-unit { width: 24mm; }
+    .standard-lines .col-enrosed-total { width: 26mm; }
     .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
     .enrosed-cost .price-main { color: #762239; }
     .cost-hint { margin-top: .5mm; color: #8b8179; font-size: 5.8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
     .cost-definition { margin-top: 2mm; color: #756b65; font-size: 5.9pt; line-height: 1.4; }
+    .cost-definition--inline {
+      margin-top: 1.5mm; padding: 1.5mm 2.2mm; border-left: .8pt solid #c6a15b;
+      background: #fdfaf6;
+    }
 
     /* Totals and footer note */
-    .closing { margin-top: 5mm; page-break-inside: avoid; }
+    .closing { margin-top: 3.5mm; page-break-inside: avoid; }
     .closing td { vertical-align: top; }
     .closing__copy { padding: 4mm; border: .35pt solid #e3d7c6; color: #645b55; font-size: 7.5pt; }
     .closing__total { width: 72mm; padding-left: 5mm; }
@@ -155,7 +144,24 @@
     .combined-total td:first-child { color: #762239; font-weight: 700; }
     .combined-total td:last-child { color: #762239; font-size: 11pt; }
     .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
-    .footnote { margin-top: 6mm; padding-top: 2.5mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.8pt; text-align: center; }
+    .footnote { margin-top: 4mm; padding-top: 2mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.5pt; text-align: center; }
+
+    /* The normal portrait export is a dense desktop work document. */
+    .standard-sheet .top-rule { margin-bottom: 4mm; }
+    .standard-sheet .company-line { margin-top: 1.2mm; font-size: 6.7pt; line-height: 1.3; }
+    .standard-sheet .doc-number { font-size: 18pt; }
+    .standard-sheet .badges { margin-top: 1mm; }
+    .standard-sheet .parties { margin-top: 3.2mm; }
+    .standard-sheet .parties td { padding: 2.6mm 3mm; }
+    .standard-sheet .party-name { font-size: 9pt; }
+    .standard-sheet .party-lines { margin-top: .6mm; font-size: 7pt; line-height: 1.35; }
+    .standard-sheet .facts { margin-top: 3mm; }
+    .standard-sheet .facts td { padding: 2.3mm 2.6mm; }
+    .standard-sheet .section-title { margin-top: 4mm; }
+    .standard-sheet .lines td { padding-top: 2.2mm; padding-bottom: 2.2mm; }
+    .standard-sheet .product-photo,
+    .standard-sheet .product-photo--empty { width: 12mm; height: 12mm; max-width: 12mm; }
+    .standard-sheet .product-photo--empty { line-height: 12mm; }
 
     /* Supplier agreement: intentionally separate from the internal Dutch read copy. */
     .supplier-sheet .top-rule { margin-bottom: 10.8mm; }
@@ -234,7 +240,7 @@
     .agreement-footer { margin-top: 3mm; color: #8b8179; font-size: 5.9pt; text-align: center; }
   </style>
 </head>
-<body class="{#if supplierMode}supplier-sheet{/if}">
+<body class="{#if supplierMode}supplier-sheet{#else}standard-sheet{/if}">
 
 <div class="top-rule"></div>
 
@@ -259,7 +265,7 @@
   </tr>
 </table>
 
-<table class="parties {#if !supplierMode && !showSupplier}parties--single{/if}">
+{#if supplierMode || showSupplier}<table class="parties">
   <tr>
     <td>
       <div class="label">{#if supplierMode}Buyer{#else}Van{/if}</div>
@@ -269,16 +275,16 @@
         {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}
       </div>
     </td>
-    {#if supplierMode || showSupplier}<td>
+    <td>
       <div class="label">{#if supplierMode}Supplier{#else}Aan leverancier{/if}</div>
       <div class="party-name">{supplierName}</div>
       <div class="party-lines">
         {#for addressLine in supplierAddressLines}{addressLine}<br/>{/for}
         {#if supplierContactLine}{supplierContactLine}{/if}
       </div>
-    </td>{/if}
+    </td>
   </tr>
-</table>
+</table>{/if}
 
 <table class="facts">
   {#if supplierMode}
@@ -289,11 +295,11 @@
     <td style="width:22%"><div class="facts__label">Required arrival</div><div class="facts__value">{#if order.expectedArrival}{order.expectedArrival.be}{#else}To confirm{/if}</div></td>
   </tr>
   {#else}
-  <tr>
-    <td style="width:{#if showPrices}20{#else}25{/if}%"><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
-    <td style="width:{#if showPrices}29{#else}43{/if}%"><div class="facts__label">Route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
-    {#if showPrices}<td style="width:22%"><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>{/if}
-    <td style="width:{#if showPrices}29{#else}32{/if}%"><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div>{#if order.expectedArrival}<div class="facts__sub">Verwacht {order.expectedArrival.be}</div>{/if}</td>
+  <tr class="facts--standard">
+    <td><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
+    <td><div class="facts__label">Route & levering</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}{#if order.expectedArrival} · verwacht {order.expectedArrival.be}{/if}{#if order.trackingReference} · {order.trackingReference}{/if}</div></td>
+    {#if showPrices}<td><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>{/if}
+    {#if showPaymentTerms}<td><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div></td>{/if}
   </tr>
   {/if}
 </table>
@@ -361,7 +367,7 @@
   </tbody>
 </table>
 {#else}
-<table class="lines standard-lines{#if !showPrices} standard-lines--no-prices{/if}{#if showPrices && !showUnitPrice} standard-lines--no-unit-price{/if}{#if showEnrosedCost} standard-lines--cost{/if}">
+<table class="lines standard-lines">
   <thead>
   <tr>
     <th class="col-product">Product</th>
@@ -372,7 +378,8 @@
     {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
     <th class="col-line-total">Regeltotaal</th>
     {/if}
-    {#if showEnrosedCost}<th class="col-enrosed enrosed-cost">Totale kost<div class="cost-hint">t/m levering · EUR</div></th>{/if}
+    {#if showEnrosedUnitCost}<th class="col-enrosed-unit enrosed-cost">Totale kost<div class="cost-hint">per stuk · t/m levering</div></th>{/if}
+    {#if showEnrosedCost}<th class="col-enrosed-total enrosed-cost">Totale kost<div class="cost-hint">regel · t/m levering</div></th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -417,11 +424,13 @@
           {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>{/if}
-      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
+      {#if showEnrosedUnitCost}<td class="number enrosed-cost">{#if line.totalDeliveryUnitCostEur}<span class="price-main">{line.totalDeliveryUnitCostEur.moneyUnit}</span><br/><span class="price-sub">EUR / stuk</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
+      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR / regel</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
     </tr>
   {/for}
   </tbody>
 </table>
+{#if showEnrosedCost || showEnrosedUnitCost}<div class="cost-definition cost-definition--inline"><b>Totale kost t/m levering.</b> Inkoop en producttoeslagen, oorsprong, vracht, invoerrechten, transport en afhandeling tot het magazijn en interne kost; exclusief btw. Bij DDP zijn vracht en invoer al in de inkoopprijs opgenomen.</div>{/if}
 {/if}
 
 {#if supplierMode}
@@ -431,7 +440,7 @@
   The supplier must obtain ENROSED's written approval before any change to the agreed product,
   packing, quantity, timing, route or transport booking.
 </div>
-{#else}
+{#else if showPrices || showEnrosedCost}
 <table class="closing">
   <tr>
     <td class="closing__copy">
@@ -454,7 +463,6 @@
           {/if}
           {#if showEnrosedCost}<tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>{/if}
         </table>
-        {#if showEnrosedCost}<div class="cost-definition">Inkoop en producttoeslagen, oorsprong, vracht, invoerrechten, transport en afhandeling tot het magazijn en interne kost; exclusief btw. Bij DDP zijn vracht en invoer al in de inkoopprijs opgenomen.</div>{/if}
       </div>
       {#if showPrices && missingDisplayedPrices > 0}
         <div class="warning">Bij {missingDisplayedPrices} productregel(s) ontbreekt nog een eenduidige inkoopprijs, valuta of benodigde wisselkoers.</div>

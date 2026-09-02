@@ -199,6 +199,11 @@ public class SourcingResource {
      * @param includeUnitPrice whether the agreed price per piece appears on
      *                         the standard portrait export; totals remain
      *                         available when this column is hidden.
+     * @param includeEnrosedUnitCost adds the complete allocated cost per
+     *                               ordered piece through delivery, without
+     *                               exposing the individual cost components.
+     * @param showPaymentTerms whether the agreed payment term appears in the
+     *                         standard portrait order facts.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -207,16 +212,20 @@ public class SourcingResource {
                                 @QueryParam("showRevenue") @DefaultValue("false") boolean showRevenue,
                                 @QueryParam("layout") @DefaultValue("LANDSCAPE") String layout,
                                 @QueryParam("audience") String audience,
-                                @QueryParam("showSupplier") @DefaultValue("true") boolean showSupplier,
-                                @QueryParam("showPrices") @DefaultValue("true") boolean showPrices,
+                                @QueryParam("showSupplier") @DefaultValue("false") boolean showSupplier,
+                                @QueryParam("showPrices") @DefaultValue("false") boolean showPrices,
                                 @QueryParam("showEur") @DefaultValue("false") boolean showEur,
                                 @QueryParam("eurOnly") @DefaultValue("false") boolean eurOnly,
                                 @QueryParam("showFreight") @DefaultValue("false") boolean showFreight,
                                 @QueryParam("includeFreight") @DefaultValue("false") boolean includeFreight,
                                 @QueryParam("includeEnrosedCost") @DefaultValue("false")
                                 boolean includeEnrosedCost,
-                                @QueryParam("includeUnitPrice") @DefaultValue("true")
-                                boolean includeUnitPrice) {
+                                @QueryParam("includeUnitPrice") @DefaultValue("false")
+                                boolean includeUnitPrice,
+                                @QueryParam("includeEnrosedUnitCost") @DefaultValue("false")
+                                boolean includeEnrosedUnitCost,
+                                @QueryParam("showPaymentTerms") @DefaultValue("false")
+                                boolean showPaymentTerms) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -232,7 +241,8 @@ public class SourcingResource {
                         supplier == null ? null : supplier.incoterm()),
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
-                        showFreight, includeFreight, includeEnrosedCost, includeUnitPrice));
+                        showFreight, includeFreight, includeEnrosedCost, includeUnitPrice,
+                        includeEnrosedUnitCost, showPaymentTerms));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
@@ -240,19 +250,21 @@ public class SourcingResource {
                 .build();
     }
 
-    /** Java-call compatibility for callers predating the unit-price switch. */
+    /** Java-call compatibility for callers predating the optional portrait fields. */
     public Response purchasePdf(long id, boolean showRevenue, String layout, String audience,
                                 boolean showSupplier, boolean showPrices, boolean showEur,
                                 boolean eurOnly, boolean showFreight, boolean includeFreight,
                                 boolean includeEnrosedCost) {
         return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
-                showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost, true);
+                showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost,
+                false, false, false);
     }
 
     /** Java-call compatibility for tests and callers predating portrait options. */
     public Response purchasePdf(long id, boolean showRevenue, String layout, String audience) {
         return purchasePdf(id, showRevenue, layout, audience,
-                true, true, false, false, false, false, false);
+                false, false, false, false, false, false, false,
+                false, false, false);
     }
 
     /** Copies the calculation to price a variant quickly. */

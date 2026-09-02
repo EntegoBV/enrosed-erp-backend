@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -103,7 +104,7 @@ class SourcingResourcePurchasePdfTest {
         PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false);
         PdfPurchaseRenderer.PdfOptions options = new PdfPurchaseRenderer.PdfOptions(
-                false, true, true, true, true, true, true);
+                false, true, true, true, true, true, true, false, true, true);
         PdfPurchaseRenderer.Document document = new PdfPurchaseRenderer.Document(
                 "portrait-options.pdf", new byte[] {4}, "application/pdf");
         when(purchases.get(44L)).thenReturn(order);
@@ -114,12 +115,28 @@ class SourcingResourcePurchasePdfTest {
                 PdfPurchaseRenderer.Audience.STANDARD, options)).thenReturn(document);
 
         var response = resource.purchasePdf(44L, false, "PORTRAIT", "STANDARD",
-                false, true, true, true, true, true, true);
+                false, true, true, true, true, true, true, false, true, true);
 
         assertEquals(200, response.getStatus());
         verify(renderer).render(order, null, null, false, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.STANDARD, options);
+    }
+
+    @Test
+    void everyOptionalPortraitFieldDefaultsToFalse() {
+        PdfPurchaseRenderer.PdfOptions defaults = PdfPurchaseRenderer.PdfOptions.defaults();
+
+        assertFalse(defaults.showSupplier());
+        assertFalse(defaults.showPrices());
+        assertFalse(defaults.showEur());
+        assertFalse(defaults.eurOnly());
+        assertFalse(defaults.showFreight());
+        assertFalse(defaults.includeFreight());
+        assertFalse(defaults.includeEnrosedCost());
+        assertFalse(defaults.includeUnitPrice());
+        assertFalse(defaults.includeEnrosedUnitCost());
+        assertFalse(defaults.showPaymentTerms());
     }
 
     @Test
