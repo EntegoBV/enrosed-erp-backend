@@ -3,6 +3,7 @@ package be.enrosed.sales.application.port.out;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.SalesOrder;
+import be.enrosed.shared.Language;
 
 import java.util.List;
 
@@ -12,6 +13,15 @@ public interface QuoteDocumentRenderer {
     record Document(String filename, byte[] content, String contentType) {}
 
     Document render(SalesOrder order, PricedOrder priced, Customer customer, String portalUrl);
+
+    /**
+     * Renders an explicitly configured staff download. Implementations that do
+     * not support presentation options retain the canonical customer document.
+     */
+    default Document render(SalesOrder order, PricedOrder priced, Customer customer,
+                            String portalUrl, Language language, SalesPdfOptions options) {
+        return render(order, priced, customer, portalUrl);
+    }
 
     /* ---- packing slip ------------------------------------------------ */
 

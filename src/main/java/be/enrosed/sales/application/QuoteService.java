@@ -3,6 +3,7 @@ package be.enrosed.sales.application;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.QuoteMailer;
 import be.enrosed.sales.application.port.out.SalesRepositories;
+import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.BusinessDays;
@@ -276,7 +277,7 @@ public class QuoteService {
 
     /** Rebuild the PDF, for instance to review or download it ourselves. */
     public QuoteDocumentRenderer.Document document(long orderId) {
-        return document(orderId, null);
+        return document(orderId, null, SalesPdfOptions.defaults());
     }
 
     /**
@@ -287,14 +288,18 @@ public class QuoteService {
      * internally, without changing the customer's language for it.
      */
     public QuoteDocumentRenderer.Document document(long orderId, be.enrosed.shared.Language language) {
+        return document(orderId, language, SalesPdfOptions.defaults());
+    }
+
+    /** Staff download with presentation choices; customer mail and portal use defaults. */
+    public QuoteDocumentRenderer.Document document(long orderId,
+                                                    be.enrosed.shared.Language language,
+                                                    SalesPdfOptions options) {
         SalesOrder order = salesOrders.get(orderId);
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
         String portalUrl = activePortalUrl(order).orElse(null);
-
-        if (renderer instanceof be.enrosed.sales.adapter.out.document.PdfQuoteRenderer pdf) {
-            return pdf.render(order, salesOrders.price(order), customer, portalUrl, language);
-        }
-        return renderer.render(order, salesOrders.price(order), customer, portalUrl);
+        return renderer.render(order, salesOrders.price(order), customer, portalUrl, language,
+                options == null ? SalesPdfOptions.defaults() : options);
     }
 
     /* ======================================================= customer side */
