@@ -297,7 +297,7 @@
   {#else}
   <tr class="facts--standard">
     <td><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
-    <td><div class="facts__label">Route & levering</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}{#if order.expectedArrival} · verwacht {order.expectedArrival.be}{/if}{#if order.trackingReference} · {order.trackingReference}{/if}</div></td>
+    <td><div class="facts__label">Route &amp; levering</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}{#if order.expectedArrival} · verwacht {order.expectedArrival.be}{/if}{#if order.trackingReference} · {order.trackingReference}{/if}</div></td>
     {#if showPrices}<td><div class="facts__label">Prijsbasis</div><div class="facts__value">{#if supplierIncoterm}{supplierIncoterm}{#else}Per productregel{/if}</div></td>{/if}
     {#if showPaymentTerms}<td><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div></td>{/if}
   </tr>
