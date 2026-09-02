@@ -1,6 +1,7 @@
 package be.enrosed.sales.adapter.out.document;
 
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
+import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.DeliveryTermsState;
 import be.enrosed.sales.domain.DocumentType;
@@ -30,9 +31,9 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -124,8 +126,40 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("te betalen"));
             assertTrue(text.contains("be68 5390 0754 7034"));
             assertTrue(text.contains("f-2026-0042"));
+            assertTrue(text.contains("op al onze facturen"));
             assertFalse(text.contains("online bekijken, tekenen of wijzigen"));
         }
+    }
+
+    @Test
+    void staffCanDownloadACompactDocumentWithoutRemovingCommercialEssentials() throws Exception {
+        PdfQuoteRenderer.Document document = renderer.render(
+                order(DocumentType.OFFERTE, "ENR-2026-0149", 2), priced(2), customer(), null,
+                Language.NL, new SalesPdfOptions(false, false, false, false));
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("counter display premium kleur 1"));
+            assertTrue(text.contains("stukprijs"));
+            assertTrue(text.contains("totaal"));
+            assertFalse(text.contains("er-glass-001"), "SKU is optionele productinformatie");
+            assertFalse(text.contains("week 37"), "leverinformatie valt onder logistiek");
+            assertFalse(text.contains("algemene voorwaarden"), "voorwaarden zijn uitgeschakeld");
+        }
+    }
+
+    @Test
+    void salesPdfDefaultsAndCleanTitleAreStable() {
+        SalesPdfOptions defaults = SalesPdfOptions.defaults();
+        assertTrue(defaults.includePhotos());
+        assertTrue(defaults.includeProductDetails());
+        assertTrue(defaults.includeLogistics());
+        assertTrue(defaults.includeTerms());
+        assertEquals("Bowl Rozen XL - Red",
+                PdfQuoteRenderer.cleanFallbackTitle(
+                        "Bowl Rozen XL - B × D × H: 10 × 10 × 8 cm - Red"));
+        assertTrue(PdfQuoteRenderer.hasLineDiscounts(priced(1)));
+        assertFalse(PdfQuoteRenderer.hasLineDiscounts(priced(1, false)));
     }
 
     @Test
@@ -310,7 +344,14 @@ class PdfQuoteRendererRenderTest {
     }
 
     private static PricedOrder priced(int lineCount) {
+        return priced(lineCount, true);
+    }
+
+    private static PricedOrder priced(int lineCount, boolean withLineDiscount) {
         List<PricedOrder.Line> lines = new ArrayList<>();
+        BigDecimal lineDiscountPct = withLineDiscount ? bd("5") : BigDecimal.ZERO;
+        BigDecimal lineDiscountAmount = withLineDiscount ? bd("15.00") : BigDecimal.ZERO;
+        BigDecimal lineNet = withLineDiscount ? bd("285.00") : bd("300.00");
         for (int index = 1; index <= lineCount; index++) {
             lines.add(new PricedOrder.Line(
                     (long) index, "ER-GLASS-" + String.format("%03d", index),
@@ -318,14 +359,15 @@ class PdfQuoteRendererRenderTest {
                     "Counter display premium kleur " + index,
                     null, 24, 2, 16, 1, 4, 2, bd("164"),
                     bd("0.120"), bd("8.5"), bd("12.50"), bd("300.00"),
-                    bd("5"), BigDecimal.ZERO, bd("5"), bd("15.00"), bd("285.00"),
-                    bd("11.8750"), bd("6.00"), bd("144.00"), bd("141.00"),
+                    lineDiscountPct, BigDecimal.ZERO, lineDiscountPct, lineDiscountAmount, lineNet,
+                    lineNet.divide(bd("24"), 4, RoundingMode.HALF_UP),
+                    bd("6.00"), bd("144.00"), lineNet.subtract(bd("144.00")),
                     bd("49.47"), 48, bd("7.5"), 800, true, true, 0,
                     "2026-09-07", "2026-W37", "Uit voorraad leverbaar"));
         }
 
         BigDecimal gross = bd("300.00").multiply(BigDecimal.valueOf(lineCount));
-        BigDecimal lineDiscount = bd("15.00").multiply(BigDecimal.valueOf(lineCount));
+        BigDecimal lineDiscount = lineDiscountAmount.multiply(BigDecimal.valueOf(lineCount));
         BigDecimal subtotal = gross.subtract(lineDiscount);
         BigDecimal orderDiscount = subtotal.multiply(bd("0.03"))
                 .setScale(2, RoundingMode.HALF_UP);

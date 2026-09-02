@@ -3,6 +3,7 @@ package be.enrosed.sales.adapter.in.rest;
 import be.enrosed.sales.application.QuoteService;
 import be.enrosed.sales.application.SalesOrderService;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
+import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.FreightState;
@@ -201,9 +202,18 @@ public class SalesOrderResource {
     @GET
     @Path("/{id}/pdf")
     @Produces("application/pdf")
-    public Response pdf(@PathParam("id") long id, @QueryParam("language") String language) {
+    public Response pdf(@PathParam("id") long id,
+                        @QueryParam("language") String language,
+                        @QueryParam("includePhotos") @DefaultValue("true") boolean includePhotos,
+                        @QueryParam("includeProductDetails") @DefaultValue("true")
+                        boolean includeProductDetails,
+                        @QueryParam("includeLogistics") @DefaultValue("true")
+                        boolean includeLogistics,
+                        @QueryParam("includeTerms") @DefaultValue("true") boolean includeTerms) {
         QuoteDocumentRenderer.Document document = quotes.document(id,
-                language == null || language.isBlank() ? null : Language.of(language));
+                language == null || language.isBlank() ? null : Language.of(language),
+                new SalesPdfOptions(includePhotos, includeProductDetails,
+                        includeLogistics, includeTerms));
         return Response.ok(document.content())
                 .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
                 .build();

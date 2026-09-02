@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="{languageCode}">
 <head>
   <meta charset="utf-8"/>
   <title>{docLabel} {order.number}</title>
@@ -77,6 +77,7 @@
       width: 50%; padding: 9px 11px; vertical-align: top;
       border: 1px solid #e2d9cf; background: #ffffff;
     }
+    table.parties--customer-only td { width: 100%; }
     .party-name { margin-top: 3px; font-size: 11pt; font-weight: bold; }
     .party-lines { margin-top: 2px; line-height: 1.55; }
     .ship-facts { margin-top: 3px; line-height: 1.65; }
@@ -100,14 +101,27 @@
     }
     table.lines tr { page-break-inside: avoid; }
     table.lines tr.alt td { background: #fbf8f4; }
-    .line-name { font-size: 9.6pt; font-weight: bold; line-height: 1.35; }
-    .line-meta { margin-top: 2px; color: #736b65; font-size: 7.4pt; line-height: 1.35; }
+    .line-name { font-size: 9.6pt; font-weight: bold; line-height: 1.3; }
+    .line-variant { margin-top: 1px; color: #8f2942; font-size: 7.5pt; font-weight: bold; }
+    .line-description { margin-top: 2px; color: #453e39; font-size: 7.5pt; line-height: 1.35; }
+    .line-specs { margin-top: 3px; color: #5d5550; font-size: 7pt; line-height: 1.35; }
+    .line-spec { display: inline; }
+    .line-spec + .line-spec:before { content: "  ·  "; color: #c9a45c; }
+    .line-spec b { color: #453e39; }
+    .line-meta { margin-top: 3px; color: #736b65; font-size: 7.2pt; line-height: 1.35; }
+    table.line-product { width: 100%; border-collapse: collapse; }
+    table.line-product td { padding: 0; border: 0; background: transparent !important; }
+    table.line-product td.line-image { width: 15mm; padding-right: 2.5mm; vertical-align: top; }
+    .line-image img {
+      display: block; width: 13mm; height: 13mm;
+      border: 0.3mm solid #e2d9cf; background: #ffffff;
+    }
     .line-total { font-weight: bold; white-space: nowrap; }
     .nowrap { white-space: nowrap; }
 
     /* -- totals -------------------------------------------------------- */
     .closing-section { width: 100%; margin-top: 14px; page-break-inside: avoid; }
-    .invoice .closing-section { page-break-before: always; margin-top: 0; padding-top: 3mm; }
+    .invoice .closing-section { page-break-before: auto; }
     table.closing-grid {
       width: 100%; border-collapse: separate; border-spacing: 7px 0;
       page-break-inside: avoid;
@@ -238,7 +252,7 @@
   </tr>
 </table>
 
-<table class="parties">
+<table class="parties {#if includeLogistics}{#else}parties--customer-only{/if}">
   <tr>
     <td>
       <span class="label">{t.customer}</span>
@@ -254,7 +268,7 @@
         <span class="muted">{t.noCustomer}</span>
       {/if}
     </td>
-    <td>
+    {#if includeLogistics}<td>
       <span class="label">{t.delivery}</span>
       <div class="ship-facts">
         {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
@@ -266,35 +280,49 @@
         {t.cartons}: <b>{priced.totals.cartons}</b><br/>
         <span class="muted">{priced.totals.weightKg.amount} kg</span>
       </div>
-    </td>
+    </td>{/if}
   </tr>
 </table>
 
 <table class="lines">
   <thead>
   <tr>
-    <th style="width:42%">{t.description}</th>
+    <th style="{#if includeLogistics}width:42%{#else}width:58%{/if}">{t.description}</th>
     <th class="r">{t.quantity}</th>
-    <th class="r">{t.cartons}</th>
-    <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
+    {#if includeLogistics}
+      <th class="r">{t.cartons}</th>
+      <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
+    {/if}
     <th class="r">{t.unitPrice}</th>
-    <th class="r">{t.discount}</th>
+    {#if hasDiscounts}<th class="r">{t.discount}</th>{/if}
     <th class="r">{t.total}</th>
   </tr>
   </thead>
   <tbody>
-  {#for line in priced.lines}
+  {#for line in lines}
     <tr class="{#if line_even}alt{/if}">
       <td>
-        <div class="line-name">{line.customerDescription}</div>
-        <div class="line-meta">{line.sku} · {deliveryTexts.get(line.productId)}</div>
+        <table class="line-product"><tr>
+          {#if line.photoDataUri}<td class="line-image"><img src="{line.photoDataUri}" alt=""/></td>{/if}
+          <td>
+            <div class="line-name">{line.title}</div>
+            {#if line.variantText}<div class="line-variant">{line.variantText}</div>{/if}
+            {#if line.description}<div class="line-description">{line.description}</div>{/if}
+            {#if line.productSpecs}
+              <div class="line-specs">{#for spec in line.productSpecs}<span class="line-spec"><b>{spec.label}:</b> {spec.value}</span>{/for}</div>
+            {/if}
+            {#if line.metaText}<div class="line-meta">{line.metaText}</div>{/if}
+          </td>
+        </tr></table>
       </td>
-      <td class="r nowrap">{line.quantity}</td>
-      <td class="r nowrap">{line.cartons}</td>
-      <td class="r nowrap">{#if looseCartons}{line.cbm} m³{#else}{palletPositionsByProduct.get(line.productId)}{/if}</td>
-      <td class="r nowrap">{line.unitPrice.unit}</td>
-      <td class="r nowrap">{#if line.discountPct.isPositive}-{line.discountPct.pct}{#else}·{/if}</td>
-      <td class="r line-total">{line.net.eur}</td>
+      <td class="r nowrap">{line.commercial.quantity}</td>
+      {#if includeLogistics}
+        <td class="r nowrap">{line.commercial.cartons}</td>
+        <td class="r nowrap">{#if looseCartons}{line.commercial.cbm} m³{#else}{line.palletPositions}{/if}</td>
+      {/if}
+      <td class="r nowrap">{line.commercial.unitPrice.unit}</td>
+      {#if hasDiscounts}<td class="r nowrap">{#if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}
+      <td class="r line-total">{line.commercial.net.eur}</td>
     </tr>
   {/for}
   </tbody>
@@ -310,10 +338,12 @@
     <div class="overview-rule"></div>
     <table class="overview-facts">
       <tr><td>{t.customer}</td><td>{#if customer}{customer.company}{#else}-{/if}</td></tr>
-      <tr><td>{t.destination}</td><td>{order.countryCode ?: '-'}</td></tr>
-      <tr><td>{t.cartons}</td><td>{priced.totals.cartons}</td></tr>
-      <tr><td>{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</td>
-          <td>{#if looseCartons}{priced.totals.cbm} m³{#else}{effectivePallets}{/if}</td></tr>
+      {#if includeLogistics}
+        <tr><td>{t.destination}</td><td>{order.countryCode ?: '-'}</td></tr>
+        <tr><td>{t.cartons}</td><td>{priced.totals.cartons}</td></tr>
+        <tr><td>{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</td>
+            <td>{#if looseCartons}{priced.totals.cbm} m³{#else}{effectivePallets}{/if}</td></tr>
+      {/if}
     </table>
     {#if order.notes}<div class="overview-note"><b>{t.note}:</b> {order.notes}</div>{/if}
   </div>
@@ -386,11 +416,11 @@
 {/if}
 
 <div class="foot">
-  <div class="foot-line">{t.footer}</div>
+  <div class="foot-line">{documentFooterSentence}</div>
   {#if validUntilSentence}<div class="foot-line">{validUntilSentence}</div>{/if}
-  <div class="foot-line">{t.termsSentence}</div>
+  {#if includeTerms}<div class="foot-line">{termsSentence}</div>{/if}
   {#if footerText}<div class="foot-line">{footerText}</div>{/if}
-  <div class="foot-line"><a href="{termsUrl}">{termsUrl}</a></div>
+  {#if includeTerms}<div class="foot-line"><a href="{termsUrl}">{termsUrl}</a></div>{/if}
 </div>
 
 {#if termsText}
