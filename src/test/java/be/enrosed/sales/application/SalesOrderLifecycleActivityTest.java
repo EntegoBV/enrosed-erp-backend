@@ -152,6 +152,23 @@ class SalesOrderLifecycleActivityTest {
     }
 
     @Test
+    void deletingSentQuoteAlsoRemovesItsCustomerRevisions() {
+        SalesOrder sent = quote(78L, QuoteStatus.VERZONDEN);
+        when(orders.findById(78L)).thenReturn(Optional.of(sent));
+        when(revisions.findByOrder(78L)).thenReturn(
+                List.of(mock(be.enrosed.sales.domain.QuoteRevision.class)));
+
+        service.delete(78L);
+
+        verify(revisions).deleteByOrder(78L);
+        verify(history).deleteByOrder(78L);
+        verify(orders).deleteById(78L);
+        verify(activityLog).record(ActivityLogService.ACTION_DELETED,
+                SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "78", "ENR-2026-0078",
+                "Offerte verwijderd");
+    }
+
+    @Test
     void deletingUnusedDraftInvoiceKeepsAnInvoiceSpecificTombstone() {
         SalesOrder draft = invoice(74L, QuoteStatus.CONCEPT, null);
         when(orders.findById(74L)).thenReturn(Optional.of(draft));
@@ -236,10 +253,15 @@ class SalesOrderLifecycleActivityTest {
     }
 
     private static SalesOrder quote(long id) {
+        return quote(id, QuoteStatus.CONCEPT);
+    }
+
+    private static SalesOrder quote(long id, QuoteStatus status) {
         LocalDate today = LocalDate.now();
         return new SalesOrder(id, "ENR-2026-00" + id, 7L, "BE", today, today.plusDays(30),
-                QuoteStatus.CONCEPT, "DAP", null, null, MarkupMode.PRODUCT,
-                new BigDecimal("45"), null, null, null, null, null, 0,
+                status, "DAP", null, null, MarkupMode.PRODUCT,
+                new BigDecimal("45"), null, null, null,
+                status == QuoteStatus.CONCEPT ? null : Instant.now(), null, 0,
                 null, null, null, null, DeliveryTermsState.VOLLEDIG,
                 FreightState.BEREKEND, null, LoadMode.PALLETS, PalletProfile.EURO_120X80,
                 null, FreightPricingStrategy.COUNTRY_PALLET, null, null, null,

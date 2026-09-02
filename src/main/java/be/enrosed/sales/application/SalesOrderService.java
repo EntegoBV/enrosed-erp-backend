@@ -643,6 +643,7 @@ public class SalesOrderService {
             throw new BusinessRuleException(
                     "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
         }
+        revisions.deleteByOrder(id);
         events.deleteByOrder(id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order,

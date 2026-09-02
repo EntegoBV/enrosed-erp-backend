@@ -47,6 +47,7 @@ public interface SalesRepositories {
         List<QuoteRevision> findApproved();
         Optional<QuoteRevision> findById(long id);
         QuoteRevision save(QuoteRevision revision);
+        void deleteByOrder(long salesOrderId);
     }
 
     /** The history of a quote. Append and read only. */
