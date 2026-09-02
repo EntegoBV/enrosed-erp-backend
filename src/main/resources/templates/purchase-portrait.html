@@ -126,6 +126,8 @@
     .standard-lines--cost .col-unit { width: 12%; }
     .standard-lines--cost .col-line-total { width: 14%; }
     .standard-lines--cost .col-enrosed { width: 19%; }
+    .standard-lines--no-unit-price .col-product { width: 56%; }
+    .standard-lines--no-unit-price.standard-lines--cost .col-product { width: 45%; }
     .standard-lines--no-prices .col-product { width: 67%; }
     .standard-lines--no-prices .col-quantity { width: 10%; }
     .standard-lines--no-prices .col-pieces { width: 12%; }
@@ -359,15 +361,17 @@
   </tbody>
 </table>
 {#else}
-<table class="lines standard-lines{#if !showPrices} standard-lines--no-prices{/if}{#if showEnrosedCost} standard-lines--cost{/if}">
+<table class="lines standard-lines{#if !showPrices} standard-lines--no-prices{/if}{#if showPrices && !showUnitPrice} standard-lines--no-unit-price{/if}{#if showEnrosedCost} standard-lines--cost{/if}">
   <thead>
   <tr>
     <th class="col-product">Product</th>
     <th class="col-quantity">Stuks</th>
     <th class="col-pieces">Stuks<br/>per karton</th>
     <th class="col-cartons">Kartons</th>
-    {#if showPrices}<th class="col-unit">Per stuk</th>
-    <th class="col-line-total">Regeltotaal</th>{/if}
+    {#if showPrices}
+    {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
+    <th class="col-line-total">Regeltotaal</th>
+    {/if}
     {#if showEnrosedCost}<th class="col-enrosed enrosed-cost">Totale kost<div class="cost-hint">t/m levering · EUR</div></th>{/if}
   </tr>
   </thead>
@@ -395,7 +399,8 @@
       <td class="number">{line.purchaseQuantity}</td>
       <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.purchaseCartons}</td>
-      {#if showPrices}<td class="number">
+      {#if showPrices}
+      {#if showUnitPrice}<td class="number">
         {#if eurOnly}
           {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseUnitEur.moneyUnit}</span><br/><span class="price-sub">EUR · {line.priceBasis}</span>
           {#else}<span class="muted">EUR niet beschikbaar</span>{/if}
@@ -403,6 +408,7 @@
           {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseUnitEur.moneyUnit} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>
+      {/if}
       <td class="number">
         {#if eurOnly}
           {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseLineTotalEur.money}</span><br/><span class="price-sub">EUR</span>
