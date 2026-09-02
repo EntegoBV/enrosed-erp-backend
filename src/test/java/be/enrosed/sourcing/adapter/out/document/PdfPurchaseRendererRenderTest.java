@@ -106,7 +106,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void portraitUsesOrderedSnapshotEmbedsThumbnailAndNeverLeaksInternals() throws Exception {
+    void portraitDefaultKeepsCoreOrderFactsAndHidesEveryOptionalField() throws Exception {
         Product product = createProductWithPhoto();
         PurchaseOrder order = portraitOrder(product.id());
         LandedCost costing = portraitCosting(product.id());
@@ -133,6 +133,7 @@ class PdfPurchaseRendererRenderTest {
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("inkooporder"), text);
+            assertTrue(text.contains("route & levering"), text);
             assertFalse(text.contains("inkooporder voor controle"), text);
             assertFalse(text.contains("controleer voor verzending"), text);
             assertFalse(text.contains("uitgiftesnapshot"), text);
@@ -148,8 +149,14 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("barcode 8712345678920"), text);
             assertFalse(text.contains("glass bowls"),
                     "de interne containernaam hoort niet op de inkooporder: " + text);
-            assertTrue(text.contains("1.200,00"),
-                    "96 besteld x 12,50 moet het leverancierstotaal bepalen");
+            assertFalse(text.contains("culinan preserved flowers"),
+                    "de leverancier is een expliciete exportkeuze: " + text);
+            assertFalse(text.contains("betalingsafspraak"),
+                    "de betalingsafspraak is een expliciete exportkeuze: " + text);
+            assertFalse(text.contains("per stuk"), text);
+            assertFalse(text.contains("regeltotaal"), text);
+            assertFalse(text.contains("12,50"), text);
+            assertFalse(text.contains("1.200,00"), text);
             assertFalse(text.contains("1.125,00"),
                     "90 ontvangen mag het afgesproken ordertotaal niet herschrijven");
             assertFalse(text.contains("interne inkoopcalculatie"), text);
@@ -391,6 +398,45 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
+    void portraitCanShowOrderedUnitCostAndPaymentTermsIndependently() throws Exception {
+        Product product = createProductWithPhotoForAllInCost();
+        PurchaseOrder order = portraitOrder(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(
+                        false, false, false, false, false, false,
+                        false, false, true, true));
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-unit-cost-payment-terms.pdf"),
+                document.content());
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(1, pdf.getNumberOfPages());
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("betalingsafspraak"), text);
+            assertTrue(text.contains("totale kost per stuk"), text);
+            assertTrue(text.contains("92,115"),
+                    "de all-in kost per stuk moet op 96 bestelde stuks zijn berekend: " + text);
+            assertTrue(text.contains("eur / stuk"), text);
+            assertFalse(text.contains("eur / regel"), text);
+            assertFalse(text.contains("8.843,03"),
+                    "de regeltotaalkost is een onafhankelijke exportkeuze: " + text);
+            assertFalse(text.contains("regeltotaal"), text);
+            assertFalse(text.contains("12,50"), text);
+            assertFalse(text.contains("culinan preserved flowers"), text);
+        }
+    }
+
+    @Test
+    @TestTransaction
     void portraitKeepsOrderedTotalDeliveryCostWhenSupplierPricesAreHidden() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());
@@ -619,7 +665,7 @@ class PdfPurchaseRendererRenderTest {
                 String pageText = pageStripper.getText(pdf)
                         .toLowerCase().replaceAll("\\s+", " ");
                 assertTrue(pageText.contains("product") && pageText.contains("stuks")
-                                && pageText.contains("regeltotaal"),
+                                && pageText.contains("kartons"),
                         "de productkop hoort op elke pagina terug te keren: " + pageText);
             }
             String rawText = new PDFTextStripper().getText(pdf);
