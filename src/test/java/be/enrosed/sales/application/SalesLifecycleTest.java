@@ -44,15 +44,14 @@ class SalesLifecycleTest {
     }
 
     @Test
-    void onlyNeverSentUnusedConceptCanBeDeleted() {
+    void quotesCanBeDeletedAtEveryLifecycleStage() {
         assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(order(QuoteStatus.CONCEPT), false));
         assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(tokenOnlyConcept(), false));
-        assertThrows(BusinessRuleException.class,
-                () -> SalesLifecycle.requireDeletable(sentConcept(), false));
-        assertThrows(BusinessRuleException.class,
-                () -> SalesLifecycle.requireDeletable(order(QuoteStatus.CONCEPT), true));
-        assertThrows(BusinessRuleException.class,
-                () -> SalesLifecycle.requireDeletable(order(QuoteStatus.VERZONDEN), false));
+        assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(sentConcept(), false));
+        assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(order(QuoteStatus.CONCEPT), true));
+        for (QuoteStatus status : QuoteStatus.values()) {
+            assertDoesNotThrow(() -> SalesLifecycle.requireDeletable(order(status), false), status.name());
+        }
     }
 
     @Test

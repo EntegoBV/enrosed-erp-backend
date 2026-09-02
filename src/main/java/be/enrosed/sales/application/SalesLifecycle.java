@@ -64,14 +64,15 @@ final class SalesLifecycle {
     }
 
     /**
-     * Only a draft that has never left the company may be removed.
+     * Quotes may be cleaned up at every lifecycle stage, including after they
+     * were sent or handled. Invoices retain the stricter accounting boundary.
      *
-     * A portal token on its own is not proof that a quote was sent or used.
-     * Older drafts can already have one while the portal still fails closed
-     * for concept documents. Usage timestamps, the view counter and revisions
-     * are the durable evidence that must keep a sales document.
+     * A quote that already produced an invoice is protected separately by the
+     * service so the invoice keeps its source relationship.
      */
     static void requireDeletable(SalesOrder order, boolean hasRevisions) {
+        if (!order.isInvoice()) return;
+
         boolean unusedDraft = order.status() == QuoteStatus.CONCEPT
                 && order.sentAt() == null
                 && order.viewedAt() == null
@@ -79,10 +80,9 @@ final class SalesLifecycle {
                 && order.decidedAt() == null
                 && !hasRevisions;
         if (!unusedDraft) {
-            String document = order.isInvoice() ? "conceptfactuur" : "conceptofferte";
             throw new BusinessRuleException(
-                    "Alleen een " + document
-                            + " die nog nooit verstuurd of gebruikt is kan verwijderd worden");
+                    "Alleen een conceptfactuur die nog nooit verstuurd of gebruikt is "
+                            + "kan verwijderd worden");
         }
     }
 
