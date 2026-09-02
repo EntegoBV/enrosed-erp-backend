@@ -120,10 +120,10 @@
     .standard-lines .col-cartons { width: 13mm; }
     .standard-lines .col-unit { width: 21mm; }
     .standard-lines .col-line-total { width: 24mm; }
-    .standard-lines .col-enrosed-unit { width: 24mm; }
-    .standard-lines .col-enrosed-total { width: 26mm; }
+    .standard-lines .col-enrosed { width: 30mm; }
     .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
     .enrosed-cost .price-main { color: #762239; }
+    .cost-value + .cost-value { margin-top: 1.5mm; padding-top: 1.5mm; border-top: .35pt solid #dbc59d; }
     .cost-hint { margin-top: .5mm; color: #8b8179; font-size: 5.8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
     .cost-definition { margin-top: 2mm; color: #756b65; font-size: 5.9pt; line-height: 1.4; }
     .cost-definition--inline {
@@ -378,8 +378,7 @@
     {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
     <th class="col-line-total">Regeltotaal</th>
     {/if}
-    {#if showEnrosedUnitCost}<th class="col-enrosed-unit enrosed-cost">Totale kost<div class="cost-hint">per stuk · t/m levering</div></th>{/if}
-    {#if showEnrosedCost}<th class="col-enrosed-total enrosed-cost">Totale kost<div class="cost-hint">regel · t/m levering</div></th>{/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<th class="col-enrosed enrosed-cost">Totale kost<div class="cost-hint">{#if showEnrosedUnitCost}{#if showEnrosedCost}per stuk + regel{#else}per stuk{/if}{#else}per regel{/if} · t/m levering</div></th>{/if}
   </tr>
   </thead>
   <tbody>
@@ -424,8 +423,10 @@
           {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
         {#else}<span class="muted">-</span>{/if}
       </td>{/if}
-      {#if showEnrosedUnitCost}<td class="number enrosed-cost">{#if line.totalDeliveryUnitCostEur}<span class="price-main">{line.totalDeliveryUnitCostEur.moneyUnit}</span><br/><span class="price-sub">EUR / stuk</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
-      {#if showEnrosedCost}<td class="number enrosed-cost">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR / regel</span>{#else}<span class="muted">-</span>{/if}</td>{/if}
+      {#if showEnrosedCost || showEnrosedUnitCost}<td class="number enrosed-cost">
+        {#if showEnrosedUnitCost}<div class="cost-value">{#if line.totalDeliveryUnitCostEur}<span class="price-main">{line.totalDeliveryUnitCostEur.moneyUnit}</span><br/><span class="price-sub">EUR / stuk</span>{#else}<span class="muted">- / stuk</span>{/if}</div>{/if}
+        {#if showEnrosedCost}<div class="cost-value">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR / regel</span>{#else}<span class="muted">- / regel</span>{/if}</div>{/if}
+      </td>{/if}
     </tr>
   {/for}
   </tbody>
