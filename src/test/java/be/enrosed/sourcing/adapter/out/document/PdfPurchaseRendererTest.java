@@ -23,7 +23,7 @@ class PdfPurchaseRendererTest {
 
     @Test
     void missingProductMasterNeverInventsCartonDetails() {
-        assertNull(PdfPurchaseRenderer.productSpecs(null));
+        assertTrue(PdfPurchaseRenderer.productSpecs(null).isEmpty());
         assertNull(PdfPurchaseRenderer.piecesPerCarton(null));
     }
 

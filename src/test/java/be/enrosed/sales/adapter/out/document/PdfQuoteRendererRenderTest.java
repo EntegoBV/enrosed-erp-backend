@@ -25,10 +25,12 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
@@ -99,6 +101,7 @@ class PdfQuoteRendererRenderTest {
 
         try (PDDocument pdf = Loader.loadPDF(previewDocument.content())) {
             assertPortraitAndEmbedded(pdf);
+            assertPrintSafeTop(pdf, 17);
             String text = textOf(pdf);
             assertTrue(text.contains("counter display premium kleur 18"));
             assertTrue(text.contains("online bekijken, tekenen of wijzigen"));
@@ -227,6 +230,29 @@ class PdfQuoteRendererRenderTest {
                         () -> "font " + name.getName() + " must be embedded");
             }
         }
+    }
+
+    private static void assertPrintSafeTop(PDDocument document, double minimumMillimetres)
+            throws Exception {
+        BufferedImage page = new PDFRenderer(document).renderImageWithDPI(0, 72);
+        int firstInk = page.getHeight();
+        scan:
+        for (int y = 0; y < page.getHeight(); y++) {
+            for (int x = 0; x < page.getWidth(); x++) {
+                int colour = page.getRGB(x, y);
+                int red = colour >>> 16 & 0xff;
+                int green = colour >>> 8 & 0xff;
+                int blue = colour & 0xff;
+                if (red < 248 || green < 248 || blue < 248) {
+                    firstInk = y;
+                    break scan;
+                }
+            }
+        }
+        int minimumPixels = (int) Math.floor(minimumMillimetres * 72 / 25.4);
+        assertTrue(firstInk >= minimumPixels,
+                "documentinhoud begint op " + firstInk + " px; minimaal "
+                        + minimumPixels + " px vereist voor een printveilige bovenmarge");
     }
 
     private static String textOf(PDDocument pdf) throws Exception {

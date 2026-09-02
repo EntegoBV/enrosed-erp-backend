@@ -6,7 +6,10 @@ import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Packaging;
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.security.ActorRef;
@@ -27,10 +30,12 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
@@ -123,6 +128,7 @@ class PdfPurchaseRendererRenderTest {
                     "de leveranciersleesversie hoort portrait te zijn");
             assertTrue(imageCount(pdf) >= 2,
                     "logo en server-embedded productfoto horen beide in de PDF te staan");
+            assertPrintSafeTop(pdf, 17);
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
@@ -134,7 +140,14 @@ class PdfPurchaseRendererRenderTest {
                     "de geplaatste-order snapshot moet zichtbaar blijven na ontvangst");
             assertTrue(text.contains("stuks per karton"), text);
             assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
             assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("barcode 8712345678906"), text);
+            assertTrue(text.contains("barcode 8712345678913"), text);
+            assertTrue(text.contains("12 stuks/karton"), text);
+            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertFalse(text.contains("glass bowls"),
+                    "de interne containernaam hoort niet op de inkooporder: " + text);
             assertTrue(text.contains("1.200,00"),
                     "96 besteld x 12,50 moet het leverancierstotaal bepalen");
             assertFalse(text.contains("1.125,00"),
@@ -195,11 +208,14 @@ class PdfPurchaseRendererRenderTest {
                     "portrait options must not alter the fixed supplier contract: " + text);
             assertTrue(text.contains("glass bowl bestseller"), text);
             assertTrue(text.contains("po-pdf-thumbnail"), text);
-            assertTrue(text.contains("5410000000019"), text);
+            assertTrue(text.contains("8712345678906"), text);
             assertTrue(text.contains("use white inner boxes"), text);
             assertTrue(text.contains("use this exact inner-box layout"), text);
             assertTrue(text.contains("product w × d × h"), text);
+            assertTrue(text.contains("gift packaging w × d × h"), text);
             assertTrue(text.contains("outer carton w × d × h"), text);
+            assertTrue(text.contains("barcode 8712345678913"), text);
+            assertTrue(text.contains("barcode 8712345678920"), text);
             assertFalse(text.contains("omdoos"), text);
             assertTrue(text.contains("96"), text);
             assertTrue(text.contains("8"), text);
@@ -542,6 +558,7 @@ class PdfPurchaseRendererRenderTest {
                     "de horizontale inkooporder hoort landscape te zijn");
             assertTrue(imageCount(pdf) >= 2,
                     "logo en server-embedded productfoto horen beide zichtbaar te zijn");
+            assertPrintSafeTop(pdf, 15);
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
@@ -549,7 +566,13 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("96"), text);
             assertTrue(text.contains("st./karton"), text);
             assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
             assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("barcode 8712345678906"), text);
+            assertTrue(text.contains("barcode 8712345678913"), text);
+            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertFalse(text.contains("glass bowls"),
+                    "de interne containernaam hoort niet op de inkooporder: " + text);
             assertTrue(text.contains("1.200,00"), text);
             assertFalse(text.contains("1.125,00"), text);
             assertFalse(text.contains("douanewaarde"), text);
@@ -655,13 +678,19 @@ class PdfPurchaseRendererRenderTest {
         Product created = products.create(new Product(
                 null, "PO-PDF-THUMBNAIL", "Glass bowl bestseller",
                 new Dimensions(new BigDecimal("18"), new BigDecimal("18"),
-                        new BigDecimal("22")), "Bordeaux", "Testproduct voor PDF QA",
+                        new BigDecimal("22")),
+                new Packaging(PackagingKind.GIFT_BOX,
+                        new Dimensions(new BigDecimal("20"), new BigDecimal("20"),
+                                new BigDecimal("25")), "8712345678913", 1),
+                "Bordeaux", null, null, "Testproduct voor PDF QA",
                 null, supplierId, true,
-                new Barcodes("5410000000019", "15410000000016"), hsCode,
+                null, null, "8712345678906", 0, true,
+                null, null, PublicationState.DRAFT, PublicationState.DRAFT,
+                new Barcodes("8712345678906", "8712345678920"), hsCode,
                 new Carton(new Dimensions(new BigDecimal("40"), new BigDecimal("40"),
                         new BigDecimal("30")), 12, new BigDecimal("6.2")),
                 new BigDecimal("99.99"), Currency.USD, BigDecimal.ZERO,
-                null, null, BigDecimal.ZERO, null, 0, List.of(), List.of()));
+                null, null, BigDecimal.ZERO, null, 0, List.of(), List.of(), false));
         created = products.update(created.id(),
                 created.withSupplierNote(supplierNote));
         try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
@@ -729,6 +758,29 @@ class PdfPurchaseRendererRenderTest {
             }
         }
         return count;
+    }
+
+    private static void assertPrintSafeTop(PDDocument document, double minimumMillimetres)
+            throws Exception {
+        BufferedImage page = new PDFRenderer(document).renderImageWithDPI(0, 72);
+        int firstInk = page.getHeight();
+        scan:
+        for (int y = 0; y < page.getHeight(); y++) {
+            for (int x = 0; x < page.getWidth(); x++) {
+                int colour = page.getRGB(x, y);
+                int red = colour >>> 16 & 0xff;
+                int green = colour >>> 8 & 0xff;
+                int blue = colour & 0xff;
+                if (red < 248 || green < 248 || blue < 248) {
+                    firstInk = y;
+                    break scan;
+                }
+            }
+        }
+        int minimumPixels = (int) Math.floor(minimumMillimetres * 72 / 25.4);
+        assertTrue(firstInk >= minimumPixels,
+                "documentinhoud begint op " + firstInk + " px; minimaal "
+                        + minimumPixels + " px vereist voor een printveilige bovenmarge");
     }
 
     static PurchaseOrder order(int lineCount) {
