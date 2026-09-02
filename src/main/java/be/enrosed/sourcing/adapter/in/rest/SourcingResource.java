@@ -196,6 +196,9 @@ public class SourcingResource {
      *                           standard portrait layout. Purchase, origin,
      *                           freight, duty, destination and internal costs
      *                           remain folded into that EUR amount.
+     * @param includeUnitPrice whether the agreed price per piece appears on
+     *                         the standard portrait export; totals remain
+     *                         available when this column is hidden.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -211,7 +214,9 @@ public class SourcingResource {
                                 @QueryParam("showFreight") @DefaultValue("false") boolean showFreight,
                                 @QueryParam("includeFreight") @DefaultValue("false") boolean includeFreight,
                                 @QueryParam("includeEnrosedCost") @DefaultValue("false")
-                                boolean includeEnrosedCost) {
+                                boolean includeEnrosedCost,
+                                @QueryParam("includeUnitPrice") @DefaultValue("true")
+                                boolean includeUnitPrice) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -227,12 +232,21 @@ public class SourcingResource {
                         supplier == null ? null : supplier.incoterm()),
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
-                        showFreight, includeFreight, includeEnrosedCost));
+                        showFreight, includeFreight, includeEnrosedCost, includeUnitPrice));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
                         "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /** Java-call compatibility for callers predating the unit-price switch. */
+    public Response purchasePdf(long id, boolean showRevenue, String layout, String audience,
+                                boolean showSupplier, boolean showPrices, boolean showEur,
+                                boolean eurOnly, boolean showFreight, boolean includeFreight,
+                                boolean includeEnrosedCost) {
+        return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
+                showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost, true);
     }
 
     /** Java-call compatibility for tests and callers predating portrait options. */

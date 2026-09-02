@@ -94,6 +94,24 @@ class PdfPurchaseRendererTest {
     }
 
     @Test
+    void unitPriceCanBeHiddenWithoutRemovingLineAndOrderTotals() {
+        var requested = new PdfPurchaseRenderer.PdfOptions(
+                true, true, false, false, false, false, false, false);
+
+        var portrait = requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD);
+        assertTrue(portrait.showPrices());
+        assertFalse(portrait.includeUnitPrice());
+
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.LANDSCAPE,
+                        PdfPurchaseRenderer.Audience.STANDARD));
+        assertEquals(PdfPurchaseRenderer.PdfOptions.defaults(),
+                requested.normalized(PdfPurchaseRenderer.Layout.PORTRAIT,
+                        PdfPurchaseRenderer.Audience.SUPPLIER));
+    }
+
+    @Test
     void eurOnlyWinsFromTheSubtleEquivalentAndStaysInStandardPortrait() {
         var requested = new PdfPurchaseRenderer.PdfOptions(
                 true, true, true, true, true, true, false);

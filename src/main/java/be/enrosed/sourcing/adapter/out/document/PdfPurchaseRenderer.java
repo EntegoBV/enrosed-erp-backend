@@ -171,7 +171,15 @@ public class PdfPurchaseRenderer {
      */
     public record PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                              boolean eurOnly, boolean showFreight, boolean includeFreight,
-                             boolean includeEnrosedCost) {
+                             boolean includeEnrosedCost, boolean includeUnitPrice) {
+        /** Compatibility for callers written before the unit-price switch. */
+        public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                          boolean eurOnly, boolean showFreight, boolean includeFreight,
+                          boolean includeEnrosedCost) {
+            this(showSupplier, showPrices, showEur, eurOnly, showFreight, includeFreight,
+                    includeEnrosedCost, true);
+        }
+
         /** Compatibility for callers written before the EUR-only option. */
         public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                           boolean showFreight, boolean includeFreight,
@@ -188,17 +196,18 @@ public class PdfPurchaseRenderer {
         }
 
         public static PdfOptions defaults() {
-            return new PdfOptions(true, true, false, false, false, false, false);
+            return new PdfOptions(true, true, false, false, false, false, false, true);
         }
 
         PdfOptions normalized(Layout layout, Audience audience) {
             if (layout != Layout.PORTRAIT || audience != Audience.STANDARD) return defaults();
             boolean prices = showPrices;
+            boolean unitPrice = prices && includeUnitPrice;
             /* Freight components are never printed separately anymore. The
                legacy flags stay in the API contract but normalize off. */
             boolean onlyEur = eurOnly && prices;
             return new PdfOptions(showSupplier, prices, showEur && prices && !onlyEur,
-                    onlyEur, false, false, includeEnrosedCost);
+                    onlyEur, false, false, includeEnrosedCost, unitPrice);
         }
     }
 
@@ -334,6 +343,7 @@ public class PdfPurchaseRenderer {
                 .data("supplierMode", supplierAudience)
                 .data("showSupplier", options.showSupplier())
                 .data("showPrices", options.showPrices())
+                .data("showUnitPrice", options.showPrices() && options.includeUnitPrice())
                 .data("showEur", options.showEur())
                 .data("eurOnly", options.eurOnly())
                 .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
