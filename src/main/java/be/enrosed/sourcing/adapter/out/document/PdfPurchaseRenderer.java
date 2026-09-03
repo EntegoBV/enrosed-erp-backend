@@ -42,6 +42,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -266,7 +268,7 @@ public class PdfPurchaseRenderer {
     public record SupplierLineView(
             Long productId, String sku, String productName, String photoDataUri,
             List<ProductSpec> productSpecs, Integer piecesPerCarton, String ean,
-            List<String> supplierNoteChunks,
+            List<List<NoteLine>> supplierNoteChunks,
             List<SupplierAgreementPhotoView> agreementPhotos,
             int orderedQuantity, int orderedCartons,
             String cartonCbm, BigDecimal agreedUnitPrice, Currency currency,
@@ -785,34 +787,80 @@ public class PdfPurchaseRenderer {
     }
 
     /**
+     * One line of the supplier note as the PDF prints it: level 0 is a
+     * paragraph line, 1 a point ("- ..."), 2 a sub-point (indented "- ...").
+     */
+    public record NoteLine(int level, String text) {}
+
+    private static final Pattern NOTE_POINT = Pattern.compile("^(\\s*)[-*\u2022]\\s+(.*)$");
+
+    /**
      * Keeps a long note complete without creating one unbreakable table row.
      * The product validator permits 4,000 characters, so one note may span
-     * several pages in a supplier order.
+     * several pages in a supplier order. Lines never split; a paragraph
+     * longer than a chunk is cut at whitespace.
      */
-    static List<String> supplierNoteChunks(Product product) {
-        String note = supplierNote(product);
-        if (note == null) return List.of();
+    static List<List<NoteLine>> supplierNoteChunks(Product product) {
+        return noteChunks(supplierNote(product));
+    }
+
+    static List<List<NoteLine>> noteChunks(String note) {
+        if (note == null || note.isBlank()) return List.of();
         final int targetSize = 700;
-        List<String> chunks = new ArrayList<>();
+        List<List<NoteLine>> chunks = new ArrayList<>();
+        List<NoteLine> current = new ArrayList<>();
+        int size = 0;
+        for (NoteLine line : noteLines(note)) {
+            if (size > 0 && size + line.text().length() > targetSize) {
+                chunks.add(List.copyOf(current));
+                current = new ArrayList<>();
+                size = 0;
+            }
+            current.add(line);
+            size += line.text().length();
+        }
+        if (!current.isEmpty()) chunks.add(List.copyOf(current));
+        return List.copyOf(chunks);
+    }
+
+    /** The note line by line; blank lines drop, over-long lines are cut at whitespace. */
+    static List<NoteLine> noteLines(String note) {
+        List<NoteLine> lines = new ArrayList<>();
+        for (String raw : note.split("\\r?\\n")) {
+            Matcher point = NOTE_POINT.matcher(raw);
+            int level = 0;
+            String text = raw.strip();
+            if (point.matches()) {
+                level = point.group(1).replace("\t", "  ").length() >= 2 ? 2 : 1;
+                text = point.group(2).strip();
+            }
+            if (text.isEmpty()) continue;
+            for (String piece : cut(text, 700)) lines.add(new NoteLine(level, piece));
+        }
+        return lines;
+    }
+
+    private static List<String> cut(String text, int targetSize) {
+        List<String> pieces = new ArrayList<>();
         int start = 0;
-        while (start < note.length()) {
-            int end = Math.min(note.length(), start + targetSize);
-            if (end < note.length()) {
+        while (start < text.length()) {
+            int end = Math.min(text.length(), start + targetSize);
+            if (end < text.length()) {
                 int whitespace = -1;
                 for (int index = end; index > start + targetSize / 2; index--) {
-                    if (Character.isWhitespace(note.charAt(index - 1))) {
+                    if (Character.isWhitespace(text.charAt(index - 1))) {
                         whitespace = index - 1;
                         break;
                     }
                 }
                 if (whitespace > start) end = whitespace;
             }
-            String chunk = note.substring(start, end).strip();
-            if (!chunk.isEmpty()) chunks.add(chunk);
+            String piece = text.substring(start, end).strip();
+            if (!piece.isEmpty()) pieces.add(piece);
             start = end;
-            while (start < note.length() && Character.isWhitespace(note.charAt(start))) start++;
+            while (start < text.length() && Character.isWhitespace(text.charAt(start))) start++;
         }
-        return List.copyOf(chunks);
+        return pieces;
     }
 
     /** One outer carton's volume, not the full order-line volume. */
