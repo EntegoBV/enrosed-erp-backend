@@ -37,8 +37,18 @@ public record PurchaseOrderLine(
          * shortage and damage metrics need the value that was attached to the
          * receipt. Null means that no reliable value is known yet.</p>
          */
-        BigDecimal receiptUnitValueEur
+        BigDecimal receiptUnitValueEur,
+        /** What was wrong on arrival, in our own words: "glass domes cracked, inner box too thin". */
+        String issueNote
 ) {
+    /** Compatibility for callers written before the arrival note existed. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
+                             PriceBasis priceBasis, Integer damagedQuantity, BigDecimal receiptUnitValueEur) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, priceBasis,
+                damagedQuantity, receiptUnitValueEur, null);
+    }
+
     /** Compatibility for callers written before DDP prices existed. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity) {

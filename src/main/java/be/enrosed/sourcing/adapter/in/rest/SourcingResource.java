@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.in.rest;
 
 import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.ReceiptIssues;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -109,6 +110,14 @@ public class SourcingResource {
             @QueryParam("orderId") Long orderId) {
         return purchaseOrders.receiptVariances(dateFilter(from, "Begindatum"),
                 dateFilter(to, "Einddatum"), supplierId, productId, orderId);
+    }
+
+    /** Earlier containers on which this product arrived short or damaged, newest first. */
+    @GET
+    @Path("/purchase-orders/receipt-issues")
+    public List<ReceiptIssues.ReceiptIssue> receiptIssues(@QueryParam("productId") long productId,
+                                                          @QueryParam("excludeOrderId") Long excludeOrderId) {
+        return purchaseOrders.receiptIssuesFor(productId, excludeOrderId);
     }
 
     @GET

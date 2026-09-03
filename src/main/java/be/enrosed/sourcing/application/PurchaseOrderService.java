@@ -269,7 +269,7 @@ public class PurchaseOrderService {
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     purchasePrice.amount(), purchasePrice.currency(), line.extraUnitCost(),
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
-                    line.damagedQuantity(), storedReceiptUnitValue(current, line)));
+                    line.damagedQuantity(), storedReceiptUnitValue(current, line), cleanIssueNote(line.issueNote())));
         }
 
         if (changes.status() != PurchaseOrderStatus.CONCEPT
@@ -717,10 +717,14 @@ public class PurchaseOrderService {
 
     /** One line of a receipt: what arrived, what broke, and an optional explicit euro value per piece. */
     public record ReceivedLine(Long productId, Integer received, Integer damaged,
-                               BigDecimal unitValueEur) {
+                               BigDecimal unitValueEur, String issueNote) {
         /** Compatibility for clients and tests from before receipt valuation. */
         public ReceivedLine(Long productId, Integer received, Integer damaged) {
-            this(productId, received, damaged, null);
+            this(productId, received, damaged, null, null);
+        }
+
+        public ReceivedLine(Long productId, Integer received, Integer damaged, BigDecimal unitValueEur) {
+            this(productId, received, damaged, unitValueEur, null);
         }
     }
 
@@ -787,15 +791,17 @@ public class PurchaseOrderService {
             BigDecimal receiptUnitValue = explicitUnitValue == null
                     ? automaticUnitValues.get(line.productId()) : Money.unit(explicitUnitValue);
             int ordered = line.orderedQuantity() != null ? line.orderedQuantity() : line.quantity();
+            String issueNote = cleanIssueNote(count == null ? null : count.issueNote());
             if (received != ordered || damaged > 0) {
                 StringBuilder remark = new StringBuilder(describe(byId, line.productId()))
                         .append(": besteld ").append(ordered).append(", ontvangen ").append(received);
                 if (damaged > 0) remark.append(", ").append(damaged).append(" beschadigd");
+                if (issueNote != null) remark.append(" (").append(issueNote).append(')');
                 remarks.add(remark.toString());
             }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), received, line.exwPrice(),
                     line.exwCurrency(), line.extraUnitCost(), ordered, line.priceBasis(), damaged,
-                    receiptUnitValue));
+                    receiptUnitValue, received != ordered || damaged > 0 ? issueNote : null));
         }
 
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
@@ -1045,7 +1051,7 @@ public class PurchaseOrderService {
                 .map(line -> line.id() != null && line.id() == lineId
                         ? new PurchaseOrderLine(line.id(), line.productId(), line.quantity(), line.exwPrice(),
                                 line.exwCurrency(), line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(),
-                                line.damagedQuantity(), normalized)
+                                line.damagedQuantity(), normalized, line.issueNote())
                         : line)
                 .toList();
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
@@ -1306,6 +1312,23 @@ public class PurchaseOrderService {
             notes.add(describe(byId, stored.productId()) + ": " + String.join(", ", parts));
         }
         return notes;
+    }
+
+    /** Trimmed, bounded, never blank. */
+    static String cleanIssueNote(String note) {
+        if (note == null) return null;
+        String cleaned = note.strip().replaceAll("[\\p{Cntrl}&&[^\\n]]", "");
+        if (cleaned.isEmpty()) return null;
+        return cleaned.length() > 500 ? cleaned.substring(0, 500) : cleaned;
+    }
+
+    /**
+     * What went wrong with this product on earlier containers: every received
+     * order where it arrived short or damaged, newest first. The product page
+     * shows it and the supplier order prints it as a warning.
+     */
+    public List<ReceiptIssues.ReceiptIssue> receiptIssuesFor(long productId, Long excludeOrderId) {
+        return ReceiptIssues.forProduct(orders.findAll(), productId, excludeOrderId);
     }
 
     private static String withLateDamageNotes(String notes, List<String> lateDamage) {

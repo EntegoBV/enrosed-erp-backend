@@ -141,6 +141,9 @@ public final class SourcingEntities {
         /** Receipt-time purchase value per piece; null when it could not be valued reliably. */
         @Column(precision = 19, scale = 4)
         public BigDecimal receiptUnitValueEur;
+        /** What was wrong on arrival, as noted at the shelf. */
+        @Column(length = 500)
+        public String issueNote;
     }
     /** One amount paid on a purchase order, kept as it left the bank. */
     @Entity

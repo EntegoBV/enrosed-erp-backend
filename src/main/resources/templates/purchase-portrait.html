@@ -146,6 +146,18 @@
     .agreement-cell .note-li--sub { padding-left: 8.5mm; color: #6b5f58; }
     .agreement-cell .note-li--sub::before { content: '\2013'; left: 5mm; color: #8b8179; }
     table.agreement tbody tr:last-child td { padding-bottom: 2mm; }
+    .prior-issues {
+      margin: 2mm 0 1.5mm; padding: 2.4mm 3mm; border: .6pt solid #d29baa; border-left: 1.4pt solid #8f2942;
+      border-radius: 1.5mm; background: #fff6f8; color: #4b2a33;
+    }
+    .prior-issues__title { margin-bottom: 1.2mm; color: #8f2942; font-size: 6.2pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .prior-issue { padding: .8mm 0; border-top: .35pt solid #ecd3da; font-size: 7.2pt; line-height: 1.4; }
+    .prior-issue:first-of-type { border-top: 0; }
+    .prior-issue__when { display: block; color: #762239; font-weight: 700; }
+    .prior-issue__facts { display: block; }
+    .prior-issue__facts b { color: #8f2942; }
+    .prior-issue__note { display: block; margin-top: .4mm; color: #5b4b4f; font-style: italic; }
+    .prior-issues__ask { margin-top: 1.6mm; padding-top: 1.4mm; border-top: .35pt solid #ecd3da; font-size: 6.8pt; font-weight: 700; color: #762239; }
     .number { white-space: nowrap; }
     .price-main { font-weight: 700; }
     .price-sub { color: #8b8179; font-size: 6.4pt; }
@@ -429,6 +441,21 @@
   </th></tr>
   </thead>
   <tbody>
+  {#if !line.priorIssues.isEmpty}
+  <tr><td class="agreement-cell">
+    <div class="prior-issues">
+      <div class="prior-issues__title">Attention · earlier deliveries of this product arrived short or damaged</div>
+      {#for issue in line.priorIssues}
+        <div class="prior-issue">
+          <span class="prior-issue__when">{issue.orderNumber}{#if issue.receivedOn} · received {issue.receivedOn.be}{/if}</span>
+          <span class="prior-issue__facts">{issue.ordered} ordered · {issue.received} received{#if issue.damaged > 0} · <b>{issue.damaged} damaged</b>{/if}{#if issue.missing > 0} · <b>{issue.missing} short</b>{/if}</span>
+          {#if issue.note}<span class="prior-issue__note">{issue.note}</span>{/if}
+        </div>
+      {/for}
+      <div class="prior-issues__ask">Please pack and count this product with extra care and confirm the corrective measures in writing before production.</div>
+    </div>
+  </td></tr>
+  {/if}
   {#for item in line.supplierNoteLines}
   <tr><td class="agreement-cell">{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}</td></tr>
   {/for}

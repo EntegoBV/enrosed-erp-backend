@@ -126,6 +126,7 @@ public class PdfPurchaseRenderer {
     private final PdfImageEncoder imageEncoder;
     private final CurrencyConverter currencies;
     private final LandedCostCalculator landedCosts;
+    private final be.enrosed.sourcing.application.port.out.SourcingRepositories.PurchaseOrders orders;
 
     /** Optional in pure tests; production resolves names such as Zaltbommel. */
     @Inject
@@ -136,7 +137,9 @@ public class PdfPurchaseRenderer {
                                Brand brand, CompanyProfileService company, PdfFonts fonts,
                                ProductService products, PdfImageEncoder imageEncoder,
                                CurrencyConverter currencies, LandedCostCalculator landedCosts,
-                               ProductSupplierAgreementPhotoService supplierAgreementPhotos) {
+                               ProductSupplierAgreementPhotoService supplierAgreementPhotos,
+                               be.enrosed.sourcing.application.port.out.SourcingRepositories.PurchaseOrders orders) {
+        this.orders = orders;
         this.landscapeTemplate = landscapeTemplate;
         this.portraitTemplate = portraitTemplate;
         this.brand = brand;
@@ -283,12 +286,14 @@ public class PdfPurchaseRenderer {
             List<ProductSpec> productSpecs, Integer piecesPerCarton, String ean,
             List<NoteLine> supplierNoteLines,
             List<SupplierAgreementPhotoView> agreementPhotos,
+            /** Earlier containers on which this product arrived short or damaged. */
+            List<be.enrosed.sourcing.application.ReceiptIssues.ReceiptIssue> priorIssues,
             int orderedQuantity, int orderedCartons,
             String cartonCbm, String lineCbm, BigDecimal lineCbmValue, BigDecimal agreedUnitPrice, Currency currency,
             String priceBasis, boolean priceAvailable) {
-        /** The line has an instruction or reference images worth their own block. */
+        /** The line has an instruction, reference images or a history worth their own block. */
         public boolean hasAgreement() {
-            return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty();
+            return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty() || !priorIssues.isEmpty();
         }
     }
 
@@ -462,6 +467,9 @@ public class PdfPurchaseRenderer {
         Map<String, String> photoCache = new HashMap<>();
         Map<Long, List<SupplierAgreementPhotoView>> agreementPhotoCache = new HashMap<>();
         List<SupplierLineView> lines = new ArrayList<>();
+        /* One read of the order book serves every line: what arrived short or
+           damaged before is printed as a warning the supplier signs for. */
+        List<PurchaseOrder> history = orders == null ? List.of() : orders.findAll();
 
         for (LandedCost.Line costingLine : costing.lines()) {
             Product product = byId.get(costingLine.productId());
@@ -485,6 +493,8 @@ public class PdfPurchaseRenderer {
                             ? agreementPhotoCache.computeIfAbsent(costingLine.productId(),
                                     this::supplierAgreementPhotoViews)
                             : List.of(),
+                    costingLine.productId() == null ? List.of()
+                            : be.enrosed.sourcing.application.ReceiptIssues.forProduct(history, costingLine.productId(), order.id()),
                     orderedQuantity, orderedCartons, cartonCbm(product),
                     lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
