@@ -269,11 +269,16 @@ public class PdfPurchaseRenderer {
     public record SupplierLineView(
             Long productId, String sku, String productName, String photoDataUri,
             List<ProductSpec> productSpecs, Integer piecesPerCarton, String ean,
-            List<List<NoteLine>> supplierNoteChunks,
+            List<NoteLine> supplierNoteLines,
             List<SupplierAgreementPhotoView> agreementPhotos,
             int orderedQuantity, int orderedCartons,
             String cartonCbm, String lineCbm, BigDecimal lineCbmValue, BigDecimal agreedUnitPrice, Currency currency,
-            String priceBasis, boolean priceAvailable) {}
+            String priceBasis, boolean priceAvailable) {
+        /** The line has an instruction or reference images worth their own block. */
+        public boolean hasAgreement() {
+            return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty();
+        }
+    }
 
     /** One private, supplier-facing visual instruction embedded into the PDF. */
     public record SupplierAgreementPhotoView(
@@ -301,7 +306,13 @@ public class PdfPurchaseRenderer {
     private record Prepared(List<LineView> lines, List<PurchaseTotal> purchaseTotals,
                             BigDecimal purchaseTotalEur, int missingPurchasePrices,
                             int missingEurPrices, int purchasePieces,
-                            int purchaseCartons, BigDecimal totalDeliveryCostEur) {}
+                            int purchaseCartons, BigDecimal totalDeliveryCostEur,
+                            String purchaseCbm) {
+        boolean hasExtraColumn() {
+            return lines.stream().anyMatch(line ->
+                    line.extraRevenueEur() != null && line.extraRevenueEur().signum() != 0);
+        }
+    }
 
     private record SupplierPrepared(List<SupplierLineView> lines) {}
 
@@ -381,6 +392,7 @@ public class PdfPurchaseRenderer {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
                     .data("supplierTotals", supplierTotals(prepared.lines()))
+                    .data("hasAgreements", prepared.lines().stream().anyMatch(SupplierLineView::hasAgreement))
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
             /* Landscape keeps its historical contract: every packing fact, always. */
@@ -398,7 +410,9 @@ public class PdfPurchaseRenderer {
                             ? prepared.missingEurPrices() : prepared.missingPurchasePrices())
                     .data("purchasePieces", prepared.purchasePieces())
                     .data("purchaseCartons", prepared.purchaseCartons())
-                    .data("purchaseCbm", costing.totals() == null ? null : cbmText(costing.totals().cbm()))
+                    .data("purchaseCbm", prepared.purchaseCbm())
+                    .data("hasExtraColumn", prepared.hasExtraColumn())
+                    .data("productColumnMm", productColumnMm(options))
                     .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
@@ -454,7 +468,7 @@ public class PdfPurchaseRenderer {
                     product == null ? costingLine.productName() : supplierProductName(product),
                     photo(product, photoCache, true), supplierProductSpecs(product),
                     piecesPerCarton(product), ean(product),
-                    supplierNoteChunks(matchingSupplier ? product : null),
+                    supplierNoteLines(matchingSupplier ? product : null),
                     matchingSupplier
                             ? agreementPhotoCache.computeIfAbsent(costingLine.productId(),
                                     this::supplierAgreementPhotoViews)
@@ -521,6 +535,7 @@ public class PdfPurchaseRenderer {
         int missingEurPrices = 0;
         int purchasePieces = 0;
         int purchaseCartonCount = 0;
+        BigDecimal purchaseCbmSum = null;
         BigDecimal purchaseTotalEur = BigDecimal.ZERO;
         BigDecimal totalDeliveryCostEur = orderedCosting == null
                 ? BigDecimal.ZERO : orderedCosting.totals().totalEur();
@@ -537,6 +552,9 @@ public class PdfPurchaseRenderer {
                     ? costingLine.cartons() : product.carton().cartonsFor(purchaseQuantity);
             purchasePieces += purchaseQuantity;
             purchaseCartonCount += purchaseCartons;
+            if (costingLine.cbm() != null) {
+                purchaseCbmSum = (purchaseCbmSum == null ? BigDecimal.ZERO : purchaseCbmSum).add(costingLine.cbm());
+            }
             LandedCost.Line orderedCostLine = orderedCostsByProduct.get(costingLine.productId());
             boolean priceAvailable = price.available();
             BigDecimal lineTotal = priceAvailable
@@ -584,7 +602,7 @@ public class PdfPurchaseRenderer {
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
         return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), purchaseTotalEur,
                 missingPrices, missingEurPrices, purchasePieces,
-                purchaseCartonCount, totalDeliveryCostEur);
+                purchaseCartonCount, totalDeliveryCostEur, cbmText(purchaseCbmSum));
     }
 
     /**
@@ -739,6 +757,18 @@ public class PdfPurchaseRenderer {
         return values.isEmpty() ? null : String.join(" · ", values);
     }
 
+    /**
+     * Portrait product column in mm: the 190 mm print width minus every
+     * number column the chosen options add. Pinning it keeps the product
+     * name and its facts readable whatever the option mix.
+     */
+    static int productColumnMm(PdfOptions options) {
+        int fixed = 12 + 16 + 14 + 18;
+        if (options.showPrices()) fixed += 22 + (options.includeUnitPrice() ? 20 : 0);
+        if (options.includeEnrosedCost() || options.includeEnrosedUnitCost()) fixed += 26;
+        return 190 - fixed;
+    }
+
     /** "0,048 m³", or null when there is no volume. */
     static String cbmText(BigDecimal cbm) {
         return DocumentFormat.cbm(cbm);
@@ -823,36 +853,17 @@ public class PdfPurchaseRenderer {
     private static final Pattern NOTE_POINT = Pattern.compile("^(\\s*)[-*\u2022]\\s+(.*)$");
 
     /**
-     * Keeps a long note complete without creating one unbreakable table row.
-     * The product validator permits 4,000 characters, so one note may span
-     * several pages in a supplier order. Lines never split; a paragraph
-     * longer than a chunk is cut at whitespace.
+     * The supplier instruction as the PDF prints it: one table row per line,
+     * so a note of up to 4,000 characters paginates without ever cutting a
+     * line in two. A paragraph longer than one row is cut at whitespace.
      */
-    static List<List<NoteLine>> supplierNoteChunks(Product product) {
-        return noteChunks(supplierNote(product));
-    }
-
-    static List<List<NoteLine>> noteChunks(String note) {
-        if (note == null || note.isBlank()) return List.of();
-        final int targetSize = 700;
-        List<List<NoteLine>> chunks = new ArrayList<>();
-        List<NoteLine> current = new ArrayList<>();
-        int size = 0;
-        for (NoteLine line : noteLines(note)) {
-            if (size > 0 && size + line.text().length() > targetSize) {
-                chunks.add(List.copyOf(current));
-                current = new ArrayList<>();
-                size = 0;
-            }
-            current.add(line);
-            size += line.text().length();
-        }
-        if (!current.isEmpty()) chunks.add(List.copyOf(current));
-        return List.copyOf(chunks);
+    static List<NoteLine> supplierNoteLines(Product product) {
+        return noteLines(supplierNote(product));
     }
 
     /** The note line by line; blank lines drop, over-long lines are cut at whitespace. */
     static List<NoteLine> noteLines(String note) {
+        if (note == null || note.isBlank()) return List.of();
         List<NoteLine> lines = new ArrayList<>();
         for (String raw : note.split("\\r?\\n")) {
             Matcher point = NOTE_POINT.matcher(raw);
@@ -863,7 +874,7 @@ public class PdfPurchaseRenderer {
                 text = point.group(2).strip();
             }
             if (text.isEmpty()) continue;
-            for (String piece : cut(text, 700)) lines.add(new NoteLine(level, piece));
+            for (String piece : cut(text, 1500)) lines.add(new NoteLine(level, piece));
         }
         return lines;
     }

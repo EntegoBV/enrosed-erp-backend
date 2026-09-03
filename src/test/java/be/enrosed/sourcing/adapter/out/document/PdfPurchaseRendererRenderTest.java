@@ -128,7 +128,7 @@ class PdfPurchaseRendererRenderTest {
                     "de leveranciersleesversie hoort portrait te zijn");
             assertTrue(imageCount(pdf) >= 2,
                     "logo en server-embedded productfoto horen beide in de PDF te staan");
-            assertPrintSafeTop(pdf, 17);
+            assertPrintSafeTop(pdf, 11);
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
@@ -636,7 +636,7 @@ class PdfPurchaseRendererRenderTest {
                     "de horizontale inkooporder hoort landscape te zijn");
             assertTrue(imageCount(pdf) >= 2,
                     "logo en server-embedded productfoto horen beide zichtbaar te zijn");
-            assertPrintSafeTop(pdf, 15);
+            assertPrintSafeTop(pdf, 10);
 
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");

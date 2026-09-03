@@ -8,12 +8,12 @@
        ENROSED document family
 
        Customer papers stay portrait and use the same visual grammar as
-       purchase documents: dark ink, warm paper, gold rules and a restrained
-       berry accent. Gold is never used for small copy, so a monochrome office
-       printer keeps the hierarchy intact.
+       purchase documents: dark ink, warm paper, gold rules and the ENROSED
+       bordeaux for every solid block. Gold is never used for small copy, so a
+       monochrome office printer keeps the hierarchy intact.
     */
     @page {
-      size: A4 portrait; margin: 18mm 14mm 20mm;
+      size: A4 portrait; margin: 14mm 12mm 17mm;
       @bottom-left {
         content: "{order.number}  ·  {docLabel}";
         font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #736b65;
@@ -44,11 +44,12 @@
     .brand-details { margin-top: 6px; color: #5d5550; font-size: 8pt; line-height: 1.55; }
     .brand-details b { color: #181411; font-size: 8.5pt; }
     .doc-card {
-      width: 58mm; padding: 10px 12px !important; color: #ffffff;
-      background: #181411; border-top: 3px solid #c9a45c; text-align: right;
+      width: 60mm; padding: 10px 12px !important; color: #ffffff;
+      background: #7a2036; border-top: 3px solid #c9a45c; text-align: right;
     }
-    .doc-kind { font-size: 8pt; font-weight: bold; letter-spacing: 1.7px; text-transform: uppercase; }
-    .doc-number { margin-top: 4px; color: #f4dfac; font-size: 14pt; font-weight: bold; }
+    .doc-kind { font-size: 8pt; font-weight: bold; letter-spacing: 1.7px; text-transform: uppercase; color: #f4dfac; }
+    .doc-number { margin-top: 4px; color: #ffffff; font-size: 16pt; font-weight: bold; letter-spacing: -0.2px; }
+    .doc-date { margin-top: 3px; color: #efd9df; font-size: 8pt; }
 
     /* -- Peppol notice ------------------------------------------------- */
     .peppol-banner {
@@ -90,7 +91,7 @@
     }
     table.lines thead { display: table-header-group; }
     table.lines th {
-      padding: 6px 5px; color: #ffffff; background: #181411;
+      padding: 6px 5px; color: #ffffff; background: #7a2036;
       border-bottom: 2px solid #c9a45c; font-size: 7pt; font-weight: bold;
       letter-spacing: 0.55px; text-align: left; text-transform: uppercase;
     }
@@ -103,12 +104,22 @@
     table.lines tr.alt td { background: #fbf8f4; }
     .line-name { font-size: 9.6pt; font-weight: bold; line-height: 1.3; }
     .line-variant { margin-top: 1px; color: #8f2942; font-size: 7.5pt; font-weight: bold; }
+    .line-sku { margin-top: 1px; color: #736b65; font-size: 6.8pt; letter-spacing: 0.3px; }
     .line-description { margin-top: 2px; color: #453e39; font-size: 7.5pt; line-height: 1.35; }
-    .line-specs { margin-top: 3px; color: #5d5550; font-size: 7pt; line-height: 1.35; }
-    .line-spec { display: inline; }
-    .line-spec + .line-spec:before { content: "  ·  "; color: #c9a45c; }
-    .line-spec b { color: #453e39; }
-    .line-meta { margin-top: 3px; color: #736b65; font-size: 7.2pt; line-height: 1.35; }
+    /* Product facts read as labelled rows, exactly like the purchase order. */
+    .line-specs { margin-top: 3px; color: #453e39; font-size: 6.8pt; line-height: 1.3; }
+    .line-spec {
+      display: table; width: 100%; padding: 1px 0; border-top: 0.25pt solid #ece5dc;
+      page-break-inside: avoid;
+    }
+    .line-spec:first-child { border-top: 0; }
+    .line-spec__label {
+      display: table-cell; width: 23mm; padding-right: 4px; color: #8f2942;
+      font-size: 5.5pt; font-weight: bold; letter-spacing: 0.2px; text-transform: uppercase;
+      vertical-align: top;
+    }
+    .line-spec__value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .line-delivery { margin-top: 3px; color: #736b65; font-size: 7.2pt; line-height: 1.35; }
     table.line-product { width: 100%; border-collapse: collapse; }
     table.line-product td { padding: 0; border: 0; background: transparent !important; }
     table.line-product td.line-image { width: 15mm; padding-right: 2.5mm; vertical-align: top; }
@@ -131,19 +142,19 @@
     table.closing-grid td.closing-totals { width: 57%; }
     .overview-card {
       min-height: 162px; padding: 12px 13px; color: #ffffff;
-      background: #181411; border-top: 3px solid #c9a45c;
+      background: #7a2036; border-top: 3px solid #c9a45c;
     }
     .overview-kicker {
       color: #f4dfac; font-size: 7.2pt; font-weight: bold; letter-spacing: 1.2px;
       text-transform: uppercase;
     }
     .overview-number { margin-top: 3px; font-size: 13pt; font-weight: bold; }
-    .overview-rule { margin: 10px 0 8px; border-top: 1px solid #4d4540; }
+    .overview-rule { margin: 10px 0 8px; border-top: 1px solid #a3546a; }
     table.overview-facts { width: 100%; border-collapse: collapse; }
-    table.overview-facts td { padding: 3px 0; color: #eee8e2; font-size: 8.5pt; }
+    table.overview-facts td { padding: 3px 0; color: #f3e4e8; font-size: 8.5pt; }
     table.overview-facts td:last-child { color: #ffffff; font-weight: bold; text-align: right; }
     .overview-note {
-      margin-top: 9px; padding-top: 8px; color: #d8d0c9; border-top: 1px solid #4d4540;
+      margin-top: 9px; padding-top: 8px; color: #f3e4e8; border-top: 1px solid #a3546a;
       font-size: 7.8pt; line-height: 1.45;
     }
     table.totals {
@@ -156,7 +167,7 @@
     table.totals .discount td { color: #5d5550; }
     table.totals .sum td { border-top: 1px solid #d6c9ba; font-weight: bold; padding-top: 6px; }
     table.totals .grand td {
-      border-top: 2px solid #181411; padding-top: 7px; font-size: 11.5pt; font-weight: bold;
+      border-top: 2px solid #7a2036; padding-top: 7px; font-size: 11.5pt; font-weight: bold;
     }
     table.totals .grand .r { color: #8f2942; }
     table.totals .aftertax td { color: #5d5550; font-size: 8.4pt; }
@@ -192,6 +203,7 @@
     .foot {
       margin-top: 16px; padding-top: 8px; color: #736b65;
       border-top: 1px solid #ded5cc; font-size: 7.4pt; line-height: 1.55;
+      page-break-inside: avoid;
     }
     .foot-line { margin-top: 2px; }
     .foot a { color: #5d5550; }
@@ -230,6 +242,7 @@
     <td class="doc-card">
       <div class="doc-kind">{docLabel}</div>
       <div class="doc-number">{order.number}</div>
+      <div class="doc-date">{t.date} {orderDateText}</div>
     </td>
   </tr>
 </table>
@@ -284,7 +297,7 @@
 <table class="lines">
   <thead>
   <tr>
-    <th style="{#if includeLogistics}width:42%{#else}width:58%{/if}">{t.description}</th>
+    <th style="{#if includeLogistics}width:50%{#else}width:62%{/if}">{t.description}</th>
     <th class="r">{t.quantity}</th>
     {#if includeLogistics}
       <th class="r">{t.cartons}</th>
@@ -304,13 +317,14 @@
           <td>
             <div class="line-name">{line.title}</div>
             {#if line.variantText}<div class="line-variant">{line.variantText}</div>{/if}
+            {#if line.skuText}<div class="line-sku">{line.skuText}</div>{/if}
             {#if line.description}<div class="line-description">{line.description}</div>{/if}
             {#if includeProductDetails || showOuterCarton || showBarcode}
-              {#if line.productSpecs}
-                <div class="line-specs">{#for spec in line.productSpecs}<span class="line-spec"><b>{spec.label}:</b> {spec.value}</span>{/for}</div>
+              {#if !line.productSpecs.isEmpty}
+                <div class="line-specs">{#for spec in line.productSpecs}<div class="line-spec"><span class="line-spec__label">{spec.label}</span><span class="line-spec__value">{spec.value}</span></div>{/for}</div>
               {/if}
             {/if}
-            {#if line.metaText}<div class="line-meta">{line.metaText}</div>{/if}
+            {#if line.deliveryText}<div class="line-delivery">{line.deliveryText}</div>{/if}
           </td>
         </tr></table>
       </td>
@@ -344,7 +358,7 @@
         <tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>
       {/if}
     </table>
-    {#if order.notes}<div class="overview-note"><b>{t.note}:</b> {order.notes}</div>{/if}
+    {#if orderNote}<div class="overview-note"><b>{t.note}:</b> {orderNote}</div>{/if}
   </div>
 </td>
 <td class="closing-totals">

@@ -6,7 +6,7 @@
     /* Wide purchase order. Internal cost components stay in the summary
        below instead of being repeated as a dense wall of line columns. */
     @page {
-      size: A4 landscape; margin: 16mm 10mm 16mm;
+      size: A4 landscape; margin: 11mm 8mm 13mm;
       @bottom-left {
         content: "{order.number}{#if showRevenue} · interne calculatie{#else} · inkooporder horizontaal{/if}";
         font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
@@ -28,6 +28,7 @@
     .head__meta { text-align: right; }
     .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #8f2942; font-weight: 700; }
     .doc-number { font-size: 15pt; font-weight: 700; margin-top: 1px; }
+    .doc-alias { font-size: 7.5pt; color: #8a807a; margin-top: 1px; }
     .doc-badges { margin-top: 4px; }
     .badge {
       display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca; border-radius: 3px;
@@ -58,15 +59,25 @@
     table.lines tr { page-break-inside: avoid; }
     table.lines th {
       text-align: right; font-size: 6pt; letter-spacing: 0.05em; text-transform: uppercase;
-      color: #8a807a; padding: 3px 4px; white-space: nowrap;
+      color: #8a807a; padding: 3px 3.5px; white-space: nowrap;
     }
+    /* Sixteen internal columns: fixed narrow number columns, headers may wrap,
+       the product column takes what remains. */
+    table.lines--internal { table-layout: fixed; }
+    table.lines--internal th { white-space: normal; font-size: 5.2pt; letter-spacing: 0; padding-left: 2px; padding-right: 2px; vertical-align: bottom; }
+    table.lines--internal tr.grouprow th { white-space: nowrap; font-size: 6pt; letter-spacing: 0.12em; }
+    table.lines--internal th.c-num, table.lines--internal td.c-num { width: 4mm; padding-left: 0; padding-right: 1mm; }
+    table.lines--internal td { padding-left: 2px; padding-right: 2px; }
+    table.lines--internal th.w-n { width: 12mm; }
+    table.lines--internal th.w-m { width: 13.5mm; }
+    table.lines--internal td.c-name { padding-right: 4px; }
     tr.grouprow th {
       text-align: left; color: #8f2942; font-weight: 700; letter-spacing: 0.12em;
       border-bottom: 1px solid #d8d0ca; padding-bottom: 2px;
     }
     tr.labelrow th { border-bottom: 1px solid #1a1614; }
     table.lines th.l { text-align: left; }
-    table.lines td { padding: 4.5px 4px; border-bottom: 1px solid #efeae6; font-size: 7.5pt; }
+    table.lines td { padding: 4.5px 3.5px; border-bottom: 1px solid #efeae6; font-size: 7.3pt; }
     tr.alt td { background: #faf8f7; }
     .group-l { border-left: 1px solid #d8d0ca; }
     table.lines td.c-res { background: #f7efe3; }
@@ -143,6 +154,7 @@
     <td class="head__meta">
       <div class="doc-kicker">{#if showRevenue}Interne calculatie{#else}Inkooporder - horizontaal{/if}</div>
       <div class="doc-number">{order.number}</div>
+      {#if showRevenue && order.alias}<div class="doc-alias">{order.alias}</div>{/if}
       <div class="doc-badges">
         <span class="badge badge--status">{statusLabel}</span>
         {#if showRevenue}<span class="badge badge--intern">Intern</span>{#else}<span class="badge">A4 liggend</span>{/if}
@@ -216,18 +228,48 @@
 </table>
 {/if}
 
-<table class="lines">
+<table class="lines {#if showRevenue}lines--internal{/if}">
+  {#if showRevenue}
+  <!-- Fixed layout reads its column widths from the first row, which is the
+       group row here; the colgroup pins them for every row instead. -->
+  <colgroup>
+    <col style="width:4mm"/>
+    <col style="width:{#if hasExtraColumn}80mm{#else}95mm{/if}"/>
+    <col style="width:12mm"/><col style="width:12mm"/><col style="width:12mm"/><col style="width:15mm"/>
+    <col style="width:14mm"/><col style="width:15mm"/>
+    <col style="width:14mm"/><col style="width:14.5mm"/><col style="width:14mm"/><col style="width:16mm"/><col style="width:15.5mm"/>
+    {#if hasExtraColumn}<col style="width:15mm"/>{/if}
+    <col style="width:15mm"/><col style="width:13mm"/>
+  </colgroup>
+  {/if}
   <thead>
+  {#if showRevenue}
+  <tr class="grouprow">
+    <th colspan="6">Lading</th>
+    <th class="group-l" colspan="2">Inkoopprijs</th>
+    <th class="group-l" colspan="{#if hasExtraColumn}6{#else}5{/if}">Kostenopbouw per regel · EUR</th>
+    <th class="group-l" colspan="2">Geland · EUR</th>
+  </tr>
+  {/if}
   <tr class="labelrow">
-    <th class="l">#</th>
-    <th class="l" style="width:96mm">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
-    <th>Stuks</th>
-    <th>St./karton</th>
-    <th>Kartons</th>
-    <th>m³</th>
-    <th class="group-l">Inkoop/stuk</th>
-    <th>Inkooptotaal</th>
-    {#if showRevenue}<th class="group-l">Geland/stuk</th><th>Geland totaal</th>{/if}
+    <th class="l c-num">#</th>
+    <th class="l" style="{#if showRevenue}{#if hasExtraColumn}width:92mm{#else}width:104mm{/if}{#else}width:96mm{/if}">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
+    <th class="w-n">Stuks</th>
+    <th class="w-n">St. per karton</th>
+    <th class="w-n">Kartons</th>
+    <th class="w-n">m³</th>
+    <th class="group-l w-m">Inkoop per stuk</th>
+    <th class="w-m">Inkoop totaal</th>
+    {#if showRevenue}
+    <th class="group-l w-n">Goederen</th>
+    <th class="w-n">Oorsprong</th>
+    <th class="w-n">Zeevracht</th>
+    <th class="w-n">Invoerrecht</th>
+    <th class="w-n">Bestemming</th>
+    {#if hasExtraColumn}<th class="w-n">Enrosed</th>{/if}
+    <th class="group-l w-m">Geland totaal</th>
+    <th class="w-n">Geland per stuk</th>
+    {/if}
   </tr>
   </thead>
   <tbody>
@@ -256,7 +298,16 @@
       <td class="r">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
       <td class="r group-l">{#if line.purchasePriceAvailable}<b>{line.purchaseUnitPrice.moneyUnit}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
       <td class="r">{#if line.purchasePriceAvailable}<b>{line.purchaseLineTotal.money}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
-      {#if showRevenue}<td class="r c-res group-l"><b>{line.landedUnitEur.moneyUnit}</b></td><td class="r c-res"><b>{line.totalEur.money}</b></td>{/if}
+      {#if showRevenue}
+      <td class="r group-l">{line.goodsEur.money}</td>
+      <td class="r">{line.originEur.money}</td>
+      <td class="r">{line.freightEur.money}</td>
+      <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
+      <td class="r">{line.destinationEur.money}</td>
+      {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
+      <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b></td>
+      {/if}
     </tr>
   {/for}
   <tr class="sumrow">
@@ -267,8 +318,17 @@
     <td class="r">{purchaseCartons}</td>
     <td class="r">{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</td>
     <td></td>
-    <td class="r">Per valuta hieronder</td>
-    {#if showRevenue}<td class="r c-res group-l">{costing.totals.averageUnitEur.moneyUnit}</td><td class="r c-res">{costing.totals.totalEur.money}</td>{/if}
+    <td class="r"><span class="tiny">per valuta hieronder</span></td>
+    {#if showRevenue}
+    <td class="r group-l">{costing.totals.goodsEur.money}</td>
+    <td class="r">{costing.totals.originEur.money}</td>
+    <td class="r">{costing.totals.freightEur.money}</td>
+    <td class="r">{costing.totals.dutyEur.money}</td>
+    <td class="r">{costing.totals.destinationEur.money}</td>
+    {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
+    <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
+    <td class="r c-res">{costing.totals.averageUnitEur.moneyUnit}</td>
+    {/if}
   </tr>
   </tbody>
 </table>

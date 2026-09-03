@@ -13,7 +13,7 @@ class PdfPurchaseRendererNoteTest {
 
     @Test
     void pointsAndSubPointsKeepTheirLevel() {
-        List<List<NoteLine>> chunks = PdfPurchaseRenderer.noteChunks("""
+        List<NoteLine> lines = PdfPurchaseRenderer.noteLines("""
                 Match the approved colour sample.
 
                 - Centre the logo
@@ -22,13 +22,12 @@ class PdfPurchaseRendererNoteTest {
                 * Use cardboard corner protection
                 """);
 
-        assertEquals(1, chunks.size());
         assertEquals(List.of(
                 new NoteLine(0, "Match the approved colour sample."),
                 new NoteLine(1, "Centre the logo"),
                 new NoteLine(2, "Pantone 186C only"),
                 new NoteLine(2, "No gloss finish"),
-                new NoteLine(1, "Use cardboard corner protection")), chunks.get(0));
+                new NoteLine(1, "Use cardboard corner protection")), lines);
     }
 
     @Test
@@ -39,28 +38,27 @@ class PdfPurchaseRendererNoteTest {
     }
 
     @Test
-    void longNotesSplitBetweenLinesNeverInsideOne() {
+    void longPointsStayOneLineEach() {
         String point = "- " + "word ".repeat(80).strip();
-        List<List<NoteLine>> chunks = PdfPurchaseRenderer.noteChunks(String.join("\n", point, point, point));
+        List<NoteLine> lines = PdfPurchaseRenderer.noteLines(String.join("\n", point, point, point));
 
-        assertTrue(chunks.size() >= 2, "three 400-character points need more than one chunk");
-        assertEquals(3, chunks.stream().mapToInt(List::size).sum());
-        chunks.forEach(chunk -> chunk.forEach(line -> assertEquals(1, line.level())));
+        assertEquals(3, lines.size(), "a 400-character point is still one point");
+        lines.forEach(line -> assertEquals(1, line.level()));
     }
 
     @Test
     void anEndlessParagraphIsCutAtWhitespace() {
-        List<NoteLine> lines = PdfPurchaseRenderer.noteLines("word ".repeat(300).strip());
+        List<NoteLine> lines = PdfPurchaseRenderer.noteLines("word ".repeat(600).strip());
 
         assertTrue(lines.size() >= 2);
-        lines.forEach(line -> assertTrue(line.text().length() <= 700));
-        assertEquals("word ".repeat(300).strip(),
+        lines.forEach(line -> assertTrue(line.text().length() <= 1500));
+        assertEquals("word ".repeat(600).strip(),
                 String.join(" ", lines.stream().map(NoteLine::text).toList()));
     }
 
     @Test
-    void blankNotesGiveNoChunks() {
-        assertEquals(List.of(), PdfPurchaseRenderer.noteChunks(null));
-        assertEquals(List.of(), PdfPurchaseRenderer.noteChunks("  \n "));
+    void blankNotesGiveNoLines() {
+        assertEquals(List.of(), PdfPurchaseRenderer.noteLines(null));
+        assertEquals(List.of(), PdfPurchaseRenderer.noteLines("  \n "));
     }
 }

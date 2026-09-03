@@ -111,7 +111,7 @@ class PdfQuoteRendererRenderTest {
 
         try (PDDocument pdf = Loader.loadPDF(previewDocument.content())) {
             assertPortraitAndEmbedded(pdf);
-            assertPrintSafeTop(pdf, 17);
+            assertPrintSafeTop(pdf, 13);
             String text = textOf(pdf);
             assertTrue(text.contains("counter display premium kleur 18"));
             assertTrue(text.contains("online bekijken, tekenen of wijzigen"));

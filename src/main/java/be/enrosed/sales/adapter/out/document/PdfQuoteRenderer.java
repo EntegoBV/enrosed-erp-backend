@@ -135,6 +135,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         .formatted(DocumentText.date(order.validUntil(), language)))
                 .data("isInvoice", invoice)
                 .data("docLabel", text.get(invoice ? "invoice" : "quote"))
+                .data("orderNote", nonBlank(order.notes(), null))
                 .data("dueDateText", dueDateText)
                 .data("paymentInstruction", paymentInstruction)
                 .data("iban", iban)
@@ -181,7 +182,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     /** Print projection: commercial values stay frozen, catalogue presentation stays tidy. */
     public record LineView(PricedOrder.Line commercial, String title, String variantText,
                            String description, List<ProductSpec> productSpecs,
-                           String photoDataUri, int palletPositions, String metaText) {}
+                           String photoDataUri, int palletPositions, String skuText,
+                           String deliveryText) {}
 
     private List<LineView> lineViews(SalesOrder order, PricedOrder priced, Language language,
                                      Map<String, String> text, SalesPdfOptions options) {
@@ -199,11 +201,10 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             List<ProductSpec> details = product == null
                     ? List.of() : productSpecs(product, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
-            String meta = joinDetails(
-                    options.includeProductDetails() ? line.sku() : null,
-                    options.includeLogistics() ? deliveryTextOf(line, language, text) : null);
+            String sku = options.includeProductDetails() ? nonBlank(line.sku(), null) : null;
+            String delivery = options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
             result.add(new LineView(line, title, variant, description, details, photo,
-                    order.palletPositionsForProduct(line.productId(), line.pallets()), meta));
+                    order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery));
         }
         return List.copyOf(result);
     }
@@ -249,25 +250,30 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             addSpec(details, "EAN", productBarcode);
         }
 
+        /* Every fact is its own labelled row, as on the purchase order: sizes
+           and counts on one row, the matching barcode on the next. */
         if (options.includeProductDetails() && product.packaging().isPresent()) {
             String packagingLabel = product.packaging().kind() == PackagingKind.GIFT_BOX
                     ? text.get("giftPackaging") : text.get("displayPackaging");
             addSpec(details, packagingLabel, joinDetails(
                     dimensions(product.packaging().dimensions()),
                     product.packaging().unitPieces() > 1
-                            ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
-                    options.showBarcode()
-                            ? prefix("EAN ", product.packaging().barcode()) : null));
+                            ? product.packaging().unitPieces() + " " + text.get("pieces") : null));
+            if (options.showBarcode()) {
+                addSpec(details, "EAN " + packagingLabel, product.packaging().barcode());
+            }
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
-            addSpec(details, text.get("catalogCarton"), joinDetails(
+            String cartonLabel = text.get("catalogCarton");
+            addSpec(details, cartonLabel, joinDetails(
                     dimensions(product.carton().dimensions()),
                     Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("pieces"),
-                    DocumentFormat.cbm(product.carton().cbm()),
-                    options.showBarcode()
-                            ? prefix("EAN ", product.barcodes() == null
-                                    ? null : product.barcodes().outer()) : null));
+                    DocumentFormat.cbm(product.carton().cbm())));
+            if (options.showBarcode()) {
+                addSpec(details, "EAN " + cartonLabel,
+                        product.barcodes() == null ? null : product.barcodes().outer());
+            }
         }
         return List.copyOf(details);
     }
@@ -312,10 +318,6 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             }
         }
         return present.isEmpty() ? null : String.join(" · ", present);
-    }
-
-    private static String prefix(String prefix, String value) {
-        return value == null || value.isBlank() ? null : prefix + value.strip();
     }
 
     private static String firstNonBlank(String first, String second) {
