@@ -23,7 +23,9 @@ public record CustomerQuoteView(
         String loadMode,
         String freightPricingStrategy,
         String language,
-        Map<String, String> text) {
+        Map<String, String> text,
+        /** What we told the customer when we withdrew the quote; null otherwise. */
+        String cancellationMessage) {
 
     public record CustomerLine(
             Long productId, String sku, String description, String photoUrl,

@@ -30,6 +30,8 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -433,6 +435,51 @@ public class MediaService {
     }
 
     @Transactional
+    /**
+     * The chosen files as one zip, original or web size, streamed as it is
+     * built. Names inside the zip are the library names with the file
+     * extension; a duplicate name gets a counter so nothing overwrites.
+     */
+    public record ZipEntrySource(String entryName, String storageKey) {}
+
+    @Transactional
+    public List<ZipEntrySource> zipEntries(List<Long> ids, boolean web) {
+        List<ZipEntrySource> entries = new ArrayList<>();
+        Set<String> taken = new HashSet<>();
+        for (Long id : ids) {
+            if (id == null) continue;
+            MediaAssetEntity asset = MediaAssetEntity.findById(id);
+            if (asset == null) continue;
+            MediaVersionEntity version = currentVersion(asset);
+            String key = version.storageKey;
+            String filename = version.originalFilename;
+            if (web && asset.kind == MediaKind.IMAGE) {
+                ensureWeb(asset, version);
+                if (version.webStorageKey != null) {
+                    key = version.webStorageKey;
+                    filename = webFilename(version.originalFilename, version.webContentType);
+                }
+            }
+            String extension = filename != null && filename.lastIndexOf('.') > 0
+                    ? filename.substring(filename.lastIndexOf('.')) : "";
+            String base = (asset.name == null || asset.name.isBlank() ? "bestand" : asset.name)
+                    .replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", " ").strip();
+            if (base.toLowerCase(Locale.ROOT).endsWith(extension.toLowerCase(Locale.ROOT))) {
+                base = base.substring(0, base.length() - extension.length());
+            }
+            String name = base + extension;
+            for (int counter = 2; !taken.add(name.toLowerCase(Locale.ROOT)); counter++) {
+                name = base + " (" + counter + ")" + extension;
+            }
+            entries.add(new ZipEntrySource(name, key));
+        }
+        return entries;
+    }
+
+    public InputStream open(String storageKey) {
+        return storage.read(storageKey);
+    }
+
     public FileRef file(long id) {
         MediaAssetEntity asset = requiredAsset(id);
         MediaVersionEntity version = currentVersion(asset);

@@ -92,7 +92,8 @@ public class CustomerQuoteMapper {
                 order.loadMode().name(),
                 order.freightPricingStrategy().name(),
                 language.name(),
-                DocumentText.of(language));
+                DocumentText.of(language),
+                quotes.cancellationMessage(order).orElse(null));
     }
 
     private int piecesPerCarton(Long productId) {

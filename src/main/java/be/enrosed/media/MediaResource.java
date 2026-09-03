@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.zip.ZipOutputStream;
+import java.util.zip.ZipEntry;
+import jakarta.ws.rs.core.StreamingOutput;
 
 @Path("/api/media-assets")
 @Produces(MediaType.APPLICATION_JSON)
@@ -132,6 +135,37 @@ public class MediaResource {
     public Response delete(@PathParam("id") long id) {
         media.delete(id);
         return Response.noContent().build();
+    }
+
+    public record ZipRequest(List<Long> ids, String variant) {}
+
+    /** Several files at once, as a zip; variant "web" packs the lighter image copies. */
+    @POST
+    @Path("/zip")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces("application/zip")
+    public Response zip(ZipRequest request) {
+        List<Long> ids = request == null || request.ids() == null ? List.of() : request.ids();
+        if (ids.isEmpty()) throw new BusinessRuleException("Kies eerst bestanden om te downloaden");
+        if (ids.size() > 500) throw new BusinessRuleException("Maximaal 500 bestanden per download");
+        List<MediaService.ZipEntrySource> entries = media.zipEntries(ids, "web".equals(request.variant()));
+        StreamingOutput body = output -> {
+            try (ZipOutputStream zip = new ZipOutputStream(output)) {
+                for (MediaService.ZipEntrySource entry : entries) {
+                    zip.putNextEntry(new ZipEntry(entry.entryName()));
+                    try (InputStream data = media.open(entry.storageKey())) {
+                        data.transferTo(zip);
+                    }
+                    zip.closeEntry();
+                }
+            }
+        };
+        String name = "enrosed-bestanden-" + java.time.LocalDate.now() + ".zip";
+        return Response.ok(body).type("application/zip")
+                .header("Content-Disposition", "attachment; filename=\"" + name + "\"")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Cache-Control", "private, no-store")
+                .build();
     }
 
     @GET
