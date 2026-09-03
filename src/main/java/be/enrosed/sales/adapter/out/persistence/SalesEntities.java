@@ -105,8 +105,11 @@ public final class SalesEntities {
         public String countryCode;
         public LocalDate orderDate;
         public LocalDate validUntil;
+        /* The length repeats the definition on purpose: the schema updater
+           compares lengths, and without it every start tried to re-alter
+           the column (with a statement PostgreSQL rejects). */
         @Enumerated(EnumType.STRING)
-        @Column(columnDefinition = "varchar(32)")
+        @Column(columnDefinition = "varchar(32)", length = 32)
         public QuoteStatus status = QuoteStatus.CONCEPT;
         public String incoterm;
         /** Order-specific payment terms; empty means the customer's default. */
@@ -173,7 +176,7 @@ public final class SalesEntities {
 
         /** Null on legacy rows resolves from manualFreightEur. */
         @Enumerated(EnumType.STRING)
-        @Column(columnDefinition = "varchar(24)")
+        @Column(columnDefinition = "varchar(24)", length = 24)
         public FreightPricingStrategy freightPricingStrategy;
 
         @Column(precision = 19, scale = 4)
