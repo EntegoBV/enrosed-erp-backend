@@ -77,13 +77,13 @@
     .lines td:last-child { padding-right: 0; }
     .product { table-layout: fixed; }
     .product td { border: 0; padding: 0; background: transparent; text-align: left; vertical-align: middle; }
-    .product__photo-cell { width: 16mm; padding-right: 2.5mm !important; }
+    .product__photo-cell { width: 27mm; padding-right: 3mm !important; }
     .product-photo {
-      display: block; width: auto; height: 13mm; max-width: 13mm;
+      display: block; width: auto; height: 24mm; max-width: 24mm;
       border: .35pt solid #d9c6a6; border-radius: 2.5mm;
     }
     .product-photo--empty {
-      display: block; width: 13mm; height: 13mm; line-height: 13mm; text-align: center;
+      display: block; width: 24mm; height: 24mm; line-height: 24mm; text-align: center;
       border: .35pt solid #d9c6a6; border-radius: 2.5mm; background: #f7efe3;
       color: #8f2942; font-size: 6.5pt; font-weight: 700;
     }
@@ -159,9 +159,11 @@
     .standard-sheet .facts td { padding: 2.3mm 2.6mm; }
     .standard-sheet .section-title { margin-top: 4mm; }
     .standard-sheet .lines td { padding-top: 2.2mm; padding-bottom: 2.2mm; }
+    /* Portrait leaves the product column room: the photo is the thing you
+       recognise a line by, so it gets a proper thumbnail instead of a stamp. */
     .standard-sheet .product-photo,
-    .standard-sheet .product-photo--empty { width: 12mm; height: 12mm; max-width: 12mm; }
-    .standard-sheet .product-photo--empty { line-height: 12mm; }
+    .standard-sheet .product-photo--empty { width: 22mm; height: 22mm; max-width: 22mm; }
+    .standard-sheet .product-photo--empty { line-height: 22mm; }
 
     /* Supplier agreement: intentionally separate from the internal Dutch read copy. */
     .supplier-sheet .top-rule { margin-bottom: 10.8mm; }
@@ -181,9 +183,9 @@
     .supplier-sheet .lines th:last-child, .supplier-sheet .lines td:last-child { padding-left: 2.5mm; text-align: left; }
     .supplier-sheet .supplier-product { table-layout: fixed; }
     .supplier-sheet .supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
-    .supplier-sheet .product__photo-cell { width: 18mm; }
-    .supplier-sheet .product-photo { width: 15mm; height: auto; max-width: 15mm; }
-    .supplier-sheet .product-photo--empty { width: 15mm; height: 15mm; line-height: 15mm; }
+    .supplier-sheet .product__photo-cell { width: 26mm; }
+    .supplier-sheet .product-photo { width: 23mm; height: auto; max-width: 23mm; }
+    .supplier-sheet .product-photo--empty { width: 23mm; height: 23mm; line-height: 23mm; }
     .supplier-sheet .product__name { font-size: 7.8pt; }
     .supplier-sheet .product__meta, .supplier-sheet .product__specs { font-size: 5.8pt; }
     .supplier-sheet .product__spec {

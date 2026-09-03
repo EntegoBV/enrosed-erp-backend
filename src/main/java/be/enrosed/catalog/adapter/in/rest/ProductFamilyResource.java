@@ -24,6 +24,8 @@ import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.Language;
+import be.enrosed.media.MediaLegacySourceType;
+import be.enrosed.media.MediaService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -82,6 +84,10 @@ public class ProductFamilyResource {
 
     @Inject
     Instance<ActivityLogService> activity;
+
+    /** Keeps the central media registry in sync with deletions from the legacy gallery. */
+    @Inject
+    Instance<MediaService> mediaRegistry;
 
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
@@ -717,6 +723,9 @@ public class ProductFamilyResource {
         galleryGuard.validate(family);
         families.flush();
         familyPhotoCompatibility.sync(family);
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkLegacy(MediaLegacySourceType.FAMILY_PHOTO, imageId);
+        }
         photoReferences.deleteIfUnreferenced(small);
         if (!Objects.equals(small, large)) photoReferences.deleteIfUnreferenced(large);
         recordPhotoActivity(

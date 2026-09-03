@@ -223,7 +223,7 @@ public class PdfPurchaseRenderer {
         PdfOptions normalized(Layout layout, Audience audience) {
             if (layout != Layout.PORTRAIT || audience != Audience.STANDARD) return defaults();
             boolean prices = showPrices;
-            boolean unitPrice = prices && includeUnitPrice;
+            boolean unitPrice = includeUnitPrice;
             /* Freight components are never printed separately anymore. The
                legacy flags stay in the API contract but normalize off. */
             boolean onlyEur = eurOnly && prices;
@@ -379,9 +379,11 @@ public class PdfPurchaseRenderer {
             instance.data("supplierLines", prepared.lines())
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
+            /* Landscape keeps its historical contract: every packing fact, always. */
+            boolean fullPacking = layout == Layout.LANDSCAPE;
             Prepared prepared = prepare(order, costing,
                     options.includeEnrosedCost() || options.includeEnrosedUnitCost(),
-                    options.showOuterCarton(), options.showBarcode());
+                    fullPacking || options.showOuterCarton(), fullPacking || options.showBarcode());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())

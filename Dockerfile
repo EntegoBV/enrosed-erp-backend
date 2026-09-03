@@ -35,6 +35,7 @@ COPY --from=build /build/target/quarkus-app/quarkus/ ./quarkus/
 COPY scripts/run-postgresql-schema-migrations.sh ./scripts/
 COPY docs/migrations/2026-09-01/product-supplier-agreement-photos-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-01/product-line-discount-target-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-03/document-media-manager-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Railway injects PORT; application.properties picks it up.

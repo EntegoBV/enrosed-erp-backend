@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.shared.NotFoundException;
 import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 
 import javax.imageio.ImageIO;
@@ -56,7 +57,10 @@ public class DatabasePhotoStorage implements PhotoStorage {
         if (storageKey == null || !storageKey.matches("sha256-[a-f0-9]{64}\\.[a-z0-9]{1,5}")) {
             throw new IllegalArgumentException("Ongeldige deterministische fotosleutel");
         }
-        if (blobs.findById(storageKey) != null) {
+        // Serialize deterministic reuse with reference-count cleanup on the blob row. Without
+        // this database lock another instance could count zero references and delete between
+        // this existence check and the media_version insert.
+        if (blobs.findById(storageKey, LockModeType.PESSIMISTIC_WRITE) != null) {
             int[] size = readDimensions(bytes);
             return new Stored(storageKey, bytes.length,
                     size[0] == 0 ? null : size[0], size[1] == 0 ? null : size[1]);

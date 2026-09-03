@@ -41,6 +41,7 @@ class SchedulerIsolationRuntimeTest {
                     "enrosed.push.daily-agenda.cron", "off",
                     "enrosed.market.refresh.cron", "off",
                     "enrosed.catalog.photo-rendition.cron", "off",
+                    "enrosed.media.legacy-index.every", "off",
                     "enrosed.public-forms.cleanup.every", "off",
                     "enrosed.contact.outbox.every", "off",
                     "enrosed.contact.retention.every", "off");
