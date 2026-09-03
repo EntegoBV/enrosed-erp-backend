@@ -185,12 +185,27 @@ class QuoteServiceSalesActivityTest {
     }
 
     @Test
-    void cancellingWithoutNoticeSendsNoMailAndAConceptCancelsQuietly() {
+    void aRequestThatNeverWentOutStillTellsTheCustomerWithAFreshLink() {
         SalesOrder concept = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null);
         when(salesOrders.get(42L)).thenReturn(concept);
         when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
 
-        SalesOrder cancelled = service.cancel(42L, null, true);
+        SalesOrder cancelled = service.cancel(42L, "Per vergissing ingediend", true);
+
+        assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
+        assertTrue(cancelled.portalToken() != null && !cancelled.portalToken().isBlank(), "the link needs a token");
+        ArgumentCaptor<String> portalUrl = ArgumentCaptor.forClass(String.class);
+        verify(mailer).sendCancellation(eq(concept), eq(customer()), portalUrl.capture(), eq("Per vergissing ingediend"));
+        assertTrue(portalUrl.getValue().contains(cancelled.portalToken()));
+    }
+
+    @Test
+    void cancellingWithoutNoticeSendsNoMail() {
+        SalesOrder concept = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null);
+        when(salesOrders.get(42L)).thenReturn(concept);
+        when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
+
+        SalesOrder cancelled = service.cancel(42L, null, false);
 
         assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
         verify(mailer, org.mockito.Mockito.never()).sendCancellation(any(), any(), any(), any());

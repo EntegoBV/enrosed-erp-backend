@@ -233,11 +233,14 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     public void sendCancellation(SalesOrder order, Customer customer, String portalUrl, String message) {
         Language language = customer.language();
         Map<String, String> text = DocumentText.of(language);
-        String subject = text.get("mailSubjectCancelled").formatted(order.number());
+        /* Never sent: the customer only ever saw their own request, so the
+           mail speaks of the request, not of an offer they never received. */
+        boolean request = order.sentAt() == null;
+        String subject = text.get(request ? "mailSubjectRequestCancelled" : "mailSubjectCancelled").formatted(order.number());
         String who = customer.contact() == null || customer.contact().isBlank() ? customer.company() : customer.contact();
         StringBuilder html = new StringBuilder();
         html.append("<p>").append(escape(text.get("mailGreeting"))).append(' ').append(escape(who)).append(",</p>");
-        html.append("<p>").append(escape(text.get("mailCancelledIntro").formatted(order.number()))).append("</p>");
+        html.append("<p>").append(escape(text.get(request ? "mailRequestCancelledIntro" : "mailCancelledIntro").formatted(order.number()))).append("</p>");
         if (message != null && !message.isBlank()) {
             html.append("<p>").append(escape(message.strip()).replace("\n", "<br/>")).append("</p>");
         }

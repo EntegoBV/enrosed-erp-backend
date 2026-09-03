@@ -796,11 +796,16 @@ public class QuoteService {
         String message = reason == null || reason.isBlank() ? null : reason.strip();
         requireMessageLength(message);
 
+        /* A request that never went out can still be withdrawn with a word
+           to the customer: they typed it themselves on the website. The mail
+           carries a link, so the token is made now when it does not exist. */
+        String token = order.portalToken();
         String toldCustomer = null;
-        if (notifyCustomer && order.sentAt() != null && order.customerId() != null) {
+        if (notifyCustomer && order.customerId() != null) {
             Customer customer = customers.get(order.customerId());
             if (customer.email() != null && !customer.email().isBlank()) {
-                mailer.sendCancellation(order, customer, activePortalUrl(order).orElse(null), message);
+                if (token == null || token.isBlank()) token = newToken();
+                mailer.sendCancellation(order, customer, portalUrl(token), message);
                 toldCustomer = customer.email();
             }
         }
@@ -809,7 +814,7 @@ public class QuoteService {
         record(order, QuoteEvent.Type.GEANNULEERD, false, actor.displayName(),
                 toldCustomer == null ? "Offerte geannuleerd" : "Offerte geannuleerd, klant verwittigd op " + toldCustomer,
                 message);
-        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, order.portalToken(),
+        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, token,
                 order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
                 order.customerMessage()));
         recordActivity("CANCELLED", order, "Offerte geannuleerd");
