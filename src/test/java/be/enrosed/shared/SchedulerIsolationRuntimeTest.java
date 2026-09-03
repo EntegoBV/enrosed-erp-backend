@@ -44,7 +44,8 @@ class SchedulerIsolationRuntimeTest {
                     "enrosed.media.legacy-index.every", "off",
                     "enrosed.public-forms.cleanup.every", "off",
                     "enrosed.contact.outbox.every", "off",
-                    "enrosed.contact.retention.every", "off");
+                    "enrosed.contact.retention.every", "off",
+                    "enrosed.analytics.retention.every", "off");
         }
     }
 }

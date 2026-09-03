@@ -24,4 +24,5 @@ exec psql \
     --file=/app/migrations/product-line-discount-target-postgresql.sql \
     --file=/app/migrations/document-media-manager-postgresql.sql \
     --file=/app/migrations/media-folders-shares-web-postgresql.sql \
-    --file=/app/migrations/sales-order-column-lengths-postgresql.sql
+    --file=/app/migrations/sales-order-column-lengths-postgresql.sql \
+    --file=/app/migrations/website-visits-postgresql.sql
