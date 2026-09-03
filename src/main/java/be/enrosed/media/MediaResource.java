@@ -44,9 +44,30 @@ public class MediaResource {
             @QueryParam("targetId") Long targetId,
             @QueryParam("includeArchived") @DefaultValue("false") boolean includeArchived,
             @QueryParam("offset") @DefaultValue("0") int offset,
-            @QueryParam("limit") @DefaultValue("100") int limit) {
+            @QueryParam("limit") @DefaultValue("100") int limit,
+            @QueryParam("folder") String folder) {
+        boolean rootOnly = "root".equalsIgnoreCase(folder);
+        Long folderId = folder == null || folder.isBlank() || rootOnly ? null : Long.valueOf(folder);
         return media.list(query, kind, role, archived, targetType, targetId,
-                includeArchived, offset, limit);
+                includeArchived, offset, limit, folderId, rootOnly);
+    }
+
+    @PUT
+    @Path("/{id}/folder")
+    public MediaDtos.Detail move(@PathParam("id") long id, MediaDtos.MoveRequest request) {
+        return media.move(id, request == null ? null : request.folderId());
+    }
+
+    @POST
+    @Path("/{id}/share")
+    public MediaDtos.Detail share(@PathParam("id") long id) {
+        return media.share(id);
+    }
+
+    @DELETE
+    @Path("/{id}/share")
+    public MediaDtos.Detail unshare(@PathParam("id") long id) {
+        return media.unshare(id);
     }
 
     @GET
@@ -58,9 +79,10 @@ public class MediaResource {
     @POST
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     public Response upload(@RestForm("file") FileUpload upload,
-                           @RestForm("name") String name) throws IOException {
+                           @RestForm("name") String name,
+                           @RestForm("folderId") Long folderId) throws IOException {
         MediaUploadPolicy.ValidatedFile file = validated(upload);
-        MediaDtos.UploadResult result = media.upload(name, file);
+        MediaDtos.UploadResult result = media.upload(name, file, folderId);
         return Response.status(result.reused() ? Response.Status.OK : Response.Status.CREATED)
                 .entity(result).build();
     }

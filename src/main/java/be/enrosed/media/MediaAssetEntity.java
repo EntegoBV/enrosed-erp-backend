@@ -41,4 +41,7 @@ public class MediaAssetEntity extends PanacheEntityBase {
     public Instant updatedAt;
     @Column(name = "created_by", length = 64)
     public String createdBy;
+    /** The folder the library shows the asset in; null is the root. */
+    @Column(name = "folder_id")
+    public Long folderId;
 }

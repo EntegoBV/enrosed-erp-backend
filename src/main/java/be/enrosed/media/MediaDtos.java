@@ -47,7 +47,9 @@ public final class MediaDtos {
             Long currentVersionId,
             List<MediaRole> roles,
             List<Link> links,
-            int versionCount
+            int versionCount,
+            Long folderId,
+            Share share
     ) {}
 
     public record Detail(
@@ -67,12 +69,25 @@ public final class MediaDtos {
             List<MediaRole> roles,
             List<Link> links,
             int versionCount,
-            List<Version> versions
+            List<Version> versions,
+            Long folderId,
+            Share share
     ) {}
 
     public record UploadResult(Detail asset, boolean reused) {}
 
     public record MetadataRequest(String name) {}
+
+    /** A folder of the library tree with how many assets sit directly in it. */
+    public record Folder(Long id, String name, Long parentId, long assetCount) {}
+
+    public record FolderRequest(String name, Long parentId) {}
+
+    /** Where an asset moves to; null is the root. */
+    public record MoveRequest(Long folderId) {}
+
+    /** The live public link of an asset; the URL is built by the caller from the token. */
+    public record Share(String token, Instant createdAt, String createdBy, long downloads) {}
 
     public record LinkRequest(MediaTargetType targetType, Long targetId, MediaRole role) {}
 }

@@ -64,6 +64,13 @@ public class MediaService {
     @Transactional
     public MediaDtos.UploadResult upload(String requestedName,
                                          MediaUploadPolicy.ValidatedFile file) {
+        return upload(requestedName, file, null);
+    }
+
+    /** Uploads into a folder; a deduplicated asset keeps the folder it already has. */
+    @Transactional
+    public MediaDtos.UploadResult upload(String requestedName,
+                                         MediaUploadPolicy.ValidatedFile file, Long folderId) {
         String sha = sha256(file.bytes());
         MediaVersionEntity existing = versionBySha(sha);
         if (existing != null) {
@@ -86,6 +93,7 @@ public class MediaService {
         asset.createdAt = now;
         asset.updatedAt = now;
         asset.createdBy = actor.current().username();
+        asset.folderId = folderId == null ? null : requiredFolder(folderId).id;
         entities.persist(asset);
         entities.flush();
 
@@ -120,8 +128,24 @@ public class MediaService {
     public List<MediaDtos.Summary> list(String query, MediaKind kind, MediaRole role,
                                         Boolean archived, MediaTargetType targetType, Long targetId,
                                         boolean includeArchived, int offset, int limit) {
+        return list(query, kind, role, archived, targetType, targetId, includeArchived, offset, limit,
+                null, false);
+    }
+
+    /** {@code folderId} narrows to one folder, {@code rootOnly} to the assets outside every folder. */
+    @Transactional
+    public List<MediaDtos.Summary> list(String query, MediaKind kind, MediaRole role,
+                                        Boolean archived, MediaTargetType targetType, Long targetId,
+                                        boolean includeArchived, int offset, int limit,
+                                        Long folderId, boolean rootOnly) {
         List<String> where = new ArrayList<>();
         Map<String, Object> params = new LinkedHashMap<>();
+        if (folderId != null) {
+            where.add("a.folderId = :folderId");
+            params.put("folderId", folderId);
+        } else if (rootOnly) {
+            where.add("a.folderId is null");
+        }
         if (archived != null || !includeArchived) {
             boolean archivedFilter = archived != null && archived;
             where.add("a.archived = :archived");
@@ -598,6 +622,157 @@ public class MediaService {
         }
     }
 
+    /* ---------------------------------------------------------------- folders */
+
+    @Transactional
+    public List<MediaDtos.Folder> folders() {
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (Object[] row : entities.createQuery(
+                "select a.folderId, count(a) from MediaAssetEntity a where a.folderId is not null "
+                        + "and a.archived = false group by a.folderId", Object[].class).getResultList()) {
+            counts.put((Long) row[0], (Long) row[1]);
+        }
+        return entities.createQuery("select f from MediaFolderEntity f order by lower(f.name), f.id",
+                        MediaFolderEntity.class).getResultList().stream()
+                .map(folder -> new MediaDtos.Folder(folder.id, folder.name, folder.parentId,
+                        counts.getOrDefault(folder.id, 0L)))
+                .toList();
+    }
+
+    @Transactional
+    public MediaDtos.Folder createFolder(MediaDtos.FolderRequest request) {
+        MediaFolderEntity folder = new MediaFolderEntity();
+        folder.name = folderName(request == null ? null : request.name());
+        folder.parentId = request == null || request.parentId() == null ? null : requiredFolder(request.parentId()).id;
+        folder.createdAt = Instant.now();
+        folder.createdBy = actor.current().username();
+        entities.persist(folder);
+        entities.flush();
+        return new MediaDtos.Folder(folder.id, folder.name, folder.parentId, 0);
+    }
+
+    /** Renames and, when the parent changes, moves the folder; a folder never lands inside itself. */
+    @Transactional
+    public MediaDtos.Folder updateFolder(long id, MediaDtos.FolderRequest request) {
+        MediaFolderEntity folder = requiredFolder(id);
+        if (request != null && request.name() != null) folder.name = folderName(request.name());
+        if (request != null) {
+            Long parentId = request.parentId();
+            if (parentId != null) {
+                requiredFolder(parentId);
+                for (Long cursor = parentId; cursor != null; cursor = requiredFolder(cursor).parentId) {
+                    if (cursor.equals(id)) throw new BusinessRuleException("Een map kan niet in zichzelf.");
+                }
+            }
+            folder.parentId = parentId;
+        }
+        long count = entities.createQuery(
+                        "select count(a) from MediaAssetEntity a where a.folderId = :id and a.archived = false", Long.class)
+                .setParameter("id", id).getSingleResult();
+        return new MediaDtos.Folder(folder.id, folder.name, folder.parentId, count);
+    }
+
+    /** Deleting a folder hands its files and subfolders to the parent; nothing is lost. */
+    @Transactional
+    public void deleteFolder(long id) {
+        MediaFolderEntity folder = requiredFolder(id);
+        entities.createQuery("update MediaAssetEntity a set a.folderId = :parent where a.folderId = :id")
+                .setParameter("parent", folder.parentId).setParameter("id", id).executeUpdate();
+        entities.createQuery("update MediaFolderEntity f set f.parentId = :parent where f.parentId = :id")
+                .setParameter("parent", folder.parentId).setParameter("id", id).executeUpdate();
+        entities.remove(folder);
+    }
+
+    @Transactional
+    public MediaDtos.Detail move(long assetId, Long folderId) {
+        MediaAssetEntity asset = requiredAsset(assetId);
+        asset.folderId = folderId == null ? null : requiredFolder(folderId).id;
+        asset.updatedAt = Instant.now();
+        return detail(asset);
+    }
+
+    private MediaFolderEntity requiredFolder(long id) {
+        MediaFolderEntity folder = entities.find(MediaFolderEntity.class, id);
+        if (folder == null) throw new NotFoundException("Map", id);
+        return folder;
+    }
+
+    private static String folderName(String raw) {
+        String name = raw == null ? "" : raw.strip();
+        if (name.isEmpty()) throw new BusinessRuleException("Geef de map een naam.");
+        if (name.length() > 120) throw new BusinessRuleException("Een mapnaam telt maximaal 120 tekens.");
+        return name;
+    }
+
+    /* ---------------------------------------------------------------- public links */
+
+    /** One live link per asset; asking again returns the same token. */
+    @Transactional
+    public MediaDtos.Detail share(long assetId) {
+        MediaAssetEntity asset = requiredAsset(assetId);
+        if (activeShare(assetId) == null) {
+            MediaShareEntity share = new MediaShareEntity();
+            share.assetId = assetId;
+            share.token = newShareToken();
+            share.createdAt = Instant.now();
+            share.createdBy = actor.current().username();
+            entities.persist(share);
+            entities.flush();
+            activity.record(ActivityLogService.ACTION_DOCUMENT_ADDED, ACTIVITY_ENTITY,
+                    asset.id.toString(), asset.name, "Publieke link gemaakt", ActivityChangeSet.create().build());
+        }
+        return detail(asset);
+    }
+
+    @Transactional
+    public MediaDtos.Detail unshare(long assetId) {
+        MediaAssetEntity asset = requiredAsset(assetId);
+        MediaShareEntity share = activeShare(assetId);
+        if (share != null) {
+            share.revokedAt = Instant.now();
+            activity.record(ActivityLogService.ACTION_DOCUMENT_ADDED, ACTIVITY_ENTITY,
+                    asset.id.toString(), asset.name, "Publieke link ingetrokken", ActivityChangeSet.create().build());
+        }
+        return detail(asset);
+    }
+
+    /** The current version behind a live token; unknown or revoked tokens read as not found. */
+    @Transactional
+    public FileRef publicFile(String token) {
+        if (token == null || token.length() < 20 || token.length() > 64) throw new NotFoundException("Bestand", 0L);
+        List<MediaShareEntity> shares = entities.createQuery(
+                        "select s from MediaShareEntity s where s.token = :token and s.revokedAt is null",
+                        MediaShareEntity.class)
+                .setParameter("token", token).getResultList();
+        if (shares.isEmpty()) throw new NotFoundException("Bestand", 0L);
+        MediaShareEntity share = shares.get(0);
+        MediaAssetEntity asset = entities.find(MediaAssetEntity.class, share.assetId);
+        if (asset == null || asset.archived) throw new NotFoundException("Bestand", share.assetId);
+        share.downloads++;
+        MediaVersionEntity version = currentVersion(asset);
+        return new FileRef(storage.read(version.storageKey), version.contentType,
+                version.originalFilename, version.sizeBytes);
+    }
+
+    private MediaShareEntity activeShare(Long assetId) {
+        List<MediaShareEntity> shares = entities.createQuery(
+                        "select s from MediaShareEntity s where s.assetId = :id and s.revokedAt is null order by s.id desc",
+                        MediaShareEntity.class)
+                .setParameter("id", assetId).setMaxResults(1).getResultList();
+        return shares.isEmpty() ? null : shares.get(0);
+    }
+
+    private static MediaDtos.Share share(MediaShareEntity share) {
+        return share == null ? null
+                : new MediaDtos.Share(share.token, share.createdAt, share.createdBy, share.downloads);
+    }
+
+    private static String newShareToken() {
+        byte[] bytes = new byte[24];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     @Transactional
     public MediaDtos.Detail detailForAsset(long id) {
         return detail(requiredAsset(id));
@@ -614,7 +789,8 @@ public class MediaService {
         return new MediaDtos.Summary(asset.id, asset.name, current.originalFilename,
                 current.contentType, current.sizeBytes, current.sha256, asset.kind,
                 current.widthPx, current.heightPx, asset.archived, asset.createdAt,
-                asset.updatedAt, asset.currentVersionId, roles, links, versionCount);
+                asset.updatedAt, asset.currentVersionId, roles, links, versionCount,
+                asset.folderId, share(activeShare(asset.id)));
     }
 
     /** Hydrates a whole list page in bounded bulk queries instead of 3+N lookups per asset. */
@@ -623,6 +799,13 @@ public class MediaService {
         List<Long> assetIds = assets.stream().map(asset -> asset.id).toList();
         List<Long> currentIds = assets.stream().map(asset -> asset.currentVersionId)
                 .filter(Objects::nonNull).distinct().toList();
+        Map<Long, MediaShareEntity> shares = new LinkedHashMap<>();
+        for (MediaShareEntity share : entities.createQuery(
+                        "select s from MediaShareEntity s where s.assetId in :ids and s.revokedAt is null",
+                        MediaShareEntity.class)
+                .setParameter("ids", assetIds).getResultList()) {
+            shares.put(share.assetId, share);
+        }
 
         Map<Long, MediaVersionEntity> currentById = currentIds.isEmpty() ? Map.of()
                 : entities.createQuery("select v from MediaVersionEntity v where v.id in :ids",
@@ -665,7 +848,8 @@ public class MediaService {
                     current.contentType, current.sizeBytes, current.sha256, asset.kind,
                     current.widthPx, current.heightPx, asset.archived, asset.createdAt,
                     asset.updatedAt, asset.currentVersionId, roles, links,
-                    versionCounts.getOrDefault(asset.id, 0)));
+                    versionCounts.getOrDefault(asset.id, 0),
+                    asset.folderId, share(shares.get(asset.id))));
         }
         return List.copyOf(result);
     }
@@ -686,8 +870,11 @@ public class MediaService {
                                 ProductFamilyEntity.class)
                         .setParameter("ids", ids).getResultList()
                         .forEach(row -> labels.put(new TargetKey(type, row.id), label(row)));
+                /* A nested entity is not reachable by its simple name in HQL. */
                 case PURCHASE_ORDER -> entities.createQuery(
-                                "select p from PurchaseOrderEntity p where p.id in :ids",
+                                "select p from " + entities.getMetamodel()
+                                        .entity(SourcingEntities.PurchaseOrderEntity.class).getName()
+                                        + " p where p.id in :ids",
                                 SourcingEntities.PurchaseOrderEntity.class)
                         .setParameter("ids", ids).getResultList()
                         .forEach(row -> labels.put(new TargetKey(type, row.id), label(row)));
@@ -709,7 +896,7 @@ public class MediaService {
                 summary.contentType(), summary.sizeBytes(), summary.sha256(), summary.kind(),
                 summary.widthPx(), summary.heightPx(), summary.archived(), summary.createdAt(),
                 summary.updatedAt(), summary.currentVersionId(), summary.roles(), summary.links(),
-                summary.versionCount(), versions);
+                summary.versionCount(), versions, summary.folderId(), summary.share());
     }
 
     private List<MediaDtos.Link> links(Long assetId) {
