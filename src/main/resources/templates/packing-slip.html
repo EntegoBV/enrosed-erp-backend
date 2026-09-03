@@ -73,12 +73,18 @@
     }
     table.pallet .column-head th.r { text-align: right; }
     table.pallet td {
-      padding: 7px 10px; border-bottom: 1px solid #ebe4dc; font-size: 9.6pt;
+      padding: 6px 10px; border-bottom: 1px solid #ebe4dc; font-size: 9.6pt;
       vertical-align: top;
     }
     table.pallet tbody tr.alt td { background: #fbf8f4; }
     table.pallet tbody tr:last-child td { border-bottom: 0; }
     .product-name { font-weight: bold; line-height: 1.35; }
+    .product-details {
+      margin-top: 2px; color: #736b65; font-size: 7.3pt; line-height: 1.35;
+    }
+    .product-detail { display: inline; }
+    .product-detail + .product-detail:before { content: "  ·  "; color: #c9a45c; }
+    .product-detail b { color: #453e39; }
 
     table.totals {
       width: 100%; margin-top: 14px; border-collapse: collapse;
@@ -158,7 +164,17 @@
     <tbody>
     {#for item in pallet.items}
       <tr class="{#if item_even}alt{/if}">
-        <td class="product-name">{item.description}</td>
+        <td>
+          <div class="product-name">{item.description}</div>
+          {#if showOuterCarton || showBarcode}<div class="product-details">
+            {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
+            {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
+              {#if item.outerCartonDimensions}{item.outerCartonDimensions}{/if}
+              {#if item.piecesPerOuterCarton} · {item.piecesPerOuterCarton} {t.pieces}{/if}
+              {#if showBarcode}{#if item.outerCartonBarcode} · EAN {item.outerCartonBarcode}{/if}{/if}
+            </span>{/if}
+          </div>{/if}
+        </td>
         <td class="r">{item.cartons}</td>
         <td class="r">{item.pieces}</td>
       </tr>
@@ -178,7 +194,17 @@
     <tbody>
     {#for item in slip.loose}
       <tr class="{#if item_even}alt{/if}">
-        <td class="product-name">{item.description}</td>
+        <td>
+          <div class="product-name">{item.description}</div>
+          {#if showOuterCarton || showBarcode}<div class="product-details">
+            {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
+            {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
+              {#if item.outerCartonDimensions}{item.outerCartonDimensions}{/if}
+              {#if item.piecesPerOuterCarton} · {item.piecesPerOuterCarton} {t.pieces}{/if}
+              {#if showBarcode}{#if item.outerCartonBarcode} · EAN {item.outerCartonBarcode}{/if}{/if}
+            </span>{/if}
+          </div>{/if}
+        </td>
         <td class="r">{item.cartons}</td>
         <td class="r">{item.pieces}</td>
       </tr>

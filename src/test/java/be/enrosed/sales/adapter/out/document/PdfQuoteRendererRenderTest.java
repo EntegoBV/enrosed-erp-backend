@@ -1,5 +1,10 @@
 package be.enrosed.sales.adapter.out.document;
 
+import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.Barcodes;
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.domain.Customer;
@@ -15,6 +20,7 @@ import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.sales.domain.VatTreatment;
 import be.enrosed.shared.Brand;
+import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfile;
@@ -22,6 +28,7 @@ import be.enrosed.shared.company.CompanyProfileService;
 import io.quarkus.qute.Engine;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Instance;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -44,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.when;
 
 /**
@@ -155,11 +163,82 @@ class PdfQuoteRendererRenderTest {
         assertTrue(defaults.includeProductDetails());
         assertTrue(defaults.includeLogistics());
         assertTrue(defaults.includeTerms());
+        assertFalse(defaults.showOuterCarton());
+        assertFalse(defaults.showBarcode());
         assertEquals("Bowl Rozen XL - Red",
                 PdfQuoteRenderer.cleanFallbackTitle(
                         "Bowl Rozen XL - B × D × H: 10 × 10 × 8 cm - Red"));
         assertTrue(PdfQuoteRenderer.hasLineDiscounts(priced(1)));
         assertFalse(PdfQuoteRenderer.hasLineDiscounts(priced(1, false)));
+    }
+
+    @Test
+    void quotationAndInvoiceOnlyShowBarcodeAndOuterCartonWhenRequested() throws Exception {
+        @SuppressWarnings("unchecked")
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData());
+        renderer.products = productInstance;
+
+        for (DocumentType type : List.of(DocumentType.OFFERTE, DocumentType.FACTUUR)) {
+            String number = type == DocumentType.FACTUUR ? "F-2026-0091" : "ENR-2026-0191";
+            PdfQuoteRenderer.Document compact = renderer.render(
+                    order(type, number, 1), priced(1), customer(), null,
+                    Language.NL, new SalesPdfOptions(false, false, false, false));
+            try (PDDocument pdf = Loader.loadPDF(compact.content())) {
+                String text = textOf(pdf);
+                assertFalse(text.contains("8712345678906"));
+                assertFalse(text.contains("8712345678913"));
+                assertFalse(text.contains("40 × 30 × 20 cm"));
+            }
+
+            PdfQuoteRenderer.Document detailed = renderer.render(
+                    order(type, number, 1), priced(1), customer(), null,
+                    Language.NL, new SalesPdfOptions(false, false, false, false,
+                            true, true));
+            try (PDDocument pdf = Loader.loadPDF(detailed.content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("8712345678906"));
+                assertTrue(text.contains("8712345678913"));
+                assertTrue(text.contains("40 × 30 × 20 cm"));
+                assertTrue(text.contains("12 stuks"));
+                assertTrue(text.contains("stukprijs"), "commercial columns stay mandatory");
+            }
+        }
+    }
+
+    @Test
+    void packingSlipMasterDataIsOptInAndRemainsPriceFree() throws Exception {
+        QuoteDocumentRenderer.PackingItem item = new QuoteDocumentRenderer.PackingItem(
+                "Preserved rose glass bowl", 2, 24, "40 × 30 × 20 cm", 12,
+                "8712345678906", "8712345678913");
+        QuoteDocumentRenderer.PackingSlip slip = new QuoteDocumentRenderer.PackingSlip(
+                order(DocumentType.FACTUUR, "F-2026-0092", 1), customer(), List.of(),
+                List.of(item), 2, 24, true);
+
+        String defaultHtml = renderer.packingSlipHtml(slip);
+        assertFalse(defaultHtml.contains("8712345678906"));
+        assertFalse(defaultHtml.contains("40 × 30 × 20 cm"));
+
+        SalesPdfOptions options = SalesPdfOptions.forPackingSlip(true, true);
+        String detailedHtml = renderer.packingSlipHtml(slip, options);
+        assertTrue(detailedHtml.contains("8712345678906"));
+        assertTrue(detailedHtml.contains("8712345678913"));
+        assertTrue(detailedHtml.contains("40 × 30 × 20 cm"));
+
+        PdfQuoteRenderer.Document document = renderer.packingSlip(slip, options);
+        writePreview("enrosed-sales-packing-slip-product-data-preview.pdf", document.content());
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertPortraitAndEmbedded(pdf);
+            String text = textOf(pdf);
+            assertTrue(text.contains("8712345678906"));
+            assertTrue(text.contains("8712345678913"));
+            assertTrue(text.contains("40 × 30 × 20 cm"));
+            assertFalse(text.contains("stukprijs"));
+            assertFalse(text.contains("eur"));
+        }
     }
 
     @Test
@@ -406,6 +485,19 @@ class PdfQuoteRendererRenderTest {
                     "Preserved rose glass bowl kleur " + index, 2, 24));
         }
         return items;
+    }
+
+    private static Product productWithPrintableMasterData() {
+        return new Product(
+                1L, "ER-GLASS-001", "Counter display premium",
+                new Dimensions(bd("10"), bd("10"), bd("8")), "Red",
+                "Preserved rose display", 1L, 1L, true,
+                new Barcodes("8712345678906", "8712345678913"), "0603",
+                new Carton(new Dimensions(bd("40"), bd("30"), bd("20")),
+                        12, bd("6.2")),
+                bd("4.00"), Currency.USD, BigDecimal.ZERO,
+                bd("6.00"), "PO-1", bd("45"), bd("12.50"), 480,
+                List.of(), List.of());
     }
 
     private static BigDecimal bd(String value) {

@@ -204,6 +204,10 @@ public class SourcingResource {
      *                               exposing the individual cost components.
      * @param showPaymentTerms whether the agreed payment term appears in the
      *                         standard portrait order facts.
+     * @param showOuterCarton whether outer-carton dimensions and quantity are
+     *                        included in standard portrait product details.
+     * @param showBarcode whether product and packaging barcodes are included
+     *                    in standard portrait product details.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -225,7 +229,11 @@ public class SourcingResource {
                                 @QueryParam("includeEnrosedUnitCost") @DefaultValue("false")
                                 boolean includeEnrosedUnitCost,
                                 @QueryParam("showPaymentTerms") @DefaultValue("false")
-                                boolean showPaymentTerms) {
+                                boolean showPaymentTerms,
+                                @QueryParam("showOuterCarton") @DefaultValue("false")
+                                boolean showOuterCarton,
+                                @QueryParam("showBarcode") @DefaultValue("false")
+                                boolean showBarcode) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -242,7 +250,7 @@ public class SourcingResource {
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
                         showFreight, includeFreight, includeEnrosedCost, includeUnitPrice,
-                        includeEnrosedUnitCost, showPaymentTerms));
+                        includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
@@ -257,14 +265,14 @@ public class SourcingResource {
                                 boolean includeEnrosedCost) {
         return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
                 showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost,
-                false, false, false);
+                false, false, false, false, false);
     }
 
     /** Java-call compatibility for tests and callers predating portrait options. */
     public Response purchasePdf(long id, boolean showRevenue, String layout, String audience) {
         return purchasePdf(id, showRevenue, layout, audience,
                 false, false, false, false, false, false, false,
-                false, false, false);
+                false, false, false, false, false);
     }
 
     /** Copies the calculation to price a variant quickly. */

@@ -25,8 +25,15 @@ public interface QuoteDocumentRenderer {
 
     /* ---- packing slip ------------------------------------------------ */
 
-    /** One product on a pallet (or in the loose rest). */
-    record PackingItem(String description, int cartons, int pieces) {}
+    /** One product on a pallet (or in the loose rest), enriched without prices. */
+    record PackingItem(String description, int cartons, int pieces,
+                       String outerCartonDimensions, Integer piecesPerOuterCarton,
+                       String barcode, String outerCartonBarcode) {
+        /** Compatibility for callers that only need the operational quantities. */
+        public PackingItem(String description, int cartons, int pieces) {
+            this(description, cartons, pieces, null, null, null, null);
+        }
+    }
 
     /** One pallet as it will stand on the truck. */
     record PackingPallet(String label, String type, Integer heightCm, List<PackingItem> items) {}
@@ -41,4 +48,9 @@ public interface QuoteDocumentRenderer {
                        boolean looseCartons) {}
 
     Document packingSlip(PackingSlip slip);
+
+    /** Optional warehouse-facing product master data; prices remain impossible here. */
+    default Document packingSlip(PackingSlip slip, SalesPdfOptions options) {
+        return packingSlip(slip);
+    }
 }

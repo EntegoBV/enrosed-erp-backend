@@ -192,11 +192,21 @@ public class SalesOrderResource {
     @GET
     @Path("/{id}/packing-slip")
     @Produces("application/pdf")
-    public Response packingSlip(@PathParam("id") long id) {
-        QuoteDocumentRenderer.Document document = quotes.packingSlip(id);
+    public Response packingSlip(@PathParam("id") long id,
+                                @QueryParam("showOuterCarton") @DefaultValue("false")
+                                boolean showOuterCarton,
+                                @QueryParam("showBarcode") @DefaultValue("false")
+                                boolean showBarcode) {
+        QuoteDocumentRenderer.Document document = quotes.packingSlip(id,
+                SalesPdfOptions.forPackingSlip(showOuterCarton, showBarcode));
         return Response.ok(document.content())
                 .header("Content-Disposition", "inline; filename=" + document.filename())
                 .build();
+    }
+
+    /** Java-call compatibility for callers predating packing-slip options. */
+    public Response packingSlip(long id) {
+        return packingSlip(id, false, false);
     }
 
     @GET
@@ -209,14 +219,26 @@ public class SalesOrderResource {
                         boolean includeProductDetails,
                         @QueryParam("includeLogistics") @DefaultValue("true")
                         boolean includeLogistics,
-                        @QueryParam("includeTerms") @DefaultValue("true") boolean includeTerms) {
+                        @QueryParam("includeTerms") @DefaultValue("true") boolean includeTerms,
+                        @QueryParam("showOuterCarton") @DefaultValue("false")
+                        boolean showOuterCarton,
+                        @QueryParam("showBarcode") @DefaultValue("false")
+                        boolean showBarcode) {
         QuoteDocumentRenderer.Document document = quotes.document(id,
                 language == null || language.isBlank() ? null : Language.of(language),
                 new SalesPdfOptions(includePhotos, includeProductDetails,
-                        includeLogistics, includeTerms));
+                        includeLogistics, includeTerms, showOuterCarton, showBarcode));
         return Response.ok(document.content())
                 .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /** Java-call compatibility for callers predating printable master-data options. */
+    public Response pdf(long id, String language, boolean includePhotos,
+                        boolean includeProductDetails, boolean includeLogistics,
+                        boolean includeTerms) {
+        return pdf(id, language, includePhotos, includeProductDetails, includeLogistics,
+                includeTerms, false, false);
     }
 
     @GET

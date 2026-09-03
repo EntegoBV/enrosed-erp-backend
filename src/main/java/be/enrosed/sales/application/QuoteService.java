@@ -1,5 +1,7 @@
 package be.enrosed.sales.application;
 
+import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.QuoteMailer;
 import be.enrosed.sales.application.port.out.SalesRepositories;
@@ -127,6 +129,14 @@ public class QuoteService {
      * adapts to how far the planning got.
      */
     public QuoteDocumentRenderer.Document packingSlip(long orderId) {
+        return packingSlip(orderId, SalesPdfOptions.forPackingSlip(false, false));
+    }
+
+    /** Warehouse export with opt-in, price-free product master data. */
+    public QuoteDocumentRenderer.Document packingSlip(long orderId,
+                                                       SalesPdfOptions requestedOptions) {
+        SalesPdfOptions options = requestedOptions == null
+                ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         SalesOrder order = salesOrders.get(orderId);
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
 
@@ -140,8 +150,7 @@ public class QuoteService {
                 var product = products.get(item.productId());
                 int per = product.carton() == null ? 1
                         : Math.max(1, product.carton().piecesPerCarton());
-                items.add(new QuoteDocumentRenderer.PackingItem(
-                        product.describe(), item.cartons(), item.cartons() * per));
+                items.add(packingItem(product, item.cartons(), item.cartons() * per, options));
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
             String label = pallet.label() == null || pallet.label().isBlank()
@@ -166,14 +175,41 @@ public class QuoteService {
             totalPieces += cartons * per;
             int left = cartons - assigned.getOrDefault(line.productId(), 0);
             if (left > 0) {
-                loose.add(new QuoteDocumentRenderer.PackingItem(
-                        product.describe(), left, left * per));
+                loose.add(packingItem(product, left, left * per, options));
             }
         }
 
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
                 order, customer, pallets, loose, totalCartons, totalPieces,
-                order.loadMode() == LoadMode.LOOSE_CARTONS));
+                order.loadMode() == LoadMode.LOOSE_CARTONS), options);
+    }
+
+    private static QuoteDocumentRenderer.PackingItem packingItem(
+            Product product, int cartons, int pieces, SalesPdfOptions options) {
+        boolean includeCarton = options.showOuterCarton() && product.carton() != null;
+        String productBarcode = options.showBarcode()
+                ? firstNonBlank(product.canonicalBarcode(),
+                        product.barcodes() == null ? null : product.barcodes().inner())
+                : null;
+        String outerBarcode = includeCarton && options.showBarcode()
+                && product.barcodes() != null ? product.barcodes().outer() : null;
+        return new QuoteDocumentRenderer.PackingItem(
+                product.describe(), cartons, pieces,
+                includeCarton ? printableDimensions(product.carton().dimensions()) : null,
+                includeCarton ? Math.max(1, product.carton().piecesPerCarton()) : null,
+                productBarcode, outerBarcode);
+    }
+
+    private static String printableDimensions(Dimensions dimensions) {
+        if (dimensions == null || dimensions.isBlank()) return null;
+        String label = dimensions.label();
+        int separator = label.indexOf(':');
+        return separator < 0 ? label : label.substring(separator + 1).strip();
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) return first.strip();
+        return second == null || second.isBlank() ? null : second.strip();
     }
 
     /* ============================================================= sending */

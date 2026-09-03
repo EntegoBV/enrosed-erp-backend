@@ -308,8 +308,10 @@
             <div class="line-name">{line.title}</div>
             {#if line.variantText}<div class="line-variant">{line.variantText}</div>{/if}
             {#if line.description}<div class="line-description">{line.description}</div>{/if}
-            {#if line.productSpecs}
-              <div class="line-specs">{#for spec in line.productSpecs}<span class="line-spec"><b>{spec.label}:</b> {spec.value}</span>{/for}</div>
+            {#if includeProductDetails || showOuterCarton || showBarcode}
+              {#if line.productSpecs}
+                <div class="line-specs">{#for spec in line.productSpecs}<span class="line-spec"><b>{spec.label}:</b> {spec.value}</span>{/for}</div>
+              {/if}
             {/if}
             {#if line.metaText}<div class="line-meta">{line.metaText}</div>{/if}
           </td>

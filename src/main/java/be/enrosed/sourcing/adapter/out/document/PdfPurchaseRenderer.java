@@ -172,7 +172,18 @@ public class PdfPurchaseRenderer {
     public record PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                              boolean eurOnly, boolean showFreight, boolean includeFreight,
                              boolean includeEnrosedCost, boolean includeUnitPrice,
-                             boolean includeEnrosedUnitCost, boolean showPaymentTerms) {
+                             boolean includeEnrosedUnitCost, boolean showPaymentTerms,
+                             boolean showOuterCarton, boolean showBarcode) {
+        /** Compatibility for callers written before optional packing details. */
+        public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                          boolean eurOnly, boolean showFreight, boolean includeFreight,
+                          boolean includeEnrosedCost, boolean includeUnitPrice,
+                          boolean includeEnrosedUnitCost, boolean showPaymentTerms) {
+            this(showSupplier, showPrices, showEur, eurOnly, showFreight, includeFreight,
+                    includeEnrosedCost, includeUnitPrice, includeEnrosedUnitCost,
+                    showPaymentTerms, false, false);
+        }
+
         /** Compatibility for callers written before unit landed cost and payment terms. */
         public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                           boolean eurOnly, boolean showFreight, boolean includeFreight,
@@ -206,7 +217,7 @@ public class PdfPurchaseRenderer {
 
         public static PdfOptions defaults() {
             return new PdfOptions(false, false, false, false, false, false,
-                    false, false, false, false);
+                    false, false, false, false, false, false);
         }
 
         PdfOptions normalized(Layout layout, Audience audience) {
@@ -218,7 +229,7 @@ public class PdfPurchaseRenderer {
             boolean onlyEur = eurOnly && prices;
             return new PdfOptions(showSupplier, prices, showEur && prices && !onlyEur,
                     onlyEur, false, false, includeEnrosedCost, unitPrice,
-                    includeEnrosedUnitCost, showPaymentTerms);
+                    includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode);
         }
     }
 
@@ -369,7 +380,8 @@ public class PdfPurchaseRenderer {
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
             Prepared prepared = prepare(order, costing,
-                    options.includeEnrosedCost() || options.includeEnrosedUnitCost());
+                    options.includeEnrosedCost() || options.includeEnrosedUnitCost(),
+                    options.showOuterCarton(), options.showBarcode());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
@@ -479,7 +491,8 @@ public class PdfPurchaseRenderer {
     }
 
     private Prepared prepare(PurchaseOrder order, LandedCost costing,
-                             boolean includeOrderedCosts) {
+                             boolean includeOrderedCosts, boolean showOuterCarton,
+                             boolean showBarcode) {
         Map<Long, Product> byId = products.list().stream()
                 .filter(product -> product.id() != null)
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
@@ -540,7 +553,8 @@ public class PdfPurchaseRenderer {
             lines.add(new LineView(
                     costingLine.productId(), product == null ? null : product.sku(),
                     costingLine.productName(), photo(product, photoCache),
-                    productSpecs(product), piecesPerCarton(product),
+                    productSpecs(product, false, showOuterCarton, showBarcode),
+                    piecesPerCarton(product),
                     costingLine.quantity(), costingLine.cartons(), purchaseQuantity, purchaseCartons,
                     costingLine.cbm(),
                     costingLine.goodsUsd(), costingLine.goodsEur(), costingLine.originEur(),
@@ -646,15 +660,17 @@ public class PdfPurchaseRenderer {
 
     /** Compact, factual product and packing detail; no long marketing copy. */
     static List<ProductSpec> productSpecs(Product product) {
-        return productSpecs(product, false);
+        return productSpecs(product, false, true, true);
     }
 
     /** English product and packing detail for the supplier agreement. */
     static List<ProductSpec> supplierProductSpecs(Product product) {
-        return productSpecs(product, true);
+        return productSpecs(product, true, true, true);
     }
 
-    private static List<ProductSpec> productSpecs(Product product, boolean supplierFacing) {
+    private static List<ProductSpec> productSpecs(Product product, boolean supplierFacing,
+                                                  boolean showOuterCarton,
+                                                  boolean showBarcode) {
         if (product == null) return List.of();
         List<ProductSpec> details = new ArrayList<>();
         String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
@@ -662,7 +678,7 @@ public class PdfPurchaseRenderer {
 
         Dimensions dimensions = product.dimensions();
         String productDimensions = dimensionLabel(dimensions, supplierFacing);
-        String pieceBarcode = ean(product);
+        String pieceBarcode = showBarcode ? ean(product) : null;
         if (productDimensions != null || pieceBarcode != null) {
             details.add(new ProductSpec("Product", detailValue(
                     productDimensions, null, pieceBarcode, supplierFacing, null)));
@@ -681,9 +697,10 @@ public class PdfPurchaseRenderer {
                     : packaging.kind().dutchLabel();
             String packagingDimensions = dimensionLabel(packaging.dimensions(), supplierFacing);
             if (packagingDimensions != null || packagedPieces != null
-                    || notBlank(packaging.barcode())) {
+                    || showBarcode && notBlank(packaging.barcode())) {
                 details.add(new ProductSpec(packagingLabel, detailValue(
-                        packagingDimensions, packagedPieces, packaging.barcode(), supplierFacing,
+                        packagingDimensions, packagedPieces,
+                        showBarcode ? packaging.barcode() : null, supplierFacing,
                         packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
                                 ? (supplierFacing ? "pcs/display" : "stuks/display")
                                 : null)));
@@ -693,10 +710,11 @@ public class PdfPurchaseRenderer {
         Carton carton = product.carton();
         String cartonDimensions = carton == null
                 ? null : dimensionLabel(carton.dimensions(), supplierFacing);
-        String outerBarcode = product.barcodes() == null ? null : product.barcodes().outer();
+        String outerBarcode = !showBarcode || product.barcodes() == null
+                ? null : product.barcodes().outer();
         boolean cartonKnown = cartonDimensions != null || notBlank(outerBarcode)
                 || carton != null && carton.piecesPerCarton() > 1;
-        if (cartonKnown) {
+        if (showOuterCarton && cartonKnown) {
             Integer cartonPieces = carton != null && carton.piecesPerCarton() > 0
                     ? carton.piecesPerCarton() : null;
             details.add(new ProductSpec(supplierFacing ? "Outer carton" : "Omdoos", detailValue(
