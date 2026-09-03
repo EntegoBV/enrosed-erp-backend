@@ -14,6 +14,7 @@ import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.shared.DocumentFormat;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
 import io.quarkus.qute.Location;
@@ -145,6 +146,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                    web page can change, the document in the mailbox cannot. */
                 .data("termsText", options.includeTerms() ? company.get().termsFor(language) : null)
                 .data("lines", lines)
+                .data("totalCbmText", priced.totals() == null ? null : DocumentFormat.cbm(priced.totals().cbm()))
                 .data("includePhotos", options.includePhotos())
                 .data("includeProductDetails", options.includeProductDetails())
                 .data("includeLogistics", options.includeLogistics())
@@ -262,6 +264,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             addSpec(details, text.get("catalogCarton"), joinDetails(
                     dimensions(product.carton().dimensions()),
                     Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("pieces"),
+                    DocumentFormat.cbm(product.carton().cbm()),
                     options.showBarcode()
                             ? prefix("EAN ", product.barcodes() == null
                                     ? null : product.barcodes().outer()) : null));

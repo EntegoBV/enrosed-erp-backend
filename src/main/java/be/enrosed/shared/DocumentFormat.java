@@ -112,4 +112,11 @@ public class DocumentFormat {
     public static boolean isPositive(BigDecimal value) {
         return value != null && value.signum() > 0;
     }
+
+    /** "0,048 m³" for a volume; null when there is none. */
+    public static String cbm(java.math.BigDecimal cbm) {
+        if (cbm == null || cbm.signum() <= 0) return null;
+        return cbm.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+                .replace('.', ',') + " m\u00b3";
+    }
 }

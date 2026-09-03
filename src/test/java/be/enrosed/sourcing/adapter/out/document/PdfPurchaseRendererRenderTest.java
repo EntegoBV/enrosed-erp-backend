@@ -139,9 +139,10 @@ class PdfPurchaseRendererRenderTest {
             assertFalse(text.contains("uitgiftesnapshot"), text);
             assertTrue(text.contains("96"),
                     "de geplaatste-order snapshot moet zichtbaar blijven na ontvangst");
-            assertTrue(text.contains("stuks per karton"), text);
-            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
-            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
+            assertTrue(text.replace(" ", "").contains("st./karton"), text);
+            assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
+            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
             assertFalse(text.contains("omdoos b × d × h"), text);
             assertFalse(text.contains("barcode"), text);
             assertFalse(text.contains("glass bowls"),
@@ -192,13 +193,14 @@ class PdfPurchaseRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
-            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
-            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
-            assertTrue(text.contains("12 stuks/karton"), text);
-            assertTrue(text.contains("barcode 8712345678906"), text);
-            assertTrue(text.contains("barcode 8712345678913"), text);
-            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
+            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
+            assertTrue(text.contains("omdoos 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("12 st./karton"), text);
+            assertTrue(text.contains("8712345678906"), text);
+            assertTrue(text.contains("8712345678913"), text);
+            assertTrue(text.contains("8712345678920"), text);
         }
     }
 
@@ -245,11 +247,14 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("8712345678906"), text);
             assertTrue(text.contains("use white inner boxes"), text);
             assertTrue(text.contains("use this exact inner-box layout"), text);
-            assertTrue(text.contains("product w × d × h"), text);
-            assertTrue(text.contains("gift packaging w × d × h"), text);
-            assertTrue(text.contains("outer carton w × d × h"), text);
-            assertTrue(text.contains("barcode 8712345678913"), text);
-            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertTrue(text.contains("sizes w × d × h in cm"), text);
+            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.replace(" ", "").contains("packaging20×20×25cm"), text);
+            assertTrue(text.contains("0,048 m³") && text.contains("0,384 m³"),
+                    "the carton volume and the line volume both print: " + text);
+            assertTrue(text.replace(" ", "").contains("carton40×40×30cm"), text);
+            assertTrue(text.contains("8712345678913"), text);
+            assertTrue(text.contains("8712345678920"), text);
             assertFalse(text.contains("omdoos"), text);
             assertTrue(text.contains("96"), text);
             assertTrue(text.contains("8"), text);
@@ -637,13 +642,14 @@ class PdfPurchaseRendererRenderTest {
                     .toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("inkooporder - horizontaal"), text);
             assertTrue(text.contains("96"), text);
-            assertTrue(text.contains("st./karton"), text);
-            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
-            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
-            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
-            assertTrue(text.contains("barcode 8712345678906"), text);
-            assertTrue(text.contains("barcode 8712345678913"), text);
-            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertTrue(text.replace(" ", "").contains("st./karton"), text);
+            assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
+            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
+            assertTrue(text.contains("omdoos 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("8712345678906"), text);
+            assertTrue(text.contains("8712345678913"), text);
+            assertTrue(text.contains("8712345678920"), text);
             assertFalse(text.contains("glass bowls"),
                     "de interne containernaam hoort niet op de inkooporder: " + text);
             assertTrue(text.contains("1.200,00"), text);

@@ -89,16 +89,26 @@
     }
     .product__name { font-size: 8.5pt; font-weight: 700; line-height: 1.25; }
     .product__meta { margin-top: .8mm; color: #8b8179; font-size: 6.6pt; }
-    .product__specs { margin-top: 1mm; color: #584d47; font-size: 6.2pt; line-height: 1.35; }
+    .product__specs { margin-top: 1mm; color: #584d47; font-size: 6.2pt; line-height: 1.3; }
     .product__spec {
-      display: inline-block; margin: 0 2.2mm .65mm 0; padding: .55mm 1.1mm;
-      border: .3pt solid #e3d7c6; border-radius: 1.5mm; background: #fbf7f2;
-      box-sizing: border-box; max-width: 100%; page-break-inside: avoid;
+      display: table; width: 100%; margin: 0; padding: .35mm 0;
+      border-top: .25pt solid #ece3d6; page-break-inside: avoid;
     }
+    .product__spec:first-child { border-top: 0; }
     .product__spec-label {
-      margin-right: .7mm; color: #8f2942; font-size: 5.5pt; font-weight: 700;
-      letter-spacing: .06em; text-transform: uppercase;
+      display: table-cell; width: 17mm; padding-right: 1mm; color: #8f2942; font-size: 5.2pt; font-weight: 700;
+      letter-spacing: 0; text-transform: uppercase; vertical-align: top; white-space: nowrap;
     }
+    .product__spec-value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .product__copy { vertical-align: top; }
+    table.product, table.supplier-product { width: 100%; border-collapse: collapse; }
+    table.product td, table.supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
+    .product-photo--empty { width: 18mm; height: 18mm; line-height: 18mm; }
+    .product__specs-cell { padding-top: 1mm; }
+    .product__specs-cell .product__specs { margin-top: 0; }
+    .section-title__legend { float: right; color: #8b8179; font-size: 6.2pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    table.lines tr.sum td { border-top: 1pt solid #1a1614; border-bottom: 0; background: #f7f1e8; padding-top: 1.6mm; padding-bottom: 1.6mm; }
+    .standard-lines .col-cbm { width: 15mm; }
     .supplier-note {
       padding-left: 2mm; border-left: .7pt solid #c6a15b;
       color: #584d47; font-size: 8pt; line-height: 1.45; white-space: pre-line;
@@ -198,7 +208,7 @@
       border: 0; border-top: .25pt solid #e8ded1; border-radius: 0; background: transparent;
     }
     .supplier-sheet .product__spec-label {
-      display: table-cell; width: 17mm; padding-right: .7mm; font-size: 5pt;
+      display: table-cell; width: 17mm; padding-right: 1mm; font-size: 5pt;
     }
     .supplier-sheet .product__spec-value { display: table-cell; }
     .supplier-sheet .supplier-note { font-size: 7.3pt; }
@@ -245,7 +255,9 @@
     .signature-line { height: 12mm; border-bottom: .45pt solid #8b8179; }
     .signature-meta { margin-top: 1.5mm; color: #8b8179; font-size: 6.2pt; line-height: 1.7; }
     .agreement-footer { margin-top: 3mm; color: #8b8179; font-size: 5.9pt; text-align: center; }
-  </style>
+      table.lines .product-photo--empty, .standard-lines .product-photo--empty { width: 16mm; height: 16mm; line-height: 16mm; }
+    table.lines td { vertical-align: middle; }
+</style>
 </head>
 <body class="{#if supplierMode}supplier-sheet{#else}standard-sheet{/if}">
 
@@ -311,17 +323,18 @@
   {/if}
 </table>
 
-<div class="section-title">{#if supplierMode}Products and agreed specifications{#else}Producten{/if}</div>
+<div class="section-title">{#if supplierMode}Products and agreed specifications{#else}Producten{/if}<span class="section-title__legend">{#if supplierMode}sizes W × D × H in cm · volumes in m³{#else}maten B × D × H in cm · volumes in m³{/if}</span></div>
 {#if supplierMode}
 <table class="lines">
   <thead>
   <tr>
-    <th style="width:66mm">Product</th>
-    <th style="width:28mm">EAN</th>
-    <th style="width:19mm">Quantity</th>
-    <th style="width:15mm">Cartons</th>
-    <th style="width:21mm">Carton CBM</th>
-    <th style="width:29mm">Unit price</th>
+    <th style="width:70mm">Product</th>
+    <th style="width:24mm">EAN</th>
+    <th style="width:15mm">Quantity</th>
+    <th style="width:12mm">Cartons</th>
+    <th style="width:16mm; white-space:nowrap">Carton m³</th>
+    <th style="width:15mm; white-space:nowrap">Total m³</th>
+    <th style="width:26mm">Unit price</th>
   </tr>
   </thead>
   <tbody>
@@ -333,21 +346,25 @@
             {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
             {#else}<span class="product-photo--empty">EN</span>{/if}
           </td>
-          <td>
+          <td class="product__copy">
             <div class="product__name">{line.productName}</div>
             {#if line.sku}<div class="product__meta">SKU {line.sku}</div>{/if}
-            {#if !line.productSpecs.isEmpty}
-              <div class="product__specs">
-                {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
-              </div>
-            {/if}
           </td>
-        </tr></table>
+        </tr>
+        {#if !line.productSpecs.isEmpty}
+        <tr><td colspan="2" class="product__specs-cell">
+          <div class="product__specs">
+            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
+          </div>
+        </td></tr>
+        {/if}
+        </table>
       </td>
       <td class="number">{#if line.ean}{line.ean}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.orderedQuantity} pcs{#if line.piecesPerCarton}<br/><span class="price-sub">{line.piecesPerCarton} / carton</span>{/if}</td>
       <td class="number">{line.orderedCartons}</td>
       <td class="number">{#if line.cartonCbm}{line.cartonCbm} m³{#else}<span class="muted">-</span>{/if}</td>
+      <td class="number">{#if line.lineCbm}<b>{line.lineCbm}</b>{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">
         {#if line.priceAvailable}<span class="price-main">{line.agreedUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.currency} · {line.priceBasis}</span>
         {#else}<span class="muted">-</span>{/if}
@@ -355,12 +372,12 @@
     </tr>
     {#for noteChunk in line.supplierNoteChunks}
       <tr class="supplier-note-row">
-        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Agreed product instruction</b>{#for item in noteChunk}{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}{/for}</div></td>
+        <td class="supplier-note-cell" colspan="7"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Agreed product instruction</b>{#for item in noteChunk}{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}{/for}</div></td>
       </tr>
     {/for}
     {#if !line.agreementPhotos.isEmpty}
       <tr class="supplier-agreement-photo-row">
-        <td colspan="6" class="agreement-gallery">
+        <td colspan="7" class="agreement-gallery">
           {#for agreementPhoto in line.agreementPhotos}
             <div class="agreement-photo">
               <img src="{agreementPhoto.dataUri}" alt=""/>
@@ -371,6 +388,15 @@
       </tr>
     {/if}
   {/for}
+  <tr class="sum">
+    <td><b>Total</b></td>
+    <td></td>
+    <td class="number"><b>{supplierTotals.pieces} pcs</b></td>
+    <td class="number"><b>{supplierTotals.cartons}</b></td>
+    <td></td>
+    <td class="number"><b>{#if supplierTotals.cbm}{supplierTotals.cbm}{#else}-{/if}</b></td>
+    <td></td>
+  </tr>
   </tbody>
 </table>
 {#else}
@@ -379,8 +405,9 @@
   <tr>
     <th class="col-product">Product</th>
     <th class="col-quantity">Stuks</th>
-    <th class="col-pieces">Stuks<br/>per karton</th>
+    <th class="col-pieces">St./karton</th>
     <th class="col-cartons">Kartons</th>
+    <th class="col-cbm">m³</th>
     {#if showPrices}
     {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
     <th class="col-line-total">Regeltotaal</th>
@@ -397,21 +424,25 @@
             {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
             {#else}<span class="product-photo--empty">EN</span>{/if}
           </td>
-          <td>
+          <td class="product__copy">
             <div class="product__name">{line.productName}</div>
             {#if showPrices}<div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
             {#else if line.sku}<div class="product__meta">{line.sku}</div>{/if}
-            {#if !line.productSpecs.isEmpty}
-              <div class="product__specs">
-                {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
-              </div>
-            {/if}
           </td>
-        </tr></table>
+        </tr>
+        {#if !line.productSpecs.isEmpty}
+        <tr><td colspan="2" class="product__specs-cell">
+          <div class="product__specs">
+            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
+          </div>
+        </td></tr>
+        {/if}
+        </table>
       </td>
       <td class="number">{line.purchaseQuantity}</td>
       <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{line.purchaseCartons}</td>
+      <td class="number">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
       {#if showPrices}
       {#if showUnitPrice}<td class="number">
         {#if eurOnly}
@@ -436,6 +467,15 @@
       </td>{/if}
     </tr>
   {/for}
+  <tr class="sum">
+    <td><b>Totaal</b></td>
+    <td class="number"><b>{purchasePieces}</b></td>
+    <td></td>
+    <td class="number"><b>{purchaseCartons}</b></td>
+    <td class="number"><b>{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</b></td>
+    {#if showPrices}{#if showUnitPrice}<td></td>{/if}<td></td>{/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<td></td>{/if}
+  </tr>
   </tbody>
 </table>
 {#if showEnrosedCost || showEnrosedUnitCost}<div class="cost-definition cost-definition--inline"><b>Totale kost t/m levering.</b> Inkoop en producttoeslagen, oorsprong, vracht, invoerrechten, transport en afhandeling tot het magazijn en interne kost; exclusief btw. Bij DDP zijn vracht en invoer al in de inkoopprijs opgenomen.</div>{/if}

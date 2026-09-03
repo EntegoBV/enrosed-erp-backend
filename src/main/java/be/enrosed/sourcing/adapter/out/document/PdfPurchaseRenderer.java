@@ -259,7 +259,8 @@ public class PdfPurchaseRenderer {
             BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
             BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
-            boolean eurPriceAvailable, boolean eurEquivalentAvailable) {}
+            boolean eurPriceAvailable, boolean eurEquivalentAvailable,
+            String cbmText) {}
 
     /**
      * Deliberately small supplier contract. No landed costs, revenue,
@@ -271,7 +272,7 @@ public class PdfPurchaseRenderer {
             List<List<NoteLine>> supplierNoteChunks,
             List<SupplierAgreementPhotoView> agreementPhotos,
             int orderedQuantity, int orderedCartons,
-            String cartonCbm, BigDecimal agreedUnitPrice, Currency currency,
+            String cartonCbm, String lineCbm, BigDecimal lineCbmValue, BigDecimal agreedUnitPrice, Currency currency,
             String priceBasis, boolean priceAvailable) {}
 
     /** One private, supplier-facing visual instruction embedded into the PDF. */
@@ -379,6 +380,7 @@ public class PdfPurchaseRenderer {
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
+                    .data("supplierTotals", supplierTotals(prepared.lines()))
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
             /* Landscape keeps its historical contract: every packing fact, always. */
@@ -396,6 +398,7 @@ public class PdfPurchaseRenderer {
                             ? prepared.missingEurPrices() : prepared.missingPurchasePrices())
                     .data("purchasePieces", prepared.purchasePieces())
                     .data("purchaseCartons", prepared.purchaseCartons())
+                    .data("purchaseCbm", costing.totals() == null ? null : cbmText(costing.totals().cbm()))
                     .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
@@ -457,6 +460,7 @@ public class PdfPurchaseRenderer {
                                     this::supplierAgreementPhotoViews)
                             : List.of(),
                     orderedQuantity, orderedCartons, cartonCbm(product),
+                    lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
                     orderLine == null ? "EXW" : orderLine.priceBasis().name(),
                     price.available()));
@@ -571,7 +575,8 @@ public class PdfPurchaseRenderer {
                     unitPrice, lineTotal, unitEur, lineTotalEur,
                     currency, priceBasis, priceAvailable,
                     eurPriceAvailable,
-                    priceAvailable && currency != Currency.EUR && unitEur != null));
+                    priceAvailable && currency != Currency.EUR && unitEur != null,
+                    cbmText(costingLine.cbm())));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
@@ -680,69 +685,92 @@ public class PdfPurchaseRenderer {
         String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
         if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
-        Dimensions dimensions = product.dimensions();
-        String productDimensions = dimensionLabel(dimensions, supplierFacing);
-        String pieceBarcode = showBarcode ? ean(product) : null;
-        if (productDimensions != null || pieceBarcode != null) {
-            details.add(new ProductSpec("Product", detailValue(
-                    productDimensions, null, pieceBarcode, supplierFacing, null)));
-        }
+        /* Sizes are bare numbers; the axis order (W × D × H) is said once above the table. */
+        String productDimensions = dimensionValue(product.dimensions());
+        if (productDimensions != null) details.add(new ProductSpec("Product", productDimensions));
+        String pieceBarcode = showBarcode && !supplierFacing ? ean(product) : null;
+        if (notBlank(pieceBarcode)) details.add(new ProductSpec("EAN stuk", pieceBarcode.strip()));
 
         Packaging packaging = product.packaging();
         if (packaging != null && packaging.isPresent()) {
-            Integer packagedPieces = packaging.unitPieces() > 1
-                    ? packaging.unitPieces() : null;
+            Integer packagedPieces = packaging.unitPieces() > 1 ? packaging.unitPieces() : null;
             String packagingLabel = supplierFacing
-                    ? switch (packaging.kind()) {
-                        case GIFT_BOX -> "Gift packaging";
-                        case DISPLAY -> "Display";
-                        case NONE -> "Packaging";
-                    }
-                    : packaging.kind().dutchLabel();
-            String packagingDimensions = dimensionLabel(packaging.dimensions(), supplierFacing);
-            if (packagingDimensions != null || packagedPieces != null
-                    || showBarcode && notBlank(packaging.barcode())) {
-                details.add(new ProductSpec(packagingLabel, detailValue(
-                        packagingDimensions, packagedPieces,
-                        showBarcode ? packaging.barcode() : null, supplierFacing,
-                        packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                                ? (supplierFacing ? "pcs/display" : "stuks/display")
-                                : null)));
+                    ? (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY ? "Display" : "Packaging")
+                    : (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY ? "Display" : "Verpakking");
+            String packagingValue = join(dimensionValue(packaging.dimensions()),
+                    packagedPieces == null ? null : packagedPieces + " "
+                            + (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                                    ? (supplierFacing ? "pcs/display" : "stuks/display")
+                                    : (supplierFacing ? "pcs" : "stuks")));
+            if (packagingValue != null) details.add(new ProductSpec(packagingLabel, packagingValue));
+            if (showBarcode && notBlank(packaging.barcode())) {
+                details.add(new ProductSpec(supplierFacing ? "EAN pack." : "EAN verp.",
+                        packaging.barcode().strip()));
             }
         }
 
         Carton carton = product.carton();
-        String cartonDimensions = carton == null
-                ? null : dimensionLabel(carton.dimensions(), supplierFacing);
-        String outerBarcode = !showBarcode || product.barcodes() == null
-                ? null : product.barcodes().outer();
-        boolean cartonKnown = cartonDimensions != null || notBlank(outerBarcode)
-                || carton != null && carton.piecesPerCarton() > 1;
-        if (showOuterCarton && cartonKnown) {
-            Integer cartonPieces = carton != null && carton.piecesPerCarton() > 0
-                    ? carton.piecesPerCarton() : null;
-            details.add(new ProductSpec(supplierFacing ? "Outer carton" : "Omdoos", detailValue(
-                    cartonDimensions, cartonPieces, outerBarcode, supplierFacing,
-                    supplierFacing ? "pcs/carton" : "stuks/karton")));
+        String outerBarcode = !showBarcode || product.barcodes() == null ? null : product.barcodes().outer();
+        if (showOuterCarton && carton != null) {
+            Integer cartonPieces = carton.piecesPerCarton() > 0 ? carton.piecesPerCarton() : null;
+            String cartonValue = join(dimensionValue(carton.dimensions()),
+                    cartonPieces == null ? null : cartonPieces + (supplierFacing ? " pcs/carton" : " st./karton"),
+                    cbmText(carton.cbm()));
+            if (cartonValue != null) {
+                details.add(new ProductSpec(supplierFacing ? "Carton" : "Omdoos", cartonValue));
+            }
+        }
+        if (showOuterCarton && notBlank(outerBarcode)) {
+            details.add(new ProductSpec(supplierFacing ? "EAN carton" : "EAN omdoos", outerBarcode.strip()));
         }
         return List.copyOf(details);
     }
 
-    private static String dimensionLabel(Dimensions dimensions, boolean supplierFacing) {
+    /** "18 × 18 × 22 cm", or null when the sizes are not known. */
+    static String dimensionValue(Dimensions dimensions) {
         if (dimensions == null || dimensions.isBlank()) return null;
-        return supplierFacing ? supplierDimensionLabel(dimensions) : dimensions.label();
+        return dimension(dimensions.lengthCm()) + " × " + dimension(dimensions.widthCm())
+                + " × " + dimension(dimensions.heightCm()) + " cm";
     }
 
-    private static String detailValue(String dimensions, Integer pieces, String barcode,
-                                      boolean supplierFacing, String piecesSuffix) {
+    private static String join(String... parts) {
         List<String> values = new ArrayList<>();
-        if (notBlank(dimensions)) values.add(dimensions);
-        if (pieces != null && pieces > 0) {
-            values.add(pieces + " " + (piecesSuffix == null
-                    ? (supplierFacing ? "pcs" : "stuks") : piecesSuffix));
+        for (String part : parts) if (notBlank(part)) values.add(part.strip());
+        return values.isEmpty() ? null : String.join(" · ", values);
+    }
+
+    /** "0,048 m³", or null when there is no volume. */
+    static String cbmText(BigDecimal cbm) {
+        return DocumentFormat.cbm(cbm);
+    }
+
+    static BigDecimal lineCbmValue(Product product, int cartons) {
+        if (product == null || product.carton() == null || product.carton().cbm() == null || cartons <= 0) return null;
+        return product.carton().cbm().multiply(BigDecimal.valueOf(cartons));
+    }
+
+    /** The volume of a whole line: cartons times the carton's volume. */
+    static String lineCbm(Product product, int cartons) {
+        if (product == null || product.carton() == null || product.carton().cbm() == null || cartons <= 0) return null;
+        return cbmText(product.carton().cbm().multiply(BigDecimal.valueOf(cartons)));
+    }
+
+    public record SupplierTotals(int pieces, int cartons, String cbm) {}
+
+    static SupplierTotals supplierTotals(List<SupplierLineView> lines) {
+        int pieces = 0;
+        int cartons = 0;
+        BigDecimal cbm = BigDecimal.ZERO;
+        boolean anyCbm = false;
+        for (SupplierLineView line : lines) {
+            pieces += line.orderedQuantity();
+            cartons += line.orderedCartons();
+            if (line.lineCbmValue() != null) {
+                cbm = cbm.add(line.lineCbmValue());
+                anyCbm = true;
+            }
         }
-        if (notBlank(barcode)) values.add("Barcode " + barcode.strip());
-        return String.join(" · ", values);
+        return new SupplierTotals(pieces, cartons, anyCbm ? cbmText(cbm) : null);
     }
 
     /** Supplier-facing product label resolved from the English document translation. */
