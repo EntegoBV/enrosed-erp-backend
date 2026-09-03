@@ -100,6 +100,9 @@
       letter-spacing: 0; text-transform: uppercase; vertical-align: top; white-space: nowrap;
     }
     .product__spec-value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .spec-part { white-space: nowrap; }
+    .spec-sep { margin: 0 .7mm; color: #8b8179; }
+    .spec-code { color: #6b5f58; font-variant-numeric: tabular-nums; }
     .product__copy { vertical-align: top; }
     table.product, table.supplier-product { width: 100%; border-collapse: collapse; }
     table.product td, table.supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
@@ -380,7 +383,7 @@
         {#if !line.productSpecs.isEmpty}
         <tr><td colspan="2" class="product__specs-cell">
           <div class="product__specs">
-            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
+            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{#for part in detail.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if detail.code}{#if !detail.parts.isEmpty}<br/>{/if}<span class="spec-code">{detail.code}</span>{/if}</span></span>{/for}
           </div>
         </td></tr>
         {/if}
@@ -482,7 +485,7 @@
         {#if !line.productSpecs.isEmpty}
         <tr><td colspan="2" class="product__specs-cell">
           <div class="product__specs">
-            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{detail.value}</span></span>{/for}
+            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{#for part in detail.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if detail.code}{#if !detail.parts.isEmpty}<br/>{/if}<span class="spec-code">{detail.code}</span>{/if}</span></span>{/for}
           </div>
         </td></tr>
         {/if}

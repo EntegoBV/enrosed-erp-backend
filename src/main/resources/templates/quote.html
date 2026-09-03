@@ -119,6 +119,9 @@
       vertical-align: top;
     }
     .line-spec__value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .spec-part { white-space: nowrap; }
+    .spec-sep { margin: 0 3px; color: #8f2942; }
+    .spec-code { color: #736b65; }
     .line-delivery { margin-top: 3px; color: #736b65; font-size: 7.2pt; line-height: 1.35; }
     table.line-product { width: 100%; border-collapse: collapse; }
     table.line-product td { padding: 0; border: 0; background: transparent !important; }
@@ -321,7 +324,7 @@
             {#if line.description}<div class="line-description">{line.description}</div>{/if}
             {#if includeProductDetails || showOuterCarton || showBarcode}
               {#if !line.productSpecs.isEmpty}
-                <div class="line-specs">{#for spec in line.productSpecs}<div class="line-spec"><span class="line-spec__label">{spec.label}</span><span class="line-spec__value">{spec.value}</span></div>{/for}</div>
+                <div class="line-specs">{#for spec in line.productSpecs}<div class="line-spec"><span class="line-spec__label">{spec.label}</span><span class="line-spec__value">{#for part in spec.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if spec.code}{#if !spec.parts.isEmpty}<br/>{/if}<span class="spec-code">{spec.code}</span>{/if}</span></div>{/for}</div>
               {/if}
             {/if}
             {#if line.deliveryText}<div class="line-delivery">{line.deliveryText}</div>{/if}

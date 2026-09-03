@@ -236,7 +236,19 @@ public class PdfPurchaseRenderer {
     }
 
     /** One compact, explicitly labelled product fact in a purchase-order row. */
-    public record ProductSpec(String label, String value) {}
+    /** One labelled product fact: parts that stay whole on the page, and a code on its own line. */
+    public record ProductSpec(String label, List<String> parts, String code) {
+        public ProductSpec(String label, String value) {
+            this(label, value == null || value.isBlank() ? List.of() : List.of(value.strip()), null);
+        }
+
+        /** The row as one line of text, for callers and tests that read it that way. */
+        public String value() {
+            String joined = String.join(" · ", parts);
+            if (code == null) return joined;
+            return joined.isEmpty() ? code : joined + " · " + code;
+        }
+    }
 
     /**
      * One PDF line enriched with print-safe catalogue data.
@@ -704,39 +716,58 @@ public class PdfPurchaseRenderer {
         if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
         /* One row per thing you can hold - product, packaging, carton - each
-           reading sizes, count, volume and barcode in that order. Sizes are
-           bare numbers; the axis order (W × D × H) is said once above the table. */
+           reading sizes, count, volume, weight and, on its own line, the
+           barcode. Sizes are bare numbers; the axis order (W × D × H) is
+           said once above the table. */
         String pieceBarcode = showBarcode && !supplierFacing ? ean(product) : null;
-        String productValue = join(dimensionValue(product.dimensions()), eanText(pieceBarcode));
-        if (productValue != null) details.add(new ProductSpec("Product", productValue));
+        addSpec(details, "Product",
+                parts(dimensionValue(product.dimensions()), weightText(product.dimensions())),
+                eanText(pieceBarcode));
 
         Packaging packaging = product.packaging();
         if (packaging != null && packaging.isPresent()) {
             boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
             Integer packagedPieces = packaging.unitPieces() > 1 ? packaging.unitPieces() : null;
             String packagingLabel = display ? "Display" : (supplierFacing ? "Gift packaging" : "Geschenkverpakking");
-            String packagingValue = join(dimensionValue(packaging.dimensions()),
-                    packagedPieces == null ? null : packagedPieces
-                            + (supplierFacing ? " pieces" : " stuks") + (display ? " per display" : ""),
+            addSpec(details, packagingLabel,
+                    parts(dimensionValue(packaging.dimensions()),
+                            packagedPieces == null ? null : packagedPieces
+                                    + (supplierFacing ? " pieces" : " stuks") + (display ? " per display" : ""),
+                            weightText(packaging.dimensions())),
                     showBarcode ? eanText(packaging.barcode()) : null);
-            if (packagingValue != null) details.add(new ProductSpec(packagingLabel, packagingValue));
         }
 
         Carton carton = product.carton();
         String outerBarcode = !showBarcode || product.barcodes() == null ? null : product.barcodes().outer();
-        if (showOuterCarton && (carton != null || notBlank(outerBarcode))) {
+        if (showOuterCarton) {
             Integer cartonPieces = carton == null || carton.piecesPerCarton() <= 0 ? null : carton.piecesPerCarton();
-            String cartonValue = join(carton == null ? null : dimensionValue(carton.dimensions()),
-                    cartonPieces == null ? null : cartonPieces + (supplierFacing
-                            ? (cartonPieces == 1 ? " piece per carton" : " pieces per carton")
-                            : (cartonPieces == 1 ? " stuk per karton" : " stuks per karton")),
-                    carton == null ? null : cbmText(carton.cbm()),
+            addSpec(details, supplierFacing ? "Carton" : "Omdoos",
+                    parts(carton == null ? null : dimensionValue(carton.dimensions()),
+                            cartonPieces == null ? null : cartonPieces + (supplierFacing
+                                    ? (cartonPieces == 1 ? " piece per carton" : " pieces per carton")
+                                    : (cartonPieces == 1 ? " stuk per karton" : " stuks per karton")),
+                            carton == null ? null : cbmText(carton.cbm()),
+                            carton == null ? null : DocumentFormat.kg(carton.weightKg())),
                     eanText(outerBarcode));
-            if (cartonValue != null) {
-                details.add(new ProductSpec(supplierFacing ? "Carton" : "Omdoos", cartonValue));
-            }
         }
         return List.copyOf(details);
+    }
+
+    private static void addSpec(List<ProductSpec> target, String label, List<String> parts, String code) {
+        if (parts.isEmpty() && code == null) return;
+        target.add(new ProductSpec(label, parts, code));
+    }
+
+    /** The non-blank values, each kept whole on the page. */
+    private static List<String> parts(String... values) {
+        List<String> result = new ArrayList<>();
+        for (String value : values) if (notBlank(value)) result.add(value.strip());
+        return List.copyOf(result);
+    }
+
+    /** "0,8 kg" for the thing these sizes describe, or null without a weight. */
+    private static String weightText(Dimensions dimensions) {
+        return dimensions == null ? null : DocumentFormat.kg(dimensions.weightKg());
     }
 
     /** "EAN 8712345678906", or null without a barcode. */

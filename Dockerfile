@@ -37,6 +37,8 @@ COPY docs/migrations/2026-08-27/public-pickup-locations-postgresql.sql ./migrati
 COPY docs/migrations/2026-09-01/product-supplier-agreement-photos-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-01/product-line-discount-target-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-03/document-media-manager-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-03/media-folders-shares-web-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-03/sales-order-column-lengths-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Railway injects PORT; application.properties picks it up.

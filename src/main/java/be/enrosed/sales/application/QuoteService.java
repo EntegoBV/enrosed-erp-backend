@@ -198,7 +198,9 @@ public class QuoteService {
                 product.describe(), cartons, pieces,
                 includeCarton ? printableDimensions(product.carton().dimensions()) : null,
                 includeCarton ? Math.max(1, product.carton().piecesPerCarton()) : null,
-                productBarcode, outerBarcode);
+                productBarcode, outerBarcode,
+                includeCarton ? be.enrosed.shared.DocumentFormat.cbm(product.carton().cbm()) : null,
+                includeCarton ? be.enrosed.shared.DocumentFormat.kg(product.carton().weightKg()) : null);
     }
 
     private static String printableDimensions(Dimensions dimensions) {

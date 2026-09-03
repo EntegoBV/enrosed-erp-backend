@@ -177,7 +177,19 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
 
     /** One compact fact underneath a product title; labels are customer-language text. */
-    public record ProductSpec(String label, String value) {}
+    /** One labelled product fact: parts that stay whole on the page, and a code on its own line. */
+    public record ProductSpec(String label, List<String> parts, String code) {
+        public ProductSpec(String label, String value) {
+            this(label, value == null || value.isBlank() ? List.of() : List.of(value.strip()), null);
+        }
+
+        /** The row as one line of text, for callers and tests that read it that way. */
+        public String value() {
+            String joined = String.join(" · ", parts);
+            if (code == null) return joined;
+            return joined.isEmpty() ? code : joined + " · " + code;
+        }
+    }
 
     /** Print projection: commercial values stay frozen, catalogue presentation stays tidy. */
     public record LineView(PricedOrder.Line commercial, String title, String variantText,
@@ -241,43 +253,59 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                                                   SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
         /* One row per thing you can hold - product, packaging, master carton -
-           each reading sizes, count, volume and barcode, as on the purchase order. */
+           each reading sizes, count, volume, weight and, on its own line, the
+           barcode, as on the purchase order. */
+        boolean facts = options.includeProductDetails();
         String pieceBarcode = options.showBarcode() ? firstNonBlank(product.canonicalBarcode(),
                 product.barcodes() == null ? null : product.barcodes().inner()) : null;
-        addSpec(details, text.get("product"), joinDetails(
-                options.includeProductDetails() ? dimensions(product.dimensions()) : null,
-                eanText(pieceBarcode)));
+        addSpec(details, text.get("product"),
+                parts(facts ? dimensions(product.dimensions()) : null,
+                        facts ? weightText(product.dimensions()) : null),
+                eanText(pieceBarcode));
 
-        if (options.includeProductDetails() && product.packaging().isPresent()) {
+        if (facts && product.packaging().isPresent()) {
             String packagingLabel = product.packaging().kind() == PackagingKind.GIFT_BOX
                     ? text.get("giftPackaging") : text.get("displayPackaging");
-            addSpec(details, packagingLabel, joinDetails(
-                    dimensions(product.packaging().dimensions()),
-                    product.packaging().unitPieces() > 1
-                            ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
-                    options.showBarcode() ? eanText(product.packaging().barcode()) : null));
+            addSpec(details, packagingLabel,
+                    parts(dimensions(product.packaging().dimensions()),
+                            product.packaging().unitPieces() > 1
+                                    ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
+                            weightText(product.packaging().dimensions())),
+                    options.showBarcode() ? eanText(product.packaging().barcode()) : null);
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
-            addSpec(details, text.get("catalogCarton"), joinDetails(
-                    dimensions(product.carton().dimensions()),
-                    Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("piecesPerCarton"),
-                    DocumentFormat.cbm(product.carton().cbm()),
+            addSpec(details, text.get("catalogCarton"),
+                    parts(dimensions(product.carton().dimensions()),
+                            Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("piecesPerCarton"),
+                            DocumentFormat.cbm(product.carton().cbm()),
+                            DocumentFormat.kg(product.carton().weightKg())),
                     options.showBarcode()
-                            ? eanText(product.barcodes() == null ? null : product.barcodes().outer()) : null));
+                            ? eanText(product.barcodes() == null ? null : product.barcodes().outer()) : null);
         }
         return List.copyOf(details);
+    }
+
+    private static void addSpec(List<ProductSpec> target, String label, List<String> parts, String code) {
+        if (parts.isEmpty() && code == null) return;
+        target.add(new ProductSpec(nonBlank(label, "Detail"), parts, code));
+    }
+
+    /** The non-blank values, each kept whole on the page. */
+    private static List<String> parts(String... values) {
+        List<String> result = new ArrayList<>();
+        for (String value : values) if (value != null && !value.isBlank()) result.add(value.strip());
+        return List.copyOf(result);
+    }
+
+    /** "0,8 kg" for the thing these sizes describe, or null without a weight. */
+    private static String weightText(Dimensions dimensions) {
+        return dimensions == null ? null : DocumentFormat.kg(dimensions.weightKg());
     }
 
     /** "EAN 8712345678906", or null without a barcode. */
     private static String eanText(String barcode) {
         return barcode == null || barcode.isBlank() ? null : "EAN " + barcode.strip();
-    }
-
-    private static void addSpec(List<ProductSpec> target, String label, String value) {
-        if (value != null && !value.isBlank()) {
-            target.add(new ProductSpec(nonBlank(label, "Detail"), value));
-        }
     }
 
     private static String dimensions(Dimensions dimensions) {

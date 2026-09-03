@@ -104,6 +104,8 @@
       color: #736b65; font-size: 8pt;
     }
 
+    .nowrap { white-space: nowrap; }
+    .product-code { color: #736b65; }
   </style>
 </head>
 <body>
@@ -169,9 +171,11 @@
           {#if showOuterCarton || showBarcode}<div class="product-details">
             {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
             {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
-              {#if item.outerCartonDimensions}{item.outerCartonDimensions}{/if}
-              {#if item.piecesPerOuterCarton} · {item.piecesPerOuterCarton} {t.pieces}{/if}
-              {#if showBarcode}{#if item.outerCartonBarcode} · EAN {item.outerCartonBarcode}{/if}{/if}
+              {#if item.outerCartonDimensions}<span class="nowrap">{item.outerCartonDimensions}</span>{/if}
+              {#if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
+              {#if item.outerCartonVolume} · <span class="nowrap">{item.outerCartonVolume}</span>{/if}
+              {#if item.outerCartonWeight} · <span class="nowrap">{item.outerCartonWeight}</span>{/if}
+              {#if showBarcode}{#if item.outerCartonBarcode}<br/><span class="product-code">EAN {item.outerCartonBarcode}</span>{/if}{/if}
             </span>{/if}
           </div>{/if}
         </td>
@@ -199,9 +203,11 @@
           {#if showOuterCarton || showBarcode}<div class="product-details">
             {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
             {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
-              {#if item.outerCartonDimensions}{item.outerCartonDimensions}{/if}
-              {#if item.piecesPerOuterCarton} · {item.piecesPerOuterCarton} {t.pieces}{/if}
-              {#if showBarcode}{#if item.outerCartonBarcode} · EAN {item.outerCartonBarcode}{/if}{/if}
+              {#if item.outerCartonDimensions}<span class="nowrap">{item.outerCartonDimensions}</span>{/if}
+              {#if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
+              {#if item.outerCartonVolume} · <span class="nowrap">{item.outerCartonVolume}</span>{/if}
+              {#if item.outerCartonWeight} · <span class="nowrap">{item.outerCartonWeight}</span>{/if}
+              {#if showBarcode}{#if item.outerCartonBarcode}<br/><span class="product-code">EAN {item.outerCartonBarcode}</span>{/if}{/if}
             </span>{/if}
           </div>{/if}
         </td>

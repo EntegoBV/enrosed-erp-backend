@@ -22,4 +22,6 @@ exec psql \
     --file=/app/migrations/public-pickup-locations-postgresql.sql \
     --file=/app/migrations/product-supplier-agreement-photos-postgresql.sql \
     --file=/app/migrations/product-line-discount-target-postgresql.sql \
-    --file=/app/migrations/document-media-manager-postgresql.sql
+    --file=/app/migrations/document-media-manager-postgresql.sql \
+    --file=/app/migrations/media-folders-shares-web-postgresql.sql \
+    --file=/app/migrations/sales-order-column-lengths-postgresql.sql

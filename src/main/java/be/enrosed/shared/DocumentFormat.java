@@ -119,6 +119,13 @@ public class DocumentFormat {
         return number == null ? null : number + " m\u00b3";
     }
 
+    /** "9 kg", "0,8 kg": a weight with at most two decimals, or null when unknown. */
+    public static String kg(java.math.BigDecimal kg) {
+        if (kg == null || kg.signum() <= 0) return null;
+        return kg.setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+                .replace('.', ',') + " kg";
+    }
+
     /** "0,05": a volume with two decimals, the way every PDF prints m³; a sliver keeps three. */
     public static String cbmNumber(java.math.BigDecimal cbm) {
         if (cbm == null || cbm.signum() <= 0) return null;

@@ -101,7 +101,10 @@
       color: #8f2942; font-size: 5.2pt; font-weight: 700;
       letter-spacing: .05em; text-transform: uppercase;
     }
-    .product-spec__value { display: table-cell; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .product-spec__value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .spec-part { white-space: nowrap; }
+    .spec-sep { margin: 0 2px; color: #8b8179; }
+    .spec-code { color: #6b5f58; }
     tr.sumrow td {
       border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
       padding-top: 5px; background: none;
@@ -286,7 +289,7 @@
             <div class="product-sku">{#if line.sku}{line.sku} · {/if}{line.priceBasis}</div>
             {#if !line.productSpecs.isEmpty}
               <div class="product-specs">
-                {#for detail in line.productSpecs}<span class="product-spec"><span class="product-spec__label">{detail.label}</span><span class="product-spec__value">{detail.value}</span></span>{/for}
+                {#for detail in line.productSpecs}<span class="product-spec"><span class="product-spec__label">{detail.label}</span><span class="product-spec__value">{#for part in detail.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if detail.code}{#if !detail.parts.isEmpty}<br/>{/if}<span class="spec-code">{detail.code}</span>{/if}</span></span>{/for}
               </div>
             {/if}
           </td>

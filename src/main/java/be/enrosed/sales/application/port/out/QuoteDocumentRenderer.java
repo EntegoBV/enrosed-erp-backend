@@ -28,10 +28,19 @@ public interface QuoteDocumentRenderer {
     /** One product on a pallet (or in the loose rest), enriched without prices. */
     record PackingItem(String description, int cartons, int pieces,
                        String outerCartonDimensions, Integer piecesPerOuterCarton,
-                       String barcode, String outerCartonBarcode) {
+                       String barcode, String outerCartonBarcode,
+                       String outerCartonVolume, String outerCartonWeight) {
         /** Compatibility for callers that only need the operational quantities. */
         public PackingItem(String description, int cartons, int pieces) {
-            this(description, cartons, pieces, null, null, null, null);
+            this(description, cartons, pieces, null, null, null, null, null, null);
+        }
+
+        /** Compatibility for callers written before volume and weight travelled along. */
+        public PackingItem(String description, int cartons, int pieces,
+                           String outerCartonDimensions, Integer piecesPerOuterCarton,
+                           String barcode, String outerCartonBarcode) {
+            this(description, cartons, pieces, outerCartonDimensions, piecesPerOuterCarton,
+                    barcode, outerCartonBarcode, null, null);
         }
     }
 
