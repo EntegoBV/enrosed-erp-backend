@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="{languageCode}">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light"/>
+  <meta name="supported-color-schemes" content="light"/>
+  <title>Enrosed</title>
+</head>
+<body style="margin:0;padding:0;background:#f4efeb;color:#1a1614;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+    {intro}
+  </div>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#f4efeb">
+    <tr>
+      <td align="center" style="padding:24px 12px">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+               style="width:100%;max-width:640px;border-collapse:separate;overflow:hidden;border:1px solid #e7ded8;border-radius:18px;background:#ffffff;box-shadow:0 12px 36px rgba(42,24,20,.08)">
+          <tr>
+            <td style="padding:26px 30px;background:#180d11;border-bottom:1px solid #382126">
+              <a href="{websiteUrl}" style="display:inline-block;color:#e0be73;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:600;letter-spacing:2px;text-decoration:none">
+                <img src="{logoUrl}" width="180" height="47" alt="ENROSED LONDON"
+                     style="display:block;width:180px;max-width:100%;height:auto;border:0;color:#e0be73;font-family:Georgia,'Times New Roman',serif;font-size:24px"/>
+              </a>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:32px 30px 30px">
+              <p style="margin:0 0 8px;color:#8f2942;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">{kicker}</p>
+              <h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:27px;font-weight:600;line-height:1.2;color:#1a1614">{title}</h1>
+
+              <p style="margin:0 0 18px">{t.mailGreeting}{#if customer.contact} {customer.contact}{/if},</p>
+              <p style="margin:0 0 18px">{intro}</p>
+
+              {#if message??}
+                <div style="margin:0 0 22px;padding:14px 16px;border-left:3px solid #e0be73;border-radius:0 8px 8px 0;background:#fcf7ec">
+                  <p style="margin:0 0 4px;font-weight:700;color:#7a5a1a">{t.mailCancelledMessageTitle}</p>
+                  <p style="margin:0;font-size:14px;white-space:pre-line">{message}</p>
+                </div>
+              {/if}
+
+              <div style="margin:22px 0;padding:18px;border:1px solid #e9e3de;border-radius:10px;background:#fcfaf8">
+                <p style="margin:0 0 6px;font-weight:700;color:#312723">{whatNowTitle}</p>
+                <p style="margin:0 0 16px;font-size:14px">{whatNow}</p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate">
+                  <tr>
+                    <td align="center" bgcolor="#e0be73" style="border-radius:9px;background:#e0be73">
+                      <a href="{buttonUrl}"
+                         style="display:inline-block;padding:12px 22px;color:#241a17;font-size:15px;font-weight:700;text-decoration:none">
+                        {buttonLabel}
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <p style="margin:0 0 18px;font-size:14px">{t.mailCancelledReply}</p>
+
+              {#if portalUrl??}
+                <p style="margin:0;overflow-wrap:anywhere;color:#8a807a;font-size:12px">
+                  {t.mailCancelledPortal}
+                  <a href="{portalUrl}" style="color:#8a807a;text-decoration:underline">{portalUrl}</a>
+                </p>
+              {/if}
+
+              <p style="margin:28px 0 0">{t.mailClosing},</p>
+
+              <div style="margin-top:16px;padding-top:18px;border-top:1px solid #ece5df">
+                <p style="margin:0;color:#241a17;font-size:16px;font-weight:700">Enrosed BV</p>
+                <p style="margin:2px 0 12px;color:#8a807a;font-size:12.5px">Advice | Sales &amp; Support</p>
+                <p style="margin:0;color:#5b534e;font-size:13px;line-height:1.75">
+                  T: <a href="tel:+32470024207" style="color:#5b534e;text-decoration:none">+32 470 02 42 07</a><br/>
+                  M: <a href="mailto:hello@enrosed.com" style="color:#5b534e;text-decoration:none">hello@enrosed.com</a><br/>
+                  W: <a href="{websiteUrl}" style="color:#5b534e;text-decoration:none">enrosed.com</a>
+                </p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

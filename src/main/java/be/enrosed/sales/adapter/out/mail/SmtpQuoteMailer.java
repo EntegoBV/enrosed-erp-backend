@@ -59,6 +59,10 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
 
     private final Mailer mailer;
     private final Template quoteMailTemplate;
+    private final Template cancellationMailTemplate;
+
+    @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
+    String websiteBaseUrl;
 
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
@@ -80,7 +84,9 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     @ConfigProperty(name = "quarkus.mailer.from", defaultValue = "offertes@enrosed.be")
     String from;
 
-    public SmtpQuoteMailer(Mailer mailer, @Location("quote-mail.html") Template quoteMailTemplate) {
+    public SmtpQuoteMailer(Mailer mailer, @Location("quote-mail.html") Template quoteMailTemplate,
+                           @Location("cancellation-mail.html") Template cancellationMailTemplate) {
+        this.cancellationMailTemplate = cancellationMailTemplate;
         this.mailer = mailer;
         this.quoteMailTemplate = quoteMailTemplate;
     }
@@ -234,22 +240,34 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         Language language = customer.language();
         Map<String, String> text = DocumentText.of(language);
         /* Never sent: the customer only ever saw their own request, so the
-           mail speaks of the request, not of an offer they never received. */
+           mail speaks of the request, not of an offer they never received,
+           and points them to a fresh request rather than to us. */
         boolean request = order.sentAt() == null;
         String subject = text.get(request ? "mailSubjectRequestCancelled" : "mailSubjectCancelled").formatted(order.number());
-        String who = customer.contact() == null || customer.contact().isBlank() ? customer.company() : customer.contact();
-        StringBuilder html = new StringBuilder();
-        html.append("<p>").append(escape(text.get("mailGreeting"))).append(' ').append(escape(who)).append(",</p>");
-        html.append("<p>").append(escape(text.get(request ? "mailRequestCancelledIntro" : "mailCancelledIntro").formatted(order.number()))).append("</p>");
-        if (message != null && !message.isBlank()) {
-            html.append("<p>").append(escape(message.strip()).replace("\n", "<br/>")).append("</p>");
-        }
-        if (portalUrl != null && !portalUrl.isBlank()) {
-            html.append("<p>").append(escape(text.get("mailCancelledPortal"))).append("<br/><a href=\"")
-                    .append(escape(portalUrl)).append("\">").append(escape(portalUrl)).append("</a></p>");
-        }
-        html.append("<p>").append(escape(text.get("mailClosing"))).append(",<br/>Enrosed</p>");
-        deliverWithoutAttachment(customer, subject, html.toString(), order.number());
+        String body = cancellationMailTemplate
+                .data("languageCode", language.code())
+                .data("logoUrl", BRAND_LOGO_URL)
+                .data("websiteUrl", websiteBaseUrl)
+                .data("customer", customer)
+                .data("kicker", order.number())
+                .data("title", text.get(request ? "mailRequestCancelledTitle" : "mailCancelledTitle"))
+                .data("intro", text.get(request ? "mailRequestCancelledIntro" : "mailCancelledIntro").formatted(order.number()))
+                .data("message", message == null || message.isBlank() ? null : message.strip())
+                .data("whatNowTitle", text.get("mailCancelledWhatNowTitle"))
+                .data("whatNow", text.get(request ? "mailRequestCancelledWhatNow" : "mailCancelledWhatNow"))
+                .data("buttonUrl", websitePage(language, request ? "quote" : "contact"))
+                .data("buttonLabel", text.get(request ? "mailCancelledButtonRequest" : "mailCancelledButtonContact"))
+                .data("portalUrl", portalUrl == null || portalUrl.isBlank() ? null : portalUrl)
+                .data("t", text)
+                .render();
+        deliverWithoutAttachment(customer, subject, body, order.number());
+    }
+
+    /** The website page in the customer's language: English lives at the root, the others under their code. */
+    String websitePage(Language language, String page) {
+        String base = websiteBaseUrl.replaceAll("/+$", "");
+        String code = language.code().toLowerCase(java.util.Locale.ROOT);
+        return base + ("en".equals(code) ? "" : "/" + code) + "/" + page + "/";
     }
 
     private void deliverWithoutAttachment(Customer customer, String subject, String body, String number) {
