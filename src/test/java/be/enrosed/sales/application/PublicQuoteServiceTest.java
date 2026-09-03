@@ -193,6 +193,30 @@ class PublicQuoteServiceTest {
     }
 
     @Test
+    void theVatNumberIsRequiredButANumberFromAnotherCountryGoesThrough() {
+        PublicQuoteDtos.SubmitRequest blank = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "   ",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                "BE", "Buyer BV", "Ana", "ana@example.com", null, null, true, "");
+        PublicQuoteValidationException missing = assertThrows(
+                PublicQuoteValidationException.class, () -> service.validateSubmission(blank));
+        assertEquals("REQUIRED", missing.fieldErrors().get("vatNumber"));
+
+        PublicQuoteDtos.SubmitRequest dutchNumber = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "NL123456789B01",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                "BE", "Buyer BV", "Ana", "ana@example.com", null, null, true, "");
+        try {
+            service.validateSubmission(dutchNumber);
+        } catch (PublicQuoteValidationException other) {
+            assertNull(other.fieldErrors().get("vatNumber"),
+                    "a number that does not fit the country is not refused; we check it by hand");
+        }
+    }
+
+    @Test
     void submissionRejectsControlsInEverySingleLineContactAndAddressField() {
         PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
                 "EN", "DELIVERY", "BE0123456789\n",
@@ -270,7 +294,7 @@ class PublicQuoteServiceTest {
         when(salesOrders.update(eq(45L), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         service.submit(new PublicQuoteDtos.SubmitRequest(
-                "EN", "DELIVERY", null,
+                "EN", "DELIVERY", "BE0123456789",
                 new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
                 List.of(new PublicQuoteDtos.ItemRequest(3L, 3)),
                 "BE", "Buyer BV", "Ana", "ana@example.com", null, null, true, ""));
@@ -339,7 +363,7 @@ class PublicQuoteServiceTest {
         when(salesOrders.update(eq(42L), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         service.submit(new PublicQuoteDtos.SubmitRequest(
-                "EN", "PICKUP", null, null,
+                "EN", "PICKUP", "BE0123456789", null,
                 List.of(new PublicQuoteDtos.ItemRequest(3L, 4)),
                 "BE",
                 "Buyer BV", "Ana", "ana@example.com", null, null, true, ""));
@@ -414,7 +438,7 @@ class PublicQuoteServiceTest {
         assertEquals("NOT_ORDERABLE", privateProduct.fieldErrors().get("items[0].productId"));
 
         PublicQuoteDtos.SubmitRequest noConsent = new PublicQuoteDtos.SubmitRequest(
-                "EN", "PICKUP", null,
+                "EN", "PICKUP", "BE0123456789",
                 new PublicQuoteDtos.Destination("BE", null, null, null),
                 List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
                 "BE",
@@ -428,7 +452,7 @@ class PublicQuoteServiceTest {
     @Test
     void rejectsMissingOrUnsupportedCompanyCountry() {
         PublicQuoteDtos.SubmitRequest missingCountry = new PublicQuoteDtos.SubmitRequest(
-                "EN", "PICKUP", null, null,
+                "EN", "PICKUP", "BE0123456789", null,
                 List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
                 null, "Buyer BV", "Ana", "ana@example.com", null, null, true, "");
         PublicQuoteValidationException missing = assertThrows(
@@ -436,7 +460,7 @@ class PublicQuoteServiceTest {
         assertEquals("REQUIRED", missing.fieldErrors().get("companyCountryCode"));
 
         PublicQuoteDtos.SubmitRequest unsupportedCountry = new PublicQuoteDtos.SubmitRequest(
-                "EN", "PICKUP", null, null,
+                "EN", "PICKUP", "BE0123456789", null,
                 List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
                 "XX", "Buyer BV", "Ana", "ana@example.com", null, null, true, "");
         PublicQuoteValidationException unsupported = assertThrows(
@@ -448,7 +472,7 @@ class PublicQuoteServiceTest {
     @Test
     void deliverySubmissionReportsEveryMissingAddressFieldEvenWithoutDestinationObject() {
         PublicQuoteDtos.SubmitRequest missingDestination = new PublicQuoteDtos.SubmitRequest(
-                "EN", "DELIVERY", null, null,
+                "EN", "DELIVERY", "BE0123456789", null,
                 List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
                 "BE", "Buyer BV", "Ana", "ana@example.com", null, null, true, "");
 

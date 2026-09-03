@@ -180,6 +180,18 @@ public class SalesOrderResource {
         return quotes.history(id);
     }
 
+    /** Withdraws an open quote; with notifyCustomer the customer gets a mail with the portal link. */
+    @POST
+    @Path("/{id}/cancel")
+    public OrderView cancel(@PathParam("id") long id, CancelRequest request) {
+        SalesOrder cancelled = quotes.cancel(id,
+                request == null ? null : request.message(),
+                request != null && request.notifyCustomer());
+        return view(cancelled);
+    }
+
+    public record CancelRequest(String message, boolean notifyCustomer) {}
+
     /** Puts a rejected or expired quote back on concept for adjusting. */
     @POST
     @Path("/{id}/reopen")

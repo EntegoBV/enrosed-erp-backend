@@ -39,6 +39,9 @@ public interface QuoteMailer {
                      QuoteDocumentRenderer.Document document, String personalMessage,
                      String paymentSentence);
 
+    /** Tells the customer the quote is withdrawn; the portal link shows the same. */
+    void sendCancellation(SalesOrder order, Customer customer, String portalUrl, String message);
+
     /** Message to ourselves when the customer acts on the quote. */
     void notifyInternal(String subject, String body);
 }

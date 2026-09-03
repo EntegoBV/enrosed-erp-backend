@@ -34,7 +34,6 @@ public class PublicQuoteService {
     private static final Pattern EMAIL = Pattern.compile(
             "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern VAT = Pattern.compile("^[A-Z]{2}[0-9A-Z]{2,12}$");
 
     private final ProductService products;
     private final StockService stock;
@@ -167,6 +166,9 @@ public class PublicQuoteService {
     private Prepared validateAndPrepareSubmission(SubmitRequest request) {
         Map<String, String> errors = new LinkedHashMap<>();
         validateContact(request, errors);
+        /* Required when the request is sent, not while the visitor is still
+           looking at prices: the preview runs without a VAT number. */
+        if (request != null && isBlank(request.vatNumber())) errors.put("vatNumber", "REQUIRED");
         if (request != null && !isBlank(request.website())) {
             /* A filled honeypot receives the same generic validation response as any bad input. */
             errors.put("request", "INVALID");
@@ -428,14 +430,17 @@ public class PublicQuoteService {
         }
     }
 
+    /**
+     * A VAT number is not judged: a number that does not fit the country or
+     * the usual shape still goes through, and we check it by hand afterwards.
+     * Only nonsense is refused - control characters, far too long, or too
+     * short to be any number at all. Whether it may be blank is decided by
+     * the caller: the preview tolerates it, the submission requires it.
+     */
     private static void validateVat(String value, Map<String, String> errors) {
         if (isBlank(value)) return;
-        if (value.length() > 32 || containsControl(value)) {
-            errors.put("vatNumber", "INVALID");
-            return;
-        }
-        String normalized = normalizedVat(value);
-        if (normalized.length() > 14 || !VAT.matcher(normalized).matches()) {
+        String compact = value.replaceAll("[\\s.\\-]", "");
+        if (value.length() > 32 || containsControl(value) || compact.length() < 4) {
             errors.put("vatNumber", "INVALID");
         }
     }

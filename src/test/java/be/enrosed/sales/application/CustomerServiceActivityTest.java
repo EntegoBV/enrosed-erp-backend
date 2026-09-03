@@ -45,8 +45,25 @@ class CustomerServiceActivityTest {
         org.junit.jupiter.api.Assertions.assertEquals("Buyer Group BV", updated.company());
     }
 
+    @Test
+    void theVatNumberIsRequiredButItsCountryIsNotJudged() {
+        InMemoryCustomers repository = new InMemoryCustomers();
+        CustomerService service = new CustomerService(repository, mock(SalesRepositories.Orders.class));
+
+        Customer blank = new Customer(null, "Buyer BV", "Contact", "buyer@example.com", null, "  ",
+                "BE", null, null, null, null, null, null, null, null);
+        org.junit.jupiter.api.Assertions.assertThrows(be.enrosed.shared.BusinessRuleException.class,
+                () -> service.create(blank));
+
+        Customer dutchNumberBelgianCountry = new Customer(null, "Buyer BV", "Contact", "buyer@example.com",
+                null, "NL123456789B01", "BE", null, null, null, null, null, null, null, null);
+        Customer saved = service.create(dutchNumberBelgianCountry);
+        org.junit.jupiter.api.Assertions.assertEquals("NL123456789B01", saved.vatNumber(),
+                "a number that does not fit the country still saves; it is checked by hand");
+    }
+
     private static Customer customer(Long id, String company) {
-        return new Customer(id, company, "Contact", "buyer@example.com", null, null,
+        return new Customer(id, company, "Contact", "buyer@example.com", null, "BE0123456789",
                 "BE", null, null, null, null, null, null, null, null);
     }
 

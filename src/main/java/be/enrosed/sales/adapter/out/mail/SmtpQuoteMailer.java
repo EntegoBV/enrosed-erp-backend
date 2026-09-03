@@ -230,6 +230,55 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     }
 
     @Override
+    public void sendCancellation(SalesOrder order, Customer customer, String portalUrl, String message) {
+        Language language = customer.language();
+        Map<String, String> text = DocumentText.of(language);
+        String subject = text.get("mailSubjectCancelled").formatted(order.number());
+        String who = customer.contact() == null || customer.contact().isBlank() ? customer.company() : customer.contact();
+        StringBuilder html = new StringBuilder();
+        html.append("<p>").append(escape(text.get("mailGreeting"))).append(' ').append(escape(who)).append(",</p>");
+        html.append("<p>").append(escape(text.get("mailCancelledIntro").formatted(order.number()))).append("</p>");
+        if (message != null && !message.isBlank()) {
+            html.append("<p>").append(escape(message.strip()).replace("\n", "<br/>")).append("</p>");
+        }
+        if (portalUrl != null && !portalUrl.isBlank()) {
+            html.append("<p>").append(escape(text.get("mailCancelledPortal"))).append("<br/><a href=\"")
+                    .append(escape(portalUrl)).append("\">").append(escape(portalUrl)).append("</a></p>");
+        }
+        html.append("<p>").append(escape(text.get("mailClosing"))).append(",<br/>Enrosed</p>");
+        deliverWithoutAttachment(customer, subject, html.toString(), order.number());
+    }
+
+    private void deliverWithoutAttachment(Customer customer, String subject, String body, String number) {
+        if (mock) {
+            mailer.send(Mail.withHtml(customer.email(), subject, body));
+            LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail voor %s.", number);
+            return;
+        }
+        String brevoKey = brevoApiKey.orElse("").trim();
+        if (!brevoKey.isEmpty()) {
+            try {
+                sendViaBrevo(customer.email(), subject, body, null, null);
+            } catch (Exception e) {
+                LOG.errorf(e, "Klantmail voor %s via Brevo mislukt", number);
+                throw new BusinessRuleException(
+                        "De mail kon niet verzonden worden via de maildienst: " + e.getMessage());
+            }
+            LOG.infof("Klantmail voor %s via Brevo verstuurd", number);
+            return;
+        }
+        if (host.isBlank() || host.endsWith("example.com")) {
+            throw new BusinessRuleException("Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
+        }
+        mailer.send(Mail.withHtml(customer.email(), subject, body));
+    }
+
+    private static String escape(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
+    @Override
     public void notifyInternal(String subject, String body) {
         /* Portal actions must not fail when the notification provider is down. */
         try {

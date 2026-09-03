@@ -82,6 +82,11 @@ public class CustomerService {
         if (customer.company() == null || customer.company().isBlank()) {
             throw new BusinessRuleException("Bedrijfsnaam is verplicht");
         }
+        /* The number itself is required; whether it fits the country is not
+           judged here - a mismatch is checked by hand afterwards. */
+        if (customer.vatNumber() == null || customer.vatNumber().isBlank()) {
+            throw new BusinessRuleException("BTW-nummer is verplicht");
+        }
     }
 
     /** The authenticated actor is resolved inside ActivityLogService, never from the request. */

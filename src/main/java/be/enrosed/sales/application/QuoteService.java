@@ -776,6 +776,56 @@ public class QuoteService {
         return orders.save(withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
     }
 
+    /**
+     * Withdraws a quote that is still open. The customer's link then shows
+     * it as cancelled, and when asked we tell them by mail with that link;
+     * a mail that cannot leave keeps the quote open, so nothing looks
+     * cancelled that the customer never heard of.
+     */
+    @Transactional
+    public SalesOrder cancel(long orderId, String reason, boolean notifyCustomer) {
+        SalesOrder order = salesOrders.get(orderId);
+        if (order.isInvoice()) {
+            throw new BusinessRuleException("Een factuur annuleer je niet; maak een creditnota.");
+        }
+        QuoteStatus status = order.status();
+        if (status != QuoteStatus.CONCEPT && !status.isOpenForCustomer()) {
+            throw new BusinessRuleException("Offerte " + order.number() + " staat op "
+                    + status.name().toLowerCase() + " en kan niet meer geannuleerd worden.");
+        }
+        String message = reason == null || reason.isBlank() ? null : reason.strip();
+        requireMessageLength(message);
+
+        String toldCustomer = null;
+        if (notifyCustomer && order.sentAt() != null && order.customerId() != null) {
+            Customer customer = customers.get(order.customerId());
+            if (customer.email() != null && !customer.email().isBlank()) {
+                mailer.sendCancellation(order, customer, activePortalUrl(order).orElse(null), message);
+                toldCustomer = customer.email();
+            }
+        }
+
+        ActorRef actor = staffActor();
+        record(order, QuoteEvent.Type.GEANNULEERD, false, actor.displayName(),
+                toldCustomer == null ? "Offerte geannuleerd" : "Offerte geannuleerd, klant verwittigd op " + toldCustomer,
+                message);
+        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
+                order.customerMessage()));
+        recordActivity("CANCELLED", order, "Offerte geannuleerd");
+        return cancelled;
+    }
+
+    /** What we told the customer when cancelling, for the portal page. */
+    public Optional<String> cancellationMessage(SalesOrder order) {
+        if (order.status() != QuoteStatus.GEANNULEERD || order.id() == null) return Optional.empty();
+        return history(order.id()).stream()
+                .filter(event -> event.type() == QuoteEvent.Type.GEANNULEERD)
+                .reduce((first, second) -> second)
+                .map(QuoteEvent::detail)
+                .filter(detail -> detail != null && !detail.isBlank());
+    }
+
     /** We do not adopt the proposal; the quote stays as it was. */
     @Transactional
     public SalesOrder rejectRevision(long revisionId, String handledBy, String responseMessage) {

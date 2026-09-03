@@ -40,6 +40,8 @@ public record QuoteEvent(
         GETEKEND,
         AFGEWEZEN,
         HEROPEND,
+        /** We withdrew the quote; the detail carries what we told the customer. */
+        GEANNULEERD,
         LEVERTERMIJN_INGEVULD,
         VRACHT_INGEVULD,
         GEFACTUREERD,

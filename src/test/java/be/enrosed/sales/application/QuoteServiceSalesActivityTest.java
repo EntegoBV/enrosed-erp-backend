@@ -38,7 +38,9 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -157,6 +159,52 @@ class QuoteServiceSalesActivityTest {
         assertFalse(devicePayload.contains("acceptance message"));
         assertFalse(devicePayload.contains("rejection reason"));
         assertFalse(devicePayload.contains("requested changes"));
+    }
+
+    @Test
+    void cancellingAnOpenQuoteTellsTheCustomerWithThePortalLinkAndLeavesItReopenable() {
+        SalesOrder sent = order(DocumentType.OFFERTE, QuoteStatus.VERZONDEN, "portal-token");
+        when(salesOrders.get(42L)).thenReturn(sent);
+        when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
+
+        SalesOrder cancelled = service.cancel(42L, "De collectie is uitverkocht", true);
+
+        assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
+        assertTrue(cancelled.status().canReopen(), "a cancelled quote can be reopened by us");
+        assertFalse(cancelled.status().isOpenForCustomer());
+        ArgumentCaptor<String> portalUrl = ArgumentCaptor.forClass(String.class);
+        verify(mailer).sendCancellation(eq(sent), eq(customer()), portalUrl.capture(),
+                eq("De collectie is uitverkocht"));
+        assertTrue(portalUrl.getValue().contains("portal-token"), "the mail carries the customer's own link");
+        ArgumentCaptor<be.enrosed.sales.domain.QuoteEvent> event =
+                ArgumentCaptor.forClass(be.enrosed.sales.domain.QuoteEvent.class);
+        verify(history).add(event.capture());
+        assertEquals(be.enrosed.sales.domain.QuoteEvent.Type.GEANNULEERD, event.getValue().type());
+        assertTrue(event.getValue().summary().contains("private-buyer@example.test"));
+        verify(activityLog).record("CANCELLED", "SALES_ORDER", "42", "ENR-2026-0042", "Offerte geannuleerd");
+    }
+
+    @Test
+    void cancellingWithoutNoticeSendsNoMailAndAConceptCancelsQuietly() {
+        SalesOrder concept = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null);
+        when(salesOrders.get(42L)).thenReturn(concept);
+        when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
+
+        SalesOrder cancelled = service.cancel(42L, null, true);
+
+        assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
+        verify(mailer, org.mockito.Mockito.never()).sendCancellation(any(), any(), any(), any());
+    }
+
+    @Test
+    void anAcceptedQuoteOrAnInvoiceCannotBeCancelled() {
+        when(salesOrders.get(42L)).thenReturn(order(DocumentType.OFFERTE, QuoteStatus.GEACCEPTEERD, "t"));
+        org.junit.jupiter.api.Assertions.assertThrows(be.enrosed.shared.BusinessRuleException.class,
+                () -> service.cancel(42L, null, false));
+        when(salesOrders.get(42L)).thenReturn(order(DocumentType.FACTUUR, QuoteStatus.CONCEPT, null));
+        org.junit.jupiter.api.Assertions.assertThrows(be.enrosed.shared.BusinessRuleException.class,
+                () -> service.cancel(42L, null, false));
+        verify(mailer, org.mockito.Mockito.never()).sendCancellation(any(), any(), any(), any());
     }
 
     private static PricedOrder pricedOrder() {

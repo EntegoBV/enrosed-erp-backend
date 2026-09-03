@@ -18,6 +18,8 @@ public enum QuoteStatus {
     GEACCEPTEERD,
     AFGEWEZEN,
     VERLOPEN,
+    /** Withdrawn by us; the customer's link shows it as cancelled. */
+    GEANNULEERD,
     /** Invoices only: the money arrived. */
     BETAALD;
 
@@ -26,7 +28,7 @@ public enum QuoteStatus {
     }
 
     public boolean isFinal() {
-        return this == GEACCEPTEERD || this == AFGEWEZEN || this == VERLOPEN || this == BETAALD;
+        return this == GEACCEPTEERD || this == AFGEWEZEN || this == VERLOPEN || this == GEANNULEERD || this == BETAALD;
     }
 
     /**
@@ -39,6 +41,6 @@ public enum QuoteStatus {
      * make a new quote.
      */
     public boolean canReopen() {
-        return this == AFGEWEZEN || this == VERLOPEN;
+        return this == AFGEWEZEN || this == VERLOPEN || this == GEANNULEERD;
     }
 }
