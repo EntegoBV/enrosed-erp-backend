@@ -95,6 +95,20 @@ public class AdminIdentityProvider implements IdentityProvider<UsernamePasswordA
                 .build());
     }
 
+    /** The display name behind a staff username: "emre" reads as Emre; an unknown name comes back as typed. */
+    public String displayNameFor(String username) {
+        if (username == null || username.isBlank()) return null;
+        if ("system".equalsIgnoreCase(username)) return "Systeem";
+        try {
+            for (ConfiguredAccount account : parseAccounts(configuredAccounts)) {
+                if (account.username().equalsIgnoreCase(username)) return account.displayName();
+            }
+        } catch (RuntimeException ignored) {
+            /* Misconfigured accounts are reported at login, not while reading a file list. */
+        }
+        return username;
+    }
+
     /** Parses {@code username|Display name,username|Display name}. */
     static List<ConfiguredAccount> parseAccounts(String configured) {
         if (configured == null || configured.isBlank()) {

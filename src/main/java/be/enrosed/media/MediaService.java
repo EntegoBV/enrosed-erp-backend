@@ -10,6 +10,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -46,6 +47,7 @@ public class MediaService {
     private final PhotoStorage storage;
     private final CurrentActor actor;
     private final ActivityLogService activity;
+    private final AdminIdentityProvider names;
     private final PhotoRenditionService renditions;
 
     @Inject
@@ -54,12 +56,13 @@ public class MediaService {
     Event<MediaBlobCleanup.UploadReady> blobUploadCleanup;
 
     public MediaService(EntityManager entities, PhotoStorage storage,
-                        CurrentActor actor, ActivityLogService activity,
+                        CurrentActor actor, ActivityLogService activity, AdminIdentityProvider names,
                         PhotoRenditionService renditions) {
         this.entities = entities;
         this.storage = storage;
         this.actor = actor;
         this.activity = activity;
+        this.names = names;
         this.renditions = renditions;
     }
 
@@ -864,7 +867,7 @@ public class MediaService {
                 current.contentType, current.sizeBytes, current.sha256, asset.kind,
                 current.widthPx, current.heightPx, asset.archived, asset.createdAt,
                 asset.updatedAt, asset.currentVersionId, roles, links, versionCount,
-                asset.folderId, share(activeShare(asset.id)), web(current));
+                asset.folderId, share(activeShare(asset.id)), web(current), asset.createdBy, names.displayNameFor(asset.createdBy));
     }
 
     /** Hydrates a whole list page in bounded bulk queries instead of 3+N lookups per asset. */
@@ -923,7 +926,7 @@ public class MediaService {
                     current.widthPx, current.heightPx, asset.archived, asset.createdAt,
                     asset.updatedAt, asset.currentVersionId, roles, links,
                     versionCounts.getOrDefault(asset.id, 0),
-                    asset.folderId, share(shares.get(asset.id)), web(current)));
+                    asset.folderId, share(shares.get(asset.id)), web(current), asset.createdBy, names.displayNameFor(asset.createdBy)));
         }
         return List.copyOf(result);
     }
@@ -970,7 +973,7 @@ public class MediaService {
                 summary.contentType(), summary.sizeBytes(), summary.sha256(), summary.kind(),
                 summary.widthPx(), summary.heightPx(), summary.archived(), summary.createdAt(),
                 summary.updatedAt(), summary.currentVersionId(), summary.roles(), summary.links(),
-                summary.versionCount(), versions, summary.folderId(), summary.share(), summary.web());
+                summary.versionCount(), versions, summary.folderId(), summary.share(), summary.web(), summary.createdBy(), summary.createdByName());
     }
 
     private List<MediaDtos.Link> links(Long assetId) {
@@ -992,7 +995,7 @@ public class MediaService {
     private MediaDtos.Version toVersion(MediaVersionEntity version) {
         return new MediaDtos.Version(version.id, version.versionNumber,
                 version.originalFilename, version.contentType, version.sizeBytes, version.sha256,
-                version.widthPx, version.heightPx, version.createdAt, version.createdBy, web(version));
+                version.widthPx, version.heightPx, version.createdAt, version.createdBy, web(version), names.displayNameFor(version.createdBy));
     }
 
     private static MediaDtos.Rendition web(MediaVersionEntity version) {
