@@ -5,6 +5,7 @@ import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.persistence.EntityManager;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
@@ -12,9 +13,10 @@ import org.jboss.logging.Logger;
  * check-constrained status columns; BETAALD and CARRIER do not fit in them.
  * Schema update never widens such a constraint, so this widens it by hand.
  *
- * Every statement runs in its own transaction: H2 and PostgreSQL each accept
- * a different subset, and one failing dialect-specific statement must not
- * poison the ones that do apply. Each is safe to re-run.
+ * Every statement runs in its own transaction, so one that does not apply
+ * cannot poison the ones that do. The column widening is spelled per
+ * database: trying the other dialect's spelling logged a failed statement
+ * at every start. Each statement is safe to re-run.
  */
 @ApplicationScoped
 public class InvoiceStatusMigration {
@@ -22,18 +24,22 @@ public class InvoiceStatusMigration {
     private static final Logger LOG = Logger.getLogger(InvoiceStatusMigration.class);
 
     private final EntityManager entities;
+    private final boolean postgres;
 
-    public InvoiceStatusMigration(EntityManager entities) {
+    public InvoiceStatusMigration(EntityManager entities,
+                                  @ConfigProperty(name = "quarkus.datasource.db-kind", defaultValue = "h2") String dbKind) {
         this.entities = entities;
+        this.postgres = "postgresql".equalsIgnoreCase(dbKind) || "pgsql".equalsIgnoreCase(dbKind);
     }
 
     void onStart(@Observes StartupEvent event) {
-        /* H2 spelling. */
-        widen("alter table sales_order alter column status varchar(32)");
-        widen("alter table sales_order alter column freightPricingStrategy varchar(24)");
-        /* PostgreSQL spelling. */
-        widen("alter table sales_order alter column status type varchar(32)");
-        widen("alter table sales_order alter column freightpricingstrategy type varchar(24)");
+        if (postgres) {
+            widen("alter table sales_order alter column status type varchar(32)");
+            widen("alter table sales_order alter column freightpricingstrategy type varchar(24)");
+        } else {
+            widen("alter table sales_order alter column status varchar(32)");
+            widen("alter table sales_order alter column freightPricingStrategy varchar(24)");
+        }
         /* The generated check constraints, under every name Hibernate used. */
         widen("alter table sales_order drop constraint if exists sales_order_status_check");
         widen("alter table sales_order drop constraint if exists sales_order_freightpricingstrategy_check");
