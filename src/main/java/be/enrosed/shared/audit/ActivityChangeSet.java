@@ -19,16 +19,23 @@ public final class ActivityChangeSet {
         return new ActivityChangeSet();
     }
 
+    /**
+     * A change is what the reader would see change: 14.0 and 14.00 are the
+     * same weight, an empty note and no note are the same note. Comparing
+     * the displayed values keeps "van 14 naar 14" out of the log.
+     */
     public ActivityChangeSet add(String field, String label, Object before, Object after) {
-        if (!Objects.equals(before, after)) {
-            changes.add(new ActivityChangeDto(field, label, display(before), display(after)));
+        String from = display(before);
+        String to = display(after);
+        if (!Objects.equals(from, to)) {
+            changes.add(new ActivityChangeDto(field, label, from, to));
         }
         return this;
     }
 
     /** Records that sensitive or verbose content changed without copying its value into the log. */
     public ActivityChangeSet privateValue(String field, String label, Object before, Object after) {
-        if (!Objects.equals(before, after)) {
+        if (!Objects.equals(display(before), display(after))) {
             changes.add(new ActivityChangeDto(field, label, null, null));
         }
         return this;

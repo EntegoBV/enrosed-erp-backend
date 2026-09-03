@@ -123,7 +123,7 @@ public class MediaService {
         activity.record(ActivityLogService.ACTION_DOCUMENT_ADDED, ACTIVITY_ENTITY,
                 asset.id.toString(), asset.name, "Bestand toegevoegd",
                 ActivityChangeSet.create()
-                        .privateValue("media.filename", "Bestand", null, version.originalFilename)
+                        .add("media.filename", "Bestand", null, version.originalFilename)
                         .add("media.kind", "Type", null, asset.kind)
                         .add("media.size", "Bestandsgrootte", null, version.sizeBytes + " bytes")
                         .build());
@@ -254,7 +254,7 @@ public class MediaService {
                     ActivityChangeSet.create()
                             .add("media.version", "Versie",
                                     previous.versionNumber, sameBytes.versionNumber)
-                            .privateValue("media.filename", "Bestand",
+                            .add("media.filename", "Bestand",
                                     previous.originalFilename, sameBytes.originalFilename)
                             .build());
             return detail(asset);
@@ -296,7 +296,7 @@ public class MediaService {
                 ActivityChangeSet.create()
                         .add("media.version", "Versie",
                                 previous.versionNumber, version.versionNumber)
-                        .privateValue("media.filename", "Bestand", null, version.originalFilename)
+                        .add("media.filename", "Bestand", null, version.originalFilename)
                         .build());
         return detail(asset);
     }
