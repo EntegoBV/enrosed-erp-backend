@@ -149,6 +149,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("includeProductDetails", options.includeProductDetails())
                 .data("includeLogistics", options.includeLogistics())
                 .data("includeTerms", options.includeTerms())
+                .data("showOuterCarton", options.showOuterCarton())
+                .data("showBarcode", options.showBarcode())
                 .data("hasDiscounts", hasLineDiscounts(priced))
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
                 .data("looseCartons", order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
@@ -192,8 +194,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     product.colourIn(language), product.variantSizeIn(language));
             String description = product == null || !options.includeProductDetails()
                     ? null : distinctDescription(product.descriptionIn(language), title);
-            List<ProductSpec> details = product == null || !options.includeProductDetails()
-                    ? List.of() : productSpecs(product, text);
+            List<ProductSpec> details = product == null
+                    ? List.of() : productSpecs(product, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
             String meta = joinDetails(
                     options.includeProductDetails() ? line.sku() : null,
@@ -232,29 +234,37 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         return encoded.isBlank() ? null : encoded;
     }
 
-    private static List<ProductSpec> productSpecs(Product product, Map<String, String> text) {
+    private static List<ProductSpec> productSpecs(Product product, Map<String, String> text,
+                                                  SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
-        addSpec(details, text.get("productDimensions"), dimensions(product.dimensions()));
+        if (options.includeProductDetails()) {
+            addSpec(details, text.get("productDimensions"), dimensions(product.dimensions()));
+        }
 
-        String productBarcode = firstNonBlank(product.canonicalBarcode(),
-                product.barcodes() == null ? null : product.barcodes().inner());
-        addSpec(details, "EAN", productBarcode);
+        if (options.showBarcode()) {
+            String productBarcode = firstNonBlank(product.canonicalBarcode(),
+                    product.barcodes() == null ? null : product.barcodes().inner());
+            addSpec(details, "EAN", productBarcode);
+        }
 
-        if (product.packaging().isPresent()) {
+        if (options.includeProductDetails() && product.packaging().isPresent()) {
             String packagingLabel = product.packaging().kind() == PackagingKind.GIFT_BOX
                     ? text.get("giftPackaging") : text.get("displayPackaging");
             addSpec(details, packagingLabel, joinDetails(
                     dimensions(product.packaging().dimensions()),
                     product.packaging().unitPieces() > 1
                             ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
-                    prefix("EAN ", product.packaging().barcode())));
+                    options.showBarcode()
+                            ? prefix("EAN ", product.packaging().barcode()) : null));
         }
 
-        if (product.carton() != null) {
+        if (options.showOuterCarton() && product.carton() != null) {
             addSpec(details, text.get("catalogCarton"), joinDetails(
                     dimensions(product.carton().dimensions()),
                     Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("pieces"),
-                    prefix("EAN ", product.barcodes() == null ? null : product.barcodes().outer())));
+                    options.showBarcode()
+                            ? prefix("EAN ", product.barcodes() == null
+                                    ? null : product.barcodes().outer()) : null));
         }
         return List.copyOf(details);
     }
@@ -328,13 +338,27 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
     @Override
     public Document packingSlip(PackingSlip slip) {
-        String html = packingSlipHtml(slip);
+        return packingSlip(slip, SalesPdfOptions.forPackingSlip(false, false));
+    }
+
+    @Override
+    public Document packingSlip(PackingSlip slip, SalesPdfOptions requestedOptions) {
+        SalesPdfOptions options = requestedOptions == null
+                ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
+        String html = packingSlipHtml(slip, options);
         return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
                 "application/pdf");
     }
 
     /** Package-visible so the locale contract can be tested before PDF conversion. */
     String packingSlipHtml(PackingSlip slip) {
+        return packingSlipHtml(slip, SalesPdfOptions.forPackingSlip(false, false));
+    }
+
+    /** Package-visible so optional product-data output remains independently testable. */
+    String packingSlipHtml(PackingSlip slip, SalesPdfOptions requestedOptions) {
+        SalesPdfOptions options = requestedOptions == null
+                ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         Language slipLanguage = slip.customer() == null ? Language.NL : slip.customer().language();
         Map<String, String> text = DocumentText.of(slipLanguage);
         return packingSlipTemplate
@@ -344,6 +368,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("lang", slipLanguage.code())
                 .data("date", DocumentText.date(java.time.LocalDate.now(), slipLanguage))
                 .data("t", text)
+                .data("showOuterCarton", options.showOuterCarton())
+                .data("showBarcode", options.showBarcode())
                 .render();
     }
 

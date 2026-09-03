@@ -142,11 +142,8 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("stuks per karton"), text);
             assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
-            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
-            assertTrue(text.contains("barcode 8712345678906"), text);
-            assertTrue(text.contains("barcode 8712345678913"), text);
-            assertTrue(text.contains("12 stuks/karton"), text);
-            assertTrue(text.contains("barcode 8712345678920"), text);
+            assertFalse(text.contains("omdoos b × d × h"), text);
+            assertFalse(text.contains("barcode"), text);
             assertFalse(text.contains("glass bowls"),
                     "de interne containernaam hoort niet op de inkooporder: " + text);
             assertFalse(text.contains("culinan preserved flowers"),
@@ -172,6 +169,36 @@ class PdfPurchaseRendererRenderTest {
                     "geregistreerde leveranciersbetaling mag niet uitlekken");
             assertFalse(text.contains("24.136,80"),
                     "interne betaalstand mag niet uitlekken");
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void portraitCanIncludeOuterCartonAndBarcodesIndependently() throws Exception {
+        Product product = createProductWithPhoto();
+        PurchaseOrder order = portraitOrder(product.id());
+        LandedCost costing = portraitCosting(product.id());
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, costing, supplier(), false, payments(),
+                new PurchaseOrderService.Payable(
+                        new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                        new BigDecimal("375.00"), false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT,
+                PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(
+                        false, false, false, false, false, false,
+                        false, false, false, false, true, true));
+
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf)
+                    .toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("product b × d × h: 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("geschenkverpakking b × d × h: 20 × 20 × 25 cm"), text);
+            assertTrue(text.contains("omdoos b × d × h: 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("12 stuks/karton"), text);
+            assertTrue(text.contains("barcode 8712345678906"), text);
+            assertTrue(text.contains("barcode 8712345678913"), text);
+            assertTrue(text.contains("barcode 8712345678920"), text);
         }
     }
 
