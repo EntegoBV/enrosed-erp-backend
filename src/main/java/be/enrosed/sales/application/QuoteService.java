@@ -189,7 +189,8 @@ public class QuoteService {
         boolean includeCarton = options.showOuterCarton() && product.carton() != null;
         String productBarcode = options.showBarcode()
                 ? firstNonBlank(product.canonicalBarcode(),
-                        product.barcodes() == null ? null : product.barcodes().inner())
+                        firstNonBlank(product.packaging().barcode(),
+                                product.barcodes() == null ? null : product.barcodes().inner()))
                 : null;
         String outerBarcode = includeCarton && options.showBarcode()
                 && product.barcodes() != null ? product.barcodes().outer() : null;
