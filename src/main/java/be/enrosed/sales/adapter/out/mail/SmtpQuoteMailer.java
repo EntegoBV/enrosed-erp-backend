@@ -67,6 +67,10 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
 
+    /** Every customer mail is copied here, so the office keeps what went out. */
+    @ConfigProperty(name = "enrosed.mail.customer-cc", defaultValue = "admin@enrosed.com")
+    Optional<String> customerCc;
+
     /** Is the mailer in mock mode? Then nothing is sent. */
     @ConfigProperty(name = "quarkus.mailer.mock", defaultValue = "false")
     boolean mock;
@@ -124,7 +128,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     private void deliver(Customer customer, String subject, String body,
                          QuoteDocumentRenderer.Document document, String number) {
         if (mock) {
-            mailer.send(Mail.withHtml(customer.email(), subject, body)
+            mailer.send(customerMail(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail voor %s.", number);
             return;
@@ -146,7 +150,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
             throw new BusinessRuleException(
                     "Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
         }
-        mailer.send(Mail.withHtml(customer.email(), subject, body)
+        mailer.send(customerMail(customer.email(), subject, body)
                 .addAttachment(document.filename(), document.content(), document.contentType()));
     }
 
@@ -189,7 +193,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .formatted(order.number());
 
         if (mock) {
-            mailer.send(Mail.withHtml(customer.email(), subject, body)
+            mailer.send(customerMail(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail. De offerte %s is"
                             + " wel opgebouwd.", order.number());
@@ -221,7 +225,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         }
 
         try {
-            mailer.send(Mail.withHtml(customer.email(), subject, body)
+            mailer.send(customerMail(customer.email(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
         } catch (RuntimeException e) {
             LOG.errorf(e, "Klantmail via %s mislukt", host);
@@ -272,7 +276,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
 
     private void deliverWithoutAttachment(Customer customer, String subject, String body, String number) {
         if (mock) {
-            mailer.send(Mail.withHtml(customer.email(), subject, body));
+            mailer.send(customerMail(customer.email(), subject, body));
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail voor %s.", number);
             return;
         }
@@ -291,7 +295,23 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         if (host.isBlank() || host.endsWith("example.com")) {
             throw new BusinessRuleException("Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
         }
-        mailer.send(Mail.withHtml(customer.email(), subject, body));
+        mailer.send(customerMail(customer.email(), subject, body));
+    }
+
+    /** A customer mail with the office in copy; internal mail carries no copy of itself. */
+    private Mail customerMail(String to, String subject, String body) {
+        Mail mail = Mail.withHtml(to, subject, body);
+        String copy = copyFor(to);
+        if (copy != null) mail.addCc(copy);
+        return mail;
+    }
+
+    /** The copy address for a mail to this recipient, or null when it would copy itself. */
+    String copyFor(String to) {
+        String copy = customerCc.map(String::strip).filter(value -> !value.isEmpty()).orElse(null);
+        if (copy == null || to == null) return null;
+        if (copy.equalsIgnoreCase(to.strip()) || to.strip().equalsIgnoreCase(internalRecipient)) return null;
+        return copy;
     }
 
     private static String escape(String value) {
@@ -334,6 +354,8 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sender", Map.of("name", senderName(), "email", senderEmail()));
         payload.put("to", List.of(Map.of("email", to)));
+        String copy = copyFor(to);
+        if (copy != null) payload.put("cc", List.of(Map.of("email", copy)));
         payload.put("subject", subject);
         if (html != null) {
             payload.put("htmlContent", html);
