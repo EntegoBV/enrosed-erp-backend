@@ -53,6 +53,17 @@ public class MediaVersionEntity extends PanacheEntityBase {
     public Integer thumbnailWidthPx;
     @Column(name = "thumbnail_height_px")
     public Integer thumbnailHeightPx;
+    /* The web-size copy of an image version; filled on upload, or on first request for older files. */
+    @Column(name = "web_storage_key", length = 80)
+    public String webStorageKey;
+    @Column(name = "web_content_type", length = 120)
+    public String webContentType;
+    @Column(name = "web_size_bytes")
+    public Long webSizeBytes;
+    @Column(name = "web_width_px")
+    public Integer webWidthPx;
+    @Column(name = "web_height_px")
+    public Integer webHeightPx;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;

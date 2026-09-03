@@ -28,8 +28,12 @@ public final class MediaDtos {
             Integer widthPx,
             Integer heightPx,
             Instant createdAt,
-            String createdBy
+            String createdBy,
+            Rendition web
     ) {}
+
+    /** A derived, lighter file of an image version. */
+    public record Rendition(long sizeBytes, Integer widthPx, Integer heightPx) {}
 
     public record Summary(
             Long id,
@@ -49,7 +53,8 @@ public final class MediaDtos {
             List<Link> links,
             int versionCount,
             Long folderId,
-            Share share
+            Share share,
+            Rendition web
     ) {}
 
     public record Detail(
@@ -71,7 +76,8 @@ public final class MediaDtos {
             int versionCount,
             List<Version> versions,
             Long folderId,
-            Share share
+            Share share,
+            Rendition web
     ) {}
 
     public record UploadResult(Detail asset, boolean reused) {}

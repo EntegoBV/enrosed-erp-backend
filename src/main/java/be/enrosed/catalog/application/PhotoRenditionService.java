@@ -29,12 +29,22 @@ public class PhotoRenditionService {
 
     /** Canonical gallery manifests define the browser rendition by width, preserving aspect. */
     public static final int MAX_SMALL_WIDTH = 480;
+    /** The lighter copy for website, mail and offers; the upload stays the print-quality source. */
+    public static final int MAX_WEB_WIDTH = 1600;
     public static final String POLICY_VERSION = "website-small-v1";
 
     private static final float JPEG_QUALITY = 0.85f;
     private static final long MAX_DECODED_PIXELS = 40_000_000L;
 
     public Rendition small(ValidatedPhoto source) {
+        return render(source, MAX_SMALL_WIDTH);
+    }
+
+    public Rendition web(ValidatedPhoto source) {
+        return render(source, MAX_WEB_WIDTH);
+    }
+
+    private Rendition render(ValidatedPhoto source, int maxWidth) {
         if (source == null || source.bytes() == null || source.bytes().length == 0) {
             throw invalid("De kleine fotoversie kon niet worden gemaakt");
         }
@@ -49,7 +59,7 @@ public class PhotoRenditionService {
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 requireSafeDimensions(width, height);
-                if (fits(width, height)) {
+                if (fits(width, height, maxWidth)) {
                     return original(source, width, height, ReuseReason.ALREADY_SMALL);
                 }
                 int frameCount = frameCount(reader);
@@ -67,7 +77,7 @@ public class PhotoRenditionService {
 
                 BufferedImage decoded = reader.read(0);
                 if (decoded == null) throw invalid("De foto kon niet worden gedecodeerd");
-                BufferedImage scaled = scale(decoded);
+                BufferedImage scaled = scale(decoded, maxWidth);
                 boolean alpha = decoded.getColorModel().hasAlpha();
                 String contentType = alpha ? "image/png" : "image/jpeg";
                 byte[] bytes = alpha ? png(scaled) : jpeg(scaled);
@@ -91,8 +101,8 @@ public class PhotoRenditionService {
         }
     }
 
-    private static boolean fits(int width, int height) {
-        return width > 0 && height > 0 && width <= MAX_SMALL_WIDTH;
+    private static boolean fits(int width, int height, int maxWidth) {
+        return width > 0 && height > 0 && width <= maxWidth;
     }
 
     private static void requireSafeDimensions(int width, int height) {
@@ -118,8 +128,8 @@ public class PhotoRenditionService {
                 sha256(source.bytes()), width, height, false, reason);
     }
 
-    private static BufferedImage scale(BufferedImage source) {
-        double factor = Math.min(1d, (double) MAX_SMALL_WIDTH / source.getWidth());
+    private static BufferedImage scale(BufferedImage source, int maxWidth) {
+        double factor = Math.min(1d, (double) maxWidth / source.getWidth());
         int width = Math.max(1, (int) Math.round(source.getWidth() * factor));
         int height = Math.max(1, (int) Math.round(source.getHeight() * factor));
         boolean alpha = source.getColorModel().hasAlpha();

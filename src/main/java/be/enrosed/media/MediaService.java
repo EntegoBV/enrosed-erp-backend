@@ -108,6 +108,7 @@ public class MediaService {
         version.widthPx = stored.widthPx();
         version.heightPx = stored.heightPx();
         applyThumbnail(version, file);
+        applyWeb(version, file);
         version.createdAt = now;
         version.createdBy = asset.createdBy;
         entities.persist(version);
@@ -138,8 +139,21 @@ public class MediaService {
                                         Boolean archived, MediaTargetType targetType, Long targetId,
                                         boolean includeArchived, int offset, int limit,
                                         Long folderId, boolean rootOnly) {
+        return list(query, kind, role, archived, targetType, targetId, includeArchived, offset, limit,
+                folderId, rootOnly, null);
+    }
+
+    /** {@code linked} false lists what nothing uses yet, true only what has a link. */
+    @Transactional
+    public List<MediaDtos.Summary> list(String query, MediaKind kind, MediaRole role,
+                                        Boolean archived, MediaTargetType targetType, Long targetId,
+                                        boolean includeArchived, int offset, int limit,
+                                        Long folderId, boolean rootOnly, Boolean linked) {
         List<String> where = new ArrayList<>();
         Map<String, Object> params = new LinkedHashMap<>();
+        if (linked != null) {
+            where.add((linked ? "" : "not ") + "exists (select 1 from MediaLinkEntity x where x.assetId = a.id)");
+        }
         if (folderId != null) {
             where.add("a.folderId = :folderId");
             params.put("folderId", folderId);
@@ -192,7 +206,10 @@ public class MediaService {
 
     @Transactional
     public MediaDtos.Detail get(long id) {
-        return detail(requiredAsset(id));
+        MediaAssetEntity asset = requiredAsset(id);
+        /* Opening a file is the moment an older image gets its web copy. */
+        ensureWeb(asset, currentVersion(asset));
+        return detail(asset);
     }
 
     @Transactional
@@ -260,6 +277,7 @@ public class MediaService {
         version.widthPx = stored.widthPx();
         version.heightPx = stored.heightPx();
         applyThumbnail(version, file);
+        applyWeb(version, file);
         version.createdAt = Instant.now();
         version.createdBy = actor.current().username();
         entities.persist(version);
@@ -739,6 +757,11 @@ public class MediaService {
     /** The current version behind a live token; unknown or revoked tokens read as not found. */
     @Transactional
     public FileRef publicFile(String token) {
+        return publicFile(token, false);
+    }
+
+    @Transactional
+    public FileRef publicFile(String token, boolean web) {
         if (token == null || token.length() < 20 || token.length() > 64) throw new NotFoundException("Bestand", 0L);
         List<MediaShareEntity> shares = entities.createQuery(
                         "select s from MediaShareEntity s where s.token = :token and s.revokedAt is null",
@@ -750,6 +773,10 @@ public class MediaService {
         if (asset == null || asset.archived) throw new NotFoundException("Bestand", share.assetId);
         share.downloads++;
         MediaVersionEntity version = currentVersion(asset);
+        if (web) {
+            ensureWeb(asset, version);
+            return webRef(version);
+        }
         return new FileRef(storage.read(version.storageKey), version.contentType,
                 version.originalFilename, version.sizeBytes);
     }
@@ -790,7 +817,7 @@ public class MediaService {
                 current.contentType, current.sizeBytes, current.sha256, asset.kind,
                 current.widthPx, current.heightPx, asset.archived, asset.createdAt,
                 asset.updatedAt, asset.currentVersionId, roles, links, versionCount,
-                asset.folderId, share(activeShare(asset.id)));
+                asset.folderId, share(activeShare(asset.id)), web(current));
     }
 
     /** Hydrates a whole list page in bounded bulk queries instead of 3+N lookups per asset. */
@@ -849,7 +876,7 @@ public class MediaService {
                     current.widthPx, current.heightPx, asset.archived, asset.createdAt,
                     asset.updatedAt, asset.currentVersionId, roles, links,
                     versionCounts.getOrDefault(asset.id, 0),
-                    asset.folderId, share(shares.get(asset.id))));
+                    asset.folderId, share(shares.get(asset.id)), web(current)));
         }
         return List.copyOf(result);
     }
@@ -896,7 +923,7 @@ public class MediaService {
                 summary.contentType(), summary.sizeBytes(), summary.sha256(), summary.kind(),
                 summary.widthPx(), summary.heightPx(), summary.archived(), summary.createdAt(),
                 summary.updatedAt(), summary.currentVersionId(), summary.roles(), summary.links(),
-                summary.versionCount(), versions, summary.folderId(), summary.share());
+                summary.versionCount(), versions, summary.folderId(), summary.share(), summary.web());
     }
 
     private List<MediaDtos.Link> links(Long assetId) {
@@ -918,7 +945,12 @@ public class MediaService {
     private MediaDtos.Version toVersion(MediaVersionEntity version) {
         return new MediaDtos.Version(version.id, version.versionNumber,
                 version.originalFilename, version.contentType, version.sizeBytes, version.sha256,
-                version.widthPx, version.heightPx, version.createdAt, version.createdBy);
+                version.widthPx, version.heightPx, version.createdAt, version.createdBy, web(version));
+    }
+
+    private static MediaDtos.Rendition web(MediaVersionEntity version) {
+        if (version == null || version.webStorageKey == null || version.webSizeBytes == null) return null;
+        return new MediaDtos.Rendition(version.webSizeBytes, version.webWidthPx, version.webHeightPx);
     }
 
     private MediaAssetEntity lockAsset(long id) {
@@ -1079,6 +1111,69 @@ public class MediaService {
         version.thumbnailSizeBytes = (long) thumbnail.bytes().length;
         version.thumbnailWidthPx = thumbnail.width();
         version.thumbnailHeightPx = thumbnail.height();
+    }
+
+    /** The web copy: at most 1600 px wide, or the original itself when that is already light. */
+    private void applyWeb(MediaVersionEntity version, MediaUploadPolicy.ValidatedFile file) {
+        if (file.kind() != MediaKind.IMAGE) return;
+        PhotoRenditionService.Rendition web;
+        try {
+            web = renditions.web(new PhotoUploadPolicy.ValidatedPhoto(
+                    file.originalFilename(), file.contentType(), file.bytes()));
+        } catch (RuntimeException exception) {
+            return; /* An image we cannot scale keeps only its original. */
+        }
+        String key;
+        if (web.sha256().equals(version.sha256)) {
+            key = version.storageKey;
+        } else {
+            key = "sha256-" + web.sha256() + web.extension();
+            boolean existed = storage.exists(key);
+            storage.storeKnown(key, web.filename(), web.contentType(), web.bytes());
+            if (!existed) fireUploadRollbackCleanup(key);
+        }
+        version.webStorageKey = key;
+        version.webContentType = web.contentType();
+        version.webSizeBytes = (long) web.bytes().length;
+        version.webWidthPx = web.width();
+        version.webHeightPx = web.height();
+    }
+
+    /** Older images get their web copy the first time someone asks for it. */
+    private void ensureWeb(MediaAssetEntity asset, MediaVersionEntity version) {
+        if (asset.kind != MediaKind.IMAGE || version.webStorageKey != null) return;
+        byte[] bytes;
+        try (InputStream original = storage.read(version.storageKey)) {
+            bytes = original.readAllBytes();
+        } catch (Exception exception) {
+            return;
+        }
+        applyWeb(version, new MediaUploadPolicy.ValidatedFile(
+                version.originalFilename, version.contentType, MediaKind.IMAGE, bytes));
+    }
+
+    /** The web-size file of the current version; documents and unscalable images fall back to the original. */
+    @Transactional
+    public FileRef webFile(long id) {
+        MediaAssetEntity asset = requiredAsset(id);
+        MediaVersionEntity version = currentVersion(asset);
+        ensureWeb(asset, version);
+        return webRef(version);
+    }
+
+    private FileRef webRef(MediaVersionEntity version) {
+        if (version.webStorageKey == null) {
+            return new FileRef(storage.read(version.storageKey), version.contentType,
+                    version.originalFilename, version.sizeBytes);
+        }
+        return new FileRef(storage.read(version.webStorageKey), version.webContentType,
+                webFilename(version.originalFilename, version.webContentType), version.webSizeBytes);
+    }
+
+    private static String webFilename(String original, String contentType) {
+        String base = original == null ? "bestand" : original.replaceAll("\\.[A-Za-z0-9]+$", "");
+        String extension = "image/png".equals(contentType) ? ".png" : "image/jpeg".equals(contentType) ? ".jpg" : "";
+        return base + "-web" + extension;
     }
 
     private void applyLegacyThumbnail(MediaVersionEntity version, LegacyFile source, byte[] bytes) {

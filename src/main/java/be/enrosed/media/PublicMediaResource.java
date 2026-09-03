@@ -31,6 +31,15 @@ public class PublicMediaResource {
         return response(file, MediaUploadPolicy.safeInline(file.contentType()));
     }
 
+    /** The lighter web copy of an image; a document comes as itself. */
+    @GET
+    @Path("/{token}/web")
+    @Produces(MediaType.WILDCARD)
+    public Response web(@PathParam("token") String token) {
+        MediaService.FileRef file = media.publicFile(token, true);
+        return response(file, MediaUploadPolicy.safeInline(file.contentType()));
+    }
+
     @GET
     @Path("/{token}/download")
     @Produces(MediaType.WILDCARD)

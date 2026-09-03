@@ -45,11 +45,12 @@ public class MediaResource {
             @QueryParam("includeArchived") @DefaultValue("false") boolean includeArchived,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("limit") @DefaultValue("100") int limit,
-            @QueryParam("folder") String folder) {
+            @QueryParam("folder") String folder,
+            @QueryParam("linked") Boolean linked) {
         boolean rootOnly = "root".equalsIgnoreCase(folder);
         Long folderId = folder == null || folder.isBlank() || rootOnly ? null : Long.valueOf(folder);
         return media.list(query, kind, role, archived, targetType, targetId,
-                includeArchived, offset, limit, folderId, rootOnly);
+                includeArchived, offset, limit, folderId, rootOnly, linked);
     }
 
     @PUT
@@ -136,16 +137,16 @@ public class MediaResource {
     @GET
     @Path("/{id}/file")
     @Produces(MediaType.WILDCARD)
-    public Response file(@PathParam("id") long id) {
-        MediaService.FileRef file = media.file(id);
+    public Response file(@PathParam("id") long id, @QueryParam("variant") String variant) {
+        MediaService.FileRef file = "web".equals(variant) ? media.webFile(id) : media.file(id);
         return fileResponse(file, MediaUploadPolicy.safeInline(file.contentType()));
     }
 
     @GET
     @Path("/{id}/download")
     @Produces(MediaType.WILDCARD)
-    public Response download(@PathParam("id") long id) {
-        return fileResponse(media.file(id), false);
+    public Response download(@PathParam("id") long id, @QueryParam("variant") String variant) {
+        return fileResponse("web".equals(variant) ? media.webFile(id) : media.file(id), false);
     }
 
     @GET
