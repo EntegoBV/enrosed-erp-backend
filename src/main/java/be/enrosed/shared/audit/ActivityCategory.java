@@ -7,14 +7,14 @@ import java.util.Set;
 public enum ActivityCategory {
     SALES(Set.of("SALES_ORDER")),
     PURCHASING(Set.of("PURCHASE_ORDER", "SUPPLIER")),
-    CATALOGUE(Set.of("PRODUCT", "PRODUCT_FAMILY")),
+    CATALOGUE(Set.of("PRODUCT", "PRODUCT_FAMILY", "MEDIA_ASSET")),
     RELATIONS(Set.of("CUSTOMER")),
     PLANNING(Set.of("PLANNER_ITEM")),
     OTHER(Set.of());
 
     private static final Set<String> KNOWN_ENTITY_TYPES = Set.of(
             "SALES_ORDER", "PURCHASE_ORDER", "SUPPLIER", "PRODUCT",
-            "PRODUCT_FAMILY", "CUSTOMER", "PLANNER_ITEM");
+            "PRODUCT_FAMILY", "MEDIA_ASSET", "CUSTOMER", "PLANNER_ITEM");
 
     private final Set<String> entityTypes;
 

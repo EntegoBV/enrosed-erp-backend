@@ -9,6 +9,9 @@ import be.enrosed.push.StaffActionPushNotifier;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.security.CurrentActor;
+import be.enrosed.media.MediaLegacySourceType;
+import be.enrosed.media.MediaService;
+import be.enrosed.media.MediaTargetType;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.event.Event;
 import jakarta.enterprise.inject.Instance;
@@ -44,6 +47,8 @@ public class PlannerResource {
 
     @Inject
     Instance<CurrentActor> actor;
+    @Inject
+    Instance<MediaService> mediaRegistry;
 
     @Inject
     Event<StaffActionPushNotifier.Ready> staffPush;
@@ -131,15 +136,17 @@ public class PlannerResource {
     public Response delete(@PathParam("id") long id) {
         PlannerItemEntity item = PlannerItemEntity.findById(id);
         if (item == null) throw new NotFoundException("Agendapunt", id);
-        item.delete();
         /* Tasks under the appointment stay alive as planned tasks of their own. */
         PlannerItemEntity.update("parentId = null where parentId = ?1", id);
         List<PlannerAttachmentEntity> attachments =
                 PlannerAttachmentEntity.<PlannerAttachmentEntity>list("itemId = ?1", id);
         List<String> storageKeys = attachments.stream().map(attachment -> attachment.storageKey).toList();
         for (PlannerAttachmentEntity attachment : attachments) {
+            unlinkLegacyMedia(attachment.id);
             attachment.delete();
         }
+        unlinkMediaTarget(id);
+        item.delete();
         recordActivity(ActivityLogService.ACTION_DELETED, item, "Agendapunt verwijderd");
         fireAttachmentCleanup(storageKeys);
         return Response.noContent().build();
@@ -205,6 +212,7 @@ public class PlannerResource {
         String storageKey = entity.storageKey;
         String filename = entity.filename;
         entity.delete();
+        unlinkLegacyMedia(attachmentId);
         recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, item, "Bijlage verwijderd",
                 ActivityChangeSet.create()
                         .privateValue("attachment.filename", "Bestand", filename, null)
@@ -268,5 +276,17 @@ public class PlannerResource {
     /** Compensates an external upload if persisting its attachment row rolls back. */
     private void fireAttachmentUploadCleanup(PlannerAttachmentCleanup.UploadReady ready) {
         if (attachmentUploadCleanup != null) attachmentUploadCleanup.fire(ready);
+    }
+
+    private void unlinkLegacyMedia(long attachmentId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkLegacy(MediaLegacySourceType.PLANNER_ATTACHMENT, attachmentId);
+        }
+    }
+
+    private void unlinkMediaTarget(long itemId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkTarget(MediaTargetType.PLANNER_ITEM, itemId);
+        }
     }
 }

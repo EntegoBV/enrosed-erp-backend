@@ -175,10 +175,9 @@ public class DemoDataLoader {
         CountryDefaults.all().forEach(countries::save);
 
         /* ---- staffels --------------------------------------------------- */
-        tiers.replace(TierScope.LINE, List.of(
-                tier(TierScope.LINE, 0, "0"), tier(TierScope.LINE, 250, "2"),
-                tier(TierScope.LINE, 500, "4"), tier(TierScope.LINE, 1000, "6"),
-                tier(TierScope.LINE, 2500, "8"), tier(TierScope.LINE, 5000, "10")));
+        /* A line schedule belongs to one product. Do not seed a global fallback:
+           different products deliberately start without an automatic line discount. */
+        tiers.replace(TierScope.LINE, List.of());
         tiers.replace(TierScope.ORDER, List.of(
                 tier(TierScope.ORDER, 0, "0"), tier(TierScope.ORDER, 2000, "1"),
                 tier(TierScope.ORDER, 5000, "2"), tier(TierScope.ORDER, 10000, "3"),

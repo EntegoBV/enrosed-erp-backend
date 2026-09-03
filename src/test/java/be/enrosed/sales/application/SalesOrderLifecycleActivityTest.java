@@ -155,8 +155,9 @@ class SalesOrderLifecycleActivityTest {
     void deletingSentQuoteAlsoRemovesItsCustomerRevisions() {
         SalesOrder sent = quote(78L, QuoteStatus.VERZONDEN);
         when(orders.findById(78L)).thenReturn(Optional.of(sent));
-        when(revisions.findByOrder(78L)).thenReturn(
-                List.of(mock(be.enrosed.sales.domain.QuoteRevision.class)));
+        when(revisions.findByOrder(78L)).thenReturn(List.of(new be.enrosed.sales.domain.QuoteRevision(
+                1L, 78L, be.enrosed.sales.domain.RevisionStatus.IN_AFWACHTING, Instant.now(),
+                "Klant", null, null, null, null, List.of())));
 
         service.delete(78L);
 

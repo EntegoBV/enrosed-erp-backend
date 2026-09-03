@@ -29,6 +29,9 @@ import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseDocument;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Money;
+import be.enrosed.media.MediaLegacySourceType;
+import be.enrosed.media.MediaService;
+import be.enrosed.media.MediaTargetType;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -71,6 +74,8 @@ public class PurchaseOrderService {
     Event<PurchaseDocumentStorageCleanup.DeleteReady> documentDeleteCleanup;
     @Inject
     Event<PurchaseDocumentStorageCleanup.UploadReady> documentUploadCleanup;
+    @Inject
+    Instance<MediaService> mediaRegistry;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -587,6 +592,7 @@ public class PurchaseOrderService {
         PurchaseOrder order = get(orderId);
         PurchaseDocument document = document(orderId, documentId);
         documents.get().delete(orderId, documentId);
+        unlinkLegacyMedia(MediaLegacySourceType.PURCHASE_DOCUMENT, documentId);
         recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, order, "Document verwijderd",
                 ActivityChangeSet.create()
                         .privateValue("document.filename", "Bestand", document.originalFilename(), null)
@@ -1152,17 +1158,24 @@ public class PurchaseOrderService {
                     "Een ontvangen inkooporder kan niet verwijderd worden omdat de voorraad al geboekt is");
         }
         List<String> storageKeys = List.of();
+        List<Long> documentIds = List.of();
         if (documents != null && documents.isResolvable()) {
-            storageKeys = documents.get().forOrder(id).stream()
+            List<PurchaseDocument> ownedDocuments = documents.get().forOrder(id);
+            storageKeys = ownedDocuments.stream()
                     .map(PurchaseDocument::storageKey)
                     .filter(Objects::nonNull)
                     .filter(key -> !key.isBlank())
                     .map(String::strip)
                     .distinct()
                     .toList();
+            documentIds = ownedDocuments.stream().map(PurchaseDocument::id)
+                    .filter(Objects::nonNull).toList();
             documents.get().deleteForOrder(id);
+            documentIds.forEach(documentId -> unlinkLegacyMedia(
+                    MediaLegacySourceType.PURCHASE_DOCUMENT, documentId));
         }
         if (payments != null && payments.isResolvable()) payments.get().deleteForOrder(id);
+        unlinkMediaTarget(MediaTargetType.PURCHASE_ORDER, id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
         if (!storageKeys.isEmpty()) {
@@ -1459,6 +1472,18 @@ public class PurchaseOrderService {
     /** Compensates an uploaded external blob if the document transaction rolls back. */
     private void fireUploadCleanup(PurchaseDocumentStorageCleanup.UploadReady ready) {
         if (documentUploadCleanup != null) documentUploadCleanup.fire(ready);
+    }
+
+    private void unlinkLegacyMedia(MediaLegacySourceType sourceType, long sourceId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkLegacy(sourceType, sourceId);
+        }
+    }
+
+    private void unlinkMediaTarget(MediaTargetType targetType, long targetId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkTarget(targetType, targetId);
+        }
     }
 
     private static String statusLabel(PurchaseOrderStatus status) {

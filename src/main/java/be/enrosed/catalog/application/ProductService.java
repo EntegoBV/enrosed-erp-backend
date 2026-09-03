@@ -31,6 +31,9 @@ import jakarta.enterprise.inject.Instance;
 import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.catalog.domain.StockMovement;
 import be.enrosed.catalog.application.port.out.StockLedger;
+import be.enrosed.media.MediaLegacySourceType;
+import be.enrosed.media.MediaService;
+import be.enrosed.media.MediaTargetType;
 import jakarta.transaction.Transactional;
 
 import java.io.InputStream;
@@ -102,6 +105,8 @@ public class ProductService {
     /* Supplier-agreement history owns separate photo rows and blobs. */
     @Inject
     Instance<ProductSupplierAgreementPhotoService> supplierAgreementPhotos;
+    @Inject
+    Instance<MediaService> mediaRegistry;
 
     @Inject
     public ProductService(
@@ -676,6 +681,7 @@ public class ProductService {
         if (supplierAgreementPhotos != null && supplierAgreementPhotos.isResolvable()) {
             supplierAgreementPhotos.get().deleteAllForProduct(id);
         }
+        unlinkMediaTarget(MediaTargetType.PRODUCT, id);
         products.deleteById(id);
         draftEmptyFamily(product.familyId());
         validateFamilies(product.familyId());
@@ -986,6 +992,7 @@ public class ProductService {
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
         Product saved = products.save(updated);
+        unlinkLegacyMedia(MediaLegacySourceType.PRODUCT_PHOTO, photoId);
         recordActivity(ActivityLogService.ACTION_PHOTO_DELETED, saved, "Productfoto verwijderd",
                 ActivityChangeSet.create()
                         .add("photoCount", "Aantal productfoto's",
@@ -998,6 +1005,18 @@ public class ProductService {
                     List.of(target.storageKey())));
         }
         return saved;
+    }
+
+    private void unlinkLegacyMedia(MediaLegacySourceType sourceType, long sourceId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkLegacy(sourceType, sourceId);
+        }
+    }
+
+    private void unlinkMediaTarget(MediaTargetType targetType, long targetId) {
+        if (mediaRegistry != null && mediaRegistry.isResolvable()) {
+            mediaRegistry.get().unlinkTarget(targetType, targetId);
+        }
     }
 
     /** Orders the series by the given ids; the first becomes the primary photo. */

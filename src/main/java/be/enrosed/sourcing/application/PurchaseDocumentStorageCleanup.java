@@ -1,7 +1,9 @@
 package be.enrosed.sourcing.application;
 
+import be.enrosed.catalog.application.PhotoReferenceService;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.event.TransactionPhase;
 import jakarta.transaction.Transactional;
@@ -22,9 +24,18 @@ import java.util.List;
 public class PurchaseDocumentStorageCleanup {
 
     private final PhotoStorage storage;
+    private final PhotoReferenceService references;
 
-    public PurchaseDocumentStorageCleanup(PhotoStorage storage) {
+    @Inject
+    public PurchaseDocumentStorageCleanup(PhotoStorage storage, PhotoReferenceService references) {
         this.storage = storage;
+        this.references = references;
+    }
+
+    /** Compatibility for isolated cleanup tests without a persistence context. */
+    PurchaseDocumentStorageCleanup(PhotoStorage storage) {
+        this.storage = storage;
+        this.references = null;
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
@@ -39,7 +50,8 @@ public class PurchaseDocumentStorageCleanup {
 
     private void deleteBestEffort(String storageKey) {
         try {
-            storage.delete(storageKey);
+            if (references == null) storage.delete(storageKey);
+            else references.deleteIfUnreferenced(storageKey);
         } catch (RuntimeException ignored) {
             /* A sweepable orphan is safer than rolling back a valid order change. */
         }

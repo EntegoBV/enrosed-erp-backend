@@ -161,11 +161,41 @@ class SalesPricingCalculatorTest {
         assertEquals("Roos - B × D × H: 12 × 8 × 25 cm - Rood - XL", line.customerDescription());
     }
 
+    @Test
+    void automaticLineTiersApplyOnlyToTheirTargetProduct() {
+        Product first = product(1L, "FIRST", carton("10", "10", "10", 1, "1"));
+        Product second = product(2L, "SECOND", carton("10", "10", "10", 1, "1"));
+        SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.BEREKEND,
+                List.of(new SalesOrderLine(null, 1L, 10, null, null, null),
+                        new SalesOrderLine(null, 2L, 10, null, null, null)),
+                List.of());
+        List<DiscountTier> lineTiers = List.of(
+                /* Old global LINE rows must never become a fallback. */
+                new DiscountTier(1L, TierScope.LINE, 0, decimal("99")),
+                new DiscountTier(2L, TierScope.LINE, 10, decimal("5"), 1L),
+                new DiscountTier(3L, TierScope.LINE, 20, decimal("7"), 2L));
+
+        PricedOrder priced = price(order, Map.of(1L, first, 2L, second), lineTiers);
+
+        assertEquals(decimal("5"), priced.lines().get(0).tierPercent());
+        assertEquals(decimal("5"), priced.lines().get(0).discountPct());
+        assertEquals(decimal("0"), priced.lines().get(1).tierPercent());
+        assertEquals(decimal("0"), priced.lines().get(1).discountPct());
+        assertEquals(20, priced.lines().get(1).nextTierAtQuantity());
+        assertEquals(decimal("7"), priced.lines().get(1).nextTierPercent());
+    }
+
     private PricedOrder price(SalesOrder order, Map<Long, Product> products) {
+        return price(order, products, List.of());
+    }
+
+    private PricedOrder price(SalesOrder order, Map<Long, Product> products,
+                              List<DiscountTier> lineTiers) {
         Country country = new Country("BE", "België", BigDecimal.ZERO,
                 decimal("90"), decimal("250"), decimal("35"), decimal("21"), 1, true);
         return calculator.price(order, products, new SalesPricingCalculator.Context(
-                country, null, PalletSpec.euro(), List.of(), List.of(), null));
+                country, null, PalletSpec.euro(), lineTiers, List.of(), null));
     }
 
     private static SalesOrder order(LoadMode loadMode, FreightPricingStrategy strategy,

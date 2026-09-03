@@ -101,6 +101,7 @@ class PurchasePaymentPersistenceTest {
         product.sku = "SKU-CAP-1";
         product.name = "Capped rose";
         product.active = true;
+        product.supplierId = supplier.id();
         product.piecesPerCarton = 10;
         product.productLengthCm = BigDecimal.ONE;
         product.productWidthCm = BigDecimal.ONE;

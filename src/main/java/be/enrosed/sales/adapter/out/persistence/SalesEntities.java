@@ -76,7 +76,11 @@ public final class SalesEntities {
     }
 
     @Entity
-    @Table(name = "discount_tier")
+    @Table(name = "discount_tier",
+            indexes = @Index(name = "idx_discount_tier_scope_product", columnList = "scope,product_id"),
+            uniqueConstraints = @UniqueConstraint(
+                    name = "uk_discount_tier_scope_product_threshold",
+                    columnNames = {"scope", "product_id", "minQuantity"}))
     public static class DiscountTierEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
         public Long id;
@@ -85,6 +89,9 @@ public final class SalesEntities {
         public int minQuantity;
         @Column(precision = 19, scale = 4)
         public BigDecimal percent;
+        /** Null only for order tiers and inert legacy global line tiers. */
+        @Column(name = "product_id")
+        public Long productId;
     }
 
     @Entity

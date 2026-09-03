@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Prices a sales order.
@@ -115,7 +116,9 @@ public class SalesPricingCalculator {
             BigDecimal unitPrice = unitPriceFor(product, order, line.unitPriceEur());
             BigDecimal lineGross = unitPrice.multiply(BigDecimal.valueOf(quantity));
 
-            BigDecimal tierPct = tierPercentFor(context.lineTiers(), quantity);
+            List<DiscountTier> productLineTiers = lineTiersForProduct(
+                    context.lineTiers(), product.id());
+            BigDecimal tierPct = tierPercentFor(productLineTiers, quantity);
             BigDecimal manualPct = Money.nz(line.manualDiscountPct());
             BigDecimal discountPct = tierPct.add(manualPct).min(Money.HUNDRED);
             BigDecimal discountAmount = Money.percentOf(lineGross, discountPct);
@@ -125,7 +128,7 @@ public class SalesPricingCalculator {
             if (landedUnit.signum() == 0) withoutCost.add(product.sku());
             BigDecimal lineCost = landedUnit.multiply(BigDecimal.valueOf(quantity));
 
-            DiscountTier next = nextTier(context.lineTiers(), quantity);
+            DiscountTier next = nextTier(productLineTiers, quantity);
 
             /* Delivery term: from stock we count from the next working day
                plus transit time; otherwise no date, only what is short. */
@@ -405,6 +408,16 @@ public class SalesPricingCalculator {
                 .filter(java.util.Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(BigDecimal.ZERO);
+    }
+
+    /** Product-specific line tiers only; null-target rows are inert legacy global rules. */
+    private List<DiscountTier> lineTiersForProduct(List<DiscountTier> tiers, Long productId) {
+        if (tiers == null || productId == null) return List.of();
+        return tiers.stream()
+                .filter(Objects::nonNull)
+                .filter(tier -> tier.scope() == TierScope.LINE)
+                .filter(tier -> Objects.equals(tier.productId(), productId))
+                .toList();
     }
 
     /** Next tier up, for the "this many pieces to go" hint. */
