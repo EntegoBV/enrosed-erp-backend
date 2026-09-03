@@ -56,7 +56,7 @@ public class PublicQuoteResource {
     @Path("/configuration")
     public Response configuration(@QueryParam("language") @DefaultValue("EN") String language) {
         return Response.ok(quotes.configuration(language))
-                .header("Cache-Control", "public, max-age=60, stale-while-revalidate=120")
+                .header("Cache-Control", "no-store")
                 .build();
     }
 

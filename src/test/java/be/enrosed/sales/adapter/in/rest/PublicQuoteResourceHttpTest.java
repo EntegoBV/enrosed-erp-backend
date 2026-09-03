@@ -54,6 +54,7 @@ class PublicQuoteResourceHttpTest {
         given().queryParam("language", "EN")
                 .when().get("/api/v1/public/quotes/configuration")
                 .then().statusCode(200)
+                .header("Cache-Control", "no-store")
                 .body("currency", equalTo("EUR"));
     }
 
