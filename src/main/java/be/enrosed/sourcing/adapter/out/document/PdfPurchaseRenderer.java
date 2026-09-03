@@ -703,45 +703,45 @@ public class PdfPurchaseRenderer {
         String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
         if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
-        /* Sizes are bare numbers; the axis order (W × D × H) is said once above the table. */
-        String productDimensions = dimensionValue(product.dimensions());
-        if (productDimensions != null) details.add(new ProductSpec("Product", productDimensions));
+        /* One row per thing you can hold - product, packaging, carton - each
+           reading sizes, count, volume and barcode in that order. Sizes are
+           bare numbers; the axis order (W × D × H) is said once above the table. */
         String pieceBarcode = showBarcode && !supplierFacing ? ean(product) : null;
-        if (notBlank(pieceBarcode)) details.add(new ProductSpec("EAN stuk", pieceBarcode.strip()));
+        String productValue = join(dimensionValue(product.dimensions()), eanText(pieceBarcode));
+        if (productValue != null) details.add(new ProductSpec("Product", productValue));
 
         Packaging packaging = product.packaging();
         if (packaging != null && packaging.isPresent()) {
+            boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
             Integer packagedPieces = packaging.unitPieces() > 1 ? packaging.unitPieces() : null;
-            String packagingLabel = supplierFacing
-                    ? (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY ? "Display" : "Packaging")
-                    : (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY ? "Display" : "Verpakking");
+            String packagingLabel = display ? "Display" : (supplierFacing ? "Gift packaging" : "Geschenkverpakking");
             String packagingValue = join(dimensionValue(packaging.dimensions()),
-                    packagedPieces == null ? null : packagedPieces + " "
-                            + (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                                    ? (supplierFacing ? "pcs/display" : "stuks/display")
-                                    : (supplierFacing ? "pcs" : "stuks")));
+                    packagedPieces == null ? null : packagedPieces
+                            + (supplierFacing ? " pieces" : " stuks") + (display ? " per display" : ""),
+                    showBarcode ? eanText(packaging.barcode()) : null);
             if (packagingValue != null) details.add(new ProductSpec(packagingLabel, packagingValue));
-            if (showBarcode && notBlank(packaging.barcode())) {
-                details.add(new ProductSpec(supplierFacing ? "EAN pack." : "EAN verp.",
-                        packaging.barcode().strip()));
-            }
         }
 
         Carton carton = product.carton();
         String outerBarcode = !showBarcode || product.barcodes() == null ? null : product.barcodes().outer();
-        if (showOuterCarton && carton != null) {
-            Integer cartonPieces = carton.piecesPerCarton() > 0 ? carton.piecesPerCarton() : null;
-            String cartonValue = join(dimensionValue(carton.dimensions()),
-                    cartonPieces == null ? null : cartonPieces + (supplierFacing ? " pcs/carton" : " st./karton"),
-                    cbmText(carton.cbm()));
+        if (showOuterCarton && (carton != null || notBlank(outerBarcode))) {
+            Integer cartonPieces = carton == null || carton.piecesPerCarton() <= 0 ? null : carton.piecesPerCarton();
+            String cartonValue = join(carton == null ? null : dimensionValue(carton.dimensions()),
+                    cartonPieces == null ? null : cartonPieces + (supplierFacing
+                            ? (cartonPieces == 1 ? " piece per carton" : " pieces per carton")
+                            : (cartonPieces == 1 ? " stuk per karton" : " stuks per karton")),
+                    carton == null ? null : cbmText(carton.cbm()),
+                    eanText(outerBarcode));
             if (cartonValue != null) {
                 details.add(new ProductSpec(supplierFacing ? "Carton" : "Omdoos", cartonValue));
             }
         }
-        if (showOuterCarton && notBlank(outerBarcode)) {
-            details.add(new ProductSpec(supplierFacing ? "EAN carton" : "EAN omdoos", outerBarcode.strip()));
-        }
         return List.copyOf(details);
+    }
+
+    /** "EAN 8712345678906", or null without a barcode. */
+    private static String eanText(String barcode) {
+        return notBlank(barcode) ? "EAN " + barcode.strip() : null;
     }
 
     /** "18 × 18 × 22 cm", or null when the sizes are not known. */
@@ -763,7 +763,7 @@ public class PdfPurchaseRenderer {
      * name and its facts readable whatever the option mix.
      */
     static int productColumnMm(PdfOptions options) {
-        int fixed = 12 + 16 + 14 + 18;
+        int fixed = 12 + 18 + 14 + 18;
         if (options.showPrices()) fixed += 22 + (options.includeUnitPrice() ? 20 : 0);
         if (options.includeEnrosedCost() || options.includeEnrosedUnitCost()) fixed += 26;
         return 190 - fixed;
@@ -906,7 +906,7 @@ public class PdfPurchaseRenderer {
     static String cartonCbm(Product product) {
         if (product == null || product.carton() == null || product.carton().cbm() == null
                 || product.carton().cbm().signum() <= 0) return null;
-        return product.carton().cbm().stripTrailingZeros().toPlainString().replace('.', ',');
+        return DocumentFormat.cbmNumber(product.carton().cbm());
     }
 
     static boolean sameRate(PurchaseOrder order) {

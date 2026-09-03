@@ -331,7 +331,7 @@
       <td class="r nowrap">{line.commercial.quantity}</td>
       {#if includeLogistics}
         <td class="r nowrap">{line.commercial.cartons}</td>
-        <td class="r nowrap">{#if looseCartons}{line.commercial.cbm} m³{#else}{line.palletPositions}{/if}</td>
+        <td class="r nowrap">{#if looseCartons}{line.commercial.cbm.cbm ?: '-'}{#else}{line.palletPositions}{/if}</td>
       {/if}
       <td class="r nowrap">{line.commercial.unitPrice.unit}</td>
       {#if hasDiscounts}<td class="r nowrap">{#if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}

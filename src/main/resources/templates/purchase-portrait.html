@@ -96,7 +96,7 @@
     }
     .product__spec:first-child { border-top: 0; }
     .product__spec-label {
-      display: table-cell; width: 17mm; padding-right: 1mm; color: #8f2942; font-size: 5.2pt; font-weight: 700;
+      display: table-cell; width: 27mm; padding-right: 1mm; color: #8f2942; font-size: 5.2pt; font-weight: 700;
       letter-spacing: 0; text-transform: uppercase; vertical-align: top; white-space: nowrap;
     }
     .product__spec-value { display: table-cell; font-variant-numeric: tabular-nums; }
@@ -155,7 +155,7 @@
     /* Fixed numeric widths keep the product column as the flexible remainder.
        This remains balanced with zero, one or both all-in cost columns. */
     .standard-lines .col-quantity { width: 12mm; }
-    .standard-lines .col-pieces { width: 16mm; }
+    .standard-lines .col-pieces { width: 18mm; }
     .standard-lines .col-cartons { width: 14mm; }
     .standard-lines .col-unit { width: 20mm; }
     .standard-lines .col-line-total { width: 22mm; }
@@ -201,8 +201,9 @@
     /* Portrait leaves the product column room: the photo is the thing you
        recognise a line by, so it gets a proper thumbnail instead of a stamp. */
     .standard-sheet .product-photo,
-    .standard-sheet .product-photo--empty { width: 22mm; height: 22mm; max-width: 22mm; }
-    .standard-sheet .product-photo--empty { line-height: 22mm; }
+    .standard-sheet .product-photo--empty { width: 19mm; height: 19mm; max-width: 19mm; }
+    .standard-sheet .product-photo--empty { line-height: 19mm; }
+    .standard-sheet .product__photo-cell { width: 22.5mm; padding-right: 2.5mm !important; }
 
     /* Supplier agreement: intentionally separate from the internal Dutch read copy. */
     .supplier-sheet .top-rule { margin-bottom: 10.8mm; }
@@ -232,7 +233,7 @@
       border: 0; border-top: .25pt solid #e8ded1; border-radius: 0; background: transparent;
     }
     .supplier-sheet .product__spec-label {
-      display: table-cell; width: 17mm; padding-right: 1mm; font-size: 5pt;
+      display: table-cell; width: 27mm; padding-right: 1mm; font-size: 5pt;
     }
     .supplier-sheet .product__spec-value { display: table-cell; }
     table.agreement td.agreement-gallery { padding: 2mm 3mm 1mm; border-top: .35pt solid #ece3d6; }
@@ -353,7 +354,7 @@
 <table class="lines">
   <thead>
   <tr>
-    <th style="width:82mm">Product</th>
+    <th style="width:76mm">Product</th>
     <th style="width:24mm">EAN</th>
     <th style="width:15mm">Quantity</th>
     <th style="width:12mm">Cartons</th>
@@ -386,7 +387,7 @@
         </table>
       </td>
       <td class="number">{#if line.ean}{line.ean}{#else}<span class="muted">-</span>{/if}</td>
-      <td class="number">{line.orderedQuantity} pcs{#if line.piecesPerCarton}<br/><span class="price-sub">{line.piecesPerCarton} / carton</span>{/if}</td>
+      <td class="number">{line.orderedQuantity} pcs{#if line.piecesPerCarton}<br/><span class="price-sub">{line.piecesPerCarton} per carton</span>{/if}</td>
       <td class="number">{line.orderedCartons}</td>
       <td class="number">{#if line.cartonCbm}{line.cartonCbm} m³{#else}<span class="muted">-</span>{/if}</td>
       <td class="number">{#if line.lineCbm}<b>{line.lineCbm}</b>{#else}<span class="muted">-</span>{/if}</td>
@@ -445,7 +446,7 @@
        over all of them and the product column ends up narrowest. -->
   <colgroup>
     <col style="width:{productColumnMm}mm"/>
-    <col style="width:12mm"/><col style="width:16mm"/><col style="width:14mm"/><col style="width:18mm"/>
+    <col style="width:12mm"/><col style="width:18mm"/><col style="width:14mm"/><col style="width:18mm"/>
     {#if showPrices}{#if showUnitPrice}<col style="width:20mm"/>{/if}<col style="width:22mm"/>{/if}
     {#if showEnrosedCost || showEnrosedUnitCost}<col style="width:26mm"/>{/if}
   </colgroup>
@@ -453,7 +454,7 @@
   <tr>
     <th class="col-product">Product</th>
     <th class="col-quantity">Stuks</th>
-    <th class="col-pieces">St./karton</th>
+    <th class="col-pieces">Stuks per karton</th>
     <th class="col-cartons">Kartons</th>
     <th class="col-cbm">m³</th>
     {#if showPrices}
@@ -521,8 +522,14 @@
     <td></td>
     <td class="number"><b>{purchaseCartons}</b></td>
     <td class="number"><b>{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</b></td>
-    {#if showPrices}{#if showUnitPrice}<td></td>{/if}<td></td>{/if}
-    {#if showEnrosedCost || showEnrosedUnitCost}<td></td>{/if}
+    {#if showPrices}
+    {#if showUnitPrice}<td></td>{/if}
+    <td class="number">
+      {#if eurOnly}{#if purchaseTotalEurAvailable}<b>{purchaseTotalEur.money}</b><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}
+      {#else}{#for total in purchaseTotals}<b>{total.amount}</b><br/><span class="price-sub">{total.currency}</span>{#if total_hasNext}<br/>{/if}{/for}{#if purchaseTotals.isEmpty}<span class="muted">-</span>{/if}{/if}
+    </td>
+    {/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<td class="number enrosed-cost">{#if showEnrosedCost}<b>{totalDeliveryCostEur.money}</b><br/><span class="price-sub">EUR t/m levering</span>{/if}</td>{/if}
   </tr>
   </tbody>
 </table>

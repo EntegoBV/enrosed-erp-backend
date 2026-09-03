@@ -240,42 +240,38 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     private static List<ProductSpec> productSpecs(Product product, Map<String, String> text,
                                                   SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
-        if (options.includeProductDetails()) {
-            addSpec(details, text.get("productDimensions"), dimensions(product.dimensions()));
-        }
+        /* One row per thing you can hold - product, packaging, master carton -
+           each reading sizes, count, volume and barcode, as on the purchase order. */
+        String pieceBarcode = options.showBarcode() ? firstNonBlank(product.canonicalBarcode(),
+                product.barcodes() == null ? null : product.barcodes().inner()) : null;
+        addSpec(details, text.get("product"), joinDetails(
+                options.includeProductDetails() ? dimensions(product.dimensions()) : null,
+                eanText(pieceBarcode)));
 
-        if (options.showBarcode()) {
-            String productBarcode = firstNonBlank(product.canonicalBarcode(),
-                    product.barcodes() == null ? null : product.barcodes().inner());
-            addSpec(details, "EAN", productBarcode);
-        }
-
-        /* Every fact is its own labelled row, as on the purchase order: sizes
-           and counts on one row, the matching barcode on the next. */
         if (options.includeProductDetails() && product.packaging().isPresent()) {
             String packagingLabel = product.packaging().kind() == PackagingKind.GIFT_BOX
                     ? text.get("giftPackaging") : text.get("displayPackaging");
             addSpec(details, packagingLabel, joinDetails(
                     dimensions(product.packaging().dimensions()),
                     product.packaging().unitPieces() > 1
-                            ? product.packaging().unitPieces() + " " + text.get("pieces") : null));
-            if (options.showBarcode()) {
-                addSpec(details, "EAN " + packagingLabel, product.packaging().barcode());
-            }
+                            ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
+                    options.showBarcode() ? eanText(product.packaging().barcode()) : null));
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
-            String cartonLabel = text.get("catalogCarton");
-            addSpec(details, cartonLabel, joinDetails(
+            addSpec(details, text.get("catalogCarton"), joinDetails(
                     dimensions(product.carton().dimensions()),
-                    Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("pieces"),
-                    DocumentFormat.cbm(product.carton().cbm())));
-            if (options.showBarcode()) {
-                addSpec(details, "EAN " + cartonLabel,
-                        product.barcodes() == null ? null : product.barcodes().outer());
-            }
+                    Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("piecesPerCarton"),
+                    DocumentFormat.cbm(product.carton().cbm()),
+                    options.showBarcode()
+                            ? eanText(product.barcodes() == null ? null : product.barcodes().outer()) : null));
         }
         return List.copyOf(details);
+    }
+
+    /** "EAN 8712345678906", or null without a barcode. */
+    private static String eanText(String barcode) {
+        return barcode == null || barcode.isBlank() ? null : "EAN " + barcode.strip();
     }
 
     private static void addSpec(List<ProductSpec> target, String label, String value) {

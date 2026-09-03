@@ -97,6 +97,8 @@ portalOutOfStock;op bestelling;sur commande;made to order;auf Bestellung;bajo pe
 portalPerBox;per doos;par carton;per carton;pro Karton;por caja;w kartonie;por caixa;koli başına
 portalRoundingNotice;Wordt zo;Sera arrondi à;Will be rounded to;Wird aufgerundet auf;Se redondeará a;Zostanie zaokrąglone do;Será arredondado para;Şu değere yuvarlanacak:
 catalogCarton;omdoos;carton maître;master carton;Umkarton;caja máster;karton zbiorczy;caixa master;ana koli
+product;Product;Produit;Product;Produkt;Producto;Produkt;Produto;Ürün
+piecesPerCarton;stuks per karton;pièces par carton;pieces per carton;Stück pro Karton;unidades por caja;sztuk w kartonie;unidades por caixa;koli başına adet
 productDimensions;Productafmeting;Dimensions du produit;Product dimensions;Produktmaße;Dimensiones del producto;Wymiary produktu;Dimensões do produto;Ürün ölçüleri
 giftPackaging;Geschenkverpakking;Emballage cadeau;Gift packaging;Geschenkverpackung;Embalaje de regalo;Opakowanie prezentowe;Embalagem de presente;Hediye ambalajı
 displayPackaging;Display;Présentoir;Display;Display;Expositor;Ekspozytor;Expositor;Stand

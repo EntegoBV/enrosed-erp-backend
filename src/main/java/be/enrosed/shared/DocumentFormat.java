@@ -115,8 +115,17 @@ public class DocumentFormat {
 
     /** "0,048 m³" for a volume; null when there is none. */
     public static String cbm(java.math.BigDecimal cbm) {
+        String number = cbmNumber(cbm);
+        return number == null ? null : number + " m\u00b3";
+    }
+
+    /** "0,05": a volume with two decimals, the way every PDF prints m³; a sliver keeps three. */
+    public static String cbmNumber(java.math.BigDecimal cbm) {
         if (cbm == null || cbm.signum() <= 0) return null;
-        return cbm.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
-                .replace('.', ',') + " m\u00b3";
+        java.math.BigDecimal rounded = cbm.setScale(2, java.math.RoundingMode.HALF_UP);
+        if (rounded.signum() == 0) {
+            rounded = cbm.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros();
+        }
+        return rounded.toPlainString().replace('.', ',');
     }
 }
