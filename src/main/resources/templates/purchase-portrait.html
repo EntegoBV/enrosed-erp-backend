@@ -104,6 +104,11 @@
       color: #584d47; font-size: 8pt; line-height: 1.45; white-space: pre-line;
     }
     .supplier-note b { color: #8f2942; font-size: 6.1pt; letter-spacing: .05em; text-transform: uppercase; }
+    .supplier-note .note-p { margin-top: .6mm; }
+    .supplier-note .note-li { position: relative; margin-top: .4mm; padding-left: 3.2mm; }
+    .supplier-note .note-li::before { content: '\2022'; position: absolute; left: .6mm; }
+    .supplier-note .note-li--sub { padding-left: 7mm; color: #6b5f58; }
+    .supplier-note .note-li--sub::before { content: '\2013'; left: 4mm; }
     .lines .supplier-note-cell { padding: 2.5mm 3mm; text-align: left; background: #fdfaf6; }
     .number { white-space: nowrap; }
     .price-main { font-weight: 700; }
@@ -350,7 +355,7 @@
     </tr>
     {#for noteChunk in line.supplierNoteChunks}
       <tr class="supplier-note-row">
-        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Agreed product instruction</b><br/>{noteChunk}</div></td>
+        <td class="supplier-note-cell" colspan="6"><div class="supplier-note"><b>{line.productName}{#if line.sku} · {line.sku}{/if} · Agreed product instruction</b>{#for item in noteChunk}{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}{/for}</div></td>
       </tr>
     {/for}
     {#if !line.agreementPhotos.isEmpty}
