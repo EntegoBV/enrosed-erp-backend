@@ -37,5 +37,7 @@ public final class WebsiteAnalyticsDtos {
                          List<CityRow> cities, List<SourceRow> sources,
                          /** Visits per weekday (Monday first) and hour, Brussels time. */
                          int[][] hours,
-                         List<DeviceRow> devices, List<LocaleRow> locales) {}
+                         List<DeviceRow> devices, List<LocaleRow> locales,
+                         /** Our own Belgian towns, left out of every number above. */
+                         List<String> excludedCities) {}
 }

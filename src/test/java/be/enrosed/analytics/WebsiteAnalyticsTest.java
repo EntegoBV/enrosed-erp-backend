@@ -11,7 +11,9 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Page views posted by the website's edge function become the Analyses report. */
 @QuarkusTest
@@ -55,6 +57,29 @@ class WebsiteAnalyticsTest {
         given().contentType("application/json").body(Map.of("path", "/", "visitor", "not-a-hash"))
                 .when().post("/api/public/analytics/visits").then().statusCode(400);
         given().when().get("/api/analytics/website").then().statusCode(401);
+    }
+
+    @Test
+    void ourOwnTownsNeverCount() {
+        String visitor = "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e";
+        for (String city : List.of("Mol", "GEEL", "Tessenderlo", "Arendonk")) {
+            Map<String, Object> beacon = new HashMap<>();
+            beacon.put("path", "/nl/own-town-check/");
+            beacon.put("visitor", visitor);
+            beacon.put("country", "BE");
+            beacon.put("city", city);
+            given().contentType("application/json").body(beacon)
+                    .when().post("/api/public/analytics/visits")
+                    .then().statusCode(204);
+        }
+        String body = given().auth().preemptive().basic("emre", "named-auth-test-password")
+                .when().get("/api/analytics/website?days=7")
+                .then().statusCode(200)
+                .body("excludedCities", hasItem("Mol"))
+                .extract().asString();
+        assertFalse(body.contains("own-town-check"), "a visit from our own town is not stored");
+        assertFalse(body.contains("\"Tessenderlo\",\"country\""), body);
+        assertTrue(WebsiteVisitService.cityKey("Mól ").equals("mol"));
     }
 
     @Test

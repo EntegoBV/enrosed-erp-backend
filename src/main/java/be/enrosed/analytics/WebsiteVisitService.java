@@ -12,7 +12,9 @@ import be.enrosed.analytics.WebsiteAnalyticsDtos.SourceRow;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.Totals;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.VisitInput;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.net.URI;
 import java.time.Duration;
@@ -20,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -43,6 +46,45 @@ public class WebsiteVisitService {
     private static final Set<String> SITE_LOCALES = Set.of("nl", "fr", "de", "es", "pl", "pt", "tr");
     private static final Set<String> DEVICES = Set.of("MOBILE", "TABLET", "DESKTOP");
 
+    /**
+     * Our own corner of the Kempen. Visits from these Belgian towns are the
+     * team, the warehouse and the family checking the site, not customers,
+     * so they are neither stored nor counted.
+     */
+    private final Set<String> excludedCities;
+    private final List<String> excludedCityLabels;
+
+    @Inject
+    public WebsiteVisitService(
+            @ConfigProperty(name = "enrosed.analytics.excluded-cities",
+                    defaultValue = "Tessenderlo,Mol,Balen,Geel,Arendonk,Dessel,Retie") String excludedCities) {
+        List<String> labels = new ArrayList<>();
+        Set<String> keys = new HashSet<>();
+        for (String city : excludedCities.split(",")) {
+            String label = city.strip();
+            if (label.isEmpty()) continue;
+            labels.add(label);
+            keys.add(cityKey(label));
+        }
+        this.excludedCityLabels = List.copyOf(labels);
+        this.excludedCities = Set.copyOf(keys);
+    }
+
+    /** A Belgian visit from one of our own towns. */
+    boolean ownVisit(String country, String city) {
+        return "BE".equals(country) && city != null && excludedCities.contains(cityKey(city));
+    }
+
+    public List<String> excludedCityLabels() {
+        return excludedCityLabels;
+    }
+
+    /** "Mol", "MOL" and "Mól" are the same town. */
+    static String cityKey(String city) {
+        String flat = Normalizer.normalize(city.strip(), Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+        return flat.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+    }
+
     /** Stores one page view; false when the beacon is not worth keeping. */
     @Transactional
     public boolean record(VisitInput input) {
@@ -60,6 +102,8 @@ public class WebsiteVisitService {
         String country = upper(input.country());
         visit.country = country != null && COUNTRY.matcher(country).matches() ? country : null;
         visit.city = trim(input.city(), 80);
+        /* Accepted, but not kept: the beacon did its job, the number stays honest. */
+        if (ownVisit(visit.country, visit.city)) return true;
         visit.referrerHost = referrerHost(input.referrer());
         visit.source = trim(lower(input.utmSource()), 64);
         visit.medium = trim(lower(input.utmMedium()), 64);
@@ -103,6 +147,7 @@ public class WebsiteVisitService {
         Instant lastSeen = null;
 
         for (WebsiteVisitEntity row : rows) {
+            if (ownVisit(row.country, row.city)) continue;
             ZonedDateTime at = row.occurredAt.atZone(ZONE);
             LocalDate day = at.toLocalDate();
             long[] count = perDay.get(day);
@@ -136,7 +181,8 @@ public class WebsiteVisitService {
         List<DayPoint> series = new ArrayList<>();
         perDay.forEach((day, count) -> series.add(new DayPoint(day.toString(), count[0],
                 visitorsPerDay.get(day).size())));
-        long visits = rows.size();
+        long visits = 0;
+        for (long[] count : perDay.values()) visits += count[0];
         Totals totals = new Totals(visits, visitors.size(), sessions,
                 sessions == 0 ? 0 : Math.round(visits * 10.0 / sessions) / 10.0,
                 countries.keySet().stream().filter(code -> !code.isEmpty()).count());
@@ -148,7 +194,8 @@ public class WebsiteVisitService {
                 top(sources, 15, (key, counter) -> new SourceRow(key, sourceKinds.get(key), counter.visits)),
                 hours,
                 top(devices, 3, (key, counter) -> new DeviceRow(key, counter.visits)),
-                top(locales, 8, (key, counter) -> new LocaleRow(key, counter.visits)));
+                top(locales, 8, (key, counter) -> new LocaleRow(key, counter.visits)),
+                excludedCityLabels);
     }
 
     private static final class Counter {
