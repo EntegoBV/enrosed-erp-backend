@@ -113,6 +113,18 @@
     .highlights li { margin-top: 1.3mm; color: #3e302a; font-size: 8pt; line-height: 1.35; }
     .highlights li:before { content: "·"; margin-right: 1.5mm; color: #9b7735; }
     .family-logistics { margin-bottom: 2.5mm; padding: 2.5mm 3mm; color: #241815; background: rgba(255,253,250,.76); border-left: .8mm solid #cba956; font-size: 8pt; font-weight: 700; }
+    .family-info .specs--full { width: 100%; }
+    .spec-title { margin-bottom: 1.5mm; color: #8b3147; font-size: 7pt; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; }
+    .family-page--display-roses .spec-title, .family-page--counter .spec-title { color: #8b682f; }
+    .family-page--preserved-roses .spec-title, .family-page--divers .spec-title, .family-page--rose-in-dome .spec-title { color: #52735c; }
+    .family-page--soap-roses .spec-title { color: #9c3d5a; }
+    .family-page--foam-roses .spec-title, .family-page--foam-rose .spec-title, .family-page--rose-bears .spec-title { color: #79528e; }
+    .spec-list { width: 100%; margin-bottom: 3.5mm; border-collapse: collapse; background: rgba(255,253,250,.64); border-top: .35mm solid #b99b5a; }
+    .spec-list th { width: 40%; padding: 1.7mm 2mm 1.7mm 2.4mm; color: #725f54; border-bottom: .2mm solid #d8c9bd; font-size: 6.8pt; font-weight: 700; letter-spacing: .4px; text-align: left; text-transform: uppercase; vertical-align: top; }
+    .spec-list td { padding: 1.7mm 2mm; color: #241815; border-bottom: .2mm solid #d8c9bd; font-size: 8.4pt; line-height: 1.3; vertical-align: top; }
+    .specs--full .spec-list th { width: 30%; }
+    .family-media--empty { height: 46mm; }
+    .family-media--empty tr { height: 43mm; }
     .variants { width: 100%; border-collapse: collapse; table-layout: fixed; background: rgba(255,253,250,.64); }
     .variants th { padding: 1.7mm 1.2mm; color: #725f54; border-bottom: .35mm solid #b99b5a; font-size: 6.8pt; font-weight: 700; letter-spacing: .5px; text-align: left; text-transform: uppercase; }
     .variants td { padding: 1.8mm 1.2mm; color: #30231e; border-bottom: .2mm solid #d8c9bd; font-size: 7.8pt; line-height: 1.25; vertical-align: top; }
@@ -123,6 +135,13 @@
     .variants .ean { width: 17%; }
     .swatch { display: inline-block; width: 3.4mm; height: 3.4mm; margin-right: 1.3mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
     .variant-price { display: block; margin-top: .8mm; color: #8f223c; font-size: 8.2pt; font-weight: 700; }
+    .family-page--sheet .family-media { height: 128mm; }
+    .family-page--sheet .family-media--one tr, .family-page--sheet .family-media--two tr { height: 125mm; }
+    .family-page--sheet .family-media--three tr, .family-page--sheet .family-media--four-plus tr { height: 61.5mm; }
+    .family-page--sheet .family-info { margin-top: 6mm; }
+    .family-page--sheet .spec-title { margin-bottom: 2mm; font-size: 7.6pt; }
+    .family-page--sheet .spec-list th { padding: 2.3mm 2mm 2.3mm 2.8mm; font-size: 7.4pt; }
+    .family-page--sheet .spec-list td { padding: 2.3mm 2mm; font-size: 9.6pt; }
     .family-page--compact .family-head h2 { font-size: 20pt; }
     .family-page--compact .family-media { width: 130mm; height: 76mm; margin-right: auto; margin-left: auto; }
     .family-page--compact .family-media--one tr, .family-page--compact .family-media--two tr { height: 73mm; }
@@ -136,6 +155,9 @@
     .family-page--compact .highlights { margin-top: 1.8mm; }
     .family-page--compact .highlights li { margin-top: .8mm; font-size: 7.1pt; line-height: 1.2; }
     .family-page--compact .family-logistics { margin-bottom: 1.8mm; padding: 2mm 2.5mm; font-size: 7.2pt; }
+    .family-page--compact .spec-list { margin-bottom: 2.2mm; }
+    .family-page--compact .spec-list th { padding: 1.1mm 1.6mm 1.1mm 2mm; font-size: 6.1pt; }
+    .family-page--compact .spec-list td { padding: 1.1mm 1.6mm; font-size: 7.2pt; line-height: 1.2; }
     .family-page--compact .variants th { padding: 1.2mm 1mm; font-size: 6.1pt; }
     .family-page--compact .variants td { padding: 1.2mm 1mm; font-size: 6.8pt; line-height: 1.15; }
     .family-page--compact .variant-price { margin-top: .4mm; font-size: 7.4pt; }
@@ -223,7 +245,7 @@
   {/if}
 
   {#for family in section.families}
-  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey}{#if family.compactDetail} family-page--compact{/if}">
+  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}">
     <a name="{family.anchor}"></a>
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>
@@ -234,14 +256,15 @@
     {#if family.photos.present}<table class="family-media family-media--{family.photos.kind}">{#for row in family.photos.rows}<tr>{#for tile in row.tiles}<td class="tile--{tile.cssClass}" rowspan="{tile.rowSpan}"><img src="{tile.image}" alt="{family.name}"/></td>{/for}</tr>{/for}</table>{#else}<table class="family-media family-media--empty"><tr><td><span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span></td></tr></table>{/if}
     {#if family.photos.extras.size > 0}<div class="gallery-strip">{#for image in family.photos.extras}<img src="{image}" alt=""/>{/for}</div>{/if}
     <table class="family-info"><tr>
-      <td class="story">
+      {#if family.hasStory}<td class="story">
         {#if family.summary}<div class="summary">{family.summary}</div>{/if}
         {#if family.description}<div class="description">{family.description}</div>{/if}
         {#if family.highlights.size > 0}<ul class="highlights">{#for highlight in family.highlights}<li>{highlight}</li>{/for}</ul>{/if}
-      </td>
-      <td class="specs">
-        {#if family.familySize || family.packageLine}<div class="family-logistics">{#if family.familySize}{family.familySize}{/if}{#if family.packageLine} · {copy['catalog.common.outercarton']} {family.packageLine}{/if}</div>{/if}
-        <table class="variants">
+      </td>{/if}
+      <td class="specs{#if !family.hasStory} specs--full{/if}">
+        {#if family.specs.size > 0}<div class="spec-title">{copy['catalog.spec.title']}</div>
+        <table class="spec-list"><tbody>{#for spec in family.specs}<tr><th>{spec.label}</th><td>{spec.value}</td></tr>{/for}</tbody></table>{/if}
+        {#if family.showVariantTable}<table class="variants">
           <thead><tr><th class="sku">SKU</th><th class="option">{copy['catalog.common.colorsize']}</th><th class="size">{copy['catalog.common.productdimensions']}</th><th class="carton">{copy['catalog.common.outercartonpack']}</th><th class="ean">EAN</th></tr></thead>
           <tbody>{#for variant in family.variants}<tr>
             <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.priceLabel}{variant.priceLabel}{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}</span>{/if}</td>
@@ -250,7 +273,7 @@
             <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}<br/>{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}</td>
             <td>{variant.ean}</td>
           </tr>{/for}</tbody>
-        </table>
+        </table>{/if}
       </td>
     </tr></table>
     <div class="footer">ENROSED · {family.categoryName} <span class="page-no">{family.number}</span></div>

@@ -12,6 +12,7 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LanguageFallback;
@@ -98,12 +99,43 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String productSize, String cartonSize, int piecesPerCarton,
             String ean, String priceLabel) {}
 
+    /** One line of the specification block: a translated label and its value. */
+    public record SpecRow(String label, String value) {}
+
     public record BrochureFamily(
             String anchor, String number, String name, String summary, String description, String format,
             List<String> highlights, String categoryKey, String categoryName, String familySize,
             String packageLine, String overviewImage, PhotoLayout photos,
             String referencePriceLabel, boolean compactDetail,
-            List<BrochureVariant> variants) {}
+            List<BrochureVariant> variants, List<SpecRow> specs) {
+
+        /** Compatibility for callers written before the specification block existed. */
+        public BrochureFamily(
+                String anchor, String number, String name, String summary, String description,
+                String format, List<String> highlights, String categoryKey, String categoryName,
+                String familySize, String packageLine, String overviewImage, PhotoLayout photos,
+                String referencePriceLabel, boolean compactDetail, List<BrochureVariant> variants) {
+            this(anchor, number, name, summary, description, format, highlights, categoryKey,
+                    categoryName, familySize, packageLine, overviewImage, photos, referencePriceLabel,
+                    compactDetail, variants, List.of());
+        }
+
+        /** The story column only earns its width when there is a story to tell. */
+        public boolean hasStory() {
+            return present(summary) || present(description)
+                    || (highlights != null && !highlights.isEmpty());
+        }
+
+        /** One variant reads better as a specification list than as a one-row table. */
+        public boolean showVariantTable() {
+            return variants != null && variants.size() > 1;
+        }
+
+        /** A single product without story copy gets the large product shot and the roomy list. */
+        public boolean sheetLayout() {
+            return !hasStory() && !showVariantTable();
+        }
+    }
 
     public record BrochureSection(
             String number, String name, String description, String categoryKey,
@@ -181,7 +213,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private String simpleHtml(CatalogExportService.Model catalog) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
-        Map<String, String> copy = content.values(ContentScope.CATALOG, language);
+        Map<String, String> copy = catalogCopy(language);
         PhotoResolver photos = new PhotoResolver();
         Set<Long> catalogueFamilyPhotoIds = catalog.families().stream()
                 .map(CatalogExportService.FamilyGroup::content)
@@ -239,7 +271,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private String brochureHtml(CatalogExportService.Model catalog) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
-        Map<String, String> copy = content.values(ContentScope.CATALOG, language);
+        Map<String, String> copy = catalogCopy(language);
         CatalogExportService.BrochureOptions requestedOptions = request.resolvedBrochure();
         CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
                 requestedOptions.includeOverview(), requestedOptions.includeCategoryIntros(),
@@ -422,8 +454,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .map(product -> new BrochureVariant(
                         product.sku(), product.nameIn(language), product.colourIn(language),
                         product.variantSizeIn(language), product.colourHex(),
-                        dimensionLabel(product.dimensions()),
-                        product.carton() == null ? "" : dimensionLabel(product.carton().dimensions()),
+                        compactDimensions(product.dimensions()),
+                        product.carton() == null ? "" : compactDimensions(product.carton().dimensions()),
                         product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                         defaultText(product.canonicalBarcode(), "-"),
                         request.includePrices() ? priceLabel(product, language) : null))
@@ -434,16 +466,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String referencePriceLabel = request.includePrices()
                 ? referencePriceLabel(group.variants(), language, copy) : null;
         String number = twoDigits(index);
+        List<SpecRow> specs = specRows(group.variants(), language, copy, request.includePrices());
         ensureFamilyPageCapacity(name, summary, description, format, highlights,
                 categoryName, familySize, packageLine, referencePriceLabel,
-                variants, photoLayout.extras().size());
+                variants, photoLayout.extras().size(), specs.size());
         BrochureFamily rendered = new BrochureFamily(
                 "family-" + number, number, defaultText(name, first.sku()), summary, description, format,
                 highlights, categoryKey, categoryName, familySize,
                 packageLine, overviewImage, photoLayout, referencePriceLabel,
                 compactDetail(summary, description, highlights, variants.size(),
                         photoLayout.extras().size()),
-                variants);
+                variants, specs);
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
@@ -495,8 +528,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String name, String summary, String description, String format,
             List<String> highlights, String categoryName, String familySize,
             String packageLine, String referencePriceLabel,
-            List<BrochureVariant> variants, int galleryCount) {
+            List<BrochureVariant> variants, int galleryCount, int specCount) {
         int capacityUse = capacityText(name, 80)
+                + specCount * 45
                 + textLength(summary)
                 + textLength(description)
                 + capacityText(format, 120)
@@ -513,6 +547,108 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + "' bevat te veel tekst, varianten of beelden voor één vaste A4-pagina. "
                 + "Verkort de teksten of uitzonderlijk lange productvelden, of maak een "
                 + "kleinere productselectie.");
+    }
+
+    private static void ensureFamilyPageCapacity(
+            String name, String summary, String description, String format,
+            List<String> highlights, String categoryName, String familySize,
+            String packageLine, String referencePriceLabel,
+            List<BrochureVariant> variants, int galleryCount) {
+        ensureFamilyPageCapacity(name, summary, description, format, highlights, categoryName,
+                familySize, packageLine, referencePriceLabel, variants, galleryCount, 0);
+    }
+
+    /**
+     * The facts a buyer needs before ordering, at family level. Only values
+     * shared by every variant are listed; anything that differs lives in the
+     * variant table below. A single variant carries its item number, EAN and
+     * price here because a one-row table would only repeat them.
+     */
+    private static List<SpecRow> specRows(
+            List<Product> variants, Language language, Map<String, String> copy, boolean includePrices) {
+        List<SpecRow> rows = new ArrayList<>();
+        Product first = variants.getFirst();
+        boolean single = variants.size() == 1;
+        Map<String, String> words = DocumentText.of(language);
+        if (single && present(first.sku())) rows.add(new SpecRow(copy(copy, "catalog.spec.itemnumber"), first.sku()));
+
+        addSpec(rows, copy(copy, "catalog.spec.productsize"), variants,
+                product -> dimensionLabel(product.dimensions()));
+        addSpec(rows, copy(copy, "catalog.spec.weight"), variants,
+                product -> product.dimensions() == null || !positive(product.dimensions().weightKg())
+                        ? "" : DocumentFormat.kg(product.dimensions().weightKg()));
+        addSpec(rows, copy(copy, "catalog.spec.packaging"), variants, product -> {
+            if (product.packaging() == null || !product.packaging().isPresent()) return "";
+            String kind = words.getOrDefault(product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                    ? "displayPackaging" : "giftPackaging", product.packaging().kind().dutchLabel());
+            String size = compactDimensions(product.packaging().dimensions());
+            return size.isEmpty() ? kind : kind + " · " + size;
+        });
+        addSpec(rows, copy(copy, "catalog.spec.outercarton"), variants,
+                product -> product.carton() == null ? "" : dimensionLabel(product.carton().dimensions()));
+        addSpec(rows, copy(copy, "catalog.spec.piecespercarton"), variants,
+                product -> product.carton() == null || product.carton().piecesPerCarton() <= 0
+                        ? "" : integer(product.carton().piecesPerCarton(), language));
+        addSpec(rows, copy(copy, "catalog.spec.cartonweight"), variants,
+                product -> product.carton() == null || !positive(product.carton().weightKg())
+                        ? "" : DocumentFormat.kg(product.carton().weightKg()));
+        addSpec(rows, copy(copy, "catalog.spec.cartonvolume"), variants,
+                product -> product.carton() == null || !positive(product.carton().cbm())
+                        ? "" : DocumentFormat.cbm(product.carton().cbm()));
+        addSpec(rows, copy(copy, "catalog.spec.container"), variants, product -> {
+            Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
+            return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
+        });
+        addSpec(rows, copy(copy, "catalog.spec.hscode"), variants,
+                product -> defaultText(product.hsCode(), ""));
+        if (!single) {
+            String colours = distinctJoined(variants, product -> product.colourIn(language));
+            if (present(colours)) rows.add(new SpecRow(copy(copy, "catalog.spec.colours"), colours));
+            String sizes = distinctJoined(variants, product -> product.variantSizeIn(language));
+            if (present(sizes)) rows.add(new SpecRow(copy(copy, "catalog.spec.sizes"), sizes));
+        } else {
+            if (present(first.canonicalBarcode())) rows.add(new SpecRow("EAN", first.canonicalBarcode()));
+            if (includePrices) {
+                BigDecimal price = first.computedSalesPriceEur();
+                rows.add(new SpecRow(copy(copy, "catalog.brochure.overview.referenceprice"),
+                        positive(price) ? formatPrice(price, language)
+                                : copy(copy, "catalog.brochure.overview.priceonrequest")));
+            }
+        }
+        return List.copyOf(rows);
+    }
+
+    /** Adds the value every variant shares; a differing or blank value is left to the table. */
+    private static void addSpec(List<SpecRow> rows, String label, List<Product> variants,
+                                java.util.function.Function<Product, String> value) {
+        Set<String> values = new LinkedHashSet<>();
+        for (Product product : variants) {
+            String text = value.apply(product);
+            values.add(text == null ? "" : text.strip());
+        }
+        values.remove("");
+        if (values.size() == 1) rows.add(new SpecRow(label, values.iterator().next()));
+    }
+
+    private static String distinctJoined(List<Product> variants,
+                                         java.util.function.Function<Product, String> value) {
+        Set<String> values = new LinkedHashSet<>();
+        for (Product product : variants) {
+            String text = value.apply(product);
+            if (present(text)) values.add(text.strip());
+        }
+        return String.join(" · ", values);
+    }
+
+    private static String integer(int value, Language language) {
+        return java.text.NumberFormat.getIntegerInstance(language.locale()).format(value);
+    }
+
+    /** "11 × 11 × 25 cm" for a table whose header already names the axis order. */
+    private static String compactDimensions(Dimensions dimensions) {
+        String label = dimensionLabel(dimensions);
+        int colon = label.indexOf(": ");
+        return colon < 0 ? label : label.substring(colon + 2);
     }
 
     private static int variantCapacityUse(BrochureVariant variant) {
@@ -793,6 +929,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
     }
 
+    /**
+     * The store's texts over the shipped seed: a key that never reached the
+     * store (a seeding that rolled back, an older environment) still prints
+     * its shipped wording instead of failing the whole document.
+     */
+    private Map<String, String> catalogCopy(Language language) {
+        Map<String, String> merged = new LinkedHashMap<>(
+                be.enrosed.catalog.application.PublicContentSeedLoader.catalogSeedValues(language));
+        merged.putAll(content.values(ContentScope.CATALOG, language));
+        return merged;
+    }
+
     private static String copy(Map<String, String> values, String key) {
         String value = values.get(key);
         if (!present(value)) {
@@ -929,13 +1077,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     index < 4 ? 4 : 3, index < 4 ? 3 : 2, index < 4 ? 800 : 600);
         }
 
+        /* Specification pages show the whole product: fitted, never cropped. */
         private String detail(PhotoRef ref, int count, int index) {
-            if (count == 1) return cropped(ref, "detail-one", 16, 9, 2_400);
-            if (count == 2) return cropped(ref, "detail-two", 5, 6, 1_600);
-            if (count == 3) return cropped(ref,
+            if (count == 1) return contained(ref, "detail-one", 16, 9, 2_400);
+            if (count == 2) return contained(ref, "detail-two", 5, 6, 1_600);
+            if (count == 3) return contained(ref,
                     index == 0 ? "detail-three-lead" : "detail-three-stack",
                     7, 6, index == 0 ? 1_900 : 1_300);
-            return cropped(ref, index < 4 ? "detail-grid" : "detail-extra",
+            return contained(ref, index < 4 ? "detail-grid" : "detail-extra",
                     index < 4 ? 16 : 17, 9, index < 4 ? 1_500 : 900);
         }
 
@@ -1005,6 +1154,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     new EditorialRow("half", List.of(
                             new EditorialTile(images.get(2), 1),
                             new EditorialTile(images.get(3), 1)))));
+        }
+
+        private String contained(
+                PhotoRef ref, String rendition, int aspectWidth, int aspectHeight, int maxEdge) {
+            if (ref == null) return null;
+            String value = renditionCache.computeIfAbsent(cacheKey(ref, rendition), ignored -> {
+                String uri = imageEncoder.encodeContainedTrimmed(
+                        source(ref), aspectWidth, aspectHeight, maxEdge, CATALOG_IMAGE_BACKGROUND);
+                if (uri == null) failed(ref.storageKey(), null);
+                return defaultText(uri, "");
+            });
+            return present(value) ? value : null;
         }
 
         private String cropped(

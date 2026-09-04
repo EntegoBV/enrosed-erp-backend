@@ -118,6 +118,37 @@ public class PublicContentSeedLoader {
             Map.entry(Language.PT, "A lei belga aplica-se à relação comercial. Salvo disposição em contrário da lei imperativa, os litígios são da competência dos tribunais competentes de Limburgo, na Bélgica."),
             Map.entry(Language.TR, "İş ilişkisine Belçika hukuku uygulanır. Emredici hukuk kuralları aksini öngörmedikçe, uyuşmazlıklar Belçika’nın Limburg bölgesindeki yetkili mahkemelerin yargı yetkisine tabidir."));
 
+    /** Exact former seed values of the selection counters, per key and language. */
+    private static final Map<String, List<String>> LEGACY_CATALOG_SELECTION_COPY = legacyCatalogSelectionCopy();
+
+    private static Map<String, List<String>> legacyCatalogSelectionCopy() {
+        Map<String, List<String>> result = new HashMap<>();
+        String[][] rows = {
+            {"catalog.common.variant.singular", "GESELECTEERDE VARIANT", "VARIANTE SÉLECTIONNÉE",
+                "SELECTED VARIANT", "AUSGEWÄHLTE VARIANTE", "VARIANTE SELECCIONADA", "WYBRANY WARIANT",
+                "VARIANTE SELECIONADA", "SEÇİLEN VARYANT"},
+            {"catalog.common.variant.plural", "GESELECTEERDE VARIANTEN", "VARIANTES SÉLECTIONNÉES",
+                "SELECTED VARIANTS", "AUSGEWÄHLTE VARIANTEN", "VARIANTES SELECCIONADAS", "WYBRANE WARIANTY",
+                "VARIANTES SELECIONADAS", "SEÇİLEN VARYANTLAR"},
+            {"catalog.common.selectedfamily.singular", "geselecteerde productfamilie",
+                "famille de produits sélectionnée", "selected product family", "ausgewählte Produktfamilie",
+                "familia de productos seleccionada", "wybrana rodzina produktów",
+                "família de produtos selecionada", "seçilen ürün ailesi"},
+            {"catalog.common.selectedfamily.plural", "geselecteerde productfamilies",
+                "familles de produits sélectionnées", "selected product families", "ausgewählte Produktfamilien",
+                "familias de productos seleccionadas", "wybrane rodziny produktów",
+                "famílias de produtos selecionadas", "seçilen ürün aileleri"},
+        };
+        Language[] order = {Language.NL, Language.FR, Language.EN, Language.DE, Language.ES,
+            Language.PL, Language.PT, Language.TR};
+        for (String[] row : rows) {
+            for (int index = 0; index < order.length; index++) {
+                result.put(row[0] + ":" + order[index].code(), List.of(row[index + 1]));
+            }
+        }
+        return Map.copyOf(result);
+    }
+
     private final CanonicalCatalogDaos.ContentTranslations content;
     private final CanonicalCatalogDaos.Families families;
     private final CatalogDaos.Products products;
@@ -152,13 +183,25 @@ public class PublicContentSeedLoader {
         this.mutationLock = mutationLock;
     }
 
-    /* Not transactional itself: the seeding runs in its own transaction, so
-       a failure rolls that back and lands here instead of poisoning the
+    /* Not transactional itself: each step runs in its own transaction, so a
+       failure rolls that step back and lands here instead of poisoning the
        transaction this method would otherwise own. */
     void onStart(@Observes StartupEvent ignored) {
+        String before = revisionBeforeSeeding();
+        /* The copy comes first and commits on its own. A product that fails a
+           later backfill must never keep a newly introduced catalogue text out
+           of the store: that is exactly how a wholesale PDF ends up crashing on
+           a missing "price on request" label. */
+        try {
+            int seededValues = seedPublicCopyStandalone();
+            LOG.infof("Publieke copy gecontroleerd: %d key(s)/taalwaarden toegevoegd", seededValues);
+        } catch (RuntimeException failure) {
+            LOG.warnf("Publieke copy niet bijgewerkt bij het opstarten (%s); de app start met de "
+                    + "bestaande teksten", failure.getMessage());
+        }
         SeedResult result;
         try {
-            result = ensureSeededAndQueueWebsiteChange();
+            result = ensureSeededAndQueueWebsiteChange(before);
         } catch (RuntimeException failure) {
             /* Website copy is not worth a dead ERP: say what was skipped and
                start anyway; the next save of that family runs the backfill
@@ -168,10 +211,9 @@ public class PublicContentSeedLoader {
             LOG.warnf("Websiteteksten niet bijgewerkt bij het opstarten (%s); de app start zonder, "
                     + "de teksten worden bij de volgende opslag van dat product opnieuw geprobeerd",
                     failure.getMessage());
+            queueWebsiteRebuildWhenChangedSince(before);
             return;
         }
-        LOG.infof("Publieke copy gecontroleerd: %d key(s)/taalwaarden toegevoegd",
-                result.seededValues());
         if (result.retiredKeys() > 0) LOG.infof("%d verouderde website-copy-key(s) verwijderd",
                 result.retiredKeys());
         LOG.infof("Catalogusvertalingen %s: %d categorieën, %d families, %d varianten, %d beelden; "
@@ -182,17 +224,63 @@ public class PublicContentSeedLoader {
                 result.backfill().correctedKnownFields());
     }
 
+    @Transactional
+    String revisionBeforeSeeding() {
+        return websiteRevision.currentRevision();
+    }
+
+    /** Only the copy rows, committed before any product backfill can fail. */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    int seedPublicCopyStandalone() {
+        mutationLock.acquire();
+        return seedPublicCopy();
+    }
+
+    @Transactional
+    void queueWebsiteRebuildWhenChangedSince(String before) {
+        try {
+            if (!Objects.equals(before, websiteRevision.currentRevision())) websiteRebuild.queue();
+        } catch (RuntimeException failure) {
+            LOG.debugf("Website rebuild after copy seeding not queued: %s", failure.toString());
+        }
+    }
+
     /** Compares the complete public digest because individual seed counters are not exhaustive. */
     @Transactional
     SeedResult ensureSeededAndQueueWebsiteChange() {
         mutationLock.acquire();
-        String before = websiteRevision.currentRevision();
+        return ensureSeededAndQueueWebsiteChange(websiteRevision.currentRevision());
+    }
+
+    @Transactional
+    SeedResult ensureSeededAndQueueWebsiteChange(String before) {
+        mutationLock.acquire();
         SeedResult result = ensureSeeded();
         entityManager.flush();
         String after = websiteRevision.currentRevision();
         if (!Objects.equals(before, after)) websiteRebuild.queue();
         return result;
     }
+
+    /**
+     * The shipped seed values of the catalogue copy, per language. The
+     * renderer lays the store's values over these, so a text that never
+     * reached the store still prints instead of failing the whole document.
+     */
+    public static Map<String, String> catalogSeedValues(Language language) {
+        return CATALOG_SEED_VALUES.computeIfAbsent(language, requested -> {
+            Map<String, String> values = new LinkedHashMap<>();
+            for (Seed seed : readSeeds(CATALOG_RESOURCE, true)) {
+                String value = seed.values().get(requested);
+                if (value == null || value.isBlank()) value = seed.values().get(Language.EN);
+                if (value != null && !value.isBlank()) values.put(seed.key(), value);
+            }
+            return Collections.unmodifiableMap(values);
+        });
+    }
+
+    private static final Map<Language, Map<String, String>> CATALOG_SEED_VALUES =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Reusable by a same-transaction product replacement after it cleared seeded rows. */
     @Transactional
@@ -392,6 +480,12 @@ public class PublicContentSeedLoader {
     /** Corrects only exact values shipped by an older system seed; dashboard edits survive. */
     static boolean isKnownStaleSeedValue(
             ContentScope scope, String key, Language language, String current) {
+        if (scope == ContentScope.CATALOG) {
+            /* Customer-facing counters used to leak the selection workflow
+               ("selected variant"); the wording became plain product language. */
+            List<String> previous = LEGACY_CATALOG_SELECTION_COPY.get(key + ":" + language.code());
+            return previous != null && previous.contains(current);
+        }
         if (scope == ContentScope.WEBSITE) {
             if ("home.counter.item2.title".equals(key)) {
                 String previousSeed = switch (language) {

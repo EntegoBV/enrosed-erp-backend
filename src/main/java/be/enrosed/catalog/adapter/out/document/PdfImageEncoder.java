@@ -84,6 +84,53 @@ public class PdfImageEncoder {
         }
     }
 
+    /**
+     * A product shot for a specification page: near-white upload margins are
+     * trimmed, then the whole product is fitted inside a canvas of the
+     * requested aspect with a little breathing room. Nothing is cropped away,
+     * and the canvas colour matches the page so the fit never shows as bars.
+     */
+    String encodeContainedTrimmed(
+            byte[] source, int aspectWidth, int aspectHeight, int maxEdge, Color background) {
+        if (source == null || source.length == 0 || aspectWidth < 1 || aspectHeight < 1) return null;
+        try {
+            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
+            if (decoded == null) return null;
+            BufferedImage trimmed = trimNearWhite(decoded);
+            int longestSource = Math.max(trimmed.getWidth(), trimmed.getHeight());
+            /* Never inflate a small upload into a large blurry canvas. */
+            int edge = Math.max(480, Math.min(Math.min(MAX_PRINT_EDGE, maxEdge), longestSource * 2));
+            int canvasWidth = aspectWidth >= aspectHeight ? edge
+                    : Math.max(1, (int) Math.round(edge * (double) aspectWidth / aspectHeight));
+            int canvasHeight = aspectWidth >= aspectHeight
+                    ? Math.max(1, (int) Math.round(edge * (double) aspectHeight / aspectWidth)) : edge;
+            BufferedImage canvas = new BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = canvas.createGraphics();
+            try {
+                graphics.setColor(background == null ? Color.WHITE : background);
+                graphics.fillRect(0, 0, canvasWidth, canvasHeight);
+                double inset = 0.94d;
+                double factor = Math.min(canvasWidth * inset / trimmed.getWidth(),
+                        canvasHeight * inset / trimmed.getHeight());
+                int width = Math.max(1, (int) Math.round(trimmed.getWidth() * factor));
+                int height = Math.max(1, (int) Math.round(trimmed.getHeight() * factor));
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                graphics.setRenderingHint(RenderingHints.KEY_RENDERING,
+                        RenderingHints.VALUE_RENDER_QUALITY);
+                graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON);
+                graphics.drawImage(trimmed, (canvasWidth - width) / 2, (canvasHeight - height) / 2,
+                        width, height, null);
+            } finally {
+                graphics.dispose();
+            }
+            return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg(canvas));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     ImageSize inspect(byte[] source) {
         if (source == null || source.length == 0) return ImageSize.EMPTY;
         try {

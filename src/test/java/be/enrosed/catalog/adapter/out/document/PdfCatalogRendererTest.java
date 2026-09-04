@@ -71,7 +71,8 @@ class PdfCatalogRendererTest {
         assertTrue(simpleHtml.contains("data:image/jpeg;base64,"));
         assertFalse(simpleHtml.contains("Beschrijving"));
         assertTrue(brochureHtml.contains("A lasting collection"));
-        assertTrue(brochureHtml.contains("Product B × D × H"));
+        assertTrue(brochureHtml.contains("Specifications"));
+        assertTrue(brochureHtml.contains("B × D × H"));
         assertTrue(brochureHtml.contains("The complete range at a glance."));
         assertFalse(brochureHtml.contains("Select a product to open its detail page."));
         assertTrue(brochureHtml.contains("Reference prices per piece in EUR"));
@@ -85,7 +86,7 @@ class PdfCatalogRendererTest {
         assertFalse(brochureHtml.toLowerCase().contains("confidence"));
         assertFalse(brochureHtml.toLowerCase().contains("dashboard"));
         assertFalse(brochureHtml.toLowerCase().contains("canonical"));
-        assertTrue(brochureHtml.contains("1 FAMILY · 1 SELECTED VARIANT"));
+        assertTrue(brochureHtml.contains("1 FAMILY · 1 VARIANT"));
         assertTrue(simpleHtml.contains("1 item"));
 
         CatalogDocumentRenderer.Document simplePdf = renderer.render(simple);
@@ -186,7 +187,7 @@ class PdfCatalogRendererTest {
 
         assertFalse(html.contains("class=\"image-placeholder\""),
                 "a missing catalogue-family blob must not suppress a valid product fallback");
-        String expectedHero = imageEncoder.encodeCoverCropped(
+        String expectedHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
         assertTrue(html.contains(expectedHero));
     }
@@ -203,7 +204,7 @@ class PdfCatalogRendererTest {
         String html = renderer.renderHtml(catalog);
         String curatedHero = editorialAssets.contained(
                 "families/soap-rose-box-led.png", 1_600, 900);
-        String actualHero = imageEncoder.encodeCoverCropped(
+        String actualHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertFalse(curatedHero.isBlank());
@@ -221,7 +222,7 @@ class PdfCatalogRendererTest {
                 "soap-rose-box-led"), false, 0);
 
         String html = renderer.renderHtml(catalog);
-        String actualHero = imageEncoder.encodeCoverCropped(
+        String actualHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertFalse(html.contains(actualHero));
@@ -239,7 +240,7 @@ class PdfCatalogRendererTest {
                 "soap-rose-box-led"), true, 1);
 
         String html = renderer.renderHtml(catalog);
-        String actualHero = imageEncoder.encodeCoverCropped(
+        String actualHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertTrue(html.contains(actualHero));
@@ -302,9 +303,9 @@ class PdfCatalogRendererTest {
                 photoBytes(inherited), 4, 3, 1_000, new Color(255, 252, 248));
         String ownedSimple = imageEncoder.encodeCoverCropped(
                 photoBytes(owned), 4, 3, 1_000, new Color(255, 252, 248));
-        String inheritedHero = imageEncoder.encodeCoverCropped(
+        String inheritedHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(inherited), 16, 9, 2_400, new Color(255, 252, 248));
-        String ownedHero = imageEncoder.encodeCoverCropped(
+        String ownedHero = imageEncoder.encodeContainedTrimmed(
                 photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
 
         assertFalse(simpleHtml.contains(inheritedSimple));
