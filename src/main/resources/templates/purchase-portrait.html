@@ -319,7 +319,8 @@
     .supplier-lines .supplier-product td.product__photo-cell { padding-right: 2.4mm; }
     .supplier-lines .product__name { font-size: 8.2pt; font-weight: 700; line-height: 1.25; }
     .supplier-lines .product__ids { margin-top: .6mm; color: #6b5f58; font-size: 6.6pt; font-variant-numeric: tabular-nums; }
-    table.facts-list { width: 100%; margin-top: 1.2mm; border-collapse: collapse; table-layout: fixed; }
+    .product__facts-cell { padding-top: 1.4mm !important; }
+    table.facts-list { width: 100%; border-collapse: collapse; table-layout: fixed; }
     table.facts-list th { width: 15mm; padding: .3mm 1mm .3mm 0 !important; border: 0; background: transparent; color: #8f2942; font-size: 5.6pt; font-weight: 700; letter-spacing: .08em; text-align: left !important; text-transform: uppercase; vertical-align: top; white-space: nowrap; }
     table.facts-list td { padding: .3mm 0 !important; border: 0; background: transparent; color: #3f3631; font-size: 6.6pt; line-height: 1.35; text-align: left !important; vertical-align: top; }
     .packing__count { font-size: 7.6pt; font-weight: 700; }
@@ -429,13 +430,16 @@
           <td class="product__copy">
             <div class="product__name">{line.productName}</div>
             <div class="product__ids">{#if line.sku}SKU {line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}</div>
-            {#if line.productSize || line.packagingText || line.colour}<table class="facts-list">
-              {#if line.productSize}<tr><th>Size</th><td>{line.productSize}</td></tr>{/if}
-              {#if line.packagingText}<tr><th>Packaging</th><td>{line.packagingText}</td></tr>{/if}
-              {#if line.colour}<tr><th>Colour</th><td>{line.colour}</td></tr>{/if}
-            </table>{/if}
           </td>
-        </tr></table>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour}<tr><td colspan="2" class="product__facts-cell">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Size</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Packaging</th><td>{line.packagingText}</td></tr>{/if}
+            {#if line.colour}<tr><th>Colour</th><td>{line.colour}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
       </td>
       <td class="col-packing">
         {#if line.piecesPerCarton}<div class="packing__count">{line.piecesPerCarton} {#if line.piecesPerCarton == 1}piece{#else}pieces{/if} per carton</div>{#else}<div class="packing__count muted">Pieces per carton to confirm</div>{/if}
@@ -549,13 +553,16 @@
           <td class="product__copy">
             <div class="product__name">{line.productName}</div>
             <div class="product__ids">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if showPrices}{#if line.sku || line.ean} · {/if}{line.priceBasis}{/if}</div>
-            {#if line.productSize || line.packagingText || line.colour}<table class="facts-list">
-              {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
-              {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}</td></tr>{/if}
-              {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
-            </table>{/if}
           </td>
-        </tr></table>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour}<tr><td colspan="2" class="product__facts-cell">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}</td></tr>{/if}
+            {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
       </td>
       <td class="col-packing">
         {#if line.piecesPerCarton}<div class="packing__count">{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton</div>{#else}<div class="packing__count muted">Stuks per karton onbekend</div>{/if}
