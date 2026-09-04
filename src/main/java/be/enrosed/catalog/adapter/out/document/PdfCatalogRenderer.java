@@ -45,7 +45,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
     /** Family and group rows the range table fits on one A4 page. */
-    private static final int OVERVIEW_ROWS_PER_PAGE = 19;
+    private static final int OVERVIEW_ROWS_PER_PAGE = 16;
     /** The category tints, bordeaux first; chapters take them in turn. */
     private static final int TONE_COUNT = 6;
     /* Real four-variant families with complete translated sales copy still fit the compact

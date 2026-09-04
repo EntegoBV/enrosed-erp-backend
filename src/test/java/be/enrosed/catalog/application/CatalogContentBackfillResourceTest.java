@@ -114,7 +114,7 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(112, catalog.size(), "one header plus 111 catalogue keys");
+        assertEquals(114, catalog.size(), "one header plus 113 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 12
                 && row.subList(4, 12).stream().noneMatch(String::isBlank)));
         assertEquals("GROSSISTA", row(catalog, "catalog.brand.wholesale", 1).get(10));

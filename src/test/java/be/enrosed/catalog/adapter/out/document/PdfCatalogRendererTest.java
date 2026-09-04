@@ -139,7 +139,7 @@ class PdfCatalogRendererTest {
         for (String overviewPage : overviewPages) {
             int lines = occurrences(overviewPage, "class=\"range-row range-row--")
                     + occurrences(overviewPage, "class=\"range-group range-group--");
-            assertTrue(lines <= 19, "an A4 range page holds at most nineteen lines");
+            assertTrue(lines <= 16, "an A4 range page holds at most sixteen lines");
             assertFalse(overviewPage.trim().endsWith("range-group"), "a chapter heading never ends a page");
         }
         assertTrue(html.contains("class=\"range-group range-group--tone-1\""), "the first chapter is bordeaux");
@@ -154,10 +154,10 @@ class PdfCatalogRendererTest {
     @Test
     void rangePagesNeverStrandAChapterHeadingAtTheirFoot() {
         List<List<int[]>> pages = PdfCatalogRenderer.overviewSlots(List.of(17, 1, 3, 20));
-        assertEquals(List.of(18, 19, 8), pages.stream().map(List::size).toList());
-        assertEquals(-1, pages.get(1).getFirst()[1], "a heading that would end page one opens page two");
-        assertEquals(1, pages.get(1).getFirst()[0]);
-        assertEquals(19, pages.get(1).size(), "a page fills up once its heading is safe");
+        assertEquals(List.of(16, 16, 13), pages.stream().map(List::size).toList());
+        assertEquals(-1, pages.get(1).get(2)[1], "the second chapter opens with its heading, never split from it");
+        assertEquals(1, pages.get(1).get(2)[0]);
+        assertEquals(16, pages.get(1).size(), "a page fills up once its heading is safe");
         assertTrue(PdfCatalogRenderer.overviewSlots(List.of()).isEmpty());
     }
 
@@ -167,7 +167,7 @@ class PdfCatalogRendererTest {
 
         assertEquals(1, occurrences(html, "class=\"range-row range-row--"));
         assertEquals(1, occurrences(html, "class=\"range-group range-group--"));
-        assertTrue(html.contains("class=\"range-no\"><b>01</b>"), "the row carries its number and page");
+        assertTrue(html.contains("<span class=\"ref\">01</span>"), "the row carries its number and page");
         assertFalse(html.contains("overview-summary"), "the range table carries facts, not prose");
     }
 

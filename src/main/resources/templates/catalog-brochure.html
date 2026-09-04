@@ -53,40 +53,48 @@
     .overview-head h2 { margin-top: 2mm; font-size: 24pt; line-height: .95; }
     .overview-head__hint { width: 62mm; padding-bottom: 1mm; color: #806b5e; font-size: 7.5pt; line-height: 1.4; text-align: right; }
     .overview-rule { height: .35mm; margin: 3.5mm 0 2mm; background: #8f223c; }
-    .range { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    .range th { padding: 1.4mm 1mm 1.2mm; color: #806b5e; border-bottom: .3mm solid #8f223c; font-size: 5.6pt; font-weight: 700; letter-spacing: .4px; line-height: 1.2; text-align: left; text-transform: uppercase; vertical-align: bottom; word-wrap: break-word; }
-    .range td { padding: 1.2mm 1mm; color: #241815; border-bottom: .2mm solid #ddd0c6; font-size: 6.9pt; line-height: 1.25; vertical-align: middle; word-wrap: break-word; overflow-wrap: break-word; }
-    .range .num, .range .range-price { text-align: right; }
-    .range-group td { padding: 2.6mm 1mm 1.2mm; color: #8f223c; border-bottom: .3mm solid #8f223c; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; }
-    .range-group__no { display: inline-block; min-width: 7mm; color: #b28c3f; font-size: 9.5pt; }
-    .range-group__count { float: right; padding-top: 1mm; white-space: nowrap; color: #806b5e; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6.2pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-    .range-no { width: 9mm; }
-    .range-no b { display: block; color: #8f223c; font-family: "Cormorant Garamond"; font-size: 11pt; font-weight: 600; line-height: 1; }
-    .range-no small { display: block; margin-top: .6mm; color: #806b5e; font-size: 5.8pt; letter-spacing: .3px; text-transform: uppercase; white-space: nowrap; }
-    .range-photo { width: 13mm; }
-    .range-photo img { display: block; width: 12mm; height: auto; margin: 0; border: .2mm solid #d8c9bd; background: #fffdfa; }
-    .range-photo span { display: block; width: 12mm; height: 9mm; background: #efe6dd; border: .2mm solid #d8c9bd; }
-    .range-product { width: 28mm; }
-    .range-product a { display: block; overflow: hidden; font-size: 7.6pt; font-weight: 700; line-height: 1.2; }
-    .range-product small { display: block; margin-top: .5mm; color: #806b5e; font-size: 6pt; letter-spacing: .2px; white-space: nowrap; overflow: hidden; }
-    .range-colours { width: 20mm; }
-    .dot { display: inline-block; width: 3.1mm; height: 3.1mm; margin: 0 .7mm .4mm 0; border: .2mm solid rgba(36,24,21,.35); border-radius: 50%; vertical-align: middle; }
+    /* The range table: six roomy columns, every value on its own line so
+       nothing ever runs into its neighbour. Widths are exact (cells carry
+       no padding; the inner block does), and the table is sized to the
+       sheet, never to its content. */
+    .range { width: 176mm; border-collapse: collapse; table-layout: fixed; }
+    .range th { padding: 0; color: #806b5e; border-bottom: .35mm solid #8f223c; font-size: 6pt; font-weight: 700; letter-spacing: .5px; text-align: left; text-transform: uppercase; vertical-align: bottom; }
+    .range th > div { padding: 0 1.6mm 1.4mm; }
+    .range td { padding: 0; color: #241815; border-bottom: .2mm solid #ddd0c6; vertical-align: top; }
+    .range-row td > div { padding: 1.8mm 1.6mm; font-size: 7.4pt; line-height: 1.3; word-wrap: break-word; overflow-wrap: break-word; }
+    .range-row--alt td { background: #f2eae2; }
+    .range small { display: block; margin-top: .4mm; color: #6d5c52; font-size: 6.3pt; line-height: 1.3; }
+    .range-photo { width: 16mm; }
+    .range-photo img { display: block; width: 100%; height: auto; margin: 0; border: .2mm solid #d8c9bd; background: #fffdfa; }
+    .range-photo .no-photo { display: block; width: 100%; height: 10mm; background: #efe6dd; border: .2mm solid #d8c9bd; }
+    .range-photo > div { padding: 1.6mm 1.2mm; }
+    .range-product { width: 38mm; }
+    .range-product a { display: block; font-size: 8pt; font-weight: 700; line-height: 1.2; }
+    .range-product .ref { color: #8f223c; font-weight: 700; }
+    .range-colours { width: 26mm; }
+    .dot { display: inline-block; width: 3.2mm; height: 3.2mm; margin: 0 .8mm .6mm 0; border: .2mm solid rgba(36,24,21,.35); border-radius: 50%; vertical-align: middle; }
     .dot--none { background: #fffdfa; border: .25mm dashed #a08f84; }
-    .range-colours small { display: block; margin-top: .3mm; overflow: hidden; color: #594a42; font-size: 5.9pt; line-height: 1.2; }
-    .range-size { width: 19mm; }
-    .range-pack { width: 17mm; }
-    .range-carton { width: 22mm; }
-    .range-carton small { display: block; color: #806b5e; font-size: 6pt; }
-    .range-cbm { width: 10mm; }
-    .range-hc { width: 10mm; }
-    .range-price { width: 13mm; color: #8f223c; font-weight: 700; white-space: nowrap; }
-    .range-price small { display: block; color: #806b5e; font-size: 5.6pt; font-weight: 400; }
-    .range-group--tone-2 td, .range-row--tone-2 .range-no b { color: #9b6a1f; border-bottom-color: #9b6a1f; }
-    .range-group--tone-3 td, .range-row--tone-3 .range-no b { color: #3f6b4d; border-bottom-color: #3f6b4d; }
-    .range-group--tone-4 td, .range-row--tone-4 .range-no b { color: #6d4b8c; border-bottom-color: #6d4b8c; }
-    .range-group--tone-5 td, .range-row--tone-5 .range-no b { color: #2f5a78; border-bottom-color: #2f5a78; }
-    .range-group--tone-6 td, .range-row--tone-6 .range-no b { color: #8a5a34; border-bottom-color: #8a5a34; }
-    .range-row td { border-bottom-color: #ddd0c6; }
+    .range-size { width: 30mm; }
+    .range-logistics { width: 44mm; }
+    .range-price { width: 22mm; }
+    .range-price > div { text-align: right; }
+    .range-price b { display: block; color: #8f223c; font-size: 8.4pt; font-weight: 700; white-space: nowrap; }
+    .range-price small { color: #806b5e; }
+    .range-group td { padding: 0; border-bottom: 0; }
+    .range-group td > div { margin-top: 2.4mm; padding: 1.6mm 2mm 1.4mm 2.4mm; color: #f8f1e9; background: #8f223c; font-family: "Cormorant Garamond"; font-size: 11pt; font-weight: 600; line-height: 1; }
+    .range-group__no { display: inline-block; min-width: 7mm; color: #f0d59a; font-size: 9pt; }
+    .range-group__side > div { text-align: right; }
+    .range-group__count { color: #f6e6cf; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+    .range-group--tone-2 td > div { background: #9b6a1f; }
+    .range-group--tone-3 td > div { background: #3f6b4d; }
+    .range-group--tone-4 td > div { background: #6d4b8c; }
+    .range-group--tone-5 td > div { background: #2f5a78; }
+    .range-group--tone-6 td > div { background: #8a5a34; }
+    .range-row--tone-2 .ref, .range-row--tone-2 .range-price b { color: #9b6a1f; }
+    .range-row--tone-3 .ref, .range-row--tone-3 .range-price b { color: #3f6b4d; }
+    .range-row--tone-4 .ref, .range-row--tone-4 .range-price b { color: #6d4b8c; }
+    .range-row--tone-5 .ref, .range-row--tone-5 .range-price b { color: #2f5a78; }
+    .range-row--tone-6 .ref, .range-row--tone-6 .range-price b { color: #8a5a34; }
     .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7pt; line-height: 1.4; }
     .overview-footnote span { position: absolute; top: 2.5mm; right: 0; color: #9b7735; font-weight: 700; }
 
@@ -272,31 +280,23 @@
     <div class="overview-rule"></div>
     <table class="range">
       <thead><tr>
-        <th class="range-no">#</th>
-        <th class="range-photo"></th>
-        <th class="range-product">{copy['catalog.common.product']}</th>
-        <th class="range-colours">{copy['catalog.spec.colours']}</th>
-        <th class="range-size">{copy['catalog.spec.productsize']}</th>
-        <th class="range-pack">{copy['catalog.spec.packaging']}</th>
-        <th class="range-carton">{copy['catalog.spec.outercarton']}</th>
-        <th class="range-cbm num">{copy['catalog.brochure.range.cbm']}</th>
-        <th class="range-hc num">{copy['catalog.brochure.range.container']}</th>
-        {#if includePrices}<th class="range-price">{copy['catalog.brochure.range.price']}</th>{/if}
+        <th class="range-photo"><div></div></th>
+        <th class="range-product"><div>{copy['catalog.common.product']}</div></th>
+        <th class="range-colours"><div>{copy['catalog.spec.colours']}</div></th>
+        <th class="range-size"><div>{copy['catalog.brochure.range.sizepack']}</div></th>
+        <th class="range-logistics"><div>{copy['catalog.brochure.range.logistics']}</div></th>
+        <th class="range-price"><div>{#if includePrices}{copy['catalog.brochure.range.price']}{/if}</div></th>
       </tr></thead>
       <tbody>
       {#for row in overview.rows}
-        {#if row.header}<tr class="range-group range-group--{row.tone}"><td colspan="{#if includePrices}10{#else}9{/if}"><span class="range-group__no">{row.number}</span>{row.name}<span class="range-group__count">{row.countLabel} · {copy['catalog.brochure.overview.page']} {row.page}</span></td></tr>
-        {#else}<tr class="range-row range-row--{row.tone}">
-          <td class="range-no"><b>{row.number}</b><small>{copy['catalog.brochure.overview.page']} {row.page}</small></td>
-          <td class="range-photo">{#if row.image}<img src="{row.image}" alt="{row.name}"/>{#else}<span></span>{/if}</td>
-          <td class="range-product"><a href="#{row.anchor}">{row.name}</a>{#if row.facts.skuLabel}<small>{row.facts.skuLabel}</small>{/if}{#if row.facts.ean}<small>EAN {row.facts.ean}</small>{/if}</td>
-          <td class="range-colours">{#for colour in row.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{/for}{#if row.facts.colourLabel}<small>{row.facts.colourLabel}</small>{/if}{#if row.facts.sizeLabel}<small>{row.facts.sizeLabel}</small>{/if}</td>
-          <td class="range-size">{row.facts.productSize}</td>
-          <td class="range-pack">{row.facts.packaging}</td>
-          <td class="range-carton">{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}</td>
-          <td class="range-cbm num">{row.facts.cbm}</td>
-          <td class="range-hc num">{row.facts.hcCapacity}</td>
-          {#if includePrices}<td class="range-price">{#if row.priceLabel}{row.priceLabel}{#else}<small>{copy['catalog.brochure.overview.priceonrequest']}</small>{/if}</td>{/if}
+        {#if row.header}<tr class="range-group range-group--{row.tone}"><td colspan="4"><div><span class="range-group__no">{row.number}</span>{row.name}</div></td><td colspan="2" class="range-group__side"><div><span class="range-group__count">{row.countLabel} · {copy['catalog.brochure.overview.page']} {row.page}</span></div></td></tr>
+        {#else}<tr class="range-row range-row--{row.tone}{#if row_odd} range-row--alt{/if}">
+          <td class="range-photo"><div>{#if row.image}<img src="{row.image}" alt="{row.name}"/>{#else}<span class="no-photo"></span>{/if}</div></td>
+          <td class="range-product"><div><a href="#{row.anchor}">{row.name}</a><small><span class="ref">{row.number}</span> · {copy['catalog.brochure.overview.page']} {row.page}</small>{#if row.facts.skuLabel}<small>{row.facts.skuLabel}</small>{/if}{#if row.facts.ean}<small>EAN {row.facts.ean}</small>{/if}</div></td>
+          <td class="range-colours"><div>{#for colour in row.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{/for}{#if row.facts.colourLabel}<small>{row.facts.colourLabel}</small>{/if}{#if row.facts.sizeLabel}<small>{row.facts.sizeLabel}</small>{/if}</div></td>
+          <td class="range-size"><div>{row.facts.productSize}{#if row.facts.packaging}<small>{row.facts.packaging}</small>{/if}</div></td>
+          <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm || row.facts.hcCapacity}<small>{#if row.facts.cbm}{row.facts.cbm}{/if}{#if row.facts.cbm && row.facts.hcCapacity} · {/if}{#if row.facts.hcCapacity}{row.facts.hcCapacity} / 40' HC{/if}</small>{/if}</div></td>
+          <td class="range-price"><div>{#if includePrices}{#if row.priceLabel}<b>{row.priceLabel}</b>{#else}<small>{copy['catalog.brochure.overview.priceonrequest']}</small>{/if}{/if}</div></td>
         </tr>{/if}
       {/for}
       </tbody>
