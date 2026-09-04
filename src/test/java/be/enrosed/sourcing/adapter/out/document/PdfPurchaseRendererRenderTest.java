@@ -658,7 +658,7 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("96"), text);
             assertTrue(text.replace(" ", "").contains("stuksperkarton"), text);
             assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
-            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("maat 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
             assertTrue(text.contains("omdoos 40 × 40 × 30 cm"), text);
             assertTrue(text.contains("8712345678906"), text);

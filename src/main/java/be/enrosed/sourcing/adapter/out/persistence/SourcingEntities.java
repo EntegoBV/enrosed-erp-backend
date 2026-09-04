@@ -76,6 +76,8 @@ public final class SourcingEntities {
 
         @Column(precision = 19, scale = 4) public BigDecimal defaultDutyRatePct;
         @Column(precision = 19, scale = 2) public BigDecimal extraRevenueEur;
+        /** Factory inspection, kept apart from the landed cost per piece. */
+        @Column(precision = 19, scale = 2) public BigDecimal inspectionCostEur;
 
         @Enumerated(EnumType.STRING) public Allocation allocFreight = Allocation.CBM;
         @Enumerated(EnumType.STRING) public Allocation allocOrigin = Allocation.CBM;

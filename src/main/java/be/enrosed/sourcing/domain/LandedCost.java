@@ -54,8 +54,22 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
             BigDecimal extraRevenueEur,
             BigDecimal totalEur,
             BigDecimal averageUnitEur,
-            BigDecimal effectiveDutyPct
-    ) {}
+            BigDecimal effectiveDutyPct,
+            /** Factory inspection: its own line, never inside totalEur or a piece price. */
+            BigDecimal inspectionEur,
+            /** totalEur plus the inspection, for the bottom line of the internal sheets. */
+            BigDecimal totalWithInspectionEur
+    ) {
+        /** Compatibility for callers written before the inspection line existed. */
+        public Totals(int pieces, int cartons, BigDecimal cbm, BigDecimal goodsUsd, BigDecimal goodsEur,
+                      BigDecimal originEur, BigDecimal freightEur, BigDecimal customsValueEur, BigDecimal dutyEur,
+                      BigDecimal destinationEur, BigDecimal extraRevenueEur, BigDecimal totalEur,
+                      BigDecimal averageUnitEur, BigDecimal effectiveDutyPct) {
+            this(pieces, cartons, cbm, goodsUsd, goodsEur, originEur, freightEur, customsValueEur, dutyEur,
+                    destinationEur, extraRevenueEur, totalEur, averageUnitEur, effectiveDutyPct,
+                    BigDecimal.ZERO, totalEur);
+        }
+    }
 
     public record ContainerFill(
             String containerCode,

@@ -242,6 +242,7 @@ public final class PanacheSourcingRepositories {
             entity.destinationCostsEur = order.destinationCostsEur();
             entity.defaultDutyRatePct = order.defaultDutyRatePct();
             entity.extraRevenueEur = order.extraRevenueEur();
+            entity.inspectionCostEur = order.inspectionCostEur();
             entity.allocFreight = order.allocFreight();
             entity.allocOrigin = order.allocOrigin();
             entity.allocDestination = order.allocDestination();
@@ -318,7 +319,7 @@ public final class PanacheSourcingRepositories {
                     entity.createdBy == null ? null : new ActorRef(entity.createdBy,
                             entity.createdByDisplayName == null || entity.createdByDisplayName.isBlank()
                                     ? entity.createdBy : entity.createdByDisplayName),
-                    entity.createdAt, entity.notes, lines);
+                    entity.createdAt, entity.notes, lines).withInspectionCost(entity.inspectionCostEur);
         }
     }
 }

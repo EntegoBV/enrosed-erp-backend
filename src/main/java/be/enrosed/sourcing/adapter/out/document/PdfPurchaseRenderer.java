@@ -463,6 +463,11 @@ public class PdfPurchaseRenderer {
                     .data("hasExtraColumn", prepared.hasExtraColumn())
                     .data("productColumnMm", productColumnMm(options))
                     .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
+                    .data("inspectionEur", costing.totals().inspectionEur() == null
+                            || costing.totals().inspectionEur().signum() <= 0 ? null : costing.totals().inspectionEur())
+                    .data("totalWithInspectionEur", prepared.totalDeliveryCostEur() == null ? null
+                            : prepared.totalDeliveryCostEur().add(
+                                    costing.totals().inspectionEur() == null ? BigDecimal.ZERO : costing.totals().inspectionEur()))
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
                     .data("timeline", timeline(order))

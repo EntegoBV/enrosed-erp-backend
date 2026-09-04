@@ -645,7 +645,9 @@
               {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
             {/if}
           {/if}
-          {#if showEnrosedCost}<tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>{/if}
+          {#if showEnrosedCost}<tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>
+            {#if inspectionEur}<tr><td>Inspectie<br/><span class="price-sub">apart, niet in de stukprijs</span></td><td>{inspectionEur.money} EUR</td></tr>
+            <tr class="combined-total"><td>Totaal incl. inspectie</td><td>{totalWithInspectionEur.money} EUR</td></tr>{/if}{/if}
         </table>
       </div>
       {#if showPrices && missingDisplayedPrices > 0}

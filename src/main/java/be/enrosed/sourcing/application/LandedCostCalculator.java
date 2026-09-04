@@ -222,7 +222,11 @@ public class LandedCostCalculator {
                 allPieces > 0 ? Money.unit(Money.divide(total, BigDecimal.valueOf(allPieces))) : BigDecimal.ZERO,
                 customsValue.signum() > 0
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO);
+                        : BigDecimal.ZERO,
+                /* Inspection is a container decision, not a product cost: it
+                   stays off every line and every piece price. */
+                Money.money(Money.nz(order.inspectionCostEur())),
+                Money.money(total.add(Money.nz(order.inspectionCostEur()))));
 
         return new LandedCost(lines, totals, fillFor(order.containerType(), totalCbm.setScale(3, RoundingMode.HALF_UP)));
     }

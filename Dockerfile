@@ -41,6 +41,7 @@ COPY docs/migrations/2026-09-03/media-folders-shares-web-postgresql.sql ./migrat
 COPY docs/migrations/2026-09-03/sales-order-column-lengths-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-03/website-visits-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-03/purchase-line-issue-note-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-04/purchase-order-inspection-cost-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

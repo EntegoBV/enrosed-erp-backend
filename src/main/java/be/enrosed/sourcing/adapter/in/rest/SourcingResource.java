@@ -165,7 +165,8 @@ public class SourcingResource {
                 o.extraRevenueEur(), o.allocFreight(), o.allocOrigin(), o.allocDestination(), o.allocExtra(),
                 o.departurePort(), o.destinationPort(), o.receivingLocationId(), o.groupVariants(),
                 o.expectedArrival(), o.receivedOn(), o.paidTotalEur(), o.stockBooked(), o.paymentTerms(),
-                o.shippedOn(), o.trackingReference(), createdBy, createdAt, o.notes(), o.lines());
+                o.shippedOn(), o.trackingReference(), createdBy, createdAt, o.notes(), o.lines())
+                .withInspectionCost(o.inspectionCostEur());
     }
 
     @DELETE

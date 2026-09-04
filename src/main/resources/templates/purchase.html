@@ -91,6 +91,10 @@
     .product-photo--empty { display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
     .product-name { font-weight: 700; line-height: 1.25; }
     .product-sku { margin-top: 1px; color: #8a807a; font-size: 6pt; letter-spacing: .05em; }
+    .product-cell__facts { padding-top: 1.2mm !important; }
+    table.facts-list { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.facts-list th { width: 12mm; padding: .25mm .8mm .25mm 0 !important; border: 0; background: transparent; color: #8f2942; font-size: 5.2pt; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; vertical-align: top; white-space: nowrap; }
+    table.facts-list td { padding: .25mm 0 !important; border: 0; background: transparent; color: #3f3631; font-size: 5.9pt; font-weight: 400; line-height: 1.35; text-align: left; vertical-align: top; }
     .product-specs { margin-top: 2px; color: #584d47; font-size: 5.9pt; line-height: 1.35; font-weight: 400; }
     .product-spec {
       display: table; width: 100%; margin-top: 1px; padding-top: 1px;
@@ -286,14 +290,18 @@
             {#else}<span class="product-photo--empty">EN</span>{/if}
           </td>
           <td><div class="product-name">{line.productName}</div>
-            <div class="product-sku">{#if line.sku}{line.sku} · {/if}{line.priceBasis}</div>
-            {#if !line.productSpecs.isEmpty}
-              <div class="product-specs">
-                {#for detail in line.productSpecs}<span class="product-spec"><span class="product-spec__label">{detail.label}</span><span class="product-spec__value">{#for part in detail.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if detail.code}{#if !detail.parts.isEmpty}<br/>{/if}<span class="spec-code">{detail.code}</span>{/if}</span></span>{/for}
-              </div>
-            {/if}
+            <div class="product-sku">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.sku || line.ean} · {/if}{line.priceBasis}</div>
           </td>
-        </tr></table>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour || line.cartonSize || line.piecesPerCarton}<tr><td colspan="2" class="product-cell__facts">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}</td></tr>{/if}
+            {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
+            {#if line.cartonSize || line.piecesPerCarton}<tr><th>Omdoos</th><td>{#if line.cartonSize}{line.cartonSize}{/if}{#if line.piecesPerCarton}{#if line.cartonSize} · {/if}{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton{/if}{#if line.cartonCbmText} · {line.cartonCbmText}{/if}{#if line.cartonWeight} · {line.cartonWeight}{/if}{#if line.cartonEan}<br/><span class="spec-code">Karton-EAN {line.cartonEan}</span>{/if}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
       </td>
       <td class="r">{line.purchaseQuantity}</td>
       <td class="r">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
@@ -361,6 +369,8 @@
         <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
         <tr class="mini__grand"><td>Totaal geland</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
         <tr class="mini__avg"><td>Gemiddeld per stuk</td><td class="r">{costing.totals.averageUnitEur.unit}</td></tr>
+        {#if costing.totals.inspectionEur}<tr><td>Inspectie <span class="tiny">apart, niet in de stukprijs</span></td><td class="r">{costing.totals.inspectionEur.eur}</td></tr>
+        <tr class="mini__grand"><td>Totaal incl. inspectie</td><td class="r">{costing.totals.totalWithInspectionEur.eur}</td></tr>{/if}
       </table>
     </td>
     <td class="card">

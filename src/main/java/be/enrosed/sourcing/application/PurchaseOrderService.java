@@ -176,7 +176,8 @@ public class PurchaseOrderService {
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
                                 line.priceBasis()))
-                        .toList()).withCreationMetadata(creator, Instant.now()));
+                        .toList()).withInspectionCost(source.inspectionCostEur())
+                .withCreationMetadata(creator, Instant.now()));
         recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
                 "Inkooporder gedupliceerd vanuit " + source.number());
         return copy;
@@ -295,7 +296,8 @@ public class PurchaseOrderService {
                         : changes.status() == PurchaseOrderStatus.ONDERWEG ? LocalDate.now() : null,
                 changes.trackingReference(),
                 current.createdBy(), current.createdAt(),
-                withLateDamageNotes(changes.notes(), lateDamage), lines));
+                withLateDamageNotes(changes.notes(), lateDamage), lines)
+                .withInspectionCost(changes.inspectionCostEur()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -1228,6 +1230,7 @@ public class PurchaseOrderService {
         requireNonNegative(order.originCosts(), "Kosten aan de vertrekzijde");
         requireNonNegative(order.destinationCostsEur(), "Kosten aan de aankomstzijde");
         requireNonNegative(order.extraRevenueEur(), "Enrosed kost");
+        requireNonNegative(order.inspectionCostEur(), "Inspectiekost");
         requirePercentage(order.defaultDutyRatePct(), "Standaard invoerrecht");
         if (order.originCurrency() == null) {
             throw new BusinessRuleException("Kies de munt van de kosten aan de vertrekzijde");
@@ -1438,6 +1441,7 @@ public class PurchaseOrderService {
                 .add("defaultDutyRatePct", "Invoerrecht",
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
+                .add("inspectionCostEur", "Inspectiekost", before.inspectionCostEur(), after.inspectionCostEur())
                 .add("departurePort", "Vertrekhaven", before.departurePort(), after.departurePort())
                 .add("destinationPort", "Bestemmingshaven", before.destinationPort(), after.destinationPort())
                 .add("receivingLocationId", "Ontvangstlocatie",

@@ -312,6 +312,25 @@ class LandedCostCalculatorTest {
         assertEquals(byPieces.lines().get(0).extraRevenueEur(), byValue.lines().get(0).extraRevenueEur());
     }
 
+    @Test
+    @DisplayName("de inspectiekost blijft een apart lijntje en raakt geen stukprijs")
+    void inspectionStaysOffEveryLineAndPiecePrice() {
+        PurchaseOrder plain = excelOrder();
+        PurchaseOrder inspected = plain.withInspectionCost(new BigDecimal("450"));
+        Map<Long, Product> products = Map.of(1L, preservedRose());
+
+        LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);
+        LandedCost with = calculator(new BigDecimal("10")).calculate(inspected, products);
+
+        assertEquals(without.lines(), with.lines(), "no line moves when an inspection is booked");
+        assertEquals(without.totals().totalEur(), with.totals().totalEur());
+        assertEquals(without.totals().averageUnitEur(), with.totals().averageUnitEur());
+        assertEquals(new BigDecimal("450.00"), with.totals().inspectionEur());
+        assertEquals(new BigDecimal("45199.38"), with.totals().totalWithInspectionEur());
+        assertEquals(new BigDecimal("0.00"), without.totals().inspectionEur());
+        assertEquals(without.totals().totalEur(), without.totals().totalWithInspectionEur());
+    }
+
     private static PurchaseOrder orderWith(PurchaseOrder base, List<PurchaseOrderLine> lines, Boolean groupVariants) {
         return new PurchaseOrder(
                 base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(),
