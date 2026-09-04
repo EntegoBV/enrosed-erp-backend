@@ -166,7 +166,8 @@ public class SourcingResource {
                 o.departurePort(), o.destinationPort(), o.receivingLocationId(), o.groupVariants(),
                 o.expectedArrival(), o.receivedOn(), o.paidTotalEur(), o.stockBooked(), o.paymentTerms(),
                 o.shippedOn(), o.trackingReference(), createdBy, createdAt, o.notes(), o.lines())
-                .withInspectionCost(o.inspectionCostEur());
+                .withInspectionCost(o.inspectionCostEur())
+                .withOtherCosts(o.otherCosts());
     }
 
     @DELETE
@@ -243,7 +244,9 @@ public class SourcingResource {
                                 @QueryParam("showOuterCarton") @DefaultValue("false")
                                 boolean showOuterCarton,
                                 @QueryParam("showBarcode") @DefaultValue("false")
-                                boolean showBarcode) {
+                                boolean showBarcode,
+                                @QueryParam("showSeparateCosts") @DefaultValue("true")
+                                boolean showSeparateCosts) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -260,7 +263,8 @@ public class SourcingResource {
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
                         showFreight, includeFreight, includeEnrosedCost, includeUnitPrice,
-                        includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode));
+                        includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode,
+                        showSeparateCosts));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
@@ -275,14 +279,27 @@ public class SourcingResource {
                                 boolean includeEnrosedCost) {
         return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
                 showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost,
-                false, false, false, false, false);
+                false, false, false, false, false, true);
+    }
+
+    /** Java-call compatibility for callers predating the separate-cost switch. */
+    public Response purchasePdf(long id, boolean showRevenue, String layout, String audience,
+                                boolean showSupplier, boolean showPrices, boolean showEur,
+                                boolean eurOnly, boolean showFreight, boolean includeFreight,
+                                boolean includeEnrosedCost, boolean includeUnitPrice,
+                                boolean includeEnrosedUnitCost, boolean showPaymentTerms,
+                                boolean showOuterCarton, boolean showBarcode) {
+        return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
+                showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost,
+                includeUnitPrice, includeEnrosedUnitCost, showPaymentTerms,
+                showOuterCarton, showBarcode, true);
     }
 
     /** Java-call compatibility for tests and callers predating portrait options. */
     public Response purchasePdf(long id, boolean showRevenue, String layout, String audience) {
         return purchasePdf(id, showRevenue, layout, audience,
                 false, false, false, false, false, false, false,
-                false, false, false, false, false);
+                false, false, false, false, false, true);
     }
 
     /** Copies the calculation to price a variant quickly. */

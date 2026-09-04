@@ -28,6 +28,7 @@ import java.util.HashSet;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseDocument;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
 import be.enrosed.media.MediaLegacySourceType;
 import be.enrosed.media.MediaService;
@@ -177,6 +178,7 @@ public class PurchaseOrderService {
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
                                 line.priceBasis()))
                         .toList()).withInspectionCost(source.inspectionCostEur())
+                .withOtherCosts(source.otherCosts())
                 .withCreationMetadata(creator, Instant.now()));
         recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
                 "Inkooporder gedupliceerd vanuit " + source.number());
@@ -297,7 +299,8 @@ public class PurchaseOrderService {
                 changes.trackingReference(),
                 current.createdBy(), current.createdAt(),
                 withLateDamageNotes(changes.notes(), lateDamage), lines)
-                .withInspectionCost(changes.inspectionCostEur()));
+                .withInspectionCost(changes.inspectionCostEur())
+                .withOtherCosts(keptOtherCosts(changes.otherCosts())));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -1231,6 +1234,9 @@ public class PurchaseOrderService {
         requireNonNegative(order.destinationCostsEur(), "Kosten aan de aankomstzijde");
         requireNonNegative(order.extraRevenueEur(), "Enrosed kost");
         requireNonNegative(order.inspectionCostEur(), "Inspectiekost");
+        /* The row the plus button adds and nobody filled in is dropped on
+           save, so it is not a reason to refuse the order either. */
+        requireValidOtherCosts(keptOtherCosts(order.otherCosts()));
         requirePercentage(order.defaultDutyRatePct(), "Standaard invoerrecht");
         if (order.originCurrency() == null) {
             throw new BusinessRuleException("Kies de munt van de kosten aan de vertrekzijde");
@@ -1378,6 +1384,39 @@ public class PurchaseOrderService {
         }
     }
 
+    /** A row the buyer added with the plus and never filled in is dropped, not rejected. */
+    static List<OtherCost> keptOtherCosts(List<OtherCost> costs) {
+        if (costs == null) return List.of();
+        return costs.stream()
+                .filter(cost -> cost != null && !cost.blank())
+                .map(cost -> new OtherCost(cost.label().strip(), cost.amountEur()))
+                .toList();
+    }
+
+    /** Every kept other cost needs a name the sheets can print, and no negative amount. */
+    private static void requireValidOtherCosts(List<OtherCost> costs) {
+        if (costs.size() > 12) {
+            throw new BusinessRuleException("Maximaal 12 andere kosten per inkooporder");
+        }
+        for (OtherCost cost : costs) {
+            if (cost.label().isBlank()) {
+                throw new BusinessRuleException("Geef elke andere kost een naam");
+            }
+            if (cost.label().length() > 60) {
+                throw new BusinessRuleException("De naam van een andere kost mag hoogstens 60 tekens lang zijn");
+            }
+            requireNonNegative(cost.amountEur(), "Andere kost " + cost.label());
+        }
+    }
+
+    /** "Certificaat 120,00 EUR; Labo 80,00 EUR", or null without other costs. */
+    private static String otherCostsSummary(List<OtherCost> costs) {
+        if (costs == null || costs.isEmpty()) return null;
+        return costs.stream()
+                .map(cost -> cost.label() + " " + DocumentFormat.money(Money.nz(cost.amountEur())) + " EUR")
+                .collect(java.util.stream.Collectors.joining("; "));
+    }
+
     private static void requirePercentage(BigDecimal value, String label) {
         if (value == null || value.signum() < 0 || value.compareTo(BigDecimal.valueOf(100)) > 0) {
             throw new BusinessRuleException(label + " moet tussen 0 en 100% liggen");
@@ -1442,6 +1481,8 @@ public class PurchaseOrderService {
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
                 .add("inspectionCostEur", "Inspectiekost", before.inspectionCostEur(), after.inspectionCostEur())
+                .add("otherCosts", "Andere kosten",
+                        otherCostsSummary(before.otherCosts()), otherCostsSummary(after.otherCosts()))
                 .add("departurePort", "Vertrekhaven", before.departurePort(), after.departurePort())
                 .add("destinationPort", "Bestemmingshaven", before.destinationPort(), after.destinationPort())
                 .add("receivingLocationId", "Ontvangstlocatie",

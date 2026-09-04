@@ -17,6 +17,7 @@ import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
+import be.enrosed.sourcing.domain.OtherCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
@@ -444,6 +445,73 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
+    void portraitPrintsInspectionAndOtherCostsUnderTheTotalUnlessLeftOff() throws Exception {
+        Product product = createProductWithPhotoForAllInCost();
+        PurchaseOrder order = portraitOrder(product.id())
+                .withInspectionCost(new BigDecimal("250"))
+                .withOtherCosts(List.of(new OtherCost("Certificaat", new BigDecimal("120"))));
+        LandedCost costing = withSeparateCosts(portraitCosting(product.id()), order);
+        PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
+                new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                new BigDecimal("375.00"), false, false);
+
+        PdfPurchaseRenderer.Document shown = renderer.render(
+                order, costing, supplier(), false, payments(), payable,
+                PdfPurchaseRenderer.Layout.PORTRAIT, PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(true, true, false, true, true, true));
+        PdfPurchaseRenderer.Document hidden = renderer.render(
+                order, costing, supplier(), false, payments(), payable,
+                PdfPurchaseRenderer.Layout.PORTRAIT, PdfPurchaseRenderer.Audience.STANDARD,
+                new PdfPurchaseRenderer.PdfOptions(true, true, false, false, false, false,
+                        true, true, false, false, false, false, false));
+        PdfPurchaseRenderer.Document supplierCopy = renderer.render(
+                order, costing, supplier(), false, payments(), payable,
+                PdfPurchaseRenderer.Layout.PORTRAIT, PdfPurchaseRenderer.Audience.SUPPLIER,
+                PdfPurchaseRenderer.PdfOptions.defaults());
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-portrait-separate-costs.pdf"), shown.content());
+
+        try (PDDocument pdf = Loader.loadPDF(shown.content())) {
+            String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("inspectie apart, niet in de stukprijs 250,00 eur"), text);
+            assertTrue(text.contains("certificaat apart 120,00 eur"), text);
+            assertTrue(text.contains("totaal incl. aparte kosten"), text);
+            assertTrue(text.contains("9.213,03"),
+                    "8.843,03 through delivery plus 370,00 booked apart: " + text);
+            assertTrue(text.contains("8.843,03"), "the landed total itself does not move: " + text);
+        }
+        try (PDDocument pdf = Loader.loadPDF(hidden.content())) {
+            String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+            assertFalse(text.contains("inspectie"), "left off this copy: " + text);
+            assertFalse(text.contains("certificaat"), text);
+            assertFalse(text.contains("9.213,03"), text);
+            assertTrue(text.contains("8.843,03"), text);
+        }
+        try (PDDocument pdf = Loader.loadPDF(supplierCopy.content())) {
+            String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+            assertFalse(text.contains("250,00"), "the supplier never sees the inspection: " + text);
+            assertFalse(text.contains("certificaat"), text);
+        }
+    }
+
+    /** The calculator's answer for an order with an inspection and other costs, on the fixed fixture. */
+    private static LandedCost withSeparateCosts(LandedCost source, PurchaseOrder order) {
+        LandedCost.Totals t = source.totals();
+        BigDecimal inspection = order.inspectionCostEur();
+        List<OtherCost> others = order.otherCosts();
+        BigDecimal othersTotal = others.stream().map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new LandedCost(source.lines(), new LandedCost.Totals(
+                t.pieces(), t.cartons(), t.cbm(), t.goodsUsd(), t.goodsEur(), t.originEur(), t.freightEur(),
+                t.customsValueEur(), t.dutyEur(), t.destinationEur(), t.extraRevenueEur(), t.totalEur(),
+                t.averageUnitEur(), t.effectiveDutyPct(), inspection, others, othersTotal,
+                inspection.add(othersTotal), t.totalEur().add(inspection).add(othersTotal)),
+                source.containerFill());
+    }
+
+    @Test
+    @TestTransaction
     void portraitCanShowOrderedUnitCostAndPaymentTermsIndependently() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());
@@ -660,7 +728,8 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
             assertTrue(text.contains("maat 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
-            assertTrue(text.contains("omdoos 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("omdoos 12 stuks per karton 40 × 40 × 30 cm"),
+                    "the carton count leads and its size follows on a line of its own: " + text);
             assertTrue(text.contains("8712345678906"), text);
             assertTrue(text.contains("8712345678913"), text);
             assertTrue(text.contains("8712345678920"), text);

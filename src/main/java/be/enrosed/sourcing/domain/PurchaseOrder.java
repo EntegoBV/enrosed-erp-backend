@@ -113,8 +113,41 @@ public record PurchaseOrder(
          * on the internal sheets, never shared out into a piece price: the
          * buyer decides per container whether it is worth it.
          */
-        BigDecimal inspectionCostEur
+        BigDecimal inspectionCostEur,
+
+        /**
+         * Other costs booked next to the inspection, each under its own name:
+         * a certificate, a lab test, a sample run. Same rule: own lines on
+         * the order and the internal sheets, never a piece price. Never null.
+         */
+        List<OtherCost> otherCosts
 ) {
+    public PurchaseOrder {
+        otherCosts = otherCosts == null ? List.of()
+                : otherCosts.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before the other costs existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            LocalDate expectedArrival, LocalDate receivedOn, BigDecimal paidTotalEur, Boolean stockBooked,
+            PaymentTerms paymentTerms, LocalDate shippedOn, String trackingReference,
+            ActorRef createdBy, Instant createdAt, String notes, List<PurchaseOrderLine> lines,
+            BigDecimal inspectionCostEur) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, List.of());
+    }
+
     /** Compatibility for callers written before the inspection cost existed. */
     public PurchaseOrder(
             Long id, String number, String alias, Long supplierId, LocalDate orderDate,
@@ -132,7 +165,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, null);
+                createdBy, createdAt, notes, lines, null, List.of());
     }
 
     /** The same order with the inspection cost set; null clears it. */
@@ -142,7 +175,23 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, value);
+                createdBy, createdAt, notes, lines, value, otherCosts);
+    }
+
+    /** The same order with the other costs replaced; null or empty clears them. */
+    public PurchaseOrder withOtherCosts(List<OtherCost> value) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, value);
+    }
+
+    /** True when an inspection or another named cost is booked apart from the piece price. */
+    public boolean hasSeparateCosts() {
+        if (inspectionCostEur != null && inspectionCostEur.signum() > 0) return true;
+        return otherCosts.stream().anyMatch(OtherCost::charged);
     }
 
     /** Compatibility for callers written before creator metadata existed. */
@@ -194,7 +243,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                actor, at, notes, lines);
+                actor, at, notes, lines, inspectionCostEur, otherCosts);
     }
 
     /** Compatibility for callers written before receipts had their own fields. */
@@ -227,7 +276,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
                 receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines);
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts);
     }
 
     /** Compatibility for callers written before variant grouping existed. */

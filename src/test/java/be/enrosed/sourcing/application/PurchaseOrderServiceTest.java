@@ -15,6 +15,7 @@ import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
+import be.enrosed.sourcing.domain.OtherCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
@@ -311,6 +312,29 @@ class PurchaseOrderServiceTest {
                 base.departurePort(), base.destinationPort(), base.notes(), base.lines());
         assertThrows(BusinessRuleException.class,
                 () -> service(orders, new RecordingProducts()).update(10L, negativeFreight));
+    }
+
+    @Test
+    void otherCostsKeepTheirTrimmedNamesWhileAnEmptyRowIsDroppedAndANamelessAmountIsRefused() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, null));
+        PurchaseOrder base = order(PurchaseOrderStatus.CONCEPT, 6, null);
+        PurchaseOrder booked = base.withInspectionCost(new BigDecimal("250")).withOtherCosts(List.of(
+                new OtherCost("  Certificaat ", new BigDecimal("120")),
+                /* The row the plus button adds, never filled in. */
+                new OtherCost("", null)));
+
+        PurchaseOrder saved = service(orders, new RecordingProducts()).update(10L, booked).order();
+
+        assertEquals(new BigDecimal("250"), saved.inspectionCostEur());
+        assertEquals(List.of(new OtherCost("Certificaat", new BigDecimal("120"))), saved.otherCosts());
+        assertTrue(saved.hasSeparateCosts());
+
+        PurchaseOrder nameless = base.withOtherCosts(List.of(new OtherCost(" ", new BigDecimal("50"))));
+        assertThrows(BusinessRuleException.class,
+                () -> service(orders, new RecordingProducts()).update(10L, nameless));
+        PurchaseOrder negative = base.withOtherCosts(List.of(new OtherCost("Labo", new BigDecimal("-1"))));
+        assertThrows(BusinessRuleException.class,
+                () -> service(orders, new RecordingProducts()).update(10L, negative));
     }
 
     @Test

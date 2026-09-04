@@ -12,6 +12,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
+import be.enrosed.shared.Money;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
@@ -20,6 +21,7 @@ import be.enrosed.sourcing.application.LandedCostCalculator;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
+import be.enrosed.sourcing.domain.OtherCost;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.PurchaseOrder;
@@ -178,7 +180,20 @@ public class PdfPurchaseRenderer {
                              boolean eurOnly, boolean showFreight, boolean includeFreight,
                              boolean includeEnrosedCost, boolean includeUnitPrice,
                              boolean includeEnrosedUnitCost, boolean showPaymentTerms,
-                             boolean showOuterCarton, boolean showBarcode) {
+                             boolean showOuterCarton, boolean showBarcode,
+                             /** Inspection and other named costs under the order total; on unless switched off. */
+                             boolean showSeparateCosts) {
+        /** Compatibility for callers written before the separate costs could be hidden. */
+        public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
+                          boolean eurOnly, boolean showFreight, boolean includeFreight,
+                          boolean includeEnrosedCost, boolean includeUnitPrice,
+                          boolean includeEnrosedUnitCost, boolean showPaymentTerms,
+                          boolean showOuterCarton, boolean showBarcode) {
+            this(showSupplier, showPrices, showEur, eurOnly, showFreight, includeFreight,
+                    includeEnrosedCost, includeUnitPrice, includeEnrosedUnitCost,
+                    showPaymentTerms, showOuterCarton, showBarcode, true);
+        }
+
         /** Compatibility for callers written before optional packing details. */
         public PdfOptions(boolean showSupplier, boolean showPrices, boolean showEur,
                           boolean eurOnly, boolean showFreight, boolean includeFreight,
@@ -222,7 +237,7 @@ public class PdfPurchaseRenderer {
 
         public static PdfOptions defaults() {
             return new PdfOptions(false, false, false, false, false, false,
-                    false, false, false, false, false, false);
+                    false, false, false, false, false, false, true);
         }
 
         PdfOptions normalized(Layout layout, Audience audience) {
@@ -234,8 +249,17 @@ public class PdfPurchaseRenderer {
             boolean onlyEur = eurOnly && prices;
             return new PdfOptions(showSupplier, prices, showEur && prices && !onlyEur,
                     onlyEur, false, false, includeEnrosedCost, unitPrice,
-                    includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode);
+                    includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode,
+                    showSeparateCosts);
         }
+    }
+
+    /** One cost printed under the landed total: the inspection or a named other cost. */
+    public record SeparateCostRow(String label, String note, BigDecimal amount) {}
+
+    /** The packing of one piece as printed: kind and size, pieces per display, the EAN, each its own line. */
+    public record PackagingFacts(String main, String pieces, String ean) {
+        static final PackagingFacts NONE = new PackagingFacts(null, null, null);
     }
 
     /** One compact, explicitly labelled product fact in a purchase-order row. */
@@ -278,7 +302,9 @@ public class PdfPurchaseRenderer {
             String cbmText,
             /** Line number as printed, the colour and the packing facts of the internal sheet. */
             int position, String ean, String colour, String productSize, String packagingText,
-            String cartonSize, String cartonWeight, String cartonCbmText, String cartonEan) {
+            String cartonSize, String cartonWeight, String cartonCbmText, String cartonEan,
+            /** "12 stuks per display" and "EAN …": the small lines under the packaging. */
+            String packagingPieces, String packagingEan) {
 
         /** Compatibility for callers written before the packing column existed. */
         public LineView(
@@ -302,7 +328,7 @@ public class PdfPurchaseRenderer {
                     landedUnitEur, totalDeliveryCostEur, totalDeliveryUnitCostEur, purchaseUnitPrice,
                     purchaseLineTotal, purchaseUnitEur, purchaseLineTotalEur, purchaseCurrency, priceBasis,
                     purchasePriceAvailable, eurPriceAvailable, eurEquivalentAvailable, cbmText,
-                    0, null, null, null, null, null, null, null, null);
+                    0, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -322,7 +348,9 @@ public class PdfPurchaseRenderer {
             String priceBasis, boolean priceAvailable,
             /** Line number as printed, the colour and the packing facts the carton label repeats. */
             int position, String colour, String productSize, String packagingText,
-            String cartonSize, String cartonWeight, String cartonEan) {
+            String cartonSize, String cartonWeight, String cartonEan,
+            /** "12 pieces per display" and "EAN …": the small lines under the packaging. */
+            String packagingPieces, String packagingEan) {
         /** The line has an instruction, reference images or a history worth their own block. */
         public boolean hasAgreement() {
             return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty() || !priorIssues.isEmpty();
@@ -449,6 +477,8 @@ public class PdfPurchaseRenderer {
             Prepared prepared = prepare(order, costing,
                     options.includeEnrosedCost() || options.includeEnrosedUnitCost(),
                     fullPacking || options.showOuterCarton(), fullPacking || options.showBarcode());
+            List<SeparateCostRow> separateCosts = separateCostRows(costing,
+                    fullPacking || options.showSeparateCosts());
             instance.data("costing", costing)
                     .data("lines", prepared.lines())
                     .data("purchaseTotals", prepared.purchaseTotals())
@@ -463,11 +493,15 @@ public class PdfPurchaseRenderer {
                     .data("hasExtraColumn", prepared.hasExtraColumn())
                     .data("productColumnMm", productColumnMm(options))
                     .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
-                    .data("inspectionEur", costing.totals().inspectionEur() == null
-                            || costing.totals().inspectionEur().signum() <= 0 ? null : costing.totals().inspectionEur())
-                    .data("totalWithInspectionEur", prepared.totalDeliveryCostEur() == null ? null
-                            : prepared.totalDeliveryCostEur().add(
-                                    costing.totals().inspectionEur() == null ? BigDecimal.ZERO : costing.totals().inspectionEur()))
+                    /* Landscape keeps every internal figure; portrait lets the buyer
+                       leave the inspection and other costs off a copy. */
+                    .data("separateCosts", separateCosts)
+                    .data("hasSeparateCosts", !separateCosts.isEmpty())
+                    .data("separateCostsTotalLabel", separateCostsTotalLabel(costing))
+                    .data("totalWithSeparateCostsEur", layout == Layout.PORTRAIT
+                            ? (prepared.totalDeliveryCostEur() == null ? null
+                                    : prepared.totalDeliveryCostEur().add(Money.nz(costing.totals().separateCostsEur())))
+                            : costing.totals().totalWithSeparateCostsEur())
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
                     .data("timeline", timeline(order))
@@ -522,6 +556,7 @@ public class PdfPurchaseRenderer {
             boolean matchingSupplier = product != null && order.supplierId() != null
                     && Objects.equals(product.supplierId(), order.supplierId());
             Carton carton = product == null ? null : product.carton();
+            PackagingFacts packaging = supplierPackaging(product);
 
             lines.add(new SupplierLineView(
                     costingLine.productId(), product == null ? null : product.sku(),
@@ -542,10 +577,11 @@ public class PdfPurchaseRenderer {
                     price.available(),
                     position, supplierColour(product),
                     product == null ? null : dimensionValue(product.dimensions()),
-                    supplierPackagingText(product),
+                    packaging.main(),
                     carton == null ? null : dimensionValue(carton.dimensions()),
                     carton == null ? null : DocumentFormat.kg(carton.weightKg()),
-                    product == null || product.barcodes() == null ? null : blankToNull(product.barcodes().outer())));
+                    product == null || product.barcodes() == null ? null : blankToNull(product.barcodes().outer()),
+                    packaging.pieces(), packaging.ean()));
         }
         return new SupplierPrepared(List.copyOf(lines));
     }
@@ -615,6 +651,7 @@ public class PdfPurchaseRenderer {
             PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
             AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
             Carton carton = product == null ? null : product.carton();
+            PackagingFacts packaging = internalPackaging(product, showBarcode);
             BigDecimal unitPrice = price.amount();
             Currency currency = price.currency();
             int purchaseQuantity = orderLine != null && orderLine.orderedQuantity() != null
@@ -670,12 +707,13 @@ public class PdfPurchaseRenderer {
                     showBarcode ? blankToNull(ean(product)) : null,
                     product == null ? null : blankToNull(product.colour()),
                     product == null ? null : dimensionValue(product.dimensions()),
-                    internalPackagingText(product, showBarcode),
+                    packaging.main(),
                     !showOuterCarton || carton == null ? null : dimensionValue(carton.dimensions()),
                     !showOuterCarton || carton == null ? null : DocumentFormat.kg(carton.weightKg()),
                     !showOuterCarton || carton == null ? null : cbmText(carton.cbm()),
                     !showOuterCarton || !showBarcode || product == null || product.barcodes() == null
-                            ? null : blankToNull(product.barcodes().outer())));
+                            ? null : blankToNull(product.barcodes().outer()),
+                    packaging.pieces(), packaging.ean()));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
@@ -885,6 +923,34 @@ public class PdfPurchaseRenderer {
         return cbmText(product.carton().cbm().multiply(BigDecimal.valueOf(cartons)));
     }
 
+    /**
+     * The inspection and the named other costs as printed under the landed
+     * total, each with the reminder that it never entered a piece price.
+     * Empty when nothing is booked or the buyer left them off this copy.
+     */
+    static List<SeparateCostRow> separateCostRows(LandedCost costing, boolean show) {
+        if (!show || costing == null || costing.totals() == null) return List.of();
+        List<SeparateCostRow> rows = new ArrayList<>();
+        BigDecimal inspection = costing.totals().inspectionEur();
+        if (inspection != null && inspection.signum() > 0) {
+            rows.add(new SeparateCostRow("Inspectie", "apart, niet in de stukprijs", inspection));
+        }
+        List<OtherCost> others = costing.totals().otherCosts() == null ? List.of() : costing.totals().otherCosts();
+        for (OtherCost cost : others) {
+            if (!cost.charged()) continue;
+            rows.add(new SeparateCostRow(cost.label(),
+                    rows.isEmpty() ? "apart, niet in de stukprijs" : "apart", cost.amountEur()));
+        }
+        return List.copyOf(rows);
+    }
+
+    /** "Totaal incl. inspectie" while the inspection is the only separate cost. */
+    static String separateCostsTotalLabel(LandedCost costing) {
+        boolean others = costing != null && costing.totals() != null && costing.totals().otherCosts() != null
+                && costing.totals().otherCosts().stream().anyMatch(OtherCost::charged);
+        return others ? "Totaal incl. aparte kosten" : "Totaal incl. inspectie";
+    }
+
     public record SupplierTotals(int pieces, int cartons, String cbm) {}
 
     /** Pieces, cartons and volume; the supplier sheet deliberately carries no calculated amounts. */
@@ -925,28 +991,26 @@ public class PdfPurchaseRenderer {
         return notBlank(colour) ? colour.strip() : null;
     }
 
-    /** "Geschenkverpakking 20 × 12 × 30 cm · EAN …" or "Display … · 6 stuks per display"; null when sold bare. */
-    static String internalPackagingText(Product product, boolean showBarcode) {
-        Packaging packaging = product == null ? null : product.packaging();
-        if (packaging == null || !packaging.isPresent()) return null;
-        boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
-        String size = dimensionValue(packaging.dimensions());
-        String pieces = packaging.unitPieces() > 1 ? packaging.unitPieces() + " stuks per display" : null;
-        String kind = display ? "Display" : "Geschenkverpakking";
-        return join(size == null ? kind : kind + " " + size, display ? pieces : null,
-                showBarcode ? eanText(packaging.barcode()) : null);
+    /** "Geschenkverpakking 20 × 12 × 30 cm", "6 stuks per display" and "EAN …" as three lines; none when sold bare. */
+    static PackagingFacts internalPackaging(Product product, boolean showBarcode) {
+        return packagingFacts(product, "Geschenkverpakking", "Display", " stuks per display", showBarcode);
     }
 
-    /** "Gift box 20 × 12 × 30 cm" or "Display 30 × 20 × 15 cm · 6 pieces per display"; null when sold bare. */
-    static String supplierPackagingText(Product product) {
+    /** "Gift box 20 × 12 × 30 cm", "6 pieces per display" and "EAN …" as three lines; none when sold bare. */
+    static PackagingFacts supplierPackaging(Product product) {
+        return packagingFacts(product, "Gift box", "Display", " pieces per display", true);
+    }
+
+    private static PackagingFacts packagingFacts(Product product, String boxLabel, String displayLabel,
+                                                 String piecesSuffix, boolean showBarcode) {
         Packaging packaging = product == null ? null : product.packaging();
-        if (packaging == null || !packaging.isPresent()) return null;
+        if (packaging == null || !packaging.isPresent()) return PackagingFacts.NONE;
         boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
         String size = dimensionValue(packaging.dimensions());
-        String pieces = packaging.unitPieces() > 1 ? packaging.unitPieces() + " pieces per display" : null;
-        String kind = display ? "Display" : "Gift box";
-        return join(size == null ? kind : kind + " " + size, display ? pieces : null,
-                eanText(packaging.barcode()));
+        String kind = display ? displayLabel : boxLabel;
+        return new PackagingFacts(size == null ? kind : kind + " " + size,
+                display && packaging.unitPieces() > 1 ? packaging.unitPieces() + piecesSuffix : null,
+                showBarcode ? eanText(packaging.barcode()) : null);
     }
 
     private static String blankToNull(String value) {

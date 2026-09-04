@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -326,9 +327,37 @@ class LandedCostCalculatorTest {
         assertEquals(without.totals().totalEur(), with.totals().totalEur());
         assertEquals(without.totals().averageUnitEur(), with.totals().averageUnitEur());
         assertEquals(new BigDecimal("450.00"), with.totals().inspectionEur());
-        assertEquals(new BigDecimal("45199.38"), with.totals().totalWithInspectionEur());
+        assertEquals(new BigDecimal("450.00"), with.totals().separateCostsEur());
+        assertEquals(new BigDecimal("45199.38"), with.totals().totalWithSeparateCostsEur());
         assertEquals(new BigDecimal("0.00"), without.totals().inspectionEur());
-        assertEquals(without.totals().totalEur(), without.totals().totalWithInspectionEur());
+        assertEquals(without.totals().totalEur(), without.totals().totalWithSeparateCostsEur());
+        assertFalse(without.totals().hasSeparateCosts());
+        assertTrue(with.totals().hasSeparateCosts());
+    }
+
+    @Test
+    @DisplayName("andere benoemde kosten tellen naast de inspectie, nooit in een stukprijs")
+    void otherNamedCostsStayOffEveryLineLikeTheInspection() {
+        PurchaseOrder plain = excelOrder();
+        PurchaseOrder booked = plain.withInspectionCost(new BigDecimal("450")).withOtherCosts(List.of(
+                new OtherCost("Certificaat", new BigDecimal("120")),
+                new OtherCost("Labo", new BigDecimal("30.5")),
+                /* An empty amount is nothing to print or add. */
+                new OtherCost("Staal", null)));
+        Map<Long, Product> products = Map.of(1L, preservedRose());
+
+        LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);
+        LandedCost with = calculator(new BigDecimal("10")).calculate(booked, products);
+
+        assertEquals(without.lines(), with.lines(), "no line moves when other costs are booked");
+        assertEquals(without.totals().totalEur(), with.totals().totalEur());
+        assertEquals(without.totals().averageUnitEur(), with.totals().averageUnitEur());
+        assertEquals(List.of(new OtherCost("Certificaat", new BigDecimal("120.00")),
+                new OtherCost("Labo", new BigDecimal("30.50"))), with.totals().otherCosts());
+        assertEquals(new BigDecimal("150.50"), with.totals().otherCostsEur());
+        assertEquals(new BigDecimal("600.50"), with.totals().separateCostsEur());
+        assertEquals(without.totals().totalEur().add(new BigDecimal("600.50")),
+                with.totals().totalWithSeparateCostsEur());
     }
 
     private static PurchaseOrder orderWith(PurchaseOrder base, List<PurchaseOrderLine> lines, Boolean groupVariants) {

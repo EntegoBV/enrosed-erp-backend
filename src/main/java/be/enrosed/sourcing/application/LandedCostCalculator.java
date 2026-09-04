@@ -203,6 +203,14 @@ public class LandedCostCalculator {
         BigDecimal duty = working.stream().map(r -> r.dutyEur).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal total = working.stream().map(r -> r.totalEur).reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        BigDecimal inspection = Money.nz(order.inspectionCostEur());
+        List<OtherCost> otherCosts = order.otherCosts().stream()
+                .filter(OtherCost::charged)
+                .map(cost -> new OtherCost(cost.label(), Money.money(cost.amountEur())))
+                .toList();
+        BigDecimal otherCostsTotal = otherCosts.stream()
+                .map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+
         LandedCost.Totals totals = new LandedCost.Totals(
                 allPieces,
                 working.stream().mapToInt(r -> r.cartons).sum(),
@@ -223,10 +231,13 @@ public class LandedCostCalculator {
                 customsValue.signum() > 0
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
-                /* Inspection is a container decision, not a product cost: it
-                   stays off every line and every piece price. */
-                Money.money(Money.nz(order.inspectionCostEur())),
-                Money.money(total.add(Money.nz(order.inspectionCostEur()))));
+                /* Inspection and the other named costs are container decisions,
+                   not product costs: they stay off every line and every piece price. */
+                Money.money(inspection),
+                otherCosts,
+                Money.money(otherCostsTotal),
+                Money.money(inspection.add(otherCostsTotal)),
+                Money.money(total.add(inspection).add(otherCostsTotal)));
 
         return new LandedCost(lines, totals, fillFor(order.containerType(), totalCbm.setScale(3, RoundingMode.HALF_UP)));
     }

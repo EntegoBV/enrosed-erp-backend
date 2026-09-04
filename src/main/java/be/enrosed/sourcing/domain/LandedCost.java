@@ -57,17 +57,28 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
             BigDecimal effectiveDutyPct,
             /** Factory inspection: its own line, never inside totalEur or a piece price. */
             BigDecimal inspectionEur,
-            /** totalEur plus the inspection, for the bottom line of the internal sheets. */
-            BigDecimal totalWithInspectionEur
+            /** The charged other costs by name, for the sheets; same rule as the inspection. */
+            List<OtherCost> otherCosts,
+            /** The other costs added up. */
+            BigDecimal otherCostsEur,
+            /** Inspection plus other costs: everything booked apart from the piece price. */
+            BigDecimal separateCostsEur,
+            /** totalEur plus the separate costs, for the bottom line of the internal sheets. */
+            BigDecimal totalWithSeparateCostsEur
     ) {
-        /** Compatibility for callers written before the inspection line existed. */
+        /** Compatibility for callers written before the separate cost lines existed. */
         public Totals(int pieces, int cartons, BigDecimal cbm, BigDecimal goodsUsd, BigDecimal goodsEur,
                       BigDecimal originEur, BigDecimal freightEur, BigDecimal customsValueEur, BigDecimal dutyEur,
                       BigDecimal destinationEur, BigDecimal extraRevenueEur, BigDecimal totalEur,
                       BigDecimal averageUnitEur, BigDecimal effectiveDutyPct) {
             this(pieces, cartons, cbm, goodsUsd, goodsEur, originEur, freightEur, customsValueEur, dutyEur,
                     destinationEur, extraRevenueEur, totalEur, averageUnitEur, effectiveDutyPct,
-                    BigDecimal.ZERO, totalEur);
+                    BigDecimal.ZERO, List.of(), BigDecimal.ZERO, BigDecimal.ZERO, totalEur);
+        }
+
+        /** True when the sheets have something to print under the landed total. */
+        public boolean hasSeparateCosts() {
+            return separateCostsEur != null && separateCostsEur.signum() > 0;
         }
     }
 

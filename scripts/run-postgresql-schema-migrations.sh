@@ -27,4 +27,5 @@ exec psql \
     --file=/app/migrations/sales-order-column-lengths-postgresql.sql \
     --file=/app/migrations/website-visits-postgresql.sql \
     --file=/app/migrations/purchase-line-issue-note-postgresql.sql \
-    --file=/app/migrations/purchase-order-inspection-cost-postgresql.sql
+    --file=/app/migrations/purchase-order-inspection-cost-postgresql.sql \
+    --file=/app/migrations/purchase-order-other-costs-postgresql.sql
