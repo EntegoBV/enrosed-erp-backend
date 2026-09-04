@@ -11,6 +11,9 @@ public interface StockLedger {
 
     List<StockMovement> forProduct(long productId);
 
+    /** Every line that names this container: the damage and shortages reported after receipt. */
+    List<StockMovement> forPurchaseOrder(long purchaseOrderId);
+
     /**
      * Strikes one line from the book; the stock figure itself stays. For
      * cleaning up a mistaken entry, not for changing history.
@@ -23,6 +26,7 @@ public interface StockLedger {
     StockLedger NONE = new StockLedger() {
         @Override public void record(StockMovement movement) {}
         @Override public List<StockMovement> forProduct(long productId) { return List.of(); }
+        @Override public List<StockMovement> forPurchaseOrder(long purchaseOrderId) { return List.of(); }
         @Override public boolean delete(long productId, long movementId) { return false; }
     };
 }

@@ -53,7 +53,19 @@ public class SourcingResource {
                                     PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
                                     /** Immutable server-owned creator; null on historical rows. */
                                     ActorRef createdBy,
-                                    java.time.Instant createdAt) {}
+                                    java.time.Instant createdAt,
+                                    /** Damage and shortages on this container: at receipt and reported afterwards. */
+                                    List<PurchaseOrderService.ReceiptReport> receiptReports) {
+        /** Compatibility for callers written before the dossier listed its complaints. */
+        public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
+                                 List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                 PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
+                                 List<String> attention, PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
+                                 ActorRef createdBy, java.time.Instant createdAt) {
+            this(order, costing, adjustments, costLabels, payable, attention, receiptVariance, createdBy, createdAt,
+                    List.of());
+        }
+    }
 
     /* ------------------------------------------------------ leveranciers */
 
@@ -469,7 +481,16 @@ public class SourcingResource {
         return new PurchaseOrderView(order, costing, adjustments,
                 PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
                 purchaseOrders.receiptVarianceSummary(order),
-                order.createdBy(), order.createdAt());
+                order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order));
+    }
+
+    /** Damage or a shortage found while unpacking: booked against this container. */
+    @POST
+    @Path("/purchase-orders/{id}/receipt-reports")
+    public PurchaseOrderView reportAfterReceipt(@PathParam("id") long id,
+                                                PurchaseOrderService.AfterReceiptReport report) {
+        PurchaseOrder order = purchaseOrders.reportAfterReceipt(id, report);
+        return view(order, purchaseOrders.calculate(order), List.of());
     }
 
     private static java.time.LocalDate dateFilter(String value, String label) {

@@ -29,4 +29,7 @@ public class StockMovementEntity {
     }
     public String reference;
     public String actor;
+    /** The container a later damage or shortage report points at; null otherwise. */
+    @Column(name = "purchase_order_id")
+    public Long purchaseOrderId;
 }

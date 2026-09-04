@@ -47,6 +47,7 @@ COPY docs/migrations/2026-09-04/orders-archived-at-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-04/sales-order-extra-lines-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-04/product-photo-lead-roles-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-04/category-photos-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-04/stock-movement-purchase-order-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

@@ -193,11 +193,12 @@ public class ProductResource {
             throw new BusinessRuleException("Kies beschadigd of demo, en hoeveel");
         }
         long locationId = request.locationId() != null ? request.locationId() : stock.mainLocation().id();
-        stock.takeOut(id, locationId, request.quantity(), request.kind(), request.note());
+        stock.takeOut(id, locationId, request.quantity(), request.kind(), request.note(), request.purchaseOrderId());
         return ProductDto.from(products.get(id));
     }
 
-    public record TakeOutRequest(Long locationId, Integer quantity, StockMovement.Kind kind, String note) {}
+    public record TakeOutRequest(Long locationId, Integer quantity, StockMovement.Kind kind, String note,
+                                 Long purchaseOrderId) {}
 
     /** The stock book for one product, newest first. */
     @GET
@@ -208,7 +209,8 @@ public class ProductResource {
         return products.stockMovements(id).stream()
                 .map(m -> new StockMovementDto(m.id(), m.at(), m.delta(), m.quantityAfter(),
                         m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor(),
-                        m.locationId(), m.locationId() == null ? null : names.get(m.locationId())))
+                        m.locationId(), m.locationId() == null ? null : names.get(m.locationId()),
+                        m.purchaseOrderId()))
                 .toList();
     }
 
@@ -222,7 +224,7 @@ public class ProductResource {
 
     public record StockMovementDto(Long id, java.time.Instant at, int delta, int quantityAfter,
                                    String kind, String kindLabel, String reference, String actor,
-                                   Long locationId, String locationName) {}
+                                   Long locationId, String locationName, Long purchaseOrderId) {}
 
     @POST
     @Path("/{id}/duplicate")

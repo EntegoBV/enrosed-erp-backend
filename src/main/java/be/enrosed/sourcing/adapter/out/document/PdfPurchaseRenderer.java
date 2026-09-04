@@ -569,7 +569,8 @@ public class PdfPurchaseRenderer {
                                     this::supplierAgreementPhotoViews)
                             : List.of(),
                     costingLine.productId() == null ? List.of()
-                            : be.enrosed.sourcing.application.ReceiptIssues.forProduct(history, costingLine.productId(), order.id()),
+                            : be.enrosed.sourcing.application.ReceiptIssues.forProduct(history,
+                                    reportedMovements(costingLine.productId()), costingLine.productId(), order.id()),
                     orderedQuantity, orderedCartons, cartonCbm(product),
                     lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
@@ -584,6 +585,12 @@ public class PdfPurchaseRenderer {
                     packaging.pieces(), packaging.ean()));
         }
         return new SupplierPrepared(List.copyOf(lines));
+    }
+
+    /** The stock lines that name a container: what the warehouse reported after receipt. */
+    private List<be.enrosed.catalog.domain.StockMovement> reportedMovements(long productId) {
+        if (locations == null || !locations.isResolvable()) return List.of();
+        return locations.get().movementsFor(productId);
     }
 
     private List<SupplierAgreementPhotoView> supplierAgreementPhotoViews(long productId) {

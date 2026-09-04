@@ -219,8 +219,21 @@ public class StockService {
      */
     @Transactional
     public void takeOut(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference) {
-        if (kind != StockMovement.Kind.DAMAGED && kind != StockMovement.Kind.DEMO) {
-            throw new BusinessRuleException("Alleen beschadigd of demo kan zo uit de voorraad");
+        takeOut(productId, locationId, quantity, kind, reference, null);
+    }
+
+    /**
+     * The same, naming the container the pieces came on: a broken dome
+     * found while unpacking, or a carton that turned out to hold less than
+     * the packing list said. The order's dossier and the next supplier order
+     * read the report back through {@link #movementsForPurchaseOrder}.
+     */
+    @Transactional
+    public void takeOut(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference,
+                        Long purchaseOrderId) {
+        if (kind != StockMovement.Kind.DAMAGED && kind != StockMovement.Kind.DEMO
+                && kind != StockMovement.Kind.SHORTAGE) {
+            throw new BusinessRuleException("Alleen beschadigd, te weinig geleverd of demo kan zo uit de voorraad");
         }
         if (quantity <= 0) throw new BusinessRuleException("Geef een aantal groter dan nul op");
         requireProduct(productId);
@@ -230,8 +243,19 @@ public class StockService {
             throw new BusinessRuleException("Op " + location.name() + " liggen maar " + at + " stuks");
         }
         write(productId, locationId, at - quantity);
-        book(productId, location, -quantity, at - quantity, kind, reference);
+        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), -quantity, at - quantity,
+                kind, reference, actor.name(), purchaseOrderId));
         recompute(productId);
+    }
+
+    /** The stock book of one product, newest first. */
+    public List<StockMovement> movementsFor(long productId) {
+        return ledger.forProduct(productId);
+    }
+
+    /** What was reported against one container after it was received, newest first. */
+    public List<StockMovement> movementsForPurchaseOrder(long purchaseOrderId) {
+        return ledger.forPurchaseOrder(purchaseOrderId);
     }
 
     /**

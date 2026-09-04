@@ -21,6 +21,7 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
         entity.kind = movement.kind().name();
         entity.reference = movement.reference();
         entity.actor = movement.actor();
+        entity.purchaseOrderId = movement.purchaseOrderId();
         persist(entity);
     }
 
@@ -32,8 +33,20 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     @Override
     public List<StockMovement> forProduct(long productId) {
         return list("productId = ?1 order by at desc, id desc", productId).stream()
-                .map(entity -> new StockMovement(entity.id, entity.productId, entity.locationId, entity.at,
-                        entity.delta, entity.quantityAfter, entity.kind(), entity.reference, entity.actor))
+                .map(PanacheStockLedger::toDomain)
                 .toList();
+    }
+
+    @Override
+    public List<StockMovement> forPurchaseOrder(long purchaseOrderId) {
+        return list("purchaseOrderId = ?1 order by at desc, id desc", purchaseOrderId).stream()
+                .map(PanacheStockLedger::toDomain)
+                .toList();
+    }
+
+    private static StockMovement toDomain(StockMovementEntity entity) {
+        return new StockMovement(entity.id, entity.productId, entity.locationId, entity.at,
+                entity.delta, entity.quantityAfter, entity.kind(), entity.reference, entity.actor,
+                entity.purchaseOrderId);
     }
 }

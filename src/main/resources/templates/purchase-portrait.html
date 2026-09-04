@@ -496,8 +496,9 @@
       {#for issue in line.priorIssues}
         <div class="prior-issue">
           <span class="prior-issue__when">{issue.orderNumber}{#if issue.receivedOn} · received {issue.receivedOn.be}{/if}</span>
-          <span class="prior-issue__facts">{issue.ordered} ordered · {issue.received} received{#if issue.damaged > 0} · <b>{issue.damaged} damaged</b>{/if}{#if issue.missing > 0} · <b>{issue.missing} short</b>{/if}</span>
+          <span class="prior-issue__facts">{issue.ordered} ordered · {issue.received} received{#if issue.damaged > 0} · <b>{issue.damaged} damaged</b>{/if}{#if issue.missing > 0} · <b>{issue.missing} short</b>{/if}{#if issue.hasLaterReports} · found while unpacking: {#if issue.laterDamaged > 0}<b>{issue.laterDamaged} damaged</b>{/if}{#if issue.laterDamaged > 0 && issue.laterMissing > 0}, {/if}{#if issue.laterMissing > 0}<b>{issue.laterMissing} short</b>{/if}{/if}</span>
           {#if issue.note}<span class="prior-issue__note">{issue.note}</span>{/if}
+          {#if issue.laterNote}<span class="prior-issue__note">{issue.laterNote}</span>{/if}
         </div>
       {/for}
       <div class="prior-issues__ask">Please pack and count this product with extra care and confirm the corrective measures in writing before production.</div>

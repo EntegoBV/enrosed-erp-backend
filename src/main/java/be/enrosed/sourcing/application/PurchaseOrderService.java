@@ -1362,7 +1362,103 @@ public class PurchaseOrderService {
      * shows it and the supplier order prints it as a warning.
      */
     public List<ReceiptIssues.ReceiptIssue> receiptIssuesFor(long productId, Long excludeOrderId) {
-        return ReceiptIssues.forProduct(orders.findAll(), productId, excludeOrderId);
+        return ReceiptIssues.forProduct(orders.findAll(), products.stockMovements(productId), productId, excludeOrderId);
+    }
+
+    /** What the warehouse may report against a received container. */
+    public record AfterReceiptReport(Long productId, Long locationId, Integer quantity,
+                                     be.enrosed.catalog.domain.StockMovement.Kind kind, String note) {}
+
+    /**
+     * Damage or a shortage found after the container was received and
+     * booked: the pieces leave the stock under the container's name, the
+     * diary gets a line, and the next order for this product carries the
+     * report as a warning to the supplier.
+     */
+    @Transactional
+    public PurchaseOrder reportAfterReceipt(long orderId, AfterReceiptReport report) {
+        PurchaseOrder order = getForUpdate(orderId);
+        if (order.status() != PurchaseOrderStatus.ONTVANGEN) {
+            throw new BusinessRuleException("Alleen op een ontvangen container kan schade of tekort gemeld worden");
+        }
+        if (report == null || report.productId() == null || report.quantity() == null || report.kind() == null) {
+            throw new BusinessRuleException("Kies het product, wat er mis is en hoeveel stuks");
+        }
+        if (!report.kind().isReceiptIssue()) {
+            throw new BusinessRuleException("Op een container meld je beschadigd of te weinig geleverd");
+        }
+        if (report.quantity() <= 0) throw new BusinessRuleException("Geef een aantal groter dan nul op");
+        boolean onOrder = order.lines().stream().anyMatch(line -> Objects.equals(line.productId(), report.productId()));
+        if (!onOrder) throw new BusinessRuleException("Dit product staat niet op " + order.number());
+        if (locationNames == null || !locationNames.isResolvable()) {
+            throw new BusinessRuleException("Voorraad is hier niet beschikbaar");
+        }
+        be.enrosed.catalog.application.StockService stock = locationNames.get();
+        long locationId = report.locationId() != null ? report.locationId()
+                : order.receivingLocationId() != null ? order.receivingLocationId() : stock.mainLocation().id();
+        String note = report.note() == null || report.note().isBlank() ? null : report.note().strip();
+        String reference = note == null ? order.number() : order.number() + " · " + note;
+        stock.takeOut(report.productId(), locationId, report.quantity(), report.kind(), reference, order.id());
+
+        Product reported = productOrNull(report.productId());
+        String productName = reported == null ? "product " + report.productId() : reported.name();
+        String what = report.kind() == be.enrosed.catalog.domain.StockMovement.Kind.DAMAGED
+                ? "beschadigd" : "te weinig geleverd";
+        String line = "Nagemeld op " + LocalDate.now().format(DAY) + ": " + report.quantity() + " st "
+                + productName + " " + what + (note == null ? "." : " (" + note + ").");
+        PurchaseOrder noted = orders.save(order.withReceipt(order.status(), order.receivedOn(),
+                order.paidTotalEur(), order.isStockBooked(), appendNote(order.notes(), line), order.lines()));
+        recordActivity(ActivityLogService.ACTION_RECEIPT_REPORTED, noted, line);
+        return noted;
+    }
+
+    /** One line per complaint on this container: at receipt, and reported afterwards. */
+    public record ReceiptReport(long productId, String sku, String productName, String source,
+                                LocalDate on, int damaged, int missing, String note, String actor) {}
+
+    public List<ReceiptReport> receiptReports(PurchaseOrder order) {
+        List<ReceiptReport> reports = new ArrayList<>();
+        for (PurchaseOrderLine line : order.lines()) {
+            if (line.productId() == null || (line.damaged() == 0 && line.missing() == 0)) continue;
+            Product product = productOrNull(line.productId());
+            reports.add(new ReceiptReport(line.productId(), product == null ? null : product.sku(),
+                    product == null ? "Product " + line.productId() : product.name(), "ARRIVAL",
+                    order.receivedOn(), line.damaged(), line.missing(), line.issueNote(), null));
+        }
+        if (order.id() != null && locationNames != null && locationNames.isResolvable()) {
+            for (be.enrosed.catalog.domain.StockMovement move : locationNames.get().movementsForPurchaseOrder(order.id())) {
+                if (!move.kind().isReceiptIssue()) continue;
+                Product product = productOrNull(move.productId());
+                int pieces = Math.abs(move.delta());
+                reports.add(new ReceiptReport(move.productId(), product == null ? null : product.sku(),
+                        product == null ? "Product " + move.productId() : product.name(), "LATER",
+                        ReceiptIssues.dayOf(move),
+                        move.kind() == be.enrosed.catalog.domain.StockMovement.Kind.DAMAGED ? pieces : 0,
+                        move.kind() == be.enrosed.catalog.domain.StockMovement.Kind.SHORTAGE ? pieces : 0,
+                        stripOrderNumber(move.reference(), order.number()), move.actor()));
+            }
+        }
+        return List.copyOf(reports);
+    }
+
+    /** A product that was deleted since still leaves its number on the report. */
+    private Product productOrNull(long productId) {
+        try {
+            return products.get(productId);
+        } catch (RuntimeException missing) {
+            return null;
+        }
+    }
+
+    /** The reference on a stock line starts with the container's number; the dossier already says it. */
+    private static String stripOrderNumber(String reference, String number) {
+        if (reference == null) return null;
+        String text = reference.strip();
+        if (number != null && text.startsWith(number)) {
+            text = text.substring(number.length()).strip();
+            if (text.startsWith("·")) text = text.substring(1).strip();
+        }
+        return text.isEmpty() ? null : text;
     }
 
     private static String withLateDamageNotes(String notes, List<String> lateDamage) {

@@ -176,7 +176,9 @@ public class ProductService {
         CARTON,
         PURCHASE_PRICE,
         SALES_PRICE,
-        HS_CODE
+        HS_CODE,
+        /** The agreement with the supplier; only copied between colours bought from the same supplier. */
+        SUPPLIER_NOTE
     }
 
     public record SharedFieldsResult(List<Long> updatedProductIds, int updatedProducts) {
@@ -374,7 +376,9 @@ public class ProductService {
                 description ? source.description() : target.description(),
                 target.categoryId(),
                 target.supplierId(),
-                target.supplierNote(),
+                fields.contains(SharedField.SUPPLIER_NOTE)
+                        && java.util.Objects.equals(source.supplierId(), target.supplierId())
+                        ? source.supplierNote() : target.supplierNote(),
                 target.active(),
                 target.familyId(),
                 target.canonicalVariantKey(),

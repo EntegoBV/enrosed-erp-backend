@@ -28,6 +28,7 @@ public class ActivityLogService {
     public static final String ACTION_DELETED = "DELETED";
     public static final String ACTION_RECEIVED = "RECEIVED";
     public static final String ACTION_STOCK_BOOKED = "STOCK_BOOKED";
+    public static final String ACTION_RECEIPT_REPORTED = "RECEIPT_REPORTED";
     public static final String ACTION_PAYMENT_ADDED = "PAYMENT_ADDED";
     public static final String ACTION_PAYMENT_DELETED = "PAYMENT_DELETED";
     public static final String ACTION_DOCUMENT_ADDED = "DOCUMENT_ADDED";
