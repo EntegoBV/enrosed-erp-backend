@@ -177,6 +177,21 @@ public class SourcingResource {
         return Response.noContent().build();
     }
 
+    /** Off the working list, into the archive tab; nothing else changes. */
+    @POST
+    @Path("/purchase-orders/{id}/archive")
+    public PurchaseOrderView archivePurchaseOrder(@PathParam("id") long id) {
+        PurchaseOrder order = purchaseOrders.archive(id);
+        return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
+    @POST
+    @Path("/purchase-orders/{id}/unarchive")
+    public PurchaseOrderView unarchivePurchaseOrder(@PathParam("id") long id) {
+        PurchaseOrder order = purchaseOrders.unarchive(id);
+        return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
     /**
      * The calculation as a PDF.
      *

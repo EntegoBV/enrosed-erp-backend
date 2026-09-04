@@ -21,6 +21,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -648,6 +649,33 @@ public class SalesOrderService {
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order,
                 order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
+    }
+
+    /**
+     * Puts a document away: it leaves the working list for the archive tab
+     * and stays exactly as it was, links and history included.
+     */
+    @Transactional
+    public SalesOrder archive(long id) {
+        SalesOrder order = get(id);
+        if (order.isArchived()) return order;
+        orders.setArchivedAt(id, Instant.now());
+        SalesOrder archived = get(id);
+        recordActivity(ActivityLogService.ACTION_UPDATED, archived,
+                archived.isInvoice() ? "Factuur gearchiveerd" : "Offerte gearchiveerd");
+        return archived;
+    }
+
+    /** Back on the working list, where it left off. */
+    @Transactional
+    public SalesOrder unarchive(long id) {
+        SalesOrder order = get(id);
+        if (!order.isArchived()) return order;
+        orders.setArchivedAt(id, null);
+        SalesOrder restored = get(id);
+        recordActivity(ActivityLogService.ACTION_UPDATED, restored,
+                restored.isInvoice() ? "Factuur uit het archief gehaald" : "Offerte uit het archief gehaald");
+        return restored;
     }
 
     @Transactional

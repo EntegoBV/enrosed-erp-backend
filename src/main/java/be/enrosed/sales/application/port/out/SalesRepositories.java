@@ -39,6 +39,14 @@ public interface SalesRepositories {
         boolean existsBySourceQuoteId(long sourceQuoteId);
         SalesOrder save(SalesOrder order);
         void deleteById(long id);
+        /**
+         * Puts a document in the archive (a moment) or back on the working
+         * list (null). Kept apart from {@link #save} so no ordinary edit can
+         * archive or unarchive by accident.
+         */
+        default void setArchivedAt(long id, java.time.Instant at) {
+            throw new UnsupportedOperationException("archive not supported by this adapter");
+        }
     }
 
     interface Revisions {

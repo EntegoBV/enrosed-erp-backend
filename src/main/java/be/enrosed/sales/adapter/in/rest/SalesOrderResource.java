@@ -163,6 +163,19 @@ public class SalesOrderResource {
         return Response.noContent().build();
     }
 
+    /** Off the working list, into the archive tab; nothing else changes. */
+    @POST
+    @Path("/{id}/archive")
+    public OrderView archive(@PathParam("id") long id) {
+        return view(salesOrders.archive(id));
+    }
+
+    @POST
+    @Path("/{id}/unarchive")
+    public OrderView unarchive(@PathParam("id") long id) {
+        return view(salesOrders.unarchive(id));
+    }
+
     /* ------------------------------------------------------------ quote */
 
     /** Builds the PDF, mails it to the customer and marks the quote sent. */

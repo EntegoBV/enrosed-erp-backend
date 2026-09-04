@@ -338,6 +338,23 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
+    void archivingIsItsOwnFlowThatAPlainSaveCannotUndo() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, null));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        PurchaseOrder archived = service.archive(10L);
+        assertTrue(archived.isArchived());
+
+        /* The client sends the order back without the archive moment: it stays archived. */
+        PurchaseOrder edited = service.update(10L, order(PurchaseOrderStatus.CONCEPT, 7, null)).order();
+        assertTrue(edited.isArchived(), "an ordinary edit never unarchives");
+        assertEquals(7, edited.lines().getFirst().quantity());
+
+        assertFalse(service.unarchive(10L).isArchived());
+        assertFalse(service.duplicate(10L).isArchived(), "a copy starts on the working list");
+    }
+
+    @Test
     void createUsesOneUsdRateAndNewPurchaseDefaults() {
         InMemoryOrders orders = new InMemoryOrders(null);
         PurchaseOrder created = service(orders, new RecordingProducts()).create(
@@ -716,9 +733,11 @@ class PurchaseOrderServiceTest {
             return current != null && current.id() == id ? Optional.of(current) : Optional.empty();
         }
 
+        /* Like the database adapter: a save never touches the archive moment. */
         @Override
         public PurchaseOrder save(PurchaseOrder order) {
-            current = order.id() == null ? withId(order, 10L) : order;
+            java.time.Instant archivedAt = current == null ? null : current.archivedAt();
+            current = (order.id() == null ? withId(order, 10L) : order).withArchivedAt(archivedAt);
             return current;
         }
 
@@ -726,6 +745,11 @@ class PurchaseOrderServiceTest {
         public void deleteById(long id) {
             deleted = true;
             current = null;
+        }
+
+        @Override
+        public void setArchivedAt(long id, java.time.Instant at) {
+            if (current != null && current.id() == id) current = current.withArchivedAt(at);
         }
 
         private static PurchaseOrder withId(PurchaseOrder order, long id) {

@@ -58,5 +58,13 @@ public interface SourcingRepositories {
         }
         PurchaseOrder save(PurchaseOrder order);
         void deleteById(long id);
+        /**
+         * Puts an order in the archive (a moment) or back on the working
+         * list (null). Kept apart from {@link #save} so no ordinary edit can
+         * archive or unarchive by accident.
+         */
+        default void setArchivedAt(long id, java.time.Instant at) {
+            throw new UnsupportedOperationException("archive not supported by this adapter");
+        }
     }
 }

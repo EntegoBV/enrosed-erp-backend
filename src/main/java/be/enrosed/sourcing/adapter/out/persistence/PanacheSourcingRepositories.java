@@ -299,6 +299,15 @@ public final class PanacheSourcingRepositories {
             dao.deleteById(id);
         }
 
+        /* The archive moment is never written by save(): only this call moves it. */
+        @Override
+        public void setArchivedAt(long id, java.time.Instant at) {
+            PurchaseOrderEntity entity = dao.findById(id);
+            if (entity == null) return;
+            entity.archivedAt = at;
+            dao.flush();
+        }
+
         static PurchaseOrder toDomain(PurchaseOrderEntity entity) {
             List<PurchaseOrderLine> lines = new ArrayList<>();
             for (PurchaseOrderLineEntity line : entity.lines) {
@@ -321,7 +330,8 @@ public final class PanacheSourcingRepositories {
                             entity.createdByDisplayName == null || entity.createdByDisplayName.isBlank()
                                     ? entity.createdBy : entity.createdByDisplayName),
                     entity.createdAt, entity.notes, lines).withInspectionCost(entity.inspectionCostEur)
-                    .withOtherCosts(OtherCostsJson.read(entity.otherCostsJson));
+                    .withOtherCosts(OtherCostsJson.read(entity.otherCostsJson))
+                    .withArchivedAt(entity.archivedAt);
         }
     }
 }

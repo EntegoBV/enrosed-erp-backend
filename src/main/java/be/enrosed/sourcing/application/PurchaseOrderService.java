@@ -157,6 +157,31 @@ public class PurchaseOrderService {
      * except the status and the number - a copy is a new draft, not a second
      * instance of an order already placed.
      */
+    /**
+     * Puts an order away: it leaves the working list for the archive tab and
+     * stays exactly as it was, stock, payments and dossier included.
+     */
+    @Transactional
+    public PurchaseOrder archive(long id) {
+        PurchaseOrder order = get(id);
+        if (order.isArchived()) return order;
+        orders.setArchivedAt(id, Instant.now());
+        PurchaseOrder archived = get(id);
+        recordActivity(ActivityLogService.ACTION_UPDATED, archived, "Inkooporder gearchiveerd");
+        return archived;
+    }
+
+    /** Back on the working list, where it left off. */
+    @Transactional
+    public PurchaseOrder unarchive(long id) {
+        PurchaseOrder order = get(id);
+        if (!order.isArchived()) return order;
+        orders.setArchivedAt(id, null);
+        PurchaseOrder restored = get(id);
+        recordActivity(ActivityLogService.ACTION_UPDATED, restored, "Inkooporder uit het archief gehaald");
+        return restored;
+    }
+
     @Transactional
     public PurchaseOrder duplicate(long id) {
         PurchaseOrder source = get(id);

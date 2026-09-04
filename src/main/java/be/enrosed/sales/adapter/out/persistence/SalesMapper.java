@@ -92,7 +92,7 @@ final class SalesMapper {
                 entity.freightCarrierId, entity.freightCarrierExtraEur,
                 entity.docType, entity.invoiceDueDate,
                 entity.paidAt, entity.sourceQuoteId, entity.goodsShippedAt,
-                lines, pallets, pickupSnapshot(entity));
+                lines, pallets, pickupSnapshot(entity), entity.archivedAt);
     }
 
     private static PickupLocationSnapshot pickupSnapshot(SalesOrderEntity entity) {

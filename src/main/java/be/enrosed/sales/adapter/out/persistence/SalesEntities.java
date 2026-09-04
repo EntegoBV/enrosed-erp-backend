@@ -193,6 +193,10 @@ public final class SalesEntities {
         public Long sourceQuoteId;
         public Instant goodsShippedAt;
 
+        /** Put away in the archive; null while on the working list. */
+        @Column(name = "archived_at")
+        public Instant archivedAt;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

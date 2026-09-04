@@ -191,6 +191,15 @@ public final class PanacheSalesRepositories {
         public void deleteById(long id) {
             dao.deleteById(id);
         }
+
+        /* The archive moment is never written by save(): only this call moves it. */
+        @Override
+        public void setArchivedAt(long id, java.time.Instant at) {
+            SalesOrderEntity entity = dao.findById(id);
+            if (entity == null) return;
+            entity.archivedAt = at;
+            dao.flush();
+        }
     }
 
     @ApplicationScoped

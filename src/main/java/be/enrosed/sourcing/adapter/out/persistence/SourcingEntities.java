@@ -80,6 +80,8 @@ public final class SourcingEntities {
         @Column(precision = 19, scale = 2) public BigDecimal inspectionCostEur;
         /** Named costs booked next to the inspection, as a JSON array; null when none. */
         @Column(name = "other_costs_json", length = 2000) public String otherCostsJson;
+        /** Put away in the archive; null while on the working list. */
+        @Column(name = "archived_at") public Instant archivedAt;
 
         @Enumerated(EnumType.STRING) public Allocation allocFreight = Allocation.CBM;
         @Enumerated(EnumType.STRING) public Allocation allocOrigin = Allocation.CBM;

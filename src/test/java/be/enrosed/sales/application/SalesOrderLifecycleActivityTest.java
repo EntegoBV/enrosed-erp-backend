@@ -33,6 +33,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,6 +91,24 @@ class SalesOrderLifecycleActivityTest {
 
         salesActivityPush = mock(Event.class);
         service.salesActivityPush = salesActivityPush;
+    }
+
+    @Test
+    void archivingIsItsOwnFlowRecordedOnTheDocument() {
+        SalesOrder draft = quote(12L);
+        when(orders.findById(12L)).thenReturn(Optional.of(draft), Optional.of(draft.withArchivedAt(Instant.now())));
+
+        SalesOrder archived = service.archive(12L);
+
+        assertTrue(archived.isArchived());
+        verify(orders).setArchivedAt(eq(12L), any(Instant.class));
+        verify(orders, never()).save(any(SalesOrder.class));
+        verify(activityLog).record(ActivityLogService.ACTION_UPDATED,
+                SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "12", "ENR-2026-0012", "Offerte gearchiveerd");
+
+        when(orders.findById(12L)).thenReturn(Optional.of(draft.withArchivedAt(Instant.now())), Optional.of(draft));
+        assertFalse(service.unarchive(12L).isArchived());
+        verify(orders).setArchivedAt(12L, null);
     }
 
     @Test
