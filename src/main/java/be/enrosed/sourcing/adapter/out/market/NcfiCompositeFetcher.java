@@ -1,36 +1,29 @@
 package be.enrosed.sourcing.adapter.out.market;
 
+import be.enrosed.sourcing.adapter.out.market.NcfiReprint.WeeklyTable;
 import be.enrosed.sourcing.domain.MarketSourceStatus;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
-import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * NCFI composite (all 21 routes out of Ningbo, index points), read from the
  * weekly reprint Hellenic Shipping News publishes a few days after each
- * Friday release. The Ningbo exchange's own site is a splash page and the
- * Baltic Exchange pages sit behind a bot challenge; the reprint is the one
- * free, dated, parseable publication - and it reaches back for years, so a
- * thin log backfills itself to a full year of Fridays.
+ * Friday release. The reprint reaches back for months, so a thin log
+ * backfills itself to a year of Fridays.
  *
- * Composite, not the Europe route: the reprint carries only the headline
- * number in text (the route table is a PDF). As a trend indicator for
- * Ningbo departures that is exactly what the dashboard shows it as.
+ * Older reprints quote the headline number in their text; since August 2026
+ * the text says nothing and only the attached index PDF carries the table.
+ * The text is tried first because it is one cheap request, the PDF second.
  */
 @ApplicationScoped
 public class NcfiCompositeFetcher implements MarketSourceFetcher {
@@ -50,20 +43,12 @@ public class NcfiCompositeFetcher implements MarketSourceFetcher {
             "https://www.hellenicshippingnews.com/",
             "https://www.hellenicshippingnews.com/terms-of-use/");
 
-    private static final String BASE =
-            "https://www.hellenicshippingnews.com/ningbo-containerized-freight-index-report-%d-%s-%d/";
-    private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH);
     private static final Pattern POINTS = Pattern.compile(
             "\\(NCFI\\)[^.]{0,120}?quotes\\s+([\\d,]+(?:\\.\\d+)?)\\s+points", Pattern.CASE_INSENSITIVE);
 
     /** A full year of Fridays is worth having once; afterwards a weekly top-up. */
     static final int BACKFILL_WEEKS = 55;
     static final int SETTLED_COUNT = 20;
-
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(4))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
 
     private final MarketSourceTracker tracker;
     private final boolean authorized;
@@ -107,17 +92,21 @@ public class NcfiCompositeFetcher implements MarketSourceFetcher {
         return tracker.status(SOURCE, authorized);
     }
 
-    /** The reprint for one Friday, or null when that week has none. */
+    /** The composite for one Friday, or null when that week has no reprint. */
     private static BigDecimal fetch(LocalDate friday) throws Exception {
-        String url = String.format(BASE, friday.getDayOfMonth(),
-                friday.format(MONTH).toLowerCase(Locale.ENGLISH), friday.getYear());
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(6))
-                .header("User-Agent", "Mozilla/5.0 (Enrosed ERP dashboard)")
-                .GET().build();
-        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) return null;
-        return parsePoints(response.body());
+        Optional<String> article = NcfiReprint.fetchArticle(friday);
+        if (article.isEmpty()) return null;
+        BigDecimal points = parsePoints(article.get());
+        if (points != null) return points;
+        String link = NcfiReprint.dataPdfLink(article.get());
+        if (link == null) return null;
+        WeeklyTable table = NcfiReprint.parseTable(NcfiReprint.extractText(NcfiReprint.fetchPdf(link)));
+        return compositeFor(table, friday);
+    }
+
+    /** The PDF dates its columns itself; a reprint filed under another Friday never mislabels a week. */
+    static BigDecimal compositeFor(WeeklyTable table, LocalDate friday) {
+        return table == null ? null : table.compositeOn(friday);
     }
 
     static BigDecimal parsePoints(String html) {

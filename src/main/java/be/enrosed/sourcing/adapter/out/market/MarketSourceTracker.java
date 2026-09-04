@@ -63,6 +63,16 @@ public class MarketSourceTracker {
         }
     }
 
+    /**
+     * Gives today's claim back so an administrator can ask for one extra
+     * lookup right now, for instance after a connector was repaired. The
+     * next {@link #beginDailyCheck} then wins the claim again for today.
+     */
+    @Transactional
+    public void releaseDailyClaim(String code) {
+        MarketSourceStateEntity.update("lastCheckedAt = null where code = ?1", code);
+    }
+
     @Transactional
     public void store(String code, LocalDate publishedOn, BigDecimal value) {
         if (publishedOn == null || value == null || value.signum() <= 0) return;

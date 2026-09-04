@@ -30,17 +30,20 @@ public class FreightRateResource {
     private final be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi;
     private final be.enrosed.sourcing.adapter.out.market.FbxFetcher fbx;
     private final be.enrosed.sourcing.adapter.out.market.NcfiCompositeFetcher ncfiComposite;
+    private final be.enrosed.sourcing.adapter.out.market.MarketSourceTracker tracker;
 
     public FreightRateResource(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher drewry,
                                be.enrosed.sourcing.adapter.out.market.CcfiFetcher ccfi,
                                be.enrosed.sourcing.adapter.out.market.NcfiFetcher ncfi,
                                be.enrosed.sourcing.adapter.out.market.FbxFetcher fbx,
-                               be.enrosed.sourcing.adapter.out.market.NcfiCompositeFetcher ncfiComposite) {
+                               be.enrosed.sourcing.adapter.out.market.NcfiCompositeFetcher ncfiComposite,
+                               be.enrosed.sourcing.adapter.out.market.MarketSourceTracker tracker) {
         this.drewry = drewry;
         this.ccfi = ccfi;
         this.ncfi = ncfi;
         this.fbx = fbx;
         this.ncfiComposite = ncfiComposite;
+        this.tracker = tracker;
     }
 
     @GET
@@ -65,6 +68,33 @@ public class FreightRateResource {
         ncfi.refreshIfDue();
         ccfi.refreshIfDue();
         return List.of(drewry.status(), fbx.status(), ncfiComposite.status(), ncfi.status(), ccfi.status());
+    }
+
+    /**
+     * One extra lookup of a single source on request, outside the daily
+     * cadence: the administrator presses a button, the connector runs once
+     * and reports its fresh status. Unknown codes are a client error.
+     */
+    @POST
+    @Path("/market-sources/{code}/refresh")
+    public MarketSourceStatus refreshMarketSource(@PathParam("code") String code) {
+        be.enrosed.sourcing.adapter.out.market.MarketSourceFetcher fetcher = fetcherFor(code);
+        if (fetcher == null) {
+            throw new BusinessRuleException("Onbekende marktbron: " + code);
+        }
+        tracker.releaseDailyClaim(fetcher.status().code());
+        fetcher.refreshIfDue();
+        return fetcher.status();
+    }
+
+    private be.enrosed.sourcing.adapter.out.market.MarketSourceFetcher fetcherFor(String code) {
+        String normalized = code == null ? "" : code.trim().toUpperCase();
+        if (normalized.equals(be.enrosed.sourcing.adapter.out.market.DrewryWciFetcher.ROUTE)) return drewry;
+        if (normalized.equals(be.enrosed.sourcing.adapter.out.market.FbxFetcher.ROUTE)) return fbx;
+        if (normalized.equals(be.enrosed.sourcing.adapter.out.market.NcfiCompositeFetcher.ROUTE)) return ncfiComposite;
+        if (normalized.equals(be.enrosed.sourcing.adapter.out.market.NcfiFetcher.ROUTE)) return ncfi;
+        if (normalized.equals(be.enrosed.sourcing.adapter.out.market.CcfiFetcher.ROUTE)) return ccfi;
+        return null;
     }
 
     @POST
