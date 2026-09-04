@@ -95,6 +95,27 @@ public class PublicCatalogResource {
                 .build();
     }
 
+    @jakarta.inject.Inject
+    be.enrosed.catalog.application.CategoryPhotoService categoryPhotos;
+
+    /** A category's photo, public by nature: the picture a collection opens with. */
+    @GET
+    @Path("/categories/{categoryId}/photos/{photoId}")
+    @Produces(MediaType.WILDCARD)
+    public Response categoryPhoto(@PathParam("categoryId") long categoryId,
+                                  @PathParam("photoId") long photoId) {
+        if (categoryPhotos == null) throw new NotFoundException();
+        Photo photo;
+        try {
+            photo = categoryPhotos.photo(categoryId, photoId);
+        } catch (be.enrosed.shared.NotFoundException missing) {
+            throw new NotFoundException();
+        }
+        return PhotoResponses.inline(categoryPhotos.data(photo.storageKey()), photo.contentType())
+                .header("Cache-Control", "public, max-age=31536000, immutable")
+                .build();
+    }
+
     /**
      * Serves original photo bytes only while their product is public somewhere.
      * A 404 avoids exposing whether a private product or photo exists.

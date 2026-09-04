@@ -23,7 +23,7 @@ final class CatalogMapper {
         for (ProductPhotoEntity photo : entity.photos) {
             photos.add(new Photo(photo.id, photo.storageKey, photo.originalFilename,
                     photo.contentType, photo.sizeBytes, photo.widthPx, photo.heightPx,
-                    photo.position, photo.familyPhotoId));
+                    photo.position, photo.familyPhotoId, leadRoles(photo.leadRoles)));
         }
         List<ProductText> texts = new ArrayList<>();
         for (ProductTextEntity text : entity.texts) {
@@ -222,8 +222,24 @@ final class CatalogMapper {
             target.heightPx = photo.heightPx();
             target.position = photo.position();
             target.familyPhotoId = photo.familyPhotoId();
+            target.leadRoles = photo.leadFor().isEmpty() ? null : photo.leadFor().stream()
+                    .map(Enum::name).sorted().collect(java.util.stream.Collectors.joining(","));
         }
         entity.photos.sort((a, b) -> Integer.compare(a.position, b.position));
+    }
+
+    /** "WEBSITE,CATALOGUE" back into roles; an unknown word is ignored rather than fatal. */
+    static java.util.Set<be.enrosed.catalog.domain.PhotoRole> leadRoles(String stored) {
+        if (stored == null || stored.isBlank()) return java.util.Set.of();
+        java.util.Set<be.enrosed.catalog.domain.PhotoRole> roles = new java.util.HashSet<>();
+        for (String word : stored.split(",")) {
+            try {
+                roles.add(be.enrosed.catalog.domain.PhotoRole.valueOf(word.strip()));
+            } catch (IllegalArgumentException ignored) {
+                /* A role this version does not know stays in the column untouched. */
+            }
+        }
+        return roles;
     }
 
     static Category toDomain(CategoryEntity entity) {
@@ -231,9 +247,14 @@ final class CatalogMapper {
                 .map(text -> new CategoryText(text.language, text.name, text.description,
                         text.eyebrow, text.mobileName, text.navigationName, text.footerName))
                 .toList();
+        List<Photo> photos = entity.photos.stream()
+                .sorted(java.util.Comparator.comparingInt(photo -> photo.position))
+                .map(photo -> new Photo(photo.id, photo.storageKey, photo.originalFilename,
+                        photo.contentType, photo.sizeBytes, photo.widthPx, photo.heightPx, photo.position))
+                .toList();
         return new Category(entity.id, entity.code, entity.name, entity.description,
                 entity.eyebrow, entity.position, entity.mobileName, entity.navigationName,
-                entity.footerName, entity.featuredProductId, texts, entity.revision);
+                entity.footerName, entity.featuredProductId, texts, entity.revision, photos);
     }
 
     static void apply(Category category, CategoryEntity entity) {

@@ -24,4 +24,7 @@ public class ProductPhotoEntity {
     public int position;
     /** Family-gallery source metadata; null means a product-specific legacy upload. */
     public Long familyPhotoId;
+    /** Channels this photo opens, comma-separated (WEBSITE, CATALOGUE); null when none. */
+    @jakarta.persistence.Column(name = "lead_roles", length = 60)
+    public String leadRoles;
 }

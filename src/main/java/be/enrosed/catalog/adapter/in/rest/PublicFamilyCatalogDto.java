@@ -53,7 +53,11 @@ public record PublicFamilyCatalogDto(
             String navigationName,
             String footerName,
             Long featuredProductId,
-            Map<String, Language> textSources
+            Map<String, Language> textSources,
+            /** The category's own photo, public: the picture a collection opens with; null when none. */
+            String photoUrl,
+            Integer photoWidth,
+            Integer photoHeight
     ) {}
 
     public record SeoDto(String title, String description) {}

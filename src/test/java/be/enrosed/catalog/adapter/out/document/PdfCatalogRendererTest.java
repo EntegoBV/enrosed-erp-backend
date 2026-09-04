@@ -131,7 +131,7 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void overviewIncludesEverySelectedFamilyAcrossAsManyEightCardPagesAsNeeded() {
+    void overviewIncludesEverySelectedFamilyAcrossAsManyNineCardPagesAsNeeded() {
         String html = renderer.renderHtml(model(57, CatalogExportService.Layout.BROCHURE));
         assertEquals(3, occurrences(html, "class=\"page overview-page\""));
         assertEquals(19, occurrences(html, "class=\"overview-card overview-card--"));
@@ -140,8 +140,8 @@ class PdfCatalogRendererTest {
                 .map(page -> occurrences(page, "class=\"overview-card overview-card--"))
                 .toList());
         for (String overviewPage : overviewPages) {
-            assertTrue(occurrences(overviewPage, "class=\"overview-card overview-card--") <= 8,
-                    "an A4 overview page must never exceed eight fixed cards");
+            assertTrue(occurrences(overviewPage, "class=\"overview-card overview-card--") <= 9,
+                    "an A4 overview page must never exceed nine fixed cards");
         }
         assertTrue(html.contains("href=\"#family-19\""));
         assertTrue(html.contains("id=\"family-19\""));
@@ -152,12 +152,13 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void anOddFinalOverviewCardIntentionallySpansBothColumns() {
+    void aShortOverviewRowKeepsItsBlanksInsteadOfStretchingOneCard() {
         String html = renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE));
 
-        assertTrue(html.contains("class=\"overview-cell overview-cell--wide\" colspan=\"2\""));
+        assertFalse(html.contains("overview-cell--wide"), "three equal columns, never a banner card");
         assertEquals(1, occurrences(html, "class=\"overview-card overview-card--"));
-        assertFalse(html.contains("class=\"overview-cell overview-empty\""));
+        assertEquals(2, occurrences(html, "class=\"overview-cell overview-empty\""));
+        assertTrue(html.contains("class=\"overview-page-ref\""), "every card points at its detail page");
     }
 
     @Test
@@ -370,36 +371,40 @@ class PdfCatalogRendererTest {
 
         assertFalse(html.contains(oldFront));
         assertFalse(html.contains(oldBack));
-        assertEquals(2, occurrences(html, "editorial-grid--four-plus"),
-                "cover and category must use all four selected photos");
+        assertEquals(1, occurrences(html, "editorial-grid--four-plus"),
+                "the category chapter opens with a mosaic of all four selected photos");
         assertEquals(1, occurrences(html, "editorial-grid--three"),
                 "the back cover must omit the front lead and use the other three photos");
         String cover = sectionFragment(html, "<section class=\"page cover\">");
         String back = sectionFragment(html, "<section class=\"page back\">");
+        /* The cover opens on one hero picture, the strongest lead, cropped to the frame above the title panel. */
         String frontLead = imageEncoder.encodeCoverCropped(
-                photoBytes(selected.get(1)), 105, 149, 1_600, new Color(255, 252, 248));
+                photoBytes(selected.get(1)), 210, 176, 2_400, new Color(255, 252, 248));
         String backLead = imageEncoder.encodeCoverCropped(
                 photoBytes(selected.get(2)), 210, 178, 2_200, new Color(255, 252, 248));
         assertTrue(cover.contains(frontLead));
+        assertEquals(1, occurrences(cover, "<td colspan="), "one hero picture on the cover, not a mosaic");
         assertFalse(back.contains(frontLead));
         assertTrue(back.contains(backLead));
         assertFalse(cover.contains(backLead));
+        assertTrue(cover.contains("class=\"cover-toc\""), "the cover carries the table of contents");
         assertTrue(html.indexOf("class=\"page cover\"")
                 < html.indexOf("class=\"page overview-page\""));
         assertTrue(html.contains("class=\"page back\""));
     }
 
     @Test
-    void coverKeepsAReadableShadeAboveTheSelectedPhotoMosaic() throws Exception {
+    void coverOpensOnOneHeroPhotoUnderAReadableShade() throws Exception {
         Photo selected = storedPhoto(985L, "/catalog-assets/preserved-roses.jpg",
                 "selected-cover.jpg", "image/jpeg");
         String html = renderer.renderHtml(withPhoto(
                 model(1, CatalogExportService.Layout.BROCHURE), selected));
 
-        assertTrue(html.contains("<div class=\"cover-shade\"></div>"));
-        assertTrue(html.contains("background: rgba(18,12,10,.56)"));
+        assertTrue(html.contains("<div class=\"cover-media__shade\"></div>"));
+        assertTrue(html.contains("rgba(18,12,10,.62) 100%"), "the shade darkens towards the title panel");
         assertTrue(html.indexOf("editorial-grid editorial-grid--one")
-                < html.indexOf("<div class=\"cover-shade\"></div>"));
+                < html.indexOf("<div class=\"cover-media__shade\"></div>"));
+        assertTrue(html.contains("class=\"cover-panel__contents\""));
     }
 
     @Test

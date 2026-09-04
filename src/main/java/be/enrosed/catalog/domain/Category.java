@@ -21,10 +21,32 @@ public record Category(
         String footerName,
         Long featuredProductId,
         List<CategoryText> texts,
-        Long revision
+        Long revision,
+        /** The category's own photos, first one leading. Read-only on a save; the photo flows change them. */
+        List<Photo> photos
 ) {
     public Category {
         texts = texts == null ? List.of() : List.copyOf(texts);
+        photos = photos == null ? List.of() : List.copyOf(photos);
+    }
+
+    /** Compatibility for callers written before categories carried photos. */
+    public Category(Long id, String code, String name, String description, String eyebrow,
+                    int position, String mobileName, String navigationName, String footerName,
+                    Long featuredProductId, List<CategoryText> texts, Long revision) {
+        this(id, code, name, description, eyebrow, position, mobileName, navigationName,
+                footerName, featuredProductId, texts, revision, List.of());
+    }
+
+    /** The same category as it reads with these photos. */
+    public Category withPhotos(List<Photo> value) {
+        return new Category(id, code, name, description, eyebrow, position, mobileName, navigationName,
+                footerName, featuredProductId, texts, revision, value);
+    }
+
+    /** The photo the website and the catalogue open this category with, or null. */
+    public Photo leadPhoto() {
+        return photos.isEmpty() ? null : photos.get(0);
     }
 
     /** Backward-compatible shape for clients that predate optimistic category revisions. */

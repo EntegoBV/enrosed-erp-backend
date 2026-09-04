@@ -44,12 +44,14 @@ import java.util.Set;
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
-    private static final int OVERVIEW_CARDS_PER_PAGE = 8;
+    private static final int OVERVIEW_CARDS_PER_PAGE = 9;
     /* Real four-variant families with complete translated sales copy still fit the compact
        A4 composition. Keep a generous guard for pathological dashboard content without
        rejecting normal, print-ready product families. */
     private static final int FAMILY_PAGE_CAPACITY = 3_400;
-    private static final int OVERVIEW_COLUMNS = 2;
+    private static final int OVERVIEW_COLUMNS = 3;
+    /** The overview says each family in one line; longer copy is cut at a word. */
+    private static final int OVERVIEW_SUMMARY_CHARS = 92;
     private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
 
     private final Template simpleTemplate;
@@ -107,7 +109,38 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<String> highlights, String categoryKey, String categoryName, String familySize,
             String packageLine, String overviewImage, PhotoLayout photos,
             String referencePriceLabel, boolean compactDetail,
-            List<BrochureVariant> variants, List<SpecRow> specs) {
+            List<BrochureVariant> variants, List<SpecRow> specs,
+            /** The printed page this family sits on; 0 until the book is paginated. */
+            int page) {
+
+        /** Compatibility for callers written before the pages were numbered. */
+        public BrochureFamily(
+                String anchor, String number, String name, String summary, String description,
+                String format, List<String> highlights, String categoryKey, String categoryName,
+                String familySize, String packageLine, String overviewImage, PhotoLayout photos,
+                String referencePriceLabel, boolean compactDetail,
+                List<BrochureVariant> variants, List<SpecRow> specs) {
+            this(anchor, number, name, summary, description, format, highlights, categoryKey,
+                    categoryName, familySize, packageLine, overviewImage, photos, referencePriceLabel,
+                    compactDetail, variants, specs, 0);
+        }
+
+        /** The same family on its printed page, numbered in reading order. */
+        public BrochureFamily placed(String number, int page) {
+            return new BrochureFamily("family-" + number, number, name, summary, description, format,
+                    highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
+                    referencePriceLabel, compactDetail, variants, specs, page);
+        }
+
+        /** The one line the overview says about this family. */
+        public String overviewSummary() {
+            String source = present(summary) ? summary : present(format) ? format : description;
+            if (!present(source)) return "";
+            String text = source.strip().replaceAll("\\s+", " ");
+            if (text.length() <= OVERVIEW_SUMMARY_CHARS) return text;
+            int cut = text.lastIndexOf(' ', OVERVIEW_SUMMARY_CHARS);
+            return text.substring(0, cut > 40 ? cut : OVERVIEW_SUMMARY_CHARS).strip() + "…";
+        }
 
         /** Compatibility for callers written before the specification block existed. */
         public BrochureFamily(
@@ -140,7 +173,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureSection(
             String number, String name, String description, String categoryKey,
             EditorialLayout images,
-            String familyCountLabel, List<BrochureFamily> families) {}
+            String familyCountLabel, List<BrochureFamily> families,
+            /** The printed page the chapter starts on; 0 until the book is paginated. */
+            int page) {
+
+        /** Compatibility for callers written before the pages were numbered. */
+        public BrochureSection(String number, String name, String description, String categoryKey,
+                               EditorialLayout images, String familyCountLabel,
+                               List<BrochureFamily> families) {
+            this(number, name, description, categoryKey, images, familyCountLabel, families, 0);
+        }
+    }
 
     public record PhotoTile(String image, String cssClass, int rowSpan) {}
 
@@ -167,15 +210,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record OverviewCard(
             boolean placeholder, boolean wide, String anchor, String number, String name,
             String categoryKey, String categoryName, String image, String variantCountLabel,
-            String referencePriceLabel) {
+            String referencePriceLabel,
+            /** One line about the family, and the page its detail sheet is on. */
+            String summary, int page) {
 
         static OverviewCard empty() {
-            return new OverviewCard(true, false, "", "", "", "", "", null, "", null);
+            return new OverviewCard(true, false, "", "", "", "", "", null, "", null, "", 0);
         }
 
         OverviewCard asWide() {
             return new OverviewCard(placeholder, true, anchor, number, name, categoryKey,
-                    categoryName, image, variantCountLabel, referencePriceLabel);
+                    categoryName, image, variantCountLabel, referencePriceLabel, summary, page);
         }
     }
 
@@ -300,28 +345,55 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             categoryByKey.putIfAbsent(key, group.category());
         }
 
+        /* The book in reading order: cover, overview, then per chapter its
+           intro page and the family sheets. Every family learns its page so
+           the overview can point at it and the footers can say it. */
+        int overviewPageCount = allFamilies.isEmpty() ? 0
+                : (int) Math.ceil(allFamilies.size() / (double) OVERVIEW_CARDS_PER_PAGE);
+        /* The first page after the cover is 2; the overview pages come before the chapters. */
+        int page = 2 + (options.includeOverview() ? overviewPageCount : 0);
         List<BrochureSection> sections = new ArrayList<>();
+        List<BrochureFamily> pagedFamilies = new ArrayList<>();
+        List<PhotoRef> categoryLeads = new ArrayList<>();
         int sectionIndex = 1;
+        int familyNumber = 1;
         for (Map.Entry<String, List<FamilyRenderData>> entry : byCategory.entrySet()) {
             Category category = categoryByKey.get(entry.getKey());
             String name = category != null && present(category.nameIn(language))
                     ? category.nameIn(language) : entry.getValue().getFirst().family().categoryName();
             String description = category == null ? null : category.descriptionIn(language);
-            List<PhotoRef> categoryPhotos = photos.diverseFamilyPhotos(entry.getValue());
+            /* The category's own photo opens its chapter; without one, the
+               chapter opens with a mosaic of its products. */
+            PhotoRef categoryLead = category == null || category.leadPhoto() == null
+                    ? null : photos.productRef(category.leadPhoto());
+            if (categoryLead != null && photos.usable(categoryLead)) categoryLeads.add(categoryLead);
+            List<PhotoRef> categoryPhotos = categoryLead != null && photos.usable(categoryLead)
+                    ? List.of(categoryLead) : photos.diverseFamilyPhotos(entry.getValue());
+            int sectionPage = page;
+            if (options.includeCategoryIntros()) page++;
+            List<BrochureFamily> chapter = new ArrayList<>();
+            for (FamilyRenderData rendered : entry.getValue()) {
+                chapter.add(rendered.family().placed(twoDigits(familyNumber++), page++));
+            }
+            pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
                     entry.getValue().getFirst().family().categoryKey(),
                     photos.editorialLayout(categoryPhotos, false),
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
                             copy(copy, "catalog.common.selectedfamily.plural")),
-                    entry.getValue().stream().map(FamilyRenderData::family).toList()));
+                    List.copyOf(chapter), sectionPage));
         }
 
         List<PhotoRef> selectedPhotos = photos.diverseFamilyPhotos(renderedFamilies);
-        EditorialLayout coverImages = photos.editorialLayout(selectedPhotos, false);
+        /* The cover opens with one picture: the first chapter's own photo when
+           it has one, else the strongest product photo of the selection. */
+        List<PhotoRef> coverLead = !categoryLeads.isEmpty() ? List.of(categoryLeads.getFirst())
+                : selectedPhotos.isEmpty() ? List.of() : List.of(selectedPhotos.getFirst());
+        EditorialLayout coverImages = photos.coverLayout(coverLead);
         EditorialLayout backImages = photos.editorialLayout(selectedPhotos, true);
 
-        List<OverviewPage> overviewPages = overviewPages(allFamilies, copy);
+        List<OverviewPage> overviewPages = overviewPages(pagedFamilies, copy);
         String title = present(request.title())
                 ? request.title().trim()
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
@@ -340,9 +412,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("variantCountLabel", countLabel(catalog.products().size(),
                         copy(copy, "catalog.common.variant.singular"),
                         copy(copy, "catalog.common.variant.plural")))
-                .data("families", allFamilies)
+                .data("families", pagedFamilies)
                 .data("sections", sections)
                 .data("overviewPages", overviewPages)
+                .data("lastPage", page - 1)
                 .data("options", options)
                 .data("includePrices", request.includePrices())
                 .data("copy", copy)
@@ -413,6 +486,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         int allowed = request.resolvedPhotosPerProduct();
         List<PhotoRef> imageRefs = new ArrayList<>();
         Set<String> imageKeys = new LinkedHashSet<>();
+        /* A photo the buyer chose to open the catalogue with goes first,
+           whatever the gallery order; the rest fill in behind it. */
+        if (allowed > 0) {
+            for (Product variant : group.variants()) {
+                for (Photo photo : variant.photos()) {
+                    if (!photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE)) continue;
+                    PhotoRef ref = photos.productRef(photo);
+                    if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
+                        imageRefs.add(ref);
+                    }
+                }
+            }
+        }
         if (allowed > 0 && family != null) {
             Set<Long> selectedIds = group.variants().stream().map(Product::id)
                     .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
@@ -498,17 +584,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     family.categoryName(), family.overviewImage(), countLabel(family.variants().size(),
                             copy(copy, "catalog.common.variant.singular"),
                             copy(copy, "catalog.common.variant.plural")),
-                    family.referencePriceLabel())).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                    family.referencePriceLabel(), family.overviewSummary(), family.page()))
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            /* Three equal cards a row; a short last row keeps its blanks so the
+               grid never stretches one product into a banner. */
             List<List<OverviewCard>> cardRows = new ArrayList<>();
             for (int index = 0; index < cards.size(); index += OVERVIEW_COLUMNS) {
                 int end = Math.min(index + OVERVIEW_COLUMNS, cards.size());
-                if (end - index == 1) {
-                    cardRows.add(List.of(cards.get(index).asWide()));
-                } else {
-                    cardRows.add(List.copyOf(cards.subList(index, end)));
-                }
+                List<OverviewCard> row = new ArrayList<>(cards.subList(index, end));
+                while (row.size() < OVERVIEW_COLUMNS) row.add(OverviewCard.empty());
+                cardRows.add(List.copyOf(row));
             }
-            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() == 4,
+            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() == 3,
                     List.copyOf(cardRows)));
             from = to;
         }
@@ -1064,8 +1151,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return editorialRows(images);
         }
 
+        /* The overview card is landscape: a 4:3 crop fills its picture frame edge to edge. */
         String overview(PhotoRef ref) {
-            return cropped(ref, "overview-portrait", 3, 4, 1_200);
+            return cropped(ref, "overview-landscape", 4, 3, 1_200);
+        }
+
+        /** The cover opens on one picture cropped to the hero frame above the title panel. */
+        EditorialLayout coverLayout(List<PhotoRef> refs) {
+            List<PhotoRef> unique = uniquePhotos(refs);
+            if (unique.isEmpty()) return EditorialLayout.empty();
+            String image = cropped(unique.getFirst(), "cover", 210, 176, 2_400);
+            if (!present(image)) return EditorialLayout.empty();
+            return new EditorialLayout("one", true,
+                    List.of(new EditorialRow("full", List.of(new EditorialTile(image, 1)))));
         }
 
         private String simple(PhotoRef ref, int count, int index) {

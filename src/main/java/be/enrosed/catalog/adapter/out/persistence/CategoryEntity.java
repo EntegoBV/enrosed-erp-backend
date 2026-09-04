@@ -47,4 +47,10 @@ public class CategoryEntity {
             fetch = FetchType.EAGER)
     @OrderBy("language ASC")
     public List<CategoryTextEntity> texts = new ArrayList<>();
+
+    /** The category's own photos, first one leading; managed by the photo flows, not by a save. */
+    @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true,
+            fetch = FetchType.EAGER)
+    @OrderBy("position ASC")
+    public List<CategoryPhotoEntity> photos = new ArrayList<>();
 }

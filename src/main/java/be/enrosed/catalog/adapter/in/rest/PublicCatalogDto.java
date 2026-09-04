@@ -85,7 +85,8 @@ public record PublicCatalogDto(
                         category.description(), category.mobileName(), category.featuredProductId());
         String base = apiBaseUrl.endsWith("/") ? apiBaseUrl : apiBaseUrl + "/";
 
-        List<PhotoDto> photos = product.photos().stream()
+        /* The website opens with the photo chosen for it; the rest keep their order. */
+        List<PhotoDto> photos = product.photosFor(be.enrosed.catalog.domain.PhotoRole.WEBSITE).stream()
                 .map(photo -> new PhotoDto(
                         photo.id(), photo.contentType(), photo.widthPx(), photo.heightPx(), photo.position(),
                         base + "api/v1/public/catalog/products/" + product.id()

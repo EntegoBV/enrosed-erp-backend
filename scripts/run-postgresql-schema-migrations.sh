@@ -30,4 +30,6 @@ exec psql \
     --file=/app/migrations/purchase-order-inspection-cost-postgresql.sql \
     --file=/app/migrations/purchase-order-other-costs-postgresql.sql \
     --file=/app/migrations/orders-archived-at-postgresql.sql \
-    --file=/app/migrations/sales-order-extra-lines-postgresql.sql
+    --file=/app/migrations/sales-order-extra-lines-postgresql.sql \
+    --file=/app/migrations/product-photo-lead-roles-postgresql.sql \
+    --file=/app/migrations/category-photos-postgresql.sql

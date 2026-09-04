@@ -26,37 +26,53 @@
     .editorial-grid img { display: block; width: 100%; height: auto; margin: 0; }
 
     .cover { padding: 0; background: #120c0a; }
-    .cover-shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(18,12,10,.56); }
-    .cover-panel { position: absolute; top: 20mm; left: 15mm; width: 104mm; padding: 7mm 8mm 7mm 9mm; color: #f8f1e9; background: #241815; border-left: 1mm solid #d6b25e; }
-    .cover-logo { max-width: 44mm; max-height: 10mm; margin-bottom: 7mm; }
-    .cover h1 { max-width: 100%; margin-top: 8mm; font-size: 27pt; line-height: .96; word-wrap: break-word; hyphens: auto; }
-    .cover h1 span { display: block; margin-top: 1mm; color: #d6b25e; font-size: .82em; font-style: italic; font-weight: 400; }
-    .cover-intro { margin-top: 7mm; color: #e7dcd3; font-size: 9pt; line-height: 1.52; }
-    .cover-bottom { position: absolute; right: 15mm; bottom: 8mm; left: 15mm; padding: 3mm 4mm; color: #f8f1e9; background: #120c0a; border-top: .35mm solid #c9a65b; font-size: 7.5pt; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
+    .cover-media { position: absolute; top: 0; left: 0; width: 210mm; height: 176mm; overflow: hidden; background: #241815; }
+    .cover-media .editorial-grid { position: absolute; top: 0; left: 0; height: 176mm; }
+    .cover-media .editorial-grid tr { height: 176mm; }
+    .cover-media .editorial-grid td { vertical-align: top; }
+    .cover-media__shade { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: linear-gradient(180deg, rgba(18,12,10,.04) 58%, rgba(18,12,10,.62) 100%); }
+    .cover-panel { position: absolute; top: 176mm; right: 0; bottom: 0; left: 0; padding: 9mm 15mm 8mm; color: #f8f1e9; background: #241815; border-top: 1mm solid #d6b25e; }
+    .cover-panel__grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .cover-panel__grid td { vertical-align: top; }
+    .cover-panel__copy { width: 58%; padding-right: 8mm; }
+    .cover-panel__contents { width: 42%; padding-left: 8mm; border-left: .3mm solid rgba(214,178,94,.45); }
+    .cover-logo { max-width: 40mm; max-height: 9mm; margin-bottom: 4mm; }
+    .cover h1 { max-width: 100%; margin-top: 3mm; font-size: 24pt; line-height: .98; word-wrap: break-word; hyphens: auto; }
+    .cover h1 span { display: block; margin-top: 1mm; color: #d6b25e; font-size: .8em; font-style: italic; font-weight: 400; }
+    .cover-intro { max-height: 34mm; margin-top: 4mm; overflow: hidden; color: #e7dcd3; font-size: 8.5pt; line-height: 1.5; }
+    .cover-facts { margin-top: 4mm; color: #d6b25e; font-size: 7.5pt; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; }
+    .cover-toc { width: 100%; margin-top: 3mm; border-collapse: collapse; }
+    .cover-toc td { padding: 1.6mm 0; border-bottom: .2mm solid rgba(214,178,94,.28); font-size: 8.5pt; vertical-align: top; }
+    .cover-toc__no { display: inline-block; width: 8mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 10pt; }
+    .cover-toc__page { width: 12mm; color: #d6b25e; text-align: right; font-variant-numeric: tabular-nums; }
+    .cover-contact { margin-top: 5mm; color: #b8a99d; font-size: 7pt; letter-spacing: .6px; }
 
     .overview-page { color: #241815; background: #f8f1e9; }
     .overview-head { width: 100%; border-collapse: collapse; }
     .overview-head td { vertical-align: bottom; }
-    .overview-head h2 { margin-top: 2mm; font-size: 28pt; line-height: .95; }
+    .overview-head h2 { margin-top: 2mm; font-size: 26pt; line-height: .95; }
+    .overview-head__hint { width: 62mm; padding-bottom: 1mm; color: #806b5e; font-size: 7.5pt; line-height: 1.4; text-align: right; }
     .overview-rule { height: .35mm; margin: 4mm 0 2.5mm; background: #cba956; }
-    .overview-grid { width: 100%; border-collapse: separate; border-spacing: 2.5mm 2.2mm; table-layout: fixed; }
-    .overview-cell { height: 52mm; padding: 0; vertical-align: top; }
-    .overview-empty { height: 52mm; }
-    .overview-card { height: 52mm; overflow: hidden; background: #fffdfa; border: .25mm solid #d8c9bd; border-left: 1.1mm solid #8f223c; }
-    .overview-card--display-roses, .overview-card--counter { border-left-color: #b88946; }
-    .overview-card--preserved-roses, .overview-card--rose-in-dome, .overview-card--divers { border-left-color: #52735c; }
-    .overview-card--soap-roses { border-left-color: #b04f6d; }
-    .overview-card--foam-roses, .overview-card--foam-rose, .overview-card--rose-bears { border-left-color: #79528e; }
-    .overview-card-table { width: 100%; height: 51.5mm; border-collapse: collapse; table-layout: fixed; }
-    .overview-image { width: 42%; padding: 0; overflow: hidden; text-align: center; vertical-align: middle; background: #241815; border-right: .2mm solid #ded3cb; }
+    .overview-grid { width: 100%; border-collapse: separate; border-spacing: 3mm 3mm; table-layout: fixed; }
+    .overview-cell { width: 33.333%; height: 76mm; padding: 0; vertical-align: top; }
+    .overview-empty { height: 76mm; }
+    .overview-card { height: 76mm; overflow: hidden; background: #fffdfa; border: .25mm solid #d8c9bd; border-top: 1.1mm solid #8f223c; }
+    .overview-card--display-roses, .overview-card--counter { border-top-color: #b88946; }
+    .overview-card--preserved-roses, .overview-card--rose-in-dome, .overview-card--divers { border-top-color: #52735c; }
+    .overview-card--soap-roses { border-top-color: #b04f6d; }
+    .overview-card--foam-roses, .overview-card--foam-rose, .overview-card--rose-bears { border-top-color: #79528e; }
+    .overview-image { height: 42mm; overflow: hidden; text-align: center; background: #fffdfa; border-bottom: .2mm solid #ded3cb; }
     .overview-image img { display: block; width: 100%; height: auto; margin: 0; }
-    .overview-copy { padding: 3.2mm 3.5mm; vertical-align: top; }
-    .overview-meta { color: #806b5e; font-size: 6.8pt; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
-    .overview-name { height: 18mm; margin-top: 1.5mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; word-wrap: break-word; hyphens: auto; }
-    .overview-variants { margin-top: 1.2mm; color: #806b5e; font-size: 6.8pt; }
-    .overview-price { margin-top: 1.2mm; color: #8f223c; font-size: 8.5pt; font-weight: 700; }
-    .overview-cell--wide .overview-image { width: 20%; }
-    .overview-cell--wide .overview-name { height: auto; max-height: 18mm; font-size: 13pt; }
+    .overview-copy { padding: 2.4mm 3mm 2mm; }
+    .overview-meta { display: table; width: 100%; color: #806b5e; font-size: 6.4pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    .overview-meta span { display: table-cell; }
+    .overview-page-ref { color: #8f223c; text-align: right; white-space: nowrap; }
+    .overview-name { max-height: 10mm; margin-top: 1.2mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; word-wrap: break-word; hyphens: auto; }
+    .overview-summary { max-height: 8.6mm; margin-top: 1.2mm; overflow: hidden; color: #594a42; font-size: 6.9pt; line-height: 1.3; }
+    .overview-foot { display: table; width: 100%; margin-top: 1.4mm; }
+    .overview-foot span { display: table-cell; font-size: 6.9pt; }
+    .overview-variants { color: #806b5e; }
+    .overview-price { color: #8f223c; font-weight: 700; text-align: right; }
     .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7.5pt; line-height: 1.4; }
     .overview-footnote span { position: absolute; top: 2.5mm; right: 0; color: #9b7735; font-weight: 700; }
 
@@ -188,15 +204,26 @@
 <body>
 
 <section class="page cover">
-  {#if coverImages.present}<table class="editorial-grid editorial-grid--{coverImages.kind}">{#for row in coverImages.rows}<tr class="editorial-row--{row.cssClass}">{#for tile in row.tiles}<td colspan="{tile.columnSpan}"><img src="{tile.image}" alt="{copy['catalog.brochure.cover.imagealt']}"/></td>{/for}</tr>{/for}</table>{/if}
-  <div class="cover-shade"></div>
+  <div class="cover-media">{#if coverImages.present}<table class="editorial-grid editorial-grid--{coverImages.kind}">{#for row in coverImages.rows}<tr class="editorial-row--{row.cssClass}">{#for tile in row.tiles}<td colspan="{tile.columnSpan}"><img src="{tile.image}" alt="{copy['catalog.brochure.cover.imagealt']}"/></td>{/for}</tr>{/for}</table>{/if}<div class="cover-media__shade"></div></div>
   <div class="cover-panel">
-    {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
-    <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
-    <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
-    <p class="cover-intro">{intro}</p>
+    <table class="cover-panel__grid"><tr>
+      <td class="cover-panel__copy">
+        {#if logo}<img class="cover-logo" src="{logo}" alt="ENROSED"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
+        <div class="eyebrow">ENROSED {copy['catalog.brand.wholesale']} · {year}</div>
+        <h1>{options.coverTitle}<span>{options.coverSubtitle}</span></h1>
+        <p class="cover-intro">{intro}</p>
+        <div class="cover-facts">{familyCountLabel} · {variantCountLabel}</div>
+      </td>
+      <td class="cover-panel__contents">
+        <div class="eyebrow">{copy['catalog.brochure.cover.contents']}</div>
+        <table class="cover-toc">
+          {#if options.includeOverview}<tr><td>{copy['catalog.brochure.overview.eyebrow']}</td><td class="cover-toc__page">2</td></tr>{/if}
+          {#for section in sections}<tr><td><span class="cover-toc__no">{section.number}</span>{section.name}</td><td class="cover-toc__page">{section.page}</td></tr>{/for}
+        </table>
+        <div class="cover-contact">{company.name}{#if company.website} · {company.website}{/if}{#if company.email} · {company.email}{/if}</div>
+      </td>
+    </tr></table>
   </div>
-  <div class="cover-bottom">{familyCountLabel} · {variantCountLabel}</div>
 </section>
 
 {#if options.includeOverview}
@@ -204,22 +231,21 @@
   <section class="page overview-page">
     <table class="overview-head"><tr>
       <td><div class="eyebrow">{copy['catalog.brochure.overview.eyebrow']}</div><h2>{copy['catalog.brochure.overview.title']}</h2></td>
+      <td class="overview-head__hint">{copy['catalog.brochure.overview.detailhint']}</td>
     </tr></table>
     <div class="overview-rule"></div>
     <table class="overview-grid">
       {#for row in overview.rows}<tr>
         {#for card in row}
           {#if card.placeholder}<td class="overview-cell overview-empty"></td>{#else}
-          <td class="overview-cell{#if card.wide} overview-cell--wide{/if}"{#if card.wide} colspan="2"{/if}><div class="overview-card overview-card--{card.categoryKey}">
-            <table class="overview-card-table"><tr>
-              <td class="overview-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</td>
-              <td class="overview-copy">
-                <div class="overview-meta">{card.number} · {card.categoryName}</div>
-                <div class="overview-name"><a href="#{card.anchor}">{card.name}</a></div>
-                <div class="overview-variants">{card.variantCountLabel}</div>
-                {#if card.referencePriceLabel}<div class="overview-price">{card.referencePriceLabel}</div>{/if}
-              </td>
-            </tr></table>
+          <td class="overview-cell"><div class="overview-card overview-card--{card.categoryKey}">
+            <div class="overview-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
+            <div class="overview-copy">
+              <div class="overview-meta"><span>{card.number} · {card.categoryName}</span><span class="overview-page-ref">{copy['catalog.brochure.overview.page']} {card.page}</span></div>
+              <div class="overview-name"><a href="#{card.anchor}">{card.name}</a></div>
+              {#if card.summary}<div class="overview-summary">{card.summary}</div>{/if}
+              <div class="overview-foot"><span class="overview-variants">{card.variantCountLabel}</span>{#if card.referencePriceLabel}<span class="overview-price">{card.referencePriceLabel}</span>{/if}</div>
+            </div>
           </div></td>
           {/if}
         {/for}
@@ -276,7 +302,7 @@
         </table>{/if}
       </td>
     </tr></table>
-    <div class="footer">ENROSED · {family.categoryName} <span class="page-no">{family.number}</span></div>
+    <div class="footer">ENROSED · {family.categoryName} · {family.number} <span class="page-no">{copy['catalog.brochure.overview.page']} {family.page}</span></div>
   </section>
   {/for}
 {/for}

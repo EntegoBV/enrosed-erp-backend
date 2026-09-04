@@ -103,3 +103,6 @@ CATALOG;catalog.spec.container;Spec: pieces per container;true;Stuks per 40ft HC
 CATALOG;catalog.spec.hscode;Spec: HS code;true;HS-code;Code SH;HS code;HS-Code;Código HS;Kod HS;Código HS;GTİP kodu
 CATALOG;catalog.spec.colours;Spec: colours;true;Kleuren;Couleurs;Colours;Farben;Colores;Kolory;Cores;Renkler
 CATALOG;catalog.spec.sizes;Spec: sizes;true;Maten;Tailles;Sizes;Größen;Tamaños;Rozmiary;Tamanhos;Boyutlar
+CATALOG;catalog.brochure.overview.page;Page reference label;true;Pagina;Page;Page;Seite;Página;Strona;Página;Sayfa
+CATALOG;catalog.brochure.cover.contents;Cover contents title;true;Inhoud;Sommaire;Contents;Inhalt;Índice;Spis treści;Índice;İçindekiler
+CATALOG;catalog.brochure.overview.detailhint;Overview detail hint;true;Details en specificaties op de vermelde pagina.;Détails et spécifications à la page indiquée.;Details and specifications on the page shown.;Details und Spezifikationen auf der genannten Seite.;Detalles y especificaciones en la página indicada.;Szczegóły i specyfikacje na podanej stronie.;Detalhes e especificações na página indicada.;Ayrıntılar ve özellikler belirtilen sayfada.

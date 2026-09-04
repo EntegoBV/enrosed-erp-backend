@@ -9,6 +9,7 @@ import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
+import be.enrosed.catalog.domain.PhotoRole;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
@@ -1058,6 +1059,35 @@ public class ProductService {
                             .privateValue("photoOrder", "Fotovolgorde", previousOrder, wanted)
                             .build());
         }
+        queueWebsite();
+        return saved;
+    }
+
+    /**
+     * Makes one photo open a channel - the website or the printed catalogue -
+     * or takes that role away again. One lead per channel: giving it to a
+     * photo takes it from the one that had it. The internal lead stays the
+     * first of the series.
+     */
+    @Transactional
+    public Product setPhotoLead(long productId, long photoId, PhotoRole role, boolean lead) {
+        if (role == null) throw new BusinessRuleException("Kies waar de foto voorop moet staan");
+        Product product = lockProductForPhotoWrite(productId);
+        boolean known = product.photos().stream().anyMatch(photo -> photo.id() != null && photo.id() == photoId);
+        if (!known) throw new NotFoundException("Foto", photoId);
+        List<Photo> photos = product.photos().stream().map(photo -> {
+            java.util.Set<PhotoRole> roles = new java.util.HashSet<>(photo.leadFor());
+            boolean target = photo.id() != null && photo.id() == photoId;
+            if (target && lead) roles.add(role); else roles.remove(role);
+            return roles.equals(photo.leadFor()) ? photo : photo.withLeadFor(roles);
+        }).toList();
+        if (photos.equals(product.photos())) return product;
+        Product saved = products.save(product.withPhotos(photos));
+        recordActivity(ActivityLogService.ACTION_PHOTO_REORDERED, saved,
+                (role == PhotoRole.WEBSITE ? "Websitefoto" : "Catalogusfoto") + (lead ? " gekozen" : " losgelaten"),
+                ActivityChangeSet.create()
+                        .privateValue("photo.lead." + role.name().toLowerCase(), "Foto", null, lead ? photoId : null)
+                        .build());
         queueWebsite();
         return saved;
     }

@@ -365,9 +365,24 @@ public record Product(
         return value == null || value.isBlank();
     }
 
-    /** Primary photo: the first in the series. */
+    /** Primary photo: the first in the series - what the ERP and the internal documents show. */
     public Photo primaryPhoto() {
         return photos().isEmpty() ? null : photos().get(0);
+    }
+
+    /** The photo chosen to open a channel, or the primary one while none is chosen. */
+    public Photo photoFor(PhotoRole role) {
+        return photos().stream().filter(photo -> photo.leads(role)).findFirst().orElse(primaryPhoto());
+    }
+
+    /** The series with the channel's lead first; the rest keep their order. */
+    public List<Photo> photosFor(PhotoRole role) {
+        Photo lead = photos().stream().filter(photo -> photo.leads(role)).findFirst().orElse(null);
+        if (lead == null) return photos();
+        List<Photo> ordered = new java.util.ArrayList<>(photos().size());
+        ordered.add(lead);
+        photos().stream().filter(photo -> photo != lead).forEach(ordered::add);
+        return List.copyOf(ordered);
     }
 
     /** Full description for a quote, in our own language. */

@@ -403,7 +403,8 @@ public class PublicFamilyCatalogResource {
                 footerName.value(),
                 primary == null ? null : publicFeaturedProductId(
                         primary.collection.featuredProductId, null, primary.collection, channel),
-                Collections.unmodifiableMap(sources));
+                Collections.unmodifiableMap(sources),
+                categoryPhotoUrl(category), categoryPhotoWidth(category), categoryPhotoHeight(category));
     }
 
     private PublicFamilyCatalogDto.CategoryDto category(
@@ -440,7 +441,26 @@ public class PublicFamilyCatalogResource {
                 eyebrow.value(), description.value(), mobileName.value(), navigationName.value(),
                 footerName.value(), publicFeaturedProductId(
                         category.featuredProductId, null, null, channel),
-                Collections.unmodifiableMap(sources));
+                Collections.unmodifiableMap(sources),
+                categoryPhotoUrl(category), categoryPhotoWidth(category), categoryPhotoHeight(category));
+    }
+
+    /** The category's first photo as a public address, or null while it has none. */
+    static String categoryPhotoUrl(CategoryEntity category) {
+        if (category == null || category.photos == null || category.photos.isEmpty()) return null;
+        var photo = category.photos.getFirst();
+        return "/api/v1/public/catalog/categories/" + category.id + "/photos/" + photo.id
+                + "?v=" + encode(photo.storageKey);
+    }
+
+    private static Integer categoryPhotoWidth(CategoryEntity category) {
+        return category == null || category.photos == null || category.photos.isEmpty()
+                ? null : category.photos.getFirst().widthPx;
+    }
+
+    private static Integer categoryPhotoHeight(CategoryEntity category) {
+        return category == null || category.photos == null || category.photos.isEmpty()
+                ? null : category.photos.getFirst().heightPx;
     }
 
     private Long resolvedProductId(

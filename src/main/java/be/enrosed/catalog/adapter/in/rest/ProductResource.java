@@ -316,4 +316,15 @@ public class ProductResource {
     public ProductDto reorderPhotos(@PathParam("id") long id, List<Long> photoIdsInOrder) {
         return ProductDto.from(products.reorderPhotos(id, photoIdsInOrder));
     }
+
+    public record PhotoLeadRequest(be.enrosed.catalog.domain.PhotoRole role, boolean lead) {}
+
+    /** Lets this photo open the website or the printed catalogue, or takes that role away. */
+    @PUT
+    @Path("/{id}/photos/{photoId}/lead")
+    public ProductDto setPhotoLead(@PathParam("id") long id, @PathParam("photoId") long photoId,
+                                   PhotoLeadRequest request) {
+        if (request == null) throw new BadRequestException("Geen keuze meegestuurd");
+        return ProductDto.from(products.setPhotoLead(id, photoId, request.role(), request.lead()));
+    }
 }
