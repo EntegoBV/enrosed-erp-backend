@@ -66,7 +66,12 @@ public class CustomerQuoteMapper {
                 totals.goodsTotal(), totals.freight(), totals.handling(),
                 totals.total(), totals.vatRatePct(), totals.vatAmount(), totals.totalInclVat(),
                 totals.vatTreatment().labelIn(language),
-                totals.vatTreatment().legalMentionIn(language));
+                totals.vatTreatment().legalMentionIn(language),
+                totals.extraLinesTotal());
+        List<CustomerQuoteView.CustomerExtraLine> extraLines = priced.extraLines().stream()
+                .map(line -> new CustomerQuoteView.CustomerExtraLine(
+                        line.description(), line.quantity(), line.unitPrice(), line.total()))
+                .toList();
 
         List<CustomerQuoteView.PendingProposal> proposals = quotes.revisionsFor(order.id()).stream()
                 .map(revision -> new CustomerQuoteView.PendingProposal(
@@ -93,7 +98,8 @@ public class CustomerQuoteMapper {
                 order.freightPricingStrategy().name(),
                 language.name(),
                 DocumentText.of(language),
-                quotes.cancellationMessage(order).orElse(null));
+                quotes.cancellationMessage(order).orElse(null),
+                extraLines);
     }
 
     private int piecesPerCarton(Long productId) {

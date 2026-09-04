@@ -284,8 +284,20 @@ public class SalesPricingCalculator {
             freightIsMinimum = false;
         }
 
+        /* The free lines count in the total as they stand: no tier, no order
+           discount, no cost against them. The minimum order value and the
+           margin keep reading the products alone. */
+        List<PricedOrder.ExtraLine> extraLines = new ArrayList<>();
+        BigDecimal extraLinesTotal = BigDecimal.ZERO;
+        for (SalesExtraLine extra : order.extraLines()) {
+            BigDecimal lineTotal = extra.total();
+            extraLines.add(new PricedOrder.ExtraLine(extra.description(), extra.quantity(),
+                    Money.unit(Money.nz(extra.unitPriceEur())), lineTotal));
+            extraLinesTotal = extraLinesTotal.add(lineTotal);
+        }
+
         BigDecimal shipping = freight.add(handling);
-        BigDecimal total = goodsTotal.add(shipping);
+        BigDecimal total = goodsTotal.add(extraLinesTotal).add(shipping);
 
         /* The VAT rate comes from the regime, not directly from the country:
            for an intra-community supply or export it is zero. */
@@ -316,7 +328,8 @@ public class SalesPricingCalculator {
                 goodsTotal.signum() > 0
                         ? Money.divide(margin.multiply(Money.HUNDRED), goodsTotal).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
-                Money.money(margin.subtract(shipping)));
+                Money.money(margin.subtract(shipping)),
+                Money.money(extraLinesTotal));
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,
@@ -325,7 +338,7 @@ public class SalesPricingCalculator {
                 withoutCartonDimensions, withoutPalletFit,
                 carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
 
-        return new PricedOrder(lines, totals, validation);
+        return new PricedOrder(lines, totals, validation, extraLines);
     }
 
     private static boolean hasValidOuterCarton(Carton carton) {

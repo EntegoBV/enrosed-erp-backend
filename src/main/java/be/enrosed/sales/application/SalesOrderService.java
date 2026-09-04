@@ -215,6 +215,7 @@ public class SalesOrderService {
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
                         .toList());
+        invoice = invoice.withExtraLines(source.extraLines());
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
 
@@ -430,7 +431,8 @@ public class SalesOrderService {
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
-                roundLinesToCartons(changes.lines()), changes.pallets());
+                roundLinesToCartons(changes.lines()), changes.pallets())
+                .withExtraLines(keptExtraLines(changes.extraLines()));
         validateForSave(updated);
         SalesOrder saved = orders.save(updated);
         if (!saved.equals(current)) {
@@ -705,6 +707,7 @@ public class SalesOrderService {
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
                         .toList());
+        duplicate = duplicate.withExtraLines(source.extraLines());
         validateForSave(duplicate);
         SalesOrder created = orders.save(duplicate);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
@@ -790,6 +793,7 @@ public class SalesOrderService {
         if (order.incoterm() == null || order.incoterm().isBlank()) {
             throw new BusinessRuleException("Incoterm is verplicht");
         }
+        requireValidExtraLines(order.extraLines());
         if (order.markupMode() == null) {
             throw new BusinessRuleException("Kies hoe de opslag wordt berekend");
         }
@@ -1147,6 +1151,36 @@ public class SalesOrderService {
      * cartons on save. The screen announces the correction; this makes it
      * true no matter which client wrote the order.
      */
+    /** A free line the seller added and never filled in is dropped, not rejected. */
+    static List<SalesExtraLine> keptExtraLines(List<SalesExtraLine> lines) {
+        if (lines == null) return List.of();
+        return lines.stream()
+                .filter(line -> line != null && !line.blank())
+                .map(line -> new SalesExtraLine(line.description().strip(), line.quantity(), line.unitPriceEur()))
+                .toList();
+    }
+
+    /** Every free line needs words the document can print, a quantity and a price. */
+    private static void requireValidExtraLines(List<SalesExtraLine> lines) {
+        if (lines.size() > 20) {
+            throw new BusinessRuleException("Maximaal 20 extra regels per document");
+        }
+        for (SalesExtraLine line : lines) {
+            if (line.description().isBlank()) {
+                throw new BusinessRuleException("Geef elke extra regel een omschrijving");
+            }
+            if (line.description().length() > 120) {
+                throw new BusinessRuleException("De omschrijving van een extra regel mag hoogstens 120 tekens lang zijn");
+            }
+            if (line.quantity() == null || line.quantity().signum() <= 0) {
+                throw new BusinessRuleException("Extra regel " + line.description() + " heeft een aantal boven nul nodig");
+            }
+            if (line.unitPriceEur() == null) {
+                throw new BusinessRuleException("Extra regel " + line.description() + " heeft een prijs nodig");
+            }
+        }
+    }
+
     private List<SalesOrderLine> roundLinesToCartons(List<SalesOrderLine> lines) {
         if (lines == null || lines.isEmpty()) return lines;
         Map<Long, Product> byId = products.list().stream()

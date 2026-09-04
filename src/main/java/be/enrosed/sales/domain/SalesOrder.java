@@ -117,8 +117,60 @@ public record SalesOrder(
          * on the working list. Server-owned: only the archive and unarchive
          * flows change it, a plain save never does.
          */
-        Instant archivedAt
+        Instant archivedAt,
+
+        /**
+         * Free lines next to the products: assembly, an extra transport leg,
+         * a sample, a lump-sum discount. Own lines on the document, outside
+         * the tier discounts. Never null.
+         */
+        List<SalesExtraLine> extraLines
 ) {
+    public SalesOrder {
+        extraLines = extraLines == null ? List.of()
+                : extraLines.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before the free lines existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets, PickupLocationSnapshot pickupLocation,
+                      Instant archivedAt) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, List.of());
+    }
+
+    /** The same document with its free lines replaced; null or empty clears them. */
+    public SalesOrder withExtraLines(List<SalesExtraLine> value) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value);
+    }
 
     /** Compatibility for callers written before the archive existed. */
     public SalesOrder(Long id, String number, Long customerId, String countryCode,
@@ -157,7 +209,7 @@ public record SalesOrder(
                 manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
-                goodsShippedAt, lines, pallets, pickupLocation, value);
+                goodsShippedAt, lines, pallets, pickupLocation, value, extraLines);
     }
 
     public boolean isArchived() {

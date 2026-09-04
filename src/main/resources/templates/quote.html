@@ -341,6 +341,16 @@
       <td class="r line-total">{line.commercial.net.eur}</td>
     </tr>
   {/for}
+  {#for extra in priced.extraLines}
+    <tr class="extra-line">
+      <td><div class="line-name">{extra.description}</div></td>
+      <td class="r nowrap">{extra.quantity.amount}</td>
+      {#if includeLogistics}<td class="r nowrap muted">-</td><td class="r nowrap muted">-</td>{/if}
+      <td class="r nowrap">{extra.unitPrice.unit}</td>
+      {#if hasDiscounts}<td class="r nowrap">·</td>{/if}
+      <td class="r line-total">{extra.total.eur}</td>
+    </tr>
+  {/for}
   </tbody>
 </table>
 
@@ -377,6 +387,9 @@
       <td class="r">- {priced.totals.extraDiscountAmount.eur}</td></tr>
   {/if}
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
+  {#if !priced.extraLines.isEmpty}
+    <tr><td>{t.extraLines}</td><td class="r">{priced.totals.extraLinesTotal.eur}</td></tr>
+  {/if}
   <tr><td>{t.freight}
       {#if freightPending}
       {#else if freightPickup}<span class="muted">({t.pickup})</span>

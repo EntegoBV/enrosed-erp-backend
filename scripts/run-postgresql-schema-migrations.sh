@@ -29,4 +29,5 @@ exec psql \
     --file=/app/migrations/purchase-line-issue-note-postgresql.sql \
     --file=/app/migrations/purchase-order-inspection-cost-postgresql.sql \
     --file=/app/migrations/purchase-order-other-costs-postgresql.sql \
-    --file=/app/migrations/orders-archived-at-postgresql.sql
+    --file=/app/migrations/orders-archived-at-postgresql.sql \
+    --file=/app/migrations/sales-order-extra-lines-postgresql.sql

@@ -25,7 +25,12 @@ public record CustomerQuoteView(
         String language,
         Map<String, String> text,
         /** What we told the customer when we withdrew the quote; null otherwise. */
-        String cancellationMessage) {
+        String cancellationMessage,
+        /** Free lines next to the products: assembly, a sample, an extra transport leg. */
+        List<CustomerExtraLine> extraLines) {
+
+    /** One free line as the customer reads it. */
+    public record CustomerExtraLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal total) {}
 
     public record CustomerLine(
             Long productId, String sku, String description, String photoUrl,
@@ -41,7 +46,9 @@ public record CustomerQuoteView(
             BigDecimal extraDiscountPercent, String extraDiscountLabel, BigDecimal extraDiscountAmount,
             BigDecimal goodsTotal, BigDecimal freight, BigDecimal handling,
             BigDecimal total, BigDecimal vatRatePct, BigDecimal vatAmount, BigDecimal totalInclVat,
-            String vatTreatment, String vatLegalMention) {}
+            String vatTreatment, String vatLegalMention,
+            /** The free lines added up; inside the total, outside the goods value. */
+            BigDecimal extraLinesTotal) {}
 
     public record PendingProposal(
             String status, String proposedAt, String message, String responseMessage) {}

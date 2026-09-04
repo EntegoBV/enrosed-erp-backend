@@ -44,6 +44,7 @@ COPY docs/migrations/2026-09-03/purchase-line-issue-note-postgresql.sql ./migrat
 COPY docs/migrations/2026-09-04/purchase-order-inspection-cost-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-04/purchase-order-other-costs-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-04/orders-archived-at-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-04/sales-order-extra-lines-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

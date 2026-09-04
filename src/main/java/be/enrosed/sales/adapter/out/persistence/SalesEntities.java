@@ -197,6 +197,10 @@ public final class SalesEntities {
         @Column(name = "archived_at")
         public Instant archivedAt;
 
+        /** Free lines next to the products, as a JSON array; null when none. */
+        @Column(name = "extra_lines_json", length = 4000)
+        public String extraLinesJson;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

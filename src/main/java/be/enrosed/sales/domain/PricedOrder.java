@@ -4,7 +4,21 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /** Volledig doorgerekende verkooporder. */
-public record PricedOrder(List<Line> lines, Totals totals, Validation validation) {
+public record PricedOrder(List<Line> lines, Totals totals, Validation validation,
+                          /** The free lines as priced: description, quantity, unit price and their total. */
+                          List<ExtraLine> extraLines) {
+
+    /** Compatibility for callers written before the free lines existed. */
+    public PricedOrder(List<Line> lines, Totals totals, Validation validation) {
+        this(lines, totals, validation, List.of());
+    }
+
+    public PricedOrder {
+        extraLines = extraLines == null ? List.of() : List.copyOf(extraLines);
+    }
+
+    /** One free line on the document: no product, no cartons, no tier. */
+    public record ExtraLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal total) {}
 
     public record Line(
             Long productId,
@@ -99,8 +113,30 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal costTotal,
             BigDecimal marginEur,
             BigDecimal marginPct,
-            BigDecimal marginAfterFreightEur
-    ) {}
+            BigDecimal marginAfterFreightEur,
+
+            /** The free lines added up; inside {@code total}, outside {@code goodsTotal} and the margin. */
+            BigDecimal extraLinesTotal
+    ) {
+        /** Compatibility for callers written before the free lines existed. */
+        public Totals(int pieces, int cartons, int palletsStrict, int palletsOptimised, int palletsManual,
+                      int unassignedCartons, BigDecimal palletBaseHeightCm, BigDecimal palletMaxHeightCm,
+                      BigDecimal cbm, BigDecimal weightKg, BigDecimal gross, BigDecimal lineDiscountTotal,
+                      BigDecimal subtotal, BigDecimal orderDiscountPercent, BigDecimal orderDiscountAmount,
+                      BigDecimal extraDiscountPercent, String extraDiscountLabel, BigDecimal extraDiscountAmount,
+                      BigDecimal goodsTotal, BigDecimal freight, boolean freightIsMinimum, BigDecimal handling,
+                      BigDecimal shippingTotal, BigDecimal total, BigDecimal vatRatePct, BigDecimal vatAmount,
+                      BigDecimal totalInclVat, VatTreatment vatTreatment, String vatLegalMention, String vatReason,
+                      BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct,
+                      BigDecimal marginAfterFreightEur) {
+            this(pieces, cartons, palletsStrict, palletsOptimised, palletsManual, unassignedCartons,
+                    palletBaseHeightCm, palletMaxHeightCm, cbm, weightKg, gross, lineDiscountTotal, subtotal,
+                    orderDiscountPercent, orderDiscountAmount, extraDiscountPercent, extraDiscountLabel,
+                    extraDiscountAmount, goodsTotal, freight, freightIsMinimum, handling, shippingTotal, total,
+                    vatRatePct, vatAmount, totalInclVat, vatTreatment, vatLegalMention, vatReason, costTotal,
+                    marginEur, marginPct, marginAfterFreightEur, BigDecimal.ZERO);
+        }
+    }
 
     public record Validation(
             BigDecimal minOrderValue,
