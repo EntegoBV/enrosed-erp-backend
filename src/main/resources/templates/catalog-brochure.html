@@ -50,30 +50,44 @@
     .overview-page { color: #241815; background: #f8f1e9; }
     .overview-head { width: 100%; border-collapse: collapse; }
     .overview-head td { vertical-align: bottom; }
-    .overview-head h2 { margin-top: 2mm; font-size: 26pt; line-height: .95; }
+    .overview-head h2 { margin-top: 2mm; font-size: 24pt; line-height: .95; }
     .overview-head__hint { width: 62mm; padding-bottom: 1mm; color: #806b5e; font-size: 7.5pt; line-height: 1.4; text-align: right; }
-    .overview-rule { height: .35mm; margin: 4mm 0 2.5mm; background: #cba956; }
-    .overview-grid { width: 100%; border-collapse: separate; border-spacing: 3mm 3mm; table-layout: fixed; }
-    .overview-cell { width: 33.333%; height: 76mm; padding: 0; vertical-align: top; }
-    .overview-empty { height: 76mm; }
-    .overview-card { height: 76mm; overflow: hidden; background: #fffdfa; border: .25mm solid #d8c9bd; border-top: 1.1mm solid #8f223c; }
-    .overview-card--display-roses, .overview-card--counter { border-top-color: #b88946; }
-    .overview-card--preserved-roses, .overview-card--rose-in-dome, .overview-card--divers { border-top-color: #52735c; }
-    .overview-card--soap-roses { border-top-color: #b04f6d; }
-    .overview-card--foam-roses, .overview-card--foam-rose, .overview-card--rose-bears { border-top-color: #79528e; }
-    .overview-image { height: 42mm; overflow: hidden; text-align: center; background: #fffdfa; border-bottom: .2mm solid #ded3cb; }
-    .overview-image img { display: block; width: 100%; height: auto; margin: 0; }
-    .overview-copy { padding: 2.4mm 3mm 2mm; }
-    .overview-meta { display: table; width: 100%; color: #806b5e; font-size: 6.4pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-    .overview-meta span { display: table-cell; }
-    .overview-page-ref { color: #8f223c; text-align: right; white-space: nowrap; }
-    .overview-name { max-height: 10mm; margin-top: 1.2mm; overflow: hidden; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; word-wrap: break-word; hyphens: auto; }
-    .overview-summary { max-height: 8.6mm; margin-top: 1.2mm; overflow: hidden; color: #594a42; font-size: 6.9pt; line-height: 1.3; }
-    .overview-foot { display: table; width: 100%; margin-top: 1.4mm; }
-    .overview-foot span { display: table-cell; font-size: 6.9pt; }
-    .overview-variants { color: #806b5e; }
-    .overview-price { color: #8f223c; font-weight: 700; text-align: right; }
-    .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7.5pt; line-height: 1.4; }
+    .overview-rule { height: .35mm; margin: 3.5mm 0 2mm; background: #8f223c; }
+    .range { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .range th { padding: 1.4mm 1mm 1.2mm; color: #806b5e; border-bottom: .3mm solid #8f223c; font-size: 5.6pt; font-weight: 700; letter-spacing: .4px; line-height: 1.2; text-align: left; text-transform: uppercase; vertical-align: bottom; word-wrap: break-word; }
+    .range td { padding: 1.2mm 1mm; color: #241815; border-bottom: .2mm solid #ddd0c6; font-size: 6.9pt; line-height: 1.25; vertical-align: middle; word-wrap: break-word; overflow-wrap: break-word; }
+    .range .num, .range .range-price { text-align: right; }
+    .range-group td { padding: 2.6mm 1mm 1.2mm; color: #8f223c; border-bottom: .3mm solid #8f223c; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1; }
+    .range-group__no { display: inline-block; min-width: 7mm; color: #b28c3f; font-size: 9.5pt; }
+    .range-group__count { float: right; padding-top: 1mm; white-space: nowrap; color: #806b5e; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6.2pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    .range-no { width: 9mm; }
+    .range-no b { display: block; color: #8f223c; font-family: "Cormorant Garamond"; font-size: 11pt; font-weight: 600; line-height: 1; }
+    .range-no small { display: block; margin-top: .6mm; color: #806b5e; font-size: 5.8pt; letter-spacing: .3px; text-transform: uppercase; white-space: nowrap; }
+    .range-photo { width: 13mm; }
+    .range-photo img { display: block; width: 12mm; height: auto; margin: 0; border: .2mm solid #d8c9bd; background: #fffdfa; }
+    .range-photo span { display: block; width: 12mm; height: 9mm; background: #efe6dd; border: .2mm solid #d8c9bd; }
+    .range-product { width: 28mm; }
+    .range-product a { display: block; overflow: hidden; font-size: 7.6pt; font-weight: 700; line-height: 1.2; }
+    .range-product small { display: block; margin-top: .5mm; color: #806b5e; font-size: 6pt; letter-spacing: .2px; white-space: nowrap; overflow: hidden; }
+    .range-colours { width: 20mm; }
+    .dot { display: inline-block; width: 3.1mm; height: 3.1mm; margin: 0 .7mm .4mm 0; border: .2mm solid rgba(36,24,21,.35); border-radius: 50%; vertical-align: middle; }
+    .dot--none { background: #fffdfa; border: .25mm dashed #a08f84; }
+    .range-colours small { display: block; margin-top: .3mm; overflow: hidden; color: #594a42; font-size: 5.9pt; line-height: 1.2; }
+    .range-size { width: 19mm; }
+    .range-pack { width: 17mm; }
+    .range-carton { width: 22mm; }
+    .range-carton small { display: block; color: #806b5e; font-size: 6pt; }
+    .range-cbm { width: 10mm; }
+    .range-hc { width: 10mm; }
+    .range-price { width: 13mm; color: #8f223c; font-weight: 700; white-space: nowrap; }
+    .range-price small { display: block; color: #806b5e; font-size: 5.6pt; font-weight: 400; }
+    .range-group--tone-2 td, .range-row--tone-2 .range-no b { color: #9b6a1f; border-bottom-color: #9b6a1f; }
+    .range-group--tone-3 td, .range-row--tone-3 .range-no b { color: #3f6b4d; border-bottom-color: #3f6b4d; }
+    .range-group--tone-4 td, .range-row--tone-4 .range-no b { color: #6d4b8c; border-bottom-color: #6d4b8c; }
+    .range-group--tone-5 td, .range-row--tone-5 .range-no b { color: #2f5a78; border-bottom-color: #2f5a78; }
+    .range-group--tone-6 td, .range-row--tone-6 .range-no b { color: #8a5a34; border-bottom-color: #8a5a34; }
+    .range-row td { border-bottom-color: #ddd0c6; }
+    .overview-footnote { position: absolute; right: 13mm; bottom: 9mm; left: 13mm; padding-top: 2.5mm; color: #66554b; border-top: .25mm solid #c9b9ab; font-size: 7pt; line-height: 1.4; }
     .overview-footnote span { position: absolute; top: 2.5mm; right: 0; color: #9b7735; font-weight: 700; }
 
     .category-page { padding: 0; }
@@ -83,12 +97,34 @@
     .category-page h2 { margin-top: 5mm; font-size: 34pt; line-height: .95; word-wrap: break-word; hyphens: auto; }
     .category-page p { margin-top: 8mm; color: #e0d5cc; font-size: 10pt; line-height: 1.65; }
     .category-count { margin-top: 11mm; color: #d6b25e; font-size: 7.5pt; letter-spacing: 1.4px; text-transform: uppercase; }
+    .category-page--tone-1 .category-copy { border-right-color: #8f223c; }
+    .category-page--tone-2 .category-copy { border-right-color: #b88946; }
+    .category-page--tone-3 .category-copy { border-right-color: #52735c; }
+    .category-page--tone-4 .category-copy { border-right-color: #79528e; }
+    .category-page--tone-5 .category-copy { border-right-color: #3f6f8f; }
+    .category-page--tone-6 .category-copy { border-right-color: #a0683c; }
+    .category-page--tone-1 .category-number { color: #6d1a2f; }
     .category-page--display-roses .category-copy, .category-page--counter .category-copy { border-right-color: #b88946; }
     .category-page--preserved-roses .category-copy, .category-page--rose-in-dome .category-copy { border-right-color: #52735c; }
     .category-page--soap-roses .category-copy { border-right-color: #b04f6d; }
     .category-page--foam-roses .category-copy, .category-page--foam-rose .category-copy, .category-page--rose-bears .category-copy { border-right-color: #79528e; }
 
     .family-page { height: 297mm; min-height: 297mm; max-height: 297mm; padding-top: 11mm; overflow: hidden; page-break-inside: avoid; page-break-after: always; color: #241815; background: #f7e7e9; }
+    .family-page--tone-1 { background: #f7e7e9; }
+    .family-page--tone-2 { background: #f3ecdf; }
+    .family-page--tone-3 { background: #e8f0e5; }
+    .family-page--tone-4 { background: #eee6f2; }
+    .family-page--tone-5 { background: #e5edf2; }
+    .family-page--tone-6 { background: #f4e9df; }
+    .family-page--tone-1 .family-category, .family-page--tone-1 .spec-title { color: #8f223c; }
+    .family-page--tone-2 .family-category, .family-page--tone-2 .spec-title { color: #8b682f; }
+    .family-page--tone-3 .family-category, .family-page--tone-3 .spec-title { color: #52735c; }
+    .family-page--tone-4 .family-category, .family-page--tone-4 .spec-title { color: #79528e; }
+    .family-page--tone-5 .family-category, .family-page--tone-5 .spec-title { color: #3f6f8f; }
+    .family-page--tone-6 .family-category, .family-page--tone-6 .spec-title { color: #a0683c; }
+    .family-colours { margin-top: 1.6mm; color: #594a42; font-size: 7.2pt; line-height: 1.3; }
+    .family-colours .dot { width: 3.4mm; height: 3.4mm; margin-right: .9mm; }
+    .family-colours span.name { margin-right: 2.2mm; }
     .family-page--display-roses, .family-page--counter { background: #f3ecdf; }
     .family-page--preserved-roses, .family-page--divers, .family-page--rose-in-dome { background: #e8f0e5; }
     .family-page--soap-roses { background: #f5e7eb; }
@@ -234,31 +270,45 @@
       <td class="overview-head__hint">{copy['catalog.brochure.overview.detailhint']}</td>
     </tr></table>
     <div class="overview-rule"></div>
-    <table class="overview-grid">
-      {#for row in overview.rows}<tr>
-        {#for card in row}
-          {#if card.placeholder}<td class="overview-cell overview-empty"></td>{#else}
-          <td class="overview-cell"><div class="overview-card overview-card--{card.categoryKey}">
-            <div class="overview-image">{#if card.image}<img src="{card.image}" alt="{card.name}"/>{#else}<span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span>{/if}</div>
-            <div class="overview-copy">
-              <div class="overview-meta"><span>{card.number} · {card.categoryName}</span><span class="overview-page-ref">{copy['catalog.brochure.overview.page']} {card.page}</span></div>
-              <div class="overview-name"><a href="#{card.anchor}">{card.name}</a></div>
-              {#if card.summary}<div class="overview-summary">{card.summary}</div>{/if}
-              <div class="overview-foot"><span class="overview-variants">{card.variantCountLabel}</span>{#if card.referencePriceLabel}<span class="overview-price">{card.referencePriceLabel}</span>{/if}</div>
-            </div>
-          </div></td>
-          {/if}
-        {/for}
-      </tr>{/for}
+    <table class="range">
+      <thead><tr>
+        <th class="range-no">#</th>
+        <th class="range-photo"></th>
+        <th class="range-product">{copy['catalog.common.product']}</th>
+        <th class="range-colours">{copy['catalog.spec.colours']}</th>
+        <th class="range-size">{copy['catalog.spec.productsize']}</th>
+        <th class="range-pack">{copy['catalog.spec.packaging']}</th>
+        <th class="range-carton">{copy['catalog.spec.outercarton']}</th>
+        <th class="range-cbm num">{copy['catalog.brochure.range.cbm']}</th>
+        <th class="range-hc num">{copy['catalog.brochure.range.container']}</th>
+        {#if includePrices}<th class="range-price">{copy['catalog.brochure.range.price']}</th>{/if}
+      </tr></thead>
+      <tbody>
+      {#for row in overview.rows}
+        {#if row.header}<tr class="range-group range-group--{row.tone}"><td colspan="{#if includePrices}10{#else}9{/if}"><span class="range-group__no">{row.number}</span>{row.name}<span class="range-group__count">{row.countLabel} · {copy['catalog.brochure.overview.page']} {row.page}</span></td></tr>
+        {#else}<tr class="range-row range-row--{row.tone}">
+          <td class="range-no"><b>{row.number}</b><small>{copy['catalog.brochure.overview.page']} {row.page}</small></td>
+          <td class="range-photo">{#if row.image}<img src="{row.image}" alt="{row.name}"/>{#else}<span></span>{/if}</td>
+          <td class="range-product"><a href="#{row.anchor}">{row.name}</a>{#if row.facts.skuLabel}<small>{row.facts.skuLabel}</small>{/if}{#if row.facts.ean}<small>EAN {row.facts.ean}</small>{/if}</td>
+          <td class="range-colours">{#for colour in row.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{/for}{#if row.facts.colourLabel}<small>{row.facts.colourLabel}</small>{/if}{#if row.facts.sizeLabel}<small>{row.facts.sizeLabel}</small>{/if}</td>
+          <td class="range-size">{row.facts.productSize}</td>
+          <td class="range-pack">{row.facts.packaging}</td>
+          <td class="range-carton">{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}</td>
+          <td class="range-cbm num">{row.facts.cbm}</td>
+          <td class="range-hc num">{row.facts.hcCapacity}</td>
+          {#if includePrices}<td class="range-price">{#if row.priceLabel}{row.priceLabel}{#else}<small>{copy['catalog.brochure.overview.priceonrequest']}</small>{/if}</td>{/if}
+        </tr>{/if}
+      {/for}
+      </tbody>
     </table>
-    <div class="overview-footnote">{#if includePrices}{copy['catalog.brochure.overview.pricebasis']}{/if}<span>{overview.number} / {overview.total}</span></div>
+    <div class="overview-footnote">{copy['catalog.brochure.range.legend']}{#if includePrices} {copy['catalog.brochure.overview.pricebasis']}{/if}<span>{overview.number} / {overview.total}</span></div>
   </section>
   {/for}
 {/if}
 
 {#for section in sections}
   {#if options.includeCategoryIntros}
-  <section class="page category-page category-page--{section.categoryKey}">
+  <section class="page category-page category-page--{section.categoryKey} category-page--{section.tone}">
     {#if section.images.present}<table class="editorial-grid editorial-grid--{section.images.kind}">{#for row in section.images.rows}<tr class="editorial-row--{row.cssClass}">{#for tile in row.tiles}<td colspan="{tile.columnSpan}"><img src="{tile.image}" alt=""/></td>{/for}</tr>{/for}</table>{/if}<div class="shade"></div>
     <div class="category-copy">
       <div class="eyebrow">{copy['catalog.brochure.category.eyebrow']}</div>
@@ -271,11 +321,11 @@
   {/if}
 
   {#for family in section.families}
-  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}">
+  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey} family-page--{family.tone}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}">
     <a name="{family.anchor}"></a>
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>
-      <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2><div class="family-format">{#if family.format}{family.format}{/if}</div></td>
+      <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2><div class="family-format">{#if family.format}{family.format}{/if}</div>{#if family.facts.colours.size > 0}<div class="family-colours">{#for colour in family.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{#if colour.name}<span class="name">{colour.name}</span>{/if}{/for}</div>{/if}</td>
       {#if family.referencePriceLabel}<td class="family-price"><small>{copy['catalog.brochure.overview.referenceprice']}</small><strong>{family.referencePriceLabel}</strong></td>{/if}
     </tr></table>
     <div class="gold-rule"></div>

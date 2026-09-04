@@ -44,12 +44,14 @@ import java.util.Set;
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
-    private static final int OVERVIEW_CARDS_PER_PAGE = 9;
+    /** Family and group rows the range table fits on one A4 page. */
+    private static final int OVERVIEW_ROWS_PER_PAGE = 19;
+    /** The category tints, bordeaux first; chapters take them in turn. */
+    private static final int TONE_COUNT = 6;
     /* Real four-variant families with complete translated sales copy still fit the compact
        A4 composition. Keep a generous guard for pathological dashboard content without
        rejecting normal, print-ready product families. */
     private static final int FAMILY_PAGE_CAPACITY = 3_400;
-    private static final int OVERVIEW_COLUMNS = 3;
     /** The overview says each family in one line; longer copy is cut at a word. */
     private static final int OVERVIEW_SUMMARY_CHARS = 92;
     private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
@@ -111,7 +113,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String referencePriceLabel, boolean compactDetail,
             List<BrochureVariant> variants, List<SpecRow> specs,
             /** The printed page this family sits on; 0 until the book is paginated. */
-            int page) {
+            int page,
+            /** The facts the range table shows on one line. */
+            RangeFacts facts,
+            /** The chapter's tint class: bordeaux for the first chapter, then the other tones. */
+            String tone) {
 
         /** Compatibility for callers written before the pages were numbered. */
         public BrochureFamily(
@@ -122,14 +128,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 List<BrochureVariant> variants, List<SpecRow> specs) {
             this(anchor, number, name, summary, description, format, highlights, categoryKey,
                     categoryName, familySize, packageLine, overviewImage, photos, referencePriceLabel,
-                    compactDetail, variants, specs, 0);
+                    compactDetail, variants, specs, 0, RangeFacts.empty(), "tone-1");
         }
 
         /** The same family on its printed page, numbered in reading order. */
         public BrochureFamily placed(String number, int page) {
+            return placed(number, page, tone);
+        }
+
+        /** The same family on its printed page, numbered in reading order, in its chapter's tint. */
+        public BrochureFamily placed(String number, int page, String tone) {
             return new BrochureFamily("family-" + number, number, name, summary, description, format,
                     highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
-                    referencePriceLabel, compactDetail, variants, specs, page);
+                    referencePriceLabel, compactDetail, variants, specs, page, facts, tone);
         }
 
         /** The one line the overview says about this family. */
@@ -175,13 +186,22 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             EditorialLayout images,
             String familyCountLabel, List<BrochureFamily> families,
             /** The printed page the chapter starts on; 0 until the book is paginated. */
-            int page) {
+            int page,
+            /** The chapter's tint class: bordeaux first, then the other tones in turn. */
+            String tone) {
 
         /** Compatibility for callers written before the pages were numbered. */
         public BrochureSection(String number, String name, String description, String categoryKey,
                                EditorialLayout images, String familyCountLabel,
                                List<BrochureFamily> families) {
-            this(number, name, description, categoryKey, images, familyCountLabel, families, 0);
+            this(number, name, description, categoryKey, images, familyCountLabel, families, 0, "tone-1");
+        }
+
+        /** Compatibility for callers written before the chapters were tinted. */
+        public BrochureSection(String number, String name, String description, String categoryKey,
+                               EditorialLayout images, String familyCountLabel,
+                               List<BrochureFamily> families, int page) {
+            this(number, name, description, categoryKey, images, familyCountLabel, families, page, "tone-1");
         }
     }
 
@@ -207,25 +227,42 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
     }
 
-    public record OverviewCard(
-            boolean placeholder, boolean wide, String anchor, String number, String name,
-            String categoryKey, String categoryName, String image, String variantCountLabel,
-            String referencePriceLabel,
-            /** One line about the family, and the page its detail sheet is on. */
-            String summary, int page) {
-
-        static OverviewCard empty() {
-            return new OverviewCard(true, false, "", "", "", "", "", null, "", null, "", 0);
-        }
-
-        OverviewCard asWide() {
-            return new OverviewCard(placeholder, true, anchor, number, name, categoryKey,
-                    categoryName, image, variantCountLabel, referencePriceLabel, summary, page);
+    /** One colour a family comes in: the swatch when the product card knows it, else just the name. */
+    public record ColourDot(String hex, String name) {
+        public boolean hasHex() {
+            return present(hex);
         }
     }
 
-    public record OverviewPage(int number, int total, boolean compact,
-                               List<List<OverviewCard>> rows) {}
+    /**
+     * What a buyer scans in the range table, one line per family: the facts
+     * every variant shares, or the first two when they differ. Colours are
+     * dots, not prose; the description stays on the family page.
+     */
+    public record RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
+                             String productSize, String packaging, String carton, String cartonPieces,
+                             String cbm, String hcCapacity, String ean) {
+        static RangeFacts empty() {
+            return new RangeFacts("", List.of(), "", "", "", "", "", "", "", "", "");
+        }
+    }
+
+    /** A line of the range table: a chapter heading in its tint, or one family with its facts. */
+    public record OverviewRow(boolean header, String tone, String number, String name, String countLabel,
+                              String anchor, int page, String image, RangeFacts facts, String priceLabel) {
+        static OverviewRow group(BrochureSection section) {
+            return new OverviewRow(true, section.tone(), section.number(), section.name(),
+                    section.familyCountLabel(), "", section.page(), null, RangeFacts.empty(), null);
+        }
+
+        static OverviewRow family(BrochureFamily family) {
+            return new OverviewRow(false, family.tone(), family.number(), family.name(), "",
+                    family.anchor(), family.page(), family.overviewImage(), family.facts(),
+                    family.referencePriceLabel());
+        }
+    }
+
+    public record OverviewPage(int number, int total, List<OverviewRow> rows) {}
 
     @Override
     public Document render(CatalogExportService.Model catalog) {
@@ -348,8 +385,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         /* The book in reading order: cover, overview, then per chapter its
            intro page and the family sheets. Every family learns its page so
            the overview can point at it and the footers can say it. */
-        int overviewPageCount = allFamilies.isEmpty() ? 0
-                : (int) Math.ceil(allFamilies.size() / (double) OVERVIEW_CARDS_PER_PAGE);
+        List<List<int[]>> overviewSlots = overviewSlots(
+                byCategory.values().stream().map(List::size).toList());
+        int overviewPageCount = overviewSlots.size();
         /* The first page after the cover is 2; the overview pages come before the chapters. */
         int page = 2 + (options.includeOverview() ? overviewPageCount : 0);
         List<BrochureSection> sections = new ArrayList<>();
@@ -371,9 +409,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     ? List.of(categoryLead) : photos.diverseFamilyPhotos(entry.getValue());
             int sectionPage = page;
             if (options.includeCategoryIntros()) page++;
+            /* Bordeaux for the first chapter, then the other tones, round and round. */
+            String tone = "tone-" + ((sectionIndex - 1) % TONE_COUNT + 1);
             List<BrochureFamily> chapter = new ArrayList<>();
             for (FamilyRenderData rendered : entry.getValue()) {
-                chapter.add(rendered.family().placed(twoDigits(familyNumber++), page++));
+                chapter.add(rendered.family().placed(twoDigits(familyNumber++), page++, tone));
             }
             pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
@@ -382,7 +422,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
                             copy(copy, "catalog.common.selectedfamily.plural")),
-                    List.copyOf(chapter), sectionPage));
+                    List.copyOf(chapter), sectionPage, tone));
         }
 
         List<PhotoRef> selectedPhotos = photos.diverseFamilyPhotos(renderedFamilies);
@@ -393,7 +433,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         EditorialLayout coverImages = photos.coverLayout(coverLead);
         EditorialLayout backImages = photos.editorialLayout(selectedPhotos, true);
 
-        List<OverviewPage> overviewPages = overviewPages(pagedFamilies, copy);
+        List<OverviewPage> overviewPages = overviewPages(overviewSlots, sections);
         String title = present(request.title())
                 ? request.title().trim()
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
@@ -562,42 +602,116 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 packageLine, overviewImage, photoLayout, referencePriceLabel,
                 compactDetail(summary, description, highlights, variants.size(),
                         photoLayout.extras().size()),
-                variants, specs);
+                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1");
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
-    private static List<OverviewPage> overviewPages(
-            List<BrochureFamily> families, Map<String, String> copy) {
-        if (families.isEmpty()) return List.of();
-        int pageCount = (int) Math.ceil(families.size() / (double) OVERVIEW_CARDS_PER_PAGE);
-        int basePageSize = families.size() / pageCount;
-        int largerPages = families.size() % pageCount;
-        List<OverviewPage> pages = new ArrayList<>();
-        int from = 0;
-        for (int page = 0; page < pageCount; page++) {
-            int pageSize = basePageSize + (page < largerPages ? 1 : 0);
-            int to = Math.min(from + pageSize, families.size());
-            if (from >= to) break;
-            List<BrochureFamily> slice = families.subList(from, to);
-            List<OverviewCard> cards = slice.stream().map(family -> new OverviewCard(
-                    false, false, family.anchor(), family.number(), family.name(), family.categoryKey(),
-                    family.categoryName(), family.overviewImage(), countLabel(family.variants().size(),
-                            copy(copy, "catalog.common.variant.singular"),
-                            copy(copy, "catalog.common.variant.plural")),
-                    family.referencePriceLabel(), family.overviewSummary(), family.page()))
-                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-            /* Three equal cards a row; a short last row keeps its blanks so the
-               grid never stretches one product into a banner. */
-            List<List<OverviewCard>> cardRows = new ArrayList<>();
-            for (int index = 0; index < cards.size(); index += OVERVIEW_COLUMNS) {
-                int end = Math.min(index + OVERVIEW_COLUMNS, cards.size());
-                List<OverviewCard> row = new ArrayList<>(cards.subList(index, end));
-                while (row.size() < OVERVIEW_COLUMNS) row.add(OverviewCard.empty());
-                cardRows.add(List.copyOf(row));
+    /** The family's line in the range table, read off its variants. */
+    private static RangeFacts rangeFacts(List<Product> variants, Language language, Map<String, String> copy) {
+        Product first = variants.getFirst();
+        Map<String, String> words = DocumentText.of(language);
+        String pieces = copy(copy, "catalog.common.pieces");
+        List<ColourDot> colours = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (Product product : variants) {
+            String name = product.colourIn(language);
+            String hex = product.colourHex();
+            if (!present(name) && !present(hex)) continue;
+            String key = (present(hex) ? hex.toLowerCase(Locale.ROOT) : "") + "|" + (present(name) ? name.strip().toLowerCase(Locale.ROOT) : "");
+            if (seen.add(key)) colours.add(new ColourDot(present(hex) ? hex : null, present(name) ? name.strip() : ""));
+        }
+        String packaging = sharedOrFirst(variants, product -> {
+            if (product.packaging() == null || !product.packaging().isPresent()) return "";
+            String kind = words.getOrDefault(product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                    ? "displayPackaging" : "giftPackaging", product.packaging().kind().dutchLabel());
+            Integer per = product.packaging().piecesPerUnit();
+            return per != null && per > 1 ? kind + " · " + integer(per, language) + " " + pieces : kind;
+        });
+        String cartonPieces = sharedOrFirst(variants, product -> {
+            if (product.carton() == null) return "";
+            String count = product.carton().piecesPerCarton() > 0
+                    ? integer(product.carton().piecesPerCarton(), language) + " " + pieces : "";
+            String weight = positive(product.carton().weightKg()) ? DocumentFormat.kg(product.carton().weightKg()) : "";
+            return count.isEmpty() ? weight : weight.isEmpty() ? count : count + " · " + weight;
+        });
+        return new RangeFacts(
+                skuLabel(variants), List.copyOf(colours),
+                distinctJoined(variants, product -> product.colourIn(language)),
+                distinctJoined(variants, product -> product.variantSizeIn(language)),
+                sharedOrFirst(variants, product -> compactDimensions(product.dimensions())),
+                packaging,
+                sharedOrFirst(variants, product -> product.carton() == null ? "" : compactDimensions(product.carton().dimensions())),
+                cartonPieces,
+                sharedOrFirst(variants, product -> product.carton() == null || !positive(product.carton().cbm())
+                        ? "" : DocumentFormat.cbm(product.carton().cbm())),
+                sharedOrFirst(variants, product -> {
+                    Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
+                    return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
+                }),
+                variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "");
+    }
+
+    /** One SKU, two SKUs, or the first and the last with a dash: enough to find the family in a price list. */
+    private static String skuLabel(List<Product> variants) {
+        List<String> skus = variants.stream().map(Product::sku).filter(PdfCatalogRenderer::present)
+                .map(String::strip).distinct().toList();
+        if (skus.isEmpty()) return "";
+        if (skus.size() <= 2) return String.join(" · ", skus);
+        return skus.getFirst() + " – " + skus.getLast();
+    }
+
+    /** The value every variant shares; when they differ, the first two with a hint that there is more. */
+    private static String sharedOrFirst(List<Product> variants, java.util.function.Function<Product, String> value) {
+        Set<String> values = new LinkedHashSet<>();
+        for (Product product : variants) {
+            String text = value.apply(product);
+            if (present(text)) values.add(text.strip());
+        }
+        if (values.isEmpty()) return "";
+        List<String> list = new ArrayList<>(values);
+        if (list.size() == 1) return list.getFirst();
+        return list.get(0) + " / " + list.get(1) + (list.size() > 2 ? " …" : "");
+    }
+
+    /**
+     * Where each line of the range table lands: a chapter heading followed
+     * by its families, {@link #OVERVIEW_ROWS_PER_PAGE} lines a page, and a
+     * heading never stranded at the foot of a page. Each slot is
+     * {chapter index, family index} with -1 for the heading itself.
+     */
+    static List<List<int[]>> overviewSlots(List<Integer> chapterSizes) {
+        List<List<int[]>> pages = new ArrayList<>();
+        List<int[]> current = new ArrayList<>();
+        for (int chapter = 0; chapter < chapterSizes.size(); chapter++) {
+            int size = chapterSizes.get(chapter);
+            if (size <= 0) continue;
+            if (current.size() >= OVERVIEW_ROWS_PER_PAGE - 1) {
+                pages.add(List.copyOf(current));
+                current = new ArrayList<>();
             }
-            pages.add(new OverviewPage(page + 1, pageCount, cardRows.size() == 3,
-                    List.copyOf(cardRows)));
-            from = to;
+            current.add(new int[] {chapter, -1});
+            for (int family = 0; family < size; family++) {
+                if (current.size() >= OVERVIEW_ROWS_PER_PAGE) {
+                    pages.add(List.copyOf(current));
+                    current = new ArrayList<>();
+                }
+                current.add(new int[] {chapter, family});
+            }
+        }
+        if (!current.isEmpty()) pages.add(List.copyOf(current));
+        return List.copyOf(pages);
+    }
+
+    private static List<OverviewPage> overviewPages(List<List<int[]>> slots, List<BrochureSection> sections) {
+        List<OverviewPage> pages = new ArrayList<>();
+        for (int index = 0; index < slots.size(); index++) {
+            List<OverviewRow> rows = new ArrayList<>();
+            for (int[] slot : slots.get(index)) {
+                BrochureSection section = sections.get(slot[0]);
+                rows.add(slot[1] < 0 ? OverviewRow.group(section)
+                        : OverviewRow.family(section.families().get(slot[1])));
+            }
+            pages.add(new OverviewPage(index + 1, slots.size(), List.copyOf(rows)));
         }
         return List.copyOf(pages);
     }

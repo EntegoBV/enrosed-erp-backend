@@ -121,7 +121,7 @@ class PdfCatalogRendererTest {
         CatalogDocumentRenderer.Document qaBrochure = renderer.render(
                 comparisonQaModel(counterFixture, preservedFixture, fixture));
         try (PDDocument pdf = Loader.loadPDF(qaBrochure.content())) {
-            assertEquals(24, pdf.getNumberOfPages());
+            assertEquals(23, pdf.getNumberOfPages(), "one range page now carries every family");
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
                 assertTrue(pdf.getPage(page).getMediaBox().getHeight()
                         > pdf.getPage(page).getMediaBox().getWidth());
@@ -131,18 +131,18 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void overviewIncludesEverySelectedFamilyAcrossAsManyNineCardPagesAsNeeded() {
+    void overviewListsEverySelectedFamilyAsARowOfTheRangeTable() {
         String html = renderer.renderHtml(model(57, CatalogExportService.Layout.BROCHURE));
-        assertEquals(3, occurrences(html, "class=\"page overview-page\""));
-        assertEquals(19, occurrences(html, "class=\"overview-card overview-card--"));
+        assertEquals(19, occurrences(html, "class=\"range-row range-row--"), "one line per family");
         List<String> overviewPages = overviewPageFragments(html);
-        assertEquals(List.of(7, 6, 6), overviewPages.stream()
-                .map(page -> occurrences(page, "class=\"overview-card overview-card--"))
-                .toList());
+        assertTrue(overviewPages.size() >= 1);
         for (String overviewPage : overviewPages) {
-            assertTrue(occurrences(overviewPage, "class=\"overview-card overview-card--") <= 9,
-                    "an A4 overview page must never exceed nine fixed cards");
+            int lines = occurrences(overviewPage, "class=\"range-row range-row--")
+                    + occurrences(overviewPage, "class=\"range-group range-group--");
+            assertTrue(lines <= 19, "an A4 range page holds at most nineteen lines");
+            assertFalse(overviewPage.trim().endsWith("range-group"), "a chapter heading never ends a page");
         }
+        assertTrue(html.contains("class=\"range-group range-group--tone-1\""), "the first chapter is bordeaux");
         assertTrue(html.contains("href=\"#family-19\""));
         assertTrue(html.contains("id=\"family-19\""));
         assertFalse(html.contains("family-20"));
@@ -152,13 +152,23 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void aShortOverviewRowKeepsItsBlanksInsteadOfStretchingOneCard() {
+    void rangePagesNeverStrandAChapterHeadingAtTheirFoot() {
+        List<List<int[]>> pages = PdfCatalogRenderer.overviewSlots(List.of(17, 1, 3, 20));
+        assertEquals(List.of(18, 19, 8), pages.stream().map(List::size).toList());
+        assertEquals(-1, pages.get(1).getFirst()[1], "a heading that would end page one opens page two");
+        assertEquals(1, pages.get(1).getFirst()[0]);
+        assertEquals(19, pages.get(1).size(), "a page fills up once its heading is safe");
+        assertTrue(PdfCatalogRenderer.overviewSlots(List.of()).isEmpty());
+    }
+
+    @Test
+    void aSingleFamilyStillGetsItsChapterLineAndPageReference() {
         String html = renderer.renderHtml(model(1, CatalogExportService.Layout.BROCHURE));
 
-        assertFalse(html.contains("overview-cell--wide"), "three equal columns, never a banner card");
-        assertEquals(1, occurrences(html, "class=\"overview-card overview-card--"));
-        assertEquals(2, occurrences(html, "class=\"overview-cell overview-empty\""));
-        assertTrue(html.contains("class=\"overview-page-ref\""), "every card points at its detail page");
+        assertEquals(1, occurrences(html, "class=\"range-row range-row--"));
+        assertEquals(1, occurrences(html, "class=\"range-group range-group--"));
+        assertTrue(html.contains("class=\"range-no\"><b>01</b>"), "the row carries its number and page");
+        assertFalse(html.contains("overview-summary"), "the range table carries facts, not prose");
     }
 
     @Test
@@ -432,7 +442,7 @@ class PdfCatalogRendererTest {
 
         String html = renderer.renderHtml(dense);
         assertTrue(html.contains(
-                "class=\"page family-page family-page--counter family-page--compact\""));
+                "class=\"page family-page family-page--counter family-page--tone-1 family-page--compact\""));
         CatalogDocumentRenderer.Document document = renderer.render(dense);
         Path qa = Path.of("target", "catalog-qa");
         Files.createDirectories(qa);
