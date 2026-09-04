@@ -1,9 +1,12 @@
 package be.enrosed.analytics;
 
 import be.enrosed.analytics.WebsiteAnalyticsDtos.CityRow;
+import be.enrosed.analytics.WebsiteAnalyticsDtos.Compare;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.CountryRow;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.DayPoint;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.DeviceRow;
+import be.enrosed.analytics.WebsiteAnalyticsDtos.Funnel;
+import be.enrosed.analytics.WebsiteAnalyticsDtos.HourPoint;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.KindRow;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.LocaleRow;
 import be.enrosed.analytics.WebsiteAnalyticsDtos.PageRow;
@@ -41,6 +44,7 @@ public class WebsiteVisitService {
 
     static final ZoneId ZONE = ZoneId.of("Europe/Brussels");
     private static final Duration SESSION_GAP = Duration.ofMinutes(30);
+    private static final Duration ACTIVE_WINDOW = Duration.ofMinutes(30);
     private static final Pattern VISITOR = Pattern.compile("^[a-f0-9]{16,64}$");
     private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");
     private static final Set<String> SITE_LOCALES = Set.of("nl", "fr", "de", "es", "pl", "pt", "tr");
@@ -53,11 +57,18 @@ public class WebsiteVisitService {
      */
     private final Set<String> excludedCities;
     private final List<String> excludedCityLabels;
+    /**
+     * Where the team comes from when it is not at home: the ERP itself and
+     * preview deployments. A page opened from there is us checking our work.
+     */
+    private final Set<String> internalReferrerHosts;
 
     @Inject
     public WebsiteVisitService(
             @ConfigProperty(name = "enrosed.analytics.excluded-cities",
-                    defaultValue = "Tessenderlo,Mol,Balen,Geel,Arendonk,Dessel,Retie") String excludedCities) {
+                    defaultValue = "Tessenderlo,Mol,Balen,Geel,Arendonk,Dessel,Retie") String excludedCities,
+            @ConfigProperty(name = "enrosed.analytics.internal-referrer-hosts",
+                    defaultValue = "erp.enrosed.com,app.enrosed.com,localhost,127.0.0.1") String internalReferrerHosts) {
         List<String> labels = new ArrayList<>();
         Set<String> keys = new HashSet<>();
         for (String city : excludedCities.split(",")) {
@@ -68,6 +79,26 @@ public class WebsiteVisitService {
         }
         this.excludedCityLabels = List.copyOf(labels);
         this.excludedCities = Set.copyOf(keys);
+        Set<String> hosts = new HashSet<>();
+        for (String host : internalReferrerHosts.split(",")) {
+            String value = host.strip().toLowerCase(Locale.ROOT);
+            if (!value.isEmpty()) hosts.add(value);
+        }
+        this.internalReferrerHosts = Set.copyOf(hosts);
+    }
+
+    /** Whether the page was reached from the ERP, a preview build or a developer machine. */
+    boolean internalReferrer(String referrer) {
+        if (referrer == null || referrer.isBlank()) return false;
+        try {
+            String host = URI.create(referrer.strip()).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            if (host.startsWith("www.")) host = host.substring(4);
+            return internalReferrerHosts.contains(host) || host.endsWith(".vercel.app");
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
     }
 
     /** A Belgian visit from one of our own towns. */
@@ -104,6 +135,7 @@ public class WebsiteVisitService {
         visit.city = trim(input.city(), 80);
         /* Accepted, but not kept: the beacon did its job, the number stays honest. */
         if (ownVisit(visit.country, visit.city)) return true;
+        if (Boolean.TRUE.equals(input.internal()) || internalReferrer(input.referrer())) return true;
         visit.referrerHost = referrerHost(input.referrer());
         visit.source = trim(lower(input.utmSource()), 64);
         visit.medium = trim(lower(input.utmMedium()), 64);
@@ -120,48 +152,164 @@ public class WebsiteVisitService {
         int days = Math.max(1, Math.min(requestedDays, 365));
         LocalDate today = LocalDate.now(ZONE);
         LocalDate firstDay = today.minusDays(days - 1L);
+        Fold current = fold(firstDay, today);
+        Fold previous = fold(firstDay.minusDays(days), firstDay.minusDays(1));
+        long activeNow = activeVisitors(Instant.now().minus(ACTIVE_WINDOW));
+
+        List<DayPoint> series = new ArrayList<>();
+        current.perDay.forEach((day, count) -> series.add(new DayPoint(day.toString(), count[0],
+                current.visitorsPerDay.get(day).size())));
+        List<HourPoint> perHour = new ArrayList<>();
+        for (int hour = 0; hour < 24; hour++) {
+            perHour.add(new HourPoint(hour, current.perHourVisits[hour], current.perHourVisitors.get(hour).size()));
+        }
+        long visits = current.visits;
+        long sessions = current.sessions;
+        Totals totals = new Totals(visits, current.visitors.size(), sessions,
+                sessions == 0 ? 0 : Math.round(visits * 10.0 / sessions) / 10.0,
+                current.countries.keySet().stream().filter(code -> !code.isEmpty()).count(),
+                sessions == 0 ? 0 : Math.round(current.bounces * 1000.0 / sessions) / 10.0,
+                current.timedSessions == 0 ? 0 : current.timedSeconds / current.timedSessions,
+                activeNow);
+        Compare compare = new Compare(previous.visits, previous.visitors.size(), previous.sessions,
+                previous.quoteSessions);
+        return new Report(days, firstDay.toString(), today.toString(), totals, compare, series, perHour,
+                top(current.pages, 40, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
+                top(current.kinds, 10, (key, counter) -> new KindRow(key, counter.visits)),
+                top(current.countries, 40, (key, counter) -> new CountryRow(key.isEmpty() ? null : key, counter.visits, counter.visitors.size())),
+                top(current.cities, 12, (key, counter) -> new CityRow(key.substring(0, key.indexOf('|')), current.cityCountries.get(key), counter.visits)),
+                top(current.sources, 15, (key, counter) -> new SourceRow(key, current.sourceKinds.get(key), counter.visits)),
+                current.hours,
+                top(current.devices, 3, (key, counter) -> new DeviceRow(key, counter.visits)),
+                top(current.locales, 8, (key, counter) -> new LocaleRow(key, counter.visits)),
+                top(current.entries, 8, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
+                top(current.exits, 8, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
+                new Funnel(sessions, current.productSessions, current.quoteSessions, current.contactSessions),
+                excludedCityLabels,
+                Instant.now().toString());
+    }
+
+    /** Every stored view between the two days, folded; own visits stored before the town list never count. */
+    private Fold fold(LocalDate firstDay, LocalDate lastDay) {
         Instant from = firstDay.atStartOfDay(ZONE).toInstant();
-        Instant to = today.plusDays(1).atStartOfDay(ZONE).toInstant();
+        Instant to = lastDay.plusDays(1).atStartOfDay(ZONE).toInstant();
         List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list(
                 "occurredAt >= ?1 and occurredAt < ?2 order by visitor, occurredAt", from, to);
-
-        Map<LocalDate, long[]> perDay = new LinkedHashMap<>();
-        Map<LocalDate, Set<String>> visitorsPerDay = new HashMap<>();
-        for (LocalDate day = firstDay; !day.isAfter(today); day = day.plusDays(1)) {
-            perDay.put(day, new long[1]);
-            visitorsPerDay.put(day, new HashSet<>());
-        }
-        Map<String, Counter> pages = new HashMap<>();
-        Map<String, Counter> kinds = new HashMap<>();
-        Map<String, Counter> countries = new HashMap<>();
-        Map<String, Counter> cities = new HashMap<>();
-        Map<String, Counter> sources = new HashMap<>();
-        Map<String, Counter> devices = new HashMap<>();
-        Map<String, Counter> locales = new HashMap<>();
-        Map<String, String> sourceKinds = new HashMap<>();
-        Map<String, String> cityCountries = new HashMap<>();
-        int[][] hours = new int[7][24];
-        Set<String> visitors = new HashSet<>();
-        long sessions = 0;
-        String lastVisitor = null;
-        Instant lastSeen = null;
-
+        Fold fold = new Fold(firstDay, lastDay);
         for (WebsiteVisitEntity row : rows) {
             if (ownVisit(row.country, row.city)) continue;
+            fold.add(row);
+        }
+        fold.finish();
+        return fold;
+    }
+
+    /** Distinct visitors seen since the given moment: the "right now" of the report. */
+    private long activeVisitors(Instant since) {
+        List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list("occurredAt >= ?1", since);
+        Set<String> active = new HashSet<>();
+        for (WebsiteVisitEntity row : rows) {
+            if (!ownVisit(row.country, row.city)) active.add(row.visitor);
+        }
+        return active.size();
+    }
+
+    private static final class Counter {
+        long visits;
+        final Set<String> visitors = new HashSet<>();
+
+        void add(String visitor) {
+            visits++;
+            visitors.add(visitor);
+        }
+    }
+
+    /**
+     * One pass over the views of a period, sorted by visitor and time. Views
+     * of one visitor less than half an hour apart form a session; when the
+     * session ends its first and last page, its length and how far it got
+     * are booked.
+     */
+    private static final class Fold {
+        final Map<LocalDate, long[]> perDay = new LinkedHashMap<>();
+        final Map<LocalDate, Set<String>> visitorsPerDay = new HashMap<>();
+        final long[] perHourVisits = new long[24];
+        final List<Set<String>> perHourVisitors = new ArrayList<>();
+        final Map<String, Counter> pages = new HashMap<>();
+        final Map<String, Counter> kinds = new HashMap<>();
+        final Map<String, Counter> countries = new HashMap<>();
+        final Map<String, Counter> cities = new HashMap<>();
+        final Map<String, Counter> sources = new HashMap<>();
+        final Map<String, Counter> devices = new HashMap<>();
+        final Map<String, Counter> locales = new HashMap<>();
+        final Map<String, Counter> entries = new HashMap<>();
+        final Map<String, Counter> exits = new HashMap<>();
+        final Map<String, String> sourceKinds = new HashMap<>();
+        final Map<String, String> cityCountries = new HashMap<>();
+        final int[][] hours = new int[7][24];
+        final Set<String> visitors = new HashSet<>();
+        long visits;
+        long sessions;
+        long bounces;
+        long timedSessions;
+        long timedSeconds;
+        long productSessions;
+        long quoteSessions;
+        long contactSessions;
+
+        private String sessionVisitor;
+        private Instant sessionStart;
+        private Instant lastSeen;
+        private String entryPath;
+        private String lastPath;
+        private int sessionPages;
+        private boolean sawProduct;
+        private boolean sawQuote;
+        private boolean sawContact;
+
+        Fold(LocalDate firstDay, LocalDate lastDay) {
+            for (LocalDate day = firstDay; !day.isAfter(lastDay); day = day.plusDays(1)) {
+                perDay.put(day, new long[1]);
+                visitorsPerDay.put(day, new HashSet<>());
+            }
+            for (int hour = 0; hour < 24; hour++) perHourVisitors.add(new HashSet<>());
+        }
+
+        void add(WebsiteVisitEntity row) {
             ZonedDateTime at = row.occurredAt.atZone(ZONE);
             LocalDate day = at.toLocalDate();
             long[] count = perDay.get(day);
             if (count != null) count[0]++;
             Set<String> dayVisitors = visitorsPerDay.get(day);
             if (dayVisitors != null) dayVisitors.add(row.visitor);
+            visits++;
             visitors.add(row.visitor);
             hours[at.getDayOfWeek().getValue() - 1][at.getHour()]++;
-            if (!row.visitor.equals(lastVisitor) || lastSeen == null
-                    || Duration.between(lastSeen, row.occurredAt).compareTo(SESSION_GAP) > 0) {
+            perHourVisits[at.getHour()]++;
+            perHourVisitors.get(at.getHour()).add(row.visitor);
+
+            boolean newSession = !row.visitor.equals(sessionVisitor) || lastSeen == null
+                    || Duration.between(lastSeen, row.occurredAt).compareTo(SESSION_GAP) > 0;
+            if (newSession) {
+                closeSession();
+                sessionVisitor = row.visitor;
+                sessionStart = row.occurredAt;
+                entryPath = row.path;
+                sessionPages = 0;
+                sawProduct = false;
+                sawQuote = false;
+                sawContact = false;
                 sessions++;
             }
-            lastVisitor = row.visitor;
+            sessionPages++;
             lastSeen = row.occurredAt;
+            lastPath = row.path;
+            switch (row.pageKind) {
+                case "PRODUCT" -> sawProduct = true;
+                case "QUOTE" -> sawQuote = true;
+                case "CONTACT" -> sawContact = true;
+                default -> { }
+            }
 
             pages.computeIfAbsent(row.path, key -> new Counter()).add(row.visitor);
             kinds.computeIfAbsent(row.pageKind, key -> new Counter()).add(row.visitor);
@@ -178,33 +326,24 @@ public class WebsiteVisitService {
             locales.computeIfAbsent(row.locale == null ? "en" : row.locale, key -> new Counter()).add(row.visitor);
         }
 
-        List<DayPoint> series = new ArrayList<>();
-        perDay.forEach((day, count) -> series.add(new DayPoint(day.toString(), count[0],
-                visitorsPerDay.get(day).size())));
-        long visits = 0;
-        for (long[] count : perDay.values()) visits += count[0];
-        Totals totals = new Totals(visits, visitors.size(), sessions,
-                sessions == 0 ? 0 : Math.round(visits * 10.0 / sessions) / 10.0,
-                countries.keySet().stream().filter(code -> !code.isEmpty()).count());
-        return new Report(days, firstDay.toString(), today.toString(), totals, series,
-                top(pages, 40, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
-                top(kinds, 10, (key, counter) -> new KindRow(key, counter.visits)),
-                top(countries, 40, (key, counter) -> new CountryRow(key.isEmpty() ? null : key, counter.visits, counter.visitors.size())),
-                top(cities, 12, (key, counter) -> new CityRow(key.substring(0, key.indexOf('|')), cityCountries.get(key), counter.visits)),
-                top(sources, 15, (key, counter) -> new SourceRow(key, sourceKinds.get(key), counter.visits)),
-                hours,
-                top(devices, 3, (key, counter) -> new DeviceRow(key, counter.visits)),
-                top(locales, 8, (key, counter) -> new LocaleRow(key, counter.visits)),
-                excludedCityLabels);
-    }
+        void finish() {
+            closeSession();
+        }
 
-    private static final class Counter {
-        long visits;
-        final Set<String> visitors = new HashSet<>();
-
-        void add(String visitor) {
-            visits++;
-            visitors.add(visitor);
+        private void closeSession() {
+            if (sessionVisitor == null) return;
+            entries.computeIfAbsent(entryPath, key -> new Counter()).add(sessionVisitor);
+            exits.computeIfAbsent(lastPath, key -> new Counter()).add(sessionVisitor);
+            if (sessionPages <= 1) {
+                bounces++;
+            } else {
+                timedSessions++;
+                timedSeconds += Math.max(0, Duration.between(sessionStart, lastSeen).getSeconds());
+            }
+            if (sawProduct) productSessions++;
+            if (sawQuote) quoteSessions++;
+            if (sawContact) contactSessions++;
+            sessionVisitor = null;
         }
     }
 
