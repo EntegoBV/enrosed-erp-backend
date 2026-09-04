@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light"/>
+  <meta name="supported-color-schemes" content="light"/>
+  <title>Enrosed</title>
+</head>
+<body style="margin:0;padding:0;background:#f4efeb;color:#1a1614;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">{notice.intro}</div>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;background:#f4efeb">
+    <tr>
+      <td align="center" style="padding:24px 12px">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+               style="width:100%;max-width:640px;border-collapse:separate;overflow:hidden;border:1px solid #e7ded8;border-radius:18px;background:#ffffff;box-shadow:0 12px 36px rgba(42,24,20,.08)">
+          <tr>
+            <td style="padding:26px 30px;background:#180d11;border-bottom:1px solid #382126">
+              <img src="{logoUrl}" width="180" height="47" alt="ENROSED LONDON"
+                   style="display:block;width:180px;max-width:100%;height:auto;border:0;color:#e0be73;font-family:Georgia,'Times New Roman',serif;font-size:24px"/>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:30px 30px 10px">
+              <p style="margin:0 0 8px;color:#8f2942;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">{notice.kicker}</p>
+              <h1 style="margin:0 0 10px;font-family:Georgia,'Times New Roman',serif;font-size:27px;font-weight:600;line-height:1.2;color:#1a1614">{notice.title}</h1>
+              <p style="margin:0 0 22px;color:#645b55;font-size:14px">{notice.intro}</p>
+
+              {#if notice.facts && notice.facts.size > 0}
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 22px;border:1px solid #e9e3de;border-radius:10px;background:#fcfaf8">
+                  {#for fact in notice.facts}
+                    <tr>
+                      <td style="width:34%;padding:9px 14px;border-bottom:1px solid #f0e9e3;color:#8b8179;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;vertical-align:top">{fact.label}</td>
+                      <td style="padding:9px 14px;border-bottom:1px solid #f0e9e3;font-size:14px;vertical-align:top">{fact.value}</td>
+                    </tr>
+                  {/for}
+                </table>
+              {/if}
+
+              {#if notice.lines && notice.lines.size > 0}
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:14px">
+                  <tr>
+                    <th align="left" style="padding:0 0 8px;border-bottom:1px solid #e0be73;color:#8b8179;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Gevraagd</th>
+                    <th align="right" style="padding:0 0 8px;border-bottom:1px solid #e0be73;color:#8b8179;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">Aantal</th>
+                  </tr>
+                  {#for line in notice.lines}
+                    <tr>
+                      <td style="padding:8px 0;border-bottom:1px solid #f0e9e3">{line.description}{#if line.note}<br/><span style="color:#8b8179;font-size:12px">{line.note}</span>{/if}</td>
+                      <td align="right" style="padding:8px 0 8px 12px;border-bottom:1px solid #f0e9e3;white-space:nowrap;font-weight:700">{line.quantity}</td>
+                    </tr>
+                  {/for}
+                </table>
+              {/if}
+
+              {#if notice.message}
+                <div style="margin:0 0 22px;padding:14px 16px;border-left:3px solid #e0be73;border-radius:0 8px 8px 0;background:#fcf7ec">
+                  {#if notice.messageTitle}<p style="margin:0 0 4px;font-weight:700;color:#7a5a1a">{notice.messageTitle}</p>{/if}
+                  <p style="margin:0;font-size:14px;white-space:pre-line">{notice.message}</p>
+                </div>
+              {/if}
+
+              {#if notice.buttonUrl || notice.secondaryUrl}
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px">
+                  <tr>
+                    {#if notice.buttonUrl}
+                      <td style="border-radius:8px;background:#1f7a4d">
+                        <a href="{notice.buttonUrl}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-weight:700;text-decoration:none">{notice.buttonLabel}</a>
+                      </td>
+                    {/if}
+                    {#if notice.buttonUrl && notice.secondaryUrl}<td style="width:10px"></td>{/if}
+                    {#if notice.secondaryUrl}
+                      <td style="border:1px solid #e9e3de;border-radius:8px;background:#ffffff">
+                        <a href="{notice.secondaryUrl}" style="display:inline-block;padding:11px 20px;color:#1a1614;font-weight:700;text-decoration:none">{notice.secondaryLabel}</a>
+                      </td>
+                    {/if}
+                  </tr>
+                </table>
+              {/if}
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:16px 30px 22px;border-top:1px solid #e9e3de;color:#8b8179;font-size:12px;line-height:1.5">
+              Automatische teammelding van Enrosed BV. Antwoorden op deze mail komen niet bij de klant terecht.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

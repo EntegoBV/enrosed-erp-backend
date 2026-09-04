@@ -175,4 +175,45 @@ class CancellationMailRenderTest {
         assertTrue(copy.getBcc().isEmpty() && copy.getCc().isEmpty(), "the team copy carries no further copies");
         assertFalse(html.contains("{"), "every placeholder resolved: " + html);
     }
+
+    @Test
+    void websiteRequestsReachTheTeamMailboxAsAStyledNotice() {
+        var notice = new be.enrosed.shared.mail.InternalMessageSender.TeamNotice(
+                "Nieuwe websiteaanvraag ENR-2026-0150 · Bloemenhuis Peeters",
+                "Website · nieuwe offerteaanvraag",
+                "Bloemenhuis Peeters",
+                "Klaar voor beoordeling in Verkoop · 240 stuks in 1 regel.",
+                List.of(new be.enrosed.shared.mail.InternalMessageSender.TeamFact("Bedrijf", "Bloemenhuis Peeters"),
+                        new be.enrosed.shared.mail.InternalMessageSender.TeamFact("E-mail", "info@peeters.example"),
+                        new be.enrosed.shared.mail.InternalMessageSender.TeamFact("Land", "BE")),
+                List.of(new be.enrosed.shared.mail.InternalMessageSender.TeamLine(
+                        "Gepreserveerde roos in stolp 25 cm - Rood", "240 st", "ENR-P10 · 60 dozen van 4")),
+                "Opmerking van de klant", "Graag levering voor Valentijn <3",
+                "Open in het ERP", "https://erp.enrosed.com/sales/150",
+                "Mail de klant", "mailto:info@peeters.example",
+                "Nieuwe websiteaanvraag ENR-2026-0150");
+
+        mailbox.clear();
+        mailer.sendTeamNotice(notice);
+
+        List<Mail> toTeam = mailbox.getMailsSentTo("hello@enrosed.com");
+        assertEquals(1, toTeam.size(), "styled notices go to the team mailbox");
+        Mail mail = toTeam.get(0);
+        assertEquals("Nieuwe websiteaanvraag ENR-2026-0150 · Bloemenhuis Peeters", mail.getSubject());
+        String html = mail.getHtml();
+        try {
+            Path preview = Path.of("target", "mail-preview");
+            Files.createDirectories(preview);
+            Files.writeString(preview.resolve("team-notice.html"), html);
+        } catch (java.io.IOException ignored) {
+            /* Preview only. */
+        }
+        assertTrue(html.contains("Bloemenhuis Peeters"), html);
+        assertTrue(html.contains("60 dozen van 4"), html);
+        assertTrue(html.contains("Graag levering voor Valentijn &lt;3"), "the customer's text is escaped: " + html);
+        assertTrue(html.contains("https://erp.enrosed.com/sales/150"), html);
+        assertTrue(html.contains("mailto:info@peeters.example"), html);
+        assertFalse(html.contains("{notice"), "every placeholder resolved: " + html);
+        assertEquals("Nieuwe websiteaanvraag ENR-2026-0150", mail.getText());
+    }
 }

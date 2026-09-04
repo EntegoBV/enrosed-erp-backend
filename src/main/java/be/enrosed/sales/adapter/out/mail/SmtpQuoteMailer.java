@@ -10,6 +10,7 @@ import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.mail.InternalMessageSender;
+import be.enrosed.shared.mail.InternalMessageSender.TeamNotice;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -63,6 +64,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     private final Template quoteMailTemplate;
     private final Template cancellationMailTemplate;
     private final Template quoteSentInternalTemplate;
+    private final Template teamNoticeTemplate;
 
     @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
     String websiteBaseUrl;
@@ -101,11 +103,13 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
 
     public SmtpQuoteMailer(Mailer mailer, @Location("quote-mail.html") Template quoteMailTemplate,
                            @Location("cancellation-mail.html") Template cancellationMailTemplate,
-                           @Location("quote-sent-internal.html") Template quoteSentInternalTemplate) {
+                           @Location("quote-sent-internal.html") Template quoteSentInternalTemplate,
+                           @Location("team-notice.html") Template teamNoticeTemplate) {
         this.cancellationMailTemplate = cancellationMailTemplate;
         this.mailer = mailer;
         this.quoteMailTemplate = quoteMailTemplate;
         this.quoteSentInternalTemplate = quoteSentInternalTemplate;
+        this.teamNoticeTemplate = teamNoticeTemplate;
     }
 
     @Override
@@ -405,6 +409,35 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         } catch (RuntimeException exception) {
             LOG.errorf(exception, "Interne melding kon niet gemaild worden");
         }
+    }
+
+    /** The team mailbox for styled notices; the plain internal recipient when none is configured. */
+    String teamRecipient() {
+        return salesCopy.map(String::strip).filter(value -> !value.isEmpty()).orElse(internalRecipient);
+    }
+
+    @Override
+    public void sendTeamNotice(TeamNotice notice) {
+        String recipient = teamRecipient();
+        try {
+            String html = teamNoticeHtml(notice);
+            if (!mock && !brevoApiKey.orElse("").isBlank()) {
+                sendViaBrevo(recipient, notice.subject(), html, null, null, false);
+            } else {
+                mailer.send(Mail.withHtml(recipient, notice.subject(), html)
+                        .setText(notice.textFallback() == null ? "" : notice.textFallback()));
+            }
+            LOG.infof("Teammelding naar %s: %s", recipient, notice.subject());
+        } catch (Exception e) {
+            throw new IllegalStateException("Teammelding kon niet gemaild worden", e);
+        }
+    }
+
+    String teamNoticeHtml(TeamNotice notice) {
+        return teamNoticeTemplate
+                .data("logoUrl", BRAND_LOGO_URL)
+                .data("notice", notice)
+                .render();
     }
 
     @Override

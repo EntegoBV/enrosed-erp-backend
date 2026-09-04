@@ -28,8 +28,7 @@ public class ContactNotificationOutboxWorker {
         if (claimed == null) return;
         Delivery result;
         try {
-            messages.sendInternal("Nieuwe website-contactaanvraag " + claimed.reference(),
-                    body(claimed));
+            messages.sendTeamNotice(notice(claimed));
             result = new Delivery(true, null);
         } catch (RuntimeException exception) {
             result = new Delivery(false, exception.getClass().getSimpleName());
@@ -99,6 +98,46 @@ public class ContactNotificationOutboxWorker {
         }
     }
 
+    /** The styled team mail: every fact labelled, the message quoted, one click to reply. */
+    static InternalMessageSender.TeamNotice notice(Claimed request) {
+        List<InternalMessageSender.TeamFact> facts = List.of(
+                new InternalMessageSender.TeamFact("Referentie", request.reference()),
+                new InternalMessageSender.TeamFact("Onderwerp", topicLabel(request.topic())),
+                new InternalMessageSender.TeamFact("Naam", value(request.contactName())),
+                new InternalMessageSender.TeamFact("E-mail", value(request.email())),
+                new InternalMessageSender.TeamFact("Bedrijf", value(request.companyName())),
+                new InternalMessageSender.TeamFact("Telefoon", value(request.phone())),
+                new InternalMessageSender.TeamFact("Taal", value(request.language())),
+                new InternalMessageSender.TeamFact("Bronpagina", value(request.sourcePage())));
+        String mailto = request.email() == null || request.email().isBlank() ? null
+                : "mailto:" + request.email() + "?subject=" + java.net.URLEncoder.encode(
+                        "Re: uw bericht aan Enrosed (" + request.reference() + ")",
+                        java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        return new InternalMessageSender.TeamNotice(
+                "Nieuwe website-contactaanvraag " + request.reference(),
+                "Website · contactformulier",
+                value(request.contactName()) + (request.companyName() == null || request.companyName().isBlank()
+                        ? "" : " · " + request.companyName()),
+                "Er kwam een bericht binnen via het contactformulier van de website.",
+                facts, List.of(),
+                "Bericht", request.message(),
+                mailto == null ? null : "Beantwoord " + request.email(), mailto,
+                null, null,
+                body(request));
+    }
+
+    private static String topicLabel(String topic) {
+        if (topic == null) return "—";
+        return switch (topic) {
+            case "GENERAL" -> "Algemene vraag";
+            case "PRODUCT" -> "Vraag over een product";
+            case "ORDER_DELIVERY" -> "Bestelling of levering";
+            case "PARTNERSHIP" -> "Samenwerking";
+            case "OTHER" -> "Overige";
+            default -> topic;
+        };
+    }
+
     private static String body(Claimed request) {
         return String.join("\n",
                 "Referentie: " + request.reference(),
@@ -118,7 +157,7 @@ public class ContactNotificationOutboxWorker {
         return value == null || value.isBlank() ? "—" : value;
     }
 
-    private record Claimed(long id, String reference, String language, String topic,
+    record Claimed(long id, String reference, String language, String topic,
                            String contactName, String email, String companyName, String phone,
                            String message, String sourcePage) {}
     private record Delivery(boolean success, String error) {}

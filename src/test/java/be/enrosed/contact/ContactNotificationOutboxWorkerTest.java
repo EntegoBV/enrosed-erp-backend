@@ -11,7 +11,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -27,13 +27,13 @@ class ContactNotificationOutboxWorkerTest {
     void exhaustedNotificationDoesNotStarveLaterPendingMail() {
         ContactNotificationOutboxEntity first = outbox(create("First message for retry"));
         doThrow(new IllegalStateException("test transport outage"))
-                .when(messages).sendInternal(anyString(), anyString());
+                .when(messages).sendTeamNotice(any());
         for (int attempt = 0; attempt < 5; attempt++) {
             makeDue(first.id);
             worker.work();
         }
         assertEquals(ContactOutboxStatus.FAILED, status(first.id));
-        verify(messages, times(5)).sendInternal(anyString(), anyString());
+        verify(messages, times(5)).sendTeamNotice(any());
 
         reset(messages);
         ContactNotificationOutboxEntity second = outbox(create("Second message can proceed"));
@@ -41,7 +41,7 @@ class ContactNotificationOutboxWorkerTest {
 
         assertEquals(ContactOutboxStatus.SENT, status(second.id));
         assertEquals(ContactOutboxStatus.FAILED, status(first.id));
-        verify(messages).sendInternal(anyString(), anyString());
+        verify(messages).sendTeamNotice(any());
     }
 
     @Test
