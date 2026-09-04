@@ -421,8 +421,8 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("regeltotaal"), text);
             assertTrue(text.contains("totale kost"), text);
             assertTrue(text.contains("t/m levering"), text);
-            assertTrue(text.contains("inkoop en producttoeslagen"), text);
-            assertTrue(text.contains("invoerrechten"), text);
+            assertFalse(text.contains("inkoop en producttoeslagen"),
+                    "the column header says what the total is; no explanation line under the table: " + text);
             assertFalse(text.contains("enrosed-kost"), text);
             assertTrue(text.contains("8.843,03"),
                     "de totale regelkost moet op dezelfde 96 bestelde stuks zijn berekend");
