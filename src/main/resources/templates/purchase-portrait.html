@@ -115,7 +115,7 @@
     .standard-lines .col-cbm { width: 18mm; }
     /* Agreed instructions: one block per product, paginating line by line
        with the product header repeated on every page. */
-    .agreements-title { margin-top: 6mm; }
+    .agreements-title { margin-top: 0; page-break-before: always; }
     table.agreement {
       margin-top: 3mm; border: .35pt solid #e3d7c6; border-top: 1pt solid #c6a15b;
       -fs-table-paginate: paginate; page-break-inside: auto;
@@ -164,17 +164,24 @@
     .price-eur { color: #9b928c; font-size: 5.9pt; font-weight: 400; }
     .standard-lines { margin-top: 1mm; table-layout: fixed; }
     .standard-lines th, .standard-lines td { box-sizing: border-box; }
-    .standard-lines th { text-align: right; font-size: 6pt; letter-spacing: .04em; }
+    .standard-lines th { padding: 1.7mm 1.4mm; text-align: right; font-size: 6pt; letter-spacing: .04em; line-height: 1.25; }
+    .standard-sheet .standard-lines td { padding-left: 1.4mm; padding-right: 1.4mm; }
     .standard-lines th:first-child { text-align: left; }
     .standard-lines td.number { font-size: 8.8pt; }
     /* Fixed numeric widths keep the product column as the flexible remainder.
        This remains balanced with zero, one or both all-in cost columns. */
-    .standard-lines .col-quantity { width: 12mm; }
-    .standard-lines .col-pieces { width: 18mm; }
-    .standard-lines .col-cartons { width: 14mm; }
-    .standard-lines .col-unit { width: 20mm; }
-    .standard-lines .col-line-total { width: 22mm; }
-    .standard-lines .col-enrosed { width: 26mm; }
+    .standard-lines th.col-no, .standard-lines th.col-product, .standard-lines th.col-packing { text-align: left; }
+    .standard-sheet .standard-lines td { vertical-align: top; }
+    .standard-lines td.col-no { padding-left: 0; color: #8b8179; font-size: 7pt; text-align: left; }
+    .standard-lines td.col-product { text-align: left; }
+    .standard-lines td.col-packing { text-align: left; border-left: .35pt solid #ede4d8; }
+    .standard-lines .product td { text-align: left; vertical-align: top; }
+    .standard-lines .product__ids { margin-top: .6mm; color: #6b5f58; font-size: 6.6pt; font-variant-numeric: tabular-nums; }
+    .standard-lines .product__facts { margin-top: 1.2mm; }
+    .standard-lines .fact { display: block; color: #3f3631; font-size: 6.6pt; line-height: 1.4; }
+    .standard-lines .fact i { display: inline-block; min-width: 13mm; margin-right: 1mm; color: #8f2942; font-size: 5.6pt; font-style: normal; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .standard-lines--narrow .product__photo-cell { width: 16mm !important; padding-right: 2mm !important; }
+    .standard-lines--narrow .product-photo, .standard-lines--narrow .product-photo--empty { width: 14mm; height: 14mm; max-width: 14mm; line-height: 14mm; }
     .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
     .enrosed-cost .price-main { color: #762239; }
     .cost-value + .cost-value { margin-top: 1.5mm; padding-top: 1.5mm; border-top: .35pt solid #dbc59d; }
@@ -322,29 +329,12 @@
     .packing__line { margin-top: .5mm; color: #3f3631; font-size: 6.8pt; line-height: 1.35; font-variant-numeric: tabular-nums; }
     .supplier-sheet .supplier-lines tr.sum td { vertical-align: top; }
     /* General packing specification: rules on the left, the carton label to copy on the right. */
-    .packing-spec { margin-top: 4mm; page-break-inside: avoid; }
+    .packing-spec { page-break-before: always; }
+    .packing-spec .section-title { margin-top: 0; }
     .packing-grid { margin-top: 3mm; table-layout: fixed; }
     .packing-grid td { vertical-align: top; }
-    .packing-grid td.packing-rules { width: 108mm; padding-right: 5mm; }
-    .packing-grid td.packing-label-cell { width: 82mm; }
-    .carton-label { padding: 3mm 3.4mm 2.6mm; border: 1pt solid #1c1715; background: #ffffff; }
-    .carton-label__head { padding-bottom: 1.8mm; border-bottom: .7pt solid #1c1715; }
-    .carton-label__logo { display: inline-block; width: auto; height: 7.5mm; max-width: 40mm; vertical-align: middle; }
-    .carton-label__brand { font-size: 11pt; font-weight: 700; letter-spacing: .12em; }
-    .carton-label__po { float: right; margin-top: 2mm; font-size: 7.4pt; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
-    .carton-label__grid { margin-top: 1.5mm; }
-    .carton-label__grid th { width: 20mm; padding: 1.1mm 1.5mm 1.1mm 0; color: #4b403b; font-size: 5.8pt; font-weight: 700; letter-spacing: .1em; text-align: left; text-transform: uppercase; vertical-align: top; border-bottom: .35pt solid #e3d7c6; }
-    .carton-label__grid td { padding: 1.1mm 0; font-size: 7.6pt; line-height: 1.3; border-bottom: .35pt solid #e3d7c6; }
-    .carton-label__grid tr:last-child th, .carton-label__grid tr:last-child td { border-bottom: 0; }
-    .carton-label__foot { margin-top: 1.6mm; padding-top: 1.4mm; border-top: .7pt solid #1c1715; font-size: 5.8pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; text-align: center; }
-    .carton-label__caption { margin-top: 1.6mm; color: #8b8179; font-size: 6pt; text-align: center; }
-    .packing-subtitle { margin: 4mm 0 1.5mm; color: #8f2942; font-size: 6.4pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    .packing-lines { table-layout: fixed; -fs-table-paginate: paginate; }
-    .packing-lines thead { display: table-header-group; }
-    .packing-lines th { padding: 1.5mm 1.2mm; border-bottom: .7pt solid #c6a15b; color: #8f2942; font-size: 5.8pt; font-weight: 700; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
-    .packing-lines td { padding: 1.8mm 1.2mm; border-bottom: .35pt solid #e8ded1; font-size: 7pt; line-height: 1.35; vertical-align: top; }
-    .packing-lines th:first-child, .packing-lines td:first-child { padding-left: 0; }
-    .packing-lines th.number, .packing-lines td.number { text-align: right; font-variant-numeric: tabular-nums; }
+    .packing-grid td.packing-rules { width: 50%; padding-right: 5mm; }
+    .packing-grid td.packing-rules--second { padding-right: 0; padding-left: 5mm; border-left: .35pt solid #e3d7c6; }
 </style>
 </head>
 <body class="{#if supplierMode}supplier-sheet{#else}standard-sheet{/if}">
@@ -524,22 +514,24 @@
 {/for}
 {/if}
 {#else}
-<table class="lines standard-lines">
+<table class="lines standard-lines{#if productColumnMm < 62} standard-lines--narrow{/if}">
   <!-- Fixed layout: pin every column, or the renderer spreads the spare width
        over all of them and the product column ends up narrowest. -->
   <colgroup>
+    <col style="width:6mm"/>
     <col style="width:{productColumnMm}mm"/>
-    <col style="width:12mm"/><col style="width:18mm"/><col style="width:14mm"/><col style="width:18mm"/>
-    {#if showPrices}{#if showUnitPrice}<col style="width:20mm"/>{/if}<col style="width:22mm"/>{/if}
-    {#if showEnrosedCost || showEnrosedUnitCost}<col style="width:26mm"/>{/if}
+    <col style="width:26mm"/><col style="width:13mm"/><col style="width:14mm"/><col style="width:17mm"/>
+    {#if showPrices}{#if showUnitPrice}<col style="width:19mm"/>{/if}<col style="width:21mm"/>{/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<col style="width:24mm"/>{/if}
   </colgroup>
   <thead>
   <tr>
+    <th class="col-no">#</th>
     <th class="col-product">Product</th>
+    <th class="col-packing">Verpakking per karton</th>
     <th class="col-quantity">Stuks</th>
-    <th class="col-pieces">Stuks per karton</th>
     <th class="col-cartons">Kartons</th>
-    <th class="col-cbm">m³</th>
+    <th class="col-cbm">Volume<br/><span class="th-unit">m³</span></th>
     {#if showPrices}
     {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
     <th class="col-line-total">Regeltotaal</th>
@@ -550,7 +542,8 @@
   <tbody>
   {#for line in lines}
     <tr class="{#if line_even}alt{/if}">
-      <td>
+      <td class="col-no number">{line.position}</td>
+      <td class="col-product">
         <table class="product"><tr>
           <td class="product__photo-cell">
             {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
@@ -558,21 +551,22 @@
           </td>
           <td class="product__copy">
             <div class="product__name">{line.productName}</div>
-            {#if showPrices}<div class="product__meta">{#if line.sku}{line.sku} - {/if}{line.priceBasis}</div>
-            {#else if line.sku}<div class="product__meta">{line.sku}</div>{/if}
+            <div class="product__ids">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if showPrices}{#if line.sku || line.ean} · {/if}{line.priceBasis}{/if}</div>
+            <div class="product__facts">
+              {#if line.productSize}<span class="fact"><i>Maat</i>{line.productSize}</span>{/if}
+              {#if line.packagingText}<span class="fact"><i>Verpakking</i>{line.packagingText}</span>{/if}
+              {#if line.colour}<span class="fact"><i>Kleur</i>{line.colour}</span>{/if}
+            </div>
           </td>
-        </tr>
-        {#if !line.productSpecs.isEmpty}
-        <tr><td colspan="2" class="product__specs-cell">
-          <div class="product__specs">
-            {#for detail in line.productSpecs}<span class="product__spec"><span class="product__spec-label">{detail.label}</span><span class="product__spec-value">{#for part in detail.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if detail.code}{#if !detail.parts.isEmpty}<br/>{/if}<span class="spec-code">{detail.code}</span>{/if}</span></span>{/for}
-          </div>
-        </td></tr>
-        {/if}
-        </table>
+        </tr></table>
       </td>
-      <td class="number">{line.purchaseQuantity}</td>
-      <td class="number">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="col-packing">
+        {#if line.piecesPerCarton}<div class="packing__count">{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton</div>{#else}<div class="packing__count muted">Stuks per karton onbekend</div>{/if}
+        {#if line.cartonSize}<div class="packing__line">{line.cartonSize}</div>{/if}
+        {#if line.cartonCbmText || line.cartonWeight}<div class="packing__line">{#if line.cartonCbmText}{line.cartonCbmText}{/if}{#if line.cartonCbmText && line.cartonWeight} · {/if}{#if line.cartonWeight}{line.cartonWeight}{/if}</div>{/if}
+        {#if line.cartonEan}<div class="packing__line muted">Karton-EAN {line.cartonEan}</div>{/if}
+      </td>
+      <td class="number"><b>{line.purchaseQuantity}</b></td>
       <td class="number">{line.purchaseCartons}</td>
       <td class="number">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
       {#if showPrices}
@@ -600,9 +594,10 @@
     </tr>
   {/for}
   <tr class="sum">
-    <td><b>Totaal</b></td>
-    <td class="number"><b>{purchasePieces}</b></td>
     <td></td>
+    <td><b>Totaal</b></td>
+    <td></td>
+    <td class="number"><b>{purchasePieces}</b></td>
     <td class="number"><b>{purchaseCartons}</b></td>
     <td class="number"><b>{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</b></td>
     {#if showPrices}
@@ -664,14 +659,16 @@
   <table class="packing-grid"><tr>
     <td class="packing-rules">
       <div class="term"><span class="term__number">P1</span><b>ENROSED logo on every outer carton</b>
-        <p>Print the ENROSED logo in black on two adjacent sides of every outer carton, at least 80 mm wide,
-          exactly as shown on the label. No supplier name, other brand or advertising on the outside of the carton.</p>
+        <p>Print the ENROSED logo in black on two adjacent sides of every outer carton, at least 80 mm wide.
+          No supplier name, other brand or advertising on the outside of the carton.</p>
       </div>
       <div class="term"><span class="term__number">P2</span><b>One carton label with the contents</b>
-        <p>Every outer carton carries one printed label on a short side, at least 100 × 70 mm, laid out as the
-          example: the product exactly as named in this order, SKU and EAN, the colour, the number of pieces inside,
-          the carton number out of the total for that product, and this PO number.</p>
+        <p>Every outer carton carries one printed label on a short side, at least 100 × 70 mm: the product exactly
+          as named in this order, SKU and EAN, the colour, the number of pieces inside, the carton number out of
+          the total for that product, and this PO number.</p>
       </div>
+    </td>
+    <td class="packing-rules packing-rules--second">
       <div class="term"><span class="term__number">P3</span><b>One product, one colour per carton</b>
         <p>Never mix products or colours in one carton. Pieces per carton and carton size must match the packing
           column of this order. A partial or mixed carton needs ENROSED's written approval and its own label
@@ -683,44 +680,7 @@
           labels carton by carton.</p>
       </div>
     </td>
-    <td class="packing-label-cell">
-      <div class="carton-label">
-        <div class="carton-label__head">
-          {#if logo}<img class="carton-label__logo" src="{logo}" alt="ENROSED"/>{#else}<span class="carton-label__brand">ENROSED</span>{/if}
-          <span class="carton-label__po">{order.number}</span>
-        </div>
-        <table class="carton-label__grid">
-          <tr><th>Product</th><td>{#if labelExample}{labelExample.productName}{#else}Product name as on this order{/if}</td></tr>
-          <tr><th>SKU · EAN</th><td>{#if labelExample}{#if labelExample.sku}{labelExample.sku}{/if}{#if labelExample.ean}{#if labelExample.sku} · {/if}{labelExample.ean}{/if}{#else}SKU · EAN{/if}</td></tr>
-          <tr><th>Colour</th><td>{#if labelExample && labelExample.colour}{labelExample.colour}{#else}Colour{/if}</td></tr>
-          <tr><th>Quantity</th><td><b>{#if labelExample && labelExample.piecesPerCarton}{labelExample.piecesPerCarton} pcs{#else}__ pcs{/if}</b> in this carton</td></tr>
-          <tr><th>Carton</th><td>1 of {#if labelExample && labelExample.orderedCartons > 0}{labelExample.orderedCartons}{#else}__{/if}</td></tr>
-          <tr><th>Size · gross</th><td>{#if labelExample && labelExample.cartonSize}{labelExample.cartonSize}{#else}L × W × H cm{/if}{#if labelExample && labelExample.cartonWeight} · {labelExample.cartonWeight}{/if}</td></tr>
-        </table>
-        <div class="carton-label__foot">Made for ENROSED BV · Belgium · Handle with care</div>
-      </div>
-      <div class="carton-label__caption">Carton label layout, minimum 100 × 70 mm{#if labelExample} · example filled with line {labelExample.position}{/if}</div>
-    </td>
   </tr></table>
-
-  <div class="packing-subtitle">Label content per product</div>
-  <table class="packing-lines">
-    <colgroup><col style="width:7mm"/><col style="width:60mm"/><col style="width:36mm"/><col style="width:18mm"/><col style="width:17mm"/><col style="width:13mm"/><col style="width:39mm"/></colgroup>
-    <thead><tr><th>#</th><th>Product on the label</th><th>SKU · EAN</th><th>Colour</th><th class="number">Pieces per carton</th><th class="number">Cartons</th><th>Carton size · gross weight</th></tr></thead>
-    <tbody>
-    {#for line in supplierLines}
-      <tr>
-        <td class="number">{line.position}</td>
-        <td><b>{line.productName}</b></td>
-        <td>{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}{line.ean}{/if}{#if !line.sku && !line.ean}<span class="muted">-</span>{/if}</td>
-        <td>{#if line.colour}{line.colour}{#else}<span class="muted">-</span>{/if}</td>
-        <td class="number">{#if line.piecesPerCarton}<b>{line.piecesPerCarton}</b> pcs{#else}<span class="muted">to confirm</span>{/if}</td>
-        <td class="number">{line.orderedCartons}</td>
-        <td>{#if line.cartonSize}{line.cartonSize}{/if}{#if line.cartonSize && line.cartonWeight} · {/if}{#if line.cartonWeight}{line.cartonWeight}{/if}{#if !line.cartonSize && !line.cartonWeight}<span class="muted">-</span>{/if}</td>
-      </tr>
-    {/for}
-    </tbody>
-  </table>
 </section>
 
 <section class="agreement-page">

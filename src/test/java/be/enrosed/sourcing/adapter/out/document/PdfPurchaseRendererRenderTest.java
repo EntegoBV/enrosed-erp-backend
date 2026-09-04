@@ -141,7 +141,7 @@ class PdfPurchaseRendererRenderTest {
                     "de geplaatste-order snapshot moet zichtbaar blijven na ontvangst");
             assertTrue(text.replace(" ", "").contains("stuksperkarton"), text);
             assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
-            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("maat 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
             assertFalse(text.contains("omdoos b × d × h"), text);
             assertFalse(text.contains("barcode"), text);
@@ -194,9 +194,9 @@ class PdfPurchaseRendererRenderTest {
             String text = new PDFTextStripper().getText(pdf)
                     .toLowerCase().replaceAll("\\s+", " ");
             assertTrue(text.contains("b × d × h in cm"), "the axis order is said once above the table: " + text);
-            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
+            assertTrue(text.contains("maat 18 × 18 × 22 cm"), text);
             assertTrue(text.contains("verpakking") && text.contains("20 × 20 × 25 cm"), text);
-            assertTrue(text.contains("omdoos 40 × 40 × 30 cm"), text);
+            assertTrue(text.contains("12 stuks per karton 40 × 40 × 30 cm"), text);
             assertTrue(text.contains("12 stuks per karton"), text);
             assertTrue(text.contains("8712345678906"), text);
             assertTrue(text.contains("8712345678913"), text);
@@ -231,9 +231,9 @@ class PdfPurchaseRendererRenderTest {
         Files.write(preview.resolve("purchase-portrait-explicit-supplier.pdf"), document.content());
 
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(3, pdf.getNumberOfPages(),
-                    "de leveranciersorder hoort productregels op pagina 1, de verpakkingsspecificatie op "
-                    + "pagina 2 en de voorwaarden op pagina 3 te hebben");
+            assertEquals(4, pdf.getNumberOfPages(),
+                    "de leveranciersorder hoort productregels op pagina 1, de productafspraken op pagina 2, "
+                    + "de verpakkingsspecificatie op pagina 3 en de voorwaarden op pagina 4 te hebben");
             assertTrue(pdf.getPage(0).getMediaBox().getWidth()
                             < pdf.getPage(0).getMediaBox().getHeight(),
                     "de leveranciersorder hoort altijd portrait te zijn");
@@ -252,7 +252,6 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("size 18 × 18 × 22 cm"), text);
             assertTrue(text.replace(" ", "").contains("giftbox20×20×25cm"), text);
             assertTrue(text.contains("general packing specification"), text);
-            assertTrue(text.contains("label content per product"), text);
             assertTrue(text.contains("enrosed logo on every outer carton"), text);
             assertTrue(text.contains("0,05 m³") && text.contains("0,38 m³"),
                     "the carton volume and the line volume both print: " + text);
@@ -280,11 +279,17 @@ class PdfPurchaseRendererRenderTest {
             lastPageStripper.setEndPage(pdf.getNumberOfPages());
             String lastPage = lastPageStripper.getText(pdf).toLowerCase();
             assertTrue(lastPage.contains("authorised signatures"), lastPage);
+            PDFTextStripper agreementPageStripper = new PDFTextStripper();
+            agreementPageStripper.setStartPage(2);
+            agreementPageStripper.setEndPage(2);
+            String agreementPage = agreementPageStripper.getText(pdf).toLowerCase();
+            assertTrue(agreementPage.contains("agreed product instructions"), agreementPage);
             PDFTextStripper packingPageStripper = new PDFTextStripper();
-            packingPageStripper.setStartPage(2);
-            packingPageStripper.setEndPage(2);
+            packingPageStripper.setStartPage(3);
+            packingPageStripper.setEndPage(3);
             String packingPage = packingPageStripper.getText(pdf).toLowerCase();
             assertTrue(packingPage.contains("general packing specification"), packingPage);
+            assertFalse(packingPage.contains("label content per product"), packingPage);
             assertFalse(text.contains("99,99"),
                     "de actuele productprijs mag de afgesproken orderregelsnapshot niet vervangen: " + text);
 

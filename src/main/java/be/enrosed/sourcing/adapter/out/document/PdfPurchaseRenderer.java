@@ -275,7 +275,36 @@ public class PdfPurchaseRenderer {
             BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
             Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
             boolean eurPriceAvailable, boolean eurEquivalentAvailable,
-            String cbmText) {}
+            String cbmText,
+            /** Line number as printed, the colour and the packing facts of the internal sheet. */
+            int position, String ean, String colour, String productSize, String packagingText,
+            String cartonSize, String cartonWeight, String cartonCbmText, String cartonEan) {
+
+        /** Compatibility for callers written before the packing column existed. */
+        public LineView(
+                Long productId, String sku, String productName, String photoDataUri,
+                List<ProductSpec> productSpecs, Integer piecesPerCarton,
+                int quantity, int cartons, int purchaseQuantity, int purchaseCartons, BigDecimal cbm,
+                BigDecimal goodsUsd, BigDecimal goodsEur, BigDecimal originEur,
+                BigDecimal freightEur, BigDecimal customsValueEur,
+                BigDecimal dutyRatePct, BigDecimal dutyEur,
+                BigDecimal destinationEur, BigDecimal extraRevenueEur,
+                BigDecimal totalEur, BigDecimal landedUnitEur, BigDecimal totalDeliveryCostEur,
+                BigDecimal totalDeliveryUnitCostEur,
+                BigDecimal purchaseUnitPrice, BigDecimal purchaseLineTotal,
+                BigDecimal purchaseUnitEur, BigDecimal purchaseLineTotalEur,
+                Currency purchaseCurrency, String priceBasis, boolean purchasePriceAvailable,
+                boolean eurPriceAvailable, boolean eurEquivalentAvailable,
+                String cbmText) {
+            this(productId, sku, productName, photoDataUri, productSpecs, piecesPerCarton, quantity, cartons,
+                    purchaseQuantity, purchaseCartons, cbm, goodsUsd, goodsEur, originEur, freightEur,
+                    customsValueEur, dutyRatePct, dutyEur, destinationEur, extraRevenueEur, totalEur,
+                    landedUnitEur, totalDeliveryCostEur, totalDeliveryUnitCostEur, purchaseUnitPrice,
+                    purchaseLineTotal, purchaseUnitEur, purchaseLineTotalEur, purchaseCurrency, priceBasis,
+                    purchasePriceAvailable, eurPriceAvailable, eurEquivalentAvailable, cbmText,
+                    0, null, null, null, null, null, null, null, null);
+        }
+    }
 
     /**
      * Deliberately small supplier contract. No landed costs, revenue,
@@ -411,7 +440,6 @@ public class PdfPurchaseRenderer {
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
-                    .data("labelExample", labelExample(prepared.lines()))
                     .data("supplierTotals", supplierTotals(prepared.lines()))
                     .data("hasAgreements", prepared.lines().stream().anyMatch(SupplierLineView::hasAgreement))
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
@@ -536,21 +564,6 @@ public class PdfPurchaseRenderer {
         return List.copyOf(views);
     }
 
-    /** The line that fills the example label best: colour and carton facts known, else the first line. */
-    static SupplierLineView labelExample(List<SupplierLineView> lines) {
-        SupplierLineView best = null;
-        int bestScore = -1;
-        for (SupplierLineView line : lines) {
-            int score = (notBlank(line.colour()) ? 4 : 0) + (line.piecesPerCarton() != null ? 2 : 0)
-                    + (notBlank(line.cartonSize()) ? 1 : 0) + (notBlank(line.ean()) ? 1 : 0);
-            if (score > bestScore) {
-                best = line;
-                bestScore = score;
-            }
-        }
-        return best;
-    }
-
     private static String supplierTradeTerm(List<SupplierLineView> lines) {
         List<String> bases = lines.stream()
                 .filter(SupplierLineView::priceAvailable)
@@ -590,10 +603,13 @@ public class PdfPurchaseRenderer {
         BigDecimal totalDeliveryCostEur = orderedCosting == null
                 ? BigDecimal.ZERO : orderedCosting.totals().totalEur();
 
+        int position = 0;
         for (LandedCost.Line costingLine : costing.lines()) {
+            position++;
             Product product = byId.get(costingLine.productId());
             PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
             AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
+            Carton carton = product == null ? null : product.carton();
             BigDecimal unitPrice = price.amount();
             Currency currency = price.currency();
             int purchaseQuantity = orderLine != null && orderLine.orderedQuantity() != null
@@ -644,7 +660,17 @@ public class PdfPurchaseRenderer {
                     currency, priceBasis, priceAvailable,
                     eurPriceAvailable,
                     priceAvailable && currency != Currency.EUR && unitEur != null,
-                    cbmText(costingLine.cbm())));
+                    cbmText(costingLine.cbm()),
+                    position,
+                    showBarcode ? blankToNull(ean(product)) : null,
+                    product == null ? null : blankToNull(product.colour()),
+                    product == null ? null : dimensionValue(product.dimensions()),
+                    internalPackagingText(product, showBarcode),
+                    !showOuterCarton || carton == null ? null : dimensionValue(carton.dimensions()),
+                    !showOuterCarton || carton == null ? null : DocumentFormat.kg(carton.weightKg()),
+                    !showOuterCarton || carton == null ? null : cbmText(carton.cbm()),
+                    !showOuterCarton || !showBarcode || product == null || product.barcodes() == null
+                            ? null : blankToNull(product.barcodes().outer())));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
@@ -832,9 +858,9 @@ public class PdfPurchaseRenderer {
      * name and its facts readable whatever the option mix.
      */
     static int productColumnMm(PdfOptions options) {
-        int fixed = 12 + 18 + 14 + 18;
-        if (options.showPrices()) fixed += 22 + (options.includeUnitPrice() ? 20 : 0);
-        if (options.includeEnrosedCost() || options.includeEnrosedUnitCost()) fixed += 26;
+        int fixed = 6 + 26 + 13 + 14 + 17;
+        if (options.showPrices()) fixed += 21 + (options.includeUnitPrice() ? 19 : 0);
+        if (options.includeEnrosedCost() || options.includeEnrosedUnitCost()) fixed += 24;
         return 190 - fixed;
     }
 
@@ -892,6 +918,18 @@ public class PdfPurchaseRenderer {
         String colour = product.colourIn(Language.EN);
         if (!notBlank(colour)) colour = product.colour();
         return notBlank(colour) ? colour.strip() : null;
+    }
+
+    /** "Geschenkverpakking 20 × 12 × 30 cm · EAN …" or "Display … · 6 stuks per display"; null when sold bare. */
+    static String internalPackagingText(Product product, boolean showBarcode) {
+        Packaging packaging = product == null ? null : product.packaging();
+        if (packaging == null || !packaging.isPresent()) return null;
+        boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        String size = dimensionValue(packaging.dimensions());
+        String pieces = packaging.unitPieces() > 1 ? packaging.unitPieces() + " stuks per display" : null;
+        String kind = display ? "Display" : "Geschenkverpakking";
+        return join(size == null ? kind : kind + " " + size, display ? pieces : null,
+                showBarcode ? eanText(packaging.barcode()) : null);
     }
 
     /** "Gift box 20 × 12 × 30 cm" or "Display 30 × 20 × 15 cm · 6 pieces per display"; null when sold bare. */
