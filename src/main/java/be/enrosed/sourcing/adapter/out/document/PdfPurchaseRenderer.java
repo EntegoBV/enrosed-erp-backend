@@ -290,7 +290,10 @@ public class PdfPurchaseRenderer {
             List<be.enrosed.sourcing.application.ReceiptIssues.ReceiptIssue> priorIssues,
             int orderedQuantity, int orderedCartons,
             String cartonCbm, String lineCbm, BigDecimal lineCbmValue, BigDecimal agreedUnitPrice, Currency currency,
-            String priceBasis, boolean priceAvailable) {
+            String priceBasis, boolean priceAvailable,
+            /** Line number as printed, the colour and the packing facts the carton label repeats. */
+            int position, String colour, String productSize, String packagingText,
+            String cartonSize, String cartonWeight, String cartonEan) {
         /** The line has an instruction, reference images or a history worth their own block. */
         public boolean hasAgreement() {
             return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty() || !priorIssues.isEmpty();
@@ -408,6 +411,7 @@ public class PdfPurchaseRenderer {
         if (supplierAudience) {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
+                    .data("labelExample", labelExample(prepared.lines()))
                     .data("supplierTotals", supplierTotals(prepared.lines()))
                     .data("hasAgreements", prepared.lines().stream().anyMatch(SupplierLineView::hasAgreement))
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
@@ -471,7 +475,9 @@ public class PdfPurchaseRenderer {
            damaged before is printed as a warning the supplier signs for. */
         List<PurchaseOrder> history = orders == null ? List.of() : orders.findAll();
 
+        int position = 0;
         for (LandedCost.Line costingLine : costing.lines()) {
+            position++;
             Product product = byId.get(costingLine.productId());
             PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
             AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
@@ -482,6 +488,7 @@ public class PdfPurchaseRenderer {
                     : product.carton().cartonsFor(orderedQuantity);
             boolean matchingSupplier = product != null && order.supplierId() != null
                     && Objects.equals(product.supplierId(), order.supplierId());
+            Carton carton = product == null ? null : product.carton();
 
             lines.add(new SupplierLineView(
                     costingLine.productId(), product == null ? null : product.sku(),
@@ -499,7 +506,13 @@ public class PdfPurchaseRenderer {
                     lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
                     orderLine == null ? "EXW" : orderLine.priceBasis().name(),
-                    price.available()));
+                    price.available(),
+                    position, supplierColour(product),
+                    product == null ? null : dimensionValue(product.dimensions()),
+                    supplierPackagingText(product),
+                    carton == null ? null : dimensionValue(carton.dimensions()),
+                    carton == null ? null : DocumentFormat.kg(carton.weightKg()),
+                    product == null || product.barcodes() == null ? null : blankToNull(product.barcodes().outer())));
         }
         return new SupplierPrepared(List.copyOf(lines));
     }
@@ -521,6 +534,21 @@ public class PdfPurchaseRenderer {
             }
         }
         return List.copyOf(views);
+    }
+
+    /** The line that fills the example label best: colour and carton facts known, else the first line. */
+    static SupplierLineView labelExample(List<SupplierLineView> lines) {
+        SupplierLineView best = null;
+        int bestScore = -1;
+        for (SupplierLineView line : lines) {
+            int score = (notBlank(line.colour()) ? 4 : 0) + (line.piecesPerCarton() != null ? 2 : 0)
+                    + (notBlank(line.cartonSize()) ? 1 : 0) + (notBlank(line.ean()) ? 1 : 0);
+            if (score > bestScore) {
+                best = line;
+                bestScore = score;
+            }
+        }
+        return best;
     }
 
     private static String supplierTradeTerm(List<SupplierLineView> lines) {
@@ -828,6 +856,7 @@ public class PdfPurchaseRenderer {
 
     public record SupplierTotals(int pieces, int cartons, String cbm) {}
 
+    /** Pieces, cartons and volume; the supplier sheet deliberately carries no calculated amounts. */
     static SupplierTotals supplierTotals(List<SupplierLineView> lines) {
         int pieces = 0;
         int cartons = 0;
@@ -844,13 +873,41 @@ public class PdfPurchaseRenderer {
         return new SupplierTotals(pieces, cartons, anyCbm ? cbmText(cbm) : null);
     }
 
-    /** Supplier-facing product label resolved from the English document translation. */
+    /**
+     * The supplier knows the article by the internal master name, the one on
+     * every earlier order and sample, not by a customer-facing translation.
+     * The colour follows in English so a label reads the same in both offices.
+     */
     static String supplierProductName(Product product) {
         if (product == null) return null;
-        String name = product.nameIn(Language.EN);
-        String colour = product.colourIn(Language.EN);
+        String name = notBlank(product.name()) ? product.name().strip() : product.nameIn(Language.EN);
+        String colour = supplierColour(product);
         if (!notBlank(colour)) return name;
         return name + " - " + colour;
+    }
+
+    /** English colour when translated, else the colour as entered. */
+    static String supplierColour(Product product) {
+        if (product == null) return null;
+        String colour = product.colourIn(Language.EN);
+        if (!notBlank(colour)) colour = product.colour();
+        return notBlank(colour) ? colour.strip() : null;
+    }
+
+    /** "Gift box 20 × 12 × 30 cm" or "Display 30 × 20 × 15 cm · 6 pieces per display"; null when sold bare. */
+    static String supplierPackagingText(Product product) {
+        Packaging packaging = product == null ? null : product.packaging();
+        if (packaging == null || !packaging.isPresent()) return null;
+        boolean display = packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        String size = dimensionValue(packaging.dimensions());
+        String pieces = packaging.unitPieces() > 1 ? packaging.unitPieces() + " pieces per display" : null;
+        String kind = display ? "Display" : "Gift box";
+        return join(size == null ? kind : kind + " " + size, display ? pieces : null,
+                eanText(packaging.barcode()));
+    }
+
+    private static String blankToNull(String value) {
+        return notBlank(value) ? value.strip() : null;
     }
 
     private static String supplierDimensionLabel(Dimensions dimensions) {

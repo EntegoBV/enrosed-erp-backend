@@ -231,8 +231,9 @@ class PdfPurchaseRendererRenderTest {
         Files.write(preview.resolve("purchase-portrait-explicit-supplier.pdf"), document.content());
 
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(2, pdf.getNumberOfPages(),
-                    "de leveranciersorder hoort productregels op pagina 1 en afspraken op pagina 2 te hebben");
+            assertEquals(3, pdf.getNumberOfPages(),
+                    "de leveranciersorder hoort productregels op pagina 1, de verpakkingsspecificatie op "
+                    + "pagina 2 en de voorwaarden op pagina 3 te hebben");
             assertTrue(pdf.getPage(0).getMediaBox().getWidth()
                             < pdf.getPage(0).getMediaBox().getHeight(),
                     "de leveranciersorder hoort altijd portrait te zijn");
@@ -248,8 +249,11 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("use white inner boxes"), text);
             assertTrue(text.contains("use this exact inner-box layout"), text);
             assertTrue(text.contains("sizes w × d × h in cm"), text);
-            assertTrue(text.contains("product 18 × 18 × 22 cm"), text);
-            assertTrue(text.replace(" ", "").contains("packaging20×20×25cm"), text);
+            assertTrue(text.contains("size 18 × 18 × 22 cm"), text);
+            assertTrue(text.replace(" ", "").contains("giftbox20×20×25cm"), text);
+            assertTrue(text.contains("general packing specification"), text);
+            assertTrue(text.contains("label content per product"), text);
+            assertTrue(text.contains("enrosed logo on every outer carton"), text);
             assertTrue(text.contains("0,05 m³") && text.contains("0,38 m³"),
                     "the carton volume and the line volume both print: " + text);
             assertTrue(text.replace(" ", "").contains("carton40×40×30cm"), text);
@@ -271,11 +275,16 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("supplier initials"), text);
             assertTrue(imageCount(pdf) >= 2,
                     "product photo and agreement reference must be embedded in the supplier agreement");
-            PDFTextStripper secondPageStripper = new PDFTextStripper();
-            secondPageStripper.setStartPage(2);
-            secondPageStripper.setEndPage(2);
-            String secondPage = secondPageStripper.getText(pdf).toLowerCase();
-            assertTrue(secondPage.contains("authorised signatures"), secondPage);
+            PDFTextStripper lastPageStripper = new PDFTextStripper();
+            lastPageStripper.setStartPage(pdf.getNumberOfPages());
+            lastPageStripper.setEndPage(pdf.getNumberOfPages());
+            String lastPage = lastPageStripper.getText(pdf).toLowerCase();
+            assertTrue(lastPage.contains("authorised signatures"), lastPage);
+            PDFTextStripper packingPageStripper = new PDFTextStripper();
+            packingPageStripper.setStartPage(2);
+            packingPageStripper.setEndPage(2);
+            String packingPage = packingPageStripper.getText(pdf).toLowerCase();
+            assertTrue(packingPage.contains("general packing specification"), packingPage);
             assertFalse(text.contains("99,99"),
                     "de actuele productprijs mag de afgesproken orderregelsnapshot niet vervangen: " + text);
 
