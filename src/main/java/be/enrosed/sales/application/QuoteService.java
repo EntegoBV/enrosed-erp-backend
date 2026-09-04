@@ -290,7 +290,13 @@ public class QuoteService {
                 new QuoteMailer.Notice(
                         terms == DeliveryTermsState.AANGEVULD,
                         freightState == FreightState.TE_BEPALEN,
-                        freightState == FreightState.AANGEVULD));
+                        freightState == FreightState.AANGEVULD),
+                new QuoteMailer.Summary(
+                        priced.totals().pieces(), priced.lines().size(),
+                        priced.totals().goodsTotal(), priced.totals().shippingTotal(),
+                        priced.totals().total(),
+                        priced.lines().stream().map(line -> new QuoteMailer.SummaryLine(
+                                line.description(), line.quantity(), line.net())).toList()));
 
         ActorRef actor = staffActor();
         record(order, QuoteEvent.Type.VERSTUURD, false, actor.displayName(),

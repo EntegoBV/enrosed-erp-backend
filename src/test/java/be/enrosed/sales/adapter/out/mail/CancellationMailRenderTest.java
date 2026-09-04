@@ -108,7 +108,71 @@ class CancellationMailRenderTest {
 
         List<Mail> sent = mailbox.getMailsSentTo("inkoop@royalgarden.example");
         assertEquals(1, sent.size());
-        assertTrue(sent.get(0).getCc().contains("admin@enrosed.com"), "the office is in copy: " + sent.get(0).getCc());
+        assertTrue(sent.get(0).getBcc().contains("admin@enrosed.com"), "the office reads along in bcc: " + sent.get(0).getBcc());
+        assertTrue(sent.get(0).getCc().isEmpty(), "the customer never sees who reads along: " + sent.get(0).getCc());
         assertTrue(sent.get(0).getSubject().contains("ENR-2026-0148"));
+    }
+
+    @Test
+    void everySentQuotationReachesTheTeamAsAReadableCopyWithThePdf() {
+        Customer customer = new Customer(
+                7L, "Royal Garden Center Group", "Anne van den Berg",
+                "inkoop@royalgarden.example", "+32 3 555 01 02", "BE 0123.456.789",
+                "BE", Language.NL, "Bloemenlaan 112", "2000", "Antwerpen",
+                "DAP", "30 dagen na factuurdatum", null, LocalDate.of(2024, 3, 12));
+        LocalDate date = LocalDate.of(2026, 8, 27);
+        SalesOrder quote = new SalesOrder(
+                149L, "ENR-2026-0149", 7L, "BE", date, date.plusDays(30), QuoteStatus.CONCEPT,
+                "DAP", "30 dagen na factuurdatum", null,
+                MarkupMode.PRODUCT, new BigDecimal("45"), new BigDecimal("5"), null,
+                null, null, null, 0, null, null, null, null,
+                DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, new BigDecimal("220"),
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, new BigDecimal("180"),
+                FreightPricingStrategy.FIXED, null, null, null,
+                DocumentType.OFFERTE, null, null, null, null,
+                List.of(), List.of());
+        var document = new be.enrosed.sales.application.port.out.QuoteDocumentRenderer.Document(
+                "ENR-2026-0149.pdf", "%PDF-1.4 test".getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                "application/pdf");
+        var summary = new be.enrosed.sales.application.port.out.QuoteMailer.Summary(
+                480, 2, new BigDecimal("6240.00"), new BigDecimal("220.00"), new BigDecimal("6460.00"),
+                List.of(new be.enrosed.sales.application.port.out.QuoteMailer.SummaryLine(
+                                "Gepreserveerde roos in stolp 25 cm", 240, new BigDecimal("4080.00")),
+                        new be.enrosed.sales.application.port.out.QuoteMailer.SummaryLine(
+                                "Soaproos in box", 240, new BigDecimal("2160.00"))));
+
+        mailbox.clear();
+        mailer.sendQuote(quote, customer, "https://erp.enrosed.com/offerte/token", document,
+                "Fijn dat we u op de beurs spraken.",
+                List.of(new be.enrosed.sales.application.port.out.QuoteMailer.DeliveryLine(
+                        "Gepreserveerde roos in stolp 25 cm", "week 40", true)),
+                be.enrosed.sales.application.port.out.QuoteMailer.Notice.none(), summary);
+
+        List<Mail> toCustomer = mailbox.getMailsSentTo("inkoop@royalgarden.example");
+        assertEquals(1, toCustomer.size());
+        assertTrue(toCustomer.get(0).getBcc().contains("admin@enrosed.com"));
+
+        List<Mail> toTeam = mailbox.getMailsSentTo("hello@enrosed.com");
+        assertEquals(1, toTeam.size(), "one readable copy for the team");
+        Mail copy = toTeam.get(0);
+        assertEquals("Offerte ENR-2026-0149 verzonden naar Royal Garden Center Group", copy.getSubject());
+        assertEquals(1, copy.getAttachments().size(), "the same PDF travels along");
+        assertEquals("ENR-2026-0149.pdf", copy.getAttachments().get(0).getName());
+        String html = copy.getHtml();
+        try {
+            Path preview = Path.of("target", "mail-preview");
+            Files.createDirectories(preview);
+            Files.writeString(preview.resolve("quote-sent-internal.html"), html);
+        } catch (java.io.IOException ignored) {
+            /* The preview is a convenience for a designer's eye, not the assertion. */
+        }
+        assertTrue(html.contains("6.460,00 EUR"), html);
+        assertTrue(html.contains("480"), html);
+        assertTrue(html.contains("Gepreserveerde roos in stolp 25 cm"), html);
+        assertTrue(html.contains("Fijn dat we u op de beurs spraken."), html);
+        assertTrue(html.contains("/sales/149"), "links back to the order in the ERP: " + html);
+        assertTrue(html.contains("https://erp.enrosed.com/offerte/token"), html);
+        assertTrue(copy.getBcc().isEmpty() && copy.getCc().isEmpty(), "the team copy carries no further copies");
+        assertFalse(html.contains("{"), "every placeholder resolved: " + html);
     }
 }

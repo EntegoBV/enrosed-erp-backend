@@ -6,6 +6,7 @@ import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.SalesOrder;
 
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.mail.InternalMessageSender;
@@ -19,6 +20,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -60,6 +62,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     private final Mailer mailer;
     private final Template quoteMailTemplate;
     private final Template cancellationMailTemplate;
+    private final Template quoteSentInternalTemplate;
 
     @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
     String websiteBaseUrl;
@@ -67,9 +70,17 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
 
-    /** Every customer mail is copied here, so the office keeps what went out. */
-    @ConfigProperty(name = "enrosed.mail.customer-cc", defaultValue = "admin@enrosed.com")
+    /** Every customer mail is blind-copied here, so the office keeps what went out without the customer seeing it. */
+    @ConfigProperty(name = "enrosed.mail.customer-bcc", defaultValue = "admin@enrosed.com")
     Optional<String> customerCc;
+
+    /** Every quotation that leaves is announced here with its PDF, as a readable summary for the team. */
+    @ConfigProperty(name = "enrosed.mail.sales-copy", defaultValue = "hello@enrosed.com")
+    Optional<String> salesCopy;
+
+    /** Base of the ERP, for the link back to the sales order in the team copy. */
+    @ConfigProperty(name = "enrosed.portal.base-url", defaultValue = "http://localhost:4321")
+    String portalBaseUrl;
 
     /** Is the mailer in mock mode? Then nothing is sent. */
     @ConfigProperty(name = "quarkus.mailer.mock", defaultValue = "false")
@@ -89,10 +100,12 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     String from;
 
     public SmtpQuoteMailer(Mailer mailer, @Location("quote-mail.html") Template quoteMailTemplate,
-                           @Location("cancellation-mail.html") Template cancellationMailTemplate) {
+                           @Location("cancellation-mail.html") Template cancellationMailTemplate,
+                           @Location("quote-sent-internal.html") Template quoteSentInternalTemplate) {
         this.cancellationMailTemplate = cancellationMailTemplate;
         this.mailer = mailer;
         this.quoteMailTemplate = quoteMailTemplate;
+        this.quoteSentInternalTemplate = quoteSentInternalTemplate;
     }
 
     @Override
@@ -157,7 +170,14 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     @Override
     public void sendQuote(SalesOrder order, Customer customer, String portalUrl,
                           QuoteDocumentRenderer.Document document, String personalMessage,
-                          List<DeliveryLine> deliveryLines, Notice notice) {
+                          List<DeliveryLine> deliveryLines, Notice notice, Summary summary) {
+        sendCustomerQuote(order, customer, portalUrl, document, personalMessage, deliveryLines, notice);
+        sendSalesCopy(order, customer, portalUrl, document, personalMessage, deliveryLines, summary);
+    }
+
+    private void sendCustomerQuote(SalesOrder order, Customer customer, String portalUrl,
+                                   QuoteDocumentRenderer.Document document, String personalMessage,
+                                   List<DeliveryLine> deliveryLines, Notice notice) {
 
         boolean allKnown = deliveryLines.stream().allMatch(DeliveryLine::known);
 
@@ -239,6 +259,64 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         LOG.infof("Offerte %s verstuurd (portaallink opgenomen)", order.number());
     }
 
+    /**
+     * The team's copy of a quotation that just left: who got it, what is in
+     * it and for how much, with the same PDF attached. Its failure is logged
+     * and never reaches the user: the customer mail already went out and
+     * the quote must not look unsent because of a second, internal mail.
+     */
+    void sendSalesCopy(SalesOrder order, Customer customer, String portalUrl,
+                       QuoteDocumentRenderer.Document document, String personalMessage,
+                       List<DeliveryLine> deliveryLines, Summary summary) {
+        String recipient = salesCopy.map(String::strip).filter(value -> !value.isEmpty()).orElse(null);
+        if (recipient == null) return;
+        try {
+            String subject = "Offerte " + order.number() + " verzonden naar "
+                    + (notBlank(customer.company()) ? customer.company() : customer.email());
+            String html = salesCopyHtml(order, customer, portalUrl, personalMessage, deliveryLines,
+                    summary == null ? Summary.none() : summary);
+            if (!mock && !brevoApiKey.orElse("").isBlank()) {
+                sendViaBrevo(recipient, subject, html, null, document, false);
+            } else {
+                mailer.send(Mail.withHtml(recipient, subject, html)
+                        .addAttachment(document.filename(), document.content(), document.contentType()));
+            }
+            LOG.infof("Teamkopie van offerte %s naar %s", order.number(), recipient);
+        } catch (Exception exception) {
+            LOG.errorf(exception, "Teamkopie van offerte %s kon niet gemaild worden", order.number());
+        }
+    }
+
+    String salesCopyHtml(SalesOrder order, Customer customer, String portalUrl, String personalMessage,
+                         List<DeliveryLine> deliveryLines, Summary summary) {
+        List<Map<String, String>> lines = summary.lines().stream().map(line -> Map.of(
+                "description", line.description() == null ? "" : line.description(),
+                "quantity", DocumentFormat.amount(java.math.BigDecimal.valueOf(line.quantity())),
+                "net", line.net() == null ? "" : DocumentFormat.money(line.net()) + " EUR")).toList();
+        return quoteSentInternalTemplate
+                .data("logoUrl", BRAND_LOGO_URL)
+                .data("order", order)
+                .data("customer", customer)
+                .data("customerLanguage", customer.language() == null ? "" : customer.language().code().toUpperCase(Locale.ROOT))
+                .data("portalUrl", portalUrl)
+                .data("erpUrl", portalBaseUrl.replaceAll("/+$", "") + "/sales/" + order.id())
+                .data("personalMessage", personalMessage)
+                .data("deliveryLines", deliveryLines)
+                .data("lines", lines)
+                .data("pieces", DocumentFormat.amount(java.math.BigDecimal.valueOf(summary.pieces())))
+                .data("lineCount", summary.lineCount())
+                .data("goodsTotal", summary.goodsTotal() == null ? null : DocumentFormat.money(summary.goodsTotal()))
+                .data("shippingTotal", summary.shippingTotal() == null ? null : DocumentFormat.money(summary.shippingTotal()))
+                .data("total", summary.total() == null ? null : DocumentFormat.money(summary.total()))
+                .data("validUntil", order.validUntil() == null ? null : DocumentText.date(order.validUntil(), Language.NL))
+                .data("sentAgain", order.sentAt() != null)
+                .render();
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
     @Override
     public void sendCancellation(SalesOrder order, Customer customer, String portalUrl, String message) {
         Language language = customer.language();
@@ -298,11 +376,11 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         mailer.send(customerMail(customer.email(), subject, body));
     }
 
-    /** A customer mail with the office in copy; internal mail carries no copy of itself. */
+    /** A customer mail with the office in blind copy; internal mail carries no copy of itself. */
     private Mail customerMail(String to, String subject, String body) {
         Mail mail = Mail.withHtml(to, subject, body);
         String copy = copyFor(to);
-        if (copy != null) mail.addCc(copy);
+        if (copy != null) mail.addBcc(copy);
         return mail;
     }
 
@@ -351,11 +429,17 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
      */
     private void sendViaBrevo(String to, String subject, String html, String text,
                               QuoteDocumentRenderer.Document attachment) throws Exception {
+        sendViaBrevo(to, subject, html, text, attachment, true);
+    }
+
+    /** The office copy travels as bcc: the customer never sees which address reads along. */
+    private void sendViaBrevo(String to, String subject, String html, String text,
+                              QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sender", Map.of("name", senderName(), "email", senderEmail()));
         payload.put("to", List.of(Map.of("email", to)));
-        String copy = copyFor(to);
-        if (copy != null) payload.put("cc", List.of(Map.of("email", copy)));
+        String copy = withOfficeCopy ? copyFor(to) : null;
+        if (copy != null) payload.put("bcc", List.of(Map.of("email", copy)));
         payload.put("subject", subject);
         if (html != null) {
             payload.put("htmlContent", html);
