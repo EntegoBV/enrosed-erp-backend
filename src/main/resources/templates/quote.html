@@ -321,7 +321,6 @@
             <div class="line-name">{line.title}</div>
             {#if line.variantText}<div class="line-variant">{line.variantText}</div>{/if}
             {#if line.skuText}<div class="line-sku">{line.skuText}</div>{/if}
-            {#if line.description}<div class="line-description">{line.description}</div>{/if}
             {#if includeProductDetails || showOuterCarton || showBarcode}
               {#if !line.productSpecs.isEmpty}
                 <div class="line-specs">{#for spec in line.productSpecs}<div class="line-spec"><span class="line-spec__label">{spec.label}</span><span class="line-spec__value">{#for part in spec.parts}<span class="spec-part">{part}</span>{#if part_hasNext}<span class="spec-sep">·</span>{/if}{/for}{#if spec.code}{#if !spec.parts.isEmpty}<br/>{/if}<span class="spec-code">{spec.code}</span>{/if}</span></div>{/for}</div>
@@ -387,9 +386,9 @@
       <td class="r">- {priced.totals.extraDiscountAmount.eur}</td></tr>
   {/if}
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
-  {#if !priced.extraLines.isEmpty}
-    <tr><td>{t.extraLines}</td><td class="r">{priced.totals.extraLinesTotal.eur}</td></tr>
-  {/if}
+  {#for extra in priced.extraLines}
+    <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
+  {/for}
   <tr><td>{t.freight}
       {#if freightPending}
       {#else if freightPickup}<span class="muted">({t.pickup})</span>

@@ -22,7 +22,9 @@ public final class PaymentTermsNames {
     /** The pick-list, in the order the screen shows it. */
     public static final List<String> STANDARD = List.of(
             "Vooruitbetaling",
+            "30% voorschot / 70% bij levering",
             "50% voorschot / 50% bij levering",
+            "30% voorschot / 40% voor verzending / 30% bij levering",
             "Bij levering",
             "14 dagen netto",
             "30 dagen netto",
