@@ -334,8 +334,10 @@ public class SalesOrderService {
                 /* The container's freight is already inside the landed cost; a cost quote adds none of its own. */
                 atCost ? FreightState.AANGEVULD : FreightState.BEREKEND, atCost ? BigDecimal.ZERO : null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
-                defaultCarrierId == null ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
-                null, defaultCarrierId, null,
+                /* At cost the freight is a fixed zero, whatever carrier the house normally uses. */
+                atCost ? FreightPricingStrategy.FIXED
+                        : defaultCarrierId == null ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
+                null, atCost ? null : defaultCarrierId, null,
                 DocumentType.OFFERTE, null, null, null, null, lines, List.of())
                 .withExtraLines(extras)
                 .withPartnerDeal(partner ? container.id() : null, share)

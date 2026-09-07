@@ -200,6 +200,8 @@ class SalesOrderPartnerDealTest {
                 quote.extraLines().stream().map(SalesExtraLine::description).toList());
         assertEquals(new BigDecimal("150.00"), quote.extraLines().get(0).unitPriceEur());
         assertEquals(FreightState.AANGEVULD, quote.freight());
+        assertEquals(FreightPricingStrategy.FIXED, quote.freightPricingStrategy(), "no carrier tariff on top of the landed cost");
+        assertEquals(BigDecimal.ZERO, quote.manualFreightEur());
         assertEquals(13L, quote.partnerPurchaseOrderId());
         assertEquals(new BigDecimal("50"), quote.partnerSharePct());
         assertEquals("PARTNER", quote.salesChannel());
