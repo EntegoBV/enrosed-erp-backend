@@ -155,6 +155,77 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aContainerBecomesAPartnerQuoteInOneGo() {
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = mock(be.enrosed.sourcing.application.PurchaseOrderService.class);
+        be.enrosed.sourcing.domain.PurchaseOrder container = new be.enrosed.sourcing.domain.PurchaseOrder(
+                13L, "PO-2026-008", null, 1L,
+                LocalDate.of(2026, 8, 19), be.enrosed.sourcing.domain.PurchaseOrderStatus.CONCEPT,
+                be.enrosed.sourcing.domain.ContainerType.FORTY_HQ,
+                new BigDecimal("0.1400"), new BigDecimal("0.8900"), new BigDecimal("0.8900"),
+                new BigDecimal("3800.00"), new BigDecimal("450.00"), be.enrosed.shared.Currency.USD,
+                new BigDecimal("1250.00"), new BigDecimal("5.0"), new BigDecimal("2500.00"),
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
+                "Ningbo", "Rotterdam", null, true,
+                null, null, null, null,
+                be.enrosed.sourcing.domain.PaymentTerms.DEPOSIT_30_40_30, null, null, "",
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(1L, 9L, 40, new BigDecimal("19.20"), null, null, null)))
+                .withInspectionCost(new BigDecimal("150"))
+                .withOtherCosts(List.of(new be.enrosed.sourcing.domain.OtherCost("Fumigatie", new BigDecimal("80"))));
+        be.enrosed.sourcing.domain.LandedCost.Line costLine = new be.enrosed.sourcing.domain.LandedCost.Line(
+                9L, "Rood", 40, 10, new BigDecimal("1.36"),
+                new BigDecimal("768.00"), new BigDecimal("683.52"),
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, new BigDecimal("771.45"),
+                new BigDecimal("19.2863"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
+        be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
+        when(sourcing.get(13L)).thenReturn(container);
+        when(sourcing.calculate(container)).thenReturn(costing);
+        Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
+        when(sourcingInstance.isResolvable()).thenReturn(true);
+        when(sourcingInstance.get()).thenReturn(sourcing);
+        service.purchaseOrders = sourcingInstance;
+        when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 70L));
+
+        SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null));
+
+        assertEquals(DocumentType.OFFERTE, quote.docType());
+        assertEquals(7L, quote.customerId());
+        assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitPriceEur(), "the container's landed cost to the cent");
+        assertEquals(40, quote.lines().get(0).quantity());
+        assertEquals(List.of("Inspectie · PO-2026-008", "Fumigatie · PO-2026-008"),
+                quote.extraLines().stream().map(SalesExtraLine::description).toList());
+        assertEquals(new BigDecimal("150.00"), quote.extraLines().get(0).unitPriceEur());
+        assertEquals(FreightState.AANGEVULD, quote.freight());
+        assertEquals(13L, quote.partnerPurchaseOrderId());
+        assertEquals(new BigDecimal("50"), quote.partnerSharePct());
+        assertEquals("PARTNER", quote.salesChannel());
+        assertTrue(quote.internalNotes().startsWith("Partnercontainer PO-2026-008: goederen aan 100 % van onze gelande kostprijs"), quote.internalNotes());
+        assertNull(quote.notes() == null || quote.notes().isBlank() ? null : quote.notes(), "nothing customer-facing is written");
+
+        /* Half the cost up front: the lines and the separate costs follow. */
+        SalesOrder half = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("50"), true, List.of(), null));
+        assertEquals(new BigDecimal("9.6432"), half.lines().get(0).unitPriceEur());
+        assertEquals(new BigDecimal("75.00"), half.extraLines().get(0).unitPriceEur());
+        assertEquals(1, half.extraLines().size());
+
+        /* Customer prices: no landed cost needed, no partner deal, ordinary freight. */
+        SalesOrder plain = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "CUSTOMER", null, true, null, null, false, List.of(), null));
+        assertNull(plain.lines().get(0).unitPriceEur());
+        assertNull(plain.partnerPurchaseOrderId());
+        assertEquals(FreightState.BEREKEND, plain.freight());
+        assertEquals("DIRECT", plain.salesChannel());
+
+        assertThrows(BusinessRuleException.class, () -> service.createFromPurchaseOrder(
+                new SalesOrderService.FromPurchaseOrderRequest(13L, null, "COST", null, false, null, null, false, List.of(), null)));
+    }
+
+    @Test
     void partnerDealAndFreeLinesSurviveStatusAndFreightChanges() {
         SalesOrder invoice = partnerInvoice(67L);
         when(orders.findById(67L)).thenReturn(Optional.of(invoice));
@@ -238,6 +309,22 @@ class SalesOrderPartnerDealTest {
                         new BigDecimal("40"), new BigDecimal("40"), new BigDecimal("20")), 10, new BigDecimal("5")),
                 BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
                 BigDecimal.ONE, "test", new BigDecimal("45"), null, 100, List.of(), List.of());
+    }
+
+    /** A saved copy with an id, keeping the free lines, the deal and the channel. */
+    private static SalesOrder withId(SalesOrder order, long id) {
+        return new SalesOrder(id, order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(), order.docType(),
+                order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(), order.lines(), order.pallets()).carrying(order);
     }
 
     private static PricedOrder priced(String goods, String extra) {

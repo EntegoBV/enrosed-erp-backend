@@ -88,6 +88,13 @@ public class SalesOrderResource {
         return view(invoice);
     }
 
+    /** A container becomes a quote in one go: lines, costs and the partner deal, or nothing at all. */
+    @POST
+    @Path("/from-purchase-order")
+    public OrderView createFromPurchaseOrder(SalesOrderService.FromPurchaseOrderRequest request) {
+        return view(salesOrders.createFromPurchaseOrder(request));
+    }
+
     /** The auction settlement of a partner container: our financed cost and profit share, per product. */
     @POST
     @Path("/auction-settlement")

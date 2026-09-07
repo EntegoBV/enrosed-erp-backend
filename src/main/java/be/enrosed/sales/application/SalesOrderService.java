@@ -6,6 +6,10 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
+import be.enrosed.sourcing.domain.LandedCost;
+import be.enrosed.sourcing.domain.OtherCost;
+import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.BusinessDays;
 import be.enrosed.shared.NotFoundException;
@@ -63,6 +67,10 @@ public class SalesOrderService {
     Instance<CurrentActor> actor;
     @Inject
     Instance<ActivityLogService> activity;
+
+    /** The container side, for a quote made straight from a purchase order. */
+    @Inject
+    Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchaseOrders;
     @Inject
     Event<SalesCreationPushNotifier.Ready> salesCreationPush;
     @Inject
@@ -234,6 +242,140 @@ public class SalesOrderService {
         return created;
     }
 
+    /** What the sheet asks for when a container becomes a quote: whose, at which prices, with which of its costs. */
+    public record FromPurchaseOrderRequest(Long purchaseOrderId, Long customerId, String pricing, BigDecimal markupPct,
+                                           boolean partner, BigDecimal sharePct, BigDecimal costPct,
+                                           boolean includeInspection, List<Integer> otherCostIndexes, String salesChannel) {}
+
+    /**
+     * A container becomes a quote in one go: every product line with its
+     * pieces, at the customer's prices or at the container's landed cost,
+     * the inspection and other costs as lines of their own, and for a
+     * partner the deal itself. One save, one diary line, one log entry on
+     * both documents; nothing half-made is left behind when a rule fails.
+     */
+    @Transactional
+    public SalesOrder createFromPurchaseOrder(FromPurchaseOrderRequest request) {
+        if (request == null || request.purchaseOrderId() == null) throw new BusinessRuleException("Kies een inkooporder");
+        if (request.customerId() == null) throw new BusinessRuleException("Kies de klant voor de offerte");
+        if (purchaseOrders == null || !purchaseOrders.isResolvable()) {
+            throw new BusinessRuleException("Inkoop is niet beschikbaar; probeer straks opnieuw");
+        }
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = purchaseOrders.get();
+        PurchaseOrder container = sourcing.get(request.purchaseOrderId());
+        if (container.lines().isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft nog geen productregels");
+        Customer customer = customers.get(request.customerId());
+        boolean atCost = "COST".equalsIgnoreCase(request.pricing());
+        BigDecimal markup = request.markupPct() == null ? BigDecimal.ZERO : request.markupPct();
+        if (markup.signum() < 0) throw new BusinessRuleException("De opslag op de kostprijs kan niet negatief zijn");
+        boolean partner = atCost && request.partner();
+        BigDecimal share = partner
+                ? percentage(request.sharePct() != null ? request.sharePct() : customer.partnerSharePctOrDefault(), "Ons deel van de winst")
+                : null;
+        BigDecimal costPct = partner
+                ? percentage(request.costPct() != null ? request.costPct() : customer.partnerCostPctOrDefault(),
+                        "Het deel van de kost dat de partner vooraf betaalt")
+                : HUNDRED;
+        BigDecimal factor = BigDecimal.ONE.add(markup.divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP))
+                .multiply(costPct).divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP);
+
+        Map<Long, LandedCost.Line> costLines = new HashMap<>();
+        if (atCost) {
+            for (LandedCost.Line line : sourcing.calculate(container).lines()) costLines.put(line.productId(), line);
+        }
+        List<SalesOrderLine> lines = new java.util.ArrayList<>();
+        for (PurchaseOrderLine line : container.lines()) {
+            if (line.quantity() <= 0) continue;
+            BigDecimal unit = null;
+            if (atCost) {
+                LandedCost.Line cost = costLines.get(line.productId());
+                if (cost == null || cost.landedUnitEur() == null || cost.landedUnitEur().signum() <= 0) {
+                    throw new BusinessRuleException("Geen gelande kost voor " + productName(line.productId())
+                            + "; reken de calculatie van " + container.number() + " eerst door");
+                }
+                unit = cost.landedUnitEur().multiply(factor).setScale(4, java.math.RoundingMode.HALF_UP);
+            }
+            lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unit, null, null));
+        }
+        if (lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
+
+        List<SalesExtraLine> extras = new java.util.ArrayList<>();
+        if (atCost) {
+            String suffix = " · " + container.number();
+            if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
+                extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
+            }
+            for (Integer index : request.otherCostIndexes() == null ? List.<Integer>of() : request.otherCostIndexes()) {
+                if (index == null || index < 0 || index >= container.otherCosts().size()) continue;
+                OtherCost other = container.otherCosts().get(index);
+                if (other.label() == null || other.label().isBlank() || other.amountEur() == null || other.amountEur().signum() <= 0) continue;
+                extras.add(new SalesExtraLine(other.label().strip() + suffix, BigDecimal.ONE, part(other.amountEur(), costPct)));
+            }
+        }
+
+        String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
+        String internalNotes = partner
+                ? "Partnercontainer " + container.number() + ": goederen aan " + pct(costPct)
+                        + " % van onze gelande kostprijs (fabriek, zeevracht, invoerrechten en afhandeling). Na de veiling volgt de veilingafrekening: "
+                        + pct(HUNDRED.subtract(costPct)) + " % van de kost terug en " + pct(share) + " % van de winst."
+                : "Offerte gemaakt vanuit inkooporder " + container.number() + (atCost ? " aan kostprijs." : ".");
+        Long defaultCarrierId = shippingCarriers.findAll().stream()
+                .filter(be.enrosed.shipping.domain.Carrier::active)
+                .map(be.enrosed.shipping.domain.Carrier::id)
+                .findFirst().orElse(null);
+        ActorRef creator = currentActor();
+        LocalDate today = LocalDate.now();
+        SalesOrder draft = new SalesOrder(
+                null, nextNumber(), customer.id(), customer.countryCode(), today, BusinessDays.add(today, 30),
+                QuoteStatus.CONCEPT, isBlank(customer.incoterm()) ? "DAP" : customer.incoterm(), null, "",
+                MarkupMode.PRODUCT, settings.defaultMarkupPct(), null, null,
+                null, null, null, 0, null, null, null, internalNotes,
+                DeliveryTermsState.VOLLEDIG,
+                /* The container's freight is already inside the landed cost; a cost quote adds none of its own. */
+                atCost ? FreightState.AANGEVULD : FreightState.BEREKEND, atCost ? BigDecimal.ZERO : null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                defaultCarrierId == null ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
+                null, defaultCarrierId, null,
+                DocumentType.OFFERTE, null, null, null, null, lines, List.of())
+                .withExtraLines(extras)
+                .withPartnerDeal(partner ? container.id() : null, share)
+                .withSalesChannel(channel);
+        validateForSave(draft);
+        SalesOrder created = orders.save(draft);
+
+        String how = partner
+                ? " als partnercontainer: " + pct(share) + " % winstdeling, " + pct(costPct) + " % van de kost vooraf"
+                : atCost ? " aan kostprijs" : " aan klantprijzen";
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
+                java.time.Instant.now(), creator.displayName(), false,
+                "Offerte opgemaakt vanuit inkooporder " + container.number() + how, null));
+        recordActivity(created, "Offerte aangemaakt vanuit inkooporder " + container.number() + how);
+        recordPurchaseActivity(container.id(), container.number(),
+                "Verkoopofferte " + created.number() + " gemaakt voor " + customer.company() + how);
+        fireCreationPush(SalesCreationPushNotifier.Ready.quoteCreated(created.id(), created.number(), creator));
+        return created;
+    }
+
+    private static BigDecimal part(BigDecimal amount, BigDecimal pct) {
+        return amount.multiply(pct).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private static String pct(BigDecimal value) {
+        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
+    }
+
+    private String productName(Long productId) {
+        return products.list().stream().filter(product -> product.id().equals(productId))
+                .map(Product::name).findFirst().orElse("product " + productId);
+    }
+
+    /** The container's own diary line: what the partner side did with it. */
+    private void recordPurchaseActivity(Long purchaseOrderId, String number, String summary) {
+        if (activity == null || !activity.isResolvable() || purchaseOrderId == null) return;
+        activity.get().record(ActivityLogService.ACTION_UPDATED, "PURCHASE_ORDER",
+                purchaseOrderId.toString(), number, summary);
+    }
+
     /** One product on the partner's auction statement: what it fetched, and what one piece cost us landed. */
     public record AuctionLine(Long productId, int quantity, BigDecimal proceedsEur, BigDecimal landedUnitCostEur) {}
 
@@ -342,6 +484,9 @@ public class SalesOrderService {
                             + " op veilingopbrengst € " + money(proceedsSum), null));
         }
         recordActivity(created, "Veilingafrekening aangemaakt voor " + reference);
+        recordPurchaseActivity(purchaseOrderId, reference,
+                "Veilingafrekening " + created.number() + " gemaakt: ons deel € " + money(oursSum)
+                        + " op veilingopbrengst € " + money(proceedsSum));
         return created;
     }
 
@@ -384,6 +529,11 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.PARTNER_GEKOPPELD,
                 java.time.Instant.now(), currentActor().displayName(), false, summary, null));
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, summary);
+        Long containerId = purchaseOrderId != null ? purchaseOrderId : order.partnerPurchaseOrderId();
+        recordPurchaseActivity(containerId, request != null && !isBlank(request.reference()) ? request.reference().strip() : null,
+                purchaseOrderId == null
+                        ? saved.number() + " losgekoppeld als partnerdocument"
+                        : saved.number() + " gekoppeld als partnerdocument · " + money(share).replace(",00", "") + " % winstdeling");
         return saved;
     }
 
@@ -1253,6 +1403,9 @@ public class SalesOrderService {
                 .privateValue("palletLayout", "Handmatige palletindeling",
                         before.pallets(), after.pallets())
                 .add("invoiceDueDate", "Vervaldatum", before.invoiceDueDate(), after.invoiceDueDate())
+                .add("salesChannel", "Verkoopkanaal", before.salesChannel(), after.salesChannel())
+                .add("partnerPurchaseOrderId", "Partnercontainer", before.partnerPurchaseOrderId(), after.partnerPurchaseOrderId())
+                .add("partnerSharePct", "Winstdeling partner", before.partnerSharePct(), after.partnerSharePct())
                 .add("lineCount", "Aantal productregels", before.lines().size(), after.lines().size())
                 .add("pieceCount", "Totaal aantal stuks", totalSalesPieces(before), totalSalesPieces(after))
                 .privateValue("notes", "Notitie voor klant", before.notes(), after.notes())
