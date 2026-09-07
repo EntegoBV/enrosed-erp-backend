@@ -46,6 +46,16 @@ public final class SalesEntities {
         @Column(length = 2000)
         public String notes;
         public LocalDate createdAt;
+
+        /** A partner who co-orders containers at our landed cost and sells the goods at auction. */
+        @Column(name = "partner")
+        public Boolean partner;
+        /** Our default share of that partner's auction profit, in percent. */
+        @Column(name = "partner_share_pct", precision = 5, scale = 2)
+        public BigDecimal partnerSharePct;
+        /** The part of the landed cost the partner pays up front, in percent; the rest is settled after the auction. */
+        @Column(name = "partner_cost_pct", precision = 5, scale = 2)
+        public BigDecimal partnerCostPct;
     }
 
     @Entity
@@ -208,6 +218,10 @@ public final class SalesEntities {
         /** Our share of the partner's profit on that container, in percent. */
         @Column(name = "partner_share_pct", precision = 5, scale = 2)
         public java.math.BigDecimal partnerSharePct;
+
+        /** The auction settlement invoice of a partner deal; null on rows from before the flag existed. */
+        @Column(name = "partner_settlement")
+        public Boolean partnerSettlement;
 
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")

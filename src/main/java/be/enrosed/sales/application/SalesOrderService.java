@@ -232,73 +232,123 @@ public class SalesOrderService {
         return created;
     }
 
-    /** What the partner reports after the auction, and how the profit is split. */
-    public record SettlementRequest(BigDecimal proceedsEur, BigDecimal sharePct, String reference, String note) {}
+    /** One product on the partner's auction statement: what it fetched, and what one piece cost us landed. */
+    public record AuctionLine(Long productId, int quantity, BigDecimal proceedsEur, BigDecimal landedUnitCostEur) {}
 
     /**
-     * The settlement invoice of a partner deal: the partner sold the
-     * container's goods on, reports the proceeds, and our share of the
-     * profit above what they paid us becomes one line on a new invoice.
-     * The cost basis is the goods and the extra lines of the source
-     * document, priced as they stand; freight and VAT stay out of it.
+     * The partner's auction statement and the deal behind it: which partner,
+     * which container, what part of the landed cost we still recover and our
+     * share of the profit. The source is the cost document when there is one;
+     * the container can also be settled without one, when we financed it all.
+     */
+    public record AuctionSettlementRequest(Long customerId, Long purchaseOrderId, String reference, Long sourceId,
+                                           BigDecimal costSharePct, BigDecimal profitSharePct,
+                                           List<AuctionLine> lines, String note) {}
+
+    /**
+     * The auction settlement of a partner container: the partner sold the
+     * goods at auction and reports what each product fetched. Per product we
+     * invoice the part of the landed cost we financed plus our share of the
+     * profit above the full landed cost. The invoice carries real product
+     * lines, so shipping it writes the stock out and the margin shows in the
+     * sales analysis; the calculation is written into its notes.
      */
     @Transactional
-    public SalesOrder createSettlement(long sourceId, SettlementRequest request) {
-        SalesOrder source = get(sourceId);
-        if (request == null || request.proceedsEur() == null || request.proceedsEur().signum() <= 0) {
-            throw new BusinessRuleException("Vul de veilingopbrengst in");
+    public SalesOrder createAuctionSettlement(AuctionSettlementRequest request) {
+        if (request == null || request.lines() == null || request.lines().isEmpty()) {
+            throw new BusinessRuleException("Vul de veilingopbrengst per product in");
         }
-        BigDecimal share = request.sharePct() != null ? request.sharePct() : source.partnerSharePct();
-        if (share == null || share.signum() <= 0 || share.compareTo(new BigDecimal("100")) > 0) {
-            throw new BusinessRuleException("Geef een winstdeling tussen 1 en 100 procent");
+        BigDecimal costShare = percentage(request.costSharePct(), "Het deel van de kost dat wij terugvragen");
+        BigDecimal profitShare = percentage(request.profitSharePct(), "Ons deel van de winst");
+        SalesOrder source = request.sourceId() == null ? null : get(request.sourceId());
+        Long customerId = request.customerId() != null ? request.customerId()
+                : source != null ? source.customerId() : null;
+        if (customerId == null) throw new BusinessRuleException("Kies de partner voor deze afrekening");
+        Customer partner = customers.get(customerId);
+        Long purchaseOrderId = request.purchaseOrderId() != null ? request.purchaseOrderId()
+                : source != null ? source.partnerPurchaseOrderId() : null;
+        String reference = !isBlank(request.reference()) ? request.reference().strip()
+                : source != null ? source.number() : "container";
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+
+        List<SalesOrderLine> lines = new java.util.ArrayList<>();
+        StringBuilder table = new StringBuilder();
+        BigDecimal proceedsSum = BigDecimal.ZERO;
+        BigDecimal costSum = BigDecimal.ZERO;
+        BigDecimal oursSum = BigDecimal.ZERO;
+        for (AuctionLine line : request.lines()) {
+            if (line == null || line.productId() == null || line.quantity() <= 0) {
+                throw new BusinessRuleException("Elke regel van de afrekening heeft een product en een aantal");
+            }
+            BigDecimal proceeds = line.proceedsEur() == null ? BigDecimal.ZERO : line.proceedsEur();
+            if (proceeds.signum() < 0) throw new BusinessRuleException("Een veilingopbrengst kan niet negatief zijn");
+            BigDecimal landedUnit = line.landedUnitCostEur() == null ? BigDecimal.ZERO : line.landedUnitCostEur();
+            BigDecimal quantity = BigDecimal.valueOf(line.quantity());
+            BigDecimal cost = landedUnit.multiply(quantity).setScale(2, java.math.RoundingMode.HALF_UP);
+            BigDecimal profit = proceeds.subtract(cost);
+            BigDecimal ours = cost.multiply(costShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP)
+                    .add(profit.multiply(profitShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP));
+            if (ours.signum() < 0) ours = BigDecimal.ZERO;
+            lines.add(new SalesOrderLine(null, line.productId(), line.quantity(),
+                    ours.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null));
+            Product product = byId.get(line.productId());
+            table.append(product == null ? "Product " + line.productId() : product.name())
+                    .append(": ").append(line.quantity()).append(" st · veiling € ").append(money(proceeds))
+                    .append(" − kost € ").append(money(cost)).append(" = ")
+                    .append(profit.signum() < 0 ? "verlies" : "winst").append(" € ").append(money(profit.abs()))
+                    .append(" · ons deel € ").append(money(ours)).append('\n');
+            proceedsSum = proceedsSum.add(proceeds);
+            costSum = costSum.add(cost);
+            oursSum = oursSum.add(ours);
         }
-        PricedOrder priced = price(source);
-        BigDecimal costBasis = priced.totals().goodsTotal().add(priced.totals().extraLinesTotal());
-        BigDecimal profit = request.proceedsEur().subtract(costBasis);
-        if (profit.signum() <= 0) {
-            throw new BusinessRuleException("De opbrengst ligt niet boven de kostbasis van € "
-                    + money(costBasis) + "; er is geen winst te delen");
-        }
-        BigDecimal ours = profit.multiply(share).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
-        String reference = isBlank(request.reference()) ? source.number() : request.reference().strip();
-        String description = "Winstdeling veiling · " + reference + " · " + money(share).replace(",00", "")
-                + " % van € " + money(profit);
-        StringBuilder notes = new StringBuilder("Slotfactuur bij ").append(source.number());
-        if (!reference.equals(source.number())) notes.append(" (").append(reference).append(')');
-        notes.append(": veilingopbrengst € ").append(money(request.proceedsEur()))
-                .append(" − kostbasis € ").append(money(costBasis))
-                .append(" = winst € ").append(money(profit))
-                .append("; ons deel ").append(money(share).replace(",00", "")).append(" % = € ")
-                .append(money(ours)).append('.');
-        if (!isBlank(request.note())) notes.append('\n').append(request.note().strip());
+        BigDecimal profitSum = proceedsSum.subtract(costSum);
+        String notes = "Veilingafrekening " + reference + " · " + money(costShare).replace(",00", "")
+                + " % van de gelande kost terug + " + money(profitShare).replace(",00", "") + " % van de winst\n"
+                + table
+                + "Totaal: veiling € " + money(proceedsSum) + " − kost € " + money(costSum) + " = "
+                + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
+                + "; ons deel € " + money(oursSum) + ".";
 
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
-                null, nextInvoiceNumber(), source.customerId(), source.countryCode(),
-                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
-                source.paymentTerms(), notes.toString(),
-                source.markupMode(), source.orderMarkupPct(), null, null,
-                null, null, null, 0, null, null, null, source.internalNotes(),
+                null, nextInvoiceNumber(), partner.id(), partner.countryCode(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
+                isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
+                MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
+                null, null, null, 0, null, null, null,
+                isBlank(request.note()) ? null : request.note().strip(),
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
-                source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
-                source.freightPricingStrategy(), source.freightRatePerCbmEur(),
-                source.freightCarrierId(), source.freightCarrierExtraEur(),
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null,
-                List.of(), List.of())
-                .withExtraLines(List.of(new SalesExtraLine(description, BigDecimal.ONE, ours)))
-                .withPartnerDeal(source.partnerPurchaseOrderId(), share);
+                lines, List.of())
+                .withPartnerDeal(purchaseOrderId, profitShare)
+                .asPartnerSettlement();
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
-                "Slotfactuur opgemaakt bij " + source.number(), null));
-        events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
-                java.time.Instant.now(), creator.displayName(), false,
-                "Slotfactuur " + created.number() + " aangemaakt: winst € " + money(profit)
-                        + " op veilingopbrengst € " + money(request.proceedsEur()), null));
-        recordActivity(created, "Slotfactuur aangemaakt bij " + source.number());
+                "Veilingafrekening opgemaakt voor " + reference, null));
+        if (source != null) {
+            events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
+                    java.time.Instant.now(), creator.displayName(), false,
+                    "Veilingafrekening " + created.number() + " aangemaakt: "
+                            + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
+                            + " op veilingopbrengst € " + money(proceedsSum), null));
+        }
+        recordActivity(created, "Veilingafrekening aangemaakt voor " + reference);
         return created;
+    }
+
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
+
+    private static BigDecimal percentage(BigDecimal value, String what) {
+        if (value == null || value.signum() < 0 || value.compareTo(HUNDRED) > 0) {
+            throw new BusinessRuleException(what + " ligt tussen 0 en 100 procent");
+        }
+        return value;
     }
 
     /** Ties a document to the container a partner co-finances, or cuts that tie with a null container. */

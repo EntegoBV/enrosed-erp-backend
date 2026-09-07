@@ -73,7 +73,7 @@ class SalesOrderPartnerDealTest {
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> call.getArgument(0));
         when(countries.find("BE")).thenReturn(country());
         when(customers.get(7L)).thenReturn(customer());
-        when(products.list()).thenReturn(List.of());
+        when(products.list()).thenReturn(List.of(product(9L, "Rood"), product(10L, "Wit")));
 
         service = new SalesOrderService(orders, products, countries,
                 mock(DiscountTierService.class), pricing,
@@ -96,29 +96,30 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
-    void settlementInvoiceCarriesOurShareOfTheProfitAboveTheCostBasis() {
-        SalesOrder invoice = partnerInvoice(65L);
-        when(orders.findById(65L)).thenReturn(Optional.of(invoice));
-        /* Goods 3 000 plus inspection and fumigation 230: the partner paid 3 230. */
-        when(pricing.price(any(), any(), any())).thenReturn(priced("3000.00", "230.00"));
+    void auctionSettlementRecoversOurFinancedCostAndProfitSharePerProduct() {
+        SalesOrder costInvoice = partnerInvoice(65L);
+        when(orders.findById(65L)).thenReturn(Optional.of(costInvoice));
 
-        SalesOrder settlement = service.createSettlement(65L, new SalesOrderService.SettlementRequest(
-                new BigDecimal("5230.00"), null, "Veiling 12 sept", "Afgerekend na de veiling"));
+        /* The partner paid the whole landed cost up front, so only the profit share is left:
+           red fetched 5 000 on a cost of 3 000, white fetched 400 on a cost of 500. */
+        SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
+                null, null, "PO-2026-008", 65L, BigDecimal.ZERO, new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00")),
+                        new SalesOrderService.AuctionLine(10L, 10, new BigDecimal("400.00"), new BigDecimal("50.00"))),
+                "Veiling Aalsmeer week 38"));
 
         assertEquals(DocumentType.FACTUUR, settlement.docType());
-        assertEquals(QuoteStatus.CONCEPT, settlement.status());
+        assertTrue(settlement.partnerSettlement());
         assertEquals(7L, settlement.customerId());
-        assertTrue(settlement.lines().isEmpty(), "no goods on the settlement invoice");
-        assertEquals(1, settlement.extraLines().size());
-        SalesExtraLine share = settlement.extraLines().get(0);
-        assertEquals(new BigDecimal("1000.00"), share.unitPriceEur());
-        assertEquals("Winstdeling veiling · Veiling 12 sept · 50 % van € 2.000,00", share.description());
-        assertEquals(FreightState.AANGEVULD, settlement.freight());
-        assertEquals(BigDecimal.ZERO, settlement.manualFreightEur());
-        assertEquals(13L, settlement.partnerPurchaseOrderId());
+        assertEquals(13L, settlement.partnerPurchaseOrderId(), "the container comes from the source document");
         assertEquals(new BigDecimal("50"), settlement.partnerSharePct());
-        assertTrue(settlement.notes().contains("kostbasis € 3.230,00"), settlement.notes());
-        assertTrue(settlement.notes().endsWith("Afgerekend na de veiling"), settlement.notes());
+        assertEquals(2, settlement.lines().size());
+        assertEquals(new BigDecimal("25.0000"), settlement.lines().get(0).unitPriceEur(), "half of 2 000 profit over 40 pieces");
+        assertEquals(new BigDecimal("0.0000"), settlement.lines().get(1).unitPriceEur(), "a loss is never invoiced");
+        assertEquals(FreightState.AANGEVULD, settlement.freight());
+        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.000,00 = winst € 2.000,00 · ons deel € 1.000,00"), settlement.notes());
+        assertTrue(settlement.notes().contains("verlies € 100,00 · ons deel € 0,00"), settlement.notes());
+        assertEquals("Veiling Aalsmeer week 38", settlement.internalNotes());
 
         ArgumentCaptor<QuoteEvent> events = ArgumentCaptor.forClass(QuoteEvent.class);
         verify(history, times(2)).add(events.capture());
@@ -127,17 +128,30 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
-    void settlementRefusesALossAndAnEmptyProceeds() {
-        SalesOrder invoice = partnerInvoice(66L);
-        when(orders.findById(66L)).thenReturn(Optional.of(invoice));
-        when(pricing.price(any(), any(), any())).thenReturn(priced("3000.00", "230.00"));
+    void auctionSettlementWithoutACostDocumentRecoversWhatWeFinanced() {
+        /* We financed the whole container: the partner pays the cost back plus half the profit. */
+        SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
+                7L, 21L, "PO-2026-021", null, new BigDecimal("100"), new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00"))),
+                null));
 
-        assertThrows(BusinessRuleException.class, () -> service.createSettlement(66L,
-                new SalesOrderService.SettlementRequest(new BigDecimal("3000"), null, null, null)));
-        assertThrows(BusinessRuleException.class, () -> service.createSettlement(66L,
-                new SalesOrderService.SettlementRequest(null, null, null, null)));
-        assertThrows(BusinessRuleException.class, () -> service.createSettlement(66L,
-                new SalesOrderService.SettlementRequest(new BigDecimal("9000"), new BigDecimal("140"), null, null)));
+        assertEquals(21L, settlement.partnerPurchaseOrderId());
+        assertEquals(new BigDecimal("100.0000"), settlement.lines().get(0).unitPriceEur(), "75 cost plus 25 profit share per piece");
+        assertTrue(settlement.notes().startsWith("Veilingafrekening PO-2026-021 · 100 % van de gelande kost terug + 50 % van de winst"), settlement.notes());
+        assertNull(settlement.internalNotes());
+        verify(history, times(1)).add(any(QuoteEvent.class));
+    }
+
+    @Test
+    void auctionSettlementRefusesEmptyStatementsAndBadPercentages() {
+        assertThrows(BusinessRuleException.class, () -> service.createAuctionSettlement(
+                new SalesOrderService.AuctionSettlementRequest(7L, 21L, null, null, BigDecimal.ZERO, new BigDecimal("50"), List.of(), null)));
+        assertThrows(BusinessRuleException.class, () -> service.createAuctionSettlement(
+                new SalesOrderService.AuctionSettlementRequest(7L, 21L, null, null, new BigDecimal("120"), new BigDecimal("50"),
+                        List.of(new SalesOrderService.AuctionLine(9L, 1, BigDecimal.TEN, BigDecimal.ONE)), null)));
+        assertThrows(BusinessRuleException.class, () -> service.createAuctionSettlement(
+                new SalesOrderService.AuctionSettlementRequest(null, 21L, null, null, BigDecimal.ZERO, new BigDecimal("50"),
+                        List.of(new SalesOrderService.AuctionLine(9L, 1, BigDecimal.TEN, BigDecimal.ONE)), null)));
     }
 
     @Test
@@ -175,7 +189,8 @@ class SalesOrderPartnerDealTest {
         assertNull(rebuilt.partnerPurchaseOrderId());
         assertTrue(rebuilt.extraLines().isEmpty());
 
-        SalesOrder carried = rebuilt.carrying(deal);
+        SalesOrder carried = rebuilt.carrying(deal.asPartnerSettlement());
+        assertTrue(carried.partnerSettlement(), "the settlement flag travels along");
         assertEquals(QuoteStatus.BETAALD, carried.status());
         assertEquals(13L, carried.partnerPurchaseOrderId());
         assertEquals(new BigDecimal("50"), carried.partnerSharePct());
@@ -213,6 +228,16 @@ class SalesOrderPartnerDealTest {
         assertEquals("Gekoppeld aan partnercontainer PO-2026-021 · 50 % winstdeling", events.getAllValues().get(0).summary());
         assertEquals(QuoteEvent.Type.PARTNER_GEKOPPELD, events.getAllValues().get(0).type());
         assertEquals("Losgekoppeld van de partnercontainer", events.getAllValues().get(2).summary());
+    }
+
+    private static be.enrosed.catalog.domain.Product product(long id, String name) {
+        return new be.enrosed.catalog.domain.Product(id, "SKU-" + id, name,
+                be.enrosed.catalog.domain.Dimensions.empty(), null, null, 1L, 1L, true,
+                be.enrosed.catalog.domain.Barcodes.none(), null,
+                new be.enrosed.catalog.domain.Carton(new be.enrosed.catalog.domain.Dimensions(
+                        new BigDecimal("40"), new BigDecimal("40"), new BigDecimal("20")), 10, new BigDecimal("5")),
+                BigDecimal.ZERO, be.enrosed.shared.Currency.USD, BigDecimal.ZERO,
+                BigDecimal.ONE, "test", new BigDecimal("45"), null, 100, List.of(), List.of());
     }
 
     private static PricedOrder priced(String goods, String extra) {

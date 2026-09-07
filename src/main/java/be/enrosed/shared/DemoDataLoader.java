@@ -191,6 +191,11 @@ public class DemoDataLoader {
         customers.create(new Customer(null, "Fleurs de Lille SARL", "Camille Dubois",
                 "camille@fleursdelille.fr", "+33 3 20 55 18 42", "FR40123456789", "FR", Language.FR,
                 "Rue Nationale 88", "59800", "Lille", "DAP", "30 dagen", "", LocalDate.now()));
+        customers.create(new Customer(null, "Frans Verhoeven Bloemen BV", "Frans Verhoeven",
+                "frans@verhoevenbloemen.be", "+32 3 555 12 34", "BE0456789012", "BE", Language.NL,
+                "Veilingweg 4", "2500", "Lier", "DAP", "30 dagen",
+                "Partner: bestelt containers mee aan onze gelande kost en verkoopt op de veiling.",
+                LocalDate.now(), true, new java.math.BigDecimal("50"), new java.math.BigDecimal("100")));
 
         LOG.infof("Startdata geladen: %d producten, %d klanten", products.list().size(), customers.list().size());
     }

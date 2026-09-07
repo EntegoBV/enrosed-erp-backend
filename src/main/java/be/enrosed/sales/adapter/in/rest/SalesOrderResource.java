@@ -88,11 +88,11 @@ public class SalesOrderResource {
         return view(invoice);
     }
 
-    /** The partner deal's closing invoice: our share of the auction profit as one line. */
+    /** The auction settlement of a partner container: our financed cost and profit share, per product. */
     @POST
-    @Path("/{id}/settlement")
-    public OrderView createSettlement(@PathParam("id") long id, SalesOrderService.SettlementRequest request) {
-        return view(salesOrders.createSettlement(id, request));
+    @Path("/auction-settlement")
+    public OrderView createAuctionSettlement(SalesOrderService.AuctionSettlementRequest request) {
+        return view(salesOrders.createAuctionSettlement(request));
     }
 
     /** Ties the document to a partner container, or cuts the tie with a null container. */

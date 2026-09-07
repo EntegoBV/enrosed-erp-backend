@@ -46,7 +46,8 @@ public class CustomerService {
                 customer.phone(), customer.vatNumber(), customer.countryCode(),
                 customer.language(), customer.address(),
                 customer.postalCode(), customer.city(), customer.incoterm(), customer.paymentTerms(),
-                customer.notes(), LocalDate.now()));
+                customer.notes(), LocalDate.now(), customer.partner(),
+                partnerPct(customer.partnerSharePct()), partnerPct(customer.partnerCostPct())));
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Klant aangemaakt");
         return saved;
     }
@@ -59,12 +60,22 @@ public class CustomerService {
                 changes.phone(), changes.vatNumber(), changes.countryCode(),
                 changes.language(), changes.address(),
                 changes.postalCode(), changes.city(), changes.incoterm(), changes.paymentTerms(),
-                changes.notes(), current.createdAt()));
+                changes.notes(), current.createdAt(), changes.partner(),
+                partnerPct(changes.partnerSharePct()), partnerPct(changes.partnerCostPct())));
         List<ActivityChangeDto> changesMade = customerChanges(current, saved);
         if (!changesMade.isEmpty()) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt", changesMade);
         }
         return saved;
+    }
+
+    /** A percentage between 0 and 100, or null when it was not filled in. */
+    private static java.math.BigDecimal partnerPct(java.math.BigDecimal value) {
+        if (value == null) return null;
+        if (value.signum() < 0 || value.compareTo(new java.math.BigDecimal("100")) > 0) {
+            throw new BusinessRuleException("Een partnerpercentage ligt tussen 0 en 100");
+        }
+        return value;
     }
 
     @Transactional
@@ -116,6 +127,9 @@ public class CustomerService {
                 .add("city", "Plaats", before.city(), after.city())
                 .add("incoterm", "Incoterm", before.incoterm(), after.incoterm())
                 .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
+                .add("partner", "Partnercontainers", before.partner() ? "ja" : "nee", after.partner() ? "ja" : "nee")
+                .add("partnerSharePct", "Winstdeling partner", before.partnerSharePct(), after.partnerSharePct())
+                .add("partnerCostPct", "Kost vooraf door partner", before.partnerCostPct(), after.partnerCostPct())
                 .privateValue("address", "Adres", before.address(), after.address())
                 .privateValue("notes", "Notities", before.notes(), after.notes())
                 .build();

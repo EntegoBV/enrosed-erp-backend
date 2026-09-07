@@ -17,7 +17,8 @@ final class SalesMapper {
         return new Customer(entity.id, entity.company, entity.contact, entity.email, entity.phone,
                 entity.vatNumber, entity.countryCode, entity.language,
                 entity.address, entity.postalCode, entity.city,
-                entity.incoterm, entity.paymentTerms, entity.notes, entity.createdAt);
+                entity.incoterm, entity.paymentTerms, entity.notes, entity.createdAt,
+                Boolean.TRUE.equals(entity.partner), entity.partnerSharePct, entity.partnerCostPct);
     }
 
     static void apply(Customer customer, CustomerEntity entity) {
@@ -33,6 +34,9 @@ final class SalesMapper {
         entity.city = customer.city();
         entity.incoterm = customer.incoterm();
         entity.paymentTerms = customer.paymentTerms();
+        entity.partner = customer.partner();
+        entity.partnerSharePct = customer.partnerSharePct();
+        entity.partnerCostPct = customer.partnerCostPct();
         entity.notes = customer.notes();
         entity.createdAt = customer.createdAt();
     }
@@ -94,7 +98,7 @@ final class SalesMapper {
                 entity.paidAt, entity.sourceQuoteId, entity.goodsShippedAt,
                 lines, pallets, pickupSnapshot(entity), entity.archivedAt,
                 ExtraLinesJson.read(entity.extraLinesJson),
-                entity.partnerPurchaseOrderId, entity.partnerSharePct);
+                entity.partnerPurchaseOrderId, entity.partnerSharePct, Boolean.TRUE.equals(entity.partnerSettlement));
     }
 
     private static PickupLocationSnapshot pickupSnapshot(SalesOrderEntity entity) {
@@ -146,6 +150,7 @@ final class SalesMapper {
         entity.extraLinesJson = ExtraLinesJson.write(order.extraLines());
         entity.partnerPurchaseOrderId = order.partnerPurchaseOrderId();
         entity.partnerSharePct = order.partnerSharePct();
+        entity.partnerSettlement = order.partnerSettlement();
         /* Null means an older update client omitted the new field. Preserve an
            already captured website snapshot instead of silently erasing it. */
         if (order.pickupLocation() != null) {
