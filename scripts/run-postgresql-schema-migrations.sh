@@ -33,4 +33,5 @@ exec psql \
     --file=/app/migrations/sales-order-extra-lines-postgresql.sql \
     --file=/app/migrations/product-photo-lead-roles-postgresql.sql \
     --file=/app/migrations/category-photos-postgresql.sql \
-    --file=/app/migrations/stock-movement-purchase-order-postgresql.sql
+    --file=/app/migrations/stock-movement-purchase-order-postgresql.sql \
+    --file=/app/migrations/sales-order-partner-deal-postgresql.sql

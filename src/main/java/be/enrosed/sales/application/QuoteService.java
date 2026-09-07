@@ -745,7 +745,7 @@ public class QuoteService {
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                updated, order.pallets()));
+                updated, order.pallets()).carrying(order));
     }
 
     /**
@@ -929,7 +929,7 @@ public class QuoteService {
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                order.lines(), order.pallets());
+                order.lines(), order.pallets()).carrying(order);
     }
 
     private static QuoteRevision handled(QuoteRevision revision, RevisionStatus status,
@@ -958,6 +958,6 @@ public class QuoteService {
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                order.lines(), order.pallets());
+                order.lines(), order.pallets()).carrying(order);
     }
 }

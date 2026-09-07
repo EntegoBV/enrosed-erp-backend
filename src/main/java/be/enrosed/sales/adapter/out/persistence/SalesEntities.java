@@ -201,6 +201,14 @@ public final class SalesEntities {
         @Column(name = "extra_lines_json", length = 4000)
         public String extraLinesJson;
 
+        /** The container a partner sponsors at cost; null when this is an ordinary document. */
+        @Column(name = "partner_purchase_order_id")
+        public Long partnerPurchaseOrderId;
+
+        /** Our share of the partner's profit on that container, in percent. */
+        @Column(name = "partner_share_pct", precision = 5, scale = 2)
+        public java.math.BigDecimal partnerSharePct;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

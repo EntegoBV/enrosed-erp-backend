@@ -88,6 +88,13 @@ public class SalesOrderResource {
         return view(invoice);
     }
 
+    /** The partner deal's closing invoice: our share of the auction profit as one line. */
+    @POST
+    @Path("/{id}/settlement")
+    public OrderView createSettlement(@PathParam("id") long id, SalesOrderService.SettlementRequest request) {
+        return view(salesOrders.createSettlement(id, request));
+    }
+
     @POST
     @Path("/{id}/mark-sent")
     public OrderView markInvoiceSent(@PathParam("id") long id) {

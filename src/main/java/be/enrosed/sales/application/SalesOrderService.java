@@ -215,7 +215,8 @@ public class SalesOrderService {
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
                         .toList());
-        invoice = invoice.withExtraLines(source.extraLines());
+        invoice = invoice.withExtraLines(source.extraLines())
+                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct());
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
 
@@ -229,6 +230,80 @@ public class SalesOrderService {
         fireCreationPush(SalesCreationPushNotifier.Ready.invoiceFromQuoteCreated(
                 created.id(), created.number(), source.number(), creator));
         return created;
+    }
+
+    /** What the partner reports after the auction, and how the profit is split. */
+    public record SettlementRequest(BigDecimal proceedsEur, BigDecimal sharePct, String reference, String note) {}
+
+    /**
+     * The settlement invoice of a partner deal: the partner sold the
+     * container's goods on, reports the proceeds, and our share of the
+     * profit above what they paid us becomes one line on a new invoice.
+     * The cost basis is the goods and the extra lines of the source
+     * document, priced as they stand; freight and VAT stay out of it.
+     */
+    @Transactional
+    public SalesOrder createSettlement(long sourceId, SettlementRequest request) {
+        SalesOrder source = get(sourceId);
+        if (request == null || request.proceedsEur() == null || request.proceedsEur().signum() <= 0) {
+            throw new BusinessRuleException("Vul de veilingopbrengst in");
+        }
+        BigDecimal share = request.sharePct() != null ? request.sharePct() : source.partnerSharePct();
+        if (share == null || share.signum() <= 0 || share.compareTo(new BigDecimal("100")) > 0) {
+            throw new BusinessRuleException("Geef een winstdeling tussen 1 en 100 procent");
+        }
+        PricedOrder priced = price(source);
+        BigDecimal costBasis = priced.totals().goodsTotal().add(priced.totals().extraLinesTotal());
+        BigDecimal profit = request.proceedsEur().subtract(costBasis);
+        if (profit.signum() <= 0) {
+            throw new BusinessRuleException("De opbrengst ligt niet boven de kostbasis van € "
+                    + money(costBasis) + "; er is geen winst te delen");
+        }
+        BigDecimal ours = profit.multiply(share).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
+        String reference = isBlank(request.reference()) ? source.number() : request.reference().strip();
+        String description = "Winstdeling veiling · " + reference + " · " + money(share).replace(",00", "")
+                + " % van € " + money(profit);
+        StringBuilder notes = new StringBuilder("Slotfactuur bij ").append(source.number());
+        if (!reference.equals(source.number())) notes.append(" (").append(reference).append(')');
+        notes.append(": veilingopbrengst € ").append(money(request.proceedsEur()))
+                .append(" − kostbasis € ").append(money(costBasis))
+                .append(" = winst € ").append(money(profit))
+                .append("; ons deel ").append(money(share).replace(",00", "")).append(" % = € ")
+                .append(money(ours)).append('.');
+        if (!isBlank(request.note())) notes.append('\n').append(request.note().strip());
+
+        ActorRef creator = currentActor();
+        LocalDate today = LocalDate.now();
+        SalesOrder invoice = new SalesOrder(
+                null, nextInvoiceNumber(), source.customerId(), source.countryCode(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
+                source.paymentTerms(), notes.toString(),
+                source.markupMode(), source.orderMarkupPct(), null, null,
+                null, null, null, 0, null, null, null, source.internalNotes(),
+                DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
+                source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
+                source.freightPricingStrategy(), source.freightRatePerCbmEur(),
+                source.freightCarrierId(), source.freightCarrierExtraEur(),
+                DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null,
+                List.of(), List.of())
+                .withExtraLines(List.of(new SalesExtraLine(description, BigDecimal.ONE, ours)))
+                .withPartnerDeal(source.partnerPurchaseOrderId(), share);
+        validateForSave(invoice);
+        SalesOrder created = orders.save(invoice);
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
+                java.time.Instant.now(), creator.displayName(), false,
+                "Slotfactuur opgemaakt bij " + source.number(), null));
+        events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
+                java.time.Instant.now(), creator.displayName(), false,
+                "Slotfactuur " + created.number() + " aangemaakt: winst € " + money(profit)
+                        + " op veilingopbrengst € " + money(request.proceedsEur()), null));
+        recordActivity(created, "Slotfactuur aangemaakt bij " + source.number());
+        return created;
+    }
+
+    private static String money(BigDecimal amount) {
+        return String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f",
+                amount.setScale(2, java.math.RoundingMode.HALF_UP));
     }
 
     /**
@@ -276,7 +351,7 @@ public class SalesOrderService {
                 order.freightPricingStrategy(), order.freightRatePerCbmEur(),
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
-                at, order.lines(), order.pallets());
+                at, order.lines(), order.pallets()).carrying(order);
     }
 
     /** Invoices skip the portal: sending is a bookkeeping fact, not a mail flow. */
@@ -323,7 +398,8 @@ public class SalesOrderService {
      * between the two document sorts.
      */
     public void validateInvoiceForSend(SalesOrder invoice) {
-        if (invoice.lines().isEmpty()) {
+        /* A settlement invoice carries only its own line; that is a full document too. */
+        if (invoice.lines().isEmpty() && invoice.extraLines().isEmpty()) {
             throw new BusinessRuleException("Een factuur zonder regels kan niet verstuurd worden");
         }
         if (invoice.customerId() == null) {
@@ -376,7 +452,7 @@ public class SalesOrderService {
                 order.freightCarrierExtraEur(), order.docType(),
                 order.invoiceDueDate(), paidAt, order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                order.lines(), order.pallets());
+                order.lines(), order.pallets()).carrying(order);
     }
 
     @Transactional
@@ -432,7 +508,13 @@ public class SalesOrderService {
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
                 roundLinesToCartons(changes.lines()), changes.pallets())
-                .withExtraLines(keptExtraLines(changes.extraLines()));
+                .withExtraLines(keptExtraLines(changes.extraLines()))
+                /* Null means an update client that does not know the deal: keep it. */
+                .withPartnerDeal(
+                        changes.partnerPurchaseOrderId() == null
+                                ? current.partnerPurchaseOrderId() : changes.partnerPurchaseOrderId(),
+                        changes.partnerPurchaseOrderId() == null
+                                ? current.partnerSharePct() : changes.partnerSharePct());
         validateForSave(updated);
         SalesOrder saved = orders.save(updated);
         if (!saved.equals(current)) {
@@ -707,7 +789,8 @@ public class SalesOrderService {
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
                         .toList());
-        duplicate = duplicate.withExtraLines(source.extraLines());
+        duplicate = duplicate.withExtraLines(source.extraLines())
+                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct());
         validateForSave(duplicate);
         SalesOrder created = orders.save(duplicate);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
@@ -789,6 +872,11 @@ public class SalesOrderService {
         }
         if (order.validUntil().isBefore(order.orderDate())) {
             throw new BusinessRuleException("De geldigheidsdatum kan niet vóór de orderdatum liggen");
+        }
+        if (order.partnerSharePct() != null
+                && (order.partnerSharePct().signum() < 0
+                        || order.partnerSharePct().compareTo(new BigDecimal("100")) > 0)) {
+            throw new BusinessRuleException("De winstdeling ligt tussen 0 en 100 procent");
         }
         if (order.incoterm() == null || order.incoterm().isBlank()) {
             throw new BusinessRuleException("Incoterm is verplicht");
@@ -964,7 +1052,7 @@ public class SalesOrderService {
                 order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                order.lines(), order.pallets());
+                order.lines(), order.pallets()).carrying(order);
     }
 
     private static SalesOrder copyWithTerms(SalesOrder order, FreightState freight,
@@ -984,7 +1072,7 @@ public class SalesOrderService {
                 order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                lines, order.pallets());
+                lines, order.pallets()).carrying(order);
     }
 
     private static FreightPricingStrategy freightStrategyForUpdate(SalesOrder current,

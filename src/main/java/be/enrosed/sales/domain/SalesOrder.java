@@ -124,11 +124,88 @@ public record SalesOrder(
          * a sample, a lump-sum discount. Own lines on the document, outside
          * the tier discounts. Never null.
          */
-        List<SalesExtraLine> extraLines
+        List<SalesExtraLine> extraLines,
+
+        /**
+         * The container a partner buys at our landed cost to sell on, when
+         * this document is that partner deal; the settlement invoice for our
+         * share of the profit is made from it later. Null otherwise.
+         */
+        Long partnerPurchaseOrderId,
+        /** Our share of the profit the partner makes on that container, in percent. */
+        BigDecimal partnerSharePct
 ) {
     public SalesOrder {
         extraLines = extraLines == null ? List.of()
                 : extraLines.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before partner deals existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets, PickupLocationSnapshot pickupLocation,
+                      Instant archivedAt, List<SalesExtraLine> extraLines) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines, null, null);
+    }
+
+    /** The same document as a partner deal on that container, or with the deal cleared. */
+    public SalesOrder withPartnerDeal(Long purchaseOrderId, BigDecimal sharePct) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                purchaseOrderId, sharePct);
+    }
+
+    public boolean isPartnerDeal() {
+        return partnerPurchaseOrderId != null;
+    }
+
+    /**
+     * The same document carrying the fields that positional callers written
+     * before them leave empty: the pickup snapshot, the archive moment, the
+     * free lines and the partner deal. Reconstructions that only change a
+     * status or a freight state pass through here so a save never erases them.
+     */
+    public SalesOrder carrying(SalesOrder source) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets,
+                pickupLocation != null ? pickupLocation : source.pickupLocation(),
+                archivedAt != null ? archivedAt : source.archivedAt(),
+                extraLines.isEmpty() ? source.extraLines() : extraLines,
+                partnerPurchaseOrderId != null ? partnerPurchaseOrderId : source.partnerPurchaseOrderId(),
+                partnerPurchaseOrderId != null ? partnerSharePct : source.partnerSharePct());
     }
 
     /** Compatibility for callers written before the free lines existed. */
@@ -169,7 +246,8 @@ public record SalesOrder(
                 manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
-                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value);
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value,
+                partnerPurchaseOrderId, partnerSharePct);
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -209,7 +287,8 @@ public record SalesOrder(
                 manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
-                goodsShippedAt, lines, pallets, pickupLocation, value, extraLines);
+                goodsShippedAt, lines, pallets, pickupLocation, value, extraLines,
+                partnerPurchaseOrderId, partnerSharePct);
     }
 
     public boolean isArchived() {

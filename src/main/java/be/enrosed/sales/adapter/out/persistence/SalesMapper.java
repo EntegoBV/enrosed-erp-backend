@@ -93,7 +93,8 @@ final class SalesMapper {
                 entity.docType, entity.invoiceDueDate,
                 entity.paidAt, entity.sourceQuoteId, entity.goodsShippedAt,
                 lines, pallets, pickupSnapshot(entity), entity.archivedAt,
-                ExtraLinesJson.read(entity.extraLinesJson));
+                ExtraLinesJson.read(entity.extraLinesJson),
+                entity.partnerPurchaseOrderId, entity.partnerSharePct);
     }
 
     private static PickupLocationSnapshot pickupSnapshot(SalesOrderEntity entity) {
@@ -143,6 +144,8 @@ final class SalesMapper {
         entity.sourceQuoteId = order.sourceQuoteId();
         entity.goodsShippedAt = order.goodsShippedAt();
         entity.extraLinesJson = ExtraLinesJson.write(order.extraLines());
+        entity.partnerPurchaseOrderId = order.partnerPurchaseOrderId();
+        entity.partnerSharePct = order.partnerSharePct();
         /* Null means an older update client omitted the new field. Preserve an
            already captured website snapshot instead of silently erasing it. */
         if (order.pickupLocation() != null) {
