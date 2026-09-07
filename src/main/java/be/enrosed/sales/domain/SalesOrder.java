@@ -139,11 +139,75 @@ public record SalesOrder(
          * what we financed of the container and our share of the auction
          * profit, per product, from the partner's statement.
          */
-        boolean partnerSettlement
+        boolean partnerSettlement,
+        /**
+         * Where the sale comes from: direct, the website, a partner's
+         * auction, the TICA stand or a fair. Free text so a new channel
+         * needs no release; null reads as direct.
+         */
+        String salesChannel
 ) {
     public SalesOrder {
         extraLines = extraLines == null ? List.of()
                 : extraLines.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before sales channels existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets, PickupLocationSnapshot pickupLocation,
+                      Instant archivedAt, List<SalesExtraLine> extraLines,
+                      Long partnerPurchaseOrderId, BigDecimal partnerSharePct, boolean partnerSettlement) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, null);
+    }
+
+    /** The channel every document without one belongs to. */
+    public static final String DIRECT_CHANNEL = "DIRECT";
+
+    /** The channel, never null: a document without one is a direct sale. */
+    public String salesChannel() {
+        return salesChannel == null || salesChannel.isBlank() ? DIRECT_CHANNEL : salesChannel;
+    }
+
+    /** The stored channel, null when none was ever chosen: for callers that must tell "unset" from direct. */
+    public String rawSalesChannel() {
+        return salesChannel == null || salesChannel.isBlank() ? null : salesChannel;
+    }
+
+    /** The same document sold through another channel; null or blank falls back to direct. */
+    public SalesOrder withSalesChannel(String value) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement,
+                value == null || value.isBlank() ? null : value.strip().toUpperCase());
     }
 
     /** Compatibility for callers written before the auction settlement flag existed. */
@@ -187,7 +251,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, true);
+                partnerPurchaseOrderId, partnerSharePct, true, salesChannel);
     }
 
     /** Compatibility for callers written before partner deals existed. */
@@ -229,7 +293,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
-                purchaseOrderId, sharePct, partnerSettlement);
+                purchaseOrderId, sharePct, partnerSettlement, salesChannel);
     }
 
     public boolean isPartnerDeal() {
@@ -256,7 +320,8 @@ public record SalesOrder(
                 extraLines.isEmpty() ? source.extraLines() : extraLines,
                 partnerPurchaseOrderId != null ? partnerPurchaseOrderId : source.partnerPurchaseOrderId(),
                 partnerPurchaseOrderId != null ? partnerSharePct : source.partnerSharePct(),
-                partnerSettlement || source.partnerSettlement());
+                partnerSettlement || source.partnerSettlement(),
+                salesChannel != null ? salesChannel : source.salesChannel);
     }
 
     /** Compatibility for callers written before the free lines existed. */
@@ -298,7 +363,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel);
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -339,7 +404,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, value, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel);
     }
 
     public boolean isArchived() {

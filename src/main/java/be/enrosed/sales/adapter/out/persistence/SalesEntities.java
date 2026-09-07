@@ -223,6 +223,10 @@ public final class SalesEntities {
         @Column(name = "partner_settlement")
         public Boolean partnerSettlement;
 
+        /** Where the sale comes from; null reads as a direct sale. */
+        @Column(name = "sales_channel", length = 40)
+        public String salesChannel;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

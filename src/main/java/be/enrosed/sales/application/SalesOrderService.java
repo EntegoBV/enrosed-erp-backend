@@ -164,7 +164,8 @@ public class SalesOrderService {
                         ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
                 null, defaultCarrierId, null,
                 docType, invoice ? BusinessDays.add(today, 30) : null, null, null, null,
-                List.of(), List.of());
+                List.of(), List.of())
+                .withSalesChannel(staffAction ? null : "WEBSITE");
         validateForSave(draft);
         SalesOrder created = orders.save(draft);
 
@@ -216,7 +217,8 @@ public class SalesOrderService {
                                 pallet.heightCm(), pallet.items()))
                         .toList());
         invoice = invoice.withExtraLines(source.extraLines())
-                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct());
+                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
+                .withSalesChannel(source.rawSalesChannel());
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
 
@@ -325,6 +327,7 @@ public class SalesOrderService {
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null,
                 lines, List.of())
                 .withPartnerDeal(purchaseOrderId, profitShare)
+                .withSalesChannel("PARTNER")
                 .asPartnerSettlement();
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
@@ -597,7 +600,9 @@ public class SalesOrderService {
                         changes.partnerPurchaseOrderId() == null
                                 ? current.partnerPurchaseOrderId() : changes.partnerPurchaseOrderId(),
                         changes.partnerPurchaseOrderId() == null
-                                ? current.partnerSharePct() : changes.partnerSharePct());
+                                ? current.partnerSharePct() : changes.partnerSharePct())
+                /* The raw field: an update client that never heard of channels leaves it as it was. */
+                .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel());
         validateForSave(updated);
         SalesOrder saved = orders.save(updated);
         if (!saved.equals(current)) {
@@ -873,7 +878,8 @@ public class SalesOrderService {
                                 pallet.heightCm(), pallet.items()))
                         .toList());
         duplicate = duplicate.withExtraLines(source.extraLines())
-                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct());
+                .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
+                .withSalesChannel(source.rawSalesChannel());
         validateForSave(duplicate);
         SalesOrder created = orders.save(duplicate);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
