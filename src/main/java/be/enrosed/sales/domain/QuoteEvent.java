@@ -46,6 +46,8 @@ public record QuoteEvent(
         VRACHT_INGEVULD,
         GEFACTUREERD,
         BESTELLING_VERZONDEN,
-        BETAALD
+        BETAALD,
+        /** Tied to, or cut loose from, the container a partner co-finances. */
+        PARTNER_GEKOPPELD
     }
 }

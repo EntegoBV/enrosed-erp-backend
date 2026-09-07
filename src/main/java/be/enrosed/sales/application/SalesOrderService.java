@@ -301,6 +301,39 @@ public class SalesOrderService {
         return created;
     }
 
+    /** Ties a document to the container a partner co-finances, or cuts that tie with a null container. */
+    public record PartnerDealRequest(Long purchaseOrderId, BigDecimal sharePct, String reference) {}
+
+    /**
+     * Links a quote or invoice to a partner container after the fact, so a
+     * container we first paid ourselves can still be split with the partner
+     * who takes it over, and the analyses can tell our money from theirs.
+     */
+    @Transactional
+    public SalesOrder setPartnerDeal(long id, PartnerDealRequest request) {
+        SalesOrder order = get(id);
+        Long purchaseOrderId = request == null ? null : request.purchaseOrderId();
+        BigDecimal share = null;
+        if (purchaseOrderId != null) {
+            share = request.sharePct() != null ? request.sharePct()
+                    : order.partnerSharePct() != null ? order.partnerSharePct() : new BigDecimal("50");
+            if (share.signum() < 0 || share.compareTo(new BigDecimal("100")) > 0) {
+                throw new BusinessRuleException("De winstdeling ligt tussen 0 en 100 procent");
+            }
+        }
+        SalesOrder saved = orders.save(order.withPartnerDeal(purchaseOrderId, share));
+        String reference = request != null && !isBlank(request.reference())
+                ? request.reference().strip() : "inkooporder " + purchaseOrderId;
+        String summary = purchaseOrderId == null
+                ? "Losgekoppeld van de partnercontainer"
+                : "Gekoppeld aan partnercontainer " + reference + " · "
+                        + money(share).replace(",00", "") + " % winstdeling";
+        events.add(new QuoteEvent(null, id, QuoteEvent.Type.PARTNER_GEKOPPELD,
+                java.time.Instant.now(), currentActor().displayName(), false, summary, null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, summary);
+        return saved;
+    }
+
     private static String money(BigDecimal amount) {
         return String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f",
                 amount.setScale(2, java.math.RoundingMode.HALF_UP));

@@ -185,6 +185,36 @@ class SalesOrderPartnerDealTest {
         assertNull(cleared.partnerPurchaseOrderId());
     }
 
+    @Test
+    void linkingAndUnlinkingAPartnerContainerIsRecordedOnTheDocument() {
+        SalesOrder plain = partnerInvoice(69L).withPartnerDeal(null, null);
+        when(orders.findById(69L)).thenReturn(Optional.of(plain));
+
+        SalesOrder linked = service.setPartnerDeal(69L,
+                new SalesOrderService.PartnerDealRequest(21L, null, "PO-2026-021"));
+        assertEquals(21L, linked.partnerPurchaseOrderId());
+        assertEquals(new BigDecimal("50"), linked.partnerSharePct(), "half is the default share");
+
+        when(orders.findById(69L)).thenReturn(Optional.of(linked));
+        SalesOrder changed = service.setPartnerDeal(69L,
+                new SalesOrderService.PartnerDealRequest(21L, new BigDecimal("40"), "PO-2026-021"));
+        assertEquals(new BigDecimal("40"), changed.partnerSharePct());
+
+        when(orders.findById(69L)).thenReturn(Optional.of(changed));
+        SalesOrder cleared = service.setPartnerDeal(69L, new SalesOrderService.PartnerDealRequest(null, null, null));
+        assertNull(cleared.partnerPurchaseOrderId());
+        assertNull(cleared.partnerSharePct());
+
+        assertThrows(BusinessRuleException.class, () -> service.setPartnerDeal(69L,
+                new SalesOrderService.PartnerDealRequest(21L, new BigDecimal("120"), null)));
+
+        ArgumentCaptor<QuoteEvent> events = ArgumentCaptor.forClass(QuoteEvent.class);
+        verify(history, times(3)).add(events.capture());
+        assertEquals("Gekoppeld aan partnercontainer PO-2026-021 · 50 % winstdeling", events.getAllValues().get(0).summary());
+        assertEquals(QuoteEvent.Type.PARTNER_GEKOPPELD, events.getAllValues().get(0).type());
+        assertEquals("Losgekoppeld van de partnercontainer", events.getAllValues().get(2).summary());
+    }
+
     private static PricedOrder priced(String goods, String extra) {
         BigDecimal goodsTotal = new BigDecimal(goods);
         BigDecimal extraTotal = new BigDecimal(extra);

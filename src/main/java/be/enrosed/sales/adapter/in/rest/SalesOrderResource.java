@@ -95,6 +95,13 @@ public class SalesOrderResource {
         return view(salesOrders.createSettlement(id, request));
     }
 
+    /** Ties the document to a partner container, or cuts the tie with a null container. */
+    @PUT
+    @Path("/{id}/partner-deal")
+    public OrderView setPartnerDeal(@PathParam("id") long id, SalesOrderService.PartnerDealRequest request) {
+        return view(salesOrders.setPartnerDeal(id, request));
+    }
+
     @POST
     @Path("/{id}/mark-sent")
     public OrderView markInvoiceSent(@PathParam("id") long id) {
