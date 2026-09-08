@@ -15,6 +15,9 @@ BTW-behandeling zitten allemaal aan deze kant, dus staat de uitleg hier.
 
 Mobile first: telefoon krijgt een tabbalk onderaan, desktop een zijbalk vanaf 1024 px.
 
+De TST-uitbreiding voor partnercontainers, voorschot- en slotfacturen, ontvangen
+betalingen en resultaatanalyse staat in [Partnerfinanciering en ontvangen betalingen](docs/partnerfinanciering-tst.md).
+
 ## Starten
 
 Twee repositories, twee processen. **Eerst de backend**, anders heeft de frontend niets om

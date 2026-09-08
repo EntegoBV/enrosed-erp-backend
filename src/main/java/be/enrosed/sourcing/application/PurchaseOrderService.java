@@ -78,6 +78,10 @@ public class PurchaseOrderService {
     Event<PurchaseDocumentStorageCleanup.UploadReady> documentUploadCleanup;
     @Inject
     Instance<MediaService> mediaRegistry;
+    @Inject
+    Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> salesDocuments;
+    @Inject
+    Instance<be.enrosed.sales.application.CustomerService> partnerCustomers;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -93,6 +97,8 @@ public class PurchaseOrderService {
     public List<PurchaseOrder> list() {
         return orders.findAll();
     }
+
+    public PurchaseOrder lockForPartnerSettlement(long id) { return getForUpdate(id); }
 
     public PurchaseOrder get(long id) {
         return orders.findById(id).orElseThrow(() -> new NotFoundException("Inkooporder", id));
@@ -1327,6 +1333,9 @@ public class PurchaseOrderService {
     @Transactional
     public void delete(long id) {
         PurchaseOrder order = getForUpdate(id);
+        if (!linkedSalesDocuments(id).isEmpty()) {
+            throw new BusinessRuleException("Deze inkooporder heeft gekoppelde offertes of facturen; archiveer de container zodat documenten en ontvangsten gekoppeld blijven");
+        }
         if (order.status() == PurchaseOrderStatus.ONTVANGEN || order.isStockBooked()) {
             throw new BusinessRuleException(
                     "Een ontvangen inkooporder kan niet verwijderd worden omdat de voorraad al geboekt is");
@@ -1728,15 +1737,29 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchaseOrder setPartner(long id, PartnerRequest request) {
-        PurchaseOrder current = get(id);
+        PurchaseOrder current = getForUpdate(id);
         Long customerId = request == null ? null : request.customerId();
         BigDecimal costPct = null;
         BigDecimal sharePct = null;
         if (customerId != null) {
+            if (partnerCustomers != null && partnerCustomers.isResolvable()) partnerCustomers.get().get(customerId);
             costPct = percentage(request.costPct() == null ? current.partnerCostPctOrDefault() : request.costPct(),
                     "Het deel van de kost dat de partner vooraf betaalt");
             sharePct = percentage(request.sharePct() == null ? current.partnerSharePctOrDefault() : request.sharePct(),
                     "Ons deel van de winst");
+        }
+        var linked = linkedSalesDocuments(id).stream().filter(be.enrosed.sales.domain.SalesOrder::isPartnerDeal).toList();
+        if (!Objects.equals(current.partnerCustomerId(), customerId)
+                && linked.stream().anyMatch(document -> !Objects.equals(document.customerId(), customerId))) {
+            throw new BusinessRuleException("De partner kan niet wijzigen zolang er gekoppelde partnerdocumenten zijn; ontkoppel eerst de conceptdocumenten");
+        }
+        boolean agreementChanged = customerId != null && current.partnerCustomerId() != null
+                && (current.partnerCostPctOrDefault().compareTo(costPct) != 0
+                || current.partnerSharePctOrDefault().compareTo(sharePct) != 0);
+        if (agreementChanged && linked.stream().anyMatch(document -> document.isInvoice()
+                && (document.status() != be.enrosed.sales.domain.QuoteStatus.CONCEPT
+                || document.purpose() == be.enrosed.sales.domain.SalesPurpose.PARTNER_SETTLEMENT))) {
+            throw new BusinessRuleException("De financiering en winstdeling staan vast zodra een partnerfactuur is uitgereikt of de slotafrekening is gemaakt");
         }
         PurchaseOrder saved = orders.save(current.withPartner(customerId, costPct, sharePct));
         if (!saved.equals(current)) {
@@ -1746,6 +1769,12 @@ public class PurchaseOrderService {
                             + plain(sharePct) + " % van de winst is voor ons");
         }
         return saved;
+    }
+
+    private List<be.enrosed.sales.domain.SalesOrder> linkedSalesDocuments(long purchaseId) {
+        if (salesDocuments == null || !salesDocuments.isResolvable()) return List.of();
+        return salesDocuments.get().findAll().stream()
+                .filter(document -> Long.valueOf(purchaseId).equals(document.linkedPurchaseOrderId())).toList();
     }
 
     /**

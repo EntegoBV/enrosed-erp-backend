@@ -145,11 +145,45 @@ public record SalesOrder(
          * auction, the TICA stand or a fair. Free text so a new channel
          * needs no release; null reads as direct.
          */
-        String salesChannel
+        String salesChannel,
+        SalesPurpose purpose,
+        Long sourcePurchaseOrderId,
+        SalesPaymentPlan paymentPlan
 ) {
     public SalesOrder {
         extraLines = extraLines == null ? List.of()
                 : extraLines.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before invoice purposes and incoming instalments existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets, PickupLocationSnapshot pickupLocation,
+                      Instant archivedAt, List<SalesExtraLine> extraLines,
+                      Long partnerPurchaseOrderId, BigDecimal partnerSharePct, boolean partnerSettlement, String salesChannel) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, null, null, null);
     }
 
     /** Compatibility for callers written before sales channels existed. */
@@ -207,7 +241,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement,
-                value == null || value.isBlank() ? null : value.strip().toUpperCase());
+                value == null || value.isBlank() ? null : value.strip().toUpperCase(), purpose, sourcePurchaseOrderId, paymentPlan);
     }
 
     /** Compatibility for callers written before the auction settlement flag existed. */
@@ -251,7 +285,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, true, salesChannel);
+                partnerPurchaseOrderId, partnerSharePct, true, salesChannel, SalesPurpose.PARTNER_SETTLEMENT, sourcePurchaseOrderId, paymentPlan);
     }
 
     /** Compatibility for callers written before partner deals existed. */
@@ -293,11 +327,13 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
-                purchaseOrderId, sharePct, partnerSettlement, salesChannel);
+                purchaseOrderId, sharePct, partnerSettlement, salesChannel,
+                purchaseOrderId == null ? SalesPurpose.STANDARD : partnerSettlement ? SalesPurpose.PARTNER_SETTLEMENT : SalesPurpose.PARTNER_ADVANCE,
+                purchaseOrderId == null ? sourcePurchaseOrderId : purchaseOrderId, paymentPlan);
     }
 
     public boolean isPartnerDeal() {
-        return partnerPurchaseOrderId != null;
+        return purpose() != SalesPurpose.STANDARD && partnerPurchaseOrderId != null;
     }
 
     /**
@@ -305,7 +341,7 @@ public record SalesOrder(
      * container, never the final word. The final invoice is the settlement.
      */
     public boolean isPartnerAdvance() {
-        return partnerPurchaseOrderId != null && !partnerSettlement;
+        return purpose() == SalesPurpose.PARTNER_ADVANCE && partnerPurchaseOrderId != null;
     }
 
     /**
@@ -329,7 +365,10 @@ public record SalesOrder(
                 partnerPurchaseOrderId != null ? partnerPurchaseOrderId : source.partnerPurchaseOrderId(),
                 partnerPurchaseOrderId != null ? partnerSharePct : source.partnerSharePct(),
                 partnerSettlement || source.partnerSettlement(),
-                salesChannel != null ? salesChannel : source.salesChannel);
+                salesChannel != null ? salesChannel : source.salesChannel,
+                purpose != null ? purpose : source.purpose,
+                sourcePurchaseOrderId != null ? sourcePurchaseOrderId : source.sourcePurchaseOrderId,
+                paymentPlan != null ? paymentPlan : source.paymentPlan);
     }
 
     /** Compatibility for callers written before the free lines existed. */
@@ -371,7 +410,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -412,7 +451,7 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, value, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
     }
 
     public boolean isArchived() {
@@ -445,6 +484,49 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, null);
+    }
+
+
+
+    public SalesOrder withPaymentState(QuoteStatus value, Instant at) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, value, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, at, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel,
+                purpose, sourcePurchaseOrderId, paymentPlan);
+    }
+
+    public SalesPurpose purpose() {
+        return purpose != null ? purpose : partnerPurchaseOrderId == null ? SalesPurpose.STANDARD
+                : partnerSettlement ? SalesPurpose.PARTNER_SETTLEMENT : SalesPurpose.PARTNER_ADVANCE;
+    }
+
+    public SalesPaymentPlan paymentPlan() {
+        return paymentPlan != null ? paymentPlan : purpose() == SalesPurpose.PARTNER_ADVANCE
+                ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL;
+    }
+
+    public SalesPurpose purposeOrNull() { return purpose; }
+    public SalesPaymentPlan paymentPlanOrNull() { return paymentPlan; }
+    public Long linkedPurchaseOrderId() { return sourcePurchaseOrderId != null ? sourcePurchaseOrderId : partnerPurchaseOrderId; }
+
+    public SalesOrder withPurpose(SalesPurpose value, Long purchaseOrderId, SalesPaymentPlan plan) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                value == SalesPurpose.STANDARD ? null : partnerPurchaseOrderId,
+                value == SalesPurpose.STANDARD ? null : partnerSharePct,
+                value == SalesPurpose.PARTNER_SETTLEMENT, salesChannel, value, purchaseOrderId, plan);
     }
 
     /** Every order that predates invoices is a quote. */

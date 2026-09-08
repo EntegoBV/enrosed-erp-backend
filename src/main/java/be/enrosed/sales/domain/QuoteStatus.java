@@ -13,6 +13,8 @@ package be.enrosed.sales.domain;
 public enum QuoteStatus {
     CONCEPT,
     VERZONDEN,
+    /** Invoice issued internally; no customer message is implied. */
+    UITGEREIKT,
     BEKEKEN,
     WIJZIGING_GEVRAAGD,
     GEACCEPTEERD,

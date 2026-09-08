@@ -22,9 +22,11 @@ public class BankBalanceEntity {
     @Column(name = "balance_eur", nullable = false, precision = 19, scale = 2) public BigDecimal balanceEur;
     @Column(length = 2000) public String notes;
     @Column(name = "created_at") public Instant createdAt;
+    @Column(name = "as_of_at") public Instant asOfAt;
+    @Column(name = "time_zone", length = 64) public String timeZone;
 
     public BankBalance toDomain() {
-        return new BankBalance(id, account, date, balanceEur, notes, createdAt);
+        return new BankBalance(id, account, date, balanceEur, notes, createdAt, asOfAt, timeZone);
     }
 
     public void apply(BankBalance balance) {
@@ -33,5 +35,7 @@ public class BankBalanceEntity {
         balanceEur = balance.balanceEur();
         notes = balance.notes();
         createdAt = balance.createdAt();
+        asOfAt = balance.asOfAt();
+        timeZone = balance.timeZone();
     }
 }

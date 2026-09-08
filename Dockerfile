@@ -57,6 +57,8 @@ COPY docs/migrations/2026-09-08/recurring-costs-and-bank-balances-postgresql.sql
 COPY docs/migrations/2026-09-08/purchase-order-partner-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/purchase-line-extra-share-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/purchase-order-separate-allocation-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-08/partner-invoices-and-incoming-payments-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-08/bank-balance-as-of-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-line-cost-snapshot-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/media-link-company-cost-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/customer-fiscal-representative-postgresql.sql ./migrations/

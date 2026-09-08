@@ -30,6 +30,8 @@ public class SalesOrderResource {
 
     private final SalesOrderService salesOrders;
     private final QuoteService quotes;
+    @jakarta.inject.Inject be.enrosed.sales.application.IncomingPaymentService incoming;
+    @jakarta.inject.Inject be.enrosed.sales.application.PartnerFinancingService partnerFinancing;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -54,7 +56,12 @@ public class SalesOrderResource {
                             /** That invoice's status: a draft is not yet an invoice sent. */
                             be.enrosed.sales.domain.QuoteStatus invoiceStatus,
                             /** For an invoice: the number of the quote it was made from. */
-                            String sourceQuoteNumber) {
+                            String sourceQuoteNumber, be.enrosed.sales.domain.SalesPaymentSummary paymentSummary,
+                            be.enrosed.sales.domain.SalesAccounting accounting) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber, null, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend) {
             this(order, priced, awaitingResend, null, null, null, null);
         }
@@ -92,14 +99,39 @@ public class SalesOrderResource {
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
         Links links = Links.of(all);
         return all.stream()
-                .map(order -> links.view(order, salesOrders.price(order), awaiting.contains(order.id())))
+                .map(order -> enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
         boolean linked = order.isInvoice() ? order.sourceQuoteId() != null : order.id() != null;
         Links links = linked ? Links.of(salesOrders.list()) : Links.of(List.of());
-        return links.view(order, salesOrders.price(order), quotes.awaitsResend(order));
+        return enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order)));
+    }
+
+
+    private OrderView enrich(OrderView view) {
+        if (incoming == null || partnerFinancing == null) return view;
+        return new OrderView(view.order(), view.priced(), view.awaitingResend(), view.invoicedAs(), view.invoicedAsId(),
+                view.invoiceStatus(), view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
+                partnerFinancing.accounting(view.order(), view.priced()));
+    }
+
+    @GET @Path("/{id}/payments")
+    public List<be.enrosed.sales.domain.SalesPayment> payments(@PathParam("id") long id) { return incoming.forOrder(id); }
+
+    @POST @Path("/{id}/payments")
+    public OrderView addPayment(@PathParam("id") long id, be.enrosed.sales.application.IncomingPaymentService.Request request) {
+        return view(incoming.add(id, request));
+    }
+
+    @PUT @Path("/{id}/payments/{paymentId}")
+    public OrderView updatePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId,
+            be.enrosed.sales.application.IncomingPaymentService.Request request) { return view(incoming.update(id, paymentId, request)); }
+
+    @DELETE @Path("/{id}/payments/{paymentId}")
+    public Response deletePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId) {
+        incoming.delete(id, paymentId); return Response.noContent().build();
     }
 
     @GET
@@ -147,6 +179,10 @@ public class SalesOrderResource {
     public OrderView setPartnerDeal(@PathParam("id") long id, SalesOrderService.PartnerDealRequest request) {
         return view(salesOrders.setPartnerDeal(id, request));
     }
+
+    @POST
+    @Path("/{id}/issue")
+    public OrderView issueInvoice(@PathParam("id") long id) { return view(salesOrders.issueInvoice(id)); }
 
     @POST
     @Path("/{id}/mark-sent")

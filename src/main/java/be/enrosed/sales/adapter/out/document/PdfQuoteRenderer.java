@@ -59,6 +59,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchaseOrders;
     @Inject
     Instance<PdfImageEncoder> imageEncoder;
+    @Inject
+    Instance<be.enrosed.sales.application.IncomingPaymentService> incomingPayments;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -118,15 +120,34 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String paymentInstruction = null;
         String iban = null;
         String claimAmount = null;
+        String receivedAmount = null;
+        boolean productionPlan = order.paymentPlan() == be.enrosed.sales.domain.SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION;
+        List<String> paymentSchedule = new ArrayList<>();
+        if (productionPlan && priced.totals().totalInclVat().signum() > 0) {
+            var first = priced.totals().totalInclVat().divide(java.math.BigDecimal.valueOf(3), 2, java.math.RoundingMode.HALF_UP);
+            paymentSchedule.add(text.get("productionStartPayment").formatted(DocumentFormat.eur(first)));
+            paymentSchedule.add(text.get("productionCompletePayment").formatted(DocumentFormat.eur(priced.totals().totalInclVat().subtract(first))));
+        }
         if (invoice) {
             iban = company.get().iban() == null || company.get().iban().isBlank()
                     ? "-" : company.get().iban();
             /* The claim is what must actually arrive: including VAT when charged. */
             java.math.BigDecimal claim = priced.totals().vatTreatment().isExempt()
                     ? priced.totals().total() : priced.totals().totalInclVat();
-            claimAmount = be.enrosed.shared.DocumentFormat.eur(claim);
-            paymentInstruction = text.get("paymentInstruction").formatted(
-                    claimAmount, dueDateText, iban, order.number());
+            var receipts = incomingPayments != null && incomingPayments.isResolvable()
+                    ? incomingPayments.get().summary(order, priced) : null;
+            java.math.BigDecimal credit = claim.negate().max(java.math.BigDecimal.ZERO);
+            java.math.BigDecimal overpaid = java.math.BigDecimal.ZERO;
+            if (receipts != null) {
+                claim = receipts.remainingEur(); credit = receipts.creditEur(); overpaid = receipts.overpaidEur();
+                if (receipts.receivedEur().signum() > 0) receivedAmount = DocumentFormat.eur(receipts.receivedEur());
+            } else if (order.paidAt() != null) claim = java.math.BigDecimal.ZERO;
+            claimAmount = DocumentFormat.eur(claim.max(java.math.BigDecimal.ZERO));
+            paymentInstruction = credit.signum() > 0 ? text.get("paymentCredit").formatted(DocumentFormat.eur(credit))
+                    : overpaid.signum() > 0 ? text.get("paymentOverpaid").formatted(DocumentFormat.eur(overpaid))
+                    : claim.signum() <= 0 ? text.get("paymentSettled")
+                    : productionPlan ? text.get("paymentInstructionByPlan").formatted(claimAmount, iban, order.number())
+                    : text.get("paymentInstruction").formatted(claimAmount, dueDateText, iban, order.number());
         }
 
         String html = quoteTemplate
@@ -138,7 +159,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("company", company.get())
                 .data("footerText", company.get().footerFor(language))
                 /* The order's own terms win; the customer's are the default. */
-                .data("paymentText", be.enrosed.shared.PaymentTermsNames.translate(
+                .data("paymentText", productionPlan ? text.get("paymentPlanProduction") : be.enrosed.shared.PaymentTermsNames.translate(
                         order.paymentTermsOr(customer == null ? null : customer.paymentTerms()),
                         language))
                 .data("t", text)
@@ -161,6 +182,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("paymentInstruction", paymentInstruction)
                 .data("iban", iban)
                 .data("claimAmount", claimAmount)
+                .data("receivedAmount", receivedAmount)
+                .data("paymentSchedule", paymentSchedule)
                 /* Belgian B2B invoicing runs through Peppol; this paper copy
                    must say loudly that it is not the legal document. */
                 .data("belgianInvoice", invoice && "BE".equalsIgnoreCase(order.countryCode()))

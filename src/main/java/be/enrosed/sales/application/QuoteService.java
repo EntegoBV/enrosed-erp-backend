@@ -75,6 +75,9 @@ public class QuoteService {
     @Inject
     Event<SalesActivityPushNotifier.Ready> salesPushReady;
 
+    @Inject
+    jakarta.enterprise.inject.Instance<IncomingPaymentService> incomingPayments;
+
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
                         QuoteDocumentRenderer renderer, QuoteMailer mailer,
@@ -95,10 +98,9 @@ public class QuoteService {
     }
 
     private SalesOrder sendInvoiceByMail(SalesOrder order, String personalMessage) {
-        if (order.status() != QuoteStatus.CONCEPT) {
-            throw new BusinessRuleException("Alleen een conceptfactuur kan verstuurd worden");
-        }
-        salesOrders.validateInvoiceForSend(order);
+        orders.lockById(order.id());
+        order = salesOrders.get(order.id());
+        salesOrders.validateInvoiceDispatch(order);
         Customer customer = customers.get(order.customerId());
         if (customer.email() == null || customer.email().isBlank()) {
             throw new BusinessRuleException(
@@ -108,20 +110,33 @@ public class QuoteService {
         PricedOrder priced = salesOrders.price(order);
         QuoteDocumentRenderer.Document document = renderer.render(order, priced, customer, null);
 
-        var text = be.enrosed.shared.DocumentText.of(customer.language());
-        String iban = company.get().iban() == null || company.get().iban().isBlank()
-                ? "-" : company.get().iban();
-        java.math.BigDecimal claim = priced.totals().vatTreatment().isExempt()
-                ? priced.totals().total() : priced.totals().totalInclVat();
-        String paymentSentence = text.get("paymentInstruction").formatted(
-                be.enrosed.shared.DocumentFormat.eur(claim),
-                be.enrosed.shared.DocumentText.date(order.invoiceDueDate(), customer.language()),
-                iban, order.number());
-
-        mailer.sendInvoice(order, customer, document, personalMessage, paymentSentence);
+        mailer.sendInvoice(order, customer, document, personalMessage, invoicePaymentSentence(order, priced, customer));
         /* SalesOrderService owns the single SENT audit + after-commit push for both
            this mail flow and the dashboard's manual 'mark sent' action. */
         return salesOrders.markInvoiceSent(order.id());
+    }
+
+    String invoicePaymentSentence(SalesOrder order, PricedOrder priced, Customer customer) {
+        var text = be.enrosed.shared.DocumentText.of(customer.language());
+        SalesPaymentSummary summary = incomingPayments != null && incomingPayments.isResolvable()
+                ? incomingPayments.get().summary(order, priced) : null;
+        BigDecimal claim = summary == null ? priced.totals().totalInclVat() : summary.remainingEur();
+        BigDecimal credit = summary == null ? claim.negate().max(BigDecimal.ZERO) : summary.creditEur();
+        if (credit.signum() > 0)
+            return text.get("paymentCredit").formatted(be.enrosed.shared.DocumentFormat.eur(credit));
+        if (claim.signum() <= 0) {
+            String settled = text.get("paymentSettled");
+            return summary != null && summary.overpaidEur().signum() > 0
+                    ? settled + " " + text.get("paymentOverpaid").formatted(be.enrosed.shared.DocumentFormat.eur(summary.overpaidEur()))
+                    : settled;
+        }
+        String iban = company.get().iban() == null || company.get().iban().isBlank() ? "-" : company.get().iban();
+        if (order.paymentPlan() == SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION)
+            return text.get("paymentInstructionByPlan").formatted(be.enrosed.shared.DocumentFormat.eur(claim), iban, order.number())
+                    + " " + text.get("paymentPlanProduction");
+        String sentence = text.get("paymentInstruction").formatted(be.enrosed.shared.DocumentFormat.eur(claim),
+                be.enrosed.shared.DocumentText.date(order.invoiceDueDate(), customer.language()), iban, order.number());
+        return sentence;
     }
 
     /**

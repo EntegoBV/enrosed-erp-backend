@@ -32,6 +32,7 @@ public record QuoteEvent(
     public enum Type {
         OPGEMAAKT,
         VERSTUURD,
+        UITGEREIKT,
         BEKEKEN,
         VOORSTEL,
         VOORSTEL_INGETROKKEN,

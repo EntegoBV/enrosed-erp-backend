@@ -11,6 +11,8 @@ import jakarta.transaction.Transactional;
 
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.List;
 
 /** The bank readings: what each account held on a day. */
@@ -64,8 +66,22 @@ public class BankBalanceService {
         if (account == null) throw new BusinessRuleException("Geef de rekening een naam");
         if (balance.date() == null) throw new BusinessRuleException("Geef de datum van het saldo");
         if (balance.balanceEur() == null) throw new BusinessRuleException("Geef het saldo");
+        String timeZone = clean(balance.timeZone());
+        if (balance.asOfAt() != null) {
+            if (timeZone == null) timeZone = "Europe/Brussels";
+            if (timeZone.length() > 64) throw new BusinessRuleException("Ongeldige tijdzone voor het banksaldo");
+            try {
+                if (!balance.asOfAt().atZone(ZoneId.of(timeZone)).toLocalDate().equals(balance.date())) {
+                    throw new BusinessRuleException("Datum en tijdstip van het banksaldo komen niet overeen");
+                }
+            } catch (DateTimeException invalidZone) {
+                throw new BusinessRuleException("Ongeldige tijdzone voor het banksaldo");
+            }
+        } else {
+            timeZone = null;
+        }
         return new BankBalance(id, account, balance.date(), balance.balanceEur().setScale(2, RoundingMode.HALF_UP),
-                clean(balance.notes()), createdAt == null ? Instant.now() : createdAt);
+                clean(balance.notes()), createdAt == null ? Instant.now() : createdAt, balance.asOfAt(), timeZone);
     }
 
     private static String clean(String value) {

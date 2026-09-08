@@ -15,5 +15,12 @@ public record BankBalance(
         LocalDate date,
         BigDecimal balanceEur,
         String notes,
-        Instant createdAt
-) {}
+        Instant createdAt,
+        Instant asOfAt,
+        String timeZone
+) {
+    /** Legacy daily readings represent the end of their recorded day. */
+    public BankBalance(Long id, String account, LocalDate date, BigDecimal balanceEur, String notes, Instant createdAt) {
+        this(id, account, date, balanceEur, notes, createdAt, null, null);
+    }
+}

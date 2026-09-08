@@ -220,7 +220,7 @@ public class SalesPricingCalculator {
         String carrierFreightIssue = null;
 
         boolean hasShipment = cartonsTotal > 0;
-        if (country != null && hasShipment) handling = Money.nz(country.handling());
+        if (country != null && hasShipment && !order.isPartnerDeal()) handling = Money.nz(country.handling());
 
         switch (order.freightPricingStrategy()) {
             case COUNTRY_PALLET -> {
@@ -312,7 +312,8 @@ public class SalesPricingCalculator {
 
         BigDecimal margin = goodsTotal.subtract(costTotal);
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
-        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0;
+        if (order.isPartnerDeal()) minOrderValue = BigDecimal.ZERO;
+        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),

@@ -66,4 +66,27 @@ class BankBalanceServiceTest {
         service.delete(4L);
         verify(balances).deleteById(4L);
     }
+
+    @Test
+    void exactCheckpointKeepsTheBankInstantAndItsLocalCalendarDate() {
+        Instant moment = Instant.parse("2026-09-07T22:15:30.456Z");
+        BankBalance saved = service.create(new BankBalance(null, "KBC", LocalDate.of(2026, 9, 8),
+                BigDecimal.TEN, null, null, moment, "Europe/Brussels"));
+        assertEquals(moment, saved.asOfAt());
+        assertEquals("Europe/Brussels", saved.timeZone());
+        assertEquals(LocalDate.of(2026, 9, 8), saved.date());
+    }
+
+    @Test
+    void checkpointRejectsMismatchedCalendarDayAndUnknownTimeZone() {
+        Instant moment = Instant.parse("2026-09-08T10:00:00Z");
+        assertThrows(BusinessRuleException.class, () -> service.create(new BankBalance(null, "KBC",
+                LocalDate.of(2026, 9, 7), BigDecimal.TEN, null, null, moment, "Europe/Brussels")));
+        assertThrows(BusinessRuleException.class, () -> service.create(new BankBalance(null, "KBC",
+                LocalDate.of(2026, 9, 8), BigDecimal.TEN, null, null, moment, "Invalid/TimeZone")));
+        BankBalance legacy = service.create(new BankBalance(null, "KBC", LocalDate.of(2026, 9, 8),
+                BigDecimal.TEN, null, null));
+        assertNull(legacy.asOfAt());
+        assertNull(legacy.timeZone());
+    }
 }

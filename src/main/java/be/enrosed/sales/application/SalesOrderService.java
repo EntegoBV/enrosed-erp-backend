@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -43,6 +44,8 @@ import java.util.stream.Collectors;
  */
 @ApplicationScoped
 public class SalesOrderService {
+    @Inject Instance<IncomingPaymentService> incomingPayments;
+    @Inject Instance<PartnerSettlements> partnerSettlements;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -205,6 +208,12 @@ public class SalesOrderService {
         if (source.isInvoice()) {
             throw new BusinessRuleException("Dit is al een factuur; maak facturen vanuit een offerte");
         }
+        if (source.isPartnerAdvance()) {
+            SalesOrder existing = orders.findAll().stream().filter(order -> order.isInvoice()
+                    && source.id().equals(order.sourceQuoteId()) && order.status() != QuoteStatus.GEANNULEERD)
+                    .findFirst().orElse(null);
+            if (existing != null) return existing;
+        }
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
@@ -229,7 +238,8 @@ public class SalesOrderService {
                         .toList());
         invoice = invoice.withExtraLines(source.extraLines())
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
-                .withSalesChannel(source.rawSalesChannel());
+                .withSalesChannel(source.rawSalesChannel())
+                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
 
@@ -250,7 +260,12 @@ public class SalesOrderService {
                                            boolean partner, BigDecimal sharePct, BigDecimal costPct,
                                            boolean includeInspection, List<Integer> otherCostIndexes, String salesChannel,
                                            /** The week every line promises ("2026-W36"); empty takes the container's expected arrival. */
-                                           String deliveryWeek) {
+                                           String deliveryWeek, SalesPurpose purpose, SalesPaymentPlan paymentPlan) {
+        public FromPurchaseOrderRequest(Long purchaseOrderId, Long customerId, String pricing, BigDecimal markupPct,
+                boolean partner, BigDecimal sharePct, BigDecimal costPct, boolean includeInspection, List<Integer> otherCostIndexes,
+                String salesChannel, String deliveryWeek) {
+            this(purchaseOrderId, customerId, pricing, markupPct, partner, sharePct, costPct, includeInspection, otherCostIndexes, salesChannel, deliveryWeek, null, null);
+        }
         /** Compatibility for callers written before the delivery week could be chosen. */
         public FromPurchaseOrderRequest(Long purchaseOrderId, Long customerId, String pricing, BigDecimal markupPct,
                                         boolean partner, BigDecimal sharePct, BigDecimal costPct,
@@ -284,7 +299,12 @@ public class SalesOrderService {
         BigDecimal markup = request.markupPct() == null ? BigDecimal.ZERO : request.markupPct();
         if (markup.signum() < 0) throw new BusinessRuleException("De opslag op de kostprijs kan niet negatief zijn");
         boolean containersPartner = customerId.equals(container.partnerCustomerId());
-        boolean partner = atCost && (request.partner() || containersPartner);
+        boolean partner = request.purpose() == SalesPurpose.STANDARD ? false
+                : request.purpose() == SalesPurpose.PARTNER_ADVANCE || atCost && (request.partner() || containersPartner);
+        if (request.purpose() == SalesPurpose.PARTNER_SETTLEMENT) throw new BusinessRuleException("Maak de slotfactuur via de veilingafrekening");
+        if (partner && container.partnerCustomerId() != null && !containersPartner)
+            throw new BusinessRuleException("Deze container is aan een andere partner gekoppeld");
+        if (partner) atCost = true;
         /* The container's own deal comes first, then the customer's standing agreement. */
         BigDecimal share = partner
                 ? percentage(request.sharePct() != null ? request.sharePct()
@@ -298,12 +318,18 @@ public class SalesOrderService {
         BigDecimal factor = BigDecimal.ONE.add(markup.divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP))
                 .multiply(costPct).divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP);
 
+        if (partner) factor = costPct.divide(HUNDRED, 8, java.math.RoundingMode.HALF_UP);
+
         /* The container's costing gives every line its cost, whatever the customer pays. */
         Map<Long, LandedCost.Line> costLines = new HashMap<>();
         LandedCost costing = sourcing.calculate(container);
         if (costing != null && costing.lines() != null) {
             for (LandedCost.Line line : costing.lines()) costLines.put(line.productId(), line);
         }
+        be.enrosed.sourcing.domain.PurchaseReconciliation reconciliation = partner ? sourcing.reconciliation(container, costing) : null;
+        Map<Long, be.enrosed.sourcing.domain.PurchaseReconciliation.Line> externalLines = reconciliation == null ? Map.of()
+                : reconciliation.lines().stream().collect(Collectors.toMap(be.enrosed.sourcing.domain.PurchaseReconciliation.Line::productId, Function.identity()));
+        if (partner && reconciliation == null) throw new BusinessRuleException("Bereken eerst de externe containerkosten voor het partnervoorschot");
         /* The goods are still on their way: every line promises the week asked for, else the week the container arrives. */
         String deliveryWeek = requestedDeliveryWeek(request.deliveryWeek(), containerArrivalWeek(container));
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
@@ -313,7 +339,13 @@ public class SalesOrderService {
             BigDecimal snapshot = null;
             int quantity = line.quantity();
             LandedCost.Line cost = costLines.get(line.productId());
-            if (atCost) {
+            if (partner) {
+                var external = externalLines.get(line.productId());
+                if (external == null || external.unitCostQuantity() <= 0 || external.forecastExternalUnitEur() == null) continue;
+                quantity = external.unitCostQuantity();
+                unit = external.forecastExternalUnitEur().multiply(factor).setScale(4, java.math.RoundingMode.HALF_UP);
+                snapshot = external.forecastExternalUnitEur();
+            } else if (atCost) {
                 if (cost == null || cost.landedUnitEur() == null || cost.landedUnitEur().signum() <= 0) {
                     throw new BusinessRuleException("Geen gelande kost voor " + productName(line.productId())
                             + "; reken de calculatie van " + container.number() + " eerst door");
@@ -326,7 +358,7 @@ public class SalesOrderService {
             /* The container's own landed cost is what this line cost us, whatever the product's
                cost says later; the inspection and other costs are inside it since the calculation
                spreads them over the pieces. */
-            if (cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) snapshot = cost.landedUnitEur();
+            if (!partner && cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) snapshot = cost.landedUnitEur();
             lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, deliveryWeek, snapshot));
         }
         if (lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
@@ -337,7 +369,7 @@ public class SalesOrderService {
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
         /* Apart from the piece price, the inspection and other named costs travel as lines of their own;
            spread by a key they are inside every piece price already and must not travel twice. */
-        if (atCost && !container.separateInPiecePrice()) {
+        if (atCost && !partner && !container.separateInPiecePrice()) {
             String suffix = " · " + container.number();
             if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
                 extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
@@ -350,6 +382,13 @@ public class SalesOrderService {
             }
         }
 
+        if (partner) {
+            BigDecimal commitment = reconciliation.totals().forecastExternalEur().multiply(costPct).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
+            BigDecimal piecesTotal = lines.stream().map(line -> line.unitPriceEur().multiply(BigDecimal.valueOf(line.quantity())))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, java.math.RoundingMode.HALF_UP);
+            BigDecimal rounding = commitment.subtract(piecesTotal);
+            if (rounding.signum() != 0) extras.add(new SalesExtraLine("Afronding voorschot container", BigDecimal.ONE, rounding));
+        }
         String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
         String internalNotes = partner
                 ? "Partnercontainer " + container.number() + ": goederen aan " + pct(costPct)
@@ -378,7 +417,9 @@ public class SalesOrderService {
                 DocumentType.OFFERTE, null, null, null, null, lines, List.of())
                 .withExtraLines(extras)
                 .withPartnerDeal(partner ? container.id() : null, share)
-                .withSalesChannel(channel);
+                .withSalesChannel(channel)
+                .withPurpose(partner ? SalesPurpose.PARTNER_ADVANCE : SalesPurpose.STANDARD, container.id(),
+                        request.paymentPlan() != null ? request.paymentPlan() : partner ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL);
         validateForSave(draft);
         SalesOrder created = orders.save(draft);
 
@@ -491,152 +532,124 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 purchaseOrderId.toString(), number, summary);
     }
 
-    /** One product on the partner's auction statement: what it fetched, and what one piece cost us landed. */
-    /**
-     * One product on the partner's auction statement. The landed unit cost is what the
-     * calculation gives the piece; inspection and other costs kept apart from the piece
-     * price are added by the service, so a client never counts them itself.
-     */
+    /** Net auction proceeds after auction fees; legacy client unit cost is ignored. */
     public record AuctionLine(Long productId, int quantity, BigDecimal proceedsEur, BigDecimal landedUnitCostEur) {}
 
-    /**
-     * The partner's auction statement and the deal behind it: which partner,
-     * which container, what part of the landed cost we still recover and our
-     * share of the profit. The source is the cost document when there is one;
-     * the container can also be settled without one, when we financed it all.
-     */
     public record AuctionSettlementRequest(Long customerId, Long purchaseOrderId, String reference, Long sourceId,
                                            BigDecimal costSharePct, BigDecimal profitSharePct,
                                            List<AuctionLine> lines, String note) {}
 
     /**
-     * The auction settlement of a partner container: the partner sold the
-     * goods at auction and reports what each product fetched. Per product we
-     * invoice the part of the landed cost we financed plus our share of the
-     * profit above the full landed cost. The invoice carries real product
-     * lines, so shipping it writes the stock out and the margin shows in the
-     * sales analysis; the calculation is written into its notes.
+     * Settles every usable piece once at external container cost plus our agreed
+     * share of the net profit or loss. Issued advances are credited in full,
+     * independently of their cash receipts. The container lock serializes drafts;
+     * cancelled documents keep their immutable snapshots and may be replaced.
      */
     @Transactional
     public SalesOrder createAuctionSettlement(AuctionSettlementRequest request) {
-        if (request == null || request.lines() == null || request.lines().isEmpty()) {
-            throw new BusinessRuleException("Vul de veilingopbrengst per product in");
-        }
-        BigDecimal costShare = percentage(request.costSharePct(), "Het deel van de kost dat wij terugvragen");
-        BigDecimal profitShare = percentage(request.profitSharePct(), "Ons deel van de winst");
+        if (request == null || request.lines() == null || request.lines().isEmpty())
+            throw new BusinessRuleException("Vul de netto veilingopbrengst per product in");
+        if (purchaseOrders == null || !purchaseOrders.isResolvable()) throw new BusinessRuleException("Inkoop is niet beschikbaar");
         SalesOrder source = request.sourceId() == null ? null : get(request.sourceId());
+        Long purchaseId = request.purchaseOrderId() != null ? request.purchaseOrderId()
+                : source == null ? null : source.linkedPurchaseOrderId();
+        if (purchaseId == null) throw new BusinessRuleException("Koppel de afrekening aan een container");
+        PurchaseOrder container = purchaseOrders.get().lockForPartnerSettlement(purchaseId);
         Long customerId = request.customerId() != null ? request.customerId()
-                : source != null ? source.customerId() : null;
+                : source != null ? source.customerId() : container.partnerCustomerId();
         if (customerId == null) throw new BusinessRuleException("Kies de partner voor deze afrekening");
-        Customer partner = customers.get(customerId);
-        Long purchaseOrderId = request.purchaseOrderId() != null ? request.purchaseOrderId()
-                : source != null ? source.partnerPurchaseOrderId() : null;
-        String reference = !isBlank(request.reference()) ? request.reference().strip()
-                : source != null ? source.number() : "container";
-        Map<Long, Product> byId = products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
-        SeparateCosts apart = separateCostsApart(purchaseOrderId);
-
+        if (container.partnerCustomerId() != null && !container.partnerCustomerId().equals(customerId))
+            throw new BusinessRuleException("Deze container is aan een andere partner gekoppeld");
+        if (source != null && (!source.isPartnerDeal() || !customerId.equals(source.customerId())
+                || !purchaseId.equals(source.linkedPurchaseOrderId())))
+            throw new BusinessRuleException("Het voorschotdocument hoort niet bij deze partner en container");
+        List<SalesOrder> linked = orders.findAll().stream().filter(order -> purchaseId.equals(order.linkedPurchaseOrderId())).toList();
+        if (linked.stream().anyMatch(order -> order.isPartnerAdvance() && PartnerFinancingService.issued(order)
+                && !customerId.equals(order.customerId())))
+            throw new BusinessRuleException("Er staat een uitgereikt voorschot van een andere partner op deze container; corrigeer eerst de koppeling");
+        SalesOrder existing = linked.stream().filter(order -> order.isInvoice() && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT
+                && order.status() != QuoteStatus.GEANNULEERD).findFirst().orElse(null);
+        if (existing != null) throw new BusinessRuleException("Er bestaat al een slotfactuur voor deze container: "
+                + existing.number() + " (factuur #" + existing.id() + ", /sales/" + existing.id() + "/edit)");
+        BigDecimal profitShare = percentage(request.profitSharePct() == null
+                ? container.partnerSharePctOrDefault() : request.profitSharePct(), "Ons deel van de winst");
+        var reconciliation = purchaseOrders.get().reconciliation(purchaseId);
+        Map<Long, be.enrosed.sourcing.domain.PurchaseReconciliation.Line> external = reconciliation.lines().stream()
+                .collect(Collectors.toMap(be.enrosed.sourcing.domain.PurchaseReconciliation.Line::productId, Function.identity()));
+        BigDecimal advance = linked.stream().filter(order -> order.isPartnerAdvance() && PartnerFinancingService.issued(order))
+                .map(order -> price(order).totals().total()).reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, java.math.RoundingMode.HALF_UP);
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
-        StringBuilder table = new StringBuilder();
-        BigDecimal proceedsSum = BigDecimal.ZERO;
-        BigDecimal costSum = BigDecimal.ZERO;
-        BigDecimal oursSum = BigDecimal.ZERO;
-        BigDecimal fullSum = BigDecimal.ZERO;
-        BigDecimal advanceSum = BigDecimal.ZERO;
-        for (AuctionLine line : request.lines()) {
-            if (line == null || line.productId() == null || line.quantity() <= 0) {
-                throw new BusinessRuleException("Elke regel van de afrekening heeft een product en een aantal");
-            }
-            BigDecimal proceeds = line.proceedsEur() == null ? BigDecimal.ZERO : line.proceedsEur();
-            if (proceeds.signum() < 0) throw new BusinessRuleException("Een veilingopbrengst kan niet negatief zijn");
-            BigDecimal landedUnit = (line.landedUnitCostEur() == null ? BigDecimal.ZERO : line.landedUnitCostEur())
-                    .add(apart.perPiece());
-            BigDecimal quantity = BigDecimal.valueOf(line.quantity());
-            BigDecimal cost = landedUnit.multiply(quantity).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal costTotal = BigDecimal.ZERO;
+        BigDecimal proceedsTotal = BigDecimal.ZERO;
+        BigDecimal fullTotal = BigDecimal.ZERO;
+        Set<Long> seen = new HashSet<>();
+        StringBuilder detail = new StringBuilder();
+        for (AuctionLine input : request.lines()) {
+            if (input == null || input.productId() == null || input.quantity() <= 0 || !seen.add(input.productId()))
+                throw new BusinessRuleException("Elke veilingregel heeft één uniek product en een positief aantal");
+            var basis = external.get(input.productId());
+            if (basis == null || basis.unitCostQuantity() <= 0 || input.quantity() > basis.unitCostQuantity())
+                throw new BusinessRuleException("Het veilingaantal valt buiten de beschikbare containerstukken voor product " + input.productId());
+            if (input.proceedsEur() == null) throw new BusinessRuleException("Vul voor elk product een netto veilingopbrengst in, ook bij nul");
+            BigDecimal proceeds = input.proceedsEur();
+            if (proceeds.signum() < 0) throw new BusinessRuleException("Netto veilingopbrengst kan niet negatief zijn");
+            proceeds = proceeds.setScale(2, java.math.RoundingMode.HALF_UP);
+            BigDecimal quantity = BigDecimal.valueOf(input.quantity());
+            BigDecimal cost = basis.forecastExternalEur().multiply(quantity)
+                    .divide(BigDecimal.valueOf(basis.unitCostQuantity()), 2, java.math.RoundingMode.HALF_UP);
             BigDecimal profit = proceeds.subtract(cost);
-            /* The final invoice carries the product at its full value: the landed cost plus our
-               share of the profit. The advance the partner paid on it comes off further down, so
-               the books show a sale at full value and an advance settled, not a bare commission. */
-            BigDecimal advanceForLine = cost.multiply(HUNDRED.subtract(costShare)).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
             BigDecimal full = cost.add(profit.multiply(profitShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP));
-            /* A loss never credits back what the advance already covered. */
-            if (full.compareTo(advanceForLine) < 0) full = advanceForLine;
-            BigDecimal ours = full.subtract(advanceForLine);
-            /* Our cost on this line is the part of the landed cost we financed; the rest was the partner's. */
-            lines.add(new SalesOrderLine(null, line.productId(), line.quantity(),
+            lines.add(new SalesOrderLine(null, input.productId(), input.quantity(),
                     full.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null,
-                    landedUnit.multiply(costShare).divide(HUNDRED, 4, java.math.RoundingMode.HALF_UP)));
-            Product product = byId.get(line.productId());
-            table.append(product == null ? "Product " + line.productId() : product.name())
-                    .append(": ").append(line.quantity()).append(" st · veiling € ").append(money(proceeds))
-                    .append(" − kost € ").append(money(cost)).append(" = ")
-                    .append(profit.signum() < 0 ? "verlies" : "winst").append(" € ").append(money(profit.abs()))
-                    .append(" · volledig € ").append(money(full))
-                    .append(advanceForLine.signum() > 0 ? " − voorschot € " + money(advanceForLine) : "")
-                    .append(" · ons deel € ").append(money(ours)).append('\n');
-            proceedsSum = proceedsSum.add(proceeds);
-            costSum = costSum.add(cost);
-            oursSum = oursSum.add(ours);
-            fullSum = fullSum.add(full);
-            advanceSum = advanceSum.add(advanceForLine);
+                    cost.divide(quantity, 4, java.math.RoundingMode.HALF_UP)));
+            costTotal = costTotal.add(cost); proceedsTotal = proceedsTotal.add(proceeds); fullTotal = fullTotal.add(full);
+            detail.append(basis.productName()).append(": ").append(input.quantity()).append(" stuks; netto veiling € ")
+                    .append(money(proceeds)).append("; externe kost € ").append(money(cost))
+                    .append("; resultaat € ").append(money(profit)).append("; onze waarde € ").append(money(full)).append('\n');
         }
-        BigDecimal profitSum = proceedsSum.subtract(costSum);
-        /* The advance settled as a line of its own, named after the advance invoice when there is one. */
-        List<SalesExtraLine> settled = advanceSum.signum() > 0
-                ? List.of(new SalesExtraLine("Voorschot verrekend · "
-                        + (source != null ? source.number() : "partnercontainer " + reference),
-                        BigDecimal.ONE, advanceSum.negate()))
-                : List.of();
-        String notes = "Slotfactuur partnercontainer " + reference + " · goederen aan volledige waarde: gelande kost + "
-                + money(profitShare).replace(",00", "") + " % van de winst; voorschot van "
-                + money(HUNDRED.subtract(costShare)).replace(",00", "") + " % van de kost verrekend\n"
-                + (apart.perPiece().signum() > 0
-                        ? "Inspectie en andere kosten apart geboekt: € " + money(apart.total()) + " over "
-                                + apart.pieces() + " stuks, € " + money(apart.perPiece()) + " per stuk meegeteld in de kost\n"
-                        : "")
-                + table
-                + "Totaal: veiling € " + money(proceedsSum) + " − kost € " + money(costSum) + " = "
-                + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
-                + "; volledig € " + money(fullSum)
-                + (advanceSum.signum() > 0 ? " − voorschot € " + money(advanceSum) : "")
-                + "; ons deel € " + money(oursSum) + ".";
-
-        ActorRef creator = currentActor();
+        if (external.values().stream().filter(row -> row.unitCostQuantity() > 0)
+                .anyMatch(row -> request.lines().stream().noneMatch(line -> row.productId().equals(line.productId())
+                        && line.quantity() == row.unitCostQuantity())))
+            throw new BusinessRuleException("De slotfactuur rekent de volledige bruikbare container af; vul voor elk product het volledige aantal en de netto veilingopbrengst in");
+        List<SalesExtraLine> extras = new java.util.ArrayList<>();
+        BigDecimal roundedLines = lines.stream().map(line -> line.unitPriceEur().multiply(BigDecimal.valueOf(line.quantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, java.math.RoundingMode.HALF_UP);
+        if (fullTotal.compareTo(roundedLines) != 0) extras.add(new SalesExtraLine("Afronding slotafrekening", BigDecimal.ONE, fullTotal.subtract(roundedLines)));
+        if (advance.signum() > 0) extras.add(new SalesExtraLine("Voorschot verrekend · uitgereikte voorschotfacturen", BigDecimal.ONE, advance.negate()));
+        Customer partner = customers.get(customerId);
+        String reference = container.number();
+        String notes = "Slotfactuur partnercontainer " + reference + " · " + pct(profitShare)
+                + " % van netto veilingresultaat (ook verlies).\n" + detail
+                + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
+                + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
+                + "; saldo € " + money(fullTotal.subtract(advance)) + "."
+                + (fullTotal.compareTo(advance) < 0 ? " Negatief saldo: tegoed voor de partner, geen inkomende betaling." : "")
+                + " Open voorschotfacturen blijven afzonderlijk te betalen; ontvangen bedragen staan in het betaalregister.";
         LocalDate today = LocalDate.now();
-        SalesOrder invoice = new SalesOrder(
-                null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
+        SalesOrder invoice = new SalesOrder(null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
                 isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
-                null, null, null, 0, null, null, null,
-                isBlank(request.note()) ? null : request.note().strip(),
+                null, null, null, 0, null, null, null, request.note(),
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
-                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
-                DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null,
-                lines, List.of())
-                .withExtraLines(settled)
-                .withPartnerDeal(purchaseOrderId, profitShare)
-                .withSalesChannel("PARTNER")
-                .asPartnerSettlement();
+                FreightPricingStrategy.FIXED, null, null, null,
+                DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, lines, List.of())
+                .withExtraLines(extras).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
+                .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
-        adoptPartnerContainer(purchaseOrderId, partner.id(), HUNDRED.subtract(costShare), profitShare);
-        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
-                java.time.Instant.now(), creator.displayName(), false,
-                "Veilingafrekening opgemaakt voor " + reference, null));
-        if (source != null) {
-            events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD,
-                    java.time.Instant.now(), creator.displayName(), false,
-                    "Veilingafrekening " + created.number() + " aangemaakt: "
-                            + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
-                            + " op veilingopbrengst € " + money(proceedsSum), null));
-        }
-        recordActivity(created, "Veilingafrekening aangemaakt voor " + reference);
-        recordPurchaseActivity(purchaseOrderId, reference,
-                "Veilingafrekening " + created.number() + " gemaakt: ons deel € " + money(oursSum)
-                        + " op veilingopbrengst € " + money(proceedsSum));
+        if (partnerSettlements != null && partnerSettlements.isResolvable())
+            partnerSettlements.get().save(created.id(), purchaseId, fullTotal, costTotal, advance);
+        adoptPartnerContainer(purchaseId, partner.id(), request.costSharePct() == null ? container.partnerCostPctOrDefault()
+                : HUNDRED.subtract(percentage(request.costSharePct(), "Eigen aandeel in de kost")), profitShare);
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
+                "Slotfactuur partnercontainer " + reference, null));
+        if (source != null) events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD, Instant.now(),
+                currentActor().displayName(), false, "Slotfactuur " + created.number() + " aangemaakt", null));
+        recordActivity(created, "Slotfactuur partnercontainer " + reference + " aangemaakt");
+        recordPurchaseActivity(purchaseId, reference, "Slotfactuur " + created.number() + ": € " + money(fullTotal.subtract(advance)));
         return created;
     }
 
@@ -650,7 +663,12 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     }
 
     /** Ties a document to the container a partner co-finances, or cuts that tie with a null container. */
-    public record PartnerDealRequest(Long purchaseOrderId, BigDecimal sharePct, String reference) {}
+    public record PartnerDealRequest(Long purchaseOrderId, BigDecimal sharePct, String reference,
+                                     SalesPurpose purpose, SalesPaymentPlan paymentPlan) {
+        public PartnerDealRequest(Long purchaseOrderId, BigDecimal sharePct, String reference) {
+            this(purchaseOrderId, sharePct, reference, null, null);
+        }
+    }
 
     /**
      * Links a quote or invoice to a partner container after the fact, so a
@@ -659,6 +677,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
      */
     @Transactional
     public SalesOrder setPartnerDeal(long id, PartnerDealRequest request) {
+        orders.lockById(id);
         SalesOrder order = get(id);
         Long purchaseOrderId = request == null ? null : request.purchaseOrderId();
         BigDecimal share = null;
@@ -669,8 +688,27 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 throw new BusinessRuleException("De winstdeling ligt tussen 0 en 100 procent");
             }
         }
-        SalesOrder saved = orders.save(order.withPartnerDeal(purchaseOrderId, share));
-        if (purchaseOrderId != null) adoptPartnerContainer(purchaseOrderId, order.customerId(), partnerCostPctOf(order.customerId()), share);
+        SalesPurpose purpose = request != null && request.purpose() != null ? request.purpose()
+                : purchaseOrderId == null ? SalesPurpose.STANDARD : SalesPurpose.PARTNER_ADVANCE;
+        if (purpose == SalesPurpose.PARTNER_SETTLEMENT) throw new BusinessRuleException("Maak de slotfactuur via de veilingafrekening");
+        if (hasSettlementSnapshot(order))
+            throw new BusinessRuleException("De partner en container van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
+        if (purpose != SalesPurpose.STANDARD && purchaseOrderId == null)
+            throw new BusinessRuleException("Koppel een partnervoorschot aan een inkooporder");
+        if (order.status() != QuoteStatus.CONCEPT && (purpose != order.purpose()
+                || !Objects.equals(purchaseOrderId, order.linkedPurchaseOrderId())
+                || !samePercentage(purpose == SalesPurpose.STANDARD ? null : share, order.partnerSharePct())))
+            throw new BusinessRuleException("Het documenttype, de container en de winstdeling kunnen alleen op een concept worden gewijzigd");
+        if (purchaseOrderId != null && purchaseOrders != null && purchaseOrders.isResolvable()) {
+            PurchaseOrder container = purchaseOrders.get().lockForPartnerSettlement(purchaseOrderId);
+            if (purpose != SalesPurpose.STANDARD && container.partnerCustomerId() != null
+                    && !Objects.equals(container.partnerCustomerId(), order.customerId()))
+                throw new BusinessRuleException("Deze container is aan een andere partner gekoppeld");
+        }
+        SalesOrder changed = order.withPartnerDeal(purchaseOrderId, share).withPurpose(purpose, purchaseOrderId,
+                request != null && request.paymentPlan() != null ? request.paymentPlan() : order.paymentPlan());
+        SalesOrder saved = orders.save(changed);
+        if (purchaseOrderId != null && purpose != SalesPurpose.STANDARD) adoptPartnerContainer(purchaseOrderId, order.customerId(), partnerCostPctOf(order.customerId()), share);
         String reference = request != null && !isBlank(request.reference())
                 ? request.reference().strip() : "inkooporder " + purchaseOrderId;
         String summary = purchaseOrderId == null
@@ -701,8 +739,10 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
      */
     @Transactional
     public SalesOrder shipGoods(long id) {
+        orders.lockById(id);
         SalesOrder invoice = requireInvoice(get(id));
-        if (invoice.status() != QuoteStatus.VERZONDEN && invoice.status() != QuoteStatus.BETAALD) {
+        if (invoice.isPartnerAdvance()) throw new BusinessRuleException("Een voorschotfactuur boekt geen voorraad af; gebruik de slotfactuur voor de levering");
+        if (invoice.status() != QuoteStatus.VERZONDEN && invoice.status() != QuoteStatus.UITGEREIKT && invoice.status() != QuoteStatus.BETAALD) {
             throw new BusinessRuleException("Verstuur eerst de factuur; daarna kan de bestelling afgepunt worden");
         }
         if (invoice.goodsShippedAt() != null) {
@@ -711,18 +751,39 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         if (invoice.lines().isEmpty()) {
             throw new BusinessRuleException("Deze factuur heeft geen productregels om af te punten");
         }
-        for (SalesOrderLine line : invoice.lines()) {
-            if (line.quantity() > 0) {
-                products.sellStock(line.productId(), line.quantity(), invoice.number());
+        Instant shippedAt = Instant.now();
+        boolean historicalShipment = false;
+        if (invoice.purpose() == SalesPurpose.PARTNER_SETTLEMENT) {
+            if (purchaseOrders != null && purchaseOrders.isResolvable())
+                purchaseOrders.get().lockForPartnerSettlement(invoice.linkedPurchaseOrderId());
+            List<SalesOrder> shippedAdvances = orders.findAll().stream().filter(order -> order.isPartnerAdvance()
+                    && order.goodsShippedAt() != null
+                    && Objects.equals(invoice.linkedPurchaseOrderId(), order.linkedPurchaseOrderId())).toList();
+            if (!shippedAdvances.isEmpty()) {
+                Map<Long, Integer> previouslyShipped = shippedAdvances.stream().flatMap(order -> order.lines().stream())
+                        .filter(line -> line.quantity() > 0).collect(Collectors.toMap(SalesOrderLine::productId,
+                                SalesOrderLine::quantity, Integer::sum));
+                Map<Long, Integer> finalQuantities = invoice.lines().stream().filter(line -> line.quantity() > 0)
+                        .collect(Collectors.toMap(SalesOrderLine::productId, SalesOrderLine::quantity, Integer::sum));
+                if (!previouslyShipped.equals(finalQuantities))
+                    throw new BusinessRuleException("Op deze container is al voorraad afgepunt via historische voorschotfacturen, met andere aantallen; controleer eerst de voorraadboeking");
+                shippedAt = shippedAdvances.stream().map(SalesOrder::goodsShippedAt).max(Instant::compareTo).orElseThrow();
+                historicalShipment = true;
+            }
+        }
+        if (!historicalShipment) {
+            for (SalesOrderLine line : invoice.lines()) {
+                if (line.quantity() > 0) products.sellStock(line.productId(), line.quantity(), invoice.number());
             }
         }
         ActorRef actor = currentActor();
-        SalesOrder shipped = orders.save(withGoodsShipped(invoice, java.time.Instant.now()));
+        SalesOrder shipped = orders.save(withGoodsShipped(invoice, shippedAt));
+        String summary = historicalShipment ? "Levering overgenomen uit historische voorschotfacturen; voorraad was al afgepunt"
+                : "Bestelling verzonden - voorraad afgepunt";
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.BESTELLING_VERZONDEN,
                 java.time.Instant.now(), actor.displayName(), false,
-                "Bestelling verzonden - voorraad afgepunt", null));
-        recordActivity(SALES_ACTION_SHIPPED, shipped,
-                "Bestelling verzonden en voorraad afgepunt");
+                summary, null));
+        recordActivity(SALES_ACTION_SHIPPED, shipped, historicalShipment ? summary : "Bestelling verzonden en voorraad afgepunt");
         return shipped;
     }
 
@@ -741,15 +802,33 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 at, order.lines(), order.pallets()).carrying(order);
     }
 
+    /** Records an issued invoice without claiming that a customer message was sent. */
+    @Transactional
+    public SalesOrder issueInvoice(long id) {
+        orders.lockById(id);
+        SalesOrder invoice = requireInvoice(get(id));
+        if (invoice.status() == QuoteStatus.UITGEREIKT || invoice.status() == QuoteStatus.BETAALD) return invoice;
+        if (invoice.status() != QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("Alleen een conceptfactuur kan uitgereikt worden");
+        requireAdvanceBeforeSettlement(invoice);
+        validateInvoiceForSend(invoice);
+        SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
+        events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, Instant.now(),
+                currentActor().displayName(), false, "Factuur uitgereikt zonder verzending", null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Factuur uitgereikt zonder verzending");
+        return saved;
+    }
+
     /** Invoices skip the portal: sending is a bookkeeping fact, not a mail flow. */
     @Transactional
     public SalesOrder markInvoiceSent(long id) {
+        orders.lockById(id);
         SalesOrder invoice = requireInvoice(get(id));
-        if (invoice.status() != QuoteStatus.CONCEPT) {
-            throw new BusinessRuleException("Alleen een conceptfactuur kan verstuurd worden");
-        }
-        validateInvoiceForSend(invoice);
-        SalesOrder sent = withStatus(invoice, QuoteStatus.VERZONDEN, java.time.Instant.now(), null);
+        if ((invoice.status() == QuoteStatus.VERZONDEN || invoice.status() == QuoteStatus.BETAALD)
+                && invoice.sentAt() != null) return invoice;
+        validateInvoiceDispatch(invoice);
+        SalesOrder sent = withStatus(invoice, invoice.status() == QuoteStatus.BETAALD ? QuoteStatus.BETAALD : QuoteStatus.VERZONDEN,
+                java.time.Instant.now(), invoice.paidAt());
         SalesOrder saved = orders.save(sent);
         ActorRef actor = currentActor();
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.VERSTUURD,
@@ -763,6 +842,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
 
     @Transactional
     public SalesOrder markInvoicePaid(long id) {
+        if (incomingPayments != null && incomingPayments.isResolvable()) return incomingPayments.get().markPaid(id);
         SalesOrder invoice = requireInvoice(get(id));
         if (invoice.status() == QuoteStatus.BETAALD) return invoice;
         if (invoice.status() == QuoteStatus.CONCEPT) {
@@ -799,6 +879,11 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         if (invoice.invoiceDueDate() == null) {
             throw new BusinessRuleException("Vul de vervaldatum van de factuur in");
         }
+        if (!invoice.isPartnerDeal()) {
+            PricedOrder priced = price(invoice);
+            if (priced != null && !priced.validation().meetsMinimum())
+                throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
+        }
         Customer customer = customers.get(invoice.customerId());
         if (isBlank(customer.address()) || isBlank(customer.postalCode()) || isBlank(customer.city())) {
             throw new BusinessRuleException("Vul het volledige adres van " + customer.company()
@@ -813,8 +898,41 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         }
     }
 
+    /** Called before an email leaves as well as before a manual sent marker. */
+    public void validateInvoiceDispatch(SalesOrder invoice) {
+        if (invoice.status() != QuoteStatus.CONCEPT && invoice.status() != QuoteStatus.UITGEREIKT
+                && invoice.status() != QuoteStatus.BETAALD)
+            throw new BusinessRuleException("Alleen een actieve conceptfactuur of uitgereikte factuur kan verstuurd worden");
+        if (invoice.status() == QuoteStatus.CONCEPT) requireAdvanceBeforeSettlement(invoice);
+        validateInvoiceForSend(invoice);
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static boolean samePercentage(BigDecimal left, BigDecimal right) {
+        return left == null ? right == null : right != null && left.compareTo(right) == 0;
+    }
+
+    private boolean hasSettlementSnapshot(SalesOrder order) {
+        return order.id() != null && partnerSettlements != null && partnerSettlements.isResolvable()
+                && partnerSettlements.get().find(order.id()) != null;
+    }
+
+    /** The settlement has already fixed the advance credit; later issuance would collect it twice. */
+    private void requireAdvanceBeforeSettlement(SalesOrder invoice) {
+        if (!invoice.isPartnerAdvance()) return;
+        Long purchaseId = invoice.linkedPurchaseOrderId();
+        if (purchaseOrders != null && purchaseOrders.isResolvable())
+            purchaseOrders.get().lockForPartnerSettlement(purchaseId);
+        SalesOrder settlement = orders.findAll().stream().filter(order -> order.isInvoice()
+                && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT
+                && Objects.equals(purchaseId, order.linkedPurchaseOrderId())
+                && order.status() != QuoteStatus.GEANNULEERD).findFirst().orElse(null);
+        if (settlement != null)
+            throw new BusinessRuleException("De slotfactuur " + settlement.number()
+                    + " heeft de voorschotten al verrekend; verwijder eerst het slotconcept voordat je nog een voorschot uitreikt");
     }
 
     private static SalesOrder requireInvoice(SalesOrder order) {
@@ -844,6 +962,22 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
 
     @Transactional
     public SalesOrder update(long id, SalesOrder changes) {
+        if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
+        SalesOrder beforeEdit = get(id);
+        if (changes.partnerPurchaseOrderId() != null
+                && (!Objects.equals(changes.partnerPurchaseOrderId(), beforeEdit.partnerPurchaseOrderId())
+                    || !samePercentage(changes.partnerSharePct(), beforeEdit.partnerSharePct())))
+            throw new BusinessRuleException("Wijzig de partnerkoppeling via de partnergegevens van het document");
+        if (hasSettlementSnapshot(beforeEdit)) {
+            if (!beforeEdit.lines().equals(changes.lines()) || !beforeEdit.extraLines().equals(changes.extraLines())
+                    || !Objects.equals(beforeEdit.customerId(), changes.customerId())
+                    || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())
+                    || !Objects.equals(beforeEdit.extraDiscountPct(), changes.extraDiscountPct())
+                    || (changes.manualFreightEur() != null && changes.manualFreightEur().signum() != 0)
+                    || (changes.freightCarrierExtraEur() != null && changes.freightCarrierExtraEur().signum() != 0)
+                    || (changes.freightPricingStrategyOrNull() != null && changes.freightPricingStrategy() != FreightPricingStrategy.FIXED))
+                throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; verwijder het concept en maak de afrekening opnieuw voor een correctie");
+        }
         SalesOrder current = get(id);
         SalesLifecycle.requireEditable(current);
         if (changes == null) {
@@ -906,7 +1040,9 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                         changes.partnerPurchaseOrderId() == null
                                 ? current.partnerSharePct() : changes.partnerSharePct())
                 /* The raw field: an update client that never heard of channels leaves it as it was. */
-                .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel());
+                .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
+                .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
+                        changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
         validateForSave(updated);
         SalesOrder saved = orders.save(updated);
         if (!saved.equals(current)) {
@@ -993,6 +1129,10 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                                     FreightPricingStrategy requestedStrategy,
                                     BigDecimal freightRatePerCbmEur, Long freightCarrierId) {
         SalesOrder current = get(id);
+        if (hasSettlementSnapshot(current))
+            throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
+        if (current.isInvoice() && current.status() != QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("De bedragen van een uitgereikte factuur kunnen niet meer worden gewijzigd");
         SalesLifecycle.requireTermsEditable(current);
         if (requestedState == null) {
             throw new BusinessRuleException("Kies of de vracht berekend of nog te bepalen is");
@@ -1113,6 +1253,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     public void delete(long id) {
         orders.lockById(id);
         SalesOrder order = get(id);
+        if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(id))
+            throw new BusinessRuleException("Een factuur met een betaalhistoriek kan niet worden verwijderd, ook niet na intrekking van betalingen");
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
         SalesLifecycle.requireDeletable(order, hasRevisions);
         boolean hasDerivedInvoice = !order.isInvoice() && orders.existsBySourceQuoteId(id);
@@ -1122,6 +1264,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         }
         revisions.deleteByOrder(id);
         events.deleteByOrder(id);
+        if (partnerSettlements != null && partnerSettlements.isResolvable()) partnerSettlements.get().delete(id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order,
                 order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
@@ -1157,6 +1300,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     @Transactional
     public SalesOrder duplicate(long id) {
         SalesOrder source = get(id);
+        if (source.purpose() == SalesPurpose.PARTNER_SETTLEMENT)
+            throw new BusinessRuleException("Een slotafrekening kan niet worden gekopieerd; maak de afrekening vanuit de inkooporder zodat kosten en voorschotten opnieuw worden gecontroleerd");
         ActorRef actor = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder duplicate = new SalesOrder(
@@ -1185,7 +1330,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                         .toList());
         duplicate = duplicate.withExtraLines(source.extraLines())
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
-                .withSalesChannel(source.rawSalesChannel());
+                .withSalesChannel(source.rawSalesChannel())
+                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
         validateForSave(duplicate);
         SalesOrder created = orders.save(duplicate);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,

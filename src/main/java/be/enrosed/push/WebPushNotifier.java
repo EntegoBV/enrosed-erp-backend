@@ -12,6 +12,7 @@ import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
 import org.jboss.logging.Logger;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -38,6 +39,9 @@ public class WebPushNotifier {
 
     private volatile String publicKey;
     private volatile String privateKey;
+
+    @ConfigProperty(name = "enrosed.push.enabled", defaultValue = "true")
+    boolean enabled = true;
 
     public WebPushNotifier() {
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
@@ -115,6 +119,7 @@ public class WebPushNotifier {
 
     /** Every device except the ones of the person who just did it: they saw it happen. */
     public void notifyAll(String kind, String title, String body, String url, String exceptUsername) {
+        if (!enabled) return;
         List<PushSubscriptionEntity> subscriptions =
                 PushSubscriptionEntity.<PushSubscriptionEntity>listAll().stream()
                         .filter(subscription -> exceptUsername == null || subscription.username == null

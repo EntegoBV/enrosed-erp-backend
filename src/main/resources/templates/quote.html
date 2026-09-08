@@ -429,7 +429,9 @@
         <td><span class="label">{t.reference}</span><b>{order.number}</b></td>
       </tr>
     </table>
+    {#if receivedAmount}<p class="panel-sentence">{t.paymentReceived}: {receivedAmount}</p>{/if}
     <p class="panel-sentence">{paymentInstruction}</p>
+    {#for instalment in paymentSchedule}<p class="panel-sentence">{instalment}</p>{/for}
   </div>
 {/if}
 

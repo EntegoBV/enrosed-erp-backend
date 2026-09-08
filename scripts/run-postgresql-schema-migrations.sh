@@ -50,4 +50,6 @@ exec psql \
     --file=/app/migrations/purchase-payment-payees-postgresql.sql \
     --file=/app/migrations/purchase-order-partner-postgresql.sql \
     --file=/app/migrations/purchase-line-extra-share-postgresql.sql \
-    --file=/app/migrations/purchase-order-separate-allocation-postgresql.sql
+    --file=/app/migrations/purchase-order-separate-allocation-postgresql.sql \
+    --file=/app/migrations/partner-invoices-and-incoming-payments-postgresql.sql \
+    --file=/app/migrations/bank-balance-as-of-postgresql.sql

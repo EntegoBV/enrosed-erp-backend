@@ -140,6 +140,48 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void partnerPaymentScheduleAndRemainingCashArePrintedWithoutClaimingPaidMoneyAgain() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "PARTNER-TST-RECEIPTS", 1).withPartnerDeal(13L, bd("50"));
+        var price = priced(1);
+        var total = price.totals().totalInclVat();
+        var first = total.divide(bd("3"), 2, RoundingMode.HALF_UP);
+        var remaining = total.subtract(first);
+        var service = mock(be.enrosed.sales.application.IncomingPaymentService.class);
+        Instance<be.enrosed.sales.application.IncomingPaymentService> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(service);
+        renderer.incomingPayments = instance;
+        when(service.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                total, first, remaining, bd("0"), bd("0"), be.enrosed.sales.domain.SalesPaymentSummary.Status.PARTIAL,
+                List.of(), List.of(), false));
+        var document = renderer.render(invoice, price, customer(), null, Language.NL, SalesPdfOptions.defaults());
+        writePreview("partner-production-payment-plan.pdf", document.content());
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("1/3 bij start productie"), text);
+            assertTrue(text.contains("2/3 na productie"), text);
+            assertTrue(text.contains("ontvangen: " + be.enrosed.shared.DocumentFormat.eur(first).toLowerCase()), text);
+            assertTrue(text.contains("nog te betalen: " + be.enrosed.shared.DocumentFormat.eur(remaining).toLowerCase()), text);
+            assertFalse(text.contains("gelieve " + be.enrosed.shared.DocumentFormat.eur(total).toLowerCase() + " te betalen"), text);
+            assertPortraitAndEmbedded(pdf);
+        }
+        when(service.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                total, total, bd("0"), bd("0"), bd("0"), be.enrosed.sales.domain.SalesPaymentSummary.Status.PAID,
+                List.of(), List.of(), false));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, price, customer(), null).content())) {
+            assertTrue(textOf(pdf).contains("geen betaling meer nodig"));
+        }
+        when(service.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                bd("-100"), bd("0"), bd("0"), bd("0"), bd("100"), be.enrosed.sales.domain.SalesPaymentSummary.Status.CREDIT,
+                List.of(), List.of(), false));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, price, customer(), null).content())) {
+            assertTrue(textOf(pdf).contains("tegoed voor de klant"));
+            assertTrue(textOf(pdf).contains("geen inkomende betaling vereist"));
+        }
+    }
+
+    @Test
     void staffCanDownloadACompactDocumentWithoutRemovingCommercialEssentials() throws Exception {
         PdfQuoteRenderer.Document document = renderer.render(
                 order(DocumentType.OFFERTE, "ENR-2026-0149", 2), priced(2), customer(), null,

@@ -233,6 +233,12 @@ public final class SalesEntities {
         @Column(name = "sales_channel", length = 40)
         public String salesChannel;
 
+        @Enumerated(EnumType.STRING) @Column(length = 32)
+        public be.enrosed.sales.domain.SalesPurpose purpose;
+        @Column(name = "source_purchase_order_id") public Long sourcePurchaseOrderId;
+        @Enumerated(EnumType.STRING) @Column(name = "payment_plan", length = 40)
+        public be.enrosed.sales.domain.SalesPaymentPlan paymentPlan;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

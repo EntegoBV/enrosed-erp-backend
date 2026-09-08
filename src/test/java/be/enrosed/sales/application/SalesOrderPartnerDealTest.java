@@ -97,81 +97,51 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
-    void auctionSettlementRecoversOurFinancedCostAndProfitSharePerProduct() {
-        SalesOrder costInvoice = partnerInvoice(65L);
-        when(orders.findById(65L)).thenReturn(Optional.of(costInvoice));
-
-        /* The partner paid the whole landed cost up front, so only the profit share is left:
-           red fetched 5 000 on a cost of 3 000, white fetched 400 on a cost of 500. */
+    void settlementCreditsIssuedAdvancesAndSharesLossWithoutTrustingClientCosts() {
+        var sourcing = wireSourcing(container());
+        var report = report(List.of(externalLine(9L, 40, "3000"), externalLine(10L, 10, "500")));
+        when(sourcing.reconciliation(13L)).thenReturn(report);
+        SalesOrder advance = partnerInvoice(65L).withPaymentState(QuoteStatus.VERZONDEN, null);
+        when(orders.findById(65L)).thenReturn(Optional.of(advance));
+        when(orders.findAll()).thenReturn(List.of(advance));
+        when(pricing.price(eq(advance), any(), any())).thenReturn(priced("3500", "0"));
         SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
-                null, null, "PO-2026-008", 65L, BigDecimal.ZERO, new BigDecimal("50"),
-                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00")),
-                        new SalesOrderService.AuctionLine(10L, 10, new BigDecimal("400.00"), new BigDecimal("50.00"))),
-                "Veiling Aalsmeer week 38"));
-
-        assertEquals(DocumentType.FACTUUR, settlement.docType());
+                null, null, null, 65L, BigDecimal.ZERO, new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000"), BigDecimal.ONE),
+                        new SalesOrderService.AuctionLine(10L, 10, new BigDecimal("400"), BigDecimal.ONE)), "Aalsmeer"));
+        assertEquals(13L, settlement.partnerPurchaseOrderId());
         assertTrue(settlement.partnerSettlement());
-        assertEquals(7L, settlement.customerId());
-        assertEquals(13L, settlement.partnerPurchaseOrderId(), "the container comes from the source document");
-        assertEquals(new BigDecimal("50"), settlement.partnerSharePct());
-        assertEquals(2, settlement.lines().size());
-        /* The final invoice bills the full value; what the advance covered comes off as a line of its own. */
-        assertEquals(new BigDecimal("100.0000"), settlement.lines().get(0).unitPriceEur(), "3 000 cost plus half of 2 000 profit over 40 pieces");
-        assertEquals(new BigDecimal("50.0000"), settlement.lines().get(1).unitPriceEur(), "a loss never goes below what the advance covered");
-        assertEquals(1, settlement.extraLines().size());
-        assertEquals("Voorschot verrekend · " + costInvoice.number(), settlement.extraLines().get(0).description());
-        assertEquals(new BigDecimal("-3500.00"), settlement.extraLines().get(0).unitPriceEur(), "4 000 + 500 full, 1 000 + 0 still owed");
-        assertEquals(FreightState.AANGEVULD, settlement.freight());
-        assertTrue(settlement.notes().startsWith("Slotfactuur partnercontainer PO-2026-008 · goederen aan volledige waarde: gelande kost + 50 % van de winst; voorschot van 100 % van de kost verrekend"), settlement.notes());
-        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.000,00 = winst € 2.000,00 · volledig € 4.000,00 − voorschot € 3.000,00 · ons deel € 1.000,00"), settlement.notes());
-        assertTrue(settlement.notes().contains("verlies € 100,00 · volledig € 500,00 − voorschot € 500,00 · ons deel € 0,00"), settlement.notes());
-        assertTrue(settlement.notes().contains("volledig € 4.500,00 − voorschot € 3.500,00; ons deel € 1.000,00."), settlement.notes());
-        assertEquals("Veiling Aalsmeer week 38", settlement.internalNotes());
-
-        ArgumentCaptor<QuoteEvent> events = ArgumentCaptor.forClass(QuoteEvent.class);
-        verify(history, times(2)).add(events.capture());
-        assertEquals(65L, events.getAllValues().get(1).salesOrderId());
-        assertEquals(QuoteEvent.Type.GEFACTUREERD, events.getAllValues().get(1).type());
+        assertEquals(new BigDecimal("100.0000"), settlement.lines().getFirst().unitPriceEur());
+        assertEquals(new BigDecimal("45.0000"), settlement.lines().get(1).unitPriceEur(), "half of the loss is shared");
+        assertEquals(new BigDecimal("75.0000"), settlement.lines().getFirst().unitCostEur());
+        assertEquals(new BigDecimal("-3500.00"), settlement.extraLines().getFirst().unitPriceEur());
+        assertTrue(settlement.notes().contains("saldo € 950,00"), settlement.notes());
     }
 
     @Test
-    void auctionSettlementCountsTheInspectionAndOtherCostsKeptApartPerPiece() {
-        /* PO-2026-008 keeps its 150 inspection and 80 fumigation apart from the piece price: 230 over 40 pieces. */
-        be.enrosed.sourcing.application.PurchaseOrderService sourcing = wireSourcing(container());
-        be.enrosed.sourcing.domain.LandedCost.Totals totals = new be.enrosed.sourcing.domain.LandedCost.Totals(
-                40, 10, new BigDecimal("1.36"), new BigDecimal("768.00"), new BigDecimal("683.52"),
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, new BigDecimal("771.45"), new BigDecimal("19.2863"), BigDecimal.ZERO,
-                new BigDecimal("150"), List.of(new be.enrosed.sourcing.domain.OtherCost("Fumigatie", new BigDecimal("80"))),
-                new BigDecimal("80"), new BigDecimal("230"), new BigDecimal("1001.45"), false);
-        when(sourcing.calculate(any())).thenReturn(new be.enrosed.sourcing.domain.LandedCost(List.of(), totals, null));
-
+    void settlementUsesAllInExternalCostsOnlyOnceAndDoesNotInventAdvanceCredit() {
+        var sourcing = wireSourcing(container());
+        when(sourcing.reconciliation(13L)).thenReturn(report(List.of(externalLine(9L, 40, "3230"))));
         SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
-                7L, 13L, "PO-2026-008", null, new BigDecimal("100"), new BigDecimal("50"),
-                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00"))),
-                null));
-
-        /* 75 landed plus 5,75 apart is 80,75 a piece: cost 3 230, profit 1 770, ours 3 230 + 885 = 4 115. */
-        assertEquals(new BigDecimal("102.8750"), settlement.lines().get(0).unitPriceEur());
-        assertTrue(settlement.notes().contains("Inspectie en andere kosten apart geboekt: € 230,00 over 40 stuks, € 5,75 per stuk meegeteld in de kost"), settlement.notes());
-        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.230,00 = winst € 1.770,00 · volledig € 4.115,00 · ons deel € 4.115,00"), settlement.notes());
-        assertTrue(settlement.extraLines().isEmpty(), "nothing was paid up front, so nothing comes off");
-    }
-
-    @Test
-    void auctionSettlementWithoutACostDocumentRecoversWhatWeFinanced() {
-        /* We financed the whole container: the partner pays the cost back plus half the profit. */
-        SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
-                7L, 21L, "PO-2026-021", null, new BigDecimal("100"), new BigDecimal("50"),
-                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00"))),
-                null));
-
-        assertEquals(21L, settlement.partnerPurchaseOrderId());
-        assertEquals(new BigDecimal("100.0000"), settlement.lines().get(0).unitPriceEur(), "75 cost plus 25 profit share per piece");
-        assertTrue(settlement.notes().startsWith("Slotfactuur partnercontainer PO-2026-021 · goederen aan volledige waarde: gelande kost + 50 % van de winst; voorschot van 0 % van de kost verrekend"), settlement.notes());
+                7L, 13L, null, null, new BigDecimal("100"), new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000"), new BigDecimal("75"))), null));
+        assertEquals(new BigDecimal("102.8750"), settlement.lines().getFirst().unitPriceEur());
+        assertEquals(new BigDecimal("80.7500"), settlement.lines().getFirst().unitCostEur());
         assertTrue(settlement.extraLines().isEmpty());
-        assertNull(settlement.internalNotes());
-        verify(history, times(1)).add(any(QuoteEvent.class));
+        assertTrue(settlement.notes().contains("saldo € 4.115,00"));
+    }
+
+    @Test
+    void incompleteSettlementIsRejectedAndZeroProceedsAreExplicitlyAllowed() {
+        wireSourcing(container());
+        assertThrows(BusinessRuleException.class, () -> service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
+                7L, 13L, null, null, BigDecimal.ZERO, new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 39, BigDecimal.ZERO, null)), null)));
+        var settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
+                7L, 13L, null, null, BigDecimal.ZERO, new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, BigDecimal.ZERO, null)), null));
+        assertEquals(new BigDecimal("12.5000"), settlement.lines().getFirst().unitPriceEur());
+        assertTrue(settlement.extraLines().isEmpty());
     }
 
     @Test
@@ -227,11 +197,10 @@ class SalesOrderPartnerDealTest {
 
         assertEquals(DocumentType.OFFERTE, quote.docType());
         assertEquals(7L, quote.customerId());
-        assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitPriceEur(), "the container's landed cost to the cent");
+        assertEquals(new BigDecimal("25.0000"), quote.lines().get(0).unitPriceEur(), "external cost includes separate fees once, excludes internal markup");
         assertEquals(40, quote.lines().get(0).quantity());
-        assertEquals(2, quote.extraLines().size(), "apart from the piece price, the inspection and the fumigation travel as lines of their own");
-        assertEquals(new BigDecimal("150.00"), quote.extraLines().get(0).unitPriceEur());
-        assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitCostEur(), "the line remembers what the container cost us");
+        assertTrue(quote.extraLines().isEmpty(), "all separate costs are already allocated in the external unit cost");
+        assertEquals(new BigDecimal("25.0000"), quote.lines().get(0).unitCostEur(), "the line remembers what the container cost us");
         assertEquals(FreightState.AANGEVULD, quote.freight());
         assertEquals(FreightPricingStrategy.FIXED, quote.freightPricingStrategy(), "no carrier tariff on top of the landed cost");
         assertEquals(BigDecimal.ZERO, quote.manualFreightEur());
@@ -244,10 +213,9 @@ class SalesOrderPartnerDealTest {
         /* Half the cost up front: the lines and the separate costs follow. */
         SalesOrder half = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("50"), true, List.of(), null));
-        assertEquals(new BigDecimal("9.6432"), half.lines().get(0).unitPriceEur());
-        assertEquals(new BigDecimal("19.2863"), half.lines().get(0).unitCostEur(), "half the price, the whole cost");
-        assertEquals(1, half.extraLines().size(), "the inspection was asked for, the fumigation was not");
-        assertEquals(new BigDecimal("75.00"), half.extraLines().get(0).unitPriceEur(), "half the inspection");
+        assertEquals(new BigDecimal("12.5000"), half.lines().get(0).unitPriceEur());
+        assertEquals(new BigDecimal("25.0000"), half.lines().get(0).unitCostEur(), "half the price, the whole cost");
+        assertTrue(half.extraLines().isEmpty(), "separate costs are financed at the same percentage inside the unit cost");
 
         /* Customer prices: no landed cost needed, no partner deal, ordinary freight. */
         SalesOrder plain = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
@@ -441,12 +409,37 @@ class SalesOrderPartnerDealTest {
                 new BigDecimal("19.2863"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
         be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
         when(sourcing.get(13L)).thenReturn(container);
+        when(sourcing.lockForPartnerSettlement(13L)).thenReturn(container);
+        var report = report(List.of(externalLine(9L, 40, "1000")));
+        when(sourcing.reconciliation(13L)).thenReturn(report);
+        when(sourcing.reconciliation(eq(container), any())).thenReturn(report);
         when(sourcing.calculate(container)).thenReturn(costing);
         Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
         when(sourcingInstance.isResolvable()).thenReturn(true);
         when(sourcingInstance.get()).thenReturn(sourcing);
         service.purchaseOrders = sourcingInstance;
         return sourcing;
+    }
+
+    private static be.enrosed.sourcing.domain.PurchaseReconciliation.Line externalLine(long id, int qty, String amount) {
+        BigDecimal cost = new BigDecimal(amount).setScale(2);
+        BigDecimal unit = cost.divide(BigDecimal.valueOf(qty), 4, java.math.RoundingMode.HALF_UP);
+        return new be.enrosed.sourcing.domain.PurchaseReconciliation.Line(id, "Product " + id, qty, 0, 0, qty, qty,
+                be.enrosed.sourcing.domain.PurchaseReconciliation.UnitCostBasis.ORDERED, cost, BigDecimal.ZERO,
+                cost, cost, BigDecimal.ZERO, BigDecimal.ZERO, cost, unit, unit, "test");
+    }
+
+    private static be.enrosed.sourcing.domain.PurchaseReconciliation report(List<be.enrosed.sourcing.domain.PurchaseReconciliation.Line> lines) {
+        BigDecimal external = lines.stream().map(be.enrosed.sourcing.domain.PurchaseReconciliation.Line::forecastExternalEur)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        int quantity = lines.stream().mapToInt(be.enrosed.sourcing.domain.PurchaseReconciliation.Line::orderedQuantity).sum();
+        BigDecimal unit = quantity == 0 ? null : external.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP);
+        var totals = new be.enrosed.sourcing.domain.PurchaseReconciliation.Totals(
+                external, BigDecimal.ZERO, external, external, BigDecimal.ZERO, BigDecimal.ZERO,
+                external, external, false, quantity, 0, 0, quantity, quantity,
+                be.enrosed.sourcing.domain.PurchaseReconciliation.UnitCostBasis.ORDERED,
+                unit, unit, false, BigDecimal.ZERO);
+        return new be.enrosed.sourcing.domain.PurchaseReconciliation(List.of(), totals, lines, List.of());
     }
 
     @Test
@@ -462,7 +455,7 @@ class SalesOrderPartnerDealTest {
         assertEquals(7L, quote.customerId(), "no customer chosen: the container's partner");
         assertTrue(quote.isPartnerDeal());
         assertEquals(new BigDecimal("40"), quote.partnerSharePct());
-        assertEquals(new BigDecimal("9.6432"), quote.lines().get(0).unitPriceEur(), "half of 19,2863");
+        assertEquals(new BigDecimal("12.5000"), quote.lines().get(0).unitPriceEur(), "half of 19,2863");
         verify(sourcing).adoptPartner(eq(13L), eq(7L), any(), any());
 
         /* A container without a partner gets one from the first document made for a partner customer. */
