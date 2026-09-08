@@ -12,4 +12,5 @@ public class PartnerSettlementEntity {
     @Column(name = "revenue_eur", nullable = false, precision = 19, scale = 2) public BigDecimal revenueEur;
     @Column(name = "cost_eur", nullable = false, precision = 19, scale = 2) public BigDecimal costEur;
     @Column(name = "advance_eur", nullable = false, precision = 19, scale = 2) public BigDecimal advanceEur;
+    @Column(name = "final_settlement") public Boolean finalSettlement;
 }

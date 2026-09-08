@@ -199,6 +199,60 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void separateAdvanceInvoiceDoesNotSplitTheMilestoneAmountAgain() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "PARTNER-30-PCT", 1)
+                .withPartnerDeal(13L, bd("50"))
+                .withPurpose(be.enrosed.sales.domain.SalesPurpose.PARTNER_ADVANCE, 13L,
+                        be.enrosed.sales.domain.SalesPaymentPlan.FULL);
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, priced(1), customer(), null).content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("voorschotfactuur"), text);
+            assertFalse(text.contains("1/3 bij start productie"), text);
+            assertFalse(text.contains("2/3 na productie"), text);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void partialAuctionAndActualRefundAreExplicitOnTheDocument() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "PARTNER-TST-PARTIAL", 1).asPartnerSettlement();
+        var settlements = mock(be.enrosed.sales.application.PartnerSettlements.class);
+        Instance<be.enrosed.sales.application.PartnerSettlements> settlementInstance = mock(Instance.class);
+        when(settlementInstance.isResolvable()).thenReturn(true);
+        when(settlementInstance.get()).thenReturn(settlements);
+        renderer.partnerSettlements = settlementInstance;
+        when(settlements.find(invoice.id())).thenReturn(new be.enrosed.sales.application.PartnerSettlements.Snapshot(
+                bd("900"), bd("1000"), bd("1000"), false, List.of()));
+        var incoming = mock(be.enrosed.sales.application.IncomingPaymentService.class);
+        Instance<be.enrosed.sales.application.IncomingPaymentService> receiptInstance = mock(Instance.class);
+        when(receiptInstance.isResolvable()).thenReturn(true);
+        when(receiptInstance.get()).thenReturn(incoming);
+        renderer.incomingPayments = receiptInstance;
+        var zero = bd("0");
+        var price = new PricedOrder(List.of(), new PricedOrder.Totals(
+                0, 0, 0, 0, 0, 0, zero, zero, zero, zero,
+                zero, zero, zero, zero, zero, zero, null, zero, zero,
+                zero, false, zero, zero, bd("-100"), bd("21"), bd("-21"), bd("-121"), VatTreatment.BINNENLAND,
+                null, null, zero, zero, zero, zero, bd("-100")),
+                new PricedOrder.Validation(zero, true, zero, true, true, List.of(), List.of(), List.of(), null),
+                List.of(new PricedOrder.ExtraLine("Credit bij deelafrekening", bd("1"), bd("-100"), bd("-100"))));
+        when(incoming.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                bd("-121"), bd("-40"), bd("0"), bd("0"), bd("81"),
+                be.enrosed.sales.domain.SalesPaymentSummary.Status.CREDIT, List.of(), List.of(), false,
+                bd("0"), bd("40"), bd("81")));
+        var document = renderer.render(invoice, price, customer(), null, Language.NL, new SalesPdfOptions(false, false, false, false));
+        writePreview("partner-partial-settlement-refund.pdf", document.content());
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("deelafrekening"), text);
+            assertFalse(text.contains("slotfactuur"), text);
+            assertTrue(text.contains("terugbetaald: " + be.enrosed.shared.DocumentFormat.eur(bd("40")).toLowerCase()), text);
+            assertTrue(text.contains("tegoed voor de klant: " + be.enrosed.shared.DocumentFormat.eur(bd("81")).toLowerCase()), text);
+            assertPortraitAndEmbedded(pdf);
+        }
+    }
+
+    @Test
     void salesPdfDefaultsAndCleanTitleAreStable() {
         SalesPdfOptions defaults = SalesPdfOptions.defaults();
         assertTrue(defaults.includePhotos());

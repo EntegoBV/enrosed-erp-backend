@@ -33,6 +33,7 @@ public class IncomingPayments {
         entity.salesOrderId = payment.salesOrderId(); entity.amountEur = payment.amountEur();
         entity.receivedAt = payment.receivedAt(); entity.timeZone = payment.timeZone(); entity.reference = payment.reference();
         entity.recordedAt = payment.recordedAt(); entity.actor = payment.actor(); entity.legacy = payment.legacy();
+        entity.bankAccount = payment.bankAccount();
         if (payment.legacy()) entity.legacyKey = "paid-at:" + payment.salesOrderId();
         if (entity.id == null) entities.persist(entity);
         entities.flush();
@@ -45,6 +46,6 @@ public class IncomingPayments {
     }
 
     private static SalesPayment domain(SalesPaymentEntity e) {
-        return new SalesPayment(e.id, e.salesOrderId, e.amountEur, e.receivedAt, e.timeZone, e.reference, e.recordedAt, e.actor, e.legacy);
+        return new SalesPayment(e.id, e.salesOrderId, e.amountEur, e.receivedAt, e.timeZone, e.reference, e.recordedAt, e.actor, e.legacy, e.bankAccount);
     }
 }

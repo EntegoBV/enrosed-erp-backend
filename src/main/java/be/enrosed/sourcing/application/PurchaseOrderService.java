@@ -82,6 +82,8 @@ public class PurchaseOrderService {
     Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> salesDocuments;
     @Inject
     Instance<be.enrosed.sales.application.CustomerService> partnerCustomers;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> partnerAdvanceSchedules;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -1358,6 +1360,8 @@ public class PurchaseOrderService {
                     MediaLegacySourceType.PURCHASE_DOCUMENT, documentId));
         }
         if (payments != null && payments.isResolvable()) payments.get().deleteForOrder(id);
+        if (partnerAdvanceSchedules != null && partnerAdvanceSchedules.isResolvable())
+            partnerAdvanceSchedules.get().deleteForPurchase(id);
         unlinkMediaTarget(MediaTargetType.PURCHASE_ORDER, id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
@@ -1749,6 +1753,11 @@ public class PurchaseOrderService {
                     "Ons deel van de winst");
         }
         var linked = linkedSalesDocuments(id).stream().filter(be.enrosed.sales.domain.SalesOrder::isPartnerDeal).toList();
+        boolean partnerChanged = !Objects.equals(current.partnerCustomerId(), customerId);
+        if (partnerChanged && partnerAdvanceSchedules != null && partnerAdvanceSchedules.isResolvable()
+                && !partnerAdvanceSchedules.get().rows(id).isEmpty()) {
+            throw new BusinessRuleException("Er staat een termijnplanning voor deze partner. Verwijder eerst de ongefactureerde termijnen voordat je de partner wijzigt");
+        }
         if (!Objects.equals(current.partnerCustomerId(), customerId)
                 && linked.stream().anyMatch(document -> !Objects.equals(document.customerId(), customerId))) {
             throw new BusinessRuleException("De partner kan niet wijzigen zolang er gekoppelde partnerdocumenten zijn; ontkoppel eerst de conceptdocumenten");
@@ -1756,11 +1765,11 @@ public class PurchaseOrderService {
         boolean agreementChanged = customerId != null && current.partnerCustomerId() != null
                 && (current.partnerCostPctOrDefault().compareTo(costPct) != 0
                 || current.partnerSharePctOrDefault().compareTo(sharePct) != 0);
-        if (agreementChanged && linked.stream().anyMatch(document -> document.isInvoice()
-                && (document.status() != be.enrosed.sales.domain.QuoteStatus.CONCEPT
-                || document.purpose() == be.enrosed.sales.domain.SalesPurpose.PARTNER_SETTLEMENT))) {
-            throw new BusinessRuleException("De financiering en winstdeling staan vast zodra een partnerfactuur is uitgereikt of de slotafrekening is gemaakt");
+        if (agreementChanged && linked.stream().anyMatch(be.enrosed.sales.domain.SalesOrder::isInvoice)) {
+            throw new BusinessRuleException("De financiering en winstdeling staan vast zodra een partnerfactuur bestaat. Verwijder eerst ongebruikte conceptfacturen om de afspraak te wijzigen");
         }
+        if (partnerChanged && partnerAdvanceSchedules != null && partnerAdvanceSchedules.isResolvable())
+            partnerAdvanceSchedules.get().deleteForPurchase(id);
         PurchaseOrder saved = orders.save(current.withPartner(customerId, costPct, sharePct));
         if (!saved.equals(current)) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, customerId == null

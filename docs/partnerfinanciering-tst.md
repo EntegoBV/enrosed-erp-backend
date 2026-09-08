@@ -1,61 +1,80 @@
-# Partnerfinanciering en ontvangen betalingen — TST
+# Partnerfinanciering, deelveilingen en bankbetalingen - TST
 
-## Bedrijfsafspraak
+## Drie afzonderlijke afspraken
 
-De partner stort aan ENROSED. ENROSED betaalt de externe containerkosten. Na de veiling wordt de netto veilingopbrengst, na veilingkosten, verrekend met de externe containerkosten en het afgesproken aandeel voor ENROSED. Het percentage financiering vooraf staat los van het aandeel in het resultaat.
+De partner stort aan ENROSED. ENROSED betaalt de externe containerkosten. Leg op de inkooporder drie zaken afzonderlijk vast:
 
-| Scenario | Vooraf financieren | Verkoopdocumenten | Resultaat |
-| --- | --- | --- | --- |
-| Reguliere verkoop | Normale klantafspraak | Offerte / verkoopfactuur | Normale omzet en kostprijs |
-| Samen inkopen | Bijvoorbeeld partner 50%, ENROSED 50% | Partnervoorschotofferte, voorschotfactuur, slotfactuur | Afgesproken aandeel in het veilingresultaat |
-| Partner financiert volledig | Partner 100% | Dezelfde partnerdocumenten | Bijvoorbeeld 50/50 verdeling van het veilingresultaat |
-| ENROSED financiert volledig | Partner 0% vooraf | Slotfactuur na de veiling | Externe kost terug plus afgesproken resultaat |
+1. **Financieringsaandeel:** welk deel van de externe containerkosten de partner vooraf financiert, bijvoorbeeld 50% of 100%.
+2. **Voorschottermijnen:** hoe die partnerbijdrage wordt gefactureerd, bijvoorbeeld 30% bij productiestart en 70% na productie. Iedere termijn wordt een afzonderlijke voorschotfactuur.
+3. **Resultaatsverdeling:** welk deel van de netto veilingwinst of het verlies voor ENROSED is, bijvoorbeeld 50%. Dit percentage staat los van de financiering.
 
-Een partnerklant kan daarnaast gewone producten kopen: het scenario wordt per document gekozen. Partnerdocumenten zijn vrijgesteld van het commerciële minimumorderbedrag en de automatische landenafhandeling. Interne ENROSED-opslag zit niet nog eens in de externe kostbasis voor winstdeling.
+De termijnen worden dus berekend over het partneraandeel, niet nogmaals over de volledige container. Partnerdocumenten hebben geen commercieel minimumorderbedrag of automatische landenafhandeling. Een partnerklant kan daarnaast reguliere producten kopen: het scenario hoort bij het document.
 
-## Werkwijze
+## Voorbeeld: 30% en 70%, zonder btw
 
-1. Open de inkooporder en kies **Partnercontainer**. Selecteer de partner, zijn financieringspercentage en het aandeel van ENROSED in het veilingresultaat.
-2. Maak de voorschotofferte vanuit de container, of koppel een bestaand conceptdocument. Het document bewaart de inkoopkoppeling. Kies volledige betaling of **1/3 bij start productie / 2/3 na productie**.
-3. Maak de factuur van de offerte. Geef haar uit zonder e-mail als de partner buiten het systeem al akkoord is; uitgifte zet de inhoud vast. Verzending kan daarna afzonderlijk worden vastgelegd.
-4. Registreer elke ontvangst met bedrag, ontvangstdatum, exact tijdstip, tijdzone en bankreferentie. De factuur toont de afzonderlijke ontvangsten, de betaaltermijnen en het resterende bedrag. De gekoppelde container toont dezelfde ontvangsten.
-5. Na de veiling: vul per product het volledige bruikbare aantal en de netto veilingopbrengst in. Controleer de externe kosten; de afrekening vermeldt of die nog voorlopig zijn. Maak de slotfactuur. Reeds uitgereikte voorschotten worden verrekend, ook als nog niet alles ontvangen is.
-6. Ontvangsten op de slotfactuur worden op dezelfde manier genoteerd. Een negatief saldo blijft zichtbaar als credit en wordt niet als inkomende betaling behandeld.
+Externe containerkosten €12.000. Netto veilingopbrengst na veilingkosten €16.000. Resultaat €4.000; ENROSED krijgt 50% = €2.000.
 
-De oorspronkelijke registratietijd en medewerker blijven bewaard wanneer een ontvangst wordt gecorrigeerd. Verwijderen trekt de ontvangst in met een logboekregel; het historische record blijft bestaan. Facturen met betaalhistoriek en containers met gekoppelde documenten moeten worden gearchiveerd om de samenhang te bewaren.
+| Partner financiert | Partnerbijdrage | Voorschotfactuur 1: 30% | Voorschotfactuur 2: 70% | Slotfactuur | Totaal aan ENROSED |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 50% | €6.000 | €1.800 | €4.200 | €8.000 | €14.000 |
+| 100% | €12.000 | €3.600 | €8.400 | €2.000 | €14.000 |
 
-## Rekenvoorbeeld zonder btw
+Bij 50% financiering bevat de slotfactuur ook de terugbetaling van de €6.000 die ENROSED zelf financierde. Bij 100% financiering resteert alleen het ENROSED-resultaat. Als de tweede voorschotfactuur nog onbetaald is, blijft die apart openstaan. Een onbetaald voorschot wordt niet nogmaals gefactureerd bij de afrekening.
 
-Externe kost € 12.000, netto veilingopbrengst € 16.000, resultaat € 4.000, aandeel ENROSED 50% = € 2.000.
+## Termijnen en facturen
 
-| Partner financiert | Voorschotfactuur | Productiestart | Na productie | Slotfactuur | Totaal aan ENROSED | Resultaat ENROSED |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100% | € 12.000 | € 4.000 | € 8.000 | € 2.000 | € 14.000 | € 2.000 |
-| 50% | € 6.000 | € 2.000 | € 4.000 | € 8.000 | € 14.000 | € 2.000 |
-| 0% | € 0 | — | — | € 14.000 | € 14.000 | € 2.000 |
+Open **Inkoop > container > Betalingen**. Bewaar de voorschotplanning met een naam, percentage of vast bedrag en optionele vervaldatum per termijn. Gebruik een voorgestelde verdeling of voeg zelf termijnen toe. De totale planning mag de vastgelegde partnerbijdrage niet overschrijden; een nog niet ingepland bedrag blijft zichtbaar.
 
-Als in het tweede scenario slechts € 2.000 is ontvangen, blijven € 4.000 op de voorschotfactuur en € 8.000 op de slotfactuur open. De slotfactuur verrekent de gefactureerde € 6.000; betaalachterstand wordt niet opnieuw gefactureerd.
+Maak bij elke mijlpaal de bijbehorende voorschotfactuur. De knop opent een concept, zodat je het document kunt controleren en uitgeven. Een termijnfactuur vraagt het volledige bedrag van die ene termijn; er komt niet opnieuw een 30/70- of derdenverdeling binnen die factuur. Uitgeven zonder e-mail blijft mogelijk. Verzending en de werkelijke ontvangst zijn afzonderlijke handelingen.
 
-Bij netto opbrengst € 10.000 is het resultaat € -2.000 en bij dezelfde verdeling het aandeel ENROSED € -1.000. Een vooraf volledig gefinancierde container geeft dan een slotcredit van € 1.000. De invoer benoemt expliciet dat de resultaatsverdeling ook verliezen omvat. Afwijkende afspraken over verliesverdeling vergen een afzonderlijke uitbreiding.
+De afgesproken kostbasis wordt vastgelegd. Zodra bedragen gefactureerd zijn, blijven die bedragen behouden. Nieuwe kosten wijzigen bestaande facturen niet stilzwijgend. Niet-gefactureerde termijnen kunnen worden aangepast binnen het beschikbare restant. Oude offertes en facturen blijven zichtbaar en worden niet automatisch gekopieerd naar nieuwe betalingsclaims.
 
-Ontvangsten en openstaande facturen gebruiken bedragen inclusief eventuele btw. Het gerealiseerde resultaat gebruikt bedragen exclusief btw. Eigen kasinleg is het positieve verschil tussen geregistreerde externe uitgaven en partnerontvangsten; dit is een cashindicator, geen winstberekening.
+Vóór de eerste veilingafrekening moeten de ingeplande voorschotten zijn uitgegeven. Verwijder termijnen of ongebruikte conceptfacturen die niet meer bij de afspraak horen. Na het begin van de afrekening kunnen geen extra voorschotclaims meer worden toegevoegd; de afrekening verwerkt dan de resterende kost en het resultaat.
 
-## Inzicht in het ERP
+## Ontvangsten en terugbetalingen
 
-- **Verkoop:** onderscheid tussen reguliere verkoop, partnervoorschotten en slotfacturen; open bedrag op basis van werkelijke ontvangsten.
-- **Inkoop:** gekoppelde offertes/facturen, afgesproken financiering, uitgereikte voorschotten, ontvangen voorschotten, open bedragen, slotafrekening en eigen kasinleg per container.
-- **Homepage:** ontvangen deze maand, openstaande betalingen, gerealiseerd partnerresultaat en eigen kasinleg. De tegels openen het relevante overzicht.
-- **Analyses:** partnercontainers apart van gewone verkoop; voorschotten tellen niet als omzet of winst. De slotafrekening legt externe kost en gerealiseerd resultaat vast.
-- **Kosten & bank:** ontvangstenregister met datum/tijd en doorklik naar factuur/container. Een banksaldo kan een exact peiltijdstip krijgen, zodat eerdere ontvangsten niet opnieuw worden opgeteld.
+Registreer op een uitgereikte factuur één of meer ontvangsten met bedrag, datum, tijdstip, tijdzone, rekening en referentie. Dezelfde historie is zichtbaar op de gekoppelde inkooporder en in **Kosten & bank**.
 
-## Grenzen van deze versie
+Bij een credit of een te hoog ontvangen bedrag kun je een werkelijke **terugbetaling** registreren. Het systeem controleert het terugbetaalbare saldo. Een terugbetaling verlaagt de netto ontvangen kas; zij verandert de oorspronkelijke factuurwaarde of winst niet. De factuur-PDF toont ontvangen en terugbetaalde bedragen afzonderlijk, met het resterende te betalen bedrag of tegoed.
 
-- Twee betaalplannen: volledig, of 1/3 + 2/3. Vrije termijnen en afzonderlijke vervaldata per productiemijlpaal zijn nog geen invoerbare planning.
-- De slotfactuur rekent één volledige bruikbare container af. Meerdere gedeeltelijke veilingen/afrekeningen per container zijn nog geen afzonderlijk proces.
-- Credits en te veel ontvangen bedragen zijn zichtbaar; daadwerkelijke terugbetalingen en automatische verrekening met andere facturen hebben nog geen eigen betaalregister.
-- Ontvangsten worden handmatig ingevoerd; er is geen bankimport of automatische matching van afschriften.
-- De bankdoorrekening is een totaalindicatie. Ontvangsten zijn nog niet aan afzonderlijke bankrekeningen toegewezen. Voor meerdere rekeningen met verschillende peildata is bankafstemming per rekening nodig.
+Een correctie behoudt de oorspronkelijke medewerker en registratietijd. Intrekken bewaart de betaalhistoriek. Een ontvangst die nodig is om een reeds geboekte terugbetaling te verklaren, kan niet zonder bijbehorende correctie verdwijnen. Het systeem verstuurt geen bankoverschrijvingen: het registreert uitgevoerde betalingen.
 
-## Uitrol
+## Meerdere deelveilingen
 
-Deze wijziging wordt uitsluitend op de `test`-branches gepubliceerd. Frontend: `https://enrosed-erp-frontend-test.vercel.app`; API: `https://enrosed-erp-backend-test.up.railway.app`. De PostgreSQL-migraties draaien vóór de TST-applicatie start; historische betaalmarkeringen worden eenmalig als herkenbare ontvangsten overgenomen. TST heeft e-mailmocking aan en pushberichten uit.
+Maak per veiling een afrekening voor de werkelijk afgehandelde aantallen, met netto opbrengst per product. Je mag producten weglaten die nog niet geveild zijn. De resterende aantallen en reeds gemaakte afrekeningen blijven zichtbaar.
+
+Elke afrekening legt de toegewezen externe kosten, opbrengsten, het ENROSED-resultaat en het verrekende voorschot vast. Het voorschot wordt naar rato toegerekend; de laatste afrekening verwerkt het resterende voorschot en afrondingsverschillen. De controles tellen ook conceptafrekeningen mee, zodat twee concepten niet dezelfde aantallen reserveren.
+
+Voorbeeld bij 50% financiering: een eerste deel met €6.000 kosten en €8.000 netto opbrengst geeft €1.000 resultaat voor ENROSED. De verkoopwaarde is €7.000; daarvan wordt €3.000 voorschot verrekend, zodat de deelafrekening €4.000 bedraagt. Bij een identiek tweede deel volgen opnieuw €4.000. Samen met beide voorschotten is het totaal €14.000.
+
+Verlies is ook mogelijk. Een negatieve afrekening geeft een credit voor de partner. Een onverkoopbaar product kan met de afgehandelde hoeveelheid en opbrengst nul worden afgesloten. Een afwijkende afspraak over alleen winst delen en verlies anders dragen moet expliciet worden overeengekomen; de huidige resultaatsverdeling geldt voor beide.
+
+## Handmatige bankbewegingen
+
+Open **Kosten & bank** en voeg een bankbeweging toe. Kies de rekening, ontvangst of uitgave, het bedrag, de datum, het tijdstip en de tijdzone. Voeg de mededeling en eventueel de tegenpartij toe. Er is geen CSV-upload nodig; CSV-import is op verzoek uit deze versie gehaald.
+
+Koppel een bankbeweging daarna expliciet aan een factuur of een eerder genoteerde betaling. Suggesties helpen zoeken; een suggestie boekt nog niets. Een positieve bankbeweging kan een ontvangst registreren. Een uitgaande beweging kan een toegestane terugbetaling registreren. Door aan een bestaande betaling te koppelen, wordt hetzelfde bedrag niet tweemaal op de factuur geboekt. Ongekoppelde bewegingen blijven zichtbaar voor verdere beoordeling.
+
+Leveranciersbetalingen en gewone bedrijfskosten worden niet automatisch als terugbetaling op een verkoopfactuur behandeld. Het scherm registreert uitgevoerde bankbewegingen en voert zelf geen bankoverschrijving uit.
+
+Een verkeerde ongekoppelde bankbeweging kan worden verwijderd met een logboekregel. Bij het losmaken van een koppeling wordt alleen een door die koppeling aangemaakte betaalregistratie ingetrokken; een eerder handmatig genoteerde factuurbetaling blijft bestaan.
+
+Elke bankrekening heeft een eigen saldopeilmoment. Daarna tellen handmatige bankbewegingen en afzonderlijke factuurbetalingen met die rekening samen mee. Zodra een bankbeweging aan een bestaande factuurbetaling is gekoppeld, telt alleen de bankbeweging mee, op haar eigen tijdstip. Koppel dezelfde ontvangst dus aan de bestaande betaling om dubbeltelling te voorkomen. Een losse bankbeweging laat eerdere factuurbetalingen niet verdwijnen.
+
+Betalingen zonder rekening blijven afzonderlijk zichtbaar. Bestaande kosten en inkoopbetalingen bevatten geen bankrekening en worden daarom niet aan een willekeurige rekening toegeschreven. Controleer of zij al in het ingegeven saldo of een bankbeweging verwerkt zijn en noteer alleen een ontbrekende bankbeweging. Het berekende saldo veronderstelt dat alle bewegingen sinds het peilmoment geregistreerd zijn.
+
+## Homepage en analyses
+
+- Ontvangen geld, terugbetalingen en netto kas zijn te onderscheiden van gefactureerde omzet en resultaat.
+- Voorschotten blijven financiering. Alleen uitgereikte veilingafrekeningen dragen bij aan het gerealiseerde partnerresultaat.
+- De container toont afgesproken, ingeplande, gefactureerde, ontvangen en nog openstaande bedragen.
+- Een deels afgerekende container blijft aandacht vragen zolang nog aantallen af te rekenen zijn.
+- Eigen kasinleg is het positieve verschil tussen geregistreerde externe uitgaven en netto partnerontvangsten. Dit is een kasindicator, geen winstberekening.
+
+Ontvangsten en openstaande facturen zijn inclusief eventuele btw; de kost- en resultaatberekening gebruikt bedragen exclusief btw.
+
+## Uitrol en bestaande documenten
+
+Alle wijzigingen worden uitsluitend op `test` gepubliceerd. Frontend: `https://enrosed-erp-frontend-test.vercel.app`; API: `https://enrosed-erp-backend-test.up.railway.app`. TST heeft e-mailmocking aan en pushberichten uit.
+
+Bestaande documenten blijven bestaan. De nieuwe planning maakt geen echte facturen of bankbetalingen aan zonder de betreffende handeling in het ERP. Historische afrekeningen gelden als volledige afrekeningen; historische betaalmarkeringen blijven herkenbaar in het betaalregister.

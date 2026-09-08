@@ -25,6 +25,8 @@ public class CustomerService {
 
     @Inject
     Instance<ActivityLogService> activity;
+    @Inject
+    Instance<be.enrosed.sourcing.application.PurchaseOrderService> partnerPurchases;
 
     public CustomerService(SalesRepositories.Customers customers, SalesRepositories.Orders orders) {
         this.customers = customers;
@@ -91,6 +93,11 @@ public class CustomerService {
     @Transactional
     public void delete(long id) {
         Customer customer = get(id);
+        if (orders.countByCustomer(id) > 0)
+            throw new BusinessRuleException("Deze klant heeft offertes of facturen en kan niet worden verwijderd");
+        if (partnerPurchases != null && partnerPurchases.isResolvable()
+                && partnerPurchases.get().list().stream().anyMatch(order -> Long.valueOf(id).equals(order.partnerCustomerId())))
+            throw new BusinessRuleException("Deze klant is partner op een inkooporder. Maak eerst de ongebruikte partnerafspraak los; behoud klanten met financiële historie");
         customers.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, customer, "Klant verwijderd");
     }

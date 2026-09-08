@@ -59,6 +59,8 @@ COPY docs/migrations/2026-09-08/purchase-line-extra-share-postgresql.sql ./migra
 COPY docs/migrations/2026-09-08/purchase-order-separate-allocation-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/partner-invoices-and-incoming-payments-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/bank-balance-as-of-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-09/bank-movements-and-refunds-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-09/partner-schedules-and-partial-settlements-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-line-cost-snapshot-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/media-link-company-cost-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/customer-fiscal-representative-postgresql.sql ./migrations/

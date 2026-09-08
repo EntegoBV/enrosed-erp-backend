@@ -15,6 +15,7 @@ public class SalesPaymentEntity {
     @Column(length = 500) public String reference;
     @Column(name = "recorded_at", nullable = false) public Instant recordedAt;
     @Column(length = 255) public String actor;
+    @Column(name = "bank_account", length = 120) public String bankAccount;
     @Column(nullable = false) public boolean legacy;
     @Column(name = "voided_at") public Instant voidedAt;
     @Column(name = "legacy_key", unique = true, length = 80) public String legacyKey;

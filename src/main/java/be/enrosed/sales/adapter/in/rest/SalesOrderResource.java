@@ -57,7 +57,13 @@ public class SalesOrderResource {
                             be.enrosed.sales.domain.QuoteStatus invoiceStatus,
                             /** For an invoice: the number of the quote it was made from. */
                             String sourceQuoteNumber, be.enrosed.sales.domain.SalesPaymentSummary paymentSummary,
-                            be.enrosed.sales.domain.SalesAccounting accounting) {
+                            be.enrosed.sales.domain.SalesAccounting accounting,
+                            be.enrosed.sales.application.PartnerSettlements.Snapshot settlement) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber, paymentSummary, accounting, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber) {
             this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber, null, null);
@@ -114,7 +120,7 @@ public class SalesOrderResource {
         if (incoming == null || partnerFinancing == null) return view;
         return new OrderView(view.order(), view.priced(), view.awaitingResend(), view.invoicedAs(), view.invoicedAsId(),
                 view.invoiceStatus(), view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
-                partnerFinancing.accounting(view.order(), view.priced()));
+                partnerFinancing.accounting(view.order(), view.priced()), partnerFinancing.settlement(view.order()));
     }
 
     @GET @Path("/{id}/payments")

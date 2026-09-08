@@ -136,7 +136,7 @@ class SalesOrderPartnerDealTest {
         wireSourcing(container());
         assertThrows(BusinessRuleException.class, () -> service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
                 7L, 13L, null, null, BigDecimal.ZERO, new BigDecimal("50"),
-                List.of(new SalesOrderService.AuctionLine(9L, 39, BigDecimal.ZERO, null)), null)));
+                List.of(new SalesOrderService.AuctionLine(9L, 39, BigDecimal.ZERO, null)), null, true)));
         var settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
                 7L, 13L, null, null, BigDecimal.ZERO, new BigDecimal("50"),
                 List.of(new SalesOrderService.AuctionLine(9L, 40, BigDecimal.ZERO, null)), null));

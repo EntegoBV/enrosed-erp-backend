@@ -7,6 +7,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.function.Function;
 
@@ -17,6 +19,8 @@ public class PartnerFinancingService {
     @Inject CustomerService customers;
     @Inject IncomingPaymentService incoming;
     @Inject PartnerSettlements settlements;
+    @Inject PartnerAdvanceScheduleService schedules;
+    @Inject PartnerAdvanceSchedules advanceRows;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     public record Document(Long id, String number, SalesPurpose purpose, DocumentType docType, QuoteStatus status,
@@ -30,7 +34,14 @@ public class PartnerFinancingService {
                           BigDecimal creditEur, BigDecimal totalReceivedEur, BigDecimal totalOpenEur,
                           BigDecimal ownExposureEur, BigDecimal recognizedRevenueEur, BigDecimal recognizedCostEur,
                           BigDecimal recognizedProfitEur, List<Document> documents,
-                          List<IncomingPaymentService.IncomingPayment> payments) {}
+                          List<IncomingPaymentService.IncomingPayment> payments,
+                          boolean settlementComplete, int settledQuantity, int remainingQuantity,
+                          BigDecimal unbilledAdvanceEur, int unbilledAdvanceCount,
+                          BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate) {}
+
+    public PartnerSettlements.Snapshot settlement(SalesOrder order) {
+        return order.id() != null && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? settlements.find(order.id()) : null;
+    }
 
     public SalesAccounting accounting(SalesOrder order, PricedOrder priced) {
         if (!issued(order) || order.isPartnerAdvance()) return new SalesAccounting(ZERO, ZERO, ZERO, 0);
@@ -67,7 +78,10 @@ public class PartnerFinancingService {
         }).toList();
         var advances = docs.stream().filter(order -> order.isPartnerAdvance() && issued(order)).toList();
         var finals = docs.stream().filter(order -> order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && order.isInvoice() && live(order)).toList();
-        var finalInvoice = finals.isEmpty() ? null : finals.getFirst();
+        var finalInvoice = finals.stream().filter(order -> {
+            var snapshot = settlements.find(order.id());
+            return snapshot == null || snapshot.finalSettlement();
+        }).findFirst().orElse(null);
         BigDecimal invoiced = sum(advances, order -> sales.price(order).totals().total());
         BigDecimal receivedAdvance = sum(docs.stream().filter(SalesOrder::isPartnerAdvance).toList(), order -> incoming.summary(order, sales.price(order)).receivedEur());
         BigDecimal openAdvance = sum(advances, order -> incoming.summary(order, sales.price(order)).remainingEur());
@@ -75,27 +89,41 @@ public class PartnerFinancingService {
         BigDecimal receivedFinal = sum(docs.stream().filter(order -> order.purpose() == SalesPurpose.PARTNER_SETTLEMENT).toList(), order -> incoming.summary(order, sales.price(order)).receivedEur());
         BigDecimal openFinal = sum(finals.stream().filter(PartnerFinancingService::issued).toList(),
                 order -> incoming.summary(order, sales.price(order)).remainingEur());
-        BigDecimal credit = sum(finals, order -> incoming.summary(order, sales.price(order)).creditEur());
+        BigDecimal credit = sum(docs.stream().filter(PartnerFinancingService::issued).toList(),
+                order -> incoming.summary(order, sales.price(order)).refundableEur());
         BigDecimal totalReceived = receivedAdvance.add(receivedFinal);
         List<IncomingPaymentService.IncomingPayment> payments = docs.stream().flatMap(order -> incoming.forOrder(order.id()).stream()
                 .map(payment -> incoming.enrich(payment, order))).toList();
         BigDecimal revenue = sum(docs, order -> accounting(order, sales.price(order)).recognizedRevenueEur());
         BigDecimal cost = sum(docs, order -> accounting(order, sales.price(order)).recognizedCostEur());
         String name = purchase.partnerCustomerId() == null ? null : customers.get(purchase.partnerCustomerId()).company();
+        var availability = sales.partnerSettlementAvailability(id);
+        int remainingQuantity = availability.lines().stream().mapToInt(PartnerSettlementLedger.Line::remainingQuantity).sum();
+        int settledQuantity = availability.lines().stream().mapToInt(PartnerSettlementLedger.Line::settledQuantity).sum();
+        boolean settlementComplete = !availability.settlements().isEmpty() && remainingQuantity == 0
+                && availability.settlements().stream().noneMatch(document -> document.status() == QuoteStatus.CONCEPT);
+        List<PartnerAdvanceSchedules.Row> pending = finals.isEmpty()
+                ? advanceRows.rows(id).stream().filter(row -> row.invoiceId() == null).toList() : List.of();
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/Brussels"));
+        BigDecimal unbilled = Money.money(pending.stream().map(PartnerAdvanceSchedules.Row::amountEur).reduce(ZERO, BigDecimal::add));
+        BigDecimal overdue = Money.money(pending.stream().filter(row -> row.dueDate() != null && !row.dueDate().isAfter(today))
+                .map(PartnerAdvanceSchedules.Row::amountEur).reduce(ZERO, BigDecimal::add));
+        LocalDate nextDue = pending.stream().map(PartnerAdvanceSchedules.Row::dueDate).filter(java.util.Objects::nonNull)
+                .min(LocalDate::compareTo).orElse(null);
         return new Summary(id, purchase.partnerCustomerId(), name, purchase.partnerCostPctOrDefault(),
                 purchase.partnerSharePctOrDefault(), docs.stream().filter(SalesOrder::isPartnerAdvance).findFirst()
                 .map(SalesOrder::paymentPlan).orElse(SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION),
                 reconciliation.totals().plannedExternalEur(), reconciliation.totals().forecastExternalEur(), reconciliation.totals().finalized(),
-                purchase.partnerCustomerId() == null ? ZERO : reconciliation.totals().forecastExternalEur()
-                        .multiply(purchase.partnerCostPctOrDefault()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP),
+                purchase.partnerCustomerId() == null ? ZERO : schedules.agreedAmount(id),
                 invoiced, receivedAdvance, openAdvance, finalInvoice == null ? null : finalInvoice.id(),
                 finalInvoice == null ? null : finalInvoice.number(), finalAmount, receivedFinal, openFinal,
                 credit, totalReceived, openAdvance.add(openFinal), reconciliation.totals().paidEur().subtract(totalReceived).max(ZERO),
-                revenue, cost, revenue.subtract(cost), documents, payments);
+                revenue, cost, revenue.subtract(cost), documents, payments, settlementComplete, settledQuantity, remainingQuantity,
+                unbilled, pending.size(), overdue, nextDue);
     }
 
     public static boolean issued(SalesOrder order) { return order.isInvoice() && order.status() != QuoteStatus.CONCEPT && live(order); }
-    private static boolean live(SalesOrder order) {
+    public static boolean live(SalesOrder order) {
         return order.status() != QuoteStatus.GEANNULEERD && order.status() != QuoteStatus.AFGEWEZEN && order.status() != QuoteStatus.VERLOPEN;
     }
     private BigDecimal sum(List<SalesOrder> rows, Function<SalesOrder, BigDecimal> amount) {

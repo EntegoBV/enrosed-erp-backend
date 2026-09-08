@@ -61,6 +61,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<PdfImageEncoder> imageEncoder;
     @Inject
     Instance<be.enrosed.sales.application.IncomingPaymentService> incomingPayments;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerSettlements> partnerSettlements;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -101,12 +103,17 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.defaults() : requestedOptions;
         boolean invoice = order.isInvoice();
+        var settlement = order.partnerSettlement() && order.id() != null
+                && partnerSettlements != null && partnerSettlements.isResolvable()
+                ? partnerSettlements.get().find(order.id()) : null;
+        boolean partialSettlement = settlement != null && !settlement.finalSettlement();
         /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
-        String docLabel = order.partnerSettlement() ? text.get("settlementInvoice")
+        String docLabel = order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
                 : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "advanceQuote")
                 : text.get(invoice ? "invoice" : "quote");
         String partnerNote = order.isPartnerDeal()
-                ? partnerNote(text.get(order.partnerSettlement() ? "partnerSettlementNote" : "partnerAdvanceNote"),
+                ? partnerNote(text.get(order.partnerSettlement()
+                        ? partialSettlement ? "partnerPartialSettlementNote" : "partnerSettlementNote" : "partnerAdvanceNote"),
                         partnerContainerNumber(order))
                 : null;
         List<LineView> lines = lineViews(order, priced, language, text, options);
@@ -121,6 +128,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String iban = null;
         String claimAmount = null;
         String receivedAmount = null;
+        String refundedAmount = null;
         boolean productionPlan = order.paymentPlan() == be.enrosed.sales.domain.SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION;
         List<String> paymentSchedule = new ArrayList<>();
         if (productionPlan && priced.totals().totalInclVat().signum() > 0) {
@@ -140,7 +148,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             java.math.BigDecimal overpaid = java.math.BigDecimal.ZERO;
             if (receipts != null) {
                 claim = receipts.remainingEur(); credit = receipts.creditEur(); overpaid = receipts.overpaidEur();
-                if (receipts.receivedEur().signum() > 0) receivedAmount = DocumentFormat.eur(receipts.receivedEur());
+                if (receipts.grossReceivedEur().signum() > 0) receivedAmount = DocumentFormat.eur(receipts.grossReceivedEur());
+                if (receipts.refundedEur().signum() > 0) refundedAmount = DocumentFormat.eur(receipts.refundedEur());
             } else if (order.paidAt() != null) claim = java.math.BigDecimal.ZERO;
             claimAmount = DocumentFormat.eur(claim.max(java.math.BigDecimal.ZERO));
             paymentInstruction = credit.signum() > 0 ? text.get("paymentCredit").formatted(DocumentFormat.eur(credit))
@@ -183,6 +192,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("iban", iban)
                 .data("claimAmount", claimAmount)
                 .data("receivedAmount", receivedAmount)
+                .data("refundedAmount", refundedAmount)
                 .data("paymentSchedule", paymentSchedule)
                 /* Belgian B2B invoicing runs through Peppol; this paper copy
                    must say loudly that it is not the legal document. */

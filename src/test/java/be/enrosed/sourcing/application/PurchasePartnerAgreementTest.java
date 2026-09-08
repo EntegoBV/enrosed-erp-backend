@@ -25,6 +25,8 @@ class PurchasePartnerAgreementTest {
     @Inject SupplierService suppliers;
     @Inject CustomerService customers;
     @Inject SalesOrderService sales;
+    @Inject be.enrosed.sales.application.PartnerAdvanceSchedules schedules;
+    @Inject be.enrosed.sales.application.PartnerFinancingService financing;
     @Inject EntityManager em;
 
     @Test @TestTransaction
@@ -56,6 +58,74 @@ class PurchasePartnerAgreementTest {
         linkedDocument(container, partner.id(), SalesPurpose.PARTNER_SETTLEMENT, QuoteStatus.CONCEPT);
         assertThrows(BusinessRuleException.class, () -> purchases.setPartner(container.id(), new PurchaseOrderService.PartnerRequest(partner.id(), new BigDecimal("50"), new BigDecimal("50"))));
         assertThrows(NotFoundException.class, () -> purchases.setPartner(container.id(), new PurchaseOrderService.PartnerRequest(Long.MAX_VALUE, null, null)));
+    }
+
+    @Test @TestTransaction
+    void anInvoiceDraftAlreadyProtectsTheAmountsPromisedInTheAgreement() {
+        var partner = customer("Scheduled invoice partner");
+        var container = container(partner.id());
+        linkedDocument(container, partner.id(), SalesPurpose.PARTNER_ADVANCE, QuoteStatus.CONCEPT);
+        assertThrows(BusinessRuleException.class, () -> purchases.setPartner(container.id(),
+                new PurchaseOrderService.PartnerRequest(partner.id(), new BigDecimal("50"), new BigDecimal("50"))));
+        assertEquals(new BigDecimal("100.00"), purchases.get(container.id()).partnerCostPct());
+    }
+
+    @Test @TestTransaction
+    void unbilledPlanProtectsPartnerIdentityButCanBeRemovedWithAnUnusedPurchase() {
+        var partner = customer("Unbilled plan partner");
+        var other = customer("Replacement plan partner");
+        var container = container(partner.id());
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Agreement(
+                container.id(), partner.id(), new BigDecimal("100"), new BigDecimal("100"), new BigDecimal("100")));
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Row(null, container.id(), 0,
+                "Start productie", new BigDecimal("30"), new BigDecimal("30"), null, null));
+        assertThrows(BusinessRuleException.class, () -> purchases.setPartner(container.id(),
+                new PurchaseOrderService.PartnerRequest(other.id(), null, null)));
+        purchases.delete(container.id());
+        assertNull(schedules.find(container.id()));
+        assertTrue(schedules.rows(container.id()).isEmpty());
+    }
+
+    @Test @TestTransaction
+    void anEmptyPlanIsClearedWhenThePartnerChanges() {
+        var partner = customer("Empty plan original");
+        var other = customer("Empty plan replacement");
+        var container = container(partner.id());
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Agreement(
+                container.id(), partner.id(), new BigDecimal("100"), new BigDecimal("100"), new BigDecimal("100")));
+        purchases.setPartner(container.id(), new PurchaseOrderService.PartnerRequest(other.id(), null, null));
+        assertNull(schedules.find(container.id()));
+        assertEquals(other.id(), purchases.get(container.id()).partnerCustomerId());
+    }
+
+    @Test @TestTransaction
+    void homepageMilestonesAreUnbilledCommitmentsNotReceivablesOrRevenue() {
+        var partner = customer("Milestone dashboard partner");
+        var container = container(partner.id());
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/Brussels"));
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Agreement(
+                container.id(), partner.id(), new BigDecimal("12000"), new BigDecimal("50"), new BigDecimal("6000")));
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Row(null, container.id(), 0,
+                "Productiestart", new BigDecimal("30"), new BigDecimal("1800"), today.minusDays(1), null));
+        schedules.save(new be.enrosed.sales.application.PartnerAdvanceSchedules.Row(null, container.id(), 1,
+                "Productie klaar", new BigDecimal("70"), new BigDecimal("4200"), today.plusDays(14), null));
+        var summary = financing.get(container.id());
+        assertEquals(new BigDecimal("6000.00"), summary.unbilledAdvanceEur());
+        assertEquals(2, summary.unbilledAdvanceCount());
+        assertEquals(new BigDecimal("1800.00"), summary.overdueUnbilledAdvanceEur());
+        assertEquals(today.minusDays(1), summary.nextAdvanceDueDate());
+        assertEquals(0, summary.totalOpenEur().signum());
+        assertEquals(0, summary.recognizedRevenueEur().signum());
+    }
+
+    @Test @TestTransaction
+    void partnerCustomerCannotDisappearWhileThePurchaseStillRefersToIt() {
+        var partner = customer("Referenced partner");
+        var container = container(partner.id());
+        assertThrows(BusinessRuleException.class, () -> customers.delete(partner.id()));
+        purchases.setPartner(container.id(), null);
+        customers.delete(partner.id());
+        assertThrows(NotFoundException.class, () -> customers.get(partner.id()));
     }
 
     private Customer customer(String name) {

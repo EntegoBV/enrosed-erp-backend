@@ -33,12 +33,18 @@ public class IncomingPaymentService {
     @Inject IncomingPayments payments;
     @Inject Instance<CurrentActor> actor;
     @Inject Instance<ActivityLogService> activity;
+    @Inject Instance<be.enrosed.finance.banking.BankStatementService> banking;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
-    public record Request(BigDecimal amountEur, Instant receivedAt, String timeZone, String reference) {}
+    public enum Direction { RECEIPT, REFUND }
+    public record Request(BigDecimal amountEur, Instant receivedAt, String timeZone, String reference, Direction direction, String bankAccount) {
+        public Request(BigDecimal amountEur, Instant receivedAt, String timeZone, String reference) {
+            this(amountEur, receivedAt, timeZone, reference, null, null);
+        }
+    }
     public record IncomingPayment(Long id, long salesOrderId, BigDecimal amountEur, Instant receivedAt,
                                   String timeZone, String reference, Instant recordedAt, String actor, boolean legacy,
-                                  String orderNumber, Long customerId, Long purchaseOrderId, SalesPurpose purpose) {}
+                                  String orderNumber, Long customerId, Long purchaseOrderId, SalesPurpose purpose, String bankAccount) {}
 
     public List<SalesPayment> forOrder(long id) { sales.get(id); return payments.forOrder(id); }
 
@@ -56,17 +62,19 @@ public class IncomingPaymentService {
         return new IncomingPayment(p.id(), p.salesOrderId(), p.amountEur(), p.receivedAt(), p.timeZone(), p.reference(),
                 p.recordedAt(), p.actor(), p.legacy(), order == null ? null : order.number(),
                 order == null ? null : order.customerId(), order == null ? null : order.linkedPurchaseOrderId(),
-                order == null ? SalesPurpose.STANDARD : order.purpose());
+                order == null ? SalesPurpose.STANDARD : order.purpose(), p.bankAccount());
     }
 
     public SalesPaymentSummary summary(SalesOrder order, PricedOrder priced) {
         List<SalesPayment> rows = order.id() == null ? List.of() : payments.forOrder(order.id());
         BigDecimal total = Money.money(priced.totals().totalInclVat());
         BigDecimal received = Money.money(rows.stream().map(SalesPayment::amountEur).reduce(ZERO, BigDecimal::add));
-        BigDecimal remaining = total.subtract(received).max(ZERO);
-        BigDecimal credit = total.signum() < 0 ? total.negate().add(received) : ZERO;
+        BigDecimal remaining = total.signum() > 0 ? total.subtract(received).max(ZERO) : ZERO;
+        BigDecimal gross = rows.stream().map(SalesPayment::amountEur).filter(a -> a.signum() > 0).reduce(ZERO, BigDecimal::add);
+        BigDecimal refunded = gross.subtract(received);
+        BigDecimal credit = total.signum() < 0 ? total.negate().add(received).max(ZERO) : ZERO;
         BigDecimal excess = total.signum() >= 0 ? received.subtract(total).max(ZERO) : ZERO;
-        SalesPaymentSummary.Status status = total.signum() < 0 ? SalesPaymentSummary.Status.CREDIT
+        SalesPaymentSummary.Status status = total.signum() < 0 ? (credit.signum() > 0 ? SalesPaymentSummary.Status.CREDIT : SalesPaymentSummary.Status.PAID)
                 : excess.signum() > 0 ? SalesPaymentSummary.Status.OVERPAID
                 : received.compareTo(total) >= 0 ? SalesPaymentSummary.Status.PAID
                 : received.signum() > 0 ? SalesPaymentSummary.Status.PARTIAL : SalesPaymentSummary.Status.UNPAID;
@@ -81,7 +89,7 @@ public class IncomingPaymentService {
             }
         }
         return new SalesPaymentSummary(total, received, remaining, excess, credit, status, rows,
-                List.copyOf(instalments), rows.stream().anyMatch(SalesPayment::legacy));
+                List.copyOf(instalments), rows.stream().anyMatch(SalesPayment::legacy), gross, refunded, excess.add(credit));
     }
 
     private void addInstalment(List<SalesPaymentSummary.Instalment> rows, String key, String label,
@@ -93,24 +101,34 @@ public class IncomingPaymentService {
     @Transactional
     public SalesOrder add(long id, Request request) {
         orders.lockById(id);
-        SalesOrder order = requireReceivable(sales.get(id));
+        SalesOrder order = requireActiveInvoice(sales.get(id));
         backfill(order);
         Request clean = validate(request);
-        SalesPayment saved = payments.save(new SalesPayment(null, id, clean.amountEur(), clean.receivedAt(),
-                clean.timeZone(), clean.reference(), Instant.now(), actorName(), false));
-        audit(order, "Inkomende betaling geregistreerd", null, saved);
+        BigDecimal signed = clean.direction() == Direction.REFUND ? clean.amountEur().negate() : clean.amountEur();
+        if (signed.signum() > 0) requireReceivable(order);
+        validateNet(order, null, signed);
+        SalesPayment saved = payments.save(new SalesPayment(null, id, signed, clean.receivedAt(),
+                clean.timeZone(), clean.reference(), Instant.now(), actorName(), false, clean.bankAccount()));
+        audit(order, signed.signum() < 0 ? "Terugbetaling geregistreerd" : "Inkomende betaling geregistreerd", null, saved);
         return reconcile(order);
     }
 
     @Transactional
     public SalesOrder update(long id, long paymentId, Request request) {
         orders.lockById(id);
-        SalesOrder order = requireReceivable(sales.get(id));
+        SalesOrder order = requireActiveInvoice(sales.get(id));
         SalesPayment before = find(id, paymentId);
+        requireBankUnlinked(paymentId);
         Request clean = validate(request);
-        SalesPayment saved = payments.save(new SalesPayment(before.id(), id, clean.amountEur(), clean.receivedAt(),
-                clean.timeZone(), clean.reference(), before.recordedAt(), before.actor(), before.legacy()));
-        audit(order, "Inkomende betaling gecorrigeerd", before, saved);
+        boolean refund = before.amountEur().signum() < 0;
+        if (request.direction() != null && (request.direction() == Direction.REFUND) != refund)
+            throw new BusinessRuleException("Een correctie mag de richting niet veranderen; trek de beweging in en registreer de juiste betaling");
+        BigDecimal signed = refund ? clean.amountEur().negate() : clean.amountEur();
+        validateNet(order, paymentId, signed);
+        SalesPayment saved = payments.save(new SalesPayment(before.id(), id, signed, clean.receivedAt(),
+                clean.timeZone(), clean.reference(), before.recordedAt(), before.actor(), before.legacy(),
+                clean.bankAccount() == null ? before.bankAccount() : clean.bankAccount()));
+        audit(order, refund ? "Terugbetaling gecorrigeerd" : "Inkomende betaling gecorrigeerd", before, saved);
         return reconcile(order);
     }
 
@@ -119,8 +137,10 @@ public class IncomingPaymentService {
         orders.lockById(id);
         SalesOrder order = sales.get(id);
         SalesPayment before = find(id, paymentId);
+        requireBankUnlinked(paymentId);
+        validateNet(order, paymentId, ZERO);
         payments.voidPayment(paymentId);
-        audit(order, "Inkomende betaling ingetrokken", before, null);
+        audit(order, before.amountEur().signum() < 0 ? "Terugbetaling ingetrokken" : "Inkomende betaling ingetrokken", before, null);
         reconcile(order);
     }
 
@@ -156,18 +176,33 @@ public class IncomingPaymentService {
     }
 
     private SalesOrder requireReceivable(SalesOrder order) {
-        if (!order.isInvoice() || order.status() == QuoteStatus.CONCEPT)
-            throw new BusinessRuleException("Reik eerst de factuur uit voordat je een ontvangst registreert; verzending is niet verplicht");
-        if (order.status() == QuoteStatus.GEANNULEERD || order.status() == QuoteStatus.AFGEWEZEN || order.status() == QuoteStatus.VERLOPEN)
-            throw new BusinessRuleException("Deze factuur is niet actief; heropen eerst het document voor een nieuwe ontvangst");
+        requireActiveInvoice(order);
         if (sales.price(order).totals().totalInclVat().signum() <= 0)
             throw new BusinessRuleException("Deze afrekening is een tegoed of nulbedrag; registreer hiervoor geen inkomende betaling");
         return order;
     }
 
+    private SalesOrder requireActiveInvoice(SalesOrder order) {
+        if (!order.isInvoice() || order.status() == QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("Reik eerst de factuur uit voordat je een ontvangst registreert; verzending is niet verplicht");
+        if (order.status() == QuoteStatus.GEANNULEERD || order.status() == QuoteStatus.AFGEWEZEN || order.status() == QuoteStatus.VERLOPEN)
+            throw new BusinessRuleException("Deze factuur is niet actief; heropen eerst het document voor een nieuwe ontvangst");
+        return order;
+    }
+
+    private void validateNet(SalesOrder order, Long replacingId, BigDecimal replacement) {
+        BigDecimal total = Money.money(sales.price(order).totals().totalInclVat());
+        var retained = payments.forOrder(order.id()).stream().filter(p -> !Objects.equals(p.id(), replacingId)).toList();
+        BigDecimal net = retained.stream().map(SalesPayment::amountEur).reduce(replacement, BigDecimal::add);
+        boolean hasRefund = replacement.signum() < 0 || retained.stream().anyMatch(p -> p.amountEur().signum() < 0);
+        if (net.compareTo(total.min(ZERO)) < 0 || hasRefund && total.signum() >= 0 && net.compareTo(total) < 0)
+            throw new BusinessRuleException("De terugbetaling overschrijdt het tegoed. Corrigeer eerst de gekoppelde terugbetaling voordat je de ontvangst vermindert of intrekt");
+    }
+
     private Request validate(Request request) {
         if (request == null || request.amountEur() == null || Money.money(request.amountEur()).signum() <= 0)
             throw new BusinessRuleException("Geef een ontvangen bedrag groter dan nul op");
+        if (Money.money(request.amountEur()).precision() > 19) throw new BusinessRuleException("Het bedrag is te groot");
         if (request.receivedAt() == null) throw new BusinessRuleException("Vul de ontvangstdatum en het tijdstip in");
         if (request.receivedAt().isAfter(Instant.now().plusSeconds(300))) throw new BusinessRuleException("Een ontvangst kan niet in de toekomst liggen");
         String zone = request.timeZone() == null || request.timeZone().isBlank() ? "Europe/Brussels" : request.timeZone().strip();
@@ -175,26 +210,45 @@ public class IncomingPaymentService {
         try { ZoneId.of(zone); } catch (Exception invalid) { throw new BusinessRuleException("Kies een geldige tijdzone"); }
         String reference = request.reference() == null || request.reference().isBlank() ? null : request.reference().strip();
         if (reference != null && reference.length() > 500) throw new BusinessRuleException("De referentie is maximaal 500 tekens");
-        return new Request(Money.money(request.amountEur()), request.receivedAt(), zone, reference);
+        String account = normalizeAccount(request.bankAccount());
+        return new Request(Money.money(request.amountEur()), request.receivedAt(), zone, reference, request.direction(), account);
+    }
+
+    public static String normalizeAccount(String value) {
+        if (value == null || value.isBlank()) return null;
+        String account = value.strip().replaceAll("\\s+", " ").toUpperCase(java.util.Locale.ROOT);
+        if (account.matches("[A-Z]{2}[0-9]{2}[A-Z0-9 ]{11,34}")) account = account.replace(" ", "");
+        if (account.length() > 120) throw new BusinessRuleException("De bankrekening is maximaal 120 tekens");
+        return account;
+    }
+
+    private void requireBankUnlinked(long id) {
+        if (banking != null && banking.isResolvable() && banking.get().paymentLinked(id))
+            throw new BusinessRuleException("Deze betaling is gekoppeld aan een bankbeweging; maak eerst de bankkoppeling ongedaan voordat je corrigeert");
     }
 
     private SalesOrder reconcile(SalesOrder order) {
         SalesPaymentSummary summary = summary(order, sales.price(order));
-        boolean paid = summary.invoiceTotalEur().signum() > 0 && summary.remainingEur().signum() == 0;
+        boolean paid = summary.invoiceTotalEur().signum() != 0 && summary.remainingEur().signum() == 0 && summary.creditEur().signum() == 0;
         Instant paidAt = paid ? fullyPaidAt(summary) : null;
-        return orders.save(order.withPaymentState(paid ? QuoteStatus.BETAALD
+        boolean inactive = order.status() == QuoteStatus.GEANNULEERD || order.status() == QuoteStatus.AFGEWEZEN || order.status() == QuoteStatus.VERLOPEN;
+        return orders.save(order.withPaymentState(inactive ? order.status() : paid ? QuoteStatus.BETAALD
                 : order.status() == QuoteStatus.BETAALD ? (order.sentAt() == null ? QuoteStatus.UITGEREIKT : QuoteStatus.VERZONDEN) : order.status(), paidAt));
     }
 
     /** Later overpayments must not move the moment the invoice first became fully paid. */
     private Instant fullyPaidAt(SalesPaymentSummary summary) {
         BigDecimal cumulative = ZERO;
+        Instant completed = null;
         for (SalesPayment payment : summary.payments().stream()
                 .sorted(Comparator.comparing(SalesPayment::receivedAt).thenComparing(SalesPayment::id)).toList()) {
             cumulative = cumulative.add(payment.amountEur());
-            if (cumulative.compareTo(summary.invoiceTotalEur()) >= 0) return payment.receivedAt();
+            boolean covered = summary.invoiceTotalEur().signum() < 0
+                    ? cumulative.compareTo(summary.invoiceTotalEur()) <= 0 : cumulative.compareTo(summary.invoiceTotalEur()) >= 0;
+            if (!covered) completed = null;
+            else if (completed == null) completed = payment.receivedAt();
         }
-        return null;
+        return completed;
     }
 
     private String actorName() { return actor != null && actor.isResolvable() ? actor.get().current().displayName() : "Systeem"; }

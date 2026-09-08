@@ -430,6 +430,7 @@
       </tr>
     </table>
     {#if receivedAmount}<p class="panel-sentence">{t.paymentReceived}: {receivedAmount}</p>{/if}
+    {#if refundedAmount}<p class="panel-sentence">{t.paymentRefunded}: {refundedAmount}</p>{/if}
     <p class="panel-sentence">{paymentInstruction}</p>
     {#for instalment in paymentSchedule}<p class="panel-sentence">{instalment}</p>{/for}
   </div>
