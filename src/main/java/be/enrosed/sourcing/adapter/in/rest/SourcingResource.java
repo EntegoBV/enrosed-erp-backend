@@ -163,6 +163,14 @@ public class SourcingResource {
         return view(result.order(), purchaseOrders.calculate(result.order()), result.adjustments());
     }
 
+    /** A partner comes in, the deal changes, or the partner leaves; the container carries the settings itself. */
+    @PUT
+    @Path("/purchase-orders/{id}/partner")
+    public PurchaseOrderView setPartner(@PathParam("id") long id, PurchaseOrderService.PartnerRequest request) {
+        PurchaseOrder saved = purchaseOrders.setPartner(id, request);
+        return view(saved, purchaseOrders.calculate(saved), List.of());
+    }
+
     /**
      * The calculation for an order as it stands on screen, without saving:
      * the editor keeps a draft and only writes on Opslaan, but the figures

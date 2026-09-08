@@ -21,6 +21,7 @@ import org.jboss.logging.Logger;
 import be.enrosed.catalog.domain.Carton;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -325,7 +326,9 @@ public class PurchaseOrderService {
                 current.createdBy(), current.createdAt(),
                 withLateDamageNotes(changes.notes(), lateDamage), lines)
                 .withInspectionCost(changes.inspectionCostEur())
-                .withOtherCosts(keptOtherCosts(changes.otherCosts())));
+                .withOtherCosts(keptOtherCosts(changes.otherCosts()))
+                /* Who co-orders the container is decided in the partner flow, not by a form save. */
+                .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -1596,6 +1599,58 @@ public class PurchaseOrderService {
     }
 
     /** Audit joins the business transaction: no order change may outlive a failed audit write. */
+    /** What the container gets when a partner comes in or leaves: whom, and the two percentages. */
+    public record PartnerRequest(Long customerId, BigDecimal costPct, BigDecimal sharePct) {}
+
+    /**
+     * Makes the container a partner container, changes the deal, or ends it.
+     * Ending it is refused while sales documents still hang on the container:
+     * unlink those first, so nothing is left pointing at a deal that is gone.
+     */
+    @Transactional
+    public PurchaseOrder setPartner(long id, PartnerRequest request) {
+        PurchaseOrder current = get(id);
+        Long customerId = request == null ? null : request.customerId();
+        BigDecimal costPct = null;
+        BigDecimal sharePct = null;
+        if (customerId != null) {
+            costPct = percentage(request.costPct() == null ? current.partnerCostPctOrDefault() : request.costPct(),
+                    "Het deel van de kost dat de partner vooraf betaalt");
+            sharePct = percentage(request.sharePct() == null ? current.partnerSharePctOrDefault() : request.sharePct(),
+                    "Ons deel van de winst");
+        }
+        PurchaseOrder saved = orders.save(current.withPartner(customerId, costPct, sharePct));
+        if (!saved.equals(current)) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, customerId == null
+                    ? "Geen partnercontainer meer: we betalen de container volledig zelf"
+                    : "Partnercontainer: de partner betaalt " + plain(costPct) + " % van de kost vooraf, "
+                            + plain(sharePct) + " % van de winst is voor ons");
+        }
+        return saved;
+    }
+
+    /**
+     * A sales document that is linked as the partner's makes the container a
+     * partner container when it was none yet; an existing deal is kept.
+     */
+    @Transactional
+    public PurchaseOrder adoptPartner(long id, Long customerId, BigDecimal costPct, BigDecimal sharePct) {
+        PurchaseOrder current = get(id);
+        if (current.isPartnerContainer() || customerId == null) return current;
+        return setPartner(id, new PartnerRequest(customerId, costPct, sharePct));
+    }
+
+    private static BigDecimal percentage(BigDecimal value, String what) {
+        if (value.signum() < 0 || value.compareTo(new BigDecimal("100")) > 0) {
+            throw new BusinessRuleException(what + " ligt tussen 0 en 100 procent");
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
+    }
+
     private void recordActivity(String action, PurchaseOrder order, String summary) {
         if (activity == null || !activity.isResolvable()) return;
         activity.get().record(action, ActivityLogService.ENTITY_PURCHASE_ORDER,
@@ -1626,6 +1681,9 @@ public class PurchaseOrderService {
                 .add("defaultDutyRatePct", "Invoerrecht",
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
+                .add("partnerCustomerId", "Partner", before.partnerCustomerId(), after.partnerCustomerId())
+                .add("partnerCostPct", "Partner betaalt vooraf (%)", before.partnerCostPct(), after.partnerCostPct())
+                .add("partnerSharePct", "Ons deel van de winst (%)", before.partnerSharePct(), after.partnerSharePct())
                 .add("inspectionCostEur", "Inspectiekost", before.inspectionCostEur(), after.inspectionCostEur())
                 .add("otherCosts", "Andere kosten",
                         otherCostsSummary(before.otherCosts()), otherCostsSummary(after.otherCosts()))

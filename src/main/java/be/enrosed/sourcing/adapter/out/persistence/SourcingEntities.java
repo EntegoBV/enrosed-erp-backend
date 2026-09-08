@@ -82,6 +82,10 @@ public final class SourcingEntities {
         @Column(name = "other_costs_json", length = 2000) public String otherCostsJson;
         /** Put away in the archive; null while on the working list. */
         @Column(name = "archived_at") public Instant archivedAt;
+        /** The partner who co-orders the container; null when we pay it ourselves. */
+        @Column(name = "partner_customer_id") public Long partnerCustomerId;
+        @Column(name = "partner_cost_pct", precision = 5, scale = 2) public BigDecimal partnerCostPct;
+        @Column(name = "partner_share_pct", precision = 5, scale = 2) public BigDecimal partnerSharePct;
 
         @Enumerated(EnumType.STRING) public Allocation allocFreight = Allocation.CBM;
         @Enumerated(EnumType.STRING) public Allocation allocOrigin = Allocation.CBM;

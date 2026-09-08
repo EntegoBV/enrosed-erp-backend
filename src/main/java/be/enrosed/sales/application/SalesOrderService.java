@@ -257,23 +257,29 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder createFromPurchaseOrder(FromPurchaseOrderRequest request) {
         if (request == null || request.purchaseOrderId() == null) throw new BusinessRuleException("Kies een inkooporder");
-        if (request.customerId() == null) throw new BusinessRuleException("Kies de klant voor de offerte");
         if (purchaseOrders == null || !purchaseOrders.isResolvable()) {
             throw new BusinessRuleException("Inkoop is niet beschikbaar; probeer straks opnieuw");
         }
         be.enrosed.sourcing.application.PurchaseOrderService sourcing = purchaseOrders.get();
         PurchaseOrder container = sourcing.get(request.purchaseOrderId());
         if (container.lines().isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft nog geen productregels");
-        Customer customer = customers.get(request.customerId());
+        /* Without a customer the quote goes to the container's own partner: no searching. */
+        Long customerId = request.customerId() != null ? request.customerId() : container.partnerCustomerId();
+        if (customerId == null) throw new BusinessRuleException("Kies de klant voor de offerte");
+        Customer customer = customers.get(customerId);
         boolean atCost = "COST".equalsIgnoreCase(request.pricing());
         BigDecimal markup = request.markupPct() == null ? BigDecimal.ZERO : request.markupPct();
         if (markup.signum() < 0) throw new BusinessRuleException("De opslag op de kostprijs kan niet negatief zijn");
-        boolean partner = atCost && request.partner();
+        boolean containersPartner = customerId.equals(container.partnerCustomerId());
+        boolean partner = atCost && (request.partner() || containersPartner);
+        /* The container's own deal comes first, then the customer's standing agreement. */
         BigDecimal share = partner
-                ? percentage(request.sharePct() != null ? request.sharePct() : customer.partnerSharePctOrDefault(), "Ons deel van de winst")
+                ? percentage(request.sharePct() != null ? request.sharePct()
+                        : containersPartner ? container.partnerSharePctOrDefault() : customer.partnerSharePctOrDefault(), "Ons deel van de winst")
                 : null;
         BigDecimal costPct = partner
-                ? percentage(request.costPct() != null ? request.costPct() : customer.partnerCostPctOrDefault(),
+                ? percentage(request.costPct() != null ? request.costPct()
+                        : containersPartner ? container.partnerCostPctOrDefault() : customer.partnerCostPctOrDefault(),
                         "Het deel van de kost dat de partner vooraf betaalt")
                 : HUNDRED;
         BigDecimal factor = BigDecimal.ONE.add(markup.divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP))
@@ -354,7 +360,8 @@ public class SalesOrderService {
                 java.time.Instant.now(), creator.displayName(), false,
                 "Offerte opgemaakt vanuit inkooporder " + container.number() + how, null));
         recordActivity(created, "Offerte aangemaakt vanuit inkooporder " + container.number() + how);
-        recordPurchaseActivity(container.id(), container.number(),
+if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share);
+                recordPurchaseActivity(container.id(), container.number(),
                 "Verkoopofferte " + created.number() + " gemaakt voor " + customer.company() + how);
         fireCreationPush(SalesCreationPushNotifier.Ready.quoteCreated(created.id(), created.number(), creator));
         return created;
@@ -374,6 +381,28 @@ public class SalesOrderService {
     }
 
     /** The container's own diary line: what the partner side did with it. */
+    /**
+     * A container that gets its first partner document becomes a partner
+     * container with that customer's deal; one that already has a partner keeps it.
+     */
+    private void adoptPartnerContainer(Long purchaseOrderId, Long customerId, BigDecimal costPct, BigDecimal sharePct) {
+        if (purchaseOrderId == null || customerId == null || purchaseOrders == null || !purchaseOrders.isResolvable()) return;
+        try {
+            purchaseOrders.get().adoptPartner(purchaseOrderId, customerId, costPct, sharePct);
+        } catch (NotFoundException gone) {
+            /* A container that no longer exists cannot take a partner; the sales document keeps its own link. */
+        }
+    }
+
+    /** The part of the cost this customer pays up front by standing agreement; the whole cost when unknown. */
+    private BigDecimal partnerCostPctOf(Long customerId) {
+        try {
+            return customers.get(customerId).partnerCostPctOrDefault();
+        } catch (NotFoundException gone) {
+            return HUNDRED;
+        }
+    }
+
     private void recordPurchaseActivity(Long purchaseOrderId, String number, String summary) {
         if (activity == null || !activity.isResolvable() || purchaseOrderId == null) return;
         activity.get().record(ActivityLogService.ACTION_UPDATED, "PURCHASE_ORDER",
@@ -479,6 +508,7 @@ public class SalesOrderService {
                 .asPartnerSettlement();
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
+        adoptPartnerContainer(purchaseOrderId, partner.id(), HUNDRED.subtract(costShare), profitShare);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
                 "Veilingafrekening opgemaakt voor " + reference, null));
@@ -526,6 +556,7 @@ public class SalesOrderService {
             }
         }
         SalesOrder saved = orders.save(order.withPartnerDeal(purchaseOrderId, share));
+        if (purchaseOrderId != null) adoptPartnerContainer(purchaseOrderId, order.customerId(), partnerCostPctOf(order.customerId()), share);
         String reference = request != null && !isBlank(request.reference())
                 ? request.reference().strip() : "inkooporder " + purchaseOrderId;
         String summary = purchaseOrderId == null

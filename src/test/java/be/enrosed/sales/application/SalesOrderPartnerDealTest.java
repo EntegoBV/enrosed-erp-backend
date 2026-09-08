@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -157,36 +158,8 @@ class SalesOrderPartnerDealTest {
     @Test
     @SuppressWarnings("unchecked")
     void aContainerBecomesAPartnerQuoteInOneGo() {
-        be.enrosed.sourcing.application.PurchaseOrderService sourcing = mock(be.enrosed.sourcing.application.PurchaseOrderService.class);
-        be.enrosed.sourcing.domain.PurchaseOrder container = new be.enrosed.sourcing.domain.PurchaseOrder(
-                13L, "PO-2026-008", null, 1L,
-                LocalDate.of(2026, 8, 19), be.enrosed.sourcing.domain.PurchaseOrderStatus.CONCEPT,
-                be.enrosed.sourcing.domain.ContainerType.FORTY_HQ,
-                new BigDecimal("0.1400"), new BigDecimal("0.8900"), new BigDecimal("0.8900"),
-                new BigDecimal("3800.00"), new BigDecimal("450.00"), be.enrosed.shared.Currency.USD,
-                new BigDecimal("1250.00"), new BigDecimal("5.0"), new BigDecimal("2500.00"),
-                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
-                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
-                "Ningbo", "Rotterdam", null, true,
-                null, null, null, null,
-                be.enrosed.sourcing.domain.PaymentTerms.DEPOSIT_30_40_30, null, null, "",
-                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(1L, 9L, 40, new BigDecimal("19.20"), null, null, null)))
-                .withInspectionCost(new BigDecimal("150"))
-                .withOtherCosts(List.of(new be.enrosed.sourcing.domain.OtherCost("Fumigatie", new BigDecimal("80"))));
-        be.enrosed.sourcing.domain.LandedCost.Line costLine = new be.enrosed.sourcing.domain.LandedCost.Line(
-                9L, "Rood", 40, 10, new BigDecimal("1.36"),
-                new BigDecimal("768.00"), new BigDecimal("683.52"),
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, new BigDecimal("771.45"),
-                new BigDecimal("19.2863"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
-        be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
-        when(sourcing.get(13L)).thenReturn(container);
-        when(sourcing.calculate(container)).thenReturn(costing);
-        Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
-        when(sourcingInstance.isResolvable()).thenReturn(true);
-        when(sourcingInstance.get()).thenReturn(sourcing);
-        service.purchaseOrders = sourcingInstance;
+        be.enrosed.sourcing.domain.PurchaseOrder container = container();
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = wireSourcing(container);
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 70L));
 
         SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
@@ -367,5 +340,75 @@ class SalesOrderPartnerDealTest {
                 null, "BE0000000000", "BE", Language.NL,
                 "Veilingstraat 1", "2000", "Antwerpen", "DAP", null, null,
                 LocalDate.now());
+    }
+
+    /** PO-2026-008: forty red at 19,20 USD, with an inspection and a fumigation booked on it. */
+    private static be.enrosed.sourcing.domain.PurchaseOrder container() {
+        return new be.enrosed.sourcing.domain.PurchaseOrder(
+                13L, "PO-2026-008", null, 1L,
+                LocalDate.of(2026, 8, 19), be.enrosed.sourcing.domain.PurchaseOrderStatus.CONCEPT,
+                be.enrosed.sourcing.domain.ContainerType.FORTY_HQ,
+                new BigDecimal("0.1400"), new BigDecimal("0.8900"), new BigDecimal("0.8900"),
+                new BigDecimal("3800.00"), new BigDecimal("450.00"), be.enrosed.shared.Currency.USD,
+                new BigDecimal("1250.00"), new BigDecimal("5.0"), new BigDecimal("2500.00"),
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
+                "Ningbo", "Rotterdam", null, true,
+                null, null, null, null,
+                be.enrosed.sourcing.domain.PaymentTerms.DEPOSIT_30_40_30, null, null, "",
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(1L, 9L, 40, new BigDecimal("19.20"), null, null, null)))
+                .withInspectionCost(new BigDecimal("150"))
+                .withOtherCosts(List.of(new be.enrosed.sourcing.domain.OtherCost("Fumigatie", new BigDecimal("80"))));
+    }
+
+    /** Purchasing as the sales service sees it: the container and its calculation, 19,2863 landed per piece. */
+    @SuppressWarnings("unchecked")
+    private be.enrosed.sourcing.application.PurchaseOrderService wireSourcing(be.enrosed.sourcing.domain.PurchaseOrder container) {
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = mock(be.enrosed.sourcing.application.PurchaseOrderService.class);
+        be.enrosed.sourcing.domain.LandedCost.Line costLine = new be.enrosed.sourcing.domain.LandedCost.Line(
+                9L, "Rood", 40, 10, new BigDecimal("1.36"),
+                new BigDecimal("768.00"), new BigDecimal("683.52"),
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, new BigDecimal("771.45"),
+                new BigDecimal("19.2863"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
+        be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
+        when(sourcing.get(13L)).thenReturn(container);
+        when(sourcing.calculate(container)).thenReturn(costing);
+        Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
+        when(sourcingInstance.isResolvable()).thenReturn(true);
+        when(sourcingInstance.get()).thenReturn(sourcing);
+        service.purchaseOrders = sourcingInstance;
+        return sourcing;
+    }
+
+    @Test
+    void theContainersOwnPartnerFeedsTheQuoteAndAFirstDocumentGivesTheContainerItsPartner() {
+        /* PO-2026-008 already knows its partner: half the cost up front, forty percent of the profit for us. */
+        be.enrosed.sourcing.domain.PurchaseOrder partnered = container().withPartner(7L, new BigDecimal("50"), new BigDecimal("40"));
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = wireSourcing(partnered);
+        when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 71L));
+
+        SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, null, "COST", null, false, null, null, false, List.of(), null));
+
+        assertEquals(7L, quote.customerId(), "no customer chosen: the container's partner");
+        assertTrue(quote.isPartnerDeal());
+        assertEquals(new BigDecimal("40"), quote.partnerSharePct());
+        assertEquals(new BigDecimal("9.6432"), quote.lines().get(0).unitPriceEur(), "half of 19,2863");
+        verify(sourcing).adoptPartner(eq(13L), eq(7L), any(), any());
+
+        /* A container without a partner gets one from the first document made for a partner customer. */
+        be.enrosed.sourcing.application.PurchaseOrderService plainSourcing = wireSourcing(container());
+        service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", null, true, new BigDecimal("50"), new BigDecimal("100"), false, List.of(), null));
+        verify(plainSourcing).adoptPartner(eq(13L), eq(7L), any(), eq(new BigDecimal("50")));
+
+        /* Linking an existing quote does the same. */
+        SalesOrder loose = partnerInvoice(80L).withPartnerDeal(null, null);
+        when(orders.findById(80L)).thenReturn(Optional.of(loose));
+        be.enrosed.sourcing.application.PurchaseOrderService linkSourcing = wireSourcing(container());
+        service.setPartnerDeal(80L, new SalesOrderService.PartnerDealRequest(13L, new BigDecimal("50"), "PO-2026-008"));
+        verify(linkSourcing).adoptPartner(eq(13L), eq(7L), any(), eq(new BigDecimal("50")));
     }
 }

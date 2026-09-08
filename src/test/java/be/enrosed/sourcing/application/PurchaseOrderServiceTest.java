@@ -571,6 +571,31 @@ class PurchaseOrderServiceTest {
                 "a duplicate is a fresh draft, never another copy of historical receipt loss");
     }
 
+    @Test
+    void aContainerTakesAPartnerKeepsHimThroughEveryRebuildAndCanLetHimGo() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        PurchaseOrder partnered = service.setPartner(10L, new PurchaseOrderService.PartnerRequest(7L, new BigDecimal("50"), null));
+        assertTrue(partnered.isPartnerContainer());
+        assertEquals(7L, partnered.partnerCustomerId());
+        assertEquals(new BigDecimal("50.00"), partnered.partnerCostPct());
+        assertEquals(new BigDecimal("50.00"), partnered.partnerSharePct(), "our share of the profit defaults to half");
+        assertEquals(7L, partnered.withArchivedAt(java.time.Instant.now()).withInspectionCost(BigDecimal.TEN)
+                .withOtherCosts(List.of()).partnerCustomerId(), "every rebuild of the record carries the partner");
+
+        assertEquals(7L, service.adoptPartner(10L, 8L, null, null).partnerCustomerId(), "a second document does not replace the partner");
+        assertThrows(BusinessRuleException.class, () -> service.setPartner(10L,
+                new PurchaseOrderService.PartnerRequest(7L, new BigDecimal("120"), null)));
+
+        PurchaseOrder alone = service.setPartner(10L, new PurchaseOrderService.PartnerRequest(null, null, null));
+        assertEquals(null, alone.partnerCustomerId());
+        assertEquals(null, alone.partnerCostPct());
+        assertEquals(null, alone.partnerSharePct());
+        assertEquals(8L, service.adoptPartner(10L, 8L, new BigDecimal("100"), new BigDecimal("40")).partnerCustomerId(),
+                "a container without a partner adopts the one on its first linked document");
+    }
+
     private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
         return new PurchaseOrderService(orders, new FixedSuppliers(true), products, null);
     }

@@ -127,11 +127,69 @@ public record PurchaseOrder(
          * the working list. Server-owned: only the archive and unarchive
          * flows change it, a plain save never does.
          */
-        Instant archivedAt
+        Instant archivedAt,
+
+        /**
+         * The partner who co-orders this container and sells the goods at the
+         * auction; null means we pay the container ourselves. Server-owned like
+         * the archive: set through the partner flow, never by a plain save.
+         */
+        Long partnerCustomerId,
+        /** The part of the landed cost the partner pays up front, in percent; the rest is settled after the auction. */
+        BigDecimal partnerCostPct,
+        /** Our share of the auction profit, in percent. */
+        BigDecimal partnerSharePct
 ) {
     public PurchaseOrder {
         otherCosts = otherCosts == null ? List.of()
                 : otherCosts.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before the partner settings existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            LocalDate expectedArrival, LocalDate receivedOn, BigDecimal paidTotalEur, Boolean stockBooked,
+            PaymentTerms paymentTerms, LocalDate shippedOn, String trackingReference,
+            ActorRef createdBy, Instant createdAt, String notes, List<PurchaseOrderLine> lines,
+            BigDecimal inspectionCostEur, List<OtherCost> otherCosts, Instant archivedAt) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, null, null, null);
+    }
+
+    /** The same container with its partner set; a null customer means we pay it ourselves again. */
+    public PurchaseOrder withPartner(Long customerId, BigDecimal costPct, BigDecimal sharePct) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
+                customerId, customerId == null ? null : costPct, customerId == null ? null : sharePct);
+    }
+
+    /** True when a partner co-orders this container. */
+    public boolean isPartnerContainer() {
+        return partnerCustomerId != null;
+    }
+
+    /** The part of the landed cost the partner pays up front; 100 when unset. */
+    public BigDecimal partnerCostPctOrDefault() {
+        return partnerCostPct == null ? new BigDecimal("100") : partnerCostPct;
+    }
+
+    /** Our share of the auction profit; 50 when unset. */
+    public BigDecimal partnerSharePctOrDefault() {
+        return partnerSharePct == null ? new BigDecimal("50") : partnerSharePct;
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -162,7 +220,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, value);
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, value, partnerCustomerId, partnerCostPct, partnerSharePct);
     }
 
     public boolean isArchived() {
@@ -217,7 +275,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, value, otherCosts, archivedAt);
+                createdBy, createdAt, notes, lines, value, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct);
     }
 
     /** The same order with the other costs replaced; null or empty clears them. */
@@ -227,7 +285,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, value, archivedAt);
+                createdBy, createdAt, notes, lines, inspectionCostEur, value, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct);
     }
 
     /** True when an inspection or another named cost is booked apart from the piece price. */
@@ -285,7 +343,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                actor, at, notes, lines, inspectionCostEur, otherCosts, archivedAt);
+                actor, at, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct);
     }
 
     /** Compatibility for callers written before receipts had their own fields. */
@@ -318,7 +376,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
                 receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt);
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct);
     }
 
     /** Compatibility for callers written before variant grouping existed. */
