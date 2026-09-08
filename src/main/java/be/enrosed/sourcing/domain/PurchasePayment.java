@@ -27,8 +27,19 @@ public record PurchasePayment(
         String actor,
         Instant recordedAt,
         /** Who got the money: the factory, or the forwarder and customs. Null reads as supplier. */
-        Payee payee
+        Payee payee,
+        /**
+         * The payment that settles its stream: after it nothing is open any more,
+         * even when the amount is not what was agreed. The difference is what
+         * we paid too much or too little.
+         */
+        boolean settles
 ) {
+    /** Compatibility for callers written before a payment could settle a stream. */
+    public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                           BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee) {
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, false);
+    }
     /** Money goes two ways: to the supplier for the goods, and to the forwarder and customs for the road. */
     public enum Payee {
         SUPPLIER, LOGISTICS;
@@ -41,7 +52,7 @@ public record PurchasePayment(
     /** Compatibility for callers written before the payee existed. */
     public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                            BigDecimal amountEur, String label, String actor, Instant recordedAt) {
-        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, null);
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, null, false);
     }
 
     public Payee payee() {

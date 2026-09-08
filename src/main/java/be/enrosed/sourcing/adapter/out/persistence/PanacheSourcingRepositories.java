@@ -124,6 +124,7 @@ public final class PanacheSourcingRepositories {
             entity.actor = payment.actor();
             entity.recordedAt = payment.recordedAt();
             entity.payee = payment.payee();
+            entity.settles = payment.settles();
             if (entity.id == null) dao.persist(entity);
             dao.flush();
             return toDomain(entity);
@@ -141,7 +142,7 @@ public final class PanacheSourcingRepositories {
 
         private static be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e) {
             return new be.enrosed.sourcing.domain.PurchasePayment(e.id, e.orderId, e.paidOn, e.amount, e.currency,
-                    e.amountEur, e.label, e.actor, e.recordedAt, e.payee);
+                    e.amountEur, e.label, e.actor, e.recordedAt, e.payee, Boolean.TRUE.equals(e.settles));
         }
     }
 

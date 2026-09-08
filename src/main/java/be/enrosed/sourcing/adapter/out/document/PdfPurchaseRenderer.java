@@ -1244,7 +1244,10 @@ public class PdfPurchaseRenderer {
         if (payable == null) return null;
         BigDecimal paidSupplier = paidTo(payments, PurchasePayment.Payee.SUPPLIER);
         BigDecimal paidLogistics = paidTo(payments, PurchasePayment.Payee.LOGISTICS);
-        BigDecimal open = payable.supplierEur() == null
+        boolean settled = payments != null && payments.stream()
+                .anyMatch(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER && payment.settles());
+        /* A settling payment closes the stream, whatever the amount: nothing stays open. */
+        BigDecimal open = payable.supplierEur() == null || settled
                 ? BigDecimal.ZERO : payable.supplierEur().subtract(paidSupplier);
         return new PayableView(
                 DocumentFormat.eur(payable.supplierEur()),

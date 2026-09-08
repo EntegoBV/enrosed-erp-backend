@@ -384,7 +384,9 @@ public class SourcingResource {
     /* ---- payments ---- */
 
     public record PaymentRequest(java.time.LocalDate paidOn, java.math.BigDecimal amount,
-                                 be.enrosed.shared.Currency currency, String label, PurchasePayment.Payee payee) {}
+                                 be.enrosed.shared.Currency currency, String label, PurchasePayment.Payee payee,
+                                 /** True when this payment settles its stream, whatever the amount. */
+                                 Boolean settles) {}
 
     @GET
     @Path("/purchase-orders/{id}/payments")
@@ -397,7 +399,7 @@ public class SourcingResource {
     public Response addPayment(@PathParam("id") long id, PaymentRequest request) {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
-                request.currency(), request.label(), request.payee());
+                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()));
         return Response.status(Response.Status.CREATED).entity(saved).build();
     }
 
@@ -407,7 +409,7 @@ public class SourcingResource {
                                          PaymentRequest request) {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
-                request.currency(), request.label(), request.payee());
+                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()));
     }
 
     @DELETE

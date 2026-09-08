@@ -535,9 +535,14 @@ public class PurchaseOrderService {
      * Records money that left, and writes a line about it into the order's
      * notes - the notes are the container's diary, and a payment belongs in it.
      */
-    @Transactional
     public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                                       String label, PurchasePayment.Payee payee) {
+        return addPayment(orderId, paidOn, amount, currency, label, payee, false);
+    }
+
+    @Transactional
+    public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                                      String label, PurchasePayment.Payee payee, boolean settles) {
         PurchaseOrder order = get(orderId);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? Currency.EUR : currency;
@@ -552,7 +557,7 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
-                currentActor().displayName(), java.time.Instant.now(), to));
+                currentActor().displayName(), java.time.Instant.now(), to, settles));
 
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
@@ -563,6 +568,7 @@ public class PurchaseOrderService {
                         .add("payment.currency", "Valuta", null, payment.currency())
                         .add("payment.date", "Betaald op", null, payment.paidOn())
                         .add("payment.payee", "Begunstigde", null, payment.payee().dutchLabel())
+                        .add("payment.settles", "Slotbetaling", null, payment.settles() ? "ja" : null)
                         .privateValue("payment.label", "Omschrijving", null, payment.label())
                         .build());
         return payment;
@@ -589,7 +595,8 @@ public class PurchaseOrderService {
         return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
                 + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
                 + " aan " + (payment.payee() == PurchasePayment.Payee.SUPPLIER ? "de leverancier" : "douane & transport")
-                + (payment.label() != null ? " · " + payment.label() : "") + ".";
+                + (payment.label() != null ? " · " + payment.label() : "")
+                + (payment.settles() ? " · slotbetaling, hiermee vereffend" : "") + ".";
     }
 
     private static String describeMoney(BigDecimal amount, Currency currency) {
@@ -766,7 +773,7 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
-                                         Currency currency, String label, PurchasePayment.Payee payee) {
+                                         Currency currency, String label, PurchasePayment.Payee payee, boolean settles) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchasePayment before = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
@@ -782,7 +789,7 @@ public class PurchaseOrderService {
                 paidOn != null ? paidOn : before.paidOn(),
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
                 label == null || label.isBlank() ? null : label.strip(),
-                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee));
+                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles));
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
@@ -792,6 +799,7 @@ public class PurchaseOrderService {
                         .add("payment.currency", "Valuta", before.currency(), after.currency())
                         .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
                         .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
+                        .add("payment.settles", "Slotbetaling", before.settles() ? "ja" : "nee", after.settles() ? "ja" : "nee")
                         .privateValue("payment.label", "Omschrijving", before.label(), after.label())
                         .build());
         return after;

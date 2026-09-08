@@ -178,6 +178,8 @@ public final class SourcingEntities {
         public String actor;
         @Column(nullable = false) public Instant recordedAt;
         @Enumerated(EnumType.STRING) public PurchasePayment.Payee payee;
+        /** True for the payment that settles its stream, whatever the amount. */
+        @Column(name = "settles_stream") public Boolean settles;
     }
 
     /** A file that belongs to a container; the bytes live in the photo blob store. */
