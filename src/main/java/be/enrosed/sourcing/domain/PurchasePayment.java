@@ -40,12 +40,21 @@ public record PurchasePayment(
                            BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee) {
         this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, false);
     }
-    /** Money goes two ways: to the supplier for the goods, and to the forwarder and customs for the road. */
+    /** Where the money went: the supplier for the goods, the forwarder and customs for the road, the inspection and the other named costs, or whatever else it cost. */
     public enum Payee {
-        SUPPLIER, LOGISTICS;
+        SUPPLIER, LOGISTICS,
+        /** The inspection at the factory and the other named costs on the order. */
+        SEPARATE,
+        /** Whatever else the container cost to pay for: bank charges, a courier, a stamp. */
+        OTHER;
 
         public String dutchLabel() {
-            return this == SUPPLIER ? "Leverancier" : "Douane & transport";
+            return switch (this) {
+                case SUPPLIER -> "Leverancier";
+                case LOGISTICS -> "Douane & transport";
+                case SEPARATE -> "Inspectie & andere kosten";
+                case OTHER -> "Andere betaling";
+            };
         }
     }
 

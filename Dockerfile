@@ -64,6 +64,7 @@ COPY docs/migrations/2026-09-08/purchase-order-payment-split-postgresql.sql ./mi
 COPY docs/migrations/2026-09-08/company-number-prefixes-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/company-partner-number-series-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/purchase-payment-settles-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-08/purchase-payment-payees-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

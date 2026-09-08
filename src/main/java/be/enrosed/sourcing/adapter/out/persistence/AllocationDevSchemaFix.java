@@ -33,5 +33,10 @@ public class AllocationDevSchemaFix {
                 LOG.debugf("allocation column %s left as is: %s", column, failure.getMessage());
             }
         }
+        try {
+            entities.createNativeQuery("alter table purchase_payment alter column payee varchar(16)").executeUpdate();
+        } catch (RuntimeException failure) {
+            LOG.debugf("payee column left as is: %s", failure.getMessage());
+        }
     }
 }

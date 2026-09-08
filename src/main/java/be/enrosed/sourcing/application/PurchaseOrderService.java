@@ -594,7 +594,12 @@ public class PurchaseOrderService {
     private static String paymentNoteLine(PurchasePayment payment) {
         return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
                 + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
-                + " aan " + (payment.payee() == PurchasePayment.Payee.SUPPLIER ? "de leverancier" : "douane & transport")
+                + " aan " + switch (payment.payee()) {
+                    case SUPPLIER -> "de leverancier";
+                    case LOGISTICS -> "douane & transport";
+                    case SEPARATE -> "inspectie & andere kosten";
+                    case OTHER -> "andere kosten";
+                }
                 + (payment.label() != null ? " · " + payment.label() : "")
                 + (payment.settles() ? " · slotbetaling, hiermee vereffend" : "") + ".";
     }
