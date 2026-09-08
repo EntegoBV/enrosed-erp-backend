@@ -435,4 +435,36 @@ class LandedCostCalculatorTest {
         assertEquals(new BigDecimal("31015.68"), result.totals().goodsEur());
         assertEquals(new BigDecimal("3345.30"), result.totals().freightEur());
     }
+
+    @Test
+    @DisplayName("de Enrosed kost handmatig per regel verdeeld: elke regel draagt precies zijn eigen deel")
+    void enrosedCostSpreadByHandStaysOnTheLinesItWasGivenTo() {
+        PurchaseOrder base = excelOrder();
+        PurchaseOrder byHand = new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(), base.containerType(),
+                base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(), base.freightUsd(), base.originCosts(),
+                base.originCurrency(), base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), Allocation.MANUAL,
+                base.departurePort(), base.destinationPort(), base.notes(),
+                List.of(new PurchaseOrderLine(1L, 1L, 1000, null, null, null, 1000).withExtraShare(new BigDecimal("1500")),
+                        new PurchaseOrderLine(2L, 1L, 968, null, null, null, 968).withExtraShare(new BigDecimal("500"))));
+
+        LandedCost result = calculator(new BigDecimal("10")).calculate(byHand, Map.of(1L, preservedRose()));
+
+        assertEquals(new BigDecimal("2000.00"), result.totals().extraRevenueEur(), "the lines add up, not the order field");
+        assertEquals(new BigDecimal("1500.00"), result.lines().get(0).extraRevenueEur());
+        assertEquals(new BigDecimal("500.00"), result.lines().get(1).extraRevenueEur(),
+                "levelling the series keeps the hand-spread part where the buyer put it");
+        assertTrue(result.lines().get(0).landedUnitEur().compareTo(result.lines().get(1).landedUnitEur()) > 0,
+                "the line that carries more Enrosed kost lands dearer per piece");
+
+        PurchaseOrder nothingSpread = new PurchaseOrder(
+                base.id(), base.number(), base.alias(), base.supplierId(), base.orderDate(), base.status(), base.containerType(),
+                base.cnyToUsd(), base.usdToEurGoods(), base.usdToEurTransport(), base.freightUsd(), base.originCosts(),
+                base.originCurrency(), base.destinationCostsEur(), base.defaultDutyRatePct(), base.extraRevenueEur(),
+                base.allocFreight(), base.allocOrigin(), base.allocDestination(), Allocation.MANUAL,
+                base.departurePort(), base.destinationPort(), base.notes(), base.lines());
+        assertEquals(new BigDecimal("0.00"), calculator(new BigDecimal("10")).calculate(nothingSpread, Map.of(1L, preservedRose()))
+                .totals().extraRevenueEur(), "by hand and nothing given out: nothing is in the piece price");
+    }
 }

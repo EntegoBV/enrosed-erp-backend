@@ -10,5 +10,7 @@ public enum Allocation {
     /** Naar goederenwaarde. */
     VALUE,
     /** By piece count. */
-    PIECES
+    PIECES,
+    /** By hand, per product line: only the Enrosed kost takes this key; the other costs fall back to pieces. */
+    MANUAL
 }

@@ -39,8 +39,25 @@ public record PurchaseOrderLine(
          */
         BigDecimal receiptUnitValueEur,
         /** What was wrong on arrival, in our own words: "glass domes cracked, inner box too thin". */
-        String issueNote
+        String issueNote,
+        /** The Enrosed kost this line carries when the buyer spreads it by hand; null when a key spreads it. */
+        BigDecimal extraShareEur
 ) {
+    /** Compatibility for callers written before the hand-spread Enrosed kost existed. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
+                             PriceBasis priceBasis, Integer damagedQuantity, BigDecimal receiptUnitValueEur,
+                             String issueNote) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, priceBasis,
+                damagedQuantity, receiptUnitValueEur, issueNote, null);
+    }
+
+    /** The same line with its hand-spread Enrosed kost set; null clears it. */
+    public PurchaseOrderLine withExtraShare(BigDecimal value) {
+        return new PurchaseOrderLine(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity,
+                priceBasis, damagedQuantity, receiptUnitValueEur, issueNote, value);
+    }
+
     /** Compatibility for callers written before the arrival note existed. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,

@@ -144,6 +144,8 @@ public final class SourcingEntities {
         @Column(precision = 19, scale = 6) public BigDecimal exwPrice;
         @Enumerated(EnumType.STRING) public Currency exwCurrency;
         @Column(precision = 19, scale = 6) public BigDecimal extraUnitCost;
+        /** The Enrosed kost spread onto this line by hand; null when a key spreads it. */
+        @Column(name = "extra_share_eur", precision = 19, scale = 2) public BigDecimal extraShareEur;
         /** EXW or DDP; null on lines from before, read as EXW. */
         @Enumerated(EnumType.STRING) public PriceBasis priceBasis;
         /** Pieces that arrived broken. */

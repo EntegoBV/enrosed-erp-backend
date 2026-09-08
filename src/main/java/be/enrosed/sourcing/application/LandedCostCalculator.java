@@ -116,6 +116,7 @@ public class LandedCostCalculator {
             row.cbm = cbm;
             row.goodsUsd = goodsUsd;
             row.goodsEur = goodsEur;
+            row.manualExtraEur = Money.nz(line.extraShareEur());
             row.ddp = line.deliveredDutyPaid();
             if (row.ddp) {
                 /* Delivered duty paid: the price already holds the road and
@@ -157,7 +158,11 @@ public class LandedCostCalculator {
                 order.cnyToUsd(), order.usdToEurTransport());
         BigDecimal freightEurTotal = Money.nz(order.freightUsd()).multiply(Money.nz(order.usdToEurTransport()));
         BigDecimal destinationEurTotal = Money.nz(order.destinationCostsEur());
-        BigDecimal extraEurTotal = Money.nz(order.extraRevenueEur());
+        /* Spread by hand, the Enrosed kost is whatever the lines carry: the buyer's own split, to the cent. */
+        boolean manualExtra = order.allocExtra() == Allocation.MANUAL;
+        BigDecimal extraEurTotal = manualExtra
+                ? working.stream().map(r -> r.manualExtraEur).reduce(BigDecimal.ZERO, BigDecimal::add)
+                : Money.nz(order.extraRevenueEur());
         /* The inspection and the other named costs are part of what the container
            cost us, so they go into the piece price too: by goods value over the
            lines that travel on our account, by pieces when none does. */
@@ -175,7 +180,8 @@ public class LandedCostCalculator {
             row.originEur = originEurTotal.multiply(shareFor(row, order.allocOrigin()));
             row.freightEur = freightEurTotal.multiply(shareFor(row, order.allocFreight()));
             row.destinationEur = destinationEurTotal.multiply(shareFor(row, order.allocDestination()));
-            row.extraEur = extraEurTotal.multiply(overallShare(row, order.allocExtra(), allPieces, allValue, allCbm));
+            row.extraEur = manualExtra ? row.manualExtraEur
+                    : extraEurTotal.multiply(overallShare(row, order.allocExtra(), allPieces, allValue, allCbm));
 
             /* Customs value at the EU border. */
             row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
@@ -192,7 +198,7 @@ public class LandedCostCalculator {
         }
 
         /* ---- 3b. Varianten als één product ------------------------------ */
-        if (order.groupsVariants()) levelVariants(working);
+        if (order.groupsVariants()) levelVariants(working, manualExtra);
 
         /* ---- 3c. Catalogusvolgorde ------------------------------------- */
         /* Sorting happens only after all financial allocation. It therefore
@@ -272,7 +278,7 @@ public class LandedCostCalculator {
      * lands at the same unit cost. Goods included - a buyer does not want
      * the red one dearer than the white one because the factory said so.
      */
-    private static void levelVariants(List<Working> working) {
+    private static void levelVariants(List<Working> working, boolean manualExtra) {
         java.util.Map<Long, List<Working>> series = new java.util.LinkedHashMap<>();
         for (Working row : working) {
             Long familyId = row.product.familyId();
@@ -299,7 +305,8 @@ public class LandedCostCalculator {
                 row.freightEur = freight.multiply(share);
                 row.dutyEur = duty.multiply(share);
                 row.destinationEur = destination.multiply(share);
-                row.extraEur = extra.multiply(share);
+                /* A hand-spread Enrosed kost is the buyer's word per line; the rest of the series levels out. */
+                if (!manualExtra) row.extraEur = extra.multiply(share);
                 row.separateEur = separate.multiply(share);
                 row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
                 row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur).add(row.separateEur);
@@ -316,7 +323,7 @@ public class LandedCostCalculator {
         return switch (allocation == null ? Allocation.PIECES : allocation) {
             case CBM -> Money.share(row.cbm, cbm);
             case VALUE -> Money.share(row.goodsEur, value);
-            case PIECES -> Money.share(BigDecimal.valueOf(row.quantity), BigDecimal.valueOf(pieces));
+            case PIECES, MANUAL -> Money.share(BigDecimal.valueOf(row.quantity), BigDecimal.valueOf(pieces));
         };
     }
 
@@ -325,7 +332,7 @@ public class LandedCostCalculator {
         return switch (basis) {
             case CBM -> row.cbmShare;
             case VALUE -> row.valueShare;
-            case PIECES -> row.pieceShare;
+            case PIECES, MANUAL -> row.pieceShare;
         };
     }
 
@@ -345,6 +352,7 @@ public class LandedCostCalculator {
         BigDecimal dutyEur = BigDecimal.ZERO;
         BigDecimal destinationEur = BigDecimal.ZERO;
         BigDecimal extraEur = BigDecimal.ZERO;
+        BigDecimal manualExtraEur = BigDecimal.ZERO;
         BigDecimal separateEur = BigDecimal.ZERO;
         BigDecimal totalEur = BigDecimal.ZERO;
         BigDecimal landedUnitEur = BigDecimal.ZERO;

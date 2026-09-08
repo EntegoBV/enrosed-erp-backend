@@ -202,7 +202,7 @@ public class PurchaseOrderService {
                 source.lines().stream()
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
-                                line.priceBasis()))
+                                line.priceBasis()).withExtraShare(line.extraShareEur()))
                         .toList()).withInspectionCost(source.inspectionCostEur())
                 .withOtherCosts(source.otherCosts())
                 .withCreationMetadata(creator, Instant.now()));
@@ -295,10 +295,14 @@ public class PurchaseOrderService {
                         product.id(), product.describe(), requested, fullCartons, perCarton));
             }
             /* Saved as entered; the warning is the whole intervention. */
+            if (line.extraShareEur() != null && line.extraShareEur().signum() < 0) {
+                throw new BusinessRuleException("De Enrosed kost per product kan niet negatief zijn");
+            }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     purchasePrice.amount(), purchasePrice.currency(), line.extraUnitCost(),
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
-                    line.damagedQuantity(), storedReceiptUnitValue(current, line), cleanIssueNote(line.issueNote())));
+                    line.damagedQuantity(), storedReceiptUnitValue(current, line), cleanIssueNote(line.issueNote()),
+                    line.extraShareEur() == null ? null : line.extraShareEur().setScale(2, RoundingMode.HALF_UP)));
         }
 
         if (changes.status() != PurchaseOrderStatus.CONCEPT
@@ -850,7 +854,7 @@ public class PurchaseOrderService {
             }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), received, line.exwPrice(),
                     line.exwCurrency(), line.extraUnitCost(), ordered, line.priceBasis(), damaged,
-                    receiptUnitValue, received != ordered || damaged > 0 ? issueNote : null));
+                    receiptUnitValue, received != ordered || damaged > 0 ? issueNote : null, line.extraShareEur()));
         }
 
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
@@ -1100,7 +1104,7 @@ public class PurchaseOrderService {
                 .map(line -> line.id() != null && line.id() == lineId
                         ? new PurchaseOrderLine(line.id(), line.productId(), line.quantity(), line.exwPrice(),
                                 line.exwCurrency(), line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(),
-                                line.damagedQuantity(), normalized, line.issueNote())
+                                line.damagedQuantity(), normalized, line.issueNote(), line.extraShareEur())
                         : line)
                 .toList();
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
