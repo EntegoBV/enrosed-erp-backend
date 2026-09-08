@@ -48,21 +48,41 @@ public class SalesOrderResource {
     /** {@code awaitingResend}: an adopted customer proposal that has not gone back out. */
     public record OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend,
                             /** The invoice made from this quote, by number; null while there is none. */
-                            String invoicedAs) {
+                            String invoicedAs,
+                            /** That invoice's id, to open it. */
+                            Long invoicedAsId,
+                            /** That invoice's status: a draft is not yet an invoice sent. */
+                            be.enrosed.sales.domain.QuoteStatus invoiceStatus,
+                            /** For an invoice: the number of the quote it was made from. */
+                            String sourceQuoteNumber) {
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend) {
-            this(order, priced, awaitingResend, null);
+            this(order, priced, awaitingResend, null, null, null, null);
         }
     }
 
-    /** Quote id to the number of the invoice made from it. */
-    private static java.util.Map<Long, String> invoicesByQuote(List<SalesOrder> all) {
-        java.util.Map<Long, String> map = new java.util.HashMap<>();
-        for (SalesOrder order : all) {
-            if (order.isInvoice() && order.sourceQuoteId() != null && order.number() != null) {
-                map.putIfAbsent(order.sourceQuoteId(), order.number());
+    /** The links between quotes and the invoices made from them, both ways. */
+    private record Links(java.util.Map<Long, SalesOrder> invoiceByQuote, java.util.Map<Long, String> quoteNumberById) {
+        static Links of(List<SalesOrder> all) {
+            java.util.Map<Long, SalesOrder> invoiceByQuote = new java.util.HashMap<>();
+            java.util.Map<Long, String> quoteNumberById = new java.util.HashMap<>();
+            for (SalesOrder order : all) {
+                if (order.id() == null) continue;
+                if (order.isInvoice()) {
+                    if (order.sourceQuoteId() != null) invoiceByQuote.putIfAbsent(order.sourceQuoteId(), order);
+                } else {
+                    quoteNumberById.put(order.id(), order.number());
+                }
             }
+            return new Links(invoiceByQuote, quoteNumberById);
         }
-        return map;
+
+        OrderView view(SalesOrder order, PricedOrder priced, boolean awaitingResend) {
+            SalesOrder invoice = order.isInvoice() || order.id() == null ? null : invoiceByQuote.get(order.id());
+            String sourceQuote = order.isInvoice() && order.sourceQuoteId() != null ? quoteNumberById.get(order.sourceQuoteId()) : null;
+            return new OrderView(order, priced, awaitingResend,
+                    invoice == null ? null : invoice.number(), invoice == null ? null : invoice.id(),
+                    invoice == null ? null : invoice.status(), sourceQuote);
+        }
     }
     public record PortalLink(boolean available, String status, String url) {}
 
@@ -70,17 +90,16 @@ public class SalesOrderResource {
     public List<OrderView> list() {
         List<SalesOrder> all = salesOrders.list();
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
-        java.util.Map<Long, String> invoiced = invoicesByQuote(all);
+        Links links = Links.of(all);
         return all.stream()
-                .map(order -> new OrderView(order, salesOrders.price(order),
-                        awaiting.contains(order.id()), order.isInvoice() ? null : invoiced.get(order.id())))
+                .map(order -> links.view(order, salesOrders.price(order), awaiting.contains(order.id())))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
-        String invoicedAs = order.isInvoice() || order.id() == null ? null
-                : invoicesByQuote(salesOrders.list()).get(order.id());
-        return new OrderView(order, salesOrders.price(order), quotes.awaitsResend(order), invoicedAs);
+        boolean linked = order.isInvoice() ? order.sourceQuoteId() != null : order.id() != null;
+        Links links = linked ? Links.of(salesOrders.list()) : Links.of(List.of());
+        return links.view(order, salesOrders.price(order), quotes.awaitsResend(order));
     }
 
     @GET
