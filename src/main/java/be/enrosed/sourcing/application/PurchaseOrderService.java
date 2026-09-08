@@ -1553,7 +1553,16 @@ public class PurchaseOrderService {
         PurchaseOrder order = get(id);
         LandedCost result = calculate(order);
         for (LandedCost.Line line : result.lines()) {
-            products.applyLandedCost(line.productId(), line.landedUnitEur(), order.number());
+            PurchaseOrderLine ordered = order.lines().stream()
+                    .filter(candidate -> candidate.productId() != null && candidate.productId().equals(line.productId()))
+                    .findFirst().orElse(null);
+            /* The factory price on the line, or the product's own when the line inherits it. */
+            Product product = products.get(line.productId());
+            BigDecimal exwPrice = ordered != null && ordered.exwPrice() != null ? ordered.exwPrice() : product.exwPrice();
+            be.enrosed.shared.Currency exwCurrency = ordered != null && ordered.exwCurrency() != null
+                    ? ordered.exwCurrency() : product.exwCurrency();
+            products.applyLandedCost(line.productId(), line.landedUnitEur(), order.number(), order.id(),
+                    line.quantity(), exwPrice, exwCurrency == null ? null : exwCurrency.name());
         }
         LOG.infof("Kostprijzen uit %s toegepast op %d product(en)", order.number(), result.lines().size());
         /* Into the diary: applying rewrites what the whole catalogue counts with. */

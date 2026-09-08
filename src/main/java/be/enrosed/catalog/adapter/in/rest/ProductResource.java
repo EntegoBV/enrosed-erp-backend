@@ -41,6 +41,9 @@ public class ProductResource {
     private final StockService stock;
     private final ProductOverviewOrder overviewOrder;
 
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.ProductCostHistoryService> costHistory;
+
     @Inject
     public ProductResource(
             ProductService products,
@@ -139,6 +142,14 @@ public class ProductResource {
 
     /** Copies a product, usually to make the same style in another colour. */
     /** The pieces per location for one product, zeros included. */
+    /** The line of landed costs the product carried, newest first; never pruned. */
+    @GET
+    @Path("/{id}/cost-history")
+    public List<ProductCostHistoryDto> costHistory(@PathParam("id") long id) {
+        products.get(id);
+        return costHistory.get().history(id).stream().map(ProductCostHistoryDto::of).toList();
+    }
+
     @GET
     @Path("/{id}/stock")
     public List<ProductStockDto> stockLevels(@PathParam("id") long id) {

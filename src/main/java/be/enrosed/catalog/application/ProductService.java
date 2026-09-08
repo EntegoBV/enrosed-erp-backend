@@ -82,6 +82,10 @@ public class ProductService {
     Instance<StockLedger> ledger;
     @Inject
     Instance<CurrentActor> actor;
+
+    /** The line of costs over time; absent in the pure unit tests. */
+    @Inject
+    Instance<ProductCostHistoryService> costHistory;
     @Inject
     Instance<ActivityLogService> activity;
     @Inject
@@ -707,9 +711,21 @@ public class ProductService {
      */
     @Transactional
     public void applyLandedCost(long productId, BigDecimal landedCostEur, String source) {
-        Product updated = get(productId).withLandedCost(landedCostEur, source);
+        applyLandedCost(productId, landedCostEur, source, null, null, null, null);
+    }
+
+    /** Writes the cost and keeps the one before it in the history, with the container it came from. */
+    @Transactional
+    public void applyLandedCost(long productId, BigDecimal landedCostEur, String source,
+                                Long purchaseOrderId, Integer quantity, BigDecimal exwPrice, String exwCurrency) {
+        Product current = get(productId);
+        Product updated = current.withLandedCost(landedCostEur, source);
         ensurePublishable(updated);
         products.save(updated);
+        if (costHistory != null && costHistory.isResolvable()) {
+            costHistory.get().record(productId, current.landedCostEur(), landedCostEur, source,
+                    purchaseOrderId, quantity, exwPrice, exwCurrency);
+        }
         queueWebsite();
     }
 

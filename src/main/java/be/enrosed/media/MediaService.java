@@ -98,7 +98,7 @@ public class MediaService {
         asset.createdAt = now;
         asset.updatedAt = now;
         asset.createdBy = actor.current().username();
-        asset.folderId = folderId == null ? null : requiredFolder(folderId).id;
+        asset.folderId = folderId == null ? parkingFolder(asset.kind) : requiredFolder(folderId).id;
         entities.persist(asset);
         entities.flush();
 
@@ -334,6 +334,7 @@ public class MediaService {
         link.legacyOnly = false;
         link.primarySlot = 1;
         asset.updatedAt = Instant.now();
+        autoFile(asset, request.targetType(), request.targetId());
         activity.record(ActivityLogService.ACTION_UPDATED, ACTIVITY_ENTITY,
                 asset.id.toString(), asset.name, "Bestand gekoppeld",
                 ActivityChangeSet.create()
@@ -688,9 +689,79 @@ public class MediaService {
             if (primary == 0) link.primarySlot = 1;
             entities.persist(link);
         }
+        autoFile(asset, source.targetType(), source.targetId());
     }
 
     /* ---------------------------------------------------------------- folders */
+
+    private static final String FOLDER_WEBSITE = "Website & reeksen";
+    private static final String FOLDER_PRODUCTS = "Productfoto's";
+    private static final String FOLDER_PURCHASES = "Inkooporders";
+    private static final String FOLDER_PLANNER = "Planner";
+    private static final String FOLDER_OTHER = "Overig";
+
+    /**
+     * A file that was never put anywhere by hand goes to the folder its use
+     * dictates: website and range photos per range, product photos per the
+     * product's range, purchase documents per container. A file already in a
+     * folder of its own stays; one parked under Overig moves on.
+     */
+    private void autoFile(MediaAssetEntity asset, MediaTargetType type, Long targetId) {
+        if (asset.folderId != null && !underFolder(asset.folderId, FOLDER_OTHER)) return;
+        Long folder = switch (type) {
+            case PRODUCT_FAMILY -> {
+                ProductFamilyEntity family = entities.find(ProductFamilyEntity.class, targetId);
+                yield family == null ? null : folder(family.name, folder(FOLDER_WEBSITE, null));
+            }
+            case PRODUCT -> {
+                ProductEntity product = entities.find(ProductEntity.class, targetId);
+                if (product == null) yield null;
+                ProductFamilyEntity family = product.familyId == null ? null : entities.find(ProductFamilyEntity.class, product.familyId);
+                yield folder(family == null ? "Zonder reeks" : family.name, folder(FOLDER_PRODUCTS, null));
+            }
+            case PURCHASE_ORDER -> {
+                SourcingEntities.PurchaseOrderEntity order = entities.find(SourcingEntities.PurchaseOrderEntity.class, targetId);
+                yield order == null ? null : folder(label(order), folder(FOLDER_PURCHASES, null));
+            }
+            case PLANNER_ITEM -> folder(FOLDER_PLANNER, null);
+        };
+        if (folder != null) asset.folderId = folder;
+    }
+
+    /** An upload nobody put in a folder is parked under Overig until a link says where it belongs. */
+    private Long parkingFolder(MediaKind kind) {
+        return folder(kind == MediaKind.IMAGE ? "Foto's" : "Documenten", folder(FOLDER_OTHER, null));
+    }
+
+    private boolean underFolder(Long folderId, String rootName) {
+        MediaFolderEntity folder = entities.find(MediaFolderEntity.class, folderId);
+        while (folder != null) {
+            if (folder.parentId == null) return folder.name.equalsIgnoreCase(rootName);
+            folder = entities.find(MediaFolderEntity.class, folder.parentId);
+        }
+        return false;
+    }
+
+    /** The folder with that name under that parent, made when it does not exist yet. */
+    private Long folder(String name, Long parentId) {
+        String clean = name == null || name.isBlank() ? "Zonder naam" : name.strip();
+        if (clean.length() > 120) clean = clean.substring(0, 120);
+        String query = parentId == null
+                ? "select f from MediaFolderEntity f where f.parentId is null and lower(f.name) = :name"
+                : "select f from MediaFolderEntity f where f.parentId = :parent and lower(f.name) = :name";
+        var typed = entities.createQuery(query, MediaFolderEntity.class).setParameter("name", clean.toLowerCase());
+        if (parentId != null) typed.setParameter("parent", parentId);
+        MediaFolderEntity existing = typed.setMaxResults(1).getResultStream().findFirst().orElse(null);
+        if (existing != null) return existing.id;
+        MediaFolderEntity folder = new MediaFolderEntity();
+        folder.name = clean;
+        folder.parentId = parentId;
+        folder.createdAt = Instant.now();
+        folder.createdBy = "system";
+        entities.persist(folder);
+        entities.flush();
+        return folder.id;
+    }
 
     @Transactional
     public List<MediaDtos.Folder> folders() {
