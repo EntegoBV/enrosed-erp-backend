@@ -18,7 +18,8 @@ final class SalesMapper {
                 entity.vatNumber, entity.countryCode, entity.language,
                 entity.address, entity.postalCode, entity.city,
                 entity.incoterm, entity.paymentTerms, entity.notes, entity.createdAt,
-                Boolean.TRUE.equals(entity.partner), entity.partnerSharePct, entity.partnerCostPct);
+                Boolean.TRUE.equals(entity.partner), entity.partnerSharePct, entity.partnerCostPct,
+                Boolean.TRUE.equals(entity.fiscalRepresentative), entity.invoiceNote);
     }
 
     static void apply(Customer customer, CustomerEntity entity) {
@@ -37,6 +38,8 @@ final class SalesMapper {
         entity.partner = customer.partner();
         entity.partnerSharePct = customer.partnerSharePct();
         entity.partnerCostPct = customer.partnerCostPct();
+        entity.fiscalRepresentative = customer.fiscalRepresentative();
+        entity.invoiceNote = customer.invoiceNote();
         entity.notes = customer.notes();
         entity.createdAt = customer.createdAt();
     }

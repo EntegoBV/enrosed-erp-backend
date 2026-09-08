@@ -47,7 +47,8 @@ public class CustomerService {
                 customer.language(), customer.address(),
                 customer.postalCode(), customer.city(), customer.incoterm(), customer.paymentTerms(),
                 customer.notes(), LocalDate.now(), customer.partner(),
-                partnerPct(customer.partnerSharePct()), partnerPct(customer.partnerCostPct())));
+                partnerPct(customer.partnerSharePct()), partnerPct(customer.partnerCostPct()),
+                customer.fiscalRepresentative(), invoiceNote(customer.invoiceNote())));
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Klant aangemaakt");
         return saved;
     }
@@ -61,7 +62,8 @@ public class CustomerService {
                 changes.language(), changes.address(),
                 changes.postalCode(), changes.city(), changes.incoterm(), changes.paymentTerms(),
                 changes.notes(), current.createdAt(), changes.partner(),
-                partnerPct(changes.partnerSharePct()), partnerPct(changes.partnerCostPct())));
+                partnerPct(changes.partnerSharePct()), partnerPct(changes.partnerCostPct()),
+                changes.fiscalRepresentative(), invoiceNote(changes.invoiceNote())));
         List<ActivityChangeDto> changesMade = customerChanges(current, saved);
         if (!changesMade.isEmpty()) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt", changesMade);
@@ -70,6 +72,14 @@ public class CustomerService {
     }
 
     /** A percentage between 0 and 100, or null when it was not filled in. */
+    /** The document sentence as typed, trimmed; blank means none, and it stays short enough for a footer. */
+    private static String invoiceNote(String note) {
+        if (note == null || note.isBlank()) return null;
+        String trimmed = note.strip();
+        if (trimmed.length() > 500) throw new BusinessRuleException("De vermelding op documenten mag hoogstens 500 tekens lang zijn");
+        return trimmed;
+    }
+
     private static java.math.BigDecimal partnerPct(java.math.BigDecimal value) {
         if (value == null) return null;
         if (value.signum() < 0 || value.compareTo(new java.math.BigDecimal("100")) > 0) {
@@ -130,6 +140,9 @@ public class CustomerService {
                 .add("partner", "Partnercontainers", before.partner() ? "ja" : "nee", after.partner() ? "ja" : "nee")
                 .add("partnerSharePct", "Winstdeling partner", before.partnerSharePct(), after.partnerSharePct())
                 .add("partnerCostPct", "Kost vooraf door partner", before.partnerCostPct(), after.partnerCostPct())
+                .add("fiscalRepresentative", "Inklaring via fiscaal vertegenwoordiger",
+                        before.fiscalRepresentative() ? "ja" : "nee", after.fiscalRepresentative() ? "ja" : "nee")
+                .add("invoiceNote", "Vermelding op documenten", before.invoiceNote(), after.invoiceNote())
                 .privateValue("address", "Adres", before.address(), after.address())
                 .privateValue("notes", "Notities", before.notes(), after.notes())
                 .build();

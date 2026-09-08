@@ -261,6 +261,37 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void customersClearedThroughOurRepresentativeReadItOnGoodsDocumentsOnly() throws Exception {
+        Customer cleared = new Customer(
+                8L, "Bloemen Venlo BV", "Jan Peters", "jan@venlo.example", "+31 77 555 0101",
+                "NL858617262B02", "NL", Language.EN, "Kade 1", "5911 AB", "Venlo", "DAP", null, "",
+                LocalDate.of(2026, 1, 1), true, null, null, true, "Delivery ex warehouse Venlo.");
+
+        SalesOrder advance = order(DocumentType.FACTUUR, "F-2026-0310", 1).withPartnerDeal(13L, bd("50"));
+        PdfQuoteRenderer.Document advanceInvoice = renderer.render(advance, priced(1, false), cleared, null);
+        writePreview("partner-advance-invoice-fiscal-representative.pdf", advanceInvoice.content());
+        try (PDDocument pdf = Loader.loadPDF(advanceInvoice.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("customs cleared in the netherlands by our limited fiscal representative: 24/7 customs bv with vat-no: nl858617262b02"), text);
+            assertTrue(text.contains("delivery ex warehouse venlo."), "the customer's own sentence: " + text);
+            assertTrue(text.contains("nl858617262b02"), "the buyer's VAT number: " + text);
+            assertTrue(text.contains("venlo · nl"), "the buyer's complete address, country included: " + text);
+        }
+
+        SalesOrder settlement = order(DocumentType.FACTUUR, "F-2026-0311", 1).withPartnerDeal(13L, bd("50")).asPartnerSettlement();
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(settlement, priced(1, false), cleared, null).content())) {
+            String text = textOf(pdf);
+            assertFalse(text.contains("customs cleared"), "the final invoice settles the deal; the clearance was said on the goods documents: " + text);
+            assertTrue(text.contains("delivery ex warehouse venlo."), text);
+        }
+
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(order(DocumentType.FACTUUR, "F-2026-0312", 1), priced(1, false), customer(), null).content())) {
+            String text = textOf(pdf);
+            assertFalse(text.contains("customs cleared"), "an ordinary customer never reads it: " + text);
+        }
+    }
+
+    @Test
     void packingSlipMasterDataIsOptInAndRemainsPriceFree() throws Exception {
         QuoteDocumentRenderer.PackingItem item = new QuoteDocumentRenderer.PackingItem(
                 "Preserved rose glass bowl", 2, 24, "40 × 30 × 20 cm", 12,

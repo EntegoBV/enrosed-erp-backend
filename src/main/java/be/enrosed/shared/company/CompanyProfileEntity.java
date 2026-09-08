@@ -48,4 +48,10 @@ public class CompanyProfileEntity {
 
     @Column(length = 20000)
     public String privacyPolicyEn;
+
+    /** Our limited fiscal representative in the Netherlands, named on documents for customers cleared through it. */
+    @Column(name = "fiscal_representative_name")
+    public String fiscalRepresentativeName;
+    @Column(name = "fiscal_representative_vat")
+    public String fiscalRepresentativeVat;
 }

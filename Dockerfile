@@ -59,6 +59,7 @@ COPY docs/migrations/2026-09-08/purchase-line-extra-share-postgresql.sql ./migra
 COPY docs/migrations/2026-09-08/purchase-order-separate-allocation-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-line-cost-snapshot-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/media-link-company-cost-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-08/customer-fiscal-representative-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

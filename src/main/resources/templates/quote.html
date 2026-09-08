@@ -279,7 +279,7 @@
         <div class="party-lines">
           {#if customer.contact}{customer.contact}<br/>{/if}
           {#if customer.address}{customer.address}<br/>{/if}
-          {customer.postalCode ?: ''} {customer.city ?: ''}<br/>
+          {customer.postalCode ?: ''} {customer.city ?: ''}{#if customer.countryCode} · {customer.countryCode}{/if}<br/>
           {#if customer.vatNumber}<span class="muted">{t.vatNumber} {customer.vatNumber}</span>{/if}
         </div>
       {#else}
@@ -373,6 +373,7 @@
       {/if}
     </table>
     {#if partnerNote}<div class="overview-note">{partnerNote}</div>{/if}
+    {#if customerNote}<div class="overview-note">{customerNote}</div>{/if}
     {#if orderNote}<div class="overview-note"><b>{t.note}:</b> {orderNote}</div>{/if}
   </div>
 </td>
@@ -438,10 +439,10 @@
   </div>
 {/if}
 
-{#if vatMention}
+{#if vatMention || customsLine}
   <div class="vat-note">
-    <b>{vatLabel}</b><br/>
-    {vatMention}
+    {#if vatMention}<b>{vatLabel}</b><br/>{vatMention}{/if}
+    {#if customsLine}{#if vatMention}<br/>{/if}{customsLine}{/if}
     {#if customer && customer.vatNumber}<br/>{t.buyerVatNumber}: {customer.vatNumber}{/if}
   </div>
 {/if}

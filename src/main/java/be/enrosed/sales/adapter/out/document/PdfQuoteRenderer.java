@@ -108,6 +108,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         partnerContainerNumber(order))
                 : null;
         List<LineView> lines = lineViews(order, priced, language, text, options);
+        /* Goods cleared through our fiscal representative say so on the quote and the advance
+           invoice, where the goods are supplied; the final settlement only keeps the shifted VAT. */
+        String customsLine = customer != null && customer.fiscalRepresentative() && !order.partnerSettlement()
+                ? text.get("customsClearedBy").formatted(company.get().representativeName(), company.get().representativeVat())
+                : null;
+        String customerNote = customer == null ? null : nonBlank(customer.invoiceNote(), null);
         String dueDateText = DocumentText.date(order.invoiceDueDate(), language);
         String paymentInstruction = null;
         String iban = null;
@@ -147,6 +153,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("isInvoice", invoice)
                 .data("docLabel", docLabel)
                 .data("partnerNote", partnerNote)
+                .data("customsLine", customsLine)
+                .data("customerNote", customerNote)
                 .data("orderNote", nonBlank(order.notes(), null))
                 .data("dueDateText", dueDateText)
                 .data("paymentInstruction", paymentInstruction)

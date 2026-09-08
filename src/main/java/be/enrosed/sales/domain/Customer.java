@@ -33,7 +33,15 @@ public record Customer(
         /** Our default share of that partner's auction profit, in percent; null means half. */
         BigDecimal partnerSharePct,
         /** The part of the landed cost the partner pays up front, in percent; null means all of it. */
-        BigDecimal partnerCostPct
+        BigDecimal partnerCostPct,
+        /**
+         * Goods for this customer are cleared in the Netherlands through our limited fiscal
+         * representative: the VAT on the supply shifts to the customer (art. 12.3 Wet OB) and
+         * the documents name the representative.
+         */
+        boolean fiscalRepresentative,
+        /** A sentence of our own that goes on every quote and invoice for this customer. */
+        String invoiceNote
 ) {
     /** Compatibility for callers written before partner customers existed. */
     public Customer(Long id, String company, String contact, String email, String phone,
@@ -41,7 +49,18 @@ public record Customer(
                     String postalCode, String city, String incoterm, String paymentTerms,
                     String notes, LocalDate createdAt) {
         this(id, company, contact, email, phone, vatNumber, countryCode, language, address,
-                postalCode, city, incoterm, paymentTerms, notes, createdAt, false, null, null);
+                postalCode, city, incoterm, paymentTerms, notes, createdAt, false, null, null, false, null);
+    }
+
+    /** Compatibility for callers written before the fiscal representative existed. */
+    public Customer(Long id, String company, String contact, String email, String phone,
+                    String vatNumber, String countryCode, Language language, String address,
+                    String postalCode, String city, String incoterm, String paymentTerms,
+                    String notes, LocalDate createdAt, boolean partner, BigDecimal partnerSharePct,
+                    BigDecimal partnerCostPct) {
+        this(id, company, contact, email, phone, vatNumber, countryCode, language, address,
+                postalCode, city, incoterm, paymentTerms, notes, createdAt, partner, partnerSharePct,
+                partnerCostPct, false, null);
     }
 
     /** What a partner customer shares by default: half the profit unless agreed otherwise. */

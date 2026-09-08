@@ -56,6 +56,12 @@ public final class SalesEntities {
         /** The part of the landed cost the partner pays up front, in percent; the rest is settled after the auction. */
         @Column(name = "partner_cost_pct", precision = 5, scale = 2)
         public BigDecimal partnerCostPct;
+        /** Goods cleared in the Netherlands through our limited fiscal representative; VAT shifts to the customer. */
+        @Column(name = "fiscal_representative")
+        public Boolean fiscalRepresentative;
+        /** A sentence of our own on every document for this customer. */
+        @Column(name = "invoice_note", length = 500)
+        public String invoiceNote;
     }
 
     @Entity

@@ -43,14 +43,42 @@ public record CompanyProfile(
         /** GDPR privacy statement, Dutch. */
         String privacyPolicy,
         /** GDPR privacy statement, English. */
-        String privacyPolicyEn
+        String privacyPolicyEn,
+        /** Our limited fiscal representative in the Netherlands, named on documents for customers cleared through it. */
+        String fiscalRepresentativeName,
+        /** That representative's VAT number. */
+        String fiscalRepresentativeVat
 ) {
+    /** Compatibility for callers written before the fiscal representative existed. */
+    public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
+                          String addressLine, String postalCode, String city, String countryCode,
+                          String email, String phone, String website, String iban, String bic,
+                          String documentFooter, String documentFooterEn, String termsAndConditions,
+                          String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn) {
+        this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
+                email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT);
+    }
+
+    public static final String DEFAULT_REPRESENTATIVE_NAME = "24/7 Customs BV";
+    public static final String DEFAULT_REPRESENTATIVE_VAT = "NL858617262B02";
+
     public static CompanyProfile empty() {
         /* Seeded with the real company identity: a fresh install should print
            correct documents before anyone has opened the settings screen. */
         return new CompanyProfile("Enrosed BV", "Enrosed BV", "BE 1034.273.386", "",
                 "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "", "",
-                null, null, null, null);
+                null, null, null, null, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT);
+    }
+
+    /** The representative's name for documents; the seeded one until settings say otherwise. */
+    public String representativeName() {
+        return fiscalRepresentativeName == null || fiscalRepresentativeName.isBlank() ? DEFAULT_REPRESENTATIVE_NAME : fiscalRepresentativeName;
+    }
+
+    /** The representative's VAT number for documents; the seeded one until settings say otherwise. */
+    public String representativeVat() {
+        return fiscalRepresentativeVat == null || fiscalRepresentativeVat.isBlank() ? DEFAULT_REPRESENTATIVE_VAT : fiscalRepresentativeVat;
     }
 
     /**

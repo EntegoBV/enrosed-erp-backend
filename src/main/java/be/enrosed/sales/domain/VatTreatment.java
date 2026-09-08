@@ -41,6 +41,15 @@ public enum VatTreatment {
             "EU-levering zonder BTW-nummer",
             null),
 
+    /**
+     * Goods cleared in the Netherlands through our limited fiscal representative
+     * and supplied there to a Dutch VAT-registered buyer: the buyer accounts for
+     * the VAT himself (art. 12.3 Wet op de omzetbelasting 1968).
+     */
+    VERLEGD_FISCAAL_VERTEGENWOORDIGER(
+            "Btw verlegd via fiscaal vertegenwoordiger (NL)",
+            "REVERSE CHARGE - btw verlegd naar de Nederlandse afnemer volgens "
+                    + "artikel 12, lid 3 Wet op de omzetbelasting 1968."),
     /** Delivery outside the EU. */
     UITVOER(
             "Uitvoer buiten de EU",
@@ -100,6 +109,16 @@ public enum VatTreatment {
                 case PL -> "Dostawa UE bez numeru VAT";
                 case PT -> "Entrega UE sem NIF";
                 case TR -> "Vergi numarasız AB teslimatı";
+            };
+            case VERLEGD_FISCAAL_VERTEGENWOORDIGER -> switch (language) {
+                case NL -> "Btw verlegd via fiscaal vertegenwoordiger (NL)";
+                case FR -> "TVA autoliquidée via représentant fiscal (NL)";
+                case EN -> "Reverse charge via fiscal representative (NL)";
+                case DE -> "Steuerschuldnerschaft über Fiskalvertreter (NL)";
+                case ES -> "Inversión del sujeto pasivo vía representante fiscal (NL)";
+                case PL -> "Odwrotne obciążenie przez przedstawiciela podatkowego (NL)";
+                case PT -> "Autoliquidação via representante fiscal (NL)";
+                case TR -> "Mali temsilci aracılığıyla ters vergilendirme (NL)";
             };
             case UITVOER -> switch (language) {
                 case NL -> "Uitvoer buiten de EU";
@@ -161,11 +180,29 @@ public enum VatTreatment {
                 case TR -> "KDV istisnası - ihracat. "
                         + "Belçika KDV Kanunu md. 39 / 2006/112/AT sayılı Direktif md. 146.";
             };
+            case VERLEGD_FISCAAL_VERTEGENWOORDIGER -> switch (language) {
+                case NL -> "BTW VERLEGD - btw verlegd naar de Nederlandse afnemer volgens "
+                        + "artikel 12, lid 3 Wet op de omzetbelasting 1968.";
+                case FR -> "AUTOLIQUIDATION - TVA transférée au client néerlandais conformément à "
+                        + "l'article 12, paragraphe 3, de la loi néerlandaise sur la TVA (Wet OB 1968).";
+                case EN -> "REVERSE CHARGE - VAT shifted to the Dutch customer according to "
+                        + "article 12.3 Dutch VAT Law (Wet OB 1968).";
+                case DE -> "STEUERSCHULDNERSCHAFT DES LEISTUNGSEMPFÄNGERS - Umsatzsteuer auf den niederländischen "
+                        + "Abnehmer verlagert gemäß Artikel 12 Absatz 3 des niederländischen Umsatzsteuergesetzes (Wet OB 1968).";
+                case ES -> "INVERSIÓN DEL SUJETO PASIVO - IVA trasladado al cliente neerlandés conforme al "
+                        + "artículo 12, apartado 3, de la ley neerlandesa del IVA (Wet OB 1968).";
+                case PL -> "ODWROTNE OBCIĄŻENIE - VAT przeniesiony na holenderskiego nabywcę zgodnie z "
+                        + "art. 12 ust. 3 holenderskiej ustawy o VAT (Wet OB 1968).";
+                case PT -> "AUTOLIQUIDAÇÃO - IVA transferido para o cliente neerlandês nos termos do "
+                        + "artigo 12.º, n.º 3, da lei neerlandesa do IVA (Wet OB 1968).";
+                case TR -> "TERS VERGİLENDİRME - KDV, Hollanda KDV Kanunu (Wet OB 1968) madde 12/3 uyarınca "
+                        + "Hollandalı alıcıya devredilmiştir.";
+            };
             case BINNENLAND, EU_ZONDER_BTW_NUMMER -> null;
         };
     }
 
     public boolean isExempt() {
-        return this == INTRACOMMUNAUTAIR || this == UITVOER;
+        return this == INTRACOMMUNAUTAIR || this == UITVOER || this == VERLEGD_FISCAAL_VERTEGENWOORDIGER;
     }
 }

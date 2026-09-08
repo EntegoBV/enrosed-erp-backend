@@ -46,6 +46,13 @@ public class VatCalculator {
                     "Levering buiten de EU: vrijgesteld als uitvoer");
         }
 
+        /* Goods cleared in the Netherlands through our limited fiscal representative are supplied
+           there; the Dutch buyer with a VAT number owes the VAT himself (art. 12.3 Wet OB). */
+        if (customer != null && customer.fiscalRepresentative() && hasVatNumber(customer)) {
+            return new Result(VatTreatment.VERLEGD_FISCAAL_VERTEGENWOORDIGER, BigDecimal.ZERO,
+                    "Inklaring via onze fiscaal vertegenwoordiger: btw verlegd naar de afnemer (art. 12.3 Wet OB)");
+        }
+
         if (hasVatNumber(customer)) {
             return new Result(VatTreatment.INTRACOMMUNAUTAIR, BigDecimal.ZERO,
                     "EU-klant met BTW-nummer: heffing verlegd naar de afnemer");
