@@ -1,6 +1,7 @@
 package be.enrosed.sourcing.adapter.in.rest;
 
 import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
+import be.enrosed.sourcing.adapter.out.document.PdfPurchasePaymentsRenderer;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
@@ -9,6 +10,7 @@ import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.PurchaseReconciliation;
 import be.enrosed.shared.Currency;
 import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,33 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SourcingResourcePurchasePdfTest {
+
+    @Test
+    void paymentPdfUsesOneLedgerSnapshotForBothRegisterAndCostCalculation() {
+        var purchases = mock(PurchaseOrderService.class);
+        var renderer = mock(PdfPurchasePaymentsRenderer.class);
+        var resource = new SourcingResource(mock(SupplierService.class), purchases, mock(PdfPurchaseRenderer.class));
+        resource.paymentsPdf = renderer;
+        var order = order(43L);
+        var report = new PurchaseReconciliation(List.of(), null, List.of(), List.of());
+        List<PurchasePayment> ledger = List.of();
+        var document = new PdfPurchasePaymentsRenderer.Document("PO-2026-043-betalingen-kostprijs.pdf", new byte[]{1, 2});
+        when(purchases.get(43L)).thenReturn(order);
+        when(purchases.payments(43L)).thenReturn(ledger);
+        when(purchases.reconciliation(order, null, ledger)).thenReturn(report);
+        when(renderer.render(order, null, report, ledger)).thenReturn(document);
+
+        var response = resource.purchasePaymentsPdf(43L);
+
+        assertEquals(200, response.getStatus());
+        assertSame(document.content(), response.getEntity());
+        assertEquals("no-store", response.getHeaderString("Cache-Control"));
+        assertEquals("attachment; filename=\"PO-2026-043-betalingen-kostprijs.pdf\"",
+                response.getHeaderString("Content-Disposition"));
+        verify(purchases).payments(43L);
+        verify(purchases).reconciliation(order, null, ledger);
+        verify(renderer).render(order, null, report, ledger);
+    }
 
     @Test
     void explicitSupplierAudienceReachesRendererAndReturnsSupplierFilename() {

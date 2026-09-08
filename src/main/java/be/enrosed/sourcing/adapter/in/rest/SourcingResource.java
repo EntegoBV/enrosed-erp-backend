@@ -1,6 +1,7 @@
 package be.enrosed.sourcing.adapter.in.rest;
 
 import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
+import be.enrosed.sourcing.adapter.out.document.PdfPurchasePaymentsRenderer;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.ReceiptIssues;
 import be.enrosed.sourcing.application.SupplierService;
@@ -9,6 +10,7 @@ import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseDocument;
 import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.PurchaseReconciliation;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import be.enrosed.shared.security.AdminIdentityProvider;
@@ -31,6 +33,7 @@ public class SourcingResource {
     private final SupplierService suppliers;
     private final PurchaseOrderService purchaseOrders;
     private final PdfPurchaseRenderer purchasePdf;
+    @jakarta.inject.Inject PdfPurchasePaymentsRenderer paymentsPdf;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -62,7 +65,17 @@ public class SourcingResource {
                                     ActorRef createdBy,
                                     java.time.Instant createdAt,
                                     /** Damage and shortages on this container: at receipt and reported afterwards. */
-                                    List<PurchaseOrderService.ReceiptReport> receiptReports) {
+                                    List<PurchaseOrderService.ReceiptReport> receiptReports,
+                                    PurchaseReconciliation reconciliation) {
+        public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
+                                 List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                 PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
+                                 List<String> attention, PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
+                                 ActorRef createdBy, java.time.Instant createdAt,
+                                 List<PurchaseOrderService.ReceiptReport> receiptReports) {
+            this(order, costing, adjustments, costLabels, payable, attention, receiptVariance,
+                    createdBy, createdAt, receiptReports, null);
+        }
         /** Compatibility for callers written before the dossier listed its complaints. */
         public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                  List<PurchaseOrderService.CartonAdjustment> adjustments,
@@ -144,6 +157,26 @@ public class SourcingResource {
     public PurchaseOrderView getPurchaseOrder(@PathParam("id") long id) {
         PurchaseOrder order = purchaseOrders.get(id);
         return view(order, purchaseOrders.calculate(order), List.of());
+    }
+
+    @GET
+    @Path("/purchase-orders/{id}/reconciliation")
+    public PurchaseReconciliation purchaseReconciliation(@PathParam("id") long id) {
+        return purchaseOrders.reconciliation(id);
+    }
+
+    @GET
+    @Path("/purchase-orders/{id}/payments/pdf")
+    @Produces("application/pdf")
+    public Response purchasePaymentsPdf(@PathParam("id") long id) {
+        PurchaseOrder order = purchaseOrders.get(id);
+        Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
+        List<PurchasePayment> recorded = purchaseOrders.payments(id);
+        var document = paymentsPdf.render(order, supplier, purchaseOrders.reconciliation(order,
+                purchaseOrders.calculate(order), recorded), recorded);
+        return Response.ok(document.content()).header("Content-Disposition",
+                "attachment; filename=\"" + document.filename() + "\"")
+                .header("Cache-Control", "no-store").build();
     }
 
     @POST
@@ -511,7 +544,8 @@ public class SourcingResource {
         return new PurchaseOrderView(order, costing, adjustments,
                 PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
                 purchaseOrders.receiptVarianceSummary(order),
-                order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order));
+                order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order),
+                purchaseOrders.reconciliation(order, costing));
     }
 
     /** Damage or a shortage found while unpacking: booked against this container. */

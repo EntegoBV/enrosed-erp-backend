@@ -94,6 +94,53 @@ class PurchasePaymentPersistenceTest {
 
     @Test
     @TestTransaction
+    void metadataCorrectionsPreserveHistoricalEuroAmountsAfterOrderRatesChange() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Pinned FX Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        var order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"), BigDecimal.ZERO);
+        var day = LocalDate.of(2026, 8, 1);
+        var usd = purchaseOrders.addPayment(order.id(), day, new BigDecimal("300"), Currency.USD, "Deposit");
+        var cny = purchaseOrders.addPayment(order.id(), day, new BigDecimal("1000"), Currency.CNY, "Inspection",
+                PurchasePayment.Payee.SEPARATE, false);
+        assertEquals(new BigDecimal("270.00"), usd.amountEur());
+        assertEquals(new BigDecimal("126.00"), cny.amountEur());
+
+        var stored = entityManager.find(PurchaseOrderEntity.class, order.id());
+        stored.usdToEurGoods = new BigDecimal("0.95");
+        stored.cnyToUsd = new BigDecimal("0.15");
+        entityManager.flush();
+        entityManager.clear();
+
+        // The rounded monetary amount is unchanged; date, label, recipient and
+        // final-payment marker may all change without rewriting historical FX.
+        var corrected = purchaseOrders.updatePayment(order.id(), usd.id(), day.plusDays(1), new BigDecimal("300.004"),
+                Currency.USD, "Corrected recipient and final marker", PurchasePayment.Payee.LOGISTICS, true);
+        assertEquals(new BigDecimal("300.00"), corrected.amount());
+        assertEquals(new BigDecimal("270.00"), corrected.amountEur());
+        assertEquals(PurchasePayment.Payee.LOGISTICS, corrected.payee());
+        assertTrue(corrected.settles());
+        assertEquals(day.plusDays(1), corrected.paidOn());
+        var renamed = purchaseOrders.updatePayment(order.id(), cny.id(), day, new BigDecimal("1000.00"),
+                Currency.CNY, "Inspection renamed", PurchasePayment.Payee.SEPARATE, true);
+        assertEquals(new BigDecimal("126.00"), renamed.amountEur());
+        entityManager.clear();
+        assertEquals(new BigDecimal("396.00"), purchaseOrders.paymentsSince(null).stream()
+                .filter(row -> row.orderId() == order.id()).map(PurchaseOrderService.PaymentRow::amountEur)
+                .reduce(BigDecimal.ZERO, BigDecimal::add), "bank projection retains the original euro movements");
+
+        // Changing a monetary value is an actual correction and uses the saved
+        // order rate. Conversion uses the amount rounded to its stored cents.
+        var changedAmount = purchaseOrders.updatePayment(order.id(), usd.id(), day, new BigDecimal("310.006"),
+                Currency.USD, "Corrected transfer amount", PurchasePayment.Payee.LOGISTICS, true);
+        assertEquals(new BigDecimal("310.01"), changedAmount.amount());
+        assertEquals(new BigDecimal("294.51"), changedAmount.amountEur());
+        var changedCurrency = purchaseOrders.updatePayment(order.id(), cny.id(), day, new BigDecimal("1000"),
+                Currency.EUR, "Actually paid in EUR", PurchasePayment.Payee.SEPARATE, true);
+        assertEquals(new BigDecimal("1000.00"), changedCurrency.amountEur());
+    }
+
+    @Test
+    @TestTransaction
     void supplierSettlementClosesAttentionUntilItIsRevokedOrDeleted() {
         var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Settlement Co", "CN", "Yiwu",
                 null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));

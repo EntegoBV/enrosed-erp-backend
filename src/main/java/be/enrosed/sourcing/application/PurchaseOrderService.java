@@ -110,6 +110,32 @@ public class PurchaseOrderService {
         return calculator.calculate(order, byId);
     }
 
+    /** A receipt shortage changes usable unit cost, never the agreed quantity budget. */
+    public PurchaseReconciliation reconciliation(PurchaseOrder order, LandedCost currentCosting) {
+        List<PurchasePayment> recorded = payments == null || !payments.isResolvable()
+                ? List.of() : payments.get().forOrder(order.id());
+        return reconciliation(order, currentCosting, recorded);
+    }
+
+    /** Accept one ledger snapshot so a PDF cannot mix a corrected register with older totals. */
+    public PurchaseReconciliation reconciliation(PurchaseOrder order, LandedCost currentCosting,
+                                                List<PurchasePayment> recorded) {
+        List<PurchaseOrderLine> budgetLines = order.lines().stream().map(line -> new PurchaseOrderLine(
+                line.id(), line.productId(), line.ordered(), line.exwPrice(), line.exwCurrency(),
+                line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(), line.damagedQuantity(),
+                line.receiptUnitValueEur(), line.issueNote(), line.extraShareEur())).toList();
+        boolean sameQuantities = order.lines().stream().allMatch(line -> line.quantity() == line.ordered());
+        PurchaseOrder budgetOrder = sameQuantities ? order : order.withReceipt(order.status(), order.receivedOn(),
+                order.paidTotalEur(), order.stockBooked(), order.notes(), budgetLines);
+        LandedCost budget = sameQuantities ? currentCosting : calculate(budgetOrder);
+        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded);
+    }
+
+    public PurchaseReconciliation reconciliation(long orderId) {
+        PurchaseOrder order = get(orderId);
+        return reconciliation(order, calculate(order));
+    }
+
     @Transactional
     public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                 BigDecimal defaultDutyRatePct) {
@@ -789,15 +815,21 @@ public class PurchaseOrderService {
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
+        BigDecimal recordedAmount = amount.setScale(2, RoundingMode.HALF_UP);
+        if (recordedAmount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? before.currency() : currency;
-        BigDecimal eur = switch (money) {
-            case EUR -> amount;
-            case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
-            case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
+        // Date, label, recipient and settlement corrections never revalue an
+        // existing bank movement at an exchange rate edited since registration.
+        boolean unchangedMoney = money == before.currency() && before.amount() != null
+                && recordedAmount.compareTo(before.amount()) == 0 && before.amountEur() != null;
+        BigDecimal eur = unchangedMoney ? before.amountEur() : switch (money) {
+            case EUR -> recordedAmount;
+            case USD -> recordedAmount.multiply(Money.nz(order.usdToEurGoods()));
+            case CNY -> recordedAmount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
         };
         PurchasePayment after = payments.get().save(new PurchasePayment(before.id(), orderId,
                 paidOn != null ? paidOn : before.paidOn(),
-                amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
+                recordedAmount, money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
                 label == null || label.isBlank() ? null : label.strip(),
                 before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles));
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
