@@ -29,6 +29,9 @@ public final class PushEntities {
         public String auth;
         @Column(length = 300)
         public String userAgent;
+        /** Who registered the device; a creator does not need a push about their own action. */
+        @Column(length = 80)
+        public String username;
         public Instant createdAt = Instant.now();
         /** HTTP status of the most recent delivery attempt; null before the first. */
         public Integer lastStatus;

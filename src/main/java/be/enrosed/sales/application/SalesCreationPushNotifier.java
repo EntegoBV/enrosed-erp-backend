@@ -22,7 +22,7 @@ public class SalesCreationPushNotifier {
         try {
             Message message = message(ready);
             phones.notifyAll(message.kind(), message.title(), message.body(),
-                    "/sales/" + ready.orderId());
+                    "/sales/" + ready.orderId(), ready.actor().username());
         } catch (RuntimeException ignored) {
             /* A push subscription or VAPID problem may never affect the saved document. */
         }

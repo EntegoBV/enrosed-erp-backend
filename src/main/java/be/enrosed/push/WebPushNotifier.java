@@ -81,6 +81,11 @@ public class WebPushNotifier {
     /** Registers or refreshes one device. */
     @Transactional
     public void subscribe(String endpoint, String p256dh, String auth, String userAgent) {
+        subscribe(endpoint, p256dh, auth, userAgent, null);
+    }
+
+    @Transactional
+    public void subscribe(String endpoint, String p256dh, String auth, String userAgent, String username) {
         PushSubscriptionEntity existing = PushSubscriptionEntity
                 .<PushSubscriptionEntity>find("endpoint", endpoint).firstResult();
         if (existing == null) {
@@ -90,6 +95,7 @@ public class WebPushNotifier {
         existing.p256dh = p256dh;
         existing.auth = auth;
         existing.userAgent = userAgent;
+        existing.username = username == null || username.isBlank() ? existing.username : username;
         existing.persist();
     }
 
@@ -104,8 +110,16 @@ public class WebPushNotifier {
 
     /** Fire-and-forget to every device; dead endpoints clean themselves up. */
     public void notifyAll(String kind, String title, String body, String url) {
+        notifyAll(kind, title, body, url, null);
+    }
+
+    /** Every device except the ones of the person who just did it: they saw it happen. */
+    public void notifyAll(String kind, String title, String body, String url, String exceptUsername) {
         List<PushSubscriptionEntity> subscriptions =
-                PushSubscriptionEntity.<PushSubscriptionEntity>listAll();
+                PushSubscriptionEntity.<PushSubscriptionEntity>listAll().stream()
+                        .filter(subscription -> exceptUsername == null || subscription.username == null
+                                || !exceptUsername.equalsIgnoreCase(subscription.username))
+                        .toList();
         if (subscriptions.isEmpty()) return;
         vapidPublicKey();
         String payload = """

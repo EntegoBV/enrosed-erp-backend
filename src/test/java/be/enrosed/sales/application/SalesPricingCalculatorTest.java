@@ -23,6 +23,31 @@ class SalesPricingCalculatorTest {
             new SalesPricingCalculator(new PalletCalculator(), new DeliveryCalculator());
 
     @Test
+    void aPartnerDealPricesTheContainersExactPiecesWhileOtherOrdersShipFullCartons() {
+        Product product = product(1L, "SKU-1", carton("10", "10", "10", 6, "2"));
+        SalesOrder plain = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(null, 1L, 500, decimal("17.2175"), null, null)), List.of());
+        SalesOrder partner = plain.withPartnerDeal(13L, decimal("50"));
+
+        PricedOrder rounded = price(plain, Map.of(1L, product));
+        PricedOrder exact = price(partner, Map.of(1L, product));
+
+        assertEquals(504, rounded.lines().getFirst().quantity(), "an ordinary order ships full cartons");
+        assertEquals(500, exact.lines().getFirst().quantity(), "a partner deal follows the container");
+        assertEquals(84, exact.lines().getFirst().cartons(), "the cartons are still counted for logistics");
+        assertEquals(decimal("8608.75"), exact.lines().getFirst().net());
+
+        /* A staffel that would apply to any customer leaves a partner's cost price alone. */
+        List<DiscountTier> tiers = List.of(new DiscountTier(2L, TierScope.LINE, 100, decimal("5"), 1L));
+        PricedOrder discounted = price(plain, Map.of(1L, product), tiers);
+        PricedOrder atCost = price(partner, Map.of(1L, product), tiers);
+        assertEquals(decimal("5"), discounted.lines().getFirst().tierPercent());
+        assertEquals(0, atCost.lines().getFirst().tierPercent().signum());
+        assertEquals(decimal("8608.75"), atCost.lines().getFirst().net());
+    }
+
+    @Test
     void looseCartonsKeepOuterCartonCbmAndIgnoreStoredPallets() {
         Product product = product(1L, "SKU-1", carton("10", "10", "10", 10, "2"));
         SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.PER_CBM,

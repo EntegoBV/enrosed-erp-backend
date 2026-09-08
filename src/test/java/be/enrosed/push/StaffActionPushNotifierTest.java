@@ -15,7 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -60,8 +62,7 @@ class StaffActionPushNotifierTest {
                 82L, "Bowl Rose XL", "ENR-BOWL-XL", BERAT);
 
         notifier.afterCommit(ready);
-        verify(phones).notifyAll("product", "\uD83C\uDF39 Product toegevoegd: Bowl Rose XL",
-                "ENR-BOWL-XL · door Berat", "/products/82");
+        verify(phones).notifyAll(eq("product"), eq("\uD83C\uDF39 Product toegevoegd: Bowl Rose XL"), eq("ENR-BOWL-XL · door Berat"), eq("/products/82"), any());
 
         doThrow(new IllegalStateException("push unavailable")).when(phones)
                 .notifyAll(anyString(), anyString(), anyString(), anyString());

@@ -86,7 +86,8 @@ public class SalesPricingCalculator {
                what actually goes out the door. */
             int requested = Math.max(0, line.quantity());
             int cartons = carton.cartonsFor(requested);
-            int quantity = cartons * Math.max(1, carton.piecesPerCarton());
+            /* A partner deal follows the container: the pieces it holds, not a full last carton. */
+            int quantity = order.isPartnerDeal() ? requested : cartons * Math.max(1, carton.piecesPerCarton());
 
             boolean validOuterCarton = hasValidOuterCarton(carton);
             if (quantity > 0 && !validOuterCarton) withoutCartonDimensions.add(product.sku());
@@ -118,7 +119,8 @@ public class SalesPricingCalculator {
 
             List<DiscountTier> productLineTiers = lineTiersForProduct(
                     context.lineTiers(), product.id());
-            BigDecimal tierPct = tierPercentFor(productLineTiers, quantity);
+            /* A partner pays our landed cost: no staffel on top of it. */
+            BigDecimal tierPct = order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(productLineTiers, quantity);
             BigDecimal manualPct = Money.nz(line.manualDiscountPct());
             BigDecimal discountPct = tierPct.add(manualPct).min(Money.HUNDRED);
             BigDecimal discountAmount = Money.percentOf(lineGross, discountPct);
@@ -182,7 +184,7 @@ public class SalesPricingCalculator {
 
         /* ---- kortingen ------------------------------------------------- */
         BigDecimal subtotal = gross.subtract(lineDiscountTotal);
-        BigDecimal orderTierPct = tierPercentFor(context.orderTiers(), pieces);
+        BigDecimal orderTierPct = order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(context.orderTiers(), pieces);
         BigDecimal orderDiscount = Money.percentOf(subtotal, orderTierPct);
         BigDecimal afterOrderTier = subtotal.subtract(orderDiscount);
 

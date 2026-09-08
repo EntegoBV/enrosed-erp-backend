@@ -749,7 +749,10 @@ public class SalesOrderService {
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
-                roundLinesToCartons(changes.lines()), changes.pallets())
+                /* A partner deal keeps the container's exact pieces; other documents ship full cartons. */
+                current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
+                        ? changes.lines() : roundLinesToCartons(changes.lines()),
+                changes.pallets())
                 .withExtraLines(keptExtraLines(changes.extraLines()))
                 /* Null means an update client that does not know the deal: keep it. */
                 .withPartnerDeal(

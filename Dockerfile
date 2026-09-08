@@ -52,6 +52,7 @@ COPY docs/migrations/2026-09-07/sales-order-partner-deal-postgresql.sql ./migrat
 COPY docs/migrations/2026-09-08/partner-customers-and-settlements-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-channel-and-company-costs-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/product-cost-history-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-08/push-subscription-username-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Soft memory discipline rather than a tight cap: G1 collects while idle and

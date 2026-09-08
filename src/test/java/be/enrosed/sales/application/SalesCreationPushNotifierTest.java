@@ -12,7 +12,9 @@ import java.lang.reflect.Method;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -56,8 +58,7 @@ class SalesCreationPushNotifierTest {
 
         notifier.afterCommit(ready);
 
-        verify(phones).notifyAll("sale-quote", "Nieuwe offerte ENR-2026-0042",
-                "Aangemaakt door Berat", "/sales/42");
+        verify(phones).notifyAll(eq("sale-quote"), eq("Nieuwe offerte ENR-2026-0042"), eq("Aangemaakt door Berat"), eq("/sales/42"), any());
 
         doThrow(new IllegalStateException("push unavailable")).when(phones)
                 .notifyAll(anyString(), anyString(), anyString(), anyString());

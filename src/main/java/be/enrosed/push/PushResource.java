@@ -21,6 +21,9 @@ public class PushResource {
 
     private final WebPushNotifier push;
 
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.shared.security.CurrentActor> actor;
+
     public PushResource(WebPushNotifier push) {
         this.push = push;
     }
@@ -40,7 +43,8 @@ public class PushResource {
         if (dto == null || dto.endpoint() == null || dto.p256dh() == null || dto.auth() == null) {
             throw new BusinessRuleException("Onvolledige pushregistratie");
         }
-        push.subscribe(dto.endpoint(), dto.p256dh(), dto.auth(), dto.userAgent());
+        push.subscribe(dto.endpoint(), dto.p256dh(), dto.auth(), dto.userAgent(),
+                actor != null && actor.isResolvable() ? actor.get().current().username() : null);
         return Map.of("subscriptions", push.subscriptionCount());
     }
 

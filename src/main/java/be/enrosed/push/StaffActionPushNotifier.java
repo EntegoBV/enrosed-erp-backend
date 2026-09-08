@@ -28,7 +28,7 @@ public class StaffActionPushNotifier {
     void afterCommit(@Observes(during = TransactionPhase.AFTER_SUCCESS) Ready ready) {
         try {
             Message message = message(ready);
-            phones.notifyAll(message.kind(), message.title(), message.body(), message.url());
+            phones.notifyAll(message.kind(), message.title(), message.body(), message.url(), ready.actor().username());
         } catch (RuntimeException ignored) {
             /* A device or VAPID failure may never affect an already committed staff action. */
         }
