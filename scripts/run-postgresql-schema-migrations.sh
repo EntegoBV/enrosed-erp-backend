@@ -38,4 +38,7 @@ exec psql \
     --file=/app/migrations/partner-customers-and-settlements-postgresql.sql \
     --file=/app/migrations/sales-channel-and-company-costs-postgresql.sql \
     --file=/app/migrations/product-cost-history-postgresql.sql \
-    --file=/app/migrations/push-subscription-username-postgresql.sql
+    --file=/app/migrations/push-subscription-username-postgresql.sql \
+    --file=/app/migrations/recurring-costs-and-bank-balances-postgresql.sql \
+    --file=/app/migrations/sales-line-cost-snapshot-postgresql.sql \
+    --file=/app/migrations/media-link-company-cost-postgresql.sql

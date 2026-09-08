@@ -37,8 +37,21 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
 
             BigDecimal cbmShare,
             BigDecimal valueShare,
-            BigDecimal pieceShare
-    ) {}
+            BigDecimal pieceShare,
+            /** This line's share of the inspection and the other named costs; inside totalEur and the piece price. */
+            BigDecimal separateEur
+    ) {
+        /** Compatibility for callers written before the separate costs joined the piece price. */
+        public Line(Long productId, String productName, int quantity, int cartons, BigDecimal cbm,
+                    BigDecimal goodsUsd, BigDecimal goodsEur, BigDecimal originEur, BigDecimal freightEur,
+                    BigDecimal customsValueEur, BigDecimal dutyRatePct, String dutySource, BigDecimal dutyEur,
+                    BigDecimal destinationEur, BigDecimal extraRevenueEur, BigDecimal totalEur, BigDecimal landedUnitEur,
+                    BigDecimal cbmShare, BigDecimal valueShare, BigDecimal pieceShare) {
+            this(productId, productName, quantity, cartons, cbm, goodsUsd, goodsEur, originEur, freightEur, customsValueEur,
+                    dutyRatePct, dutySource, dutyEur, destinationEur, extraRevenueEur, totalEur, landedUnitEur,
+                    cbmShare, valueShare, pieceShare, BigDecimal.ZERO);
+        }
+    }
 
     public record Totals(
             int pieces,
@@ -55,15 +68,15 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
             BigDecimal totalEur,
             BigDecimal averageUnitEur,
             BigDecimal effectiveDutyPct,
-            /** Factory inspection: its own line, never inside totalEur or a piece price. */
+            /** Factory inspection, shown by name; spread over the lines, so it sits inside totalEur and every piece price. */
             BigDecimal inspectionEur,
-            /** The charged other costs by name, for the sheets; same rule as the inspection. */
+            /** The charged other costs by name, for the sheets; spread the same way as the inspection. */
             List<OtherCost> otherCosts,
             /** The other costs added up. */
             BigDecimal otherCostsEur,
-            /** Inspection plus other costs: everything booked apart from the piece price. */
+            /** Inspection plus other costs: what the container cost on top of goods, freight, duty and handling. */
             BigDecimal separateCostsEur,
-            /** totalEur plus the separate costs, for the bottom line of the internal sheets. */
+            /** Equal to totalEur now that the separate costs sit inside it; kept for older clients of the API. */
             BigDecimal totalWithSeparateCostsEur
     ) {
         /** Compatibility for callers written before the separate cost lines existed. */
@@ -76,7 +89,7 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
                     BigDecimal.ZERO, List.of(), BigDecimal.ZERO, BigDecimal.ZERO, totalEur);
         }
 
-        /** True when the sheets have something to print under the landed total. */
+        /** True when the sheets have an inspection or other named cost to show inside the landed total. */
         public boolean hasSeparateCosts() {
             return separateCostsEur != null && separateCostsEur.signum() > 0;
         }

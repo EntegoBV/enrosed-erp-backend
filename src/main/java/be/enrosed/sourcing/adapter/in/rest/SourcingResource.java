@@ -39,6 +39,13 @@ public class SourcingResource {
         this.purchasePdf = purchasePdf;
     }
 
+    /** Every payment on every container from a day on: what left the bank for purchasing. */
+    @GET
+    @Path("/purchase-payments")
+    public List<PurchaseOrderService.PaymentRow> purchasePayments(@QueryParam("from") String from) {
+        return purchaseOrders.paymentsSince(from == null || from.isBlank() ? null : java.time.LocalDate.parse(from.strip()));
+    }
+
     public record CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                       BigDecimal defaultDutyRatePct, ContainerType containerType) {}
 

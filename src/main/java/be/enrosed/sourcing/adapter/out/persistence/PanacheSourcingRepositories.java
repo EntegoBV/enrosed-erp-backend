@@ -105,6 +105,12 @@ public final class PanacheSourcingRepositories {
         }
 
         @Override
+        public List<be.enrosed.sourcing.domain.PurchasePayment> since(java.time.LocalDate from) {
+            var rows = from == null ? dao.list("order by paidOn, id") : dao.list("paidOn >= ?1 order by paidOn, id", from);
+            return rows.stream().map(PaymentAdapter::toDomain).toList();
+        }
+
+        @Override
         public be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment) {
             SourcingEntities.PurchasePaymentEntity entity = new SourcingEntities.PurchasePaymentEntity();
             entity.orderId = payment.orderId();

@@ -17,6 +17,8 @@ public interface SourcingRepositories {
 
     interface Payments {
         List<be.enrosed.sourcing.domain.PurchasePayment> forOrder(long orderId);
+        /** Every payment on every order, oldest first; from a day when given. */
+        List<be.enrosed.sourcing.domain.PurchasePayment> since(java.time.LocalDate from);
         be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment);
         boolean delete(long orderId, long paymentId);
         default long deleteForOrder(long orderId) {

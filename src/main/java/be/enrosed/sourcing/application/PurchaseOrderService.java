@@ -485,6 +485,22 @@ public class PurchaseOrderService {
         return payments == null || !payments.isResolvable() ? List.of() : payments.get().forOrder(orderId);
     }
 
+    /** One payment that left the bank, with the container it went to. */
+    public record PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
+                             BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee) {}
+
+    /** Every payment on every container from a day on, oldest first: the money side of the bank. */
+    public List<PaymentRow> paymentsSince(LocalDate from) {
+        if (payments == null || !payments.isResolvable()) return List.of();
+        Map<Long, PurchaseOrder> byId = orders.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(PurchaseOrder::id, java.util.function.Function.identity(), (left, right) -> left));
+        return payments.get().since(from).stream().map(payment -> {
+            PurchaseOrder order = byId.get(payment.orderId());
+            return new PaymentRow(payment.id(), payment.orderId(), order == null ? null : order.number(),
+                    order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee());
+        }).toList();
+    }
+
     /**
      * Records money that left for this order, in the currency it left in,
      * with the euro value at the order's rates. Nothing is derived later:

@@ -26,6 +26,9 @@ public class CompanyCostService {
     @Inject
     Instance<ActivityLogService> activity;
 
+    @Inject
+    Instance<be.enrosed.media.MediaService> media;
+
     public CompanyCostService(CompanyCosts costs) {
         this.costs = costs;
     }
@@ -52,14 +55,32 @@ public class CompanyCostService {
     @Transactional
     public CompanyCost update(long id, CompanyCost changes) {
         CompanyCost current = get(id);
-        CompanyCost saved = costs.save(validated(changes, current.id(), current.createdAt()));
+        /* The link to the recurring definition is the booking job's, not the form's. */
+        CompanyCost linked = new CompanyCost(null, changes.date(), changes.category(), changes.description(), changes.party(),
+                changes.amountExclEur(), changes.vatPct(), changes.reference(), changes.paidOn(), changes.salesChannel(),
+                changes.notes(), null, current.recurringCostId());
+        CompanyCost saved = costs.save(validated(linked, current.id(), current.createdAt()));
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost bijgewerkt");
+        return saved;
+    }
+
+    /** Settles an open cost on a day: the accountant's invoice was paid, the direct debit went through. */
+    @Transactional
+    public CompanyCost markPaid(long id, LocalDate paidOn) {
+        CompanyCost current = get(id);
+        LocalDate day = paidOn == null ? LocalDate.now() : paidOn;
+        CompanyCost saved = costs.save(new CompanyCost(current.id(), current.date(), current.category(), current.description(),
+                current.party(), current.amountExclEur(), current.vatPct(), current.reference(), day, current.salesChannel(),
+                current.notes(), current.createdAt(), current.recurringCostId()));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost betaald op " + day);
         return saved;
     }
 
     @Transactional
     public void delete(long id) {
         CompanyCost cost = get(id);
+        /* The invoice stays in the library; only its link to this cost goes. */
+        if (media != null && media.isResolvable()) media.get().unlinkTarget(be.enrosed.media.MediaTargetType.COMPANY_COST, id);
         costs.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, cost, "Kost verwijderd");
     }
@@ -82,7 +103,7 @@ public class CompanyCostService {
                 cost.amountExclEur().setScale(2, java.math.RoundingMode.HALF_UP), cost.vatPct(),
                 clean(cost.reference()), cost.paidOn(),
                 channel == null ? null : channel.toUpperCase(), clean(cost.notes()),
-                createdAt == null ? Instant.now() : createdAt);
+                createdAt == null ? Instant.now() : createdAt, cost.recurringCostId());
     }
 
     private static String clean(String value) {

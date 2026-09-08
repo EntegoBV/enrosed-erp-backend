@@ -266,4 +266,22 @@ class SalesPricingCalculatorTest {
     private static BigDecimal decimal(String value) {
         return new BigDecimal(value);
     }
+
+    @Test
+    void aLineWrittenWithACostKeepsItWhenTheProductsCostMovesOn() {
+        Product product = product(1L, "SKU-1", carton("10", "10", "10", 6, "2"));
+        SalesOrder remembered = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(null, 1L, 6, decimal("10"), null, null, decimal("4.5000"))), List.of());
+        SalesOrder fresh = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(null, 1L, 6, decimal("10"), null, null)), List.of());
+
+        PricedOrder snapshot = price(remembered, Map.of(1L, product));
+        PricedOrder live = price(fresh, Map.of(1L, product));
+
+        assertEquals(decimal("4.5000"), snapshot.lines().getFirst().landedUnitCost(), "the cost of the day it was written");
+        assertEquals(decimal("27.00"), snapshot.lines().getFirst().costTotal());
+        assertEquals(decimal("1.0000"), live.lines().getFirst().landedUnitCost(), "no snapshot: the product's cost of today");
+    }
 }

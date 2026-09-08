@@ -445,7 +445,7 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
-    void portraitPrintsInspectionAndOtherCostsUnderTheTotalUnlessLeftOff() throws Exception {
+    void portraitPrintsInspectionAndOtherCostsInsideTheTotalUnlessLeftOff() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id())
                 .withInspectionCost(new BigDecimal("250"))
@@ -475,19 +475,17 @@ class PdfPurchaseRendererRenderTest {
 
         try (PDDocument pdf = Loader.loadPDF(shown.content())) {
             String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
-            assertTrue(text.contains("inspectie apart, niet in de stukprijs 250,00 eur"), text);
-            assertTrue(text.contains("certificaat apart 120,00 eur"), text);
-            assertTrue(text.contains("totaal incl. aparte kosten"), text);
-            assertTrue(text.contains("9.213,03"),
-                    "8.843,03 through delivery plus 370,00 booked apart: " + text);
-            assertTrue(text.contains("8.843,03"), "the landed total itself does not move: " + text);
+            assertTrue(text.contains("inspectie in de stukprijs verdeeld 250,00 eur"), text);
+            assertTrue(text.contains("certificaat verdeeld 120,00 eur"), text);
+            assertTrue(text.contains("totale kost t/m levering, incl. de kosten hierboven 9.213,03 eur"),
+                    "8.843,03 through delivery plus 370,00 spread over the pieces: " + text);
+            assertFalse(text.contains("apart"), "nothing is booked apart any more: " + text);
         }
         try (PDDocument pdf = Loader.loadPDF(hidden.content())) {
             String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
             assertFalse(text.contains("inspectie"), "left off this copy: " + text);
             assertFalse(text.contains("certificaat"), text);
-            assertFalse(text.contains("9.213,03"), text);
-            assertTrue(text.contains("8.843,03"), text);
+            assertTrue(text.contains("9.213,03"), "the total keeps the costs even when their names are left off: " + text);
         }
         try (PDDocument pdf = Loader.loadPDF(supplierCopy.content())) {
             String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");

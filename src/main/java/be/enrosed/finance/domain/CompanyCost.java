@@ -28,9 +28,22 @@ public record CompanyCost(
         /** The sales channel the cost belongs to, when it does: TICA for the stand, FAIR for a fair. */
         String salesChannel,
         String notes,
-        Instant createdAt
+        Instant createdAt,
+        /** The recurring definition that booked this cost automatically; null for a hand-booked cost. */
+        Long recurringCostId
 ) {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+
+    /** A hand-booked cost, before recurring definitions existed. */
+    public CompanyCost(Long id, LocalDate date, String category, String description, String party,
+                       BigDecimal amountExclEur, BigDecimal vatPct, String reference, LocalDate paidOn,
+                       String salesChannel, String notes, Instant createdAt) {
+        this(id, date, category, description, party, amountExclEur, vatPct, reference, paidOn, salesChannel, notes, createdAt, null);
+    }
+
+    public boolean recurring() {
+        return recurringCostId != null;
+    }
 
     public BigDecimal amountExclEur() {
         return amountExclEur == null ? BigDecimal.ZERO : amountExclEur;

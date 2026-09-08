@@ -46,6 +46,15 @@ public class CompanyCostResource {
         return costs.update(id, cost);
     }
 
+    /** Body: {"paidOn": "2026-09-08"}; an empty body means today. */
+    @POST
+    @Path("/{id}/paid")
+    public CompanyCost markPaid(@PathParam("id") long id, PaidRequest body) {
+        return costs.markPaid(id, body == null ? null : parse(body.paidOn()));
+    }
+
+    public record PaidRequest(String paidOn) {}
+
     @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") long id) {

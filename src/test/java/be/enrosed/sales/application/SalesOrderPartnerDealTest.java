@@ -196,9 +196,8 @@ class SalesOrderPartnerDealTest {
         assertEquals(7L, quote.customerId());
         assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitPriceEur(), "the container's landed cost to the cent");
         assertEquals(40, quote.lines().get(0).quantity());
-        assertEquals(List.of("Inspectie · PO-2026-008", "Fumigatie · PO-2026-008"),
-                quote.extraLines().stream().map(SalesExtraLine::description).toList());
-        assertEquals(new BigDecimal("150.00"), quote.extraLines().get(0).unitPriceEur());
+        assertTrue(quote.extraLines().isEmpty(), "the inspection and other costs sit inside the landed piece price");
+        assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitCostEur(), "the line remembers what the container cost us");
         assertEquals(FreightState.AANGEVULD, quote.freight());
         assertEquals(FreightPricingStrategy.FIXED, quote.freightPricingStrategy(), "no carrier tariff on top of the landed cost");
         assertEquals(BigDecimal.ZERO, quote.manualFreightEur());
@@ -212,13 +211,14 @@ class SalesOrderPartnerDealTest {
         SalesOrder half = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("50"), true, List.of(), null));
         assertEquals(new BigDecimal("9.6432"), half.lines().get(0).unitPriceEur());
-        assertEquals(new BigDecimal("75.00"), half.extraLines().get(0).unitPriceEur());
-        assertEquals(1, half.extraLines().size());
+        assertEquals(new BigDecimal("19.2863"), half.lines().get(0).unitCostEur(), "half the price, the whole cost");
+        assertTrue(half.extraLines().isEmpty());
 
         /* Customer prices: no landed cost needed, no partner deal, ordinary freight. */
         SalesOrder plain = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "CUSTOMER", null, true, null, null, false, List.of(), null));
         assertNull(plain.lines().get(0).unitPriceEur());
+        assertEquals(new BigDecimal("19.2863"), plain.lines().get(0).unitCostEur(), "customer prices, still the container's cost");
         assertNull(plain.partnerPurchaseOrderId());
         assertEquals(FreightState.BEREKEND, plain.freight());
         assertEquals("DIRECT", plain.salesChannel());

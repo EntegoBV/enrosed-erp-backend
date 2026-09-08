@@ -650,9 +650,8 @@
               {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
             {/if}
           {/if}
-          {#if showEnrosedCost}<tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>
-            {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label}<br/><span class="price-sub">{cost.note}</span></td><td>{cost.amount.money} EUR</td></tr>{/for}
-            <tr class="combined-total"><td>{separateCostsTotalLabel}</td><td>{totalWithSeparateCostsEur.money} EUR</td></tr>{/if}{/if}
+          {#if showEnrosedCost}{#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label}<br/><span class="price-sub">{cost.note}</span></td><td>{cost.amount.money} EUR</td></tr>{/for}{/if}
+            <tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering{#if hasSeparateCosts}, incl. de kosten hierboven{/if}</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>{/if}
         </table>
       </div>
       {#if showPrices && missingDisplayedPrices > 0}

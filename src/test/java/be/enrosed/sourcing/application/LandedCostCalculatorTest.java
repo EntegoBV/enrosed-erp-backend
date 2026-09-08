@@ -314,8 +314,8 @@ class LandedCostCalculatorTest {
     }
 
     @Test
-    @DisplayName("de inspectiekost blijft een apart lijntje en raakt geen stukprijs")
-    void inspectionStaysOffEveryLineAndPiecePrice() {
+    @DisplayName("de inspectiekost zit in de gelande totaal en in elke stukprijs")
+    void inspectionJoinsTheLandedTotalAndEveryPiecePrice() {
         PurchaseOrder plain = excelOrder();
         PurchaseOrder inspected = plain.withInspectionCost(new BigDecimal("450"));
         Map<Long, Product> products = Map.of(1L, preservedRose());
@@ -323,12 +323,16 @@ class LandedCostCalculatorTest {
         LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);
         LandedCost with = calculator(new BigDecimal("10")).calculate(inspected, products);
 
-        assertEquals(without.lines(), with.lines(), "no line moves when an inspection is booked");
-        assertEquals(without.totals().totalEur(), with.totals().totalEur());
-        assertEquals(without.totals().averageUnitEur(), with.totals().averageUnitEur());
+        LandedCost.Line before = without.lines().get(0);
+        LandedCost.Line after = with.lines().get(0);
+        assertEquals(new BigDecimal("450.00"), after.separateEur(), "one line carries the whole inspection");
+        assertEquals(before.totalEur().add(new BigDecimal("450.00")), after.totalEur());
+        assertTrue(after.landedUnitEur().compareTo(before.landedUnitEur()) > 0, "the piece price rises with it");
+        assertEquals(new BigDecimal("0.00"), before.separateEur());
+        assertEquals(new BigDecimal("45199.38"), with.totals().totalEur());
+        assertEquals(with.totals().totalEur(), with.totals().totalWithSeparateCostsEur(), "one total, nothing apart");
         assertEquals(new BigDecimal("450.00"), with.totals().inspectionEur());
         assertEquals(new BigDecimal("450.00"), with.totals().separateCostsEur());
-        assertEquals(new BigDecimal("45199.38"), with.totals().totalWithSeparateCostsEur());
         assertEquals(new BigDecimal("0.00"), without.totals().inspectionEur());
         assertEquals(without.totals().totalEur(), without.totals().totalWithSeparateCostsEur());
         assertFalse(without.totals().hasSeparateCosts());
@@ -336,8 +340,8 @@ class LandedCostCalculatorTest {
     }
 
     @Test
-    @DisplayName("andere benoemde kosten tellen naast de inspectie, nooit in een stukprijs")
-    void otherNamedCostsStayOffEveryLineLikeTheInspection() {
+    @DisplayName("andere benoemde kosten tellen net als de inspectie mee in de stukprijs")
+    void otherNamedCostsJoinThePiecePriceLikeTheInspection() {
         PurchaseOrder plain = excelOrder();
         PurchaseOrder booked = plain.withInspectionCost(new BigDecimal("450")).withOtherCosts(List.of(
                 new OtherCost("Certificaat", new BigDecimal("120")),
@@ -349,15 +353,13 @@ class LandedCostCalculatorTest {
         LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);
         LandedCost with = calculator(new BigDecimal("10")).calculate(booked, products);
 
-        assertEquals(without.lines(), with.lines(), "no line moves when other costs are booked");
-        assertEquals(without.totals().totalEur(), with.totals().totalEur());
-        assertEquals(without.totals().averageUnitEur(), with.totals().averageUnitEur());
+        assertEquals(new BigDecimal("600.50"), with.lines().get(0).separateEur());
+        assertEquals(without.totals().totalEur().add(new BigDecimal("600.50")), with.totals().totalEur());
+        assertEquals(with.totals().totalEur(), with.totals().totalWithSeparateCostsEur());
         assertEquals(List.of(new OtherCost("Certificaat", new BigDecimal("120.00")),
                 new OtherCost("Labo", new BigDecimal("30.50"))), with.totals().otherCosts());
         assertEquals(new BigDecimal("150.50"), with.totals().otherCostsEur());
         assertEquals(new BigDecimal("600.50"), with.totals().separateCostsEur());
-        assertEquals(without.totals().totalEur().add(new BigDecimal("600.50")),
-                with.totals().totalWithSeparateCostsEur());
     }
 
     private static PurchaseOrder orderWith(PurchaseOrder base, List<PurchaseOrderLine> lines, Boolean groupVariants) {

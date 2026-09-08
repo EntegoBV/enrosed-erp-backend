@@ -324,6 +324,8 @@ public final class SalesEntities {
         @Column(precision = 19, scale = 4) public BigDecimal manualDiscountPct;
         /** Hand-picked delivery week, e.g. "2026-W34". Optional. */
         public String deliveryWeek;
+        /** The cost of one piece when the line was written; null on rows from before the snapshot. */
+        @Column(name = "unit_cost_eur", precision = 19, scale = 4) public BigDecimal unitCostEur;
     }
 
     @Entity(name = "QuoteRevisionEntity")

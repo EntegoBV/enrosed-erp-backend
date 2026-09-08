@@ -1,5 +1,6 @@
 package be.enrosed.media;
 
+import be.enrosed.finance.adapter.out.persistence.CompanyCostEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
@@ -698,6 +699,7 @@ public class MediaService {
     private static final String FOLDER_PRODUCTS = "Productfoto's";
     private static final String FOLDER_PURCHASES = "Inkooporders";
     private static final String FOLDER_PLANNER = "Planner";
+    private static final String FOLDER_COSTS = "Kosten";
     private static final String FOLDER_OTHER = "Overig";
 
     /**
@@ -724,6 +726,10 @@ public class MediaService {
                 yield order == null ? null : folder(label(order), folder(FOLDER_PURCHASES, null));
             }
             case PLANNER_ITEM -> folder(FOLDER_PLANNER, null);
+            case COMPANY_COST -> {
+                CompanyCostEntity cost = entities.find(CompanyCostEntity.class, targetId);
+                yield cost == null ? null : folder(String.valueOf(cost.date.getYear()), folder(FOLDER_COSTS, null));
+            }
         };
         if (folder != null) asset.folderId = folder;
     }
@@ -1041,6 +1047,11 @@ public class MediaService {
                                 PlannerItemEntity.class)
                         .setParameter("ids", ids).getResultList()
                         .forEach(row -> labels.put(new TargetKey(type, row.id), label(row)));
+                case COMPANY_COST -> entities.createQuery(
+                                "select c from CompanyCostEntity c where c.id in :ids",
+                                CompanyCostEntity.class)
+                        .setParameter("ids", ids).getResultList()
+                        .forEach(row -> labels.put(new TargetKey(type, row.id), label(row)));
             }
         }
         return labels;
@@ -1136,6 +1147,7 @@ public class MediaService {
             case PURCHASE_ORDER -> entities.find(SourcingEntities.PurchaseOrderEntity.class, id,
                     LockModeType.PESSIMISTIC_WRITE);
             case PLANNER_ITEM -> entities.find(PlannerItemEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
+            case COMPANY_COST -> entities.find(CompanyCostEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
         };
         if (target == null) throw new NotFoundException(targetTypeLabel(type), id);
         return label(target);
@@ -1147,6 +1159,7 @@ public class MediaService {
             case PRODUCT_FAMILY -> entities.find(ProductFamilyEntity.class, id);
             case PURCHASE_ORDER -> entities.find(SourcingEntities.PurchaseOrderEntity.class, id);
             case PLANNER_ITEM -> entities.find(PlannerItemEntity.class, id);
+            case COMPANY_COST -> entities.find(CompanyCostEntity.class, id);
         };
         return target == null ? null : label(target);
     }
@@ -1161,6 +1174,9 @@ public class MediaService {
                     ? order.number : order.number + " · " + order.alias;
         }
         if (target instanceof PlannerItemEntity item) return item.title;
+        if (target instanceof CompanyCostEntity cost) {
+            return cost.date == null ? cost.description : cost.description + " · " + cost.date;
+        }
         return null;
     }
 
@@ -1170,11 +1186,13 @@ public class MediaService {
             case PRODUCT_FAMILY -> "Productfamilie";
             case PURCHASE_ORDER -> "Inkooporder";
             case PLANNER_ITEM -> "Agendapunt";
+            case COMPANY_COST -> "Kost";
         };
     }
 
     private static boolean historical(MediaTargetType type) {
-        return type == MediaTargetType.PURCHASE_ORDER || type == MediaTargetType.PLANNER_ITEM;
+        return type == MediaTargetType.PURCHASE_ORDER || type == MediaTargetType.PLANNER_ITEM
+                || type == MediaTargetType.COMPANY_COST;
     }
 
     private static String cleanName(String requested, String fallback) {

@@ -28,10 +28,11 @@ public class CompanyCostEntity {
     @Column(name = "sales_channel", length = 40) public String salesChannel;
     @Column(length = 2000) public String notes;
     @Column(name = "created_at") public Instant createdAt;
+    @Column(name = "recurring_cost_id") public Long recurringCostId;
 
     public CompanyCost toDomain() {
         return new CompanyCost(id, date, category, description, party, amountExclEur, vatPct,
-                reference, paidOn, salesChannel, notes, createdAt);
+                reference, paidOn, salesChannel, notes, createdAt, recurringCostId);
     }
 
     public void apply(CompanyCost cost) {
@@ -46,5 +47,6 @@ public class CompanyCostEntity {
         salesChannel = cost.salesChannel();
         notes = cost.notes();
         createdAt = cost.createdAt();
+        recurringCostId = cost.recurringCostId();
     }
 }

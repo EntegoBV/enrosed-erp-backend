@@ -126,7 +126,9 @@ public class SalesPricingCalculator {
             BigDecimal discountAmount = Money.percentOf(lineGross, discountPct);
             BigDecimal net = lineGross.subtract(discountAmount);
 
-            BigDecimal landedUnit = Money.nz(product.landedCostEur());
+            /* The cost the line was written with; a line without one (older
+               documents, a product that had no cost yet) reads today's cost. */
+            BigDecimal landedUnit = line.hasUnitCost() ? line.unitCostEur() : Money.nz(product.landedCostEur());
             if (landedUnit.signum() == 0) withoutCost.add(product.sku());
             BigDecimal lineCost = landedUnit.multiply(BigDecimal.valueOf(quantity));
 

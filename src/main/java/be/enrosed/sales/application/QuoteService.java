@@ -21,6 +21,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -712,7 +713,7 @@ public class QuoteService {
                 updated.add(line);
             } else if (proposal.quantity() > 0) {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
-                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()));
+                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()));
             }
             /* quantity 0 means: drop this line */
         }
@@ -722,8 +723,10 @@ public class QuoteService {
             boolean known = order.lines().stream()
                     .anyMatch(line -> line.productId().equals(proposal.productId()));
             if (!known && proposal.quantity() > 0) {
+                /* A line added on the customer's word costs what the product costs today. */
+                BigDecimal cost = products.get(proposal.productId()).landedCostEur();
                 updated.add(new SalesOrderLine(null, proposal.productId(), proposal.quantity(),
-                        null, null, null));
+                        null, null, null, cost == null || cost.signum() <= 0 ? null : cost));
             }
         }
 

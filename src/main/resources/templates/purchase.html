@@ -371,10 +371,9 @@
             <td class="r">{costing.totals.dutyEur.eur}</td></tr>
         <tr><td>{costLabels.destinationCostsLabel}</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
         <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
-        <tr class="mini__grand"><td>Totaal geland</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
+        {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label} <span class="tiny">{cost.note}</span></td><td class="r">{cost.amount.eur}</td></tr>{/for}{/if}
+        <tr class="mini__grand"><td>{#if hasSeparateCosts}{separateCostsTotalLabel}{#else}Totaal geland{/if}</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
         <tr class="mini__avg"><td>Gemiddeld per stuk</td><td class="r">{costing.totals.averageUnitEur.unit}</td></tr>
-        {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label} <span class="tiny">{cost.note}</span></td><td class="r">{cost.amount.eur}</td></tr>{/for}
-        <tr class="mini__grand"><td>{separateCostsTotalLabel}</td><td class="r">{totalWithSeparateCostsEur.eur}</td></tr>{/if}
       </table>
     </td>
     <td class="card">

@@ -5,5 +5,7 @@ public enum MediaTargetType {
     PRODUCT,
     PRODUCT_FAMILY,
     PURCHASE_ORDER,
-    PLANNER_ITEM
+    PLANNER_ITEM,
+    /** A booked company cost: the supplier's invoice, the receipt, the contract. */
+    COMPANY_COST
 }

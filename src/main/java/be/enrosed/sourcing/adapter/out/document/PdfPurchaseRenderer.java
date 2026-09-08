@@ -931,8 +931,8 @@ public class PdfPurchaseRenderer {
     }
 
     /**
-     * The inspection and the named other costs as printed under the landed
-     * total, each with the reminder that it never entered a piece price.
+     * The inspection and the named other costs as printed inside the landed
+     * total, each with the note that it is spread over the piece prices.
      * Empty when nothing is booked or the buyer left them off this copy.
      */
     static List<SeparateCostRow> separateCostRows(LandedCost costing, boolean show) {
@@ -940,22 +940,22 @@ public class PdfPurchaseRenderer {
         List<SeparateCostRow> rows = new ArrayList<>();
         BigDecimal inspection = costing.totals().inspectionEur();
         if (inspection != null && inspection.signum() > 0) {
-            rows.add(new SeparateCostRow("Inspectie", "apart, niet in de stukprijs", inspection));
+            rows.add(new SeparateCostRow("Inspectie", "in de stukprijs verdeeld", inspection));
         }
         List<OtherCost> others = costing.totals().otherCosts() == null ? List.of() : costing.totals().otherCosts();
         for (OtherCost cost : others) {
             if (!cost.charged()) continue;
             rows.add(new SeparateCostRow(cost.label(),
-                    rows.isEmpty() ? "apart, niet in de stukprijs" : "apart", cost.amountEur()));
+                    rows.isEmpty() ? "in de stukprijs verdeeld" : "verdeeld", cost.amountEur()));
         }
         return List.copyOf(rows);
     }
 
-    /** "Totaal incl. inspectie" while the inspection is the only separate cost. */
+    /** "Totaal geland incl. inspectie" while the inspection is the only named cost inside the total. */
     static String separateCostsTotalLabel(LandedCost costing) {
         boolean others = costing != null && costing.totals() != null && costing.totals().otherCosts() != null
                 && costing.totals().otherCosts().stream().anyMatch(OtherCost::charged);
-        return others ? "Totaal incl. aparte kosten" : "Totaal incl. inspectie";
+        return others ? "Totaal geland incl. inspectie en andere kosten" : "Totaal geland incl. inspectie";
     }
 
     public record SupplierTotals(int pieces, int cartons, String cbm) {}

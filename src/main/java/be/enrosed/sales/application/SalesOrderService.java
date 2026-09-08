@@ -218,7 +218,7 @@ public class SalesOrderService {
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, source.id(), null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -279,17 +279,20 @@ public class SalesOrderService {
         BigDecimal factor = BigDecimal.ONE.add(markup.divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP))
                 .multiply(costPct).divide(HUNDRED, 6, java.math.RoundingMode.HALF_UP);
 
+        /* The container's costing gives every line its cost, whatever the customer pays. */
         Map<Long, LandedCost.Line> costLines = new HashMap<>();
-        if (atCost) {
-            for (LandedCost.Line line : sourcing.calculate(container).lines()) costLines.put(line.productId(), line);
+        LandedCost costing = sourcing.calculate(container);
+        if (costing != null && costing.lines() != null) {
+            for (LandedCost.Line line : costing.lines()) costLines.put(line.productId(), line);
         }
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         for (PurchaseOrderLine line : container.lines()) {
             if (line.quantity() <= 0) continue;
             BigDecimal unit = null;
+            BigDecimal snapshot = null;
             int quantity = line.quantity();
+            LandedCost.Line cost = costLines.get(line.productId());
             if (atCost) {
-                LandedCost.Line cost = costLines.get(line.productId());
                 if (cost == null || cost.landedUnitEur() == null || cost.landedUnitEur().signum() <= 0) {
                     throw new BusinessRuleException("Geen gelande kost voor " + productName(line.productId())
                             + "; reken de calculatie van " + container.number() + " eerst door");
@@ -299,23 +302,18 @@ public class SalesOrderService {
                    pieces go on the quote, so the quote adds up to what the container cost us. */
                 if (cost.quantity() > 0) quantity = cost.quantity();
             }
-            lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, null));
+            /* The container's own landed cost is what this line cost us, whatever the product's
+               cost says later; the inspection and other costs are inside it since the calculation
+               spreads them over the pieces. */
+            if (cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) snapshot = cost.landedUnitEur();
+            lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, null, snapshot));
         }
         if (lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
+        lines = withCostSnapshots(lines, null);
 
+        /* The inspection and the other named costs already sit in every landed piece price, so a
+           cost quote carries them in its lines; the request's flags from before that are ignored. */
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
-        if (atCost) {
-            String suffix = " · " + container.number();
-            if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
-                extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
-            }
-            for (Integer index : request.otherCostIndexes() == null ? List.<Integer>of() : request.otherCostIndexes()) {
-                if (index == null || index < 0 || index >= container.otherCosts().size()) continue;
-                OtherCost other = container.otherCosts().get(index);
-                if (other.label() == null || other.label().isBlank() || other.amountEur() == null || other.amountEur().signum() <= 0) continue;
-                extras.add(new SalesExtraLine(other.label().strip() + suffix, BigDecimal.ONE, part(other.amountEur(), costPct)));
-            }
-        }
 
         String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
         String internalNotes = partner
@@ -440,8 +438,10 @@ public class SalesOrderService {
             BigDecimal ours = cost.multiply(costShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP)
                     .add(profit.multiply(profitShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP));
             if (ours.signum() < 0) ours = BigDecimal.ZERO;
+            /* Our cost on this line is the part of the landed cost we financed; the rest was the partner's. */
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(),
-                    ours.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null));
+                    ours.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null,
+                    landedUnit.multiply(costShare).divide(HUNDRED, 4, java.math.RoundingMode.HALF_UP)));
             Product product = byId.get(line.productId());
             table.append(product == null ? "Product " + line.productId() : product.name())
                     .append(": ").append(line.quantity()).append(" st · veiling € ").append(money(proceeds))
@@ -750,8 +750,8 @@ public class SalesOrderService {
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
                 /* A partner deal keeps the container's exact pieces; other documents ship full cartons. */
-                current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
-                        ? changes.lines() : roundLinesToCartons(changes.lines()),
+                withCostSnapshots(current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
+                        ? changes.lines() : roundLinesToCartons(changes.lines()), current.lines()),
                 changes.pallets())
                 .withExtraLines(keptExtraLines(changes.extraLines()))
                 /* Null means an update client that does not know the deal: keep it. */
@@ -810,7 +810,7 @@ public class SalesOrderService {
         List<SalesOrderLine> lines = current.lines().stream()
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()))
+                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur())
                         : line)
                 .toList();
         SalesOrder saved = orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(),
@@ -1030,7 +1030,7 @@ public class SalesOrderService {
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -1532,8 +1532,42 @@ public class SalesOrderService {
             int rounded = (int) Math.ceil(line.quantity() / (double) per) * per;
             return rounded == line.quantity() ? line
                     : new SalesOrderLine(line.id(), line.productId(), rounded,
-                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek());
+                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur());
         }).toList();
+    }
+
+    /**
+     * Every line remembers what a piece cost us when it was written, so an
+     * old quote's margin does not drift with the product's later containers.
+     * A line that carries a cost keeps it; one the client sends back without
+     * it keeps what was stored; a new one takes the product's cost of today.
+     */
+    private List<SalesOrderLine> withCostSnapshots(List<SalesOrderLine> lines, List<SalesOrderLine> stored) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        Map<Long, Product> byId = null;
+        List<SalesOrderLine> remembered = new java.util.ArrayList<>();
+        for (SalesOrderLine line : lines) {
+            if (line == null || line.hasUnitCost()) {
+                remembered.add(line);
+                continue;
+            }
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            if (known != null && known.hasUnitCost()) {
+                remembered.add(line.withUnitCost(known.unitCostEur()));
+                continue;
+            }
+            if (byId == null) {
+                byId = products.list().stream().collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+            }
+            Product product = byId.get(line.productId());
+            BigDecimal cost = product == null ? null : product.landedCostEur();
+            remembered.add(cost == null || cost.signum() <= 0 ? line
+                    : line.withUnitCost(cost.setScale(4, java.math.RoundingMode.HALF_UP)));
+        }
+        return remembered;
     }
 
     private String nextNumber() {

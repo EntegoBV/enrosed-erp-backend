@@ -35,6 +35,12 @@ public class PanacheCompanyCosts implements CompanyCosts {
     }
 
     @Override
+    public List<CompanyCost> findByRecurringCost(long recurringCostId) {
+        return dao.list("recurringCostId = ?1", Sort.descending("date"), recurringCostId)
+                .stream().map(CompanyCostEntity::toDomain).toList();
+    }
+
+    @Override
     public CompanyCost save(CompanyCost cost) {
         CompanyCostEntity entity = cost.id() == null ? null : dao.findById(cost.id());
         if (entity == null) entity = new CompanyCostEntity();

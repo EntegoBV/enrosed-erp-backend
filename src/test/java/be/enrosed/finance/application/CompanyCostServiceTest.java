@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
 
@@ -76,5 +77,22 @@ class CompanyCostServiceTest {
 
         service.delete(9L);
         verify(costs).deleteById(9L);
+    }
+
+    @Test
+    void markingPaidKeepsEverythingElseIncludingTheRecurringLink() {
+        CompanyCost booked = new CompanyCost(12L, LocalDate.of(2026, 9, 1), "HUUR", "Huur magazijn", "Immo Ham",
+                new BigDecimal("850.00"), new BigDecimal("21"), null, null, null, "Automatisch geboekt", Instant.parse("2026-09-01T06:00:00Z"), 3L);
+        when(costs.findById(12L)).thenReturn(Optional.of(booked));
+
+        CompanyCost paid = service.markPaid(12L, LocalDate.of(2026, 9, 4));
+
+        assertEquals(LocalDate.of(2026, 9, 4), paid.paidOn());
+        assertEquals(3L, paid.recurringCostId());
+        assertEquals(booked.createdAt(), paid.createdAt());
+
+        CompanyCost edited = service.update(12L, new CompanyCost(null, LocalDate.of(2026, 9, 1), "HUUR", "Huur magazijn september",
+                "Immo Ham", new BigDecimal("850"), new BigDecimal("21"), null, null, null, null, null, null));
+        assertEquals(3L, edited.recurringCostId(), "editing the text does not cut the cost loose from its definition");
     }
 }

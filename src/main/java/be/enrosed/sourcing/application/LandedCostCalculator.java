@@ -158,6 +158,18 @@ public class LandedCostCalculator {
         BigDecimal freightEurTotal = Money.nz(order.freightUsd()).multiply(Money.nz(order.usdToEurTransport()));
         BigDecimal destinationEurTotal = Money.nz(order.destinationCostsEur());
         BigDecimal extraEurTotal = Money.nz(order.extraRevenueEur());
+        /* The inspection and the other named costs are part of what the container
+           cost us, so they go into the piece price too: by goods value over the
+           lines that travel on our account, by pieces when none does. */
+        BigDecimal inspection = Money.nz(order.inspectionCostEur());
+        List<OtherCost> otherCosts = order.otherCosts().stream()
+                .filter(OtherCost::charged)
+                .map(cost -> new OtherCost(cost.label(), Money.money(cost.amountEur())))
+                .toList();
+        BigDecimal otherCostsTotal = otherCosts.stream()
+                .map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal separateEurTotal = inspection.add(otherCostsTotal);
+        boolean separateByPieces = shipped.isEmpty() || totalValue.signum() == 0;
 
         for (Working row : working) {
             row.originEur = originEurTotal.multiply(shareFor(row, order.allocOrigin()));
@@ -169,7 +181,11 @@ public class LandedCostCalculator {
             row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
             row.dutyEur = Money.percentOf(row.customsValueEur, row.dutyRatePct);
 
-            row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur);
+            row.separateEur = separateEurTotal.multiply(separateByPieces
+                    ? overallShare(row, Allocation.PIECES, allPieces, allValue, allCbm)
+                    : row.ddp ? BigDecimal.ZERO : row.valueShare);
+
+            row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur).add(row.separateEur);
             row.landedUnitEur = row.quantity > 0
                     ? Money.divide(row.totalEur, BigDecimal.valueOf(row.quantity))
                     : BigDecimal.ZERO;
@@ -196,20 +212,12 @@ public class LandedCostCalculator {
                         row.dutyRatePct, row.dutySource, Money.money(row.dutyEur),
                         Money.money(row.destinationEur), Money.money(row.extraEur),
                         Money.money(row.totalEur), Money.unit(row.landedUnitEur),
-                        row.cbmShare, row.valueShare, row.pieceShare))
+                        row.cbmShare, row.valueShare, row.pieceShare, Money.money(row.separateEur)))
                 .toList();
 
         BigDecimal customsValue = working.stream().map(r -> r.customsValueEur).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal duty = working.stream().map(r -> r.dutyEur).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal total = working.stream().map(r -> r.totalEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal inspection = Money.nz(order.inspectionCostEur());
-        List<OtherCost> otherCosts = order.otherCosts().stream()
-                .filter(OtherCost::charged)
-                .map(cost -> new OtherCost(cost.label(), Money.money(cost.amountEur())))
-                .toList();
-        BigDecimal otherCostsTotal = otherCosts.stream()
-                .map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         LandedCost.Totals totals = new LandedCost.Totals(
                 allPieces,
@@ -231,13 +239,12 @@ public class LandedCostCalculator {
                 customsValue.signum() > 0
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
-                /* Inspection and the other named costs are container decisions,
-                   not product costs: they stay off every line and every piece price. */
+                /* Named for the sheets; their money is already inside the lines and the total. */
                 Money.money(inspection),
                 otherCosts,
                 Money.money(otherCostsTotal),
-                Money.money(inspection.add(otherCostsTotal)),
-                Money.money(total.add(inspection).add(otherCostsTotal)));
+                Money.money(separateEurTotal),
+                Money.money(total));
 
         return new LandedCost(lines, totals, fillFor(order.containerType(), totalCbm.setScale(3, RoundingMode.HALF_UP)));
     }
@@ -283,6 +290,7 @@ public class LandedCostCalculator {
             BigDecimal duty = sum(rows, r -> r.dutyEur);
             BigDecimal destination = sum(rows, r -> r.destinationEur);
             BigDecimal extra = sum(rows, r -> r.extraEur);
+            BigDecimal separate = sum(rows, r -> r.separateEur);
             for (Working row : rows) {
                 BigDecimal share = Money.share(BigDecimal.valueOf(row.quantity), total);
                 row.goodsEur = goods.multiply(share);
@@ -292,8 +300,9 @@ public class LandedCostCalculator {
                 row.dutyEur = duty.multiply(share);
                 row.destinationEur = destination.multiply(share);
                 row.extraEur = extra.multiply(share);
+                row.separateEur = separate.multiply(share);
                 row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
-                row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur);
+                row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur).add(row.separateEur);
                 row.landedUnitEur = Money.divide(row.totalEur, BigDecimal.valueOf(row.quantity));
             }
         }
@@ -336,6 +345,7 @@ public class LandedCostCalculator {
         BigDecimal dutyEur = BigDecimal.ZERO;
         BigDecimal destinationEur = BigDecimal.ZERO;
         BigDecimal extraEur = BigDecimal.ZERO;
+        BigDecimal separateEur = BigDecimal.ZERO;
         BigDecimal totalEur = BigDecimal.ZERO;
         BigDecimal landedUnitEur = BigDecimal.ZERO;
         BigDecimal cbmShare = BigDecimal.ZERO;
