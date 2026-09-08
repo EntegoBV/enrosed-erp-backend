@@ -175,6 +175,9 @@ public class LandedCostCalculator {
                 .map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal separateEurTotal = inspection.add(otherCostsTotal);
         boolean separateByPieces = shipped.isEmpty() || totalValue.signum() == 0;
+        /* Apart by default: the inspection is a container decision, not a product cost, unless a key says otherwise. */
+        boolean separateInPiecePrice = order.separateInPiecePrice();
+        Allocation separateKey = order.separateAllocation();
 
         for (Working row : working) {
             row.originEur = originEurTotal.multiply(shareFor(row, order.allocOrigin()));
@@ -187,9 +190,12 @@ public class LandedCostCalculator {
             row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
             row.dutyEur = Money.percentOf(row.customsValueEur, row.dutyRatePct);
 
-            row.separateEur = separateEurTotal.multiply(separateByPieces
-                    ? overallShare(row, Allocation.PIECES, allPieces, allValue, allCbm)
-                    : row.ddp ? BigDecimal.ZERO : row.valueShare);
+            row.separateEur = !separateInPiecePrice ? BigDecimal.ZERO
+                    : separateKey == Allocation.VALUE
+                            ? separateEurTotal.multiply(separateByPieces
+                                    ? overallShare(row, Allocation.PIECES, allPieces, allValue, allCbm)
+                                    : row.ddp ? BigDecimal.ZERO : row.valueShare)
+                            : separateEurTotal.multiply(overallShare(row, separateKey, allPieces, allValue, allCbm));
 
             row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur).add(row.separateEur);
             row.landedUnitEur = row.quantity > 0
@@ -245,12 +251,13 @@ public class LandedCostCalculator {
                 customsValue.signum() > 0
                         ? Money.divide(duty.multiply(Money.HUNDRED), customsValue).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
-                /* Named for the sheets; their money is already inside the lines and the total. */
+                /* Named for the sheets: inside the lines and the total when a key spreads them, under the total when apart. */
                 Money.money(inspection),
                 otherCosts,
                 Money.money(otherCostsTotal),
                 Money.money(separateEurTotal),
-                Money.money(total));
+                Money.money(separateInPiecePrice ? total : total.add(separateEurTotal)),
+                separateInPiecePrice);
 
         return new LandedCost(lines, totals, fillFor(order.containerType(), totalCbm.setScale(3, RoundingMode.HALF_UP)));
     }
@@ -323,7 +330,7 @@ public class LandedCostCalculator {
         return switch (allocation == null ? Allocation.PIECES : allocation) {
             case CBM -> Money.share(row.cbm, cbm);
             case VALUE -> Money.share(row.goodsEur, value);
-            case PIECES, MANUAL -> Money.share(BigDecimal.valueOf(row.quantity), BigDecimal.valueOf(pieces));
+            case PIECES, MANUAL, SEPARATE -> Money.share(BigDecimal.valueOf(row.quantity), BigDecimal.valueOf(pieces));
         };
     }
 
@@ -332,7 +339,7 @@ public class LandedCostCalculator {
         return switch (basis) {
             case CBM -> row.cbmShare;
             case VALUE -> row.valueShare;
-            case PIECES, MANUAL -> row.pieceShare;
+            case PIECES, MANUAL, SEPARATE -> row.pieceShare;
         };
     }
 

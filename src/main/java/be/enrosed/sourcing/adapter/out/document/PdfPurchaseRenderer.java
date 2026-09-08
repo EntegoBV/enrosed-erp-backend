@@ -492,15 +492,15 @@ public class PdfPurchaseRenderer {
                     .data("purchaseCbm", prepared.purchaseCbm())
                     .data("hasExtraColumn", prepared.hasExtraColumn())
                     .data("productColumnMm", productColumnMm(options))
-                    .data("totalDeliveryCostEur", prepared.totalDeliveryCostEur())
+                    /* Apart from the piece price, the printed costs join the bottom line; spread by a key they are in it already. */
+                    .data("totalDeliveryCostEur", deliveryTotalPrinted(prepared.totalDeliveryCostEur(), costing, separateCosts))
                     /* Landscape keeps every internal figure; portrait lets the buyer
                        leave the inspection and other costs off a copy. */
                     .data("separateCosts", separateCosts)
                     .data("hasSeparateCosts", !separateCosts.isEmpty())
                     .data("separateCostsTotalLabel", separateCostsTotalLabel(costing))
                     .data("totalWithSeparateCostsEur", layout == Layout.PORTRAIT
-                            ? (prepared.totalDeliveryCostEur() == null ? null
-                                    : prepared.totalDeliveryCostEur().add(Money.nz(costing.totals().separateCostsEur())))
+                            ? deliveryTotalPrinted(prepared.totalDeliveryCostEur(), costing, separateCosts)
                             : costing.totals().totalWithSeparateCostsEur())
                     .data("statusLabel", statusLabel(order.status()))
                     .data("unifiedUsdToEur", sameRate(order))
@@ -938,23 +938,36 @@ public class PdfPurchaseRenderer {
     static List<SeparateCostRow> separateCostRows(LandedCost costing, boolean show) {
         if (!show || costing == null || costing.totals() == null) return List.of();
         List<SeparateCostRow> rows = new ArrayList<>();
+        boolean inside = costing.totals().separateCostsInPiecePrice();
+        String first = inside ? "in de stukprijs verdeeld" : "apart, niet in de stukprijs";
+        String next = inside ? "verdeeld" : "apart";
         BigDecimal inspection = costing.totals().inspectionEur();
         if (inspection != null && inspection.signum() > 0) {
-            rows.add(new SeparateCostRow("Inspectie", "in de stukprijs verdeeld", inspection));
+            rows.add(new SeparateCostRow("Inspectie", first, inspection));
         }
         List<OtherCost> others = costing.totals().otherCosts() == null ? List.of() : costing.totals().otherCosts();
         for (OtherCost cost : others) {
             if (!cost.charged()) continue;
-            rows.add(new SeparateCostRow(cost.label(),
-                    rows.isEmpty() ? "in de stukprijs verdeeld" : "verdeeld", cost.amountEur()));
+            rows.add(new SeparateCostRow(cost.label(), rows.isEmpty() ? first : next, cost.amountEur()));
         }
         return List.copyOf(rows);
+    }
+
+    /** The bottom line of the portrait sheet: the piece totals, plus the printed costs when they sit apart from the piece price. */
+    static BigDecimal deliveryTotalPrinted(BigDecimal delivery, LandedCost costing, List<SeparateCostRow> printed) {
+        if (delivery == null) return null;
+        boolean inside = costing != null && costing.totals() != null && costing.totals().separateCostsInPiecePrice();
+        if (inside || printed == null || printed.isEmpty()) return delivery;
+        return delivery.add(Money.nz(costing.totals().separateCostsEur()));
     }
 
     /** "Totaal geland incl. inspectie" while the inspection is the only named cost inside the total. */
     static String separateCostsTotalLabel(LandedCost costing) {
         boolean others = costing != null && costing.totals() != null && costing.totals().otherCosts() != null
                 && costing.totals().otherCosts().stream().anyMatch(OtherCost::charged);
+        if (costing != null && costing.totals() != null && !costing.totals().separateCostsInPiecePrice()) {
+            return "Totaal incl. aparte kosten";
+        }
         return others ? "Totaal geland incl. inspectie en andere kosten" : "Totaal geland incl. inspectie";
     }
 

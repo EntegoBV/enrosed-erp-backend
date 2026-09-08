@@ -12,5 +12,7 @@ public enum Allocation {
     /** By piece count. */
     PIECES,
     /** By hand, per product line: only the Enrosed kost takes this key; the other costs fall back to pieces. */
-    MANUAL
+    MANUAL,
+    /** Not in any piece price: booked apart, under the landed total. Only the inspection and other named costs take this key. */
+    SEPARATE
 }

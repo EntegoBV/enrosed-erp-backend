@@ -320,6 +320,20 @@ public class SalesOrderService {
         /* The inspection and the other named costs already sit in every landed piece price, so a
            cost quote carries them in its lines; the request's flags from before that are ignored. */
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
+        /* Apart from the piece price, the inspection and other named costs travel as lines of their own;
+           spread by a key they are inside every piece price already and must not travel twice. */
+        if (atCost && !container.separateInPiecePrice()) {
+            String suffix = " · " + container.number();
+            if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
+                extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
+            }
+            for (Integer index : request.otherCostIndexes() == null ? List.<Integer>of() : request.otherCostIndexes()) {
+                if (index == null || index < 0 || index >= container.otherCosts().size()) continue;
+                OtherCost other = container.otherCosts().get(index);
+                if (other.label() == null || other.label().isBlank() || other.amountEur() == null || other.amountEur().signum() <= 0) continue;
+                extras.add(new SalesExtraLine(other.label().strip() + suffix, BigDecimal.ONE, part(other.amountEur(), costPct)));
+            }
+        }
 
         String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
         String internalNotes = partner

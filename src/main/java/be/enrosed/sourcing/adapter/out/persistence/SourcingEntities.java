@@ -86,6 +86,8 @@ public final class SourcingEntities {
         @Column(name = "partner_customer_id") public Long partnerCustomerId;
         @Column(name = "partner_cost_pct", precision = 5, scale = 2) public BigDecimal partnerCostPct;
         @Column(name = "partner_share_pct", precision = 5, scale = 2) public BigDecimal partnerSharePct;
+        /** How the inspection and other named costs travel; null reads as apart from the piece price. */
+        @Enumerated(EnumType.STRING) @Column(name = "alloc_separate", length = 16) public Allocation allocSeparate;
 
         @Enumerated(EnumType.STRING) public Allocation allocFreight = Allocation.CBM;
         @Enumerated(EnumType.STRING) public Allocation allocOrigin = Allocation.CBM;

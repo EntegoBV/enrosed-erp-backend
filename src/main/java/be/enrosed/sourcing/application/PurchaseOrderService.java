@@ -203,7 +203,7 @@ public class PurchaseOrderService {
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
                                 line.priceBasis()).withExtraShare(line.extraShareEur()))
-                        .toList()).withInspectionCost(source.inspectionCostEur())
+                        .toList()).withInspectionCost(source.inspectionCostEur()).withSeparateAllocation(source.allocSeparate())
                 .withOtherCosts(source.otherCosts())
                 .withCreationMetadata(creator, Instant.now()));
         recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
@@ -313,6 +313,12 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Een geplaatste inkooporder moet minstens één product bevatten");
         }
 
+        if (changes.allocExtra() == Allocation.SEPARATE) {
+            throw new BusinessRuleException("De Enrosed kost zit altijd in de stukprijs: kies volume, waarde, stuks of zelf per product");
+        }
+        if (changes.allocSeparate() == Allocation.MANUAL) {
+            throw new BusinessRuleException("Inspectie en andere kosten: kies achteraf, volume, waarde of stuks");
+        }
         BigDecimal usdToEur = unifiedUsdToEur(changes);
         PurchaseOrder saved = orders.save(new PurchaseOrder(
                 current.id(), numberFor(current, changes), changes.alias(),
@@ -335,7 +341,8 @@ public class PurchaseOrderService {
                 .withInspectionCost(changes.inspectionCostEur())
                 .withOtherCosts(keptOtherCosts(changes.otherCosts()))
                 /* Who co-orders the container is decided in the partner flow, not by a form save. */
-                .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct()));
+                .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct())
+                .withSeparateAllocation(changes.allocSeparate()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -1688,6 +1695,7 @@ public class PurchaseOrderService {
                 .add("defaultDutyRatePct", "Invoerrecht",
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
+                .add("allocSeparate", "Inspectie en andere kosten", before.separateAllocation(), after.separateAllocation())
                 .add("partnerCustomerId", "Partner", before.partnerCustomerId(), after.partnerCustomerId())
                 .add("partnerCostPct", "Partner betaalt vooraf (%)", before.partnerCostPct(), after.partnerCostPct())
                 .add("partnerSharePct", "Ons deel van de winst (%)", before.partnerSharePct(), after.partnerSharePct())

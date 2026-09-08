@@ -169,7 +169,8 @@ class SalesOrderPartnerDealTest {
         assertEquals(7L, quote.customerId());
         assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitPriceEur(), "the container's landed cost to the cent");
         assertEquals(40, quote.lines().get(0).quantity());
-        assertTrue(quote.extraLines().isEmpty(), "the inspection and other costs sit inside the landed piece price");
+        assertEquals(2, quote.extraLines().size(), "apart from the piece price, the inspection and the fumigation travel as lines of their own");
+        assertEquals(new BigDecimal("150.00"), quote.extraLines().get(0).unitPriceEur());
         assertEquals(new BigDecimal("19.2863"), quote.lines().get(0).unitCostEur(), "the line remembers what the container cost us");
         assertEquals(FreightState.AANGEVULD, quote.freight());
         assertEquals(FreightPricingStrategy.FIXED, quote.freightPricingStrategy(), "no carrier tariff on top of the landed cost");
@@ -185,7 +186,8 @@ class SalesOrderPartnerDealTest {
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("50"), true, List.of(), null));
         assertEquals(new BigDecimal("9.6432"), half.lines().get(0).unitPriceEur());
         assertEquals(new BigDecimal("19.2863"), half.lines().get(0).unitCostEur(), "half the price, the whole cost");
-        assertTrue(half.extraLines().isEmpty());
+        assertEquals(1, half.extraLines().size(), "the inspection was asked for, the fumigation was not");
+        assertEquals(new BigDecimal("75.00"), half.extraLines().get(0).unitPriceEur(), "half the inspection");
 
         /* Customer prices: no landed cost needed, no partner deal, ordinary freight. */
         SalesOrder plain = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(

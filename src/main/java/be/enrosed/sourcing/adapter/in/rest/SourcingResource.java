@@ -194,7 +194,10 @@ public class SourcingResource {
                 o.expectedArrival(), o.receivedOn(), o.paidTotalEur(), o.stockBooked(), o.paymentTerms(),
                 o.shippedOn(), o.trackingReference(), createdBy, createdAt, o.notes(), o.lines())
                 .withInspectionCost(o.inspectionCostEur())
-                .withOtherCosts(o.otherCosts());
+                .withOtherCosts(o.otherCosts())
+                /* The screen's draft keeps what it was given: the partner and the key for the separate costs. */
+                .withPartner(o.partnerCustomerId(), o.partnerCostPct(), o.partnerSharePct())
+                .withSeparateAllocation(o.allocSeparate());
     }
 
     @DELETE

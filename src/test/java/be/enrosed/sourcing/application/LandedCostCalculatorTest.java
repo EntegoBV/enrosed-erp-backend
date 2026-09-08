@@ -317,11 +317,21 @@ class LandedCostCalculatorTest {
     @DisplayName("de inspectiekost zit in de gelande totaal en in elke stukprijs")
     void inspectionJoinsTheLandedTotalAndEveryPiecePrice() {
         PurchaseOrder plain = excelOrder();
-        PurchaseOrder inspected = plain.withInspectionCost(new BigDecimal("450"));
+        PurchaseOrder inspected = plain.withInspectionCost(new BigDecimal("450")).withSeparateAllocation(Allocation.VALUE);
         Map<Long, Product> products = Map.of(1L, preservedRose());
 
         LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);
         LandedCost with = calculator(new BigDecimal("10")).calculate(inspected, products);
+
+        /* Without a key the inspection stays apart: under the total, never in a piece price. */
+        LandedCost apart = calculator(new BigDecimal("10")).calculate(plain.withInspectionCost(new BigDecimal("450")), products);
+        assertEquals(new BigDecimal("0.00"), apart.lines().get(0).separateEur());
+        assertEquals(without.lines().get(0).landedUnitEur(), apart.lines().get(0).landedUnitEur(), "the piece price does not move");
+        assertEquals(without.totals().totalEur(), apart.totals().totalEur());
+        assertEquals(without.totals().totalEur().add(new BigDecimal("450.00")), apart.totals().totalWithSeparateCostsEur());
+        assertFalse(apart.totals().separateCostsInPiecePrice());
+        assertTrue(apart.totals().hasSeparateCosts());
+        assertTrue(with.totals().separateCostsInPiecePrice());
 
         LandedCost.Line before = without.lines().get(0);
         LandedCost.Line after = with.lines().get(0);
@@ -347,7 +357,7 @@ class LandedCostCalculatorTest {
                 new OtherCost("Certificaat", new BigDecimal("120")),
                 new OtherCost("Labo", new BigDecimal("30.5")),
                 /* An empty amount is nothing to print or add. */
-                new OtherCost("Staal", null)));
+                new OtherCost("Staal", null))).withSeparateAllocation(Allocation.VALUE);
         Map<Long, Product> products = Map.of(1L, preservedRose());
 
         LandedCost without = calculator(new BigDecimal("10")).calculate(plain, products);

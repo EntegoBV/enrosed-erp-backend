@@ -76,9 +76,23 @@ public record LandedCost(List<Line> lines, Totals totals, ContainerFill containe
             BigDecimal otherCostsEur,
             /** Inspection plus other costs: what the container cost on top of goods, freight, duty and handling. */
             BigDecimal separateCostsEur,
-            /** Equal to totalEur now that the separate costs sit inside it; kept for older clients of the API. */
-            BigDecimal totalWithSeparateCostsEur
+            /** totalEur plus the separate costs when they sit apart; equal to totalEur when a key spread them. */
+            BigDecimal totalWithSeparateCostsEur,
+            /** True when a key spread the inspection and other costs into the piece prices; false when they sit apart. */
+            boolean separateCostsInPiecePrice
     ) {
+        /** Compatibility for callers written before the inspection had a key of its own: apart. */
+        public Totals(int pieces, int cartons, BigDecimal cbm, BigDecimal goodsUsd, BigDecimal goodsEur,
+                      BigDecimal originEur, BigDecimal freightEur, BigDecimal customsValueEur, BigDecimal dutyEur,
+                      BigDecimal destinationEur, BigDecimal extraRevenueEur, BigDecimal totalEur,
+                      BigDecimal averageUnitEur, BigDecimal effectiveDutyPct, BigDecimal inspectionEur,
+                      List<OtherCost> otherCosts, BigDecimal otherCostsEur, BigDecimal separateCostsEur,
+                      BigDecimal totalWithSeparateCostsEur) {
+            this(pieces, cartons, cbm, goodsUsd, goodsEur, originEur, freightEur, customsValueEur, dutyEur,
+                    destinationEur, extraRevenueEur, totalEur, averageUnitEur, effectiveDutyPct, inspectionEur,
+                    otherCosts, otherCostsEur, separateCostsEur, totalWithSeparateCostsEur, false);
+        }
+
         /** Compatibility for callers written before the separate cost lines existed. */
         public Totals(int pieces, int cartons, BigDecimal cbm, BigDecimal goodsUsd, BigDecimal goodsEur,
                       BigDecimal originEur, BigDecimal freightEur, BigDecimal customsValueEur, BigDecimal dutyEur,
