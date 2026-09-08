@@ -190,6 +190,13 @@ class SalesOrderPartnerDealTest {
         assertEquals("2026-W36", quote.lines().get(0).deliveryWeek(), "the week the container arrives");
         assertEquals(DeliveryTermsState.VOLLEDIG, quote.deliveryTerms());
 
+        /* A week chosen on the sheet wins; a malformed one is refused before anything is saved. */
+        SalesOrder later = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null, " 2026-w40 "));
+        assertEquals("2026-W40", later.lines().get(0).deliveryWeek());
+        assertThrows(BusinessRuleException.class, () -> service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null, "week 40")));
+
         /* A received container is stock: no promise needed, the estimate from stock applies. */
         be.enrosed.sourcing.domain.PurchaseOrder received = onItsWay.withReceipt(
                 be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN, LocalDate.of(2026, 9, 5),

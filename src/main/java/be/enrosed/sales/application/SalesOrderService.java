@@ -245,7 +245,17 @@ public class SalesOrderService {
     /** What the sheet asks for when a container becomes a quote: whose, at which prices, with which of its costs. */
     public record FromPurchaseOrderRequest(Long purchaseOrderId, Long customerId, String pricing, BigDecimal markupPct,
                                            boolean partner, BigDecimal sharePct, BigDecimal costPct,
-                                           boolean includeInspection, List<Integer> otherCostIndexes, String salesChannel) {}
+                                           boolean includeInspection, List<Integer> otherCostIndexes, String salesChannel,
+                                           /** The week every line promises ("2026-W36"); empty takes the container's expected arrival. */
+                                           String deliveryWeek) {
+        /** Compatibility for callers written before the delivery week could be chosen. */
+        public FromPurchaseOrderRequest(Long purchaseOrderId, Long customerId, String pricing, BigDecimal markupPct,
+                                        boolean partner, BigDecimal sharePct, BigDecimal costPct,
+                                        boolean includeInspection, List<Integer> otherCostIndexes, String salesChannel) {
+            this(purchaseOrderId, customerId, pricing, markupPct, partner, sharePct, costPct,
+                    includeInspection, otherCostIndexes, salesChannel, null);
+        }
+    }
 
     /**
      * A container becomes a quote in one go: every product line with its
@@ -291,8 +301,8 @@ public class SalesOrderService {
         if (costing != null && costing.lines() != null) {
             for (LandedCost.Line line : costing.lines()) costLines.put(line.productId(), line);
         }
-        /* The goods are still on their way: every line promises the week the container arrives. */
-        String deliveryWeek = containerArrivalWeek(container);
+        /* The goods are still on their way: every line promises the week asked for, else the week the container arrives. */
+        String deliveryWeek = requestedDeliveryWeek(request.deliveryWeek(), containerArrivalWeek(container));
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         for (PurchaseOrderLine line : container.lines()) {
             if (line.quantity() <= 0) continue;
@@ -385,6 +395,16 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
 
     private static BigDecimal part(BigDecimal amount, BigDecimal pct) {
         return amount.multiply(pct).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private static final java.util.regex.Pattern ISO_WEEK = java.util.regex.Pattern.compile("^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$");
+
+    /** The week the caller chose, checked; blank falls back to what the container promises. */
+    static String requestedDeliveryWeek(String requested, String fallback) {
+        if (requested == null || requested.isBlank()) return fallback;
+        String week = requested.strip().toUpperCase();
+        if (!ISO_WEEK.matcher(week).matches()) throw new BusinessRuleException("Kies een geldige leverweek, zoals 2026-W36");
+        return week;
     }
 
     /**
