@@ -194,7 +194,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         + (language == Language.NL ? "" : "?lang=en"))
                 .render();
 
-        return new Document(order.number() + ".pdf", fonts.render(html), "application/pdf");
+        return new Document(fileSafe(order.number()) + ".pdf", fonts.render(html), "application/pdf");
     }
 
     /** One compact fact underneath a product title; labels are customer-language text. */
@@ -245,6 +245,11 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery));
         }
         return List.copyOf(result);
+    }
+
+    /** A document number as a file name: partner/2026/003 becomes partner-2026-003. */
+    static String fileSafe(String number) {
+        return number == null ? "document" : number.replaceAll("[/\\\\:*?\"<>|]", "-");
     }
 
     /** The sentence with the container's number in it; without a number the sentence simply drops it. */
@@ -421,7 +426,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         String html = packingSlipHtml(slip, options);
-        return new Document(slip.order().number() + "-pakbon.pdf", fonts.render(html),
+        return new Document(fileSafe(slip.order().number()) + "-pakbon.pdf", fonts.render(html),
                 "application/pdf");
     }
 

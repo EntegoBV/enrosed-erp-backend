@@ -45,6 +45,7 @@ exec psql \
     --file=/app/migrations/customer-fiscal-representative-postgresql.sql \
     --file=/app/migrations/purchase-order-payment-split-postgresql.sql \
     --file=/app/migrations/company-number-prefixes-postgresql.sql \
+    --file=/app/migrations/company-partner-number-series-postgresql.sql \
     --file=/app/migrations/purchase-order-partner-postgresql.sql \
     --file=/app/migrations/purchase-line-extra-share-postgresql.sql \
     --file=/app/migrations/purchase-order-separate-allocation-postgresql.sql

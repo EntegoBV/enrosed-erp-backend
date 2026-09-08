@@ -208,7 +208,7 @@ public class SalesOrderService {
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
-                null, nextInvoiceNumber(), source.customerId(), source.countryCode(),
+                null, source.isPartnerDeal() ? nextPartnerInvoiceNumber() : nextInvoiceNumber(), source.customerId(), source.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
                 source.paymentTerms(), source.notes(),
                 source.markupMode(), source.orderMarkupPct(),
@@ -363,7 +363,7 @@ public class SalesOrderService {
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder draft = new SalesOrder(
-                null, nextNumber(), customer.id(), customer.countryCode(), today, BusinessDays.add(today, 30),
+                null, partner ? nextPartnerQuoteNumber() : nextNumber(), customer.id(), customer.countryCode(), today, BusinessDays.add(today, 30),
                 QuoteStatus.CONCEPT, isBlank(customer.incoterm()) ? "DAP" : customer.incoterm(), null, "",
                 MarkupMode.PRODUCT, settings.defaultMarkupPct(), null, null,
                 null, null, null, 0, null, null, null, internalNotes,
@@ -605,7 +605,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
-                null, nextInvoiceNumber(), partner.id(), partner.countryCode(),
+                null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
                 isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
@@ -1160,7 +1160,9 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         ActorRef actor = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder duplicate = new SalesOrder(
-                null, source.isInvoice() ? nextInvoiceNumber() : nextNumber(),
+                null, source.isInvoice()
+                        ? (source.isPartnerDeal() ? nextPartnerInvoiceNumber() : nextInvoiceNumber())
+                        : (source.isPartnerDeal() ? nextPartnerQuoteNumber() : nextNumber()),
                 source.customerId(), source.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, source.incoterm(),
                 source.paymentTerms(), source.notes(),
@@ -1716,12 +1718,22 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     }
 
     private String nextNumber() {
-        return nextNumber(profile().quotePrefix(), false);
+        return nextNumber(profile().quotePrefix() + "-{jaar}-{nr}", false, null);
     }
 
     /** Invoices number their own gapless-enough series: F-2026-0001. */
     private String nextInvoiceNumber() {
-        return nextNumber(profile().invoicePrefix(), true);
+        return nextNumber(profile().invoicePrefix() + "-{jaar}-{nr}", true, null);
+    }
+
+    /** Partner quotes carry their own series, offerte/partner/2026/003 unless settings say otherwise. */
+    private String nextPartnerQuoteNumber() {
+        return nextNumber(profile().partnerQuotePattern(), false, profile().partnerQuoteNextNumber());
+    }
+
+    /** Partner invoices, advance and final alike, carry their own series: partner/2026/003. */
+    private String nextPartnerInvoiceNumber() {
+        return nextNumber(profile().partnerInvoicePattern(), true, profile().partnerInvoiceNextNumber());
     }
 
     private be.enrosed.shared.company.CompanyProfile profile() {
@@ -1734,9 +1746,13 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
      * series counts on whatever the letters in front were: change the prefix
      * in settings and the numbering simply carries on under the new one.
      */
-    private String nextNumber(String prefix, boolean invoices) {
+    private String nextNumber(String pattern, boolean invoices, Integer floor) {
         int year = LocalDate.now().getYear();
-        java.util.regex.Pattern series = java.util.regex.Pattern.compile("^[A-Za-z0-9]+-" + year + "-(\\d+)$");
+        /* The plain series accept any letters in front, so a changed prefix carries on; a partner
+           pattern is matched as written. */
+        java.util.regex.Pattern series = pattern.matches("^[A-Z0-9]+-\\{jaar\\}-\\{nr\\}$")
+                ? java.util.regex.Pattern.compile("^[A-Za-z0-9]+-" + year + "-(\\d+)$")
+                : NumberSeries.series(pattern, year);
         int highest = orders.findAll().stream()
                 .filter(order -> order.isInvoice() == invoices)
                 .map(SalesOrder::number)
@@ -1746,6 +1762,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 .mapToInt(matcher -> Integer.parseInt(matcher.group(1)))
                 .max()
                 .orElse(0);
-        return prefix + "-" + year + "-" + String.format("%04d", highest + 1);
+        int next = Math.max(highest + 1, floor == null ? 1 : floor);
+        return NumberSeries.format(pattern, year, next);
     }
 }

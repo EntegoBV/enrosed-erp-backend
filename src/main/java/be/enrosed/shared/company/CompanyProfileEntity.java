@@ -60,4 +60,14 @@ public class CompanyProfileEntity {
     public String quoteNumberPrefix;
     @Column(name = "invoice_number_prefix", length = 12)
     public String invoiceNumberPrefix;
+
+    /** Partner documents number their own series, written from a pattern such as partner/{jaar}/{nr:3}. */
+    @Column(name = "partner_quote_number_pattern", length = 60)
+    public String partnerQuoteNumberPattern;
+    @Column(name = "partner_invoice_number_pattern", length = 60)
+    public String partnerInvoiceNumberPattern;
+    @Column(name = "partner_quote_next_number")
+    public Integer partnerQuoteNextNumber;
+    @Column(name = "partner_invoice_next_number")
+    public Integer partnerInvoiceNextNumber;
 }

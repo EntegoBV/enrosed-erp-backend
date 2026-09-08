@@ -51,8 +51,44 @@ public record CompanyProfile(
         /** The letters in front of quote numbers: ENR gives ENR-2026-0001. */
         String quoteNumberPrefix,
         /** The letters in front of invoice numbers: F gives F-2026-0001. */
-        String invoiceNumberPrefix
+        String invoiceNumberPrefix,
+        /** How partner quotes are numbered, as a pattern: offerte/partner/{jaar}/{nr:3}. */
+        String partnerQuoteNumberPattern,
+        /** How partner invoices, advance and final, are numbered: partner/{jaar}/{nr:3}. */
+        String partnerInvoiceNumberPattern,
+        /** The sequence the partner quotes carry on from when the books already count further; null means from what exists. */
+        Integer partnerQuoteNextNumber,
+        /** The same for partner invoices. */
+        Integer partnerInvoiceNextNumber
 ) {
+    /** Compatibility for callers written before the partner series existed. */
+    public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
+                          String addressLine, String postalCode, String city, String countryCode,
+                          String email, String phone, String website, String iban, String bic,
+                          String documentFooter, String documentFooterEn, String termsAndConditions,
+                          String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn,
+                          String fiscalRepresentativeName, String fiscalRepresentativeVat,
+                          String quoteNumberPrefix, String invoiceNumberPrefix) {
+        this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
+                email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, fiscalRepresentativeName, fiscalRepresentativeVat,
+                quoteNumberPrefix, invoiceNumberPrefix, DEFAULT_PARTNER_QUOTE_PATTERN, DEFAULT_PARTNER_INVOICE_PATTERN, null, null);
+    }
+
+    public static final String DEFAULT_PARTNER_QUOTE_PATTERN = "offerte/partner/{jaar}/{nr:3}";
+    public static final String DEFAULT_PARTNER_INVOICE_PATTERN = "partner/{jaar}/{nr:3}";
+
+    /** The pattern partner quotes are numbered by; the seeded one until settings hold a usable one. */
+    public String partnerQuotePattern() {
+        return partnerQuoteNumberPattern != null && partnerQuoteNumberPattern.contains("{nr")
+                ? partnerQuoteNumberPattern.strip() : DEFAULT_PARTNER_QUOTE_PATTERN;
+    }
+
+    /** The pattern partner invoices are numbered by; the seeded one until settings hold a usable one. */
+    public String partnerInvoicePattern() {
+        return partnerInvoiceNumberPattern != null && partnerInvoiceNumberPattern.contains("{nr")
+                ? partnerInvoiceNumberPattern.strip() : DEFAULT_PARTNER_INVOICE_PATTERN;
+    }
     /** Compatibility for callers written before the number prefixes existed. */
     public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
                           String addressLine, String postalCode, String city, String countryCode,
@@ -63,7 +99,7 @@ public record CompanyProfile(
         this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
                 email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
                 termsAndConditionsEn, privacyPolicy, privacyPolicyEn, fiscalRepresentativeName, fiscalRepresentativeVat,
-                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX);
+                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX, DEFAULT_PARTNER_QUOTE_PATTERN, DEFAULT_PARTNER_INVOICE_PATTERN, null, null);
     }
 
     public static final String DEFAULT_QUOTE_PREFIX = "ENR";
@@ -105,7 +141,7 @@ public record CompanyProfile(
         return new CompanyProfile("Enrosed BV", "Enrosed BV", "BE 1034.273.386", "",
                 "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "", "",
                 null, null, null, null, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT,
-                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX);
+                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX, DEFAULT_PARTNER_QUOTE_PATTERN, DEFAULT_PARTNER_INVOICE_PATTERN, null, null);
     }
 
     /** The representative's name for documents; the seeded one until settings say otherwise. */
