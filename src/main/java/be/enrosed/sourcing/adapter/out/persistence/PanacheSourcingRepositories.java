@@ -112,7 +112,9 @@ public final class PanacheSourcingRepositories {
 
         @Override
         public be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment) {
-            SourcingEntities.PurchasePaymentEntity entity = new SourcingEntities.PurchasePaymentEntity();
+            /* A payment with an id is the same payment corrected, not a second one. */
+            SourcingEntities.PurchasePaymentEntity entity = payment.id() == null ? null : dao.findById(payment.id());
+            if (entity == null) entity = new SourcingEntities.PurchasePaymentEntity();
             entity.orderId = payment.orderId();
             entity.paidOn = payment.paidOn();
             entity.amount = payment.amount();
@@ -122,7 +124,7 @@ public final class PanacheSourcingRepositories {
             entity.actor = payment.actor();
             entity.recordedAt = payment.recordedAt();
             entity.payee = payment.payee();
-            dao.persist(entity);
+            if (entity.id == null) dao.persist(entity);
             dao.flush();
             return toDomain(entity);
         }
