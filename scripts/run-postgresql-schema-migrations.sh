@@ -43,4 +43,5 @@ exec psql \
     --file=/app/migrations/sales-line-cost-snapshot-postgresql.sql \
     --file=/app/migrations/media-link-company-cost-postgresql.sql \
     --file=/app/migrations/purchase-order-partner-postgresql.sql \
-    --file=/app/migrations/purchase-line-extra-share-postgresql.sql
+    --file=/app/migrations/purchase-line-extra-share-postgresql.sql \
+    --file=/app/migrations/purchase-order-separate-allocation-postgresql.sql
