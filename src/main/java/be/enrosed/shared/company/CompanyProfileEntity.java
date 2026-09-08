@@ -54,4 +54,10 @@ public class CompanyProfileEntity {
     public String fiscalRepresentativeName;
     @Column(name = "fiscal_representative_vat")
     public String fiscalRepresentativeVat;
+
+    /** The letters in front of document numbers: ENR-2026-0001, F-2026-0001. */
+    @Column(name = "quote_number_prefix", length = 12)
+    public String quoteNumberPrefix;
+    @Column(name = "invoice_number_prefix", length = 12)
+    public String invoiceNumberPrefix;
 }

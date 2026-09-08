@@ -71,6 +71,9 @@ public class SalesOrderService {
     /** The container side, for a quote made straight from a purchase order. */
     @Inject
     Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchaseOrders;
+    /** The letters in front of document numbers live in the company settings. */
+    @Inject
+    Instance<be.enrosed.shared.company.CompanyProfileService> companyProfile;
     @Inject
     Event<SalesCreationPushNotifier.Ready> salesCreationPush;
     @Inject
@@ -1713,25 +1716,36 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     }
 
     private String nextNumber() {
-        return nextNumber("ENR-");
+        return nextNumber(profile().quotePrefix(), false);
     }
 
     /** Invoices number their own gapless-enough series: F-2026-0001. */
     private String nextInvoiceNumber() {
-        return nextNumber("F-");
+        return nextNumber(profile().invoicePrefix(), true);
     }
 
-    private String nextNumber(String base) {
+    private be.enrosed.shared.company.CompanyProfile profile() {
+        return companyProfile == null || !companyProfile.isResolvable()
+                ? be.enrosed.shared.company.CompanyProfile.empty() : companyProfile.get().get();
+    }
+
+    /**
+     * The next number in this year's series of quotes or of invoices. The
+     * series counts on whatever the letters in front were: change the prefix
+     * in settings and the numbering simply carries on under the new one.
+     */
+    private String nextNumber(String prefix, boolean invoices) {
         int year = LocalDate.now().getYear();
-        String prefix = base + year + "-";
+        java.util.regex.Pattern series = java.util.regex.Pattern.compile("^[A-Za-z0-9]+-" + year + "-(\\d+)$");
         int highest = orders.findAll().stream()
+                .filter(order -> order.isInvoice() == invoices)
                 .map(SalesOrder::number)
-                .filter(number -> number != null && number.startsWith(prefix))
-                .map(number -> number.substring(prefix.length()))
-                .filter(suffix -> suffix.matches("\\d+"))
-                .mapToInt(Integer::parseInt)
+                .filter(java.util.Objects::nonNull)
+                .map(series::matcher)
+                .filter(java.util.regex.Matcher::matches)
+                .mapToInt(matcher -> Integer.parseInt(matcher.group(1)))
                 .max()
                 .orElse(0);
-        return prefix + String.format("%04d", highest + 1);
+        return prefix + "-" + year + "-" + String.format("%04d", highest + 1);
     }
 }

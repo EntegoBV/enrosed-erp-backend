@@ -57,6 +57,8 @@ public class CompanyProfileService {
         entity.privacyPolicyEn = profile.privacyPolicyEn();
         entity.fiscalRepresentativeName = profile.fiscalRepresentativeName();
         entity.fiscalRepresentativeVat = profile.fiscalRepresentativeVat();
+        entity.quoteNumberPrefix = profile.quotePrefix();
+        entity.invoiceNumberPrefix = profile.invoicePrefix();
         store.flush();
         return toDomain(entity);
     }
@@ -69,6 +71,7 @@ public class CompanyProfileService {
                 entity.iban, entity.bic, entity.documentFooter, entity.documentFooterEn,
                 entity.termsAndConditions,
                 entity.termsAndConditionsEn, entity.privacyPolicy, entity.privacyPolicyEn,
-                entity.fiscalRepresentativeName, entity.fiscalRepresentativeVat);
+                entity.fiscalRepresentativeName, entity.fiscalRepresentativeVat,
+                entity.quoteNumberPrefix, entity.invoiceNumberPrefix);
     }
 }

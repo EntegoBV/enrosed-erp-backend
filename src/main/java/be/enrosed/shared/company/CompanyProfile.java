@@ -47,8 +47,43 @@ public record CompanyProfile(
         /** Our limited fiscal representative in the Netherlands, named on documents for customers cleared through it. */
         String fiscalRepresentativeName,
         /** That representative's VAT number. */
-        String fiscalRepresentativeVat
+        String fiscalRepresentativeVat,
+        /** The letters in front of quote numbers: ENR gives ENR-2026-0001. */
+        String quoteNumberPrefix,
+        /** The letters in front of invoice numbers: F gives F-2026-0001. */
+        String invoiceNumberPrefix
 ) {
+    /** Compatibility for callers written before the number prefixes existed. */
+    public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
+                          String addressLine, String postalCode, String city, String countryCode,
+                          String email, String phone, String website, String iban, String bic,
+                          String documentFooter, String documentFooterEn, String termsAndConditions,
+                          String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn,
+                          String fiscalRepresentativeName, String fiscalRepresentativeVat) {
+        this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
+                email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, fiscalRepresentativeName, fiscalRepresentativeVat,
+                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX);
+    }
+
+    public static final String DEFAULT_QUOTE_PREFIX = "ENR";
+    public static final String DEFAULT_INVOICE_PREFIX = "F";
+
+    /** The quote prefix, letters and digits only; the seeded one until settings say otherwise. */
+    public String quotePrefix() {
+        return cleanPrefix(quoteNumberPrefix, DEFAULT_QUOTE_PREFIX);
+    }
+
+    /** The invoice prefix, letters and digits only; the seeded one until settings say otherwise. */
+    public String invoicePrefix() {
+        return cleanPrefix(invoiceNumberPrefix, DEFAULT_INVOICE_PREFIX);
+    }
+
+    private static String cleanPrefix(String value, String fallback) {
+        if (value == null) return fallback;
+        String clean = value.strip().toUpperCase(java.util.Locale.ROOT).replaceAll("[^A-Z0-9]", "");
+        return clean.isEmpty() ? fallback : clean;
+    }
     /** Compatibility for callers written before the fiscal representative existed. */
     public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
                           String addressLine, String postalCode, String city, String countryCode,
@@ -57,7 +92,8 @@ public record CompanyProfile(
                           String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn) {
         this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
                 email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
-                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT);
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT,
+                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX);
     }
 
     public static final String DEFAULT_REPRESENTATIVE_NAME = "24/7 Customs BV";
@@ -68,7 +104,8 @@ public record CompanyProfile(
            correct documents before anyone has opened the settings screen. */
         return new CompanyProfile("Enrosed BV", "Enrosed BV", "BE 1034.273.386", "",
                 "Vekeblok 17", "2400", "Mol", "BE", "", "", "", "", "", "", "",
-                null, null, null, null, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT);
+                null, null, null, null, DEFAULT_REPRESENTATIVE_NAME, DEFAULT_REPRESENTATIVE_VAT,
+                DEFAULT_QUOTE_PREFIX, DEFAULT_INVOICE_PREFIX);
     }
 
     /** The representative's name for documents; the seeded one until settings say otherwise. */

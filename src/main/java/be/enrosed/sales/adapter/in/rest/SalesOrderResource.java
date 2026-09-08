@@ -46,21 +46,41 @@ public class SalesOrderResource {
                                  BigDecimal freightRatePerCbmEur,
                                  Long freightCarrierId) {}
     /** {@code awaitingResend}: an adopted customer proposal that has not gone back out. */
-    public record OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend) {}
+    public record OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend,
+                            /** The invoice made from this quote, by number; null while there is none. */
+                            String invoicedAs) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend) {
+            this(order, priced, awaitingResend, null);
+        }
+    }
+
+    /** Quote id to the number of the invoice made from it. */
+    private static java.util.Map<Long, String> invoicesByQuote(List<SalesOrder> all) {
+        java.util.Map<Long, String> map = new java.util.HashMap<>();
+        for (SalesOrder order : all) {
+            if (order.isInvoice() && order.sourceQuoteId() != null && order.number() != null) {
+                map.putIfAbsent(order.sourceQuoteId(), order.number());
+            }
+        }
+        return map;
+    }
     public record PortalLink(boolean available, String status, String url) {}
 
     @GET
     public List<OrderView> list() {
         List<SalesOrder> all = salesOrders.list();
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
+        java.util.Map<Long, String> invoiced = invoicesByQuote(all);
         return all.stream()
                 .map(order -> new OrderView(order, salesOrders.price(order),
-                        awaiting.contains(order.id())))
+                        awaiting.contains(order.id()), order.isInvoice() ? null : invoiced.get(order.id())))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
-        return new OrderView(order, salesOrders.price(order), quotes.awaitsResend(order));
+        String invoicedAs = order.isInvoice() || order.id() == null ? null
+                : invoicesByQuote(salesOrders.list()).get(order.id());
+        return new OrderView(order, salesOrders.price(order), quotes.awaitsResend(order), invoicedAs);
     }
 
     @GET
