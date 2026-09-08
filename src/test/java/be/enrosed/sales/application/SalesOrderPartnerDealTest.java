@@ -179,6 +179,28 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
+    void aQuoteFromAContainerOnItsWayPromisesTheArrivalWeek() {
+        /* PO-2026-008 is expected on Friday 4 September 2026: ISO week 36. */
+        be.enrosed.sourcing.domain.PurchaseOrder onItsWay = container(LocalDate.of(2026, 9, 4));
+        wireSourcing(onItsWay);
+        when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 72L));
+
+        SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
+                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null));
+        assertEquals("2026-W36", quote.lines().get(0).deliveryWeek(), "the week the container arrives");
+        assertEquals(DeliveryTermsState.VOLLEDIG, quote.deliveryTerms());
+
+        /* A received container is stock: no promise needed, the estimate from stock applies. */
+        be.enrosed.sourcing.domain.PurchaseOrder received = onItsWay.withReceipt(
+                be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN, LocalDate.of(2026, 9, 5),
+                null, null, "", onItsWay.lines());
+        assertNull(SalesOrderService.containerArrivalWeek(received));
+        assertNull(SalesOrderService.containerArrivalWeek(container()), "no expected arrival: the week stays open");
+        assertEquals("2026-W01", SalesOrderService.containerArrivalWeek(container(LocalDate.of(2025, 12, 31))),
+                "ISO weeks belong to the week-based year: New Year's Eve 2025 is a Wednesday in week 1 of 2026");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void aContainerBecomesAPartnerQuoteInOneGo() {
         be.enrosed.sourcing.domain.PurchaseOrder container = container();
@@ -369,6 +391,11 @@ class SalesOrderPartnerDealTest {
 
     /** PO-2026-008: forty red at 19,20 USD, with an inspection and a fumigation booked on it. */
     private static be.enrosed.sourcing.domain.PurchaseOrder container() {
+        return container(null);
+    }
+
+    /** The same container, expected on the given day; null leaves the arrival open. */
+    private static be.enrosed.sourcing.domain.PurchaseOrder container(LocalDate expectedArrival) {
         return new be.enrosed.sourcing.domain.PurchaseOrder(
                 13L, "PO-2026-008", null, 1L,
                 LocalDate.of(2026, 8, 19), be.enrosed.sourcing.domain.PurchaseOrderStatus.CONCEPT,
@@ -379,7 +406,7 @@ class SalesOrderPartnerDealTest {
                 be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
                 be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.VALUE,
                 "Ningbo", "Rotterdam", null, true,
-                null, null, null, null,
+                expectedArrival, null, null, null,
                 be.enrosed.sourcing.domain.PaymentTerms.DEPOSIT_30_40_30, null, null, "",
                 List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(1L, 9L, 40, new BigDecimal("19.20"), null, null, null)))
                 .withInspectionCost(new BigDecimal("150"))

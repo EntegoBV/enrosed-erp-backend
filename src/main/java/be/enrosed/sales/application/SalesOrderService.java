@@ -291,6 +291,8 @@ public class SalesOrderService {
         if (costing != null && costing.lines() != null) {
             for (LandedCost.Line line : costing.lines()) costLines.put(line.productId(), line);
         }
+        /* The goods are still on their way: every line promises the week the container arrives. */
+        String deliveryWeek = containerArrivalWeek(container);
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         for (PurchaseOrderLine line : container.lines()) {
             if (line.quantity() <= 0) continue;
@@ -312,7 +314,7 @@ public class SalesOrderService {
                cost says later; the inspection and other costs are inside it since the calculation
                spreads them over the pieces. */
             if (cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) snapshot = cost.landedUnitEur();
-            lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, null, snapshot));
+            lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, deliveryWeek, snapshot));
         }
         if (lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
         lines = withCostSnapshots(lines, null);
@@ -383,6 +385,20 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
 
     private static BigDecimal part(BigDecimal amount, BigDecimal pct) {
         return amount.multiply(pct).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /**
+     * The delivery week a quote from a container can promise: the ISO week the
+     * container is expected, as logistics writes it ("2026-W36"). A container
+     * that has already been received is stock, and stock needs no promise; a
+     * container without an expected arrival leaves the week open.
+     */
+    static String containerArrivalWeek(PurchaseOrder container) {
+        if (container == null || container.expectedArrival() == null || container.receivedOn() != null) return null;
+        java.time.temporal.WeekFields week = java.time.temporal.WeekFields.ISO;
+        return String.format("%d-W%02d",
+                container.expectedArrival().get(week.weekBasedYear()),
+                container.expectedArrival().get(week.weekOfWeekBasedYear()));
     }
 
     private static String pct(BigDecimal value) {
