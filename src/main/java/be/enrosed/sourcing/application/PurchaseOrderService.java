@@ -295,9 +295,6 @@ public class PurchaseOrderService {
                         product.id(), product.describe(), requested, fullCartons, perCarton));
             }
             /* Saved as entered; the warning is the whole intervention. */
-            if (line.extraShareEur() != null && line.extraShareEur().signum() < 0) {
-                throw new BusinessRuleException("De Enrosed kost per product kan niet negatief zijn");
-            }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
                     purchasePrice.amount(), purchasePrice.currency(), line.extraUnitCost(),
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
@@ -305,6 +302,12 @@ public class PurchaseOrderService {
                     line.extraShareEur() == null ? null : line.extraShareEur().setScale(2, RoundingMode.HALF_UP)));
         }
 
+        /* One product may carry less than nothing when another carries more; the container as a whole may not. */
+        if (changes.allocExtra() == Allocation.MANUAL && lines.stream()
+                .map(line -> line.extraShareEur() == null ? BigDecimal.ZERO : line.extraShareEur())
+                .reduce(BigDecimal.ZERO, BigDecimal::add).signum() < 0) {
+            throw new BusinessRuleException("De Enrosed kost van de container kan in totaal niet onder nul liggen");
+        }
         if (changes.status() != PurchaseOrderStatus.CONCEPT
                 && lines.stream().noneMatch(line -> line.quantity() > 0)) {
             throw new BusinessRuleException("Een geplaatste inkooporder moet minstens één product bevatten");

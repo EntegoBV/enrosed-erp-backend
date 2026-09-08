@@ -616,6 +616,29 @@ class PurchaseOrderServiceTest {
         return withRates(source, new BigDecimal(goods), new BigDecimal(transport));
     }
 
+    @Test
+    void theContainersEnrosedKostMayNotEndUpBelowZero() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        PurchaseOrder base = order(PurchaseOrderStatus.CONCEPT, 6, 6);
+        PurchaseOrderLine line = base.lines().getFirst();
+
+        assertEquals(new BigDecimal("40.00"), service.update(10L, byHand(base, List.of(line.withExtraShare(new BigDecimal("40")))))
+                .order().lines().getFirst().extraShareEur());
+        assertThrows(BusinessRuleException.class, () -> service.update(10L, byHand(base, List.of(line.withExtraShare(new BigDecimal("-40"))))),
+                "a container whose Enrosed kost adds up below zero is refused");
+    }
+
+    private static PurchaseOrder byHand(PurchaseOrder source, List<PurchaseOrderLine> lines) {
+        return new PurchaseOrder(source.id(), source.number(), source.alias(), source.supplierId(),
+                source.orderDate(), source.status(), source.containerType(), source.cnyToUsd(),
+                source.usdToEurGoods(), source.usdToEurTransport(), source.freightUsd(),
+                source.originCosts(), source.originCurrency(), source.destinationCostsEur(),
+                source.defaultDutyRatePct(), source.extraRevenueEur(), source.allocFreight(),
+                source.allocOrigin(), source.allocDestination(), Allocation.MANUAL,
+                source.departurePort(), source.destinationPort(), source.notes(), lines);
+    }
+
     private static PurchaseOrder withRates(PurchaseOrder source, BigDecimal goods, BigDecimal transport) {
         return new PurchaseOrder(source.id(), source.number(), source.alias(), source.supplierId(),
                 source.orderDate(), source.status(), source.containerType(), source.cnyToUsd(),
