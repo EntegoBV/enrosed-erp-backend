@@ -85,6 +85,42 @@ class WebsiteAnalyticsTest {
     }
 
     @Test
+    void aiAssistantsAndTheMergedTownNeverCountAndOldRowsCanBePurged() {
+        String visitor = "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c";
+        for (String referrer : List.of("https://chatgpt.com/c/abc", "https://www.claude.ai/chat/1", "https://gemini.google.com/app")) {
+            Map<String, Object> beacon = new HashMap<>();
+            beacon.put("path", "/nl/ai-check/");
+            beacon.put("visitor", visitor);
+            beacon.put("country", "NL");
+            beacon.put("city", "Utrecht");
+            beacon.put("referrer", referrer);
+            given().contentType("application/json").body(beacon)
+                    .when().post("/api/public/analytics/visits")
+                    .then().statusCode(204);
+        }
+        Map<String, Object> merged = new HashMap<>();
+        merged.put("path", "/nl/merged-town-check/");
+        merged.put("visitor", visitor);
+        merged.put("country", "BE");
+        merged.put("city", "Tessenderlo-Ham");
+        given().contentType("application/json").body(merged)
+                .when().post("/api/public/analytics/visits")
+                .then().statusCode(204);
+
+        String body = given().auth().preemptive().basic("emre", "named-auth-test-password")
+                .when().get("/api/analytics/website?days=7")
+                .then().statusCode(200)
+                .extract().asString();
+        assertFalse(body.contains("ai-check"), "a page opened from an AI assistant is not stored");
+        assertFalse(body.contains("merged-town-check"), "the merged municipality counts as our own town");
+
+        given().auth().preemptive().basic("emre", "named-auth-test-password")
+                .when().delete("/api/analytics/website/excluded")
+                .then().statusCode(200)
+                .body("removed", org.hamcrest.Matchers.greaterThanOrEqualTo(0));
+    }
+
+    @Test
     void ourOwnDevicesAndTheErpNeverCount() {
         String visitor = "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a";
         Map<String, Object> optedOut = new HashMap<>();

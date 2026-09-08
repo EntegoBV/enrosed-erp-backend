@@ -62,13 +62,19 @@ public class WebsiteVisitService {
      * preview deployments. A page opened from there is us checking our work.
      */
     private final Set<String> internalReferrerHosts;
+    /** AI assistants and the like: we open our own site from there while working; those visits are not customers. */
+    private final Set<String> excludedReferrerHosts;
 
     @Inject
     public WebsiteVisitService(
             @ConfigProperty(name = "enrosed.analytics.excluded-cities",
-                    defaultValue = "Tessenderlo,Mol,Balen,Geel,Arendonk,Dessel,Retie") String excludedCities,
+                    defaultValue = "Tessenderlo,Tessenderlo-Ham,Ham,Mol,Balen,Geel,Arendonk,Dessel,Retie") String excludedCities,
             @ConfigProperty(name = "enrosed.analytics.internal-referrer-hosts",
-                    defaultValue = "erp.enrosed.com,app.enrosed.com,localhost,127.0.0.1") String internalReferrerHosts) {
+                    defaultValue = "erp.enrosed.com,app.enrosed.com,localhost,127.0.0.1") String internalReferrerHosts,
+            @ConfigProperty(name = "enrosed.analytics.excluded-referrer-hosts",
+                    defaultValue = "chatgpt.com,chat.openai.com,openai.com,claude.ai,anthropic.com,gemini.google.com,"
+                            + "copilot.microsoft.com,perplexity.ai,poe.com,you.com,mistral.ai,deepseek.com")
+            String excludedReferrerHosts) {
         List<String> labels = new ArrayList<>();
         Set<String> keys = new HashSet<>();
         for (String city : excludedCities.split(",")) {
@@ -85,6 +91,12 @@ public class WebsiteVisitService {
             if (!value.isEmpty()) hosts.add(value);
         }
         this.internalReferrerHosts = Set.copyOf(hosts);
+        Set<String> aiHosts = new java.util.HashSet<>();
+        for (String host : excludedReferrerHosts.split(",")) {
+            String clean = host.strip().toLowerCase(Locale.ROOT);
+            if (!clean.isEmpty()) aiHosts.add(clean.startsWith("www.") ? clean.substring(4) : clean);
+        }
+        this.excludedReferrerHosts = Set.copyOf(aiHosts);
     }
 
     /** Whether the page was reached from the ERP, a preview build or a developer machine. */
@@ -101,9 +113,44 @@ public class WebsiteVisitService {
         }
     }
 
-    /** A Belgian visit from one of our own towns. */
+    /** A visit that started in an AI assistant: the host or any of its parent domains is on the list. */
+    boolean excludedReferrer(String referrerHost) {
+        if (referrerHost == null || referrerHost.isBlank()) return false;
+        String host = referrerHost.strip().toLowerCase(Locale.ROOT);
+        if (host.startsWith("www.")) host = host.substring(4);
+        for (String candidate = host; candidate != null; ) {
+            if (excludedReferrerHosts.contains(candidate)) return true;
+            int dot = candidate.indexOf('.');
+            candidate = dot < 0 || candidate.indexOf('.', dot + 1) < 0 ? null : candidate.substring(dot + 1);
+        }
+        return false;
+    }
+
+    /** Stored before a rule existed, or never worth keeping: our own towns and the AI assistants. */
+    boolean excludedRow(WebsiteVisitEntity row) {
+        return ownVisit(row.country, row.city) || excludedReferrer(row.referrerHost);
+    }
+
+    /** Removes every stored view the rules would refuse today; returns how many went. */
+    @Transactional
+    public long purgeExcluded() {
+        long removed = 0;
+        for (WebsiteVisitEntity row : WebsiteVisitEntity.<WebsiteVisitEntity>listAll()) {
+            if (!excludedRow(row)) continue;
+            row.delete();
+            removed++;
+        }
+        return removed;
+    }
+
+    /** A Belgian visit from one of our own towns; a merged municipality such as Tessenderlo-Ham matches on either part. */
     boolean ownVisit(String country, String city) {
-        return "BE".equals(country) && city != null && excludedCities.contains(cityKey(city));
+        if (!"BE".equals(country) || city == null || city.isBlank()) return false;
+        if (excludedCities.contains(cityKey(city))) return true;
+        for (String part : city.split("[-/ ]")) {
+            if (!part.isBlank() && excludedCities.contains(cityKey(part))) return true;
+        }
+        return false;
     }
 
     public List<String> excludedCityLabels() {
@@ -137,6 +184,7 @@ public class WebsiteVisitService {
         if (ownVisit(visit.country, visit.city)) return true;
         if (Boolean.TRUE.equals(input.internal()) || internalReferrer(input.referrer())) return true;
         visit.referrerHost = referrerHost(input.referrer());
+        if (excludedReferrer(visit.referrerHost)) return true;
         visit.source = trim(lower(input.utmSource()), 64);
         visit.medium = trim(lower(input.utmMedium()), 64);
         visit.campaign = trim(input.utmCampaign(), 120);
@@ -197,7 +245,7 @@ public class WebsiteVisitService {
                 "occurredAt >= ?1 and occurredAt < ?2 order by visitor, occurredAt", from, to);
         Fold fold = new Fold(firstDay, lastDay);
         for (WebsiteVisitEntity row : rows) {
-            if (ownVisit(row.country, row.city)) continue;
+            if (excludedRow(row)) continue;
             fold.add(row);
         }
         fold.finish();

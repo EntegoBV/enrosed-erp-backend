@@ -771,10 +771,20 @@ public class MediaService {
                         + "and a.archived = false group by a.folderId", Object[].class).getResultList()) {
             counts.put((Long) row[0], (Long) row[1]);
         }
-        return entities.createQuery("select f from MediaFolderEntity f order by lower(f.name), f.id",
-                        MediaFolderEntity.class).getResultList().stream()
+        List<MediaFolderEntity> all = entities.createQuery("select f from MediaFolderEntity f order by lower(f.name), f.id",
+                MediaFolderEntity.class).getResultList();
+        /* A folder counts what its subfolders hold too: a top folder with only subfolders is not empty. */
+        Map<Long, Long> parents = new LinkedHashMap<>();
+        for (MediaFolderEntity folder : all) parents.put(folder.id, folder.parentId);
+        Map<Long, Long> cumulative = new LinkedHashMap<>();
+        for (Map.Entry<Long, Long> entry : counts.entrySet()) {
+            for (Long cursor = entry.getKey(); cursor != null; cursor = parents.get(cursor)) {
+                cumulative.merge(cursor, entry.getValue(), Long::sum);
+            }
+        }
+        return all.stream()
                 .map(folder -> new MediaDtos.Folder(folder.id, folder.name, folder.parentId,
-                        counts.getOrDefault(folder.id, 0L)))
+                        cumulative.getOrDefault(folder.id, 0L)))
                 .toList();
     }
 

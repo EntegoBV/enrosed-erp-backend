@@ -5,6 +5,7 @@ import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -23,5 +24,12 @@ public class WebsiteAnalyticsResource {
     @GET
     public Report report(@QueryParam("days") @DefaultValue("30") int days) {
         return visits.report(days);
+    }
+
+    /** Drops every stored view the rules refuse today: our own towns and visits that started in an AI assistant. */
+    @DELETE
+    @Path("/excluded")
+    public java.util.Map<String, Long> purgeExcluded() {
+        return java.util.Map.of("removed", visits.purgeExcluded());
     }
 }
