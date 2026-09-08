@@ -511,6 +511,75 @@ class PdfPurchaseRendererRenderTest {
 
     @Test
     @TestTransaction
+    void landscapeGivesTheInspectionItsOwnColumnOnceAKeySpreadsIt() throws Exception {
+        Product product = createProductWithPhotoForAllInCost();
+        PurchaseOrder apart = portraitOrder(product.id())
+                .withInspectionCost(new BigDecimal("250"))
+                .withOtherCosts(List.of(new OtherCost("Certificaat", new BigDecimal("120"))));
+        PurchaseOrder spread = apart.withSeparateAllocation(Allocation.PIECES);
+        PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
+                new BigDecimal("1125.00"), new BigDecimal("480.00"),
+                new BigDecimal("375.00"), false, false);
+
+        PdfPurchaseRenderer.Document apartSheet = renderer.render(
+                apart, withSeparateCosts(portraitCosting(product.id()), apart), supplier(), true,
+                payments(), payable, PdfPurchaseRenderer.Layout.LANDSCAPE);
+        PdfPurchaseRenderer.Document spreadSheet = renderer.render(
+                spread, withSpreadCosts(portraitCosting(product.id()), spread), supplier(), true,
+                payments(), payable, PdfPurchaseRenderer.Layout.LANDSCAPE);
+
+        Path preview = Path.of("target", "pdf-preview");
+        Files.createDirectories(preview);
+        Files.write(preview.resolve("purchase-landscape-inspection-spread.pdf"), spreadSheet.content());
+
+        try (PDDocument pdf = Loader.loadPDF(apartSheet.content())) {
+            String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("interne calculatie"), text);
+            assertTrue(text.contains("enrosed"), "the Enrosed cost keeps its column: " + text);
+            assertFalse(text.contains("inspectie & andere"), "no column while the costs sit apart: " + text);
+            assertTrue(text.contains("inspectie apart, niet in de stukprijs 250,00 eur"), text);
+            assertTrue(text.contains("totaal incl. aparte kosten 1.819,74 eur"),
+                    "1.449,74 landed plus 370,00 apart on the card: " + text);
+        }
+        try (PDDocument pdf = Loader.loadPDF(spreadSheet.content())) {
+            String text = new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+            assertTrue(text.contains("inspectie & andere"), "own column once a key spreads them: " + text);
+            assertTrue(text.contains("370,00"), "the single line carries the whole 370,00: " + text);
+            assertTrue(text.contains("1.868,00"), "line total 1.498,00 plus 370,00: " + text);
+            assertTrue(text.contains("inspectie in de stukprijs verdeeld 250,00 eur"), text);
+            assertFalse(text.contains("apart, niet in de stukprijs"), text);
+            assertTrue(text.contains("totaal geland incl. inspectie en andere kosten 1.819,74 eur"),
+                    "the landed total now holds the spread costs: " + text);
+        }
+    }
+
+    /** The calculator's answer once a PIECES key spreads the inspection and other costs into the single line. */
+    private static LandedCost withSpreadCosts(LandedCost source, PurchaseOrder order) {
+        LandedCost.Totals t = source.totals();
+        BigDecimal inspection = order.inspectionCostEur();
+        List<OtherCost> others = order.otherCosts();
+        BigDecimal othersTotal = others.stream().map(OtherCost::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal separate = inspection.add(othersTotal);
+        LandedCost.Line line = source.lines().getFirst();
+        BigDecimal lineTotal = line.totalEur().add(separate);
+        LandedCost.Line spread = new LandedCost.Line(
+                line.productId(), line.productName(), line.quantity(), line.cartons(), line.cbm(),
+                line.goodsUsd(), line.goodsEur(), line.originEur(), line.freightEur(), line.customsValueEur(),
+                line.dutyRatePct(), line.dutySource(), line.dutyEur(), line.destinationEur(),
+                line.extraRevenueEur(), lineTotal,
+                lineTotal.divide(BigDecimal.valueOf(line.quantity()), 4, RoundingMode.HALF_UP),
+                line.cbmShare(), line.valueShare(), line.pieceShare(), separate);
+        BigDecimal total = t.totalEur().add(separate);
+        return new LandedCost(List.of(spread), new LandedCost.Totals(
+                t.pieces(), t.cartons(), t.cbm(), t.goodsUsd(), t.goodsEur(), t.originEur(), t.freightEur(),
+                t.customsValueEur(), t.dutyEur(), t.destinationEur(), t.extraRevenueEur(), total,
+                t.averageUnitEur(), t.effectiveDutyPct(), inspection, others, othersTotal,
+                separate, total, true),
+                source.containerFill());
+    }
+
+    @Test
+    @TestTransaction
     void portraitCanShowOrderedUnitCostAndPaymentTermsIndependently() throws Exception {
         Product product = createProductWithPhotoForAllInCost();
         PurchaseOrder order = portraitOrder(product.id());

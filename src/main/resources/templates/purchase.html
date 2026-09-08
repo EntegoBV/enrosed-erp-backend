@@ -245,11 +245,12 @@
        group row here; the colgroup pins them for every row instead. -->
   <colgroup>
     <col style="width:4mm"/>
-    <col style="width:{#if hasExtraColumn}78mm{#else}93mm{/if}"/>
+    <col style="width:{landscapeProductMm}mm"/>
     <col style="width:12mm"/><col style="width:14mm"/><col style="width:12mm"/><col style="width:15mm"/>
     <col style="width:14mm"/><col style="width:15mm"/>
     <col style="width:14mm"/><col style="width:14.5mm"/><col style="width:14mm"/><col style="width:16mm"/><col style="width:15.5mm"/>
     {#if hasExtraColumn}<col style="width:15mm"/>{/if}
+    {#if hasSeparateColumn}<col style="width:15mm"/>{/if}
     <col style="width:15mm"/><col style="width:13mm"/>
   </colgroup>
   {/if}
@@ -258,13 +259,13 @@
   <tr class="grouprow">
     <th colspan="6">Lading</th>
     <th class="group-l" colspan="2">Inkoopprijs</th>
-    <th class="group-l" colspan="{#if hasExtraColumn}6{#else}5{/if}">Kostenopbouw per regel · EUR</th>
+    <th class="group-l" colspan="{breakdownColumns}">Kostenopbouw per regel · EUR</th>
     <th class="group-l" colspan="2">Geland · EUR</th>
   </tr>
   {/if}
   <tr class="labelrow">
     <th class="l c-num">#</th>
-    <th class="l" style="{#if showRevenue}{#if hasExtraColumn}width:92mm{#else}width:104mm{/if}{#else}width:96mm{/if}">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
+    <th class="l" style="{#if showRevenue}width:{landscapeProductMm}mm{#else}width:96mm{/if}">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
     <th class="w-n">Stuks</th>
     <th class="w-n">Stuks per karton</th>
     <th class="w-n">Kartons</th>
@@ -278,6 +279,7 @@
     <th class="w-n">Invoerrecht</th>
     <th class="w-n">Bestemming</th>
     {#if hasExtraColumn}<th class="w-n">Enrosed</th>{/if}
+    {#if hasSeparateColumn}<th class="w-n">Inspectie &amp; andere</th>{/if}
     <th class="group-l w-m">Geland totaal</th>
     <th class="w-n">Geland per stuk</th>
     {/if}
@@ -320,6 +322,7 @@
       <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
       <td class="r">{line.destinationEur.money}</td>
       {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
+      {#if hasSeparateColumn}<td class="r">{line.separateEur.money}</td>{/if}
       <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
       <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b></td>
       {/if}
@@ -341,6 +344,7 @@
     <td class="r">{costing.totals.dutyEur.money}</td>
     <td class="r">{costing.totals.destinationEur.money}</td>
     {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
+    {#if hasSeparateColumn}<td class="r">{costing.totals.separateCostsEur.money}</td>{/if}
     <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
     <td class="r c-res">{costing.totals.averageUnitEur.moneyUnit}</td>
     {/if}
@@ -372,7 +376,7 @@
         <tr><td>{costLabels.destinationCostsLabel}</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
         <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
         {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label} <span class="tiny">{cost.note}</span></td><td class="r">{cost.amount.eur}</td></tr>{/for}{/if}
-        <tr class="mini__grand"><td>{#if hasSeparateCosts}{separateCostsTotalLabel}{#else}Totaal geland{/if}</td><td class="r">{costing.totals.totalEur.eur}</td></tr>
+        <tr class="mini__grand"><td>{#if hasSeparateCosts}{separateCostsTotalLabel}{#else}Totaal geland{/if}</td><td class="r">{totalWithSeparateCostsEur.eur}</td></tr>
         <tr class="mini__avg"><td>Gemiddeld per stuk</td><td class="r">{costing.totals.averageUnitEur.unit}</td></tr>
       </table>
     </td>
@@ -435,8 +439,8 @@
 
 <div class="foot">
   {#if showRevenue}
-    Interne calculatie: de productregels tonen alleen de beslisbedragen; de kostcomponenten staan
-    één keer in de samenvatting. Niet bedoeld om buiten het bedrijf te delen.
+    Interne calculatie: elke productregel toont de volledige kostenopbouw tot de gelande stukprijs;
+    de samenvatting telt dezelfde componenten één keer op. Niet bedoeld om buiten het bedrijf te delen.
     {#if unifiedUsdToEur}
       Koers: 1 USD = {usdRateGoods} EUR
     {#else}

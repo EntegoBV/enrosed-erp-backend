@@ -304,7 +304,9 @@ public class PdfPurchaseRenderer {
             int position, String ean, String colour, String productSize, String packagingText,
             String cartonSize, String cartonWeight, String cartonCbmText, String cartonEan,
             /** "12 stuks per display" and "EAN …": the small lines under the packaging. */
-            String packagingPieces, String packagingEan) {
+            String packagingPieces, String packagingEan,
+            /** Inspection and other costs spread into this line; zero while they stay apart. */
+            BigDecimal separateEur) {
 
         /** Compatibility for callers written before the packing column existed. */
         public LineView(
@@ -328,7 +330,7 @@ public class PdfPurchaseRenderer {
                     landedUnitEur, totalDeliveryCostEur, totalDeliveryUnitCostEur, purchaseUnitPrice,
                     purchaseLineTotal, purchaseUnitEur, purchaseLineTotalEur, purchaseCurrency, priceBasis,
                     purchasePriceAvailable, eurPriceAvailable, eurEquivalentAvailable, cbmText,
-                    0, null, null, null, null, null, null, null, null, null, null);
+                    0, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -388,6 +390,22 @@ public class PdfPurchaseRenderer {
         boolean hasExtraColumn() {
             return lines.stream().anyMatch(line ->
                     line.extraRevenueEur() != null && line.extraRevenueEur().signum() != 0);
+        }
+
+        /** Inspection and other costs get their own column once a key spreads them over the lines. */
+        boolean hasSeparateColumn() {
+            return lines.stream().anyMatch(line ->
+                    line.separateEur() != null && line.separateEur().signum() != 0);
+        }
+
+        /** Header span of the cost breakdown group on the landscape sheet. */
+        int breakdownColumns() {
+            return 5 + (hasExtraColumn() ? 1 : 0) + (hasSeparateColumn() ? 1 : 0);
+        }
+
+        /** The product column gives 15 mm to every optional cost column, matching the colgroup. */
+        int landscapeProductMm() {
+            return 93 - 15 * (breakdownColumns() - 5);
         }
     }
 
@@ -491,6 +509,9 @@ public class PdfPurchaseRenderer {
                     .data("purchaseCartons", prepared.purchaseCartons())
                     .data("purchaseCbm", prepared.purchaseCbm())
                     .data("hasExtraColumn", prepared.hasExtraColumn())
+                    .data("hasSeparateColumn", prepared.hasSeparateColumn())
+                    .data("breakdownColumns", prepared.breakdownColumns())
+                    .data("landscapeProductMm", prepared.landscapeProductMm())
                     .data("productColumnMm", productColumnMm(options))
                     /* Apart from the piece price, the printed costs join the bottom line; spread by a key they are in it already. */
                     .data("totalDeliveryCostEur", deliveryTotalPrinted(prepared.totalDeliveryCostEur(), costing, separateCosts))
@@ -720,7 +741,8 @@ public class PdfPurchaseRenderer {
                     !showOuterCarton || carton == null ? null : cbmText(carton.cbm()),
                     !showOuterCarton || !showBarcode || product == null || product.barcodes() == null
                             ? null : blankToNull(product.barcodes().outer()),
-                    packaging.pieces(), packaging.ean()));
+                    packaging.pieces(), packaging.ean(),
+                    Money.nz(costingLine.separateEur())));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
