@@ -539,6 +539,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         BigDecimal proceedsSum = BigDecimal.ZERO;
         BigDecimal costSum = BigDecimal.ZERO;
         BigDecimal oursSum = BigDecimal.ZERO;
+        BigDecimal fullSum = BigDecimal.ZERO;
+        BigDecimal advanceSum = BigDecimal.ZERO;
         for (AuctionLine line : request.lines()) {
             if (line == null || line.productId() == null || line.quantity() <= 0) {
                 throw new BusinessRuleException("Elke regel van de afrekening heeft een product en een aantal");
@@ -550,26 +552,42 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
             BigDecimal quantity = BigDecimal.valueOf(line.quantity());
             BigDecimal cost = landedUnit.multiply(quantity).setScale(2, java.math.RoundingMode.HALF_UP);
             BigDecimal profit = proceeds.subtract(cost);
-            BigDecimal ours = cost.multiply(costShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP)
-                    .add(profit.multiply(profitShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP));
-            if (ours.signum() < 0) ours = BigDecimal.ZERO;
+            /* The final invoice carries the product at its full value: the landed cost plus our
+               share of the profit. The advance the partner paid on it comes off further down, so
+               the books show a sale at full value and an advance settled, not a bare commission. */
+            BigDecimal advanceForLine = cost.multiply(HUNDRED.subtract(costShare)).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP);
+            BigDecimal full = cost.add(profit.multiply(profitShare).divide(HUNDRED, 2, java.math.RoundingMode.HALF_UP));
+            /* A loss never credits back what the advance already covered. */
+            if (full.compareTo(advanceForLine) < 0) full = advanceForLine;
+            BigDecimal ours = full.subtract(advanceForLine);
             /* Our cost on this line is the part of the landed cost we financed; the rest was the partner's. */
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(),
-                    ours.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null,
+                    full.divide(quantity, 4, java.math.RoundingMode.HALF_UP), null, null,
                     landedUnit.multiply(costShare).divide(HUNDRED, 4, java.math.RoundingMode.HALF_UP)));
             Product product = byId.get(line.productId());
             table.append(product == null ? "Product " + line.productId() : product.name())
                     .append(": ").append(line.quantity()).append(" st · veiling € ").append(money(proceeds))
                     .append(" − kost € ").append(money(cost)).append(" = ")
                     .append(profit.signum() < 0 ? "verlies" : "winst").append(" € ").append(money(profit.abs()))
+                    .append(" · volledig € ").append(money(full))
+                    .append(advanceForLine.signum() > 0 ? " − voorschot € " + money(advanceForLine) : "")
                     .append(" · ons deel € ").append(money(ours)).append('\n');
             proceedsSum = proceedsSum.add(proceeds);
             costSum = costSum.add(cost);
             oursSum = oursSum.add(ours);
+            fullSum = fullSum.add(full);
+            advanceSum = advanceSum.add(advanceForLine);
         }
         BigDecimal profitSum = proceedsSum.subtract(costSum);
-        String notes = "Veilingafrekening " + reference + " · " + money(costShare).replace(",00", "")
-                + " % van de gelande kost terug + " + money(profitShare).replace(",00", "") + " % van de winst\n"
+        /* The advance settled as a line of its own, named after the advance invoice when there is one. */
+        List<SalesExtraLine> settled = advanceSum.signum() > 0
+                ? List.of(new SalesExtraLine("Voorschot verrekend · "
+                        + (source != null ? source.number() : "partnercontainer " + reference),
+                        BigDecimal.ONE, advanceSum.negate()))
+                : List.of();
+        String notes = "Slotfactuur partnercontainer " + reference + " · goederen aan volledige waarde: gelande kost + "
+                + money(profitShare).replace(",00", "") + " % van de winst; voorschot van "
+                + money(HUNDRED.subtract(costShare)).replace(",00", "") + " % van de kost verrekend\n"
                 + (apart.perPiece().signum() > 0
                         ? "Inspectie en andere kosten apart geboekt: € " + money(apart.total()) + " over "
                                 + apart.pieces() + " stuks, € " + money(apart.perPiece()) + " per stuk meegeteld in de kost\n"
@@ -577,6 +595,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 + table
                 + "Totaal: veiling € " + money(proceedsSum) + " − kost € " + money(costSum) + " = "
                 + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
+                + "; volledig € " + money(fullSum)
+                + (advanceSum.signum() > 0 ? " − voorschot € " + money(advanceSum) : "")
                 + "; ons deel € " + money(oursSum) + ".";
 
         ActorRef creator = currentActor();
@@ -593,6 +613,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null,
                 lines, List.of())
+                .withExtraLines(settled)
                 .withPartnerDeal(purchaseOrderId, profitShare)
                 .withSalesChannel("PARTNER")
                 .asPartnerSettlement();

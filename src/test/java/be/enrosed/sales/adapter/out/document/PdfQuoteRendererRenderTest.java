@@ -210,6 +210,57 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void partnerDocumentsSayAdvanceOrFinalAndReadTheInternalNames() throws Exception {
+        @SuppressWarnings("unchecked")
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        /* The shop knows the product as "glazen sierschaal"; the container and the partner know "counter display premium". */
+        when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData().withTexts(List.of(
+                new be.enrosed.catalog.domain.ProductText(Language.NL, "glazen sierschaal premium", null, null, null))));
+        renderer.products = productInstance;
+
+        PdfQuoteRenderer.Document plain = renderer.render(order(DocumentType.OFFERTE, "ENR-2026-0300", 1), priced(1, false), customer(), null);
+        try (PDDocument pdf = Loader.loadPDF(plain.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("glazen sierschaal premium"), "a customer reads the shop's name: " + text);
+            assertFalse(text.contains("voorschot"), text);
+        }
+
+        SalesOrder advanceQuote = order(DocumentType.OFFERTE, "ENR-2026-0301", 1).withPartnerDeal(13L, bd("50"));
+        PdfQuoteRenderer.Document quote = renderer.render(advanceQuote, priced(1, false), customer(), null);
+        writePreview("partner-advance-quote.pdf", quote.content());
+        try (PDDocument pdf = Loader.loadPDF(quote.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("voorschotofferte"), text);
+            assertTrue(text.contains("voorschot op partnercontainer"), text);
+            assertTrue(text.contains("counter display premium"), "the partner reads the container's own name: " + text);
+            assertFalse(text.contains("glazen sierschaal"), text);
+            assertTrue(text.contains("er-glass-001"), "and its code, like the purchase order: " + text);
+        }
+
+        SalesOrder advanceInvoice = order(DocumentType.FACTUUR, "F-2026-0302", 1).withPartnerDeal(13L, bd("50"));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(advanceInvoice, priced(1, false), customer(), null).content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("voorschotfactuur f-2026-0302"), "even a partner paying the whole cost up front gets an advance invoice: " + text);
+            assertFalse(text.contains("slotfactuur f-2026-0302"), text);
+            assertTrue(text.contains("voorschot op partnercontainer. na de veiling volgt de slotfactuur"),
+                    "without purchasing at hand the sentence drops the number cleanly: " + text);
+        }
+
+        SalesOrder settlement = order(DocumentType.FACTUUR, "F-2026-0303", 1).withPartnerDeal(13L, bd("50")).asPartnerSettlement();
+        PdfQuoteRenderer.Document finalInvoice = renderer.render(settlement, priced(1, false), customer(), null);
+        writePreview("partner-final-invoice.pdf", finalInvoice.content());
+        try (PDDocument pdf = Loader.loadPDF(finalInvoice.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("slotfactuur f-2026-0303"), text);
+            assertTrue(text.contains("slotfactuur partnercontainer"), text);
+            assertFalse(text.contains("voorschotfactuur"), text);
+        }
+    }
+
+    @Test
     void packingSlipMasterDataIsOptInAndRemainsPriceFree() throws Exception {
         QuoteDocumentRenderer.PackingItem item = new QuoteDocumentRenderer.PackingItem(
                 "Preserved rose glass bowl", 2, 24, "40 × 30 × 20 cm", 12,

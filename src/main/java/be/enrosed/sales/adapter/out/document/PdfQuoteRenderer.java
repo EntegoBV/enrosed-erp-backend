@@ -54,6 +54,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     @Inject
     Instance<ProductService> products;
+    /** Only to name the partner container on its advance and final documents. */
+    @Inject
+    Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchaseOrders;
     @Inject
     Instance<PdfImageEncoder> imageEncoder;
 
@@ -96,6 +99,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.defaults() : requestedOptions;
         boolean invoice = order.isInvoice();
+        /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
+        String docLabel = order.partnerSettlement() ? text.get("settlementInvoice")
+                : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "advanceQuote")
+                : text.get(invoice ? "invoice" : "quote");
+        String partnerNote = order.isPartnerDeal()
+                ? partnerNote(text.get(order.partnerSettlement() ? "partnerSettlementNote" : "partnerAdvanceNote"),
+                        partnerContainerNumber(order))
+                : null;
         List<LineView> lines = lineViews(order, priced, language, text, options);
         String dueDateText = DocumentText.date(order.invoiceDueDate(), language);
         String paymentInstruction = null;
@@ -134,7 +145,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("validUntilSentence", invoice ? "" : text.get("validUntilSentence")
                         .formatted(DocumentText.date(order.validUntil(), language)))
                 .data("isInvoice", invoice)
-                .data("docLabel", text.get(invoice ? "invoice" : "quote"))
+                .data("docLabel", docLabel)
+                .data("partnerNote", partnerNote)
                 .data("orderNote", nonBlank(order.notes(), null))
                 .data("dueDateText", dueDateText)
                 .data("paymentInstruction", paymentInstruction)
@@ -201,24 +213,49 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                                      Map<String, String> text, SalesPdfOptions options) {
         List<LineView> result = new ArrayList<>();
         Map<String, String> imageCache = new LinkedHashMap<>();
+        /* A partner reads the container's own names and codes, like the purchase order, not the shop's. */
+        boolean internalNames = order.isPartnerDeal();
         for (PricedOrder.Line line : priced.lines()) {
             Product product = product(line.productId());
             String title = product == null
                     ? cleanFallbackTitle(line.customerDescription())
-                    : nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription()));
-            String variant = product == null || !options.includeProductDetails() ? null : joinDetails(
-                    product.colourIn(language), product.variantSizeIn(language));
-            String description = product == null || !options.includeProductDetails()
+                    : internalNames
+                            ? nonBlank(product.name(), nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription())))
+                            : nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription()));
+            String variant = product == null || !options.includeProductDetails() ? null : internalNames
+                    ? joinDetails(product.colourIn(Language.NL), product.variantSizeIn(Language.NL))
+                    : joinDetails(product.colourIn(language), product.variantSizeIn(language));
+            String description = product == null || !options.includeProductDetails() || internalNames
                     ? null : distinctDescription(product.descriptionIn(language), title);
             List<ProductSpec> details = product == null
                     ? List.of() : productSpecs(product, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
-            String sku = options.includeProductDetails() ? nonBlank(line.sku(), null) : null;
+            String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
             String delivery = options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
             result.add(new LineView(line, title, variant, description, details, photo,
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery));
         }
         return List.copyOf(result);
+    }
+
+    /** The sentence with the container's number in it; without a number the sentence simply drops it. */
+    static String partnerNote(String pattern, String number) {
+        if (pattern == null) return null;
+        if (number == null || number.isBlank()) return pattern.replace("%s ", "").replace(" %s", "").replace("%s", "");
+        return pattern.formatted(number);
+    }
+
+    /** The container's number for the partner note; the plain word when purchasing cannot be asked. */
+    private String partnerContainerNumber(SalesOrder order) {
+        if (order.partnerPurchaseOrderId() != null && purchaseOrders != null && purchaseOrders.isResolvable()) {
+            try {
+                String number = purchaseOrders.get().get(order.partnerPurchaseOrderId()).number();
+                if (number != null && !number.isBlank()) return number;
+            } catch (Exception ignored) {
+                /* A container that is gone still leaves a readable sentence. */
+            }
+        }
+        return "";
     }
 
     private Product product(Long productId) {

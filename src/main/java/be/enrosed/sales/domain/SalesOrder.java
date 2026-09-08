@@ -301,6 +301,14 @@ public record SalesOrder(
     }
 
     /**
+     * A partner's cost document before the auction: the advance on the
+     * container, never the final word. The final invoice is the settlement.
+     */
+    public boolean isPartnerAdvance() {
+        return partnerPurchaseOrderId != null && !partnerSettlement;
+    }
+
+    /**
      * The same document carrying the fields that positional callers written
      * before them leave empty: the pickup snapshot, the archive moment, the
      * free lines and the partner deal. Reconstructions that only change a

@@ -115,11 +115,17 @@ class SalesOrderPartnerDealTest {
         assertEquals(13L, settlement.partnerPurchaseOrderId(), "the container comes from the source document");
         assertEquals(new BigDecimal("50"), settlement.partnerSharePct());
         assertEquals(2, settlement.lines().size());
-        assertEquals(new BigDecimal("25.0000"), settlement.lines().get(0).unitPriceEur(), "half of 2 000 profit over 40 pieces");
-        assertEquals(new BigDecimal("0.0000"), settlement.lines().get(1).unitPriceEur(), "a loss is never invoiced");
+        /* The final invoice bills the full value; what the advance covered comes off as a line of its own. */
+        assertEquals(new BigDecimal("100.0000"), settlement.lines().get(0).unitPriceEur(), "3 000 cost plus half of 2 000 profit over 40 pieces");
+        assertEquals(new BigDecimal("50.0000"), settlement.lines().get(1).unitPriceEur(), "a loss never goes below what the advance covered");
+        assertEquals(1, settlement.extraLines().size());
+        assertEquals("Voorschot verrekend · " + costInvoice.number(), settlement.extraLines().get(0).description());
+        assertEquals(new BigDecimal("-3500.00"), settlement.extraLines().get(0).unitPriceEur(), "4 000 + 500 full, 1 000 + 0 still owed");
         assertEquals(FreightState.AANGEVULD, settlement.freight());
-        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.000,00 = winst € 2.000,00 · ons deel € 1.000,00"), settlement.notes());
-        assertTrue(settlement.notes().contains("verlies € 100,00 · ons deel € 0,00"), settlement.notes());
+        assertTrue(settlement.notes().startsWith("Slotfactuur partnercontainer PO-2026-008 · goederen aan volledige waarde: gelande kost + 50 % van de winst; voorschot van 100 % van de kost verrekend"), settlement.notes());
+        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.000,00 = winst € 2.000,00 · volledig € 4.000,00 − voorschot € 3.000,00 · ons deel € 1.000,00"), settlement.notes());
+        assertTrue(settlement.notes().contains("verlies € 100,00 · volledig € 500,00 − voorschot € 500,00 · ons deel € 0,00"), settlement.notes());
+        assertTrue(settlement.notes().contains("volledig € 4.500,00 − voorschot € 3.500,00; ons deel € 1.000,00."), settlement.notes());
         assertEquals("Veiling Aalsmeer week 38", settlement.internalNotes());
 
         ArgumentCaptor<QuoteEvent> events = ArgumentCaptor.forClass(QuoteEvent.class);
@@ -148,7 +154,8 @@ class SalesOrderPartnerDealTest {
         /* 75 landed plus 5,75 apart is 80,75 a piece: cost 3 230, profit 1 770, ours 3 230 + 885 = 4 115. */
         assertEquals(new BigDecimal("102.8750"), settlement.lines().get(0).unitPriceEur());
         assertTrue(settlement.notes().contains("Inspectie en andere kosten apart geboekt: € 230,00 over 40 stuks, € 5,75 per stuk meegeteld in de kost"), settlement.notes());
-        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.230,00 = winst € 1.770,00 · ons deel € 4.115,00"), settlement.notes());
+        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.230,00 = winst € 1.770,00 · volledig € 4.115,00 · ons deel € 4.115,00"), settlement.notes());
+        assertTrue(settlement.extraLines().isEmpty(), "nothing was paid up front, so nothing comes off");
     }
 
     @Test
@@ -161,7 +168,8 @@ class SalesOrderPartnerDealTest {
 
         assertEquals(21L, settlement.partnerPurchaseOrderId());
         assertEquals(new BigDecimal("100.0000"), settlement.lines().get(0).unitPriceEur(), "75 cost plus 25 profit share per piece");
-        assertTrue(settlement.notes().startsWith("Veilingafrekening PO-2026-021 · 100 % van de gelande kost terug + 50 % van de winst"), settlement.notes());
+        assertTrue(settlement.notes().startsWith("Slotfactuur partnercontainer PO-2026-021 · goederen aan volledige waarde: gelande kost + 50 % van de winst; voorschot van 0 % van de kost verrekend"), settlement.notes());
+        assertTrue(settlement.extraLines().isEmpty());
         assertNull(settlement.internalNotes());
         verify(history, times(1)).add(any(QuoteEvent.class));
     }

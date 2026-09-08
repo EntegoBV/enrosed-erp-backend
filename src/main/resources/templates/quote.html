@@ -50,6 +50,7 @@
     .doc-kind { font-size: 8pt; font-weight: bold; letter-spacing: 1.7px; text-transform: uppercase; color: #f4dfac; }
     .doc-number { margin-top: 4px; color: #ffffff; font-size: 16pt; font-weight: bold; letter-spacing: -0.2px; }
     .doc-date { margin-top: 3px; color: #efd9df; font-size: 8pt; }
+    .doc-partner { margin-top: 5px; color: #ffffff; font-size: 7.6pt; font-weight: 700; line-height: 1.3; }
 
     /* -- Peppol notice ------------------------------------------------- */
     .peppol-banner {
@@ -246,6 +247,7 @@
       <div class="doc-kind">{docLabel}</div>
       <div class="doc-number">{order.number}</div>
       <div class="doc-date">{t.date} {orderDateText}</div>
+      {#if partnerNote}<div class="doc-partner">{partnerNote}</div>{/if}
     </td>
   </tr>
 </table>
@@ -370,6 +372,7 @@
         <tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>
       {/if}
     </table>
+    {#if partnerNote}<div class="overview-note">{partnerNote}</div>{/if}
     {#if orderNote}<div class="overview-note"><b>{t.note}:</b> {orderNote}</div>{/if}
   </div>
 </td>
