@@ -1239,6 +1239,9 @@ public class PdfPurchaseRenderer {
         return rows;
     }
 
+    /** Differences up to this much are the cost of paying, not an open amount. */
+    static final BigDecimal PAYMENT_TOLERANCE_EUR = new BigDecimal("10");
+
     static PayableView payableView(List<PurchasePayment> payments,
                                    PurchaseOrderService.Payable payable) {
         if (payable == null) return null;
@@ -1249,6 +1252,8 @@ public class PdfPurchaseRenderer {
         /* A settling payment closes the stream, whatever the amount: nothing stays open. */
         BigDecimal open = payable.supplierEur() == null || settled
                 ? BigDecimal.ZERO : payable.supplierEur().subtract(paidSupplier);
+        /* Short by the small change of paying, up to ten euro, counts as paid: bank charges, rounding. */
+        if (paidSupplier.signum() > 0 && open.signum() > 0 && open.compareTo(PAYMENT_TOLERANCE_EUR) <= 0) open = BigDecimal.ZERO;
         return new PayableView(
                 DocumentFormat.eur(payable.supplierEur()),
                 DocumentFormat.eur(payable.logisticsEur()),
