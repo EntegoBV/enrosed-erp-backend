@@ -153,6 +153,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("isInvoice", invoice)
                 .data("docLabel", docLabel)
                 .data("partnerNote", partnerNote)
+                .data("partnerDeal", order.isPartnerDeal())
                 .data("customsLine", customsLine)
                 .data("customerNote", customerNote)
                 .data("orderNote", nonBlank(order.notes(), null))

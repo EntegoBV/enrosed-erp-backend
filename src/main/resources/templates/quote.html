@@ -264,9 +264,11 @@
     {#else}
       <td><span class="label">{t.validUntil}</span><div class="fact-value">{validUntilText}</div></td>
     {/if}
+    {#if !partnerDeal}
     <td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>
     <td><span class="label">{t.payment}</span>
       <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>
+    {/if}
   </tr>
 </table>
 

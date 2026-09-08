@@ -234,7 +234,9 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(quote.content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("voorschotofferte"), text);
-            assertTrue(text.contains("voorschot op partnercontainer"), text);
+            assertTrue(text.contains("slotfactuur volgt met de eindafrekening."), text);
+            assertFalse(text.contains("incoterm dap"), "a partner document carries no incoterm in its fact band: " + text);
+            assertFalse(text.contains("30 dagen na factuurdatum"), "nor a payment term: " + text);
             assertTrue(text.contains("counter display premium"), "the partner reads the container's own name: " + text);
             assertFalse(text.contains("glazen sierschaal"), text);
             assertTrue(text.contains("er-glass-001"), "and its code, like the purchase order: " + text);
@@ -245,8 +247,7 @@ class PdfQuoteRendererRenderTest {
             String text = textOf(pdf);
             assertTrue(text.contains("voorschotfactuur f-2026-0302"), "even a partner paying the whole cost up front gets an advance invoice: " + text);
             assertFalse(text.contains("slotfactuur f-2026-0302"), text);
-            assertTrue(text.contains("voorschot op partnercontainer. na de veiling volgt de slotfactuur"),
-                    "without purchasing at hand the sentence drops the number cleanly: " + text);
+            assertTrue(text.contains("slotfactuur volgt met de eindafrekening."), text);
         }
 
         SalesOrder settlement = order(DocumentType.FACTUUR, "F-2026-0303", 1).withPartnerDeal(13L, bd("50")).asPartnerSettlement();
@@ -255,7 +256,7 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(finalInvoice.content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("slotfactuur f-2026-0303"), text);
-            assertTrue(text.contains("slotfactuur partnercontainer"), text);
+            assertTrue(text.contains("eindafrekening na de veiling, met het voorschot verrekend."), text);
             assertFalse(text.contains("voorschotfactuur"), text);
         }
     }
