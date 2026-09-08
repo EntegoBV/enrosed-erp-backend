@@ -129,6 +129,29 @@ class SalesOrderPartnerDealTest {
     }
 
     @Test
+    void auctionSettlementCountsTheInspectionAndOtherCostsKeptApartPerPiece() {
+        /* PO-2026-008 keeps its 150 inspection and 80 fumigation apart from the piece price: 230 over 40 pieces. */
+        be.enrosed.sourcing.application.PurchaseOrderService sourcing = wireSourcing(container());
+        be.enrosed.sourcing.domain.LandedCost.Totals totals = new be.enrosed.sourcing.domain.LandedCost.Totals(
+                40, 10, new BigDecimal("1.36"), new BigDecimal("768.00"), new BigDecimal("683.52"),
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, new BigDecimal("771.45"), new BigDecimal("19.2863"), BigDecimal.ZERO,
+                new BigDecimal("150"), List.of(new be.enrosed.sourcing.domain.OtherCost("Fumigatie", new BigDecimal("80"))),
+                new BigDecimal("80"), new BigDecimal("230"), new BigDecimal("1001.45"), false);
+        when(sourcing.calculate(any())).thenReturn(new be.enrosed.sourcing.domain.LandedCost(List.of(), totals, null));
+
+        SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(
+                7L, 13L, "PO-2026-008", null, new BigDecimal("100"), new BigDecimal("50"),
+                List.of(new SalesOrderService.AuctionLine(9L, 40, new BigDecimal("5000.00"), new BigDecimal("75.00"))),
+                null));
+
+        /* 75 landed plus 5,75 apart is 80,75 a piece: cost 3 230, profit 1 770, ours 3 230 + 885 = 4 115. */
+        assertEquals(new BigDecimal("102.8750"), settlement.lines().get(0).unitPriceEur());
+        assertTrue(settlement.notes().contains("Inspectie en andere kosten apart geboekt: € 230,00 over 40 stuks, € 5,75 per stuk meegeteld in de kost"), settlement.notes());
+        assertTrue(settlement.notes().contains("veiling € 5.000,00 − kost € 3.230,00 = winst € 1.770,00 · ons deel € 4.115,00"), settlement.notes());
+    }
+
+    @Test
     void auctionSettlementWithoutACostDocumentRecoversWhatWeFinanced() {
         /* We financed the whole container: the partner pays the cost back plus half the profit. */
         SalesOrder settlement = service.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(

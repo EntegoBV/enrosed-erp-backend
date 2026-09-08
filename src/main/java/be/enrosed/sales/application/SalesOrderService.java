@@ -408,6 +408,35 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         }
     }
 
+    /** Inspection and other costs booked apart from the piece price, spread per piece for the settlement. */
+    private record SeparateCosts(BigDecimal total, int pieces, BigDecimal perPiece) {
+        static final SeparateCosts NONE = new SeparateCosts(BigDecimal.ZERO, 0, BigDecimal.ZERO);
+    }
+
+    /**
+     * The inspection and other named costs of the container that no key spread into the
+     * piece prices. They cost us money all the same, so the settlement counts them per
+     * piece over the whole container, as a PIECES key would; spread ones already sit in
+     * the landed unit the request carries.
+     */
+    private SeparateCosts separateCostsApart(Long purchaseOrderId) {
+        if (purchaseOrderId == null || purchaseOrders == null || !purchaseOrders.isResolvable()) return SeparateCosts.NONE;
+        try {
+            be.enrosed.sourcing.application.PurchaseOrderService sourcing = purchaseOrders.get();
+            PurchaseOrder container = sourcing.get(purchaseOrderId);
+            LandedCost costing = container == null ? null : sourcing.calculate(container);
+            LandedCost.Totals totals = costing == null ? null : costing.totals();
+            if (totals == null || totals.separateCostsInPiecePrice() || totals.pieces() <= 0
+                    || totals.separateCostsEur() == null || totals.separateCostsEur().signum() <= 0) {
+                return SeparateCosts.NONE;
+            }
+            return new SeparateCosts(totals.separateCostsEur(), totals.pieces(),
+                    totals.separateCostsEur().divide(BigDecimal.valueOf(totals.pieces()), 4, java.math.RoundingMode.HALF_UP));
+        } catch (NotFoundException gone) {
+            return SeparateCosts.NONE;
+        }
+    }
+
     /** The part of the cost this customer pays up front by standing agreement; the whole cost when unknown. */
     private BigDecimal partnerCostPctOf(Long customerId) {
         try {
@@ -424,6 +453,11 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
     }
 
     /** One product on the partner's auction statement: what it fetched, and what one piece cost us landed. */
+    /**
+     * One product on the partner's auction statement. The landed unit cost is what the
+     * calculation gives the piece; inspection and other costs kept apart from the piece
+     * price are added by the service, so a client never counts them itself.
+     */
     public record AuctionLine(Long productId, int quantity, BigDecimal proceedsEur, BigDecimal landedUnitCostEur) {}
 
     /**
@@ -462,6 +496,7 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
                 : source != null ? source.number() : "container";
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        SeparateCosts apart = separateCostsApart(purchaseOrderId);
 
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         StringBuilder table = new StringBuilder();
@@ -474,7 +509,8 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
             }
             BigDecimal proceeds = line.proceedsEur() == null ? BigDecimal.ZERO : line.proceedsEur();
             if (proceeds.signum() < 0) throw new BusinessRuleException("Een veilingopbrengst kan niet negatief zijn");
-            BigDecimal landedUnit = line.landedUnitCostEur() == null ? BigDecimal.ZERO : line.landedUnitCostEur();
+            BigDecimal landedUnit = (line.landedUnitCostEur() == null ? BigDecimal.ZERO : line.landedUnitCostEur())
+                    .add(apart.perPiece());
             BigDecimal quantity = BigDecimal.valueOf(line.quantity());
             BigDecimal cost = landedUnit.multiply(quantity).setScale(2, java.math.RoundingMode.HALF_UP);
             BigDecimal profit = proceeds.subtract(cost);
@@ -498,6 +534,10 @@ if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share
         BigDecimal profitSum = proceedsSum.subtract(costSum);
         String notes = "Veilingafrekening " + reference + " · " + money(costShare).replace(",00", "")
                 + " % van de gelande kost terug + " + money(profitShare).replace(",00", "") + " % van de winst\n"
+                + (apart.perPiece().signum() > 0
+                        ? "Inspectie en andere kosten apart geboekt: € " + money(apart.total()) + " over "
+                                + apart.pieces() + " stuks, € " + money(apart.perPiece()) + " per stuk meegeteld in de kost\n"
+                        : "")
                 + table
                 + "Totaal: veiling € " + money(proceedsSum) + " − kost € " + money(costSum) + " = "
                 + (profitSum.signum() < 0 ? "verlies" : "winst") + " € " + money(profitSum.abs())
