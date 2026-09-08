@@ -126,9 +126,20 @@ public class WebsiteVisitService {
         return false;
     }
 
+    private static final Set<String> AI_SOURCE_NAMES = Set.of("chatgpt", "openai", "claude", "anthropic", "gemini",
+            "copilot", "perplexity", "deepseek", "mistral");
+
+    /** A campaign source that names an AI assistant, with or without its domain: utm_source=chatgpt.com and the like. */
+    boolean excludedSource(String source) {
+        if (source == null || source.isBlank()) return false;
+        String clean = source.strip().toLowerCase(Locale.ROOT);
+        if (clean.startsWith("www.")) clean = clean.substring(4);
+        return clean.contains(".") ? excludedReferrer(clean) : AI_SOURCE_NAMES.contains(clean);
+    }
+
     /** Stored before a rule existed, or never worth keeping: our own towns and the AI assistants. */
     boolean excludedRow(WebsiteVisitEntity row) {
-        return ownVisit(row.country, row.city) || excludedReferrer(row.referrerHost);
+        return ownVisit(row.country, row.city) || excludedReferrer(row.referrerHost) || excludedSource(row.source);
     }
 
     /** Removes every stored view the rules would refuse today; returns how many went. */
@@ -186,6 +197,7 @@ public class WebsiteVisitService {
         visit.referrerHost = referrerHost(input.referrer());
         if (excludedReferrer(visit.referrerHost)) return true;
         visit.source = trim(lower(input.utmSource()), 64);
+        if (excludedSource(visit.source)) return true;
         visit.medium = trim(lower(input.utmMedium()), 64);
         visit.campaign = trim(input.utmCampaign(), 120);
         visit.screenWidth = input.screenWidth() == null || input.screenWidth() <= 0 || input.screenWidth() > 20_000

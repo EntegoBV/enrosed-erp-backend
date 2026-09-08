@@ -98,6 +98,15 @@ class WebsiteAnalyticsTest {
                     .when().post("/api/public/analytics/visits")
                     .then().statusCode(204);
         }
+        Map<String, Object> campaign = new HashMap<>();
+        campaign.put("path", "/nl/ai-campaign-check/");
+        campaign.put("visitor", visitor);
+        campaign.put("country", "NL");
+        campaign.put("city", "Utrecht");
+        campaign.put("utmSource", "chatgpt.com");
+        given().contentType("application/json").body(campaign)
+                .when().post("/api/public/analytics/visits")
+                .then().statusCode(204);
         Map<String, Object> merged = new HashMap<>();
         merged.put("path", "/nl/merged-town-check/");
         merged.put("visitor", visitor);
@@ -112,6 +121,7 @@ class WebsiteAnalyticsTest {
                 .then().statusCode(200)
                 .extract().asString();
         assertFalse(body.contains("ai-check"), "a page opened from an AI assistant is not stored");
+        assertFalse(body.contains("ai-campaign-check"), "a campaign source naming an AI assistant is not stored");
         assertFalse(body.contains("merged-town-check"), "the merged municipality counts as our own town");
 
         given().auth().preemptive().basic("emre", "named-auth-test-password")

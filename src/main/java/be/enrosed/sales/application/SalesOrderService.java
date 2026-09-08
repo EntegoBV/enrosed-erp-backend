@@ -287,6 +287,7 @@ public class SalesOrderService {
         for (PurchaseOrderLine line : container.lines()) {
             if (line.quantity() <= 0) continue;
             BigDecimal unit = null;
+            int quantity = line.quantity();
             if (atCost) {
                 LandedCost.Line cost = costLines.get(line.productId());
                 if (cost == null || cost.landedUnitEur() == null || cost.landedUnitEur().signum() <= 0) {
@@ -294,8 +295,11 @@ public class SalesOrderService {
                             + "; reken de calculatie van " + container.number() + " eerst door");
                 }
                 unit = cost.landedUnitEur().multiply(factor).setScale(4, java.math.RoundingMode.HALF_UP);
+                /* The landed cost per piece is spread over the pieces the calculation counts; the same
+                   pieces go on the quote, so the quote adds up to what the container cost us. */
+                if (cost.quantity() > 0) quantity = cost.quantity();
             }
-            lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unit, null, null));
+            lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, null));
         }
         if (lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
 
