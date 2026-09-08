@@ -316,6 +316,7 @@ public class PurchaseOrderService {
         if (changes.allocExtra() == Allocation.SEPARATE) {
             throw new BusinessRuleException("De Enrosed kost zit altijd in de stukprijs: kies volume, waarde, stuks of zelf per product");
         }
+        requireValidPaymentSplit(changes);
         if (changes.allocSeparate() == Allocation.MANUAL) {
             throw new BusinessRuleException("Inspectie en andere kosten: kies achteraf, volume, waarde of stuks");
         }
@@ -342,7 +343,8 @@ public class PurchaseOrderService {
                 .withOtherCosts(keptOtherCosts(changes.otherCosts()))
                 /* Who co-orders the container is decided in the partner flow, not by a form save. */
                 .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct())
-                .withSeparateAllocation(changes.allocSeparate()));
+                .withSeparateAllocation(changes.allocSeparate())
+                .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -567,6 +569,22 @@ public class PurchaseOrderService {
     }
 
     /** The diary line a payment writes; built one way so deleting can find it again. */
+    /** A plan of one's own adds up to the whole goods value, and every share stays between 0 and 100. */
+    private static void requireValidPaymentSplit(PurchaseOrder changes) {
+        if (changes.paymentTerms() != PaymentTerms.CUSTOM || !changes.hasPaymentSplit()) return;
+        BigDecimal total = BigDecimal.ZERO;
+        for (BigDecimal pct : new BigDecimal[] {changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived()}) {
+            if (pct == null) continue;
+            if (pct.signum() < 0 || pct.compareTo(new BigDecimal("100")) > 0) {
+                throw new BusinessRuleException("Een deel van de betaalafspraak ligt tussen 0 en 100 %");
+            }
+            total = total.add(pct);
+        }
+        if (total.subtract(new BigDecimal("100")).abs().compareTo(new BigDecimal("0.01")) > 0) {
+            throw new BusinessRuleException("De betaalafspraak moet samen 100 % zijn, nu " + total.stripTrailingZeros().toPlainString() + " %");
+        }
+    }
+
     private static String paymentNoteLine(PurchasePayment payment) {
         return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
                 + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
@@ -740,6 +758,43 @@ public class PurchaseOrderService {
             }
         }
         return items;
+    }
+
+    /**
+     * Corrects a payment that was noted wrong - the day, the amount, the
+     * description or who got it - and rewrites its diary line.
+     */
+    @Transactional
+    public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                         Currency currency, String label, PurchasePayment.Payee payee) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment before = payments.get().forOrder(orderId).stream()
+                .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
+                .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
+        Currency money = currency == null ? before.currency() : currency;
+        BigDecimal eur = switch (money) {
+            case EUR -> amount;
+            case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
+            case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
+        };
+        PurchasePayment after = payments.get().save(new PurchasePayment(before.id(), orderId,
+                paidOn != null ? paidOn : before.paidOn(),
+                amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
+                label == null || label.isBlank() ? null : label.strip(),
+                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee));
+        String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                notes, order.lines()));
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, "Betaling gewijzigd",
+                ActivityChangeSet.create()
+                        .add("payment.amount", "Bedrag", before.amount(), after.amount())
+                        .add("payment.currency", "Valuta", before.currency(), after.currency())
+                        .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
+                        .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
+                        .privateValue("payment.label", "Omschrijving", before.label(), after.label())
+                        .build());
+        return after;
     }
 
     @Transactional

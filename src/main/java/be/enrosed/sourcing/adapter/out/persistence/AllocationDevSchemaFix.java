@@ -26,9 +26,9 @@ public class AllocationDevSchemaFix {
 
     @Transactional
     void onStart(@Observes StartupEvent event) {
-        for (String column : new String[] {"allocFreight", "allocOrigin", "allocDestination", "allocExtra", "alloc_separate"}) {
+        for (String column : new String[] {"allocFreight", "allocOrigin", "allocDestination", "allocExtra", "alloc_separate", "paymentTerms"}) {
             try {
-                entities.createNativeQuery("alter table purchase_order alter column " + column + " varchar(16)").executeUpdate();
+                entities.createNativeQuery("alter table purchase_order alter column " + column + " varchar(40)").executeUpdate();
             } catch (RuntimeException failure) {
                 LOG.debugf("allocation column %s left as is: %s", column, failure.getMessage());
             }

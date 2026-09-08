@@ -112,6 +112,10 @@ public final class SourcingEntities {
         /** Null on orders from before: read as booked when received. */
         public Boolean stockBooked;
         @Enumerated(EnumType.STRING) public PaymentTerms paymentTerms;
+        /** A payment plan of one's own under CUSTOM: percentages at ordering, departure, arrival. */
+        @Column(name = "pay_pct_ordered", precision = 5, scale = 2) public BigDecimal payPctOrdered;
+        @Column(name = "pay_pct_shipped", precision = 5, scale = 2) public BigDecimal payPctShipped;
+        @Column(name = "pay_pct_arrived", precision = 5, scale = 2) public BigDecimal payPctArrived;
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
 

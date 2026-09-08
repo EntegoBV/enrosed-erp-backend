@@ -527,7 +527,7 @@ public class PdfPurchaseRenderer {
                     .data("unifiedUsdToEur", sameRate(order))
                     .data("timeline", timeline(order))
                     .data("createdBy", internal ? order.createdBy() : null)
-                    .data("paymentTermsLabel", order.paymentTerms().dutchLabel())
+                    .data("paymentTermsLabel", order.paymentTermsLabel())
                     .data("schedule", schedule(order, payable))
                     .data("paymentRows", paymentRows(payments))
                     .data("payableView", payableView(payments, payable))
@@ -1201,7 +1201,7 @@ public class PdfPurchaseRenderer {
     static List<ScheduleRow> schedule(PurchaseOrder order, PurchaseOrderService.Payable payable) {
         if (payable == null || payable.supplierEur() == null) return List.of();
         List<ScheduleRow> rows = new ArrayList<>();
-        for (PaymentTerms.Instalment instalment : order.paymentTerms().instalments()) {
+        for (PaymentTerms.Instalment instalment : order.paymentInstalments()) {
             BigDecimal amount = payable.supplierEur().multiply(instalment.share())
                     .setScale(2, RoundingMode.HALF_UP);
             rows.add(new ScheduleRow(instalment.label(), DocumentFormat.eur(amount),

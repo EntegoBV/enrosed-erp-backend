@@ -197,7 +197,8 @@ public class SourcingResource {
                 .withOtherCosts(o.otherCosts())
                 /* The screen's draft keeps what it was given: the partner and the key for the separate costs. */
                 .withPartner(o.partnerCustomerId(), o.partnerCostPct(), o.partnerSharePct())
-                .withSeparateAllocation(o.allocSeparate());
+                .withSeparateAllocation(o.allocSeparate())
+                .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived());
     }
 
     @DELETE
@@ -398,6 +399,15 @@ public class SourcingResource {
         PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee());
         return Response.status(Response.Status.CREATED).entity(saved).build();
+    }
+
+    @PUT
+    @Path("/purchase-orders/{id}/payments/{paymentId}")
+    public PurchasePayment updatePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId,
+                                         PaymentRequest request) {
+        if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
+        return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
+                request.currency(), request.label(), request.payee());
     }
 
     @DELETE
