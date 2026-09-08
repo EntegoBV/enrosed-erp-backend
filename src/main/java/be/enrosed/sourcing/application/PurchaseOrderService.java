@@ -734,8 +734,13 @@ public class PurchaseOrderService {
             return items;
         }
         BigDecimal owed = payable.supplierEur();
-        BigDecimal paid = payments.get().forOrder(order.id()).stream()
+        List<PurchasePayment> supplierPayments = payments.get().forOrder(order.id()).stream()
                 .filter(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER)
+                .toList();
+        // An explicit final payment settles the supplier, including any agreed difference.
+        // Keep unrelated attention items and leave the recorded payment amounts intact.
+        if (supplierPayments.stream().anyMatch(PurchasePayment::settles)) return items;
+        BigDecimal paid = supplierPayments.stream()
                 .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
         PaymentTerms terms = order.paymentTerms() == null ? PaymentTerms.THIRDS : order.paymentTerms();
         if (terms.instalments().isEmpty()) {

@@ -1,7 +1,10 @@
 package be.enrosed.sourcing.application;
 
 import be.enrosed.shared.Currency;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
+import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
@@ -88,6 +91,70 @@ class PurchasePaymentPersistenceTest {
     }
 
     @Inject jakarta.persistence.EntityManager entityManager;
+
+    @Test
+    @TestTransaction
+    void supplierSettlementClosesAttentionUntilItIsRevokedOrDeleted() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Settlement Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        PurchaseOrder order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"),
+                BigDecimal.TEN);
+        var stored = entityManager.find(PurchaseOrderEntity.class, order.id());
+        stored.status = PurchaseOrderStatus.ONDERWEG;
+        stored.paymentTerms = PaymentTerms.THIRD_TWO_THIRDS_SHIPPED;
+        stored.trackingReference = "SETTLEMENT-TRACKING";
+        entityManager.flush();
+
+        // Reproduce the reported balance using the actual recorded supplier payments.
+        var payable = new PurchaseOrderService.Payable(new BigDecimal("34504.94"), new BigDecimal("11534.86"),
+                BigDecimal.ZERO, false, false);
+        var paidOn = LocalDate.of(2026, 7, 10);
+        var balance = new BigDecimal("23942.73");
+        purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 5, 13), new BigDecimal("10007.44"),
+                Currency.EUR, "1/3 bij bestelling");
+        PurchasePayment payment = purchaseOrders.addPayment(order.id(), paidOn, balance, Currency.EUR,
+                "2/3 bij vertrek");
+        List<String> open = List.of("Betaling open: 2/3 bij vertrek (€ 554,77)");
+        assertEquals(open, purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+
+        // Settling another payee must never discharge the supplier's balance.
+        for (PurchasePayment.Payee payee : List.of(PurchasePayment.Payee.LOGISTICS,
+                PurchasePayment.Payee.SEPARATE, PurchasePayment.Payee.OTHER)) {
+            purchaseOrders.addPayment(order.id(), paidOn, new BigDecimal("400"), Currency.EUR,
+                    "Settled separately", payee, true);
+        }
+        assertEquals(open, purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+
+        purchaseOrders.updatePayment(order.id(), payment.id(), paidOn, balance, Currency.EUR,
+                payment.label(), PurchasePayment.Payee.SUPPLIER, true);
+        entityManager.clear();
+        assertTrue(purchaseOrders.payments(order.id()).stream()
+                .anyMatch(p -> p.id().equals(payment.id()) && p.settles()), "settlement survives reloading");
+        assertEquals(List.of(), purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+        assertEquals(new BigDecimal("33950.17"), purchaseOrders.payments(order.id()).stream()
+                .filter(p -> p.payee() == PurchasePayment.Payee.SUPPLIER)
+                .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add),
+                "settlement does not change the amounts actually paid");
+
+        stored = entityManager.find(PurchaseOrderEntity.class, order.id());
+        stored.trackingReference = null;
+        entityManager.flush();
+        assertEquals(List.of("Track & trace ontbreekt"),
+                purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+        stored.trackingReference = "SETTLEMENT-TRACKING";
+        entityManager.flush();
+
+        purchaseOrders.updatePayment(order.id(), payment.id(), paidOn, balance, Currency.EUR,
+                payment.label(), PurchasePayment.Payee.SUPPLIER, false);
+        assertEquals(open, purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+
+        // Creating and then deleting a settlement must also restore the reminder.
+        PurchasePayment finalPayment = purchaseOrders.addPayment(order.id(), paidOn, BigDecimal.ONE, Currency.EUR,
+                "Slotbetaling", PurchasePayment.Payee.SUPPLIER, true);
+        assertEquals(List.of(), purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+        purchaseOrders.deletePayment(order.id(), finalPayment.id());
+        assertEquals(open, purchaseOrders.attention(purchaseOrders.get(order.id()), payable));
+    }
 
     /** Paid is paid: the third instalment cannot be noted twice, nor "the rest" on top of it. */
     @Test
