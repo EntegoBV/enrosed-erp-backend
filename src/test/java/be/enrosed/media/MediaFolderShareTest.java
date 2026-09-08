@@ -30,13 +30,20 @@ class MediaFolderShareTest {
         MediaDtos.UploadResult loose = media.upload("Los bestand", image("loose.jpg"), null);
 
         assertEquals(beurs.id(), inFolder.asset().folderId());
-        assertNull(loose.asset().folderId());
+        /* A file nobody put anywhere is parked under Overig until a link says where it belongs. */
+        assertNotNull(loose.asset().folderId());
+        MediaDtos.Folder parking = media.folders().stream().filter(f -> f.id().equals(loose.asset().folderId())).findFirst().orElseThrow();
+        assertEquals("Foto's", parking.name());
+        assertEquals("Overig", media.folders().stream().filter(f -> f.id().equals(parking.parentId())).findFirst().orElseThrow().name());
         List<Long> inBeurs = media.list(null, null, null, null, null, null, false, 0, 100, beurs.id(), false)
                 .stream().map(MediaDtos.Summary::id).toList();
         assertEquals(List.of(inFolder.asset().id()), inBeurs);
         List<Long> atRoot = media.list(null, null, null, null, null, null, false, 0, 500, null, true)
                 .stream().map(MediaDtos.Summary::id).toList();
-        assertTrue(atRoot.contains(loose.asset().id()));
+        assertFalse(atRoot.contains(loose.asset().id()), "the parked file is in its parking folder, not loose in the root");
+        List<Long> parked = media.list(null, null, null, null, null, null, false, 0, 100, parking.id(), false)
+                .stream().map(MediaDtos.Summary::id).toList();
+        assertTrue(parked.contains(loose.asset().id()));
         assertFalse(atRoot.contains(inFolder.asset().id()));
         assertEquals(1, media.folders().stream().filter(f -> f.id().equals(beurs.id())).findFirst().orElseThrow().assetCount());
 
