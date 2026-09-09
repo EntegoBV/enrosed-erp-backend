@@ -102,6 +102,37 @@ class SalesMapperLogisticsTest {
     }
 
     @Test
+    void websiteBuyerCommentAndOnlyRequestedProductsSurvivePersistenceRoundTrip() {
+        String buyerNotes = "Graag enkel rode rozen.\nEigen etiket voor Café & Co.";
+        LocalDate today = LocalDate.now();
+        SalesOrder source = new SalesOrder(7L, "ENR-2026-0007", 2L, "BE",
+                today, today.plusDays(30), QuoteStatus.CONCEPT, "DAP", null, buyerNotes,
+                MarkupMode.PRODUCT, decimal("45"), null, null, null, null, null, 0,
+                null, null, null, "[WEBSITE_AANVRAAG] ENR-2026-0007",
+                DeliveryTermsState.VOLLEDIG, FreightState.TE_BEPALEN, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
+                DocumentType.OFFERTE, null, null, null, null,
+                List.of(new SalesOrderLine(null, 3L, 24, decimal("10"), null, null)),
+                List.of()).withSalesChannel("WEBSITE");
+        SalesEntities.SalesOrderEntity entity = new SalesEntities.SalesOrderEntity();
+        SalesEntities.SalesOrderLineEntity removedLine = new SalesEntities.SalesOrderLineEntity();
+        removedLine.id = 9L;
+        removedLine.productId = 99L;
+        removedLine.quantity = 12;
+        removedLine.order = entity;
+        entity.lines.add(removedLine);
+
+        SalesMapper.apply(source, entity);
+        SalesOrder restored = SalesMapper.toDomain(entity);
+
+        assertEquals(buyerNotes, restored.notes());
+        assertEquals("WEBSITE", restored.salesChannel());
+        assertEquals(List.of(3L), restored.lines().stream().map(SalesOrderLine::productId).toList());
+        assertEquals(24, restored.lines().getFirst().quantity());
+    }
+
+    @Test
     void websitePickupSnapshotSurvivesOlderUpdatesThatOmitTheNewField() {
         SalesEntities.SalesOrderEntity entity = new SalesEntities.SalesOrderEntity();
         entity.pickupLocationId = 12L;

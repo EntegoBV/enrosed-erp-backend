@@ -7,6 +7,7 @@ import be.enrosed.sales.adapter.in.rest.PublicQuoteDtos;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.mail.InternalMessageSender;
 import be.enrosed.shipping.application.CarrierRepository;
 import jakarta.enterprise.event.Event;
 import org.junit.jupiter.api.BeforeEach;
@@ -319,6 +320,8 @@ class PublicQuoteServiceTest {
         SalesOrder draft = draft(41L, 9L, "ENR-2026-0041");
         when(salesOrders.createWebsiteRequest(9L, "BE", "DAP")).thenReturn(draft);
         when(salesOrders.update(eq(41L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(products.get(1L)).thenReturn(pricedProduct);
+        String buyerNotes = "Graag enkel de rode rozen.\nEigen etiket mogelijk? Café & Co.";
 
         PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
                 "EN", "DELIVERY", "BE0123456789",
@@ -326,7 +329,7 @@ class PublicQuoteServiceTest {
                 List.of(new PublicQuoteDtos.ItemRequest(1L, 2)),
                 "BE",
                 "Buyer BV", "Ana", "ana@example.com", null,
-                "Need red", true, "");
+                "  " + buyerNotes + "  ", true, "");
         PublicQuoteDtos.SubmissionResponse response = service.submit(request);
 
         assertEquals("ENR-2026-0041", response.reference());
@@ -336,14 +339,45 @@ class PublicQuoteServiceTest {
         SalesOrder quote = saved.getValue();
         assertTrue(quote.internalNotes().startsWith(
                 "[WEBSITE_AANVRAAG] ENR-2026-0041\n"));
-        assertEquals("Need red", quote.notes());
+        assertEquals(buyerNotes, quote.notes());
+        assertEquals(List.of(1L), quote.lines().stream().map(SalesOrderLine::productId).toList(),
+                "an orderable catalogue product absent from the request must not become a quote line");
+        assertEquals(List.of(1L), response.estimate().lines().stream()
+                .map(PublicQuoteDtos.LineEstimate::productId).toList());
         assertEquals(24, quote.lines().getFirst().quantity());
         assertEquals(decimal("10.0000"), quote.lines().getFirst().unitPriceEur());
+        InternalMessageSender.TeamNotice mail = new WebsiteQuoteMailNotifier(
+                salesOrders, customers, products, mock(InternalMessageSender.class),
+                "https://erp.example.test").notice(quote, savedCustomer);
+        assertEquals(1, mail.lines().size());
+        assertEquals("24 st", mail.lines().getFirst().quantity());
+        assertTrue(mail.lines().getFirst().note().startsWith("ROSE-1"));
+        assertEquals(quote.notes(), mail.message(),
+                "the app order and the notification must carry the same multiline buyer comment");
+        assertTrue(mail.textFallback().contains(buyerNotes));
+        verify(products, never()).get(2L);
         InOrder persistedBeforeNotification = inOrder(salesOrders, websiteQuoteReady);
         persistedBeforeNotification.verify(salesOrders).update(eq(41L), any());
         persistedBeforeNotification.verify(websiteQuoteReady).fire(
                 new WebsiteQuotePushNotifier.Ready(41L, "ENR-2026-0041"));
         verify(salesOrders, never()).create(anyLong(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void submissionRejectsZeroCartonRowsWithoutCreatingAnyBusinessRecords() {
+        PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "BE0123456789",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 2),
+                        new PublicQuoteDtos.ItemRequest(2L, 0)),
+                "BE", "Buyer BV", "Ana", "ana@example.com", null,
+                "Only the first product", true, "");
+
+        PublicQuoteValidationException failure = assertThrows(
+                PublicQuoteValidationException.class, () -> service.submit(request));
+
+        assertEquals(java.util.Map.of("items[1].cartons", "OUT_OF_RANGE"), failure.fieldErrors());
+        verifyNoInteractions(customers, salesOrders, websiteQuoteReady);
     }
 
     @Test
