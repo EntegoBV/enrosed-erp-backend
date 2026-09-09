@@ -63,6 +63,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.IncomingPaymentService> incomingPayments;
     @Inject
     Instance<be.enrosed.sales.application.PartnerSettlements> partnerSettlements;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerAdvanceQuotes> advanceQuotes;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -103,13 +105,17 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.defaults() : requestedOptions;
         boolean invoice = order.isInvoice();
+        var advanceAgreement = !invoice && order.isPartnerAdvance() && order.id() != null
+                && advanceQuotes != null && advanceQuotes.isResolvable()
+                ? advanceQuotes.get().find(order.id()) : null;
+        boolean agreementQuote = advanceAgreement != null;
         var settlement = order.partnerSettlement() && order.id() != null
                 && partnerSettlements != null && partnerSettlements.isResolvable()
                 ? partnerSettlements.get().find(order.id()) : null;
         boolean partialSettlement = settlement != null && !settlement.finalSettlement();
         /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
         String docLabel = order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
-                : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "advanceQuote")
+                : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "quote")
                 : text.get(invoice ? "invoice" : "quote");
         String partnerNote = order.isPartnerDeal()
                 ? partnerNote(text.get(order.partnerSettlement()
@@ -184,6 +190,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("docLabel", docLabel)
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())
+                .data("agreementQuote", agreementQuote)
+                .data("advanceSchedule", agreementQuote ? advanceAgreement.rows().stream().map(row ->
+                        new AdvanceRowView(row.label(), row.percentage() == null ? "-"
+                                : row.percentage().stripTrailingZeros().toPlainString() + "%",
+                                DocumentFormat.eur(row.amountEur()), DocumentText.date(row.dueDate(), language))).toList() : List.of())
+                .data("advanceSettlementNotice", agreementQuote ? advanceAgreement.sharePct() == null
+                        ? text.get("advanceAgreementSettlementUnspecified")
+                        : text.get("advanceAgreementSettlement").formatted(advanceAgreement.sharePct().stripTrailingZeros().toPlainString()) : null)
                 .data("customsLine", customsLine)
                 .data("customerNote", customerNote)
                 .data("orderNote", nonBlank(order.notes(), null))
@@ -244,6 +258,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             return joined.isEmpty() ? code : joined + " · " + code;
         }
     }
+
+    /** Frozen quotation milestones; never projected from a later container schedule. */
+    public record AdvanceRowView(String label, String percentage, String amount, String dueDate) {}
 
     /** Print projection: commercial values stay frozen, catalogue presentation stays tidy. */
     public record LineView(PricedOrder.Line commercial, String title, String variantText,

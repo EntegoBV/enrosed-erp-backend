@@ -32,6 +32,7 @@ public class SalesOrderResource {
     private final QuoteService quotes;
     @jakarta.inject.Inject be.enrosed.sales.application.IncomingPaymentService incoming;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerFinancingService partnerFinancing;
+    @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -58,7 +59,15 @@ public class SalesOrderResource {
                             /** For an invoice: the number of the quote it was made from. */
                             String sourceQuoteNumber, be.enrosed.sales.domain.SalesPaymentSummary paymentSummary,
                             be.enrosed.sales.domain.SalesAccounting accounting,
-                            be.enrosed.sales.application.PartnerSettlements.Snapshot settlement) {
+                            be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                            be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting) {
@@ -118,9 +127,13 @@ public class SalesOrderResource {
 
     private OrderView enrich(OrderView view) {
         if (incoming == null || partnerFinancing == null) return view;
-        return new OrderView(view.order(), view.priced(), view.awaitingResend(), view.invoicedAs(), view.invoicedAsId(),
-                view.invoiceStatus(), view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
-                partnerFinancing.accounting(view.order(), view.priced()), partnerFinancing.settlement(view.order()));
+        var agreement = advanceQuotes == null || view.order().id() == null ? null : advanceQuotes.find(view.order().id());
+        // An arrangement is followed by several term invoices; one invoice never means the entire quote was billed.
+        return new OrderView(view.order(), view.priced(), view.awaitingResend(), agreement == null ? view.invoicedAs() : null,
+                agreement == null ? view.invoicedAsId() : null, agreement == null ? view.invoiceStatus() : null,
+                view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
+                partnerFinancing.accounting(view.order(), view.priced()), partnerFinancing.settlement(view.order()),
+                agreement);
     }
 
     @GET @Path("/{id}/payments")

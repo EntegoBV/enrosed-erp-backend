@@ -39,12 +39,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 class QuoteServiceSalesActivityTest {
 
@@ -124,6 +126,62 @@ class QuoteServiceSalesActivityTest {
         verify(activityLog).record(
                 "SENT", "SALES_ORDER", "42", "ENR-2026-0042", "Offerte verstuurd");
         verify(salesOrders).markInvoiceSent(42L);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendsFrozenAdvanceTermsWithoutPassingWholeOrderPricesToEitherMail() {
+        SalesOrder quote = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null).withPartnerDeal(13L, new BigDecimal("50"));
+        when(salesOrders.get(42L)).thenReturn(quote);
+        when(salesOrders.price(any())).thenReturn(pricedOrder());
+        when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
+        PartnerAdvanceQuotes quotes = mock(PartnerAdvanceQuotes.class);
+        jakarta.enterprise.inject.Instance<PartnerAdvanceQuotes> instance = mock(jakarta.enterprise.inject.Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(quotes);
+        service.advanceQuotes = instance;
+        when(quotes.find(42L)).thenReturn(new PartnerAdvanceQuotes.Snapshot(13L, new BigDecimal("50"), new BigDecimal("3000"), new BigDecimal("50"), List.of(
+                new PartnerAdvanceQuotes.Row(71L, "Start productie", new BigDecimal("30"), new BigDecimal("900.00"), LocalDate.of(2026, 9, 15)),
+                new PartnerAdvanceQuotes.Row(72L, "Container gereed", new BigDecimal("70"), new BigDecimal("2100.00"), null))));
+        service.send(42L, null);
+        var summary = ArgumentCaptor.forClass(QuoteMailer.Summary.class);
+        verify(mailer).sendQuote(eq(quote), any(), any(), any(), any(), any(), any(), summary.capture());
+        assertNull(summary.getValue().goodsTotal());
+        assertNull(summary.getValue().shippingTotal());
+        assertNull(summary.getValue().total());
+        assertTrue(summary.getValue().lines().stream().allMatch(line -> line.net() == null));
+        assertEquals(2, summary.getValue().advanceAgreement().rows().size());
+        assertEquals(new BigDecimal("2100.00"), summary.getValue().advanceAgreement().rows().get(1).amountEur());
+        assertEquals(new BigDecimal("50"), summary.getValue().advanceAgreement().sharePct());
+    }
+
+    @Test
+    void approvalCannotChangeGoodsBehindAFrozenAdvanceAgreement() {
+        SalesOrder quote = order(DocumentType.OFFERTE, QuoteStatus.WIJZIGING_GEVRAAGD, "portal-token").withPartnerDeal(13L, BigDecimal.valueOf(50));
+        var revision = new QuoteRevision(91L, 42L, be.enrosed.sales.domain.RevisionStatus.IN_AFWACHTING,
+                java.time.Instant.now(), "Klant", "Graag aanpassen", null, null, null,
+                List.of(new QuoteRevision.Line(1L, 7L, 24, null)));
+        when(revisions.findById(91L)).thenReturn(Optional.of(revision));
+        when(salesOrders.get(42L)).thenReturn(quote);
+        when(salesOrders.hasAdvanceAgreement(quote)).thenReturn(true);
+        assertThrows(be.enrosed.shared.BusinessRuleException.class,
+                () -> service.approveRevision(91L, "Emre", "Akkoord"));
+        verify(orders, never()).save(any());
+        verify(revisions, never()).save(any());
+    }
+
+    @Test
+    void messageOnlyAdvanceAgreementRevisionRemainsPossibleWithoutChangingGoods() {
+        SalesOrder quote = order(DocumentType.OFFERTE, QuoteStatus.WIJZIGING_GEVRAAGD, "portal-token").withPartnerDeal(13L, BigDecimal.valueOf(50));
+        var revision = new QuoteRevision(92L, 42L, be.enrosed.sales.domain.RevisionStatus.IN_AFWACHTING,
+                java.time.Instant.now(), "Klant", "Graag een toelichting", null, null, null, List.of());
+        when(revisions.findById(92L)).thenReturn(Optional.of(revision));
+        when(salesOrders.get(42L)).thenReturn(quote);
+        when(salesOrders.hasAdvanceAgreement(quote)).thenReturn(true);
+        SalesOrder saved = service.approveRevision(92L, "Emre", "Toelichting gegeven");
+        assertEquals(quote.lines(), saved.lines());
+        assertEquals(quote.purpose(), saved.purpose());
+        assertEquals(quote.id(), saved.id());
     }
 
     @Test

@@ -27,7 +27,9 @@ public record CustomerQuoteView(
         /** What we told the customer when we withdrew the quote; null otherwise. */
         String cancellationMessage,
         /** Free lines next to the products: assembly, a sample, an extra transport leg. */
-        List<CustomerExtraLine> extraLines) {
+        List<CustomerExtraLine> extraLines,
+        /** Frozen agreed advances; monetary product/total fields are absent for this type of quote. */
+        be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement) {
 
     /** One free line as the customer reads it. */
     public record CustomerExtraLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal total) {}

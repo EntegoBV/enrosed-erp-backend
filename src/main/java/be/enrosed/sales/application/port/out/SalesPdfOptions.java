@@ -5,7 +5,9 @@ package be.enrosed.sales.application.port.out;
  *
  * <p>The canonical document sent to a customer always uses {@link #defaults()}.
  * These switches only remove supporting presentation detail; invoice identity,
- * quantities, prices, VAT, totals and payment details remain mandatory.</p>
+ * quantities and payment details remain mandatory. Invoice prices, VAT and
+ * totals remain mandatory. An advance-agreement quotation instead carries
+ * its frozen instalments, because its final selling amount follows later.</p>
  */
 public record SalesPdfOptions(
         boolean includePhotos,

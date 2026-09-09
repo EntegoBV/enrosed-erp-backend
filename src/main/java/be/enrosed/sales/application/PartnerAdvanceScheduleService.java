@@ -27,6 +27,7 @@ public class PartnerAdvanceScheduleService {
     @Inject SalesOrderService sales;
     @Inject SalesRepositories.Orders orders;
     @Inject IncomingPaymentService incoming;
+    @Inject PartnerAdvanceQuotes advanceQuotes;
     @Inject Instance<ActivityLogService> activity;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
@@ -57,6 +58,24 @@ public class PartnerAdvanceScheduleService {
                             paid == null ? ZERO : paid.receivedEur(), paid == null ? ZERO : paid.remainingEur());
                 }).toList(), hasSettlement(purchaseId), hasSettlement(purchaseId)
                     ? "Er bestaat al een afrekening; nieuwe voorschotfacturen zijn niet meer mogelijk." : null);
+    }
+
+    public boolean hasRows(long purchaseId) { return !schedules.rows(purchaseId).isEmpty(); }
+
+    /** Saving the plan and freezing the customer quotation share the caller's transaction. */
+    @Transactional
+    public PartnerAdvanceQuotes.Snapshot quoteArrangements(long purchaseId, Request request, BigDecimal sharePct) {
+        Schedule schedule = request == null ? get(purchaseId) : save(purchaseId, request);
+        if (schedule.rows().isEmpty() && schedule.agreedAmountEur().signum() != 0)
+            throw new BusinessRuleException("Voeg minstens één voorschottermijn toe aan de offerte");
+        BigDecimal quoted = schedule.rows().stream().map(Row::amountEur).reduce(ZERO, BigDecimal::add);
+        if (quoted.compareTo(schedule.agreedAmountEur()) != 0)
+            throw new BusinessRuleException("De offertetermijnen moeten samen het afgesproken voorschot van € " + schedule.agreedAmountEur() + " dekken");
+        if (schedule.invoicingBlocked())
+            throw new BusinessRuleException("Er bestaat al een afrekening; maak geen nieuwe voorschotofferte voor deze inkooporder");
+        return new PartnerAdvanceQuotes.Snapshot(purchaseId, schedule.financingPct(), schedule.agreedAmountEur(), sharePct,
+                schedule.rows().stream().map(row -> new PartnerAdvanceQuotes.Row(row.id(), row.label(), row.percentage(),
+                        row.amountEur(), row.dueDate())).toList());
     }
 
     @Transactional
@@ -147,10 +166,26 @@ public class PartnerAdvanceScheduleService {
         if (!Objects.equals(purchase.partnerCustomerId(), agreement.partnerCustomerId()))
             throw new BusinessRuleException("De partner verschilt van de financieringsafspraak");
         String percentage = row.percentage() == null ? "Vast bedrag" : plain(row.percentage()) + "%";
-        String note = "Partnervoorschot · " + row.label() + ". " + percentage + " van de afgesproken partnerbijdrage € "
-                + agreement.agreedAmountEur() + " (" + plain(agreement.financingPct()) + "% van kostbasis € "
-                + agreement.externalCostEur() + "). Deze factuur betreft uitsluitend deze termijn.";
-        SalesOrder invoice = sales.createScheduledPartnerAdvance(purchase, row.id(), row.label(), row.amountEur(), row.dueDate(), note);
+        String note = "Voorschot · " + row.label() + ". " + percentage + " van het afgesproken voorschot. "
+                + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk.";
+        var quotationIds = advanceQuotes.quoteIds(purchaseId);
+        var planRows = schedules.rows(purchaseId);
+        Long sourceQuoteId = quotationIds.stream().filter(id -> {
+            SalesOrder quote = sales.get(id);
+            if (!PartnerFinancingService.live(quote) || !Objects.equals(quote.customerId(), purchase.partnerCustomerId())) return false;
+            var snapshot = advanceQuotes.find(id);
+            return same(snapshot.sharePct(), purchase.partnerSharePctOrDefault())
+                    && same(snapshot.financingPct(), agreement.financingPct())
+                    && same(snapshot.agreedAmountEur(), agreement.agreedAmountEur())
+                    && snapshot.rows().size() == planRows.size()
+                    && planRows.stream().allMatch(planned -> snapshot.rows().stream().anyMatch(quoted ->
+                        Objects.equals(quoted.scheduleRowId(), planned.id()) && quoted.label().equals(planned.label())
+                        && same(quoted.percentage(), planned.percentage()) && same(quoted.amountEur(), planned.amountEur())
+                        && Objects.equals(quoted.dueDate(), planned.dueDate())));
+        }).findFirst().orElse(null);
+        if (!quotationIds.isEmpty() && sourceQuoteId == null)
+            throw new BusinessRuleException("De actuele betalingsplanning wijkt af van de offerte of de offerte is niet meer actief. Maak eerst een nieuwe offerte vanuit de inkooporder met de juiste afspraken");
+        SalesOrder invoice = sales.createScheduledPartnerAdvance(purchase, row.id(), row.label(), row.amountEur(), row.dueDate(), note, sourceQuoteId);
         schedules.save(new PartnerAdvanceSchedules.Row(row.id(), purchaseId, row.position(), row.label(), row.percentage(),
                 row.amountEur(), row.dueDate(), invoice.id()));
         audit(purchase, "Voorschotfactuur " + invoice.number() + " aangemaakt voor " + row.label() + ": € " + row.amountEur());

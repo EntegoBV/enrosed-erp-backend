@@ -329,7 +329,8 @@ class PdfQuoteRendererRenderTest {
         writePreview("partner-advance-quote.pdf", quote.content());
         try (PDDocument pdf = Loader.loadPDF(quote.content())) {
             String text = textOf(pdf);
-            assertTrue(text.contains("voorschotofferte"), text);
+            assertTrue(text.contains("offerte enr-2026-0301"), text);
+            assertFalse(text.contains("voorschotofferte"), text);
             assertTrue(text.contains("slotfactuur volgt met de eindafrekening."), text);
             assertFalse(text.contains("incoterm dap"), "a partner document carries no incoterm in its fact band: " + text);
             assertFalse(text.contains("30 dagen na factuurdatum"), "nor a payment term: " + text);
@@ -355,6 +356,84 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("eindafrekening na de veiling, met het voorschot verrekend."), text);
             assertFalse(text.contains("voorschotfactuur"), text);
         }
+    }
+
+    @Test
+    void advanceQuotationShowsFrozenCustomInstalmentsWithoutSuggestingAFinalSellingTotal() throws Exception {
+        var quote = order(DocumentType.OFFERTE, "OFF-2026-0451", 1).withPartnerDeal(13L, bd("50"));
+        var price = priced(1, false);
+        var snapshot = new be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot(13L, bd("50"), bd("3000.40"), bd("50"), List.of(
+                new be.enrosed.sales.application.PartnerAdvanceQuotes.Row(71L, "Start productie", bd("30"), bd("900.12"), LocalDate.of(2026, 9, 15)),
+                new be.enrosed.sales.application.PartnerAdvanceQuotes.Row(72L, "Container gereed", bd("70"), bd("2100.28"), LocalDate.of(2026, 10, 20))));
+        attachAdvanceSnapshot(quote.id(), snapshot);
+        for (Language language : Language.values()) {
+            var document = renderer.render(quote, price, customer(language), null, language,
+                    new SalesPdfOptions(true, true, true, false));
+            if (language == Language.NL || language == Language.EN || language == Language.TR)
+                writePreview("advance-agreement-quote-" + language.code() + ".pdf", document.content());
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                var labels = be.enrosed.shared.DocumentText.of(language);
+                assertEquals(labels.get("quote") + " OFF-2026-0451", pdf.getDocumentInformation().getTitle());
+                assertTrue(text.contains("off-2026-0451"), text);
+                assertTrue(text.contains("start productie") && text.contains("container gereed"), text);
+                assertTrue(text.contains("30%") && text.contains("70%") && text.contains("50%"), text);
+                assertTrue(text.contains("900,12 eur") && text.contains("2.100,28 eur"), text);
+                assertTrue(text.contains(labels.get("advanceFinalPending").toLowerCase()), text);
+                assertFalse(text.contains(labels.get("subtotal").toLowerCase()), text);
+                assertFalse(text.contains(labels.get("unitPrice").toLowerCase()), text);
+                assertFalse(text.contains("3.000,40 eur"), "No summed contribution masquerading as final amount: " + text);
+                assertFalse(text.contains(be.enrosed.shared.DocumentFormat.eur(price.totals().total()).toLowerCase()), text);
+                assertFalse(text.contains("partner"), text);
+                assertPortraitAndEmbedded(pdf);
+                assertTextFitsPage(pdf);
+            }
+        }
+    }
+
+    @Test
+    void fixedAdvanceAmountsKeepTheirExactValueAndInvoicesKeepTheirTaxTotals() throws Exception {
+        var quote = order(DocumentType.OFFERTE, "OFF-2026-0452", 1).withPartnerDeal(13L, bd("50"));
+        var snapshot = new be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot(13L, bd("100"), bd("180.75"), bd("50"), List.of(
+                new be.enrosed.sales.application.PartnerAdvanceQuotes.Row(73L, "Productiemonster en verpakking", null, bd("180.75"), null)));
+        attachAdvanceSnapshot(quote.id(), snapshot);
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(quote, priced(1), customer(), null).content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("180,75 eur"), text);
+            assertFalse(text.contains("100%"), "A fixed amount is not an invented percentage: " + text);
+            assertTrue(text.contains("geen minimumorderbedrag"), text);
+            assertTrue(text.contains("tenzij de offerte of orderbevestiging uitdrukkelijk een ander betalingsschema toestaat"), text);
+        }
+        var invoice = order(DocumentType.FACTUUR, "F-2026-0452", 1).withPartnerDeal(13L, bd("50"));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, priced(1), customer(), null).content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("voorschotfactuur f-2026-0452"), text);
+            assertTrue(text.contains("stukprijs") && text.contains("totaal incl. btw"), text);
+            assertFalse(text.contains("voorschotafspraken"), text);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void attachAdvanceSnapshot(long quoteId, be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot snapshot) {
+        var quotes = mock(be.enrosed.sales.application.PartnerAdvanceQuotes.class);
+        Instance<be.enrosed.sales.application.PartnerAdvanceQuotes> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(quotes);
+        when(quotes.find(quoteId)).thenReturn(snapshot);
+        renderer.advanceQuotes = instance;
+    }
+
+    private static void assertTextFitsPage(PDDocument pdf) throws Exception {
+        new PDFTextStripper() {
+            @Override
+            protected void processTextPosition(org.apache.pdfbox.text.TextPosition position) {
+                float pageWidth = pdf.getPage(getCurrentPageNo() - 1).getMediaBox().getWidth();
+                assertTrue(position.getXDirAdj() >= 0
+                                && position.getXDirAdj() + position.getWidthDirAdj() <= pageWidth - 12,
+                        "Text exceeds the printable page: " + position.getUnicode() + " at " + position.getXDirAdj());
+                super.processTextPosition(position);
+            }
+        }.getText(pdf);
     }
 
     @Test

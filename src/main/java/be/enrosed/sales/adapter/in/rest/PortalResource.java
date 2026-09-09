@@ -74,6 +74,7 @@ public class PortalResource {
     public List<CatalogItem> catalog(@PathParam("token") String token,
                                      @QueryParam("language") String preferredLanguage) {
         SalesOrder order = quotes.byToken(token);
+        if (salesOrders.hasAdvanceAgreement(order)) return List.of();
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
         Language language = preferredLanguage != null && !preferredLanguage.isBlank()
                 ? Language.of(preferredLanguage)

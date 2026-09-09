@@ -71,6 +71,24 @@
                 </div>
               {/if}
 
+              {#if advanceSchedule?? && !advanceSchedule.isEmpty}
+                <div style="margin:22px 0;padding:16px;border:1px solid #e9e3de;border-radius:10px;background:#fcfaf8">
+                  <p style="margin:0 0 9px;font-weight:700;color:#8f2942">{t.advanceAgreementTitle}</p>
+                  <p style="margin:0 0 12px;font-size:14px">{t.advanceAgreementIntro}</p>
+                  {#for advance in advanceSchedule}
+                    <div style="padding:9px 0;border-top:1px solid #e9e3de;font-size:14px">
+                      <strong>{advance.label}</strong><br/>
+                      {t.advancePercentage}: {advance.percentage} · {t.advanceAmount}: <strong>{advance.amount}</strong><br/>
+                      {t.dueDate}: {advance.dueDate}
+                    </div>
+                  {/for}
+                  <p style="margin:10px 0 0;font-size:13px;color:#645b55">{t.advanceAgreementExclVat}</p>
+                  <p style="margin:10px 0 0;font-size:13px;color:#645b55">{t.advanceAgreementPriority}</p>
+                  <p style="margin:14px 0 4px;font-weight:700;color:#8f2942">{t.advanceFinalPending}</p>
+                  <p style="margin:0;font-size:14px">{advanceSettlementNotice}</p>
+                </div>
+              {/if}
+
               {#if paymentSentence??}
                 <div style="margin:22px 0;padding:14px 16px;border:1px solid #f0d2d9;border-radius:10px;background:#fbecef">
                   <p style="margin:0;font-size:14px">{paymentSentence}</p>

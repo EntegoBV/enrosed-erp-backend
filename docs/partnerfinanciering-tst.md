@@ -1,4 +1,4 @@
-# Partnerfinanciering, deelveilingen en bankbetalingen - TST
+# Partnerfinanciering, deelveilingen en bankbetalingen
 
 ## Drie afzonderlijke afspraken
 
@@ -20,6 +20,14 @@ Externe containerkosten €12.000. Netto veilingopbrengst na veilingkosten €16
 | 100% | €12.000 | €3.600 | €8.400 | €2.000 | €14.000 |
 
 Bij 50% financiering bevat de slotfactuur ook de terugbetaling van de €6.000 die ENROSED zelf financierde. Bij 100% financiering resteert alleen het ENROSED-resultaat. Als de tweede voorschotfactuur nog onbetaald is, blijft die apart openstaan. Een onbetaald voorschot wordt niet nogmaals gefactureerd bij de afrekening.
+
+## Eerst een offerte met betaalafspraken
+
+Maak vanuit de inkooporder eerst **Offerte met betaalafspraken**. Neem de bewaarde termijnen over of kies 30/70, 1/3–2/3 of eigen bedragen en datums. De termijnen dekken samen de afgesproken bijdrage; bij 0% financiering vermeldt de offerte alleen de latere afrekening.
+
+De offerte bewaart de producten en de betaalafspraken als momentopname. Op de PDF, in de klantweergave en in de offerte-e-mail staan afzonderlijke voorschotten. Het document heet **Offerte**, gebruikt neutrale benamingen en toont geen definitief ordertotaal of kostprijs per product. De slotfactuur volgt na de veiling en verrekent de voorschotten, werkelijke kosten en het afgesproken ENROSED-aandeel in het resultaat.
+
+Deze offerte wordt niet in één volledige factuur omgezet: de actie **Voorschotfacturen beheren** opent de termijnen bij de inkooporder. Een wijziging van de financiële afspraak vraagt een nieuwe offerte, zodat eerdere offertes ongewijzigd blijven. Bestaande documenten worden niet automatisch herschreven.
 
 ## Termijnen en facturen
 
@@ -75,6 +83,6 @@ Ontvangsten en openstaande facturen zijn inclusief eventuele btw; de kost- en re
 
 ## Uitrol en bestaande documenten
 
-Alle wijzigingen worden uitsluitend op `test` gepubliceerd. Frontend: `https://enrosed-erp-frontend-test.vercel.app`; API: `https://enrosed-erp-backend-test.up.railway.app`. TST heeft e-mailmocking aan en pushberichten uit.
+Valideer wijzigingen op `test` en publiceer de gecontroleerde versie op `main` wanneer productiepublicatie is geautoriseerd. Productie: `https://enrosed-erp-frontend.vercel.app`; TST: `https://enrosed-erp-frontend-test.vercel.app`. TST gebruikt e-mailmocking en heeft pushberichten uit; neem die instellingen niet over naar productie.
 
 Bestaande documenten blijven bestaan. De nieuwe planning maakt geen echte facturen of bankbetalingen aan zonder de betreffende handeling in het ERP. Historische afrekeningen gelden als volledige afrekeningen; historische betaalmarkeringen blijven herkenbaar in het betaalregister.

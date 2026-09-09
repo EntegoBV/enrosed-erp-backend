@@ -48,6 +48,15 @@ public final class NumberSeries {
         return Pattern.compile(regex.toString());
     }
 
+    /** Only the former built-in labels are renamed; custom numbering stays exactly as configured. */
+    public static Pattern continuingContainerSeries(String pattern, int year) {
+        if ("offerte/container/{jaar}/{nr:3}".equals(pattern))
+            return Pattern.compile("^offerte/(?:partner|container)/" + year + "/(\\d+)$");
+        if ("container/{jaar}/{nr:3}".equals(pattern))
+            return Pattern.compile("^(?:partner|container)/" + year + "/(\\d+)$");
+        return series(pattern, year);
+    }
+
     /** True when the pattern will produce a sequence at all. */
     public static boolean valid(String pattern) {
         return pattern != null && pattern.contains("{nr");

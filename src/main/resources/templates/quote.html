@@ -103,6 +103,15 @@
     }
     table.lines tr { page-break-inside: avoid; }
     table.lines tr.alt td { background: #fbf8f4; }
+    .advance-agreement { margin-top: 14px; }
+    .advance-agreement .panel-title { font-size: 9pt; }
+    .advance-agreement table.lines { margin-top: 9px; table-layout: fixed; }
+    .advance-agreement table.lines th, .advance-agreement table.lines td { word-wrap: break-word; }
+    .advance-agreement .agreement-notice { margin-top: 10px; padding: 10px 12px;
+      border-left: 3px solid #8f2942; background: #f8e9ed; page-break-inside: avoid; }
+    .agreement-notice b { display: block; color: #8f2942; font-size: 9pt; }
+    .agreement-notice p { margin: 4px 0 0; font-size: 8.5pt; }
+    .agreement-order-note { margin-top: 10px; font-size: 8.5pt; }
     .line-name { font-size: 9.6pt; font-weight: bold; line-height: 1.3; }
     .line-variant { margin-top: 1px; color: #8f2942; font-size: 7.5pt; font-weight: bold; }
     .line-sku { margin-top: 1px; color: #736b65; font-size: 6.8pt; letter-spacing: 0.3px; }
@@ -304,15 +313,17 @@
 <table class="lines">
   <thead>
   <tr>
-    <th style="{#if includeLogistics}width:50%{#else}width:62%{/if}">{t.description}</th>
+    <th style="{#if agreementQuote}width:70%{#else if includeLogistics}width:50%{#else}width:62%{/if}">{t.description}</th>
     <th class="r">{t.quantity}</th>
     {#if includeLogistics}
       <th class="r">{t.cartons}</th>
       <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
     {/if}
-    <th class="r">{t.unitPrice}</th>
-    {#if hasDiscounts}<th class="r">{t.discount}</th>{/if}
-    <th class="r">{t.total}</th>
+    {#if !agreementQuote}
+      <th class="r">{t.unitPrice}</th>
+      {#if hasDiscounts}<th class="r">{t.discount}</th>{/if}
+      <th class="r">{t.total}</th>
+    {/if}
   </tr>
   </thead>
   <tbody>
@@ -339,12 +350,14 @@
         <td class="r nowrap">{line.commercial.cartons}</td>
         <td class="r nowrap">{#if looseCartons}{line.commercial.cbm.cbm ?: '-'}{#else}{line.palletPositions}{/if}</td>
       {/if}
-      <td class="r nowrap">{line.commercial.unitPrice.unit}</td>
-      {#if hasDiscounts}<td class="r nowrap">{#if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}
-      <td class="r line-total">{line.commercial.net.eur}</td>
+      {#if !agreementQuote}
+        <td class="r nowrap">{line.commercial.unitPrice.unit}</td>
+        {#if hasDiscounts}<td class="r nowrap">{#if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}
+        <td class="r line-total">{line.commercial.net.eur}</td>
+      {/if}
     </tr>
   {/for}
-  {#for extra in priced.extraLines}
+  {#if !agreementQuote}{#for extra in priced.extraLines}
     <tr class="extra-line">
       <td><div class="line-name">{extra.description}</div></td>
       <td class="r nowrap">{extra.quantity.amount}</td>
@@ -353,10 +366,35 @@
       {#if hasDiscounts}<td class="r nowrap">·</td>{/if}
       <td class="r line-total">{extra.total.eur}</td>
     </tr>
-  {/for}
+  {/for}{/if}
   </tbody>
 </table>
 
+{#if agreementQuote}
+<section class="advance-agreement">
+  <div class="panel-title">{t.advanceAgreementTitle}</div>
+  <p class="panel-sentence">{t.advanceAgreementIntro}</p>
+  <table class="lines">
+    <thead><tr>
+      <th style="width:38%">{t.advanceInstalment}</th>
+      <th class="r" style="width:16%">{t.advancePercentage}</th>
+      <th class="r" style="width:24%">{t.advanceAmount}</th>
+      <th class="r" style="width:22%">{t.dueDate}</th>
+    </tr></thead>
+    <tbody>{#for advance in advanceSchedule}<tr>
+      <td><div class="line-name">{advance.label}</div></td>
+      <td class="r nowrap">{advance.percentage}</td>
+      <td class="r line-total">{advance.amount}</td>
+      <td class="r">{advance.dueDate ?: '-'}</td>
+    </tr>{/for}</tbody>
+  </table>
+  <p class="panel-sentence">{t.advanceAgreementExclVat}</p>
+  <p class="panel-sentence">{t.advanceAgreementPriority}</p>
+  <div class="agreement-notice"><b>{t.advanceFinalPending}</b><p>{advanceSettlementNotice}</p></div>
+  {#if customerNote}<div class="agreement-order-note">{customerNote}</div>{/if}
+  {#if orderNote}<div class="agreement-order-note"><b>{t.note}:</b> {orderNote}</div>{/if}
+</section>
+{#else}
 <div class="closing-section">
 <table class="closing-grid">
 <tr>
@@ -417,6 +455,7 @@
 </tr>
 </table>
 </div>
+{/if}
 
 {#if isInvoice}
   <div class="panel panel--accent">

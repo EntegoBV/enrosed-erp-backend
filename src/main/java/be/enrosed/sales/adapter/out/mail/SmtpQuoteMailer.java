@@ -175,13 +175,14 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     public void sendQuote(SalesOrder order, Customer customer, String portalUrl,
                           QuoteDocumentRenderer.Document document, String personalMessage,
                           List<DeliveryLine> deliveryLines, Notice notice, Summary summary) {
-        sendCustomerQuote(order, customer, portalUrl, document, personalMessage, deliveryLines, notice);
+        sendCustomerQuote(order, customer, portalUrl, document, personalMessage, deliveryLines, notice,
+                summary == null ? null : summary.advanceAgreement());
         sendSalesCopy(order, customer, portalUrl, document, personalMessage, deliveryLines, summary);
     }
 
     private void sendCustomerQuote(SalesOrder order, Customer customer, String portalUrl,
                                    QuoteDocumentRenderer.Document document, String personalMessage,
-                                   List<DeliveryLine> deliveryLines, Notice notice) {
+                                   List<DeliveryLine> deliveryLines, Notice notice, AdvanceAgreement advanceAgreement) {
 
         boolean allKnown = deliveryLines.stream().allMatch(DeliveryLine::known);
 
@@ -202,7 +203,10 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("freightPending", notice.freightPending())
                 .data("freightAdded", notice.freightAdded())
                 .data("t", text)
-                .data("intro", (notice.deliveryTermsAdded() || notice.freightAdded()
+                .data("advanceSchedule", advanceRows(advanceAgreement, language))
+                .data("advanceSettlementNotice", advanceSettlementNotice(advanceAgreement, language))
+                .data("intro", (advanceAgreement != null ? text.get("advanceAgreementMailIntro")
+                        : notice.deliveryTermsAdded() || notice.freightAdded()
                         ? text.get("mailIntroUpdated") : text.get("mailIntro"))
                         .formatted(order.number()))
                 .data("validUntilSentence", text.get("validUntilSentence")
@@ -312,9 +316,28 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("goodsTotal", summary.goodsTotal() == null ? null : DocumentFormat.money(summary.goodsTotal()))
                 .data("shippingTotal", summary.shippingTotal() == null ? null : DocumentFormat.money(summary.shippingTotal()))
                 .data("total", summary.total() == null ? null : DocumentFormat.money(summary.total()))
+                .data("advanceAgreement", summary.advanceAgreement() != null)
+                .data("advanceSchedule", advanceRows(summary.advanceAgreement(), Language.NL))
+                .data("advanceSettlementNotice", advanceSettlementNotice(summary.advanceAgreement(), Language.NL))
                 .data("validUntil", order.validUntil() == null ? null : DocumentText.date(order.validUntil(), Language.NL))
                 .data("sentAgain", order.sentAt() != null)
                 .render();
+    }
+
+    private static List<Map<String, String>> advanceRows(AdvanceAgreement agreement, Language language) {
+        if (agreement == null) return List.of();
+        return agreement.rows().stream().map(row -> Map.of(
+                "label", row.label(),
+                "percentage", row.percentage() == null ? "-" : row.percentage().stripTrailingZeros().toPlainString() + "%",
+                "amount", DocumentFormat.eur(row.amountEur()),
+                "dueDate", row.dueDate() == null ? "-" : DocumentText.date(row.dueDate(), language))).toList();
+    }
+
+    private static String advanceSettlementNotice(AdvanceAgreement agreement, Language language) {
+        if (agreement == null) return null;
+        var text = DocumentText.of(language);
+        return agreement.sharePct() == null ? text.get("advanceAgreementSettlementUnspecified")
+                : text.get("advanceAgreementSettlement").formatted(agreement.sharePct().stripTrailingZeros().toPlainString());
     }
 
     private static boolean notBlank(String value) {

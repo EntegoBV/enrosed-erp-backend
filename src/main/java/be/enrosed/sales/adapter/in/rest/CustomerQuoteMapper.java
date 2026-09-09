@@ -20,6 +20,8 @@ import java.util.List;
 @ApplicationScoped
 public class CustomerQuoteMapper {
 
+    @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
+
     private final QuoteService quotes;
     private final SalesOrderService salesOrders;
     private final CustomerService customers;
@@ -44,6 +46,8 @@ public class CustomerQuoteMapper {
         Language language = preferred != null && !preferred.isBlank()
                 ? Language.of(preferred)
                 : customer == null ? Language.NL : customer.language();
+        var agreement = advanceQuotes == null || order.id() == null ? null : advanceQuotes.find(order.id());
+        boolean arrangementOnly = agreement != null;
 
         List<CustomerQuoteView.CustomerLine> lines = priced.lines().stream()
                 .map(line -> new CustomerQuoteView.CustomerLine(
@@ -51,7 +55,7 @@ public class CustomerQuoteMapper {
                         line.quantity(), line.cartons(),
                         order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
                         piecesPerCarton(line.productId()),
-                        line.unitPrice(), line.discountPct(), line.net(),
+                        arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(), arrangementOnly ? null : line.net(),
                         line.inventoryKnown(), line.inStock(),
                         line.deliveryDate(), line.deliveryWeek()))
                 .toList();
@@ -68,7 +72,11 @@ public class CustomerQuoteMapper {
                 totals.vatTreatment().labelIn(language),
                 totals.vatTreatment().legalMentionIn(language),
                 totals.extraLinesTotal());
-        List<CustomerQuoteView.CustomerExtraLine> extraLines = priced.extraLines().stream()
+        if (arrangementOnly) customerTotals = new CustomerQuoteView.CustomerTotals(
+                totals.pieces(), totals.cartons(), effectivePallets, totals.cbm(),
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                totals.vatTreatment().labelIn(language), totals.vatTreatment().legalMentionIn(language), null);
+        List<CustomerQuoteView.CustomerExtraLine> extraLines = arrangementOnly ? List.of() : priced.extraLines().stream()
                 .map(line -> new CustomerQuoteView.CustomerExtraLine(
                         line.description(), line.quantity(), line.unitPrice(), line.total()))
                 .toList();
@@ -99,7 +107,7 @@ public class CustomerQuoteMapper {
                 language.name(),
                 DocumentText.of(language),
                 quotes.cancellationMessage(order).orElse(null),
-                extraLines);
+                extraLines, agreement);
     }
 
     private int piecesPerCarton(Long productId) {

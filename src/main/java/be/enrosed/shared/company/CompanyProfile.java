@@ -75,17 +75,21 @@ public record CompanyProfile(
                 quoteNumberPrefix, invoiceNumberPrefix, DEFAULT_PARTNER_QUOTE_PATTERN, DEFAULT_PARTNER_INVOICE_PATTERN, null, null);
     }
 
-    public static final String DEFAULT_PARTNER_QUOTE_PATTERN = "offerte/partner/{jaar}/{nr:3}";
-    public static final String DEFAULT_PARTNER_INVOICE_PATTERN = "partner/{jaar}/{nr:3}";
+    public static final String DEFAULT_PARTNER_QUOTE_PATTERN = "offerte/container/{jaar}/{nr:3}";
+    public static final String DEFAULT_PARTNER_INVOICE_PATTERN = "container/{jaar}/{nr:3}";
 
     /** The pattern partner quotes are numbered by; the seeded one until settings hold a usable one. */
     public String partnerQuotePattern() {
+        if ("offerte/partner/{jaar}/{nr:3}".equals(partnerQuoteNumberPattern == null ? null : partnerQuoteNumberPattern.strip()))
+            return DEFAULT_PARTNER_QUOTE_PATTERN;
         return partnerQuoteNumberPattern != null && partnerQuoteNumberPattern.contains("{nr")
                 ? partnerQuoteNumberPattern.strip() : DEFAULT_PARTNER_QUOTE_PATTERN;
     }
 
     /** The pattern partner invoices are numbered by; the seeded one until settings hold a usable one. */
     public String partnerInvoicePattern() {
+        if ("partner/{jaar}/{nr:3}".equals(partnerInvoiceNumberPattern == null ? null : partnerInvoiceNumberPattern.strip()))
+            return DEFAULT_PARTNER_INVOICE_PATTERN;
         return partnerInvoiceNumberPattern != null && partnerInvoiceNumberPattern.contains("{nr")
                 ? partnerInvoiceNumberPattern.strip() : DEFAULT_PARTNER_INVOICE_PATTERN;
     }

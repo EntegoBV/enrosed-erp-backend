@@ -33,10 +33,22 @@ public interface QuoteMailer {
     /** One quoted line as the office reads it back: our own description, the quantity, the net line amount. */
     record SummaryLine(String description, int quantity, java.math.BigDecimal net) {}
 
+    /** Customer-safe frozen terms, without the container's costs or a final selling total. */
+    record AdvanceTerm(String label, java.math.BigDecimal percentage, java.math.BigDecimal amountEur,
+                       java.time.LocalDate dueDate) {}
+    record AdvanceAgreement(java.math.BigDecimal sharePct, List<AdvanceTerm> rows) {
+        public AdvanceAgreement { rows = List.copyOf(rows); }
+    }
+
     /** The figures of the quote for the copy the office receives; never printed to the customer. */
     record Summary(int pieces, int lineCount, java.math.BigDecimal goodsTotal,
                    java.math.BigDecimal shippingTotal, java.math.BigDecimal total,
-                   List<SummaryLine> lines) {
+                   List<SummaryLine> lines, AdvanceAgreement advanceAgreement) {
+        public Summary(int pieces, int lineCount, java.math.BigDecimal goodsTotal,
+                       java.math.BigDecimal shippingTotal, java.math.BigDecimal total,
+                       List<SummaryLine> lines) {
+            this(pieces, lineCount, goodsTotal, shippingTotal, total, lines, null);
+        }
         public static Summary none() {
             return new Summary(0, 0, null, null, null, List.of());
         }

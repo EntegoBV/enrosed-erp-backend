@@ -174,6 +174,33 @@ class CancellationMailRenderTest {
         assertTrue(html.contains("https://erp.enrosed.com/offerte/token"), html);
         assertTrue(copy.getBcc().isEmpty() && copy.getCc().isEmpty(), "the team copy carries no further copies");
         assertFalse(html.contains("{"), "every placeholder resolved: " + html);
+
+        var agreement = new be.enrosed.sales.application.port.out.QuoteMailer.AdvanceAgreement(new BigDecimal("50"), List.of(
+                new be.enrosed.sales.application.port.out.QuoteMailer.AdvanceTerm("Start productie", new BigDecimal("30"), new BigDecimal("900.12"), date.plusDays(7)),
+                new be.enrosed.sales.application.port.out.QuoteMailer.AdvanceTerm("Container gereed", new BigDecimal("70"), new BigDecimal("2100.28"), null)));
+        var advanceSummary = new be.enrosed.sales.application.port.out.QuoteMailer.Summary(480, 2,
+                null, null, null, summary.lines().stream().map(line ->
+                new be.enrosed.sales.application.port.out.QuoteMailer.SummaryLine(line.description(), line.quantity(), null)).toList(), agreement);
+        mailbox.clear();
+        mailer.sendQuote(quote.withPartnerDeal(13L, new BigDecimal("50")), customer,
+                "https://erp.enrosed.com/offerte/token", document, null, List.of(),
+                be.enrosed.sales.application.port.out.QuoteMailer.Notice.none(), advanceSummary);
+        String customerHtml = mailbox.getMailsSentTo(customer.email()).get(0).getHtml();
+        String teamHtml = mailbox.getMailsSentTo("hello@enrosed.com").get(0).getHtml();
+        assertTrue(customerHtml.contains("Voorschotafspraken"), customerHtml);
+        assertTrue(customerHtml.contains("Start productie") && customerHtml.contains("Container gereed"), customerHtml);
+        assertTrue(customerHtml.contains("900,12 EUR") && customerHtml.contains("2.100,28 EUR"), customerHtml);
+        assertTrue(customerHtml.contains("50%") && customerHtml.contains("geen minimumorderbedrag"), customerHtml);
+        assertTrue(teamHtml.contains("Eindbedrag volgt") && teamHtml.contains("900,12 EUR"), teamHtml);
+        assertFalse(customerHtml.contains("partner") || teamHtml.contains("partner"));
+        assertFalse(customerHtml.contains("6.460,00") || teamHtml.contains("6.460,00"));
+        assertFalse(customerHtml.contains("4.080,00") || teamHtml.contains("4.080,00"));
+        try {
+            Files.writeString(Path.of("target", "mail-preview", "advance-agreement-customer.html"), customerHtml);
+            Files.writeString(Path.of("target", "mail-preview", "advance-agreement-internal.html"), teamHtml);
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test

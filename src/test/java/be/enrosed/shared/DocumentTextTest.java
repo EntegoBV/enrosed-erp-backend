@@ -86,6 +86,19 @@ class DocumentTextTest {
     }
 
     @Test
+    void advanceAgreementCopyIsCompleteAndFormatsTheFrozenProfitShareInEveryLanguage() {
+        for (Language language : Language.values()) {
+            var text = DocumentText.of(language);
+            for (String key : Set.of("advanceAgreementTitle", "advanceAgreementIntro", "advanceAgreementExclVat",
+                    "advanceAgreementSettlement", "advanceAgreementSettlementUnspecified", "advanceInstalment",
+                    "advancePercentage", "advanceAmount", "advanceFinalPending", "advanceAgreementMailIntro", "advanceAgreementPriority"))
+                assertTrue(text.containsKey(key) && !text.get(key).isBlank(), language + " missing " + key);
+            assertTrue(text.get("advanceAgreementSettlement").formatted("50").contains("50%"));
+            assertEquals(text.get("quote"), text.get("advanceQuote"), "Neutral quote title in " + language);
+        }
+    }
+
+    @Test
     @DisplayName("datums volgen de taal")
     void datesFollowLanguage() {
         LocalDate date = LocalDate.of(2026, 5, 25);

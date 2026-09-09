@@ -77,6 +77,8 @@ public class QuoteService {
 
     @Inject
     jakarta.enterprise.inject.Instance<IncomingPaymentService> incomingPayments;
+    @Inject
+    jakarta.enterprise.inject.Instance<PartnerAdvanceQuotes> advanceQuotes;
 
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
@@ -307,12 +309,7 @@ public class QuoteService {
                         terms == DeliveryTermsState.AANGEVULD,
                         freightState == FreightState.TE_BEPALEN,
                         freightState == FreightState.AANGEVULD),
-                new QuoteMailer.Summary(
-                        priced.totals().pieces(), priced.lines().size(),
-                        priced.totals().goodsTotal(), priced.totals().shippingTotal(),
-                        priced.totals().total(),
-                        priced.lines().stream().map(line -> new QuoteMailer.SummaryLine(
-                                line.description(), line.quantity(), line.net())).toList()));
+                mailSummary(order, priced));
 
         ActorRef actor = staffActor();
         record(order, QuoteEvent.Type.VERSTUURD, false, actor.displayName(),
@@ -334,6 +331,21 @@ public class QuoteService {
         notifyAfterCommit(SalesActivityPushNotifier.Ready.staffQuoteSent(
                 order.id(), order.number(), actor));
         return sent;
+    }
+
+    private QuoteMailer.Summary mailSummary(SalesOrder order, PricedOrder priced) {
+        var snapshot = !order.isInvoice() && order.isPartnerAdvance() && order.id() != null
+                && advanceQuotes != null && advanceQuotes.isResolvable()
+                ? advanceQuotes.get().find(order.id()) : null;
+        var agreement = snapshot == null ? null : new QuoteMailer.AdvanceAgreement(snapshot.sharePct(),
+                snapshot.rows().stream().map(row -> new QuoteMailer.AdvanceTerm(
+                        row.label(), row.percentage(), row.amountEur(), row.dueDate())).toList());
+        return new QuoteMailer.Summary(priced.totals().pieces(), priced.lines().size(),
+                agreement == null ? priced.totals().goodsTotal() : null,
+                agreement == null ? priced.totals().shippingTotal() : null,
+                agreement == null ? priced.totals().total() : null,
+                priced.lines().stream().map(line -> new QuoteMailer.SummaryLine(
+                        line.description(), line.quantity(), agreement == null ? line.net() : null)).toList(), agreement);
     }
 
     /** Rebuild the PDF, for instance to review or download it ourselves. */
@@ -504,6 +516,7 @@ public class QuoteService {
            nothing downstream adds up - not the volume, not the pallets, not
            the freight. Server-side, because a customer can bypass the screen. */
         List<QuoteRevision.Line> rounded = roundToCartons(order, proposedLines);
+        requireUnchangedAdvanceAgreement(order, rounded);
 
         QuoteRevision revision = revisions.save(new QuoteRevision(
                 null, order.id(), RevisionStatus.IN_AFWACHTING, Instant.now(),
@@ -716,6 +729,7 @@ public class QuoteService {
         QuoteRevision revision = revision(revisionId);
         requirePending(revision);
         SalesOrder order = salesOrders.get(revision.salesOrderId());
+        requireUnchangedAdvanceAgreement(order, revision.lines());
 
         List<SalesOrderLine> updated = new ArrayList<>();
         for (SalesOrderLine line : order.lines()) {
@@ -764,6 +778,17 @@ public class QuoteService {
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
                 updated, order.pallets()).carrying(order));
+    }
+
+    /** A message can be answered, but a quoted financing arrangement cannot silently change its goods. */
+    private void requireUnchangedAdvanceAgreement(SalesOrder order, List<QuoteRevision.Line> proposedLines) {
+        if (!salesOrders.hasAdvanceAgreement(order) || proposedLines == null) return;
+        boolean changed = proposedLines.stream().anyMatch(proposal -> proposal == null
+                || proposal.productId() == null || order.lines().stream()
+                        .filter(line -> line.productId().equals(proposal.productId()))
+                        .mapToInt(SalesOrderLine::quantity).findFirst().orElse(0) != proposal.quantity());
+        if (changed) throw new BusinessRuleException(
+                "Deze offerte bevat vastgelegde voorschotafspraken. Bespreek wijzigingen in een bericht en maak indien nodig een nieuwe offerte.");
     }
 
     /**
