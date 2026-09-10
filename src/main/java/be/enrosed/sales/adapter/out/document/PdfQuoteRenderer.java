@@ -191,6 +191,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())
                 .data("agreementQuote", agreementQuote)
+                .data("agreementAmount", agreementQuote
+                        ? DocumentFormat.eur(advanceAgreement.agreedAmountEur()) : null)
                 .data("advanceSchedule", agreementQuote ? advanceAgreement.rows().stream().map(row ->
                         new AdvanceRowView(row.label(), row.percentage() == null ? "-"
                                 : row.percentage().stripTrailingZeros().toPlainString() + "%",
@@ -220,6 +222,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("includeProductDetails", options.includeProductDetails())
                 .data("includeLogistics", options.includeLogistics())
                 .data("includeTerms", options.includeTerms())
+                .data("includePaymentDetails", options.includePaymentDetails())
                 .data("showOuterCarton", options.showOuterCarton())
                 .data("showBarcode", options.showBarcode())
                 .data("hasDiscounts", hasLineDiscounts(priced))

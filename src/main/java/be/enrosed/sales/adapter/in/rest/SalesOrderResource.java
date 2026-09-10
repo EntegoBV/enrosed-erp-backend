@@ -366,14 +366,25 @@ public class SalesOrderResource {
                         @QueryParam("showOuterCarton") @DefaultValue("false")
                         boolean showOuterCarton,
                         @QueryParam("showBarcode") @DefaultValue("false")
-                        boolean showBarcode) {
+                        boolean showBarcode,
+                        @QueryParam("includePaymentDetails") @DefaultValue("true")
+                        boolean includePaymentDetails) {
         QuoteDocumentRenderer.Document document = quotes.document(id,
                 language == null || language.isBlank() ? null : Language.of(language),
                 new SalesPdfOptions(includePhotos, includeProductDetails,
-                        includeLogistics, includeTerms, showOuterCarton, showBarcode));
+                        includeLogistics, includeTerms, showOuterCarton, showBarcode,
+                        includePaymentDetails));
         return Response.ok(document.content())
                 .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /** Java-call compatibility for callers predating optional payment details. */
+    public Response pdf(long id, String language, boolean includePhotos,
+                        boolean includeProductDetails, boolean includeLogistics,
+                        boolean includeTerms, boolean showOuterCarton, boolean showBarcode) {
+        return pdf(id, language, includePhotos, includeProductDetails, includeLogistics,
+                includeTerms, showOuterCarton, showBarcode, true);
     }
 
     /** Java-call compatibility for callers predating printable master-data options. */

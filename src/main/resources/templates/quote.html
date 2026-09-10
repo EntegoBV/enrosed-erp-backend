@@ -256,7 +256,7 @@
       <div class="doc-kind">{docLabel}</div>
       <div class="doc-number">{order.number}</div>
       <div class="doc-date">{t.date} {orderDateText}</div>
-      {#if partnerNote}<div class="doc-partner">{partnerNote}</div>{/if}
+      {#if includePaymentDetails && partnerNote}<div class="doc-partner">{partnerNote}</div>{/if}
     </td>
   </tr>
 </table>
@@ -275,8 +275,8 @@
     {/if}
     {#if !partnerDeal}
     <td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>
-    <td><span class="label">{t.payment}</span>
-      <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>
+    {#if includePaymentDetails}<td><span class="label">{t.payment}</span>
+      <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>{/if}
     {/if}
   </tr>
 </table>
@@ -372,6 +372,7 @@
 
 {#if agreementQuote}
 <section class="advance-agreement">
+  {#if includePaymentDetails}
   <div class="panel-title">{t.advanceAgreementTitle}</div>
   <p class="panel-sentence">{t.advanceAgreementIntro}</p>
   <table class="lines">
@@ -391,6 +392,13 @@
   <p class="panel-sentence">{t.advanceAgreementExclVat}</p>
   <p class="panel-sentence">{t.advanceAgreementPriority}</p>
   <div class="agreement-notice"><b>{t.advanceFinalPending}</b><p>{advanceSettlementNotice}</p></div>
+  {#else}
+  <div class="panel-title">{t.toPay}</div>
+  <table class="pay-grid"><tr><td>
+    <b class="accent">{agreementAmount}</b>
+    <span class="muted">{t.advanceAmount}</span>
+  </td></tr></table>
+  {/if}
   {#if customerNote}<div class="agreement-order-note">{customerNote}</div>{/if}
   {#if orderNote}<div class="agreement-order-note"><b>{t.note}:</b> {orderNote}</div>{/if}
 </section>
@@ -412,7 +420,7 @@
         <tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>
       {/if}
     </table>
-    {#if partnerNote}<div class="overview-note">{partnerNote}</div>{/if}
+    {#if includePaymentDetails && partnerNote}<div class="overview-note">{partnerNote}</div>{/if}
     {#if customerNote}<div class="overview-note">{customerNote}</div>{/if}
     {#if orderNote}<div class="overview-note"><b>{t.note}:</b> {orderNote}</div>{/if}
   </div>
@@ -468,10 +476,12 @@
         <td><span class="label">{t.reference}</span><b>{order.number}</b></td>
       </tr>
     </table>
+    {#if includePaymentDetails}
     {#if receivedAmount}<p class="panel-sentence">{t.paymentReceived}: {receivedAmount}</p>{/if}
     {#if refundedAmount}<p class="panel-sentence">{t.paymentRefunded}: {refundedAmount}</p>{/if}
     <p class="panel-sentence">{paymentInstruction}</p>
     {#for instalment in paymentSchedule}<p class="panel-sentence">{instalment}</p>{/for}
+    {/if}
   </div>
 {/if}
 

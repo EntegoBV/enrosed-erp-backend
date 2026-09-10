@@ -16,6 +16,30 @@ import static org.mockito.Mockito.when;
 class SalesOrderResourcePdfOptionsTest {
 
     @Test
+    void staffCanExplicitlyHidePaymentDetailsWithoutChangingOtherDownloadOptions() {
+        QuoteService quotes = mock(QuoteService.class);
+        SalesOrderResource resource = new SalesOrderResource(mock(SalesOrderService.class), quotes);
+        SalesPdfOptions expected = new SalesPdfOptions(true, true, true, false, false, false, false);
+        when(quotes.document(42L, Language.NL, expected)).thenReturn(
+                new QuoteDocumentRenderer.Document("Q-42.pdf", new byte[]{1}, "application/pdf"));
+
+        try (Response response = resource.pdf(42L, "nl", true, true, true, false, false, false, false)) {
+            assertEquals(200, response.getStatus());
+        }
+        verify(quotes).document(42L, Language.NL, expected);
+    }
+
+    @Test
+    void omittedPaymentDetailsQueryKeepsTheExistingDetailedPdf() throws Exception {
+        var method = SalesOrderResource.class.getMethod("pdf", long.class, String.class,
+                boolean.class, boolean.class, boolean.class, boolean.class,
+                boolean.class, boolean.class, boolean.class);
+        var parameter = method.getParameters()[8];
+        assertEquals("includePaymentDetails", parameter.getAnnotation(jakarta.ws.rs.QueryParam.class).value());
+        assertEquals("true", parameter.getAnnotation(jakarta.ws.rs.DefaultValue.class).value());
+    }
+
+    @Test
     void quoteAndInvoicePdfForwardIndependentPrintableProductOptions() {
         QuoteService quotes = mock(QuoteService.class);
         SalesOrderResource resource = new SalesOrderResource(mock(SalesOrderService.class), quotes);

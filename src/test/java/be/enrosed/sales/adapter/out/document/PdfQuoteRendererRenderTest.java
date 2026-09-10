@@ -259,6 +259,7 @@ class PdfQuoteRendererRenderTest {
         assertTrue(defaults.includeProductDetails());
         assertTrue(defaults.includeLogistics());
         assertTrue(defaults.includeTerms());
+        assertTrue(defaults.includePaymentDetails());
         assertFalse(defaults.showOuterCarton());
         assertFalse(defaults.showBarcode());
         assertEquals("Bowl Rozen XL - Red",
@@ -410,6 +411,94 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("voorschotfactuur f-2026-0452"), text);
             assertTrue(text.contains("stukprijs") && text.contains("totaal incl. btw"), text);
             assertFalse(text.contains("voorschotafspraken"), text);
+        }
+    }
+
+    @Test
+    void hiddenAdvanceDetailsKeepOnlyTheFrozenAmountDueAndCustomerNotesInEveryLanguage() throws Exception {
+        var quote = order(DocumentType.OFFERTE, "OFF-2026-COMPACT", 1).withPartnerDeal(13L, bd("50"));
+        var price = priced(1, false);
+        var snapshot = new be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot(13L, bd("50"), bd("3000.40"), bd("50"), List.of(
+                new be.enrosed.sales.application.PartnerAdvanceQuotes.Row(71L, "Start productie", bd("30"), bd("900.12"), LocalDate.of(2026, 9, 15)),
+                new be.enrosed.sales.application.PartnerAdvanceQuotes.Row(72L, "Container gereed", bd("70"), bd("2100.28"), LocalDate.of(2026, 10, 20))));
+        attachAdvanceSnapshot(quote.id(), snapshot);
+        for (Language language : Language.values()) {
+            var buyer = customer(language);
+            buyer = new Customer(buyer.id(), buyer.company(), buyer.contact(), buyer.email(), buyer.phone(),
+                    buyer.vatNumber(), buyer.countryCode(), buyer.language(), buyer.address(), buyer.postalCode(),
+                    buyer.city(), buyer.incoterm(), buyer.paymentTerms(), buyer.notes(), buyer.createdAt(),
+                    buyer.partner(), buyer.partnerSharePct(), buyer.partnerCostPct(), buyer.fiscalRepresentative(),
+                    "Klantnotitie moet zichtbaar blijven.");
+            var document = renderer.render(quote, price, buyer, null, language,
+                    new SalesPdfOptions(true, true, true, false, false, false, false));
+            if (language == Language.NL) {
+                writePaymentPreview("advance-agreement-hidden.pdf", document.content());
+                writePaymentPreview("advance-agreement-shown.pdf", renderer.render(quote, price, buyer, null,
+                        language, new SalesPdfOptions(true, true, true, false)).content());
+            }
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                var labels = be.enrosed.shared.DocumentText.of(language);
+                assertTrue(text.contains(labels.get("toPay").toLowerCase()), text);
+                assertTrue(text.contains(labels.get("advanceAmount").toLowerCase()), "the frozen amount excludes VAT: " + text);
+                assertTrue(text.contains("3.000,40 eur"), "Use the agreed contribution, never the container's selling total: " + text);
+                assertTrue(text.contains("klantnotitie moet zichtbaar blijven."), text);
+                assertTrue(text.contains("levering op afspraak aan het centrale magazijn."), text);
+                assertFalse(text.contains("30%") || text.contains("70%") || text.contains("50%"), text);
+                assertFalse(text.contains("start productie") || text.contains("container gereed"), text);
+                assertFalse(text.contains("900,12 eur") || text.contains("2.100,28 eur"), text);
+                assertFalse(text.contains(labels.get("advanceAgreementTitle").toLowerCase()), text);
+                assertFalse(text.contains(labels.get("advanceFinalPending").toLowerCase()), text);
+                if (language == Language.NL) assertFalse(text.contains("slotfactuur volgt"), text);
+                assertFalse(text.contains(be.enrosed.shared.DocumentFormat.eur(price.totals().total()).toLowerCase()), text);
+                assertPortraitAndEmbedded(pdf);
+                assertTextFitsPage(pdf);
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void hiddenInvoicePaymentDetailsRetainTheAuthoritativeClaimVatBankAndReference() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "FACTUUR-COMPACT", 1).withPartnerDeal(13L, bd("50"));
+        var price = priced(1);
+        var total = price.totals().totalInclVat();
+        var remaining = total.subtract(bd("80"));
+        var service = mock(be.enrosed.sales.application.IncomingPaymentService.class);
+        Instance<be.enrosed.sales.application.IncomingPaymentService> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(service);
+        renderer.incomingPayments = instance;
+        when(service.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                total, bd("80"), remaining, bd("0"), bd("0"),
+                be.enrosed.sales.domain.SalesPaymentSummary.Status.PARTIAL, List.of(), List.of(), false,
+                bd("100"), bd("20"), bd("0")));
+        var hidden = renderer.render(invoice, price, customer(), null, Language.NL,
+                new SalesPdfOptions(true, true, true, false, false, false, false));
+        var shown = renderer.render(invoice, price, customer(), null, Language.NL,
+                new SalesPdfOptions(true, true, true, false));
+        writePaymentPreview("invoice-payments-hidden.pdf", hidden.content());
+        writePaymentPreview("invoice-payments-shown.pdf", shown.content());
+        try (PDDocument compactPdf = Loader.loadPDF(hidden.content()); PDDocument detailedPdf = Loader.loadPDF(shown.content())) {
+            String compact = textOf(compactPdf);
+            String detailed = textOf(detailedPdf);
+            for (var value : List.of(price.totals().total(), price.totals().vatAmount(), total, remaining)) {
+                String formatted = be.enrosed.shared.DocumentFormat.eur(value).toLowerCase();
+                assertTrue(compact.contains(formatted), compact);
+                assertTrue(detailed.contains(formatted), detailed);
+            }
+            assertTrue(compact.contains("te betalen"), compact);
+            assertTrue(compact.contains("be68 5390 0754 7034"), compact);
+            assertTrue(compact.contains("factuur-compact"), compact);
+            assertTrue(compact.contains(be.enrosed.shared.DocumentText.date(invoice.invoiceDueDate(), Language.NL).toLowerCase()), compact);
+            assertTrue(compact.contains("levering op afspraak aan het centrale magazijn."), compact);
+            for (String optional : List.of("ontvangen:", "terugbetaald:", "nog te betalen:",
+                    "1/3 bij start productie", "2/3 na productie", "slotfactuur volgt met de eindafrekening.")) {
+                assertFalse(compact.contains(optional), compact);
+                assertTrue(detailed.contains(optional), detailed);
+            }
+            assertPortraitAndEmbedded(compactPdf);
+            assertTextFitsPage(compactPdf);
         }
     }
 
@@ -632,6 +721,13 @@ class PdfQuoteRendererRenderTest {
 
     private static void writePreview(String filename, byte[] content) throws Exception {
         Path directory = Path.of("output", "pdf");
+        Files.createDirectories(directory);
+        Files.write(directory.resolve(filename), content);
+    }
+
+    private static void writePaymentPreview(String filename, byte[] content) throws Exception {
+        Path directory = Path.of(System.getProperty("enrosed.pdf.preview-dir",
+                System.getProperty("java.io.tmpdir")), "pdfs");
         Files.createDirectories(directory);
         Files.write(directory.resolve(filename), content);
     }
