@@ -46,6 +46,97 @@ class PartnerAdvanceContentsTest {
     @Inject ObjectMapper json;
 
     @Test @TestTransaction
+    void productSheetDetailsAreCapturedAndNeverFollowLaterCatalogueChanges() throws Exception {
+        var f = fixture();
+        var product = entities.find(ProductEntity.class, f.productId());
+        product.productLengthCm = new BigDecimal("6.5");
+        product.productWidthCm = new BigDecimal("7.5");
+        product.productHeightCm = new BigDecimal("12");
+        product.productWeightKg = new BigDecimal("0.25");
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingLengthCm = new BigDecimal("30");
+        product.packagingWidthCm = new BigDecimal("20");
+        product.packagingHeightCm = new BigDecimal("45");
+        product.packagingWeightKg = new BigDecimal("3");
+        product.packagingPiecesPerUnit = 12;
+        product.packagingBarcode = "2000000000422";
+        product.barcodeInner = "2000000000439";
+        product.barcodeOuter = "2000000000446";
+        product.canonicalBarcode = "2000000000453";
+        product.piecesPerHc = 9600;
+        entities.flush(); entities.clear();
+
+        var invoice = sales.createFromPurchaseOrder(request(f, plan(), SalesPurpose.PARTNER_ADVANCE));
+        var captured = contents.find(invoice).orElseThrow();
+        var detail = captured.lines().getFirst().productDetails();
+        assertNotNull(detail);
+        assertEquals(0, new BigDecimal("6.5").compareTo(detail.dimensions().lengthCm()));
+        assertEquals(0, new BigDecimal("0.25").compareTo(detail.dimensions().weightKg()));
+        assertEquals(be.enrosed.catalog.domain.PackagingKind.DISPLAY, detail.packaging().kind());
+        assertEquals(12, detail.packaging().piecesPerUnit());
+        assertEquals("2000000000422", detail.packaging().barcode());
+        assertEquals(0, new BigDecimal("45").compareTo(detail.packaging().dimensions().heightCm()));
+        assertEquals(24, detail.carton().piecesPerCarton());
+        assertEquals(9600, detail.carton().piecesPerHc());
+        assertEquals(0, new BigDecimal("50").compareTo(detail.carton().dimensions().lengthCm()));
+        assertEquals(0, new BigDecimal("12").compareTo(detail.carton().weightKg()));
+        assertEquals("2000000000439", detail.barcodes().inner());
+        assertEquals("2000000000446", detail.barcodes().outer());
+        assertEquals("2000000000453", detail.canonicalBarcode());
+        var amount = sales.price(invoice).totals().total();
+        var encoded = json.readTree(json.writeValueAsString(captured));
+        assertEquals("2000000000446", encoded.path("lines").get(0).path("productDetails").path("barcodes").path("outer").asText());
+
+        product = entities.find(ProductEntity.class, f.productId());
+        product.productLengthCm = new BigDecimal("99");
+        product.productWeightKg = new BigDecimal("8");
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.GIFT_BOX;
+        product.packagingHeightCm = new BigDecimal("80");
+        product.packagingPiecesPerUnit = 1;
+        product.packagingBarcode = "changed-packaging";
+        product.cartonLengthCm = new BigDecimal("90");
+        product.cartonWeightKg = new BigDecimal("50");
+        product.piecesPerCarton = 48;
+        product.piecesPerHc = 4800;
+        product.barcodeInner = "changed-inner";
+        product.barcodeOuter = "changed-outer";
+        product.canonicalBarcode = "changed-canonical";
+        entities.flush(); entities.clear();
+        assertEquals(captured, contents.find(invoice.id()).orElseThrow());
+        assertEquals(captured, contents.capture(sales.get(invoice.id())).orElseThrow());
+        assertEquals(amount, sales.price(sales.get(invoice.id())).totals().total());
+        assertTrue(sales.get(invoice.id()).lines().isEmpty());
+    }
+
+    @Test @TestTransaction
+    void olderJsonWithoutProductDetailsRemainsReadableAndIsNotSilentlyUpgraded() throws Exception {
+        var f = fixture();
+        var invoice = sales.createFromPurchaseOrder(request(f, plan(), SalesPurpose.PARTNER_ADVANCE));
+        var original = contents.find(invoice).orElseThrow();
+        ObjectNode legacy = json.valueToTree(original);
+        for (var line : legacy.withArray("lines")) ((ObjectNode) line).remove("productDetails");
+        String stored = json.writeValueAsString(legacy);
+        entities.find(PartnerAdvanceContentsEntity.class, invoice.id()).snapshotJson = stored;
+        entities.flush(); entities.clear();
+
+        var loaded = contents.find(invoice.id()).orElseThrow();
+        var item = loaded.lines().getFirst();
+        assertNull(item.productDetails());
+        assertEquals(original.totals().pieces(), loaded.totals().pieces());
+        assertEquals(original.totals().cartons(), loaded.totals().cartons());
+        assertEquals(0, original.totals().cbm().compareTo(loaded.totals().cbm()));
+        assertEquals(0, original.totals().weightKg().compareTo(loaded.totals().weightKg()));
+        assertEquals(original.totals().pallets(), loaded.totals().pallets());
+        assertEquals(original.capturedAt(), loaded.capturedAt());
+        assertEquals(original.lines().getFirst().productName(), item.productName());
+        assertEquals(original.lines().getFirst().quantity(), item.quantity());
+        assertEquals(loaded, contents.capture(sales.get(invoice.id())).orElseThrow());
+        assertEquals(stored, entities.find(PartnerAdvanceContentsEntity.class, invoice.id()).snapshotJson);
+        assertNull(new PartnerAdvanceContents.Item(item.productId(), item.sku(), item.productName(), item.quantity(),
+                item.cartons(), item.cbm(), item.weightKg()).productDetails());
+    }
+
+    @Test @TestTransaction
     void everyTermHasTheFullCargoButNoAdditionalFinancialOrStockClaimAndItNeverDrifts() throws Exception {
         var f = fixture();
         var first = sales.createFromPurchaseOrder(request(f, plan(), SalesPurpose.PARTNER_ADVANCE));

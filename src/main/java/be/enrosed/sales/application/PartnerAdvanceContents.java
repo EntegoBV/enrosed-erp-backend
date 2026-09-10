@@ -2,6 +2,9 @@ package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Barcodes;
+import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.sales.adapter.out.persistence.PartnerAdvanceContentsEntity;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.SalesOrder;
@@ -32,8 +35,16 @@ public class PartnerAdvanceContents {
     @Inject SourcingRepositories.PurchaseOrders purchases;
     @Inject ProductRepository products;
 
+    public record ProductDetails(Dimensions dimensions, Packaging packaging, Carton carton,
+                                 Barcodes barcodes, String canonicalBarcode) {}
     public record Item(Long productId, String sku, String productName, int quantity,
-                       Integer cartons, BigDecimal cbm, BigDecimal weightKg) {}
+                       Integer cartons, BigDecimal cbm, BigDecimal weightKg, ProductDetails productDetails) {
+        /** Existing snapshots and fixtures predate optional product-sheet details. */
+        public Item(Long productId, String sku, String productName, int quantity,
+                    Integer cartons, BigDecimal cbm, BigDecimal weightKg) {
+            this(productId, sku, productName, quantity, cartons, cbm, weightKg, null);
+        }
+    }
     public record Totals(int pieces, Integer cartons, BigDecimal cbm, BigDecimal weightKg, Integer pallets) {}
     public record Delivery(String destinationCountry, String departurePort, String destinationPort,
                            String loadMode, String containerType, LocalDate expectedArrival,
@@ -114,7 +125,9 @@ public class PartnerAdvanceContents {
         BigDecimal weight = cartons == null || carton.weightKg() == null || carton.weightKg().signum() <= 0
                 ? null : carton.weightKg().multiply(BigDecimal.valueOf(cartons));
         return new Item(productId, product == null ? null : product.sku(),
-                product == null ? "Artikel " + productId : product.name(), quantity, cartons, cbm, weight);
+                product == null ? "Artikel " + productId : product.name(), quantity, cartons, cbm, weight,
+                product == null ? null : new ProductDetails(product.dimensions(), product.packaging(),
+                        product.carton(), product.barcodes(), product.canonicalBarcode()));
     }
 
     private static Totals totals(List<Item> items) {

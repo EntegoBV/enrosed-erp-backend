@@ -272,6 +272,8 @@ class PdfQuoteRendererRenderTest {
                 assertTrue(text.contains(be.enrosed.shared.DocumentText.week("2026-W46", language).toLowerCase()), text);
                 assertFalse(text.contains("8712345678906") || text.contains("12 stuks per karton"),
                         "Current packaging must not contradict the frozen cargo: " + text);
+                assertTrue(text.contains("8712345678920") && text.contains("8712345678937"),
+                        "Enabled barcodes must come from the frozen product details: " + text);
                 assertTrue(text.contains("voorschot · 2/3 na productie"), text);
                 assertTrue(text.contains("49.289,17 eur"), text);
                 assertTrue(text.contains("10.350,73 eur") && text.contains("59.639,90 eur"), text);
@@ -316,13 +318,84 @@ class PdfQuoteRendererRenderTest {
         var lines = java.util.stream.IntStream.rangeClosed(1, count).mapToObj(i ->
                 new be.enrosed.sales.application.PartnerAdvanceContents.Item((long) i, "ENR-CARGO-" + i,
                         "Frozen glass rose " + i, 240, logistics ? 10 : null,
-                        logistics ? bd("0.24") : null, logistics ? bd("62") : null)).toList();
+                        logistics ? bd("0.24") : null, logistics ? bd("62") : null,
+                        logistics ? frozenCargoProductDetails() : null)).toList();
         return new be.enrosed.sales.application.PartnerAdvanceContents.Snapshot(13L, "PO-2026-013", null, lines,
                 new be.enrosed.sales.application.PartnerAdvanceContents.Totals(count * 240, logistics ? count * 10 : null,
                         logistics ? bd("0.24").multiply(BigDecimal.valueOf(count)) : null,
                         logistics ? bd("62").multiply(BigDecimal.valueOf(count)) : null, null),
                 new be.enrosed.sales.application.PartnerAdvanceContents.Delivery("NL", null, null, null, "40HQ",
                         LocalDate.of(2026, 11, 2), null, null, "2026-W46"), java.time.Instant.parse("2026-09-10T09:00:00Z"));
+    }
+
+    private static be.enrosed.sales.application.PartnerAdvanceContents.ProductDetails frozenCargoProductDetails() {
+        return new be.enrosed.sales.application.PartnerAdvanceContents.ProductDetails(
+                new Dimensions(bd("10"), bd("10"), bd("8")), be.enrosed.catalog.domain.Packaging.none(),
+                new Carton(new Dimensions(bd("40"), bd("30"), bd("20")), 24, bd("6.2")),
+                new Barcodes("8712345678920", "8712345678937"), "8712345678920");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void advanceInvoiceCartonAndBarcodeSwitchesWorkIndependentlyWithoutProductDetailsOrLogistics() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "PARTNER-PRINT-OPTIONS", 0)
+                .withPartnerDeal(13L, bd("50"));
+        attachCargoSnapshot(invoice, cargoSnapshot(1, true));
+        // Frozen specifications remain printable even if the catalog product no longer exists.
+        var labels = be.enrosed.shared.DocumentText.of(Language.NL);
+        for (boolean carton : List.of(false, true)) {
+            for (boolean barcode : List.of(false, true)) {
+                var document = renderer.render(invoice, advancePrice("100.00", "Voorschot"), customer(), null,
+                        Language.NL, new SalesPdfOptions(false, false, false, false, carton, barcode, false));
+                if (carton && barcode) writePreview("partner-invoice-carton-and-barcode.pdf", document.content());
+                try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                    String text = textOf(pdf);
+                    assertEquals(carton, text.contains("40 × 30 × 20 cm"), text);
+                    assertEquals(carton, text.contains("24 " + labels.get("piecesPerCarton").toLowerCase()), text);
+                    assertEquals(barcode, text.contains("ean 8712345678920"), text);
+                    assertEquals(carton && barcode, text.contains("ean 8712345678937"), text);
+                    assertFalse(text.contains("10 × 10 × 8 cm"), "Productdetails remains independently disabled");
+                    assertTrue(text.contains("frozen glass rose 1") && text.contains("240"), text);
+                    assertTrue(text.contains("121,00 eur"), "The switches never change the advance amount");
+                    assertFalse(text.contains(labels.get("unitPrice").toLowerCase()), "Cargo remains price-free");
+                    assertPortraitAndEmbedded(pdf);
+                    assertTextFitsPage(pdf);
+                }
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void olderAdvanceSnapshotsUseProductFicheForOptionalDetailsWithoutChangingFrozenCargo() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "PARTNER-LEGACY-OPTIONS", 0).withPartnerDeal(13L, bd("50"));
+        var frozen = cargoSnapshot(1, true);
+        var item = frozen.lines().getFirst();
+        var legacy = new be.enrosed.sales.application.PartnerAdvanceContents.Snapshot(frozen.purchaseOrderId(),
+                frozen.purchaseOrderNumber(), frozen.sourceQuoteId(), List.of(
+                new be.enrosed.sales.application.PartnerAdvanceContents.Item(item.productId(), item.sku(), item.productName(),
+                        item.quantity(), item.cartons(), item.cbm(), item.weightKg())),
+                frozen.totals(), frozen.delivery(), frozen.capturedAt());
+        attachCargoSnapshot(invoice, legacy);
+        var catalog = mock(ProductService.class);
+        Instance<ProductService> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true); when(instance.get()).thenReturn(catalog);
+        when(catalog.get(anyLong())).thenReturn(productWithPrintableMasterData());
+        renderer.products = instance;
+        for (boolean enabled : List.of(false, true)) {
+            try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, advancePrice("100.00", "Voorschot"),
+                    customer(), null, Language.NL, new SalesPdfOptions(false, false, true, false, enabled, enabled, false)).content())) {
+                String text = textOf(pdf);
+                assertEquals(enabled, text.contains("ean 8712345678906"), text);
+                assertEquals(enabled, text.contains("ean 8712345678913"), text);
+                assertEquals(enabled, text.contains("40 × 30 × 20 cm"), text);
+                assertTrue(text.contains("frozen glass rose 1") && text.contains("enr-cargo-1"), text);
+                assertTrue(text.contains("240") && text.contains("0,24 m³"), text);
+                assertTrue(text.contains("121,00 eur"), text);
+                assertFalse(text.contains("counter display premium"), "Frozen cargo identity stays unchanged");
+                assertTextFitsPage(pdf);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")

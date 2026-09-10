@@ -2,6 +2,7 @@ package be.enrosed.sales.adapter.out.document;
 
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.SalesPdfOptions;
+import be.enrosed.sales.application.PartnerAdvanceContents.ProductDetails;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.PricedOrder;
@@ -371,9 +372,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         Map<String, String> imageCache = new LinkedHashMap<>();
         return cargo.lines().stream().map(item -> {
             Product product = product(item.productId());
-            // Only the photo comes from the current catalog. Today's carton data may differ from the frozen shipment.
+            // New snapshots freeze printable specifications with the cargo. Older snapshots only have
+            // names/quantities: their optional specifications come from the available product fiche.
+            var specs = item.productDetails() != null ? productSpecs(item.productDetails(), text, options)
+                    : product == null ? List.<ProductSpec>of() : productSpecs(product, text, options);
             return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
-                    List.of(),
+                    specs,
                     options.includePhotos() ? productImage(product, imageCache) : null,
                     0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()));
         }).toList();
@@ -434,6 +438,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     private static List<ProductSpec> productSpecs(Product product, Map<String, String> text,
                                                   SalesPdfOptions options) {
+        return productSpecs(new ProductDetails(product.dimensions(), product.packaging(), product.carton(),
+                product.barcodes(), product.canonicalBarcode()), text, options);
+    }
+
+    private static List<ProductSpec> productSpecs(ProductDetails product, Map<String, String> text,
+                                                  SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
         /* One row per thing you can hold - product, packaging, master carton -
            each reading sizes, count, volume, weight and, on its own line, the
@@ -446,7 +456,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         facts ? weightText(product.dimensions()) : null),
                 eanText(pieceBarcode));
 
-        if (facts && product.packaging().isPresent()) {
+        if (facts && product.packaging() != null && product.packaging().isPresent()) {
             String packagingLabel = product.packaging().kind() == PackagingKind.GIFT_BOX
                     ? text.get("giftPackaging") : text.get("displayPackaging");
             addSpec(details, packagingLabel,
