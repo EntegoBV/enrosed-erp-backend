@@ -133,11 +133,12 @@ public class QuoteService {
                     : settled;
         }
         String iban = company.get().iban() == null || company.get().iban().isBlank() ? "-" : company.get().iban();
+        String reference = be.enrosed.shared.PaymentReference.normalized(order.number());
         if (order.paymentPlan() == SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION)
-            return text.get("paymentInstructionByPlan").formatted(be.enrosed.shared.DocumentFormat.eur(claim), iban, order.number())
+            return text.get("paymentInstructionByPlan").formatted(be.enrosed.shared.DocumentFormat.eur(claim), iban, reference)
                     + " " + text.get("paymentPlanProduction");
         String sentence = text.get("paymentInstruction").formatted(be.enrosed.shared.DocumentFormat.eur(claim),
-                be.enrosed.shared.DocumentText.date(order.invoiceDueDate(), customer.language()), iban, order.number());
+                be.enrosed.shared.DocumentText.date(order.invoiceDueDate(), customer.language()), iban, reference);
         return sentence;
     }
 

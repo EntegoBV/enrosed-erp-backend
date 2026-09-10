@@ -140,6 +140,34 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void invoicePaymentReferencesReplaceSlashesWithoutRenumberingTheDocument() throws Exception {
+        for (Language language : List.of(Language.NL, Language.EN)) {
+            for (var plan : be.enrosed.sales.domain.SalesPaymentPlan.values()) {
+                var invoice = order(DocumentType.FACTUUR, "CONTAINER/2026/001", 1)
+                        .withPartnerDeal(13L, bd("50"))
+                        .withPurpose(be.enrosed.sales.domain.SalesPurpose.PARTNER_ADVANCE, 13L, plan);
+                for (boolean details : List.of(true, false)) {
+                    var options = new SalesPdfOptions(false, false, true, false, false, false, details);
+                    var document = renderer.render(invoice, priced(1), customer(language), null, language, options);
+                    if (language == Language.NL && plan == be.enrosed.sales.domain.SalesPaymentPlan.FULL && details) {
+                        writePreview("invoice-hyphenated-payment-reference.pdf", document.content());
+                    }
+                    try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                        String text = textOf(pdf);
+                        // PDF extraction inserts spaces where a long reference wraps across lines.
+                        String unwrapped = text.replace(" ", "");
+                        assertTrue(unwrapped.contains("container/2026/001"), "document identity keeps its slashes");
+                        assertEquals(details ? 2 : 1, unwrapped.split("container-2026-001", -1).length - 1,
+                                "the payment box and optional instruction both use the bank reference: " + text);
+                        assertPortraitAndEmbedded(pdf);
+                    }
+                    assertEquals("CONTAINER/2026/001", invoice.number());
+                }
+            }
+        }
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void partnerPaymentScheduleAndRemainingCashArePrintedWithoutClaimingPaidMoneyAgain() throws Exception {
         var invoice = order(DocumentType.FACTUUR, "PARTNER-TST-RECEIPTS", 1).withPartnerDeal(13L, bd("50"));

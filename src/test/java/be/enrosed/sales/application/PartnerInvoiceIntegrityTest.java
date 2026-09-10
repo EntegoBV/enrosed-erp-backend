@@ -168,6 +168,46 @@ class PartnerInvoiceIntegrityTest {
         assertTrue(credit.contains("25,00"), credit);
     }
 
+    @Test
+    void ordinaryInvoiceEmailUsesHyphensOnlyInTheTransferCommunication() {
+        var invoice = invoice(1, null, "container/2026/007")
+                .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.FULL);
+        String sentence = paymentSentence(invoice);
+        assertTrue(sentence.contains("met vermelding van container-2026-007"), sentence);
+        assertFalse(sentence.contains("container/2026/007"), sentence);
+        assertTrue(sentence.contains("80,67"), sentence);
+        assertTrue(sentence.contains(be.enrosed.shared.DocumentText.date(invoice.invoiceDueDate(), Language.NL)), sentence);
+        assertEquals("container/2026/007", invoice.number(), "the source document number remains unchanged");
+    }
+
+    @Test
+    void productionPlanEmailNormalizesTheCommunicationWithoutChangingFractionInstructions() {
+        var invoice = invoice(1, null, "container/2026/008")
+                .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION);
+        String sentence = paymentSentence(invoice);
+        assertTrue(sentence.contains("met vermelding van container-2026-008"), sentence);
+        assertFalse(sentence.contains("container/2026/008"), sentence);
+        assertTrue(sentence.contains("80,67"), sentence);
+        assertTrue(sentence.contains("1/3"), "fraction slashes must not be replaced: " + sentence);
+        assertTrue(sentence.contains("2/3"), "fraction slashes must not be replaced: " + sentence);
+        assertEquals("container/2026/008", invoice.number());
+        assertEquals(SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION, invoice.paymentPlan());
+    }
+
+    private String paymentSentence(SalesOrder invoice) {
+        var company = mock(be.enrosed.shared.company.CompanyProfileService.class);
+        when(company.get()).thenReturn(be.enrosed.shared.company.CompanyProfile.empty());
+        var quotes = new QuoteService(orders, mock(SalesRepositories.Revisions.class), service, customers,
+                mock(be.enrosed.sales.application.port.out.QuoteDocumentRenderer.class),
+                mock(be.enrosed.sales.application.port.out.QuoteMailer.class), products, events,
+                company, mock(be.enrosed.push.WebPushNotifier.class));
+        var incoming = mock(IncomingPaymentService.class);
+        quotes.incomingPayments = instance(incoming);
+        var priced = new PricedOrder(List.of(), null, null, List.of());
+        when(incoming.summary(invoice, priced)).thenReturn(summary("80.67", "0", "0"));
+        return quotes.invoicePaymentSentence(invoice, priced, customers.get(7L));
+    }
+
     private static SalesPaymentSummary summary(String remaining, String credit, String overpaid) {
         return new SalesPaymentSummary(new BigDecimal("121"), new BigDecimal("40.33"), new BigDecimal(remaining),
                 new BigDecimal(overpaid), new BigDecimal(credit), SalesPaymentSummary.Status.PARTIAL, List.of(), List.of(), false);
@@ -266,8 +306,12 @@ class PartnerInvoiceIntegrityTest {
     }
 
     private static SalesOrder invoice(long id, Instant shippedAt) {
+        return invoice(id, shippedAt, "PARTNER-" + id);
+    }
+
+    private static SalesOrder invoice(long id, Instant shippedAt, String number) {
         LocalDate today = LocalDate.now();
-        return new SalesOrder(id, "PARTNER-" + id, 7L, "BE", today, today.plusDays(30), QuoteStatus.CONCEPT,
+        return new SalesOrder(id, number, 7L, "BE", today, today.plusDays(30), QuoteStatus.CONCEPT,
                 "DAP", null, null, MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
                 null, null, null, 0, null, null, null, null, DeliveryTermsState.VOLLEDIG,
                 FreightState.AANGEVULD, BigDecimal.ZERO, LoadMode.PALLETS, PalletProfile.EURO_120X80,

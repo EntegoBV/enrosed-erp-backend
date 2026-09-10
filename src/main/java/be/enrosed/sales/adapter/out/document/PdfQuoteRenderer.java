@@ -9,6 +9,7 @@ import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.PaymentReference;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
@@ -156,6 +157,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         if (declaration != null && declaration.replaceCustomsLine()) customsLine = null;
         String customerNote = customer == null ? null : nonBlank(customer.invoiceNote(), null);
         String dueDateText = DocumentText.date(order.invoiceDueDate(), language);
+        String paymentReference = PaymentReference.normalized(order.number());
         String paymentInstruction = null;
         String iban = null;
         String claimAmount = null;
@@ -187,8 +189,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             paymentInstruction = credit.signum() > 0 ? text.get("paymentCredit").formatted(DocumentFormat.eur(credit))
                     : overpaid.signum() > 0 ? text.get("paymentOverpaid").formatted(DocumentFormat.eur(overpaid))
                     : claim.signum() <= 0 ? text.get("paymentSettled")
-                    : productionPlan ? text.get("paymentInstructionByPlan").formatted(claimAmount, iban, order.number())
-                    : text.get("paymentInstruction").formatted(claimAmount, dueDateText, iban, order.number());
+                    : productionPlan ? text.get("paymentInstructionByPlan").formatted(claimAmount, iban, paymentReference)
+                    : text.get("paymentInstruction").formatted(claimAmount, dueDateText, iban, paymentReference);
         }
 
         String html = quoteTemplate
@@ -246,6 +248,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("orderNote", orderNote(order, options))
                 .data("dueDateText", dueDateText)
                 .data("paymentInstruction", paymentInstruction)
+                .data("paymentReference", paymentReference)
                 .data("iban", iban)
                 .data("claimAmount", claimAmount)
                 .data("receivedAmount", receivedAmount)

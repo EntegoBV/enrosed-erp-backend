@@ -74,12 +74,12 @@ public class BankStatementService {
     public List<Match> suggestions(long id) {var row=get(id,false);return suggestions(orders.findAll().stream().filter(SalesOrder::isInvoice).toList(),row.amountEur,row.reference,row.account);}
 
     private List<Match> suggestions(List<SalesOrder> invoices,BigDecimal amount,String reference,String account) {
-        List<Match> matches=new ArrayList<>();String text=Objects.toString(reference,"").toUpperCase(Locale.ROOT);
+        List<Match> matches=new ArrayList<>();String text=PaymentReference.normalized(reference).toUpperCase(Locale.ROOT);
         for(var invoice:invoices) {
             if(Set.of(QuoteStatus.CONCEPT,QuoteStatus.GEANNULEERD,QuoteStatus.AFGEWEZEN,QuoteStatus.VERLOPEN).contains(invoice.status()))continue;
             var summary=incoming.summary(invoice,sales.price(invoice));
             BigDecimal open=amount.signum()>0?summary.remainingEur():summary.refundableEur();
-            int score=(invoice.number()!=null&&text.contains(invoice.number().toUpperCase(Locale.ROOT))?100:0)+(open.compareTo(amount.abs())==0?20:0);
+            int score=(invoice.number()!=null&&text.contains(PaymentReference.normalized(invoice.number()).toUpperCase(Locale.ROOT))?100:0)+(open.compareTo(amount.abs())==0?20:0);
             for(var payment:summary.payments())if(payment.amountEur().compareTo(amount)==0&&(payment.bankAccount()==null||account.equals(payment.bankAccount()))&&!paymentLinked(payment.id()))
                 matches.add(new Match(invoice.id(),invoice.number(),open,score+40,payment.id(),"Bestaande betaling koppelen: geen nieuwe boeking",payment.receivedAt(),payment.reference()));
             if(open.signum()>0&&score>0)matches.add(new Match(invoice.id(),invoice.number(),open,score,null,"Nieuwe "+(amount.signum()>0?"ontvangst":"terugbetaling")+" registreren",null,null));

@@ -60,6 +60,43 @@ class BankStatementServiceTest {
         bank.delete(row.id);assertTrue(bank.list().isEmpty());
     }
 
+    @Test @TestTransaction void hyphenPaymentReferenceFindsAPartialPaymentAheadOfAnUnrelatedExactAmount() {
+        var intended=invoiceWithSlashNumber("100");
+        var unrelated=invoice("25");
+        assertTrue(intended.number().contains("/"), "fixture retains the actual slash-separated invoice number");
+        String communication="Deelbetaling "+intended.number().replace('/', '-').toUpperCase(java.util.Locale.ROOT);
+        var request=new BankStatementService.ManualRequest("KBC",new BigDecimal("30.25"),
+                BankStatementService.Direction.INCOMING,AT,"Europe/Brussels",communication,"Partner","hyphen-partial");
+        var row=bank.create(request);
+        var matches=bank.suggestions(row.id);
+        assertEquals(intended.id().longValue(),matches.getFirst().salesOrderId());
+        assertEquals(100,matches.getFirst().score(), "reference matches despite no exact amount match");
+        assertEquals(new BigDecimal("121.00"),matches.getFirst().openEur());
+        assertTrue(matches.stream().anyMatch(match->match.salesOrderId()==unrelated.id()&&match.score()==20),
+                "an unrelated exact amount remains a lower-ranked suggestion");
+        assertEquals(intended.number(),matches.getFirst().number());
+        assertEquals(intended.number(),sales.get(intended.id()).number());
+        assertEquals(communication,bank.list().stream().filter(value->value.id.equals(row.id)).findFirst().orElseThrow().reference);
+        assertTrue(incoming.forOrder(intended.id()).isEmpty(), "matching suggestions never create a payment");
+        assertEquals(row.id,bank.create(request).id, "normalization must not alter stored bank-entry idempotency");
+    }
+
+    @Test @TestTransaction void legacySlashReferenceStillMatchesPartialPaymentsAndKeepsTheRecordedCommunication() {
+        var intended=invoiceWithSlashNumber("100");
+        String communication="Oude betalingsmededeling "+intended.number();
+        var row=bank.create(new BankStatementService.ManualRequest("KBC",new BigDecimal("17.50"),
+                BankStatementService.Direction.INCOMING,AT,"Europe/Brussels",communication,"Partner","slash-partial"));
+        var match=bank.suggestions(row.id).stream().filter(value->value.salesOrderId()==intended.id()).findFirst().orElseThrow();
+        assertEquals(100,match.score(), "both sides are normalized, including legacy bank references");
+        assertEquals(intended.number(),match.number());
+        assertEquals(communication,row.reference);
+        assertTrue(incoming.forOrder(intended.id()).isEmpty());
+        bank.allocate(row.id,new BankStatementService.Allocation(intended.id(),null));
+        assertEquals(communication,incoming.forOrder(intended.id()).getFirst().reference(),
+                "an explicit allocation preserves the bank's original communication");
+        assertEquals(new BigDecimal("17.50"),incoming.forOrder(intended.id()).getFirst().amountEur());
+    }
+
     @Test @TestTransaction void manualOutgoingRefundUsesSignedCashAndUndoRestoresCreditWithoutLosingBankLine() {
         var credit=invoice("-100");bank.create(entry("KBC","-121"));var line=bank.list().getFirst();
         assertEquals(new BigDecimal("-121.00"),line.amountEur);
@@ -116,5 +153,11 @@ class BankStatementServiceTest {
         entity.extraLinesJson="[{\"description\":\"Service\",\"quantity\":1,\"unitPriceEur\":"+amount+"}]";
         entity.freightPricingStrategy=FreightPricingStrategy.FIXED;entity.manualFreightEur=BigDecimal.ZERO;entity.freight=FreightState.AANGEVULD;entity.status=QuoteStatus.UITGEREIKT;
         em.flush();em.clear();return sales.get(order.id());
+    }
+
+    private SalesOrder invoiceWithSlashNumber(String amount) {
+        var invoice=invoice(amount);
+        em.find(SalesOrderEntity.class,invoice.id()).number="factuur/2026/"+invoice.id();
+        em.flush();em.clear();return sales.get(invoice.id());
     }
 }

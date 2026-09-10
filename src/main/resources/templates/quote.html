@@ -491,7 +491,7 @@
         <td><span class="label">{t.toPay}</span><b class="accent">{claimAmount}</b></td>
         <td><span class="label">{t.dueDate}</span><b>{dueDateText}</b></td>
         <td><span class="label">IBAN</span><b>{iban}</b>{#if company.bic}<span class="muted">BIC {company.bic}</span>{/if}</td>
-        <td><span class="label">{t.reference}</span><b>{order.number}</b></td>
+        <td><span class="label">{t.reference}</span><b>{paymentReference}</b></td>
       </tr>
     </table>
     {#if includePaymentDetails}
