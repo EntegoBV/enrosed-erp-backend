@@ -1,6 +1,7 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.sales.domain.DeliveryTermsState;
+import be.enrosed.sales.domain.DocumentType;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.FreightPricingStrategy;
 import be.enrosed.sales.domain.LoadMode;
@@ -18,6 +19,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class SalesLifecycleTest {
 
@@ -28,6 +31,18 @@ class SalesLifecycleTest {
                 () -> SalesLifecycle.requireEditable(order(QuoteStatus.VERZONDEN)));
         assertThrows(BusinessRuleException.class,
                 () -> SalesLifecycle.requireEditable(order(QuoteStatus.GEACCEPTEERD)));
+    }
+
+    @Test
+    void invoiceEditGuardNamesTheActualDocumentAndNeverSuggestsReopeningAQuote() {
+        assertDoesNotThrow(() -> SalesLifecycle.requireEditable(order(QuoteStatus.CONCEPT, DocumentType.FACTUUR)));
+        for (var status : List.of(QuoteStatus.UITGEREIKT, QuoteStatus.VERZONDEN, QuoteStatus.BETAALD)) {
+            var invoice = order(status, DocumentType.FACTUUR).withPartnerDeal(45L, new BigDecimal("50"));
+            var failure = assertThrows(BusinessRuleException.class, () -> SalesLifecycle.requireEditable(invoice));
+            assertTrue(failure.getMessage().startsWith("Factuur ENR-TEST staat op "), failure.getMessage());
+            assertTrue(failure.getMessage().contains(status.name().toLowerCase(java.util.Locale.ROOT)), failure.getMessage());
+            assertFalse(failure.getMessage().contains("Offerte") || failure.getMessage().contains("Heropen"), failure.getMessage());
+        }
     }
 
     @Test
@@ -71,6 +86,10 @@ class SalesLifecycleTest {
     }
 
     private static SalesOrder order(QuoteStatus status) {
+        return order(status, DocumentType.OFFERTE);
+    }
+
+    private static SalesOrder order(QuoteStatus status, DocumentType docType) {
         LocalDate today = LocalDate.now();
         return new SalesOrder(1L, "ENR-TEST", 2L, "BE", today, today.plusDays(30),
                 status, "DAP", null, null, MarkupMode.PRODUCT, BigDecimal.ZERO,
@@ -78,7 +97,7 @@ class SalesLifecycleTest {
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
                 FreightPricingStrategy.COUNTRY_PALLET, null,
-                null, null, null, null, null, null, null,
+                null, null, docType, null, null, null, null,
                 List.of(), List.of());
     }
 

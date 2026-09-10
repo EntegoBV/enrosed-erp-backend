@@ -16,12 +16,17 @@ final class SalesLifecycle {
 
     private SalesLifecycle() {}
 
-    /** Full order edits are only safe while the quotation is a draft. */
+    /** Full order edits are only safe while the document is a draft. */
     static void requireEditable(SalesOrder order) {
         if (order.status() == null) {
-            throw new BusinessRuleException("Kies een geldige status voor de offerte");
+            throw new BusinessRuleException("Kies een geldige status voor de " + (order.isInvoice() ? "factuur" : "offerte"));
         }
         if (order.status() != QuoteStatus.CONCEPT) {
+            if (order.isInvoice()) {
+                throw new BusinessRuleException("Factuur " + order.number() + " staat op "
+                        + order.status().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ')
+                        + ". Alleen conceptfacturen kunnen volledig gewijzigd worden.");
+            }
             throw new BusinessRuleException(
                     "Offerte " + order.number() + " is al verstuurd en kan niet volledig gewijzigd worden. "
                             + "Heropen ze eerst via de daarvoor bedoelde flow.");
