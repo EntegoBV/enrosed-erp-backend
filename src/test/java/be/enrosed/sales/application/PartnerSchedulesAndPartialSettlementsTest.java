@@ -53,7 +53,7 @@ class PartnerSchedulesAndPartialSettlementsTest {
             assertEquals(agreed.multiply(new BigDecimal("0.70")).setScale(2), sales.price(second).totals().total());
             assertEquals(SalesPaymentPlan.FULL, first.paymentPlan());
             assertEquals(LocalDate.of(2026, 9, 15), first.invoiceDueDate());
-            assertTrue(first.notes().contains("30%"));
+        assertNull(first.notes(), "generated payment explanations must not become manual notes on compact PDFs");
             assertEquals(QuoteStatus.UITGEREIKT, sales.issueInvoice(first.id()).status());
             em.flush(); em.clear();
             var persisted = schedules.get(fixture.purchase.id());
@@ -80,18 +80,15 @@ class PartnerSchedulesAndPartialSettlementsTest {
     }
 
     @Test @TestTransaction
-    void legacyFullQuoteAndCopiesCannotBypassPlannedOrDraftInvoiceReservations() {
+    void aFullConceptInvoiceAndCopiesCannotBypassFinancingReservations() {
         var fixture = fixture("12000", 12, "50");
         var quote = sales.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 fixture.purchase.id(), fixture.partnerId, "COST", BigDecimal.ZERO, true, new BigDecimal("50"),
                 new BigDecimal("50"), false, List.of(), "PARTNER", null, SalesPurpose.PARTNER_ADVANCE, SalesPaymentPlan.FULL));
-        var schedule = save(fixture.purchase.id(), pct(null, "30%", "30", null), pct(null, "70%", "70", null));
+        assertEquals(DocumentType.FACTUUR, quote.docType());
+        assertThrows(BusinessRuleException.class, () -> save(fixture.purchase.id(), pct(null, "30%", "30", null), pct(null, "70%", "70", null)));
         assertThrows(BusinessRuleException.class, () -> sales.createInvoiceFrom(quote.id()));
-        var first = schedules.createInvoice(fixture.purchase.id(), schedule.rows().getFirst().id());
-        assertThrows(BusinessRuleException.class, () -> sales.duplicate(first.id()));
-        assertThrows(BusinessRuleException.class, () -> save(fixture.purchase.id(),
-                pct(schedule.rows().getFirst().id(), "30%", "30", null), pct(schedule.rows().getLast().id(), "70%", "70", null),
-                new PartnerAdvanceScheduleService.RowRequest(null, "Extra", null, BigDecimal.ONE, null)));
+        assertThrows(BusinessRuleException.class, () -> sales.duplicate(quote.id()));
         assertThrows(BusinessRuleException.class, () -> schedules.save(fixture.purchase.id(), new PartnerAdvanceScheduleService.Request(List.of(), true)));
     }
 

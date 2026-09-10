@@ -59,8 +59,7 @@ class AdvanceQuoteArrangementsTest {
         assertEquals(amount("4200"), sales.price(last).totals().total());
         assertEquals(first.id(), schedules.createInvoice(f.purchase.id(), snapshot.rows().getFirst().scheduleRowId()).id());
         assertEquals(SalesPaymentPlan.FULL, first.paymentPlan());
-        assertFalse(first.notes().toLowerCase().contains("partner"));
-        assertFalse(first.notes().contains("6000"));
+        assertTrue(first.notes() == null || first.notes().isBlank());
         assertFalse(first.extraLines().getFirst().description().toLowerCase().contains("partner"));
         assertNull(salesResource.get(quote.id()).invoicedAsId(), "one term must not mark the entire arrangement as invoiced");
         assertEquals(quote.number(), salesResource.get(first.id()).sourceQuoteNumber());
@@ -69,7 +68,7 @@ class AdvanceQuoteArrangementsTest {
     }
 
     @Test @TestTransaction
-    void changingThePlanKeepsOldQuoteFrozenAndRequiresANewMatchingQuoteBeforeInvoicing() {
+    void changingThePlanKeepsLegacyQuoteFrozenButNoLongerRequiresAnotherQuote() {
         var f = fixture("12000", 12, "50");
         schedules.save(f.purchase.id(), plan(pct(null, "Start", "30"), pct(null, "Klaar", "70")));
         var quote = quotation(f, "50", null);
@@ -78,10 +77,8 @@ class AdvanceQuoteArrangementsTest {
                 pct(frozen.rows().getLast().scheduleRowId(), "Klaar", "60")));
         em.flush(); em.clear();
         assertEquals(amount("1800"), snapshots.find(quote.id()).rows().getFirst().amountEur());
-        assertThrows(BusinessRuleException.class, () -> schedules.createInvoice(f.purchase.id(), frozen.rows().getFirst().scheduleRowId()));
-        var revised = quotation(f, "50", null);
         var invoice = schedules.createInvoice(f.purchase.id(), frozen.rows().getFirst().scheduleRowId());
-        assertEquals(revised.id(), invoice.sourceQuoteId());
+        assertNull(invoice.sourceQuoteId(), "a changed plan must not be attributed to the old frozen quote");
         assertEquals(amount("2400"), sales.price(invoice).totals().total());
         assertEquals(amount("1800"), snapshots.find(quote.id()).rows().getFirst().amountEur());
     }
@@ -159,9 +156,7 @@ class AdvanceQuoteArrangementsTest {
         String oldQuoteNumber = "offerte/partner/" + year + "/900047";
         em.find(SalesOrderEntity.class, firstQuote.id()).number = oldQuoteNumber;
         em.flush(); em.clear();
-        var next = quotation(f, "50", null);
-        assertEquals("offerte/container/" + year + "/900048", next.number());
-        var rows = snapshots.find(next.id()).rows();
+        var rows = snapshots.find(firstQuote.id()).rows();
         var firstInvoice = schedules.createInvoice(f.purchase.id(), rows.getFirst().scheduleRowId());
         String oldInvoiceNumber = "partner/" + year + "/900057";
         em.find(SalesOrderEntity.class, firstInvoice.id()).number = oldInvoiceNumber;
@@ -209,9 +204,35 @@ class AdvanceQuoteArrangementsTest {
     }
 
     private SalesOrder quotation(Fixture f, String financing, PartnerAdvanceScheduleService.Request schedule) {
-        return sales.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(f.purchase.id(), f.partnerId,
-                "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal(financing), false, List.of(), "PARTNER", null,
-                SalesPurpose.PARTNER_ADVANCE, SalesPaymentPlan.FULL, schedule));
+        // Historical persisted fixture: the public creation path now produces invoices only.
+        var purchase = purchases.get(f.purchase.id());
+        boolean financingChanged = purchase.partnerCostPctOrDefault().compareTo(new BigDecimal(financing)) != 0;
+        if (financingChanged) {
+            purchase = purchases.setPartner(purchase.id(), new PurchaseOrderService.PartnerRequest(f.partnerId,
+                    new BigDecimal(financing), new BigDecimal("50")));
+            if (schedule != null) schedule = new PartnerAdvanceScheduleService.Request(schedule.rows(), true);
+        }
+        PartnerAdvanceQuotes.Snapshot snapshot = schedule != null || schedules.hasRows(purchase.id())
+                ? schedules.quoteArrangements(purchase.id(), schedule, new BigDecimal("50")) : null;
+        BigDecimal external = purchases.reconciliation(purchase.id()).totals().forecastExternalEur();
+        BigDecimal amount = snapshot == null ? external.multiply(new BigDecimal(financing)).divide(new BigDecimal("100"))
+                : snapshot.agreedAmountEur();
+        var ordinary = sales.create(f.partnerId, "BE", "DAP");
+        var entity = em.find(SalesOrderEntity.class, ordinary.id());
+        entity.number = "offerte/container/" + LocalDate.now().getYear() + "/" + ordinary.id();
+        entity.partnerPurchaseOrderId = purchase.id(); entity.sourcePurchaseOrderId = purchase.id();
+        entity.partnerSharePct = new BigDecimal("50"); entity.salesChannel = "PARTNER";
+        entity.purpose = SalesPurpose.PARTNER_ADVANCE; entity.paymentPlan = SalesPaymentPlan.FULL;
+        entity.freight = FreightState.AANGEVULD; entity.manualFreightEur = BigDecimal.ZERO;
+        entity.freightPricingStrategy = FreightPricingStrategy.FIXED; entity.freightCarrierId = null;
+        var line = new be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderLineEntity();
+        line.order = entity; line.productId = f.productId; line.quantity = purchase.lines().getFirst().quantity();
+        line.unitPriceEur = amount.divide(BigDecimal.valueOf(line.quantity), 4, RoundingMode.HALF_UP);
+        line.unitCostEur = external.divide(BigDecimal.valueOf(line.quantity), 4, RoundingMode.HALF_UP);
+        entity.lines.add(line); em.persist(line); em.flush();
+        if (snapshot != null) snapshots.save(entity.id, snapshot);
+        em.clear();
+        return sales.get(ordinary.id());
     }
     private PartnerAdvanceScheduleService.Request plan(PartnerAdvanceScheduleService.RowRequest... rows) {
         return new PartnerAdvanceScheduleService.Request(List.of(rows), false);

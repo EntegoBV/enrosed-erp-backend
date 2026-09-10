@@ -21,21 +21,21 @@ Externe containerkosten €12.000. Netto veilingopbrengst na veilingkosten €16
 
 Bij 50% financiering bevat de slotfactuur ook de terugbetaling van de €6.000 die ENROSED zelf financierde. Bij 100% financiering resteert alleen het ENROSED-resultaat. Als de tweede voorschotfactuur nog onbetaald is, blijft die apart openstaan. Een onbetaald voorschot wordt niet nogmaals gefactureerd bij de afrekening.
 
-## Eerst een offerte met betaalafspraken
+## Rechtstreeks conceptfacturen
 
-Maak vanuit de inkooporder eerst **Offerte met betaalafspraken**. Neem de bewaarde termijnen over of kies 30/70, 1/3–2/3 of eigen bedragen en datums. De termijnen dekken samen de afgesproken bijdrage; bij 0% financiering vermeldt de offerte alleen de latere afrekening.
+Maak vanuit de inkooporder **Conceptvoorschotfacturen**. Neem de bewaarde termijnen over of kies 30/70, 1/3–2/3 of eigen bedragen en datums. De termijnen dekken samen de afgesproken bijdrage. Iedere termijn krijgt rechtstreeks een eigen conceptfactuur; er komt geen offerte en geen extra factuur voor het volledige voorschot bij.
 
-De offerte bewaart de producten en de betaalafspraken als momentopname. Op de PDF, in de klantweergave en in de offerte-e-mail staan afzonderlijke voorschotten. Het document heet **Offerte**, gebruikt neutrale benamingen en toont geen definitief ordertotaal of kostprijs per product. De slotfactuur volgt na de veiling en verrekent de voorschotten, werkelijke kosten en het afgesproken ENROSED-aandeel in het resultaat.
+Na het aanmaken opent de eerste conceptfactuur. De overige termijnfacturen zijn bereikbaar vanuit die factuur en de betalingen bij de inkooporder. De documenten zijn nog niet uitgegeven of verstuurd. Je kunt ze eerst controleren en op het gewenste moment afzonderlijk uitgeven, met of zonder e-mail.
 
-Deze offerte wordt niet in één volledige factuur omgezet: de actie **Voorschotfacturen beheren** opent de termijnen bij de inkooporder. Een wijziging van de financiële afspraak vraagt een nieuwe offerte, zodat eerdere offertes ongewijzigd blijven. Bestaande documenten worden niet automatisch herschreven.
+Bij één betaling ontstaat één conceptvoorschotfactuur. Bij 0% financiering is er geen voorschotfactuur nodig; de partnerafspraak blijft op de inkooporder staan en de afrekening volgt na de veiling. Reguliere verkoop vanuit een inkooporder blijft een afzonderlijk offerteproces.
 
 ## Termijnen en facturen
 
 Open **Inkoop > container > Betalingen**. Bewaar de voorschotplanning met een naam, percentage of vast bedrag en optionele vervaldatum per termijn. Gebruik een voorgestelde verdeling of voeg zelf termijnen toe. De totale planning mag de vastgelegde partnerbijdrage niet overschrijden; een nog niet ingepland bedrag blijft zichtbaar.
 
-Maak bij elke mijlpaal de bijbehorende voorschotfactuur. De knop opent een concept, zodat je het document kunt controleren en uitgeven. Een termijnfactuur vraagt het volledige bedrag van die ene termijn; er komt niet opnieuw een 30/70- of derdenverdeling binnen die factuur. Uitgeven zonder e-mail blijft mogelijk. Verzending en de werkelijke ontvangst zijn afzonderlijke handelingen.
+Open bij elke mijlpaal de bijbehorende conceptfactuur en geef die uit. Voor een later toegevoegde termijn kun je rechtstreeks een conceptfactuur maken. Een termijnfactuur vraagt het volledige bedrag van die ene termijn; er komt niet opnieuw een 30/70- of derdenverdeling binnen die factuur. Uitgeven zonder e-mail blijft mogelijk. Verzending en de werkelijke ontvangst zijn afzonderlijke handelingen. Opnieuw openen of dezelfde aanmaak herhalen gebruikt de bestaande termijnfactuur.
 
-De afgesproken kostbasis wordt vastgelegd. Zodra bedragen gefactureerd zijn, blijven die bedragen behouden. Nieuwe kosten wijzigen bestaande facturen niet stilzwijgend. Niet-gefactureerde termijnen kunnen worden aangepast binnen het beschikbare restant. Oude offertes en facturen blijven zichtbaar en worden niet automatisch gekopieerd naar nieuwe betalingsclaims.
+De afgesproken kostbasis wordt vastgelegd. Conceptfacturen reserveren hun termijnbedrag, zodat hetzelfde voorschot niet tweemaal kan worden aangemaakt. Nieuwe kosten wijzigen bestaande facturen niet stilzwijgend. Voor een wijziging van een termijn met een factuur verwijder je eerst de ongebruikte conceptfactuur. Niet-gefactureerde termijnen kunnen worden aangepast binnen het beschikbare restant. Uitgegeven facturen en geregistreerde betalingen blijven behouden.
 
 Vóór de eerste veilingafrekening moeten de ingeplande voorschotten zijn uitgegeven. Verwijder termijnen of ongebruikte conceptfacturen die niet meer bij de afspraak horen. Na het begin van de afrekening kunnen geen extra voorschotclaims meer worden toegevoegd; de afrekening verwerkt dan de resterende kost en het resultaat.
 
@@ -85,4 +85,6 @@ Ontvangsten en openstaande facturen zijn inclusief eventuele btw; de kost- en re
 
 Valideer wijzigingen op `test` en publiceer de gecontroleerde versie op `main` wanneer productiepublicatie is geautoriseerd. Productie: `https://enrosed-erp-frontend.vercel.app`; TST: `https://enrosed-erp-frontend-test.vercel.app`. TST gebruikt e-mailmocking en heeft pushberichten uit; neem die instellingen niet over naar productie.
 
-Bestaande documenten blijven bestaan. De nieuwe planning maakt geen echte facturen of bankbetalingen aan zonder de betreffende handeling in het ERP. Historische afrekeningen gelden als volledige afrekeningen; historische betaalmarkeringen blijven herkenbaar in het betaalregister.
+Bestaande, ongewijzigd bewaarde partneroffertes in concept die nog nooit zijn verstuurd of aan een klant getoond, worden bij de overgang veilig verwerkt naar conceptfacturen. Bij een betaalplan wordt iedere termijn afzonderlijk aangemaakt of een bestaande gekoppelde factuur hergebruikt. Pas na een geslaagde omzetting gaat de bronofferte naar het archief. Het oorspronkelijke type, nummer, de koppelingen en historie blijven bewaard. Reeds verstuurde, geaccepteerde of betaalde documenten worden niet automatisch gewijzigd. De overgang verstuurt geen e-mail en registreert geen betaling.
+
+Historische afrekeningen gelden als volledige afrekeningen; historische betaalmarkeringen blijven herkenbaar in het betaalregister.

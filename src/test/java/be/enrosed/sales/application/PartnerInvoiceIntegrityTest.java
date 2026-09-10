@@ -174,14 +174,16 @@ class PartnerInvoiceIntegrityTest {
     }
 
     @Test
-    void copiesKeepThePurchaseSourceAndInstalmentAgreementAndSettlementsCannotBeCopied() {
+    void ordinaryCopiesKeepThePurchaseSourceButPartnerClaimsCannotBeCopied() {
         var standard = put(invoice(1).withPurpose(SalesPurpose.STANDARD, 14L, SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION));
         var copy = service.duplicate(standard.id());
         assertEquals(SalesPurpose.STANDARD, copy.purpose());
         assertEquals(14L, copy.linkedPurchaseOrderId());
         assertEquals(SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION, copy.paymentPlan());
         var advance = put(invoice(2).withPurpose(SalesPurpose.PARTNER_ADVANCE, 13L, SalesPaymentPlan.FULL));
-        assertEquals(SalesPaymentPlan.FULL, service.duplicate(advance.id()).paymentPlan());
+        int before = stored.size();
+        assertThrows(BusinessRuleException.class, () -> service.duplicate(advance.id()));
+        assertEquals(before, stored.size(), "copying must not reserve a second claim even when financing capacity remains");
         var settlement = put(invoice(3).asPartnerSettlement());
         assertThrows(BusinessRuleException.class, () -> service.duplicate(settlement.id()));
     }

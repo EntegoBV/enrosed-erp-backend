@@ -214,6 +214,48 @@ class PdfQuoteRendererRenderTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void compactMilestoneInvoiceHidesLegacyGeneratedInstructionsButKeepsTheBuyerNote() throws Exception {
+        String generated = "Voorschot · Start productie. 30% van het afgesproken voorschot. "
+                + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk.";
+        String buyerNote = "Onze referentie: PARTNER-2026.";
+        var schedules = mock(be.enrosed.sales.application.PartnerAdvanceSchedules.class);
+        Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(schedules);
+        renderer.advanceSchedules = instance;
+        when(schedules.forInvoice(148L)).thenReturn(new be.enrosed.sales.application.PartnerAdvanceSchedules.Row(
+                71L, 13L, 0, "Start productie", bd("30"), bd("900.12"), null, 148L));
+        var price = priced(1);
+        for (String notes : List.of(generated, generated + "\n" + buyerNote, buyerNote)) {
+            var invoice = order(DocumentType.FACTUUR, "PARTNER-CONCEPT-30", 1, notes)
+                    .withPartnerDeal(13L, bd("50"))
+                    .withPurpose(be.enrosed.sales.domain.SalesPurpose.PARTNER_ADVANCE, 13L,
+                            be.enrosed.sales.domain.SalesPaymentPlan.FULL);
+            var compact = renderer.render(invoice, price, customer(), null, Language.NL,
+                    new SalesPdfOptions(false, false, false, false, false, false, false));
+            try (PDDocument pdf = Loader.loadPDF(compact.content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("voorschotfactuur"), text);
+                assertTrue(text.contains("te betalen"), text);
+                assertTrue(text.contains(be.enrosed.shared.DocumentFormat.eur(price.totals().totalInclVat()).toLowerCase()), text);
+                assertFalse(text.contains("30% van het afgesproken voorschot"), text);
+                assertFalse(text.contains("deze factuur betreft uitsluitend deze termijn"), text);
+                assertEquals(notes.contains(buyerNote), text.contains("partner-2026"), text);
+                assertFalse(text.contains("1/3 bij start productie"), text);
+            }
+            if (notes.contains(buyerNote)) writePreview("partner-concept-compact.pdf", compact.content());
+            if (notes.equals(generated)) {
+                var detailed = renderer.render(invoice, price, customer(), null, Language.NL,
+                        new SalesPdfOptions(false, false, false, false));
+                try (PDDocument pdf = Loader.loadPDF(detailed.content())) {
+                    assertTrue(textOf(pdf).contains("30% van het afgesproken voorschot"));
+                }
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void partialAuctionAndActualRefundAreExplicitOnTheDocument() throws Exception {
         var invoice = order(DocumentType.FACTUUR, "PARTNER-TST-PARTIAL", 1).asPartnerSettlement();
         var settlements = mock(be.enrosed.sales.application.PartnerSettlements.class);
@@ -756,6 +798,10 @@ class PdfQuoteRendererRenderTest {
     }
 
     private static SalesOrder order(DocumentType type, String number, int lineCount) {
+        return order(type, number, lineCount, "Levering op afspraak aan het centrale magazijn.");
+    }
+
+    private static SalesOrder order(DocumentType type, String number, int lineCount, String notes) {
         LocalDate date = LocalDate.of(2026, 8, 27);
         List<be.enrosed.sales.domain.SalesOrderLine> lines = new ArrayList<>();
         for (int index = 1; index <= lineCount; index++) {
@@ -765,7 +811,7 @@ class PdfQuoteRendererRenderTest {
         return new SalesOrder(
                 148L, number, 7L, "BE", date, date.plusDays(30), QuoteStatus.CONCEPT,
                 "DAP", "30 dagen na factuurdatum",
-                "Levering op afspraak aan het centrale magazijn.",
+                notes,
                 MarkupMode.PRODUCT, bd("45"), bd("5"), "Aalsmeer beurskorting",
                 null, null, null, 0, null, null, null, "internal-margin-sentinel",
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, bd("220"),

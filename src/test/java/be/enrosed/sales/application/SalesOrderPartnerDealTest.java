@@ -37,6 +37,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -187,7 +188,7 @@ class SalesOrderPartnerDealTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void aContainerBecomesAPartnerQuoteInOneGo() {
+    void aContainerBecomesAnUnsentPartnerConceptInvoiceInOneGo() {
         be.enrosed.sourcing.domain.PurchaseOrder container = container();
         be.enrosed.sourcing.application.PurchaseOrderService sourcing = wireSourcing(container);
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 70L));
@@ -195,7 +196,11 @@ class SalesOrderPartnerDealTest {
         SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null));
 
-        assertEquals(DocumentType.OFFERTE, quote.docType());
+        assertEquals(DocumentType.FACTUUR, quote.docType());
+        assertEquals(QuoteStatus.CONCEPT, quote.status());
+        assertNull(quote.sentAt());
+        assertNull(quote.portalToken());
+        assertNotNull(quote.invoiceDueDate());
         assertEquals(7L, quote.customerId());
         assertEquals(new BigDecimal("25.0000"), quote.lines().get(0).unitPriceEur(), "external cost includes separate fees once, excludes internal markup");
         assertEquals(40, quote.lines().get(0).quantity());
@@ -410,6 +415,7 @@ class SalesOrderPartnerDealTest {
         be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
         when(sourcing.get(13L)).thenReturn(container);
         when(sourcing.lockForPartnerSettlement(13L)).thenReturn(container);
+        when(sourcing.setPartner(eq(13L), any())).thenReturn(container);
         var report = report(List.of(externalLine(9L, 40, "1000")));
         when(sourcing.reconciliation(13L)).thenReturn(report);
         when(sourcing.reconciliation(eq(container), any())).thenReturn(report);

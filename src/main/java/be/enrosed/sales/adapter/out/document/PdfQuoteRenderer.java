@@ -65,6 +65,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerSettlements> partnerSettlements;
     @Inject
     Instance<be.enrosed.sales.application.PartnerAdvanceQuotes> advanceQuotes;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> advanceSchedules;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -202,7 +204,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         : text.get("advanceAgreementSettlement").formatted(advanceAgreement.sharePct().stripTrailingZeros().toPlainString()) : null)
                 .data("customsLine", customsLine)
                 .data("customerNote", customerNote)
-                .data("orderNote", nonBlank(order.notes(), null))
+                .data("orderNote", orderNote(order, options))
                 .data("dueDateText", dueDateText)
                 .data("paymentInstruction", paymentInstruction)
                 .data("iban", iban)
@@ -245,6 +247,24 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .render();
 
         return new Document(fileSafe(order.number()) + ".pdf", fonts.render(html), "application/pdf");
+    }
+
+    /** Older milestone invoices stored generated payment instructions beside the buyer's notes. */
+    private String orderNote(SalesOrder order, SalesPdfOptions options) {
+        String note = nonBlank(order.notes(), null);
+        if (note == null || options.includePaymentDetails() || !order.isInvoice() || !order.isPartnerAdvance()
+                || order.id() == null || advanceSchedules == null || !advanceSchedules.isResolvable()) return note;
+        var row = advanceSchedules.get().forInvoice(order.id());
+        if (row == null) return note;
+        String percentage = row.percentage() == null ? "Vast bedrag"
+                : row.percentage().stripTrailingZeros().toPlainString() + "%";
+        String generated = "Voorschot · " + row.label() + ". " + percentage + " van het afgesproken voorschot. "
+                + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk.";
+        if (note.equals(generated)) return null;
+        if (note.startsWith(generated) && note.length() > generated.length()
+                && Character.isWhitespace(note.charAt(generated.length())))
+            return nonBlank(note.substring(generated.length()).strip(), null);
+        return note;
     }
 
     /** One compact fact underneath a product title; labels are customer-language text. */
