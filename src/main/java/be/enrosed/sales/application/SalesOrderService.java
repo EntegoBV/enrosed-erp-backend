@@ -74,6 +74,8 @@ public class SalesOrderService {
     Instance<CurrentActor> actor;
     @Inject
     Instance<ActivityLogService> activity;
+    @Inject
+    Instance<PartnerInvoiceDeclarations> invoiceDeclarations;
 
     /** The container side, for a quote made straight from a purchase order. */
     @Inject
@@ -1103,6 +1105,8 @@ public class SalesOrderService {
             throw new BusinessRuleException("Vul het BTW-nummer van " + customer.company()
                     + " in - zonder geldig BTW-nummer kan de BTW niet verlegd worden");
         }
+        if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
+            invoiceDeclarations.get().validateForIssue(invoice, customer);
     }
 
     /** Called before an email leaves as well as before a manual sent marker. */

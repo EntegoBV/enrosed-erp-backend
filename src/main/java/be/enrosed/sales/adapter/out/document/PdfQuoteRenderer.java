@@ -69,6 +69,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> advanceSchedules;
     @Inject
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -149,6 +151,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String customsLine = customer != null && customer.fiscalRepresentative() && !order.partnerSettlement()
                 ? text.get("customsClearedBy").formatted(company.get().representativeName(), company.get().representativeVat())
                 : null;
+        var declaration = invoiceDeclarations != null && invoiceDeclarations.isResolvable()
+                ? invoiceDeclarations.get().presentation(order, priced, customer, language) : null;
+        if (declaration != null && declaration.replaceCustomsLine()) customsLine = null;
         String customerNote = customer == null ? null : nonBlank(customer.invoiceNote(), null);
         String dueDateText = DocumentText.date(order.invoiceDueDate(), language);
         String paymentInstruction = null;
@@ -234,6 +239,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         ? text.get("advanceAgreementSettlementUnspecified")
                         : text.get("advanceAgreementSettlement").formatted(advanceAgreement.sharePct().stripTrailingZeros().toPlainString()) : null)
                 .data("customsLine", customsLine)
+                .data("invoiceDeclarationText", declaration == null ? null : declaration.additionalText())
+                .data("invoiceDeclarationReference", declaration == null ? null : declaration.referenceText())
+                .data("explicitInvoiceDeclaration", declaration != null && declaration.legalMentionOverride() != null)
                 .data("customerNote", customerNote)
                 .data("orderNote", orderNote(order, options))
                 .data("dueDateText", dueDateText)
@@ -271,7 +279,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("effectivePallets", priced.totals().palletsManual() > 0
                         ? priced.totals().palletsManual() : priced.totals().palletsStrict())
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))
-                .data("vatMention", priced.totals().vatTreatment().legalMentionIn(language))
+                .data("vatMention", declaration != null && declaration.legalMentionOverride() != null
+                        ? declaration.legalMentionOverride() : priced.totals().vatTreatment().legalMentionIn(language))
                 /* Dutch documents link to the Dutch terms; every other
                    language gets English - the only other version we maintain. */
                 .data("termsUrl", portalBaseUrl + "/voorwaarden"

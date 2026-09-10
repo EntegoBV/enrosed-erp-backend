@@ -511,10 +511,12 @@
   </div>
 {/if}
 
-{#if vatMention || customsLine}
+{#if vatMention || customsLine || invoiceDeclarationText || invoiceDeclarationReference}
   <div class="vat-note">
-    {#if vatMention}<b>{vatLabel}</b><br/>{vatMention}{/if}
+    {#if invoiceDeclarationText}{invoiceDeclarationText}<br/>{/if}
+    {#if vatMention}{#if !explicitInvoiceDeclaration}<b>{vatLabel}</b><br/>{/if}{vatMention}{/if}
     {#if customsLine}{#if vatMention}<br/>{/if}{customsLine}{/if}
+    {#if invoiceDeclarationReference}<br/>{invoiceDeclarationReference}{/if}
     {#if customer && customer.vatNumber}<br/>{t.buyerVatNumber}: {customer.vatNumber}{/if}
   </div>
 {/if}

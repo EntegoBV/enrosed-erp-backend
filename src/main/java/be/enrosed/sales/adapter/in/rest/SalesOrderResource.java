@@ -34,6 +34,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerFinancingService partnerFinancing;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceContents advanceContents;
+    @jakarta.inject.Inject be.enrosed.sales.application.PartnerInvoiceDeclarations invoiceDeclarations;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -151,6 +152,17 @@ public class SalesOrderResource {
 
     @GET @Path("/{id}/payments")
     public List<be.enrosed.sales.domain.SalesPayment> payments(@PathParam("id") long id) { return incoming.forOrder(id); }
+
+    @GET @Path("/{id}/invoice-declaration")
+    public be.enrosed.sales.application.PartnerInvoiceDeclarations.Declaration invoiceDeclaration(@PathParam("id") long id) {
+        return invoiceDeclarations.get(id);
+    }
+
+    @PUT @Path("/{id}/invoice-declaration")
+    public be.enrosed.sales.application.PartnerInvoiceDeclarations.Declaration saveInvoiceDeclaration(@PathParam("id") long id,
+            be.enrosed.sales.application.PartnerInvoiceDeclarations.Declaration request) {
+        return invoiceDeclarations.save(id, request);
+    }
 
     @POST @Path("/{id}/payments")
     public OrderView addPayment(@PathParam("id") long id, be.enrosed.sales.application.IncomingPaymentService.Request request) {
