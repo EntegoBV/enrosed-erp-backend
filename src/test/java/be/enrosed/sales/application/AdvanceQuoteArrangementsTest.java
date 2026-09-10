@@ -52,6 +52,7 @@ class AdvanceQuoteArrangementsTest {
         assertThrows(BusinessRuleException.class, () -> sales.createInvoiceFrom(quote.id()));
         assertThrows(BusinessRuleException.class, () -> sales.duplicate(quote.id()));
         var first = schedules.createInvoice(f.purchase.id(), snapshot.rows().getFirst().scheduleRowId());
+        assertFalse(sales.get(quote.id()).isArchived(), "one advance term is not a conversion of the full agreement");
         var last = schedules.createInvoice(f.purchase.id(), snapshot.rows().getLast().scheduleRowId());
         assertEquals(quote.id(), first.sourceQuoteId()); assertEquals(quote.id(), last.sourceQuoteId());
         assertEquals(amount("1800"), sales.price(first).totals().total());
@@ -177,11 +178,24 @@ class AdvanceQuoteArrangementsTest {
         var legacy = quotation(f, "50", null);
         assertNull(snapshots.find(legacy.id()));
         assertEquals(amount("6000"), sales.price(sales.createInvoiceFrom(legacy.id())).totals().total());
+        assertTrue(sales.get(legacy.id()).isArchived());
         var regular = sales.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(f.purchase.id(), f.partnerId,
                 "COST", BigDecimal.ZERO, false, null, null, false, List.of(), null, null, SalesPurpose.STANDARD, SalesPaymentPlan.FULL));
         assertNull(snapshots.find(regular.id()));
         assertNotNull(customerQuotes.portal(regular, "NL").totals().total());
-        assertNotNull(sales.createInvoiceFrom(regular.id()).id());
+        var invoice = sales.createInvoiceFrom(regular.id());
+        em.flush(); em.clear();
+        var archived = sales.get(regular.id());
+        assertNotNull(invoice.id());
+        assertTrue(archived.isArchived());
+        assertEquals(QuoteStatus.CONCEPT, archived.status());
+        assertNull(archived.sentAt());
+        assertEquals(QuoteStatus.CONCEPT, invoice.status());
+        assertNull(invoice.sentAt());
+        assertNull(invoice.portalToken());
+        assertEquals(regular.id(), invoice.sourceQuoteId());
+        assertEquals(invoice.id(), sales.createInvoiceFrom(regular.id()).id());
+        assertEquals(1, sales.list().stream().filter(order -> regular.id().equals(order.sourceQuoteId())).count());
     }
 
     @Test

@@ -90,7 +90,10 @@ public class SalesOrderResource {
             for (SalesOrder order : all) {
                 if (order.id() == null) continue;
                 if (order.isInvoice()) {
-                    if (order.sourceQuoteId() != null) invoiceByQuote.putIfAbsent(order.sourceQuoteId(), order);
+                    if (order.sourceQuoteId() != null
+                            && order.status() != be.enrosed.sales.domain.QuoteStatus.GEANNULEERD) {
+                        invoiceByQuote.putIfAbsent(order.sourceQuoteId(), order);
+                    }
                 } else {
                     quoteNumberById.put(order.id(), order.number());
                 }
@@ -170,7 +173,7 @@ public class SalesOrderResource {
                 .build();
     }
 
-    /** Freezes the quote's content into a new invoice; the quote stays. */
+    /** Creates an unsent draft invoice and archives its quote; retries return the same active invoice. */
     @POST
     @Path("/{id}/invoice")
     public OrderView createInvoice(@PathParam("id") long id) {

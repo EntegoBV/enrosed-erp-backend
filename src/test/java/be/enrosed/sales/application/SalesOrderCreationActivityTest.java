@@ -25,17 +25,23 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class SalesOrderCreationActivityTest {
 
@@ -136,7 +142,16 @@ class SalesOrderCreationActivityTest {
         when(orders.save(any(SalesOrder.class)))
                 .thenAnswer(call -> withId(call.getArgument(0), 61L));
 
-        service.createInvoiceFrom(41L);
+        SalesOrder invoice = service.createInvoiceFrom(41L);
+
+        assertEquals(QuoteStatus.CONCEPT, invoice.status());
+        assertNull(invoice.sentAt());
+        assertNull(invoice.portalToken());
+        assertEquals(41L, invoice.sourceQuoteId());
+        var persistence = inOrder(orders);
+        persistence.verify(orders).lockById(41L);
+        persistence.verify(orders).save(any(SalesOrder.class));
+        persistence.verify(orders).setArchivedAt(org.mockito.ArgumentMatchers.eq(41L), any(Instant.class));
 
         verify(orders).lockById(41L);
         verify(activityLog).record(ActivityLogService.ACTION_CREATED,
@@ -150,6 +165,49 @@ class SalesOrderCreationActivityTest {
         verify(history, org.mockito.Mockito.times(2)).add(events.capture());
         assertEquals(List.of("Emre", "Emre"),
                 events.getAllValues().stream().map(QuoteEvent::actor).toList());
+        assertEquals(List.of(QuoteEvent.Type.OPGEMAAKT, QuoteEvent.Type.GEFACTUREERD),
+                events.getAllValues().stream().map(QuoteEvent::type).toList());
+        verify(activityLog).record(ActivityLogService.ACTION_UPDATED,
+                SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "41", "ENR-2026-0041", "Offerte gearchiveerd");
+    }
+
+    @Test
+    void conversionRetriesReuseTheLinkedInvoiceAndOnlyArchiveALegacyUnarchivedSource() {
+        SalesOrder source = quote(41L, "ENR-2026-0041");
+        when(orders.findById(41L)).thenReturn(Optional.of(source));
+        when(orders.findAll()).thenReturn(List.of(source));
+        when(orders.save(any(SalesOrder.class)))
+                .thenAnswer(call -> withId(call.getArgument(0), 61L));
+        SalesOrder invoice = service.createInvoiceFrom(41L);
+        when(orders.findAll()).thenReturn(List.of(invoice, source));
+        when(orders.findById(41L)).thenReturn(Optional.of(source.withArchivedAt(Instant.now())));
+        clearInvocations(orders, history, activityLog, creationPush);
+
+        assertSame(invoice, service.createInvoiceFrom(41L));
+
+        verify(orders).lockById(41L);
+        verify(orders, never()).save(any(SalesOrder.class));
+        verify(orders, never()).setArchivedAt(org.mockito.ArgumentMatchers.anyLong(), any());
+        verifyNoInteractions(history, activityLog, creationPush);
+
+        when(orders.findById(41L)).thenReturn(Optional.of(source));
+        assertSame(invoice, service.createInvoiceFrom(41L));
+        verify(orders).setArchivedAt(org.mockito.ArgumentMatchers.eq(41L), any(Instant.class));
+        verify(orders, never()).save(any(SalesOrder.class));
+        verifyNoInteractions(history, creationPush);
+    }
+
+    @Test
+    void invoiceSaveFailureNeverArchivesTheQuoteOrPublishesCreationHistory() {
+        SalesOrder source = quote(41L, "ENR-2026-0041");
+        when(orders.findById(41L)).thenReturn(Optional.of(source));
+        when(orders.findAll()).thenReturn(List.of(source));
+        when(orders.save(any(SalesOrder.class))).thenThrow(new IllegalStateException("Storage unavailable"));
+
+        assertThrows(IllegalStateException.class, () -> service.createInvoiceFrom(41L));
+
+        verify(orders, never()).setArchivedAt(org.mockito.ArgumentMatchers.anyLong(), any());
+        verifyNoInteractions(history, activityLog, creationPush);
     }
 
     @Test

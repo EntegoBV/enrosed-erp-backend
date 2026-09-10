@@ -80,8 +80,11 @@ public class NotificationService {
 
     public Feed feed() {
         List<Notification> items = new ArrayList<>();
+        List<SalesOrder> documents = orders.findAll();
+        var closedQuoteIds = OpenQuoteWork.closedQuoteIds(documents);
 
-        for (SalesOrder order : orders.findAll()) {
+        for (SalesOrder order : documents) {
+            if (order.isArchived() || closedQuoteIds.contains(order.id())) continue;
             String who = customerName(order);
 
             /* ---- our move ------------------------------------------------ */
@@ -139,7 +142,8 @@ public class NotificationService {
         /* Proposals awaiting review: those live apart from the order status. */
         revisions.findPending().forEach(revision -> {
             SalesOrder order = orders.findById(revision.salesOrderId()).orElse(null);
-            if (order == null) return;
+            if (order == null || order.isInvoice() || order.isArchived()
+                    || closedQuoteIds.contains(order.id())) return;
             items.add(new Notification(Kind.VOORSTEL, order.id(), order.number(),
                     customerName(order),
                     "Wijziging voorgesteld",

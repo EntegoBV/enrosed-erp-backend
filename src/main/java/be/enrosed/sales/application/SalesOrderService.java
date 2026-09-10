@@ -198,10 +198,9 @@ public class SalesOrderService {
     }
 
     /**
-     * A new invoice with the quote's whole content frozen in.
-     *
-     * The quote keeps living its own life: it can be re-invoiced (partial
-     * deliveries) and its history records that this invoice left from it.
+     * Converts a quote into an unsent draft invoice and archives its source.
+     * Repeated requests return the active linked invoice under the same source
+     * lock; scheduled advance terms have their own separate creation flow.
      */
     @Transactional
     public SalesOrder createInvoiceFrom(long quoteId) {
@@ -212,11 +211,12 @@ public class SalesOrderService {
         }
         if (hasAdvanceAgreement(source))
             throw new BusinessRuleException("Deze offerte legt de voorschotafspraken vast. Maak de voorschotfacturen per afgesproken termijn vanuit de inkooporder; de eindafrekening volgt afzonderlijk");
-        if (source.isPartnerAdvance()) {
-            SalesOrder existing = orders.findAll().stream().filter(order -> order.isInvoice()
-                    && source.id().equals(order.sourceQuoteId()) && order.status() != QuoteStatus.GEANNULEERD)
-                    .findFirst().orElse(null);
-            if (existing != null) return existing;
+        SalesOrder existing = orders.findAll().stream().filter(order -> order.isInvoice()
+                && source.id().equals(order.sourceQuoteId()) && order.status() != QuoteStatus.GEANNULEERD)
+                .findFirst().orElse(null);
+        if (existing != null) {
+            archive(quoteId);
+            return existing;
         }
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
@@ -255,6 +255,7 @@ public class SalesOrderService {
                 java.time.Instant.now(), creator.displayName(), false,
                 "Factuur " + created.number() + " aangemaakt", null));
         recordActivity(created, "Factuur aangemaakt vanuit offerte");
+        archive(quoteId);
         fireCreationPush(SalesCreationPushNotifier.Ready.invoiceFromQuoteCreated(
                 created.id(), created.number(), source.number(), creator));
         return created;

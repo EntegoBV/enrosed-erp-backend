@@ -679,7 +679,17 @@ public class QuoteService {
     /* ============================================================ our side */
 
     public List<QuoteRevision> pendingRevisions() {
-        return revisions.findPending();
+        List<SalesOrder> documents = orders.findAll();
+        Set<Long> closedQuoteIds = OpenQuoteWork.closedQuoteIds(documents);
+        Set<Long> openQuoteIds = documents.stream()
+                .filter(order -> !order.isInvoice() && !order.isArchived())
+                .map(SalesOrder::id)
+                .filter(java.util.Objects::nonNull)
+                .filter(id -> !closedQuoteIds.contains(id))
+                .collect(java.util.stream.Collectors.toSet());
+        return revisions.findPending().stream()
+                .filter(revision -> openQuoteIds.contains(revision.salesOrderId()))
+                .toList();
     }
 
     public List<QuoteRevision> revisionsFor(long orderId) {
