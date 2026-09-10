@@ -57,6 +57,7 @@ class SalesOrderCreationActivityTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         orders = mock(SalesRepositories.Orders.class);
+        when(orders.numbersIncludingDeleted()).thenCallRealMethod();
         history = mock(SalesRepositories.Events.class);
         ProductService products = mock(ProductService.class);
         CountryService countries = mock(CountryService.class);

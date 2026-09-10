@@ -112,7 +112,10 @@ public final class SalesEntities {
 
     @Entity
     @Table(name = "sales_order")
+    @org.hibernate.annotations.SQLRestriction("deleted_at is null")
     public static class SalesOrderEntity {
+        @Column(name = "deleted_at", updatable = false)
+        public Instant deletedAt;
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
         public Long id;
         @Column(unique = true)

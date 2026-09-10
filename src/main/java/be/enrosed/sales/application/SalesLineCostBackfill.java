@@ -26,8 +26,10 @@ public class SalesLineCostBackfill {
 
     @Transactional
     void onStart(@Observes StartupEvent event) {
+        String orders = entities.getMetamodel().entity(SalesEntities.SalesOrderEntity.class).getName();
         List<SalesEntities.SalesOrderLineEntity> lines = entities.createQuery(
-                        "select l from SalesOrderLineEntity l where l.unitCostEur is null",
+                        "select l from SalesOrderLineEntity l where l.unitCostEur is null"
+                                + " and exists (select o.id from " + orders + " o where o.id=l.order.id)",
                         SalesEntities.SalesOrderLineEntity.class)
                 .getResultList();
         if (lines.isEmpty()) return;

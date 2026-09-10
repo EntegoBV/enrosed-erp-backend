@@ -44,6 +44,8 @@ import java.util.stream.Collectors;
  */
 @ApplicationScoped
 public class SalesOrderService {
+    @Inject be.enrosed.shared.trash.DeletedItemsService deletedItems;
+    @Inject be.enrosed.catalog.application.CatalogMutationLock trashCatalogLock;
     @Inject Instance<IncomingPaymentService> incomingPayments;
     @Inject Instance<PartnerSettlements> partnerSettlements;
     @Inject Instance<PartnerAdvanceScheduleService> advanceSchedules;
@@ -208,7 +210,7 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder createInvoiceFrom(long quoteId) {
-        orders.lockById(quoteId);
+        lockDocumentForMutation(quoteId);
         SalesOrder source = get(quoteId);
         if (source.isInvoice()) {
             throw new BusinessRuleException("Dit is al een factuur; maak facturen vanuit een offerte");
@@ -1515,8 +1517,8 @@ public class SalesOrderService {
         if (wanted == null || wanted.isBlank() || wanted.equals(current.number())) {
             return current.number();
         }
-        boolean taken = orders.findAll().stream()
-                .anyMatch(other -> !other.id().equals(current.id())
+        boolean taken = orders.numbersIncludingDeleted().stream()
+                .anyMatch(other -> !Objects.equals(other.id(), current.id())
                         && wanted.equalsIgnoreCase(other.number()));
         if (taken) {
             throw new BusinessRuleException("Er bestaat al een verkooporder met nummer " + wanted);
@@ -1526,6 +1528,7 @@ public class SalesOrderService {
 
     @Transactional
     public void delete(long id) {
+        trashCatalogLock.acquire();
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
         if (order.isPartnerDeal() && purchaseOrders != null && purchaseOrders.isResolvable())
@@ -1539,13 +1542,7 @@ public class SalesOrderService {
             throw new BusinessRuleException(
                     "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
         }
-        revisions.deleteByOrder(id);
-        events.deleteByOrder(id);
-        if (partnerSettlements != null && partnerSettlements.isResolvable()) partnerSettlements.get().delete(id);
-        if (advanceQuotes != null && advanceQuotes.isResolvable()) advanceQuotes.get().delete(id);
-        if (advanceContents != null && advanceContents.isResolvable()) advanceContents.get().delete(id);
-        if (advanceSchedules != null && advanceSchedules.isResolvable()) advanceSchedules.get().detachInvoice(id);
-        orders.deleteById(id);
+        deletedItems.trashSales(order);
         recordActivity(ActivityLogService.ACTION_DELETED, order,
                 order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
     }
@@ -2185,9 +2182,9 @@ public class SalesOrderService {
         java.util.regex.Pattern series = pattern.matches("^[A-Z0-9]+-\\{jaar\\}-\\{nr\\}$")
                 ? java.util.regex.Pattern.compile("^[A-Za-z0-9]+-" + year + "-(\\d+)$")
                 : NumberSeries.continuingContainerSeries(pattern, year);
-        int highest = orders.findAll().stream()
-                .filter(order -> order.isInvoice() == invoices)
-                .map(SalesOrder::number)
+        int highest = orders.numbersIncludingDeleted().stream()
+                .filter(order -> order.invoice() == invoices)
+                .map(SalesRepositories.Orders.ReservedNumber::number)
                 .filter(java.util.Objects::nonNull)
                 .map(series::matcher)
                 .filter(java.util.regex.Matcher::matches)

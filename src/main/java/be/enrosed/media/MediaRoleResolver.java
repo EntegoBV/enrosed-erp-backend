@@ -1,10 +1,8 @@
 package be.enrosed.media;
 
 import be.enrosed.catalog.application.port.out.PhotoStorage;
-import be.enrosed.sales.adapter.out.persistence.SalesEntities;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 
 import java.io.InputStream;
@@ -26,6 +24,8 @@ public class MediaRoleResolver {
     @Transactional(Transactional.TxType.SUPPORTS)
     public Optional<ResolvedMedia> primaryImage(
             MediaTargetType targetType, long targetId, MediaRole role) {
+        if (targetType == MediaTargetType.PURCHASE_ORDER && !MediaOrderAccess.purchaseVisible(entities, targetId))
+            return Optional.empty();
         return primaryImageUnpinned(targetType, targetId, role);
     }
 
@@ -87,10 +87,7 @@ public class MediaRoleResolver {
     }
 
     private void lockOrder(long orderId) {
-        if (entities.find(SalesEntities.SalesOrderEntity.class, orderId,
-                LockModeType.PESSIMISTIC_WRITE) == null) {
-            throw new IllegalArgumentException("Onbekend verkoopdocument " + orderId);
-        }
+        MediaOrderAccess.lockSales(entities, orderId);
     }
 
     private SalesDocumentMediaSnapshotEntity snapshot(long orderId, long productId,

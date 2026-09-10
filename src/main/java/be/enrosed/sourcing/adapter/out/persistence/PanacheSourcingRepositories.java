@@ -221,19 +221,52 @@ public final class PanacheSourcingRepositories {
         }
 
         @Override
+        public List<String> numbersIncludingDeleted() {
+            return dao.getEntityManager().createNativeQuery("select number from purchase_order where number is not null", String.class)
+                    .getResultList();
+        }
+
+        @Override
+        public boolean referencesPartnerIncludingDeleted(long customerId) {
+            return ((Number) dao.getEntityManager().createNativeQuery("select count(*) from purchase_order where partner_customer_id = :id")
+                    .setParameter("id", customerId).getSingleResult()).longValue() > 0;
+        }
+
+        @Override
+        public boolean referencesSupplierIncludingDeleted(long supplierId) {
+            return ((Number) dao.getEntityManager().createNativeQuery("select count(*) from purchase_order where supplierId = :id")
+                    .setParameter("id", supplierId).getSingleResult()).longValue() > 0;
+        }
+
+        @Override
         public Optional<PurchaseOrder> findById(long id) {
-            return Optional.ofNullable(dao.findById(id)).map(PurchaseOrderAdapter::toDomain);
+            return dao.find("id = ?1", id).firstResultOptional().filter(entity -> entity.deletedAt == null).map(PurchaseOrderAdapter::toDomain);
         }
 
         @Override
         public Optional<PurchaseOrder> findByIdForUpdate(long id) {
-            return Optional.ofNullable(dao.findById(id, LockModeType.PESSIMISTIC_WRITE))
-                    .map(PurchaseOrderAdapter::toDomain);
+            // A cached entity must not outlive a concurrent receipt/deletion while this transaction waits.
+            var entities = dao.getEntityManager();
+            if (entities.createNativeQuery("select id from purchase_order where id = :id and deleted_at is null for update")
+                    .setParameter("id", id).getResultList().isEmpty()) return Optional.empty();
+            PurchaseOrderEntity entity = dao.findById(id);
+            if (entity == null) return Optional.empty();
+            // Native queries flush pending writes first. Reload after locking instead of refresh(),
+            // which Hibernate cannot safely cascade through a newly initialized child collection.
+            entities.detach(entity);
+            entity = dao.findById(id);
+            return entity.deletedAt == null ? Optional.of(toDomain(entity)) : Optional.empty();
         }
 
         @Override
         public PurchaseOrder save(PurchaseOrder order) {
+            if (order.id() != null && dao.getEntityManager()
+                    .createNativeQuery("select id from purchase_order where id = :id and deleted_at is null for update")
+                    .setParameter("id", order.id()).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList().isEmpty())
+                throw new be.enrosed.shared.NotFoundException("Inkooporder", order.id());
             PurchaseOrderEntity entity = order.id() == null ? null : dao.findById(order.id());
+            if (order.id() != null && (entity == null || entity.deletedAt != null))
+                throw new be.enrosed.shared.NotFoundException("Inkooporder", order.id());
             if (entity == null) entity = new PurchaseOrderEntity();
 
             entity.number = order.number();

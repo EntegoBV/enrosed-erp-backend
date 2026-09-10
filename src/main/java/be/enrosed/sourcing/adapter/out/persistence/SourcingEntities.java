@@ -49,6 +49,7 @@ public final class SourcingEntities {
 
     @Entity
     @Table(name = "purchase_order")
+    @org.hibernate.annotations.SQLRestriction("deleted_at is null")
     public static class PurchaseOrderEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
         public Long id;
@@ -82,6 +83,8 @@ public final class SourcingEntities {
         @Column(name = "other_costs_json", length = 2000) public String otherCostsJson;
         /** Put away in the archive; null while on the working list. */
         @Column(name = "archived_at") public Instant archivedAt;
+        /** Held for recovery; independent from archive and never changed by ordinary saves. */
+        @Column(name = "deleted_at", updatable = false) public Instant deletedAt;
         /** The partner who co-orders the container; null when we pay it ourselves. */
         @Column(name = "partner_customer_id") public Long partnerCustomerId;
         @Column(name = "partner_cost_pct", precision = 5, scale = 2) public BigDecimal partnerCostPct;

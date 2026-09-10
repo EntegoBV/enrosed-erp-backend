@@ -82,6 +82,8 @@ class SalesOrderLifecycleActivityTest {
         when(actors.get()).thenReturn(currentActor);
         when(currentActor.current()).thenReturn(BERAT);
         service.actor = actors;
+        service.deletedItems = mock(be.enrosed.shared.trash.DeletedItemsService.class);
+        service.trashCatalogLock = mock(be.enrosed.catalog.application.CatalogMutationLock.class);
 
         Instance<ActivityLogService> activities = mock(Instance.class);
         activityLog = mock(ActivityLogService.class);
@@ -148,16 +150,17 @@ class SalesOrderLifecycleActivityTest {
         when(revisions.findByOrder(72L)).thenReturn(List.of());
 
         service.delete(72L);
+        verify(service.deletedItems).trashSales(draft);
 
-        verify(history).deleteByOrder(72L);
-        verify(orders).deleteById(72L);
+        verify(history, never()).deleteByOrder(72L);
+        verify(orders, never()).deleteById(72L);
         verify(activityLog).record(ActivityLogService.ACTION_DELETED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "72", "ENR-2026-0072",
                 "Offerte verwijderd");
     }
 
     @Test
-    void deletingUnusedDraftQuoteAlsoRemovesAReservedPortalToken() {
+    void deletingUnusedDraftQuoteAlsoHidesAReservedPortalToken() {
         SalesOrder draft = withPortalToken(quote(76L), "reserved-but-never-sent");
         when(orders.findById(76L)).thenReturn(Optional.of(draft));
         when(revisions.findByOrder(76L)).thenReturn(List.of());
@@ -165,15 +168,15 @@ class SalesOrderLifecycleActivityTest {
         service.delete(76L);
 
         verify(orders).lockById(76L);
-        verify(history).deleteByOrder(76L);
-        verify(orders).deleteById(76L);
+        verify(history, never()).deleteByOrder(76L);
+        verify(orders, never()).deleteById(76L);
         verify(activityLog).record(ActivityLogService.ACTION_DELETED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "76", "ENR-2026-0076",
                 "Offerte verwijderd");
     }
 
     @Test
-    void deletingSentQuoteAlsoRemovesItsCustomerRevisions() {
+    void deletingSentQuoteAlsoPreservesItsCustomerRevisions() {
         SalesOrder sent = quote(78L, QuoteStatus.VERZONDEN);
         when(orders.findById(78L)).thenReturn(Optional.of(sent));
         when(revisions.findByOrder(78L)).thenReturn(List.of(new be.enrosed.sales.domain.QuoteRevision(
@@ -182,9 +185,9 @@ class SalesOrderLifecycleActivityTest {
 
         service.delete(78L);
 
-        verify(revisions).deleteByOrder(78L);
-        verify(history).deleteByOrder(78L);
-        verify(orders).deleteById(78L);
+        verify(revisions, never()).deleteByOrder(78L);
+        verify(history, never()).deleteByOrder(78L);
+        verify(orders, never()).deleteById(78L);
         verify(activityLog).record(ActivityLogService.ACTION_DELETED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "78", "ENR-2026-0078",
                 "Offerte verwijderd");
@@ -197,9 +200,10 @@ class SalesOrderLifecycleActivityTest {
         when(revisions.findByOrder(74L)).thenReturn(List.of());
 
         service.delete(74L);
+        verify(service.deletedItems).trashSales(draft);
 
-        verify(history).deleteByOrder(74L);
-        verify(orders).deleteById(74L);
+        verify(history, never()).deleteByOrder(74L);
+        verify(orders, never()).deleteById(74L);
         verify(activityLog).record(ActivityLogService.ACTION_DELETED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "74", "F-2026-0074",
                 "Factuur verwijderd");

@@ -11,6 +11,7 @@ import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrde
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.PurchaseOrder;
+import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @QuarkusTest
 class PartnerSchedulesAndPartialSettlementsTest {
+    @Inject be.enrosed.shared.trash.DeletedItemsService trash;
     @Inject PartnerAdvanceScheduleService schedules;
     @Inject PartnerAdvanceSchedules scheduleRows;
     @Inject SalesOrderService sales;
@@ -187,6 +189,112 @@ class PartnerSchedulesAndPartialSettlementsTest {
         assertThrows(BusinessRuleException.class, () -> save(fixture.purchase.id(),
                 pct(plan.rows().getFirst().id(), "30%", "30", null), pct(null, "Later", "70", null)));
         assertEquals(amount("900"), settlements.find(settle(fixture, 6, "9000", true).id()).advanceEur());
+    }
+
+    @Test @TestTransaction
+    void trashRestoresTheExactScheduledInvoiceAndReclaimsItsOriginalSlot() {
+        var f = fixture("12000", 12, "50");
+        var plan = save(f.purchase.id(), pct(null, "Start", "30", null), pct(null, "Klaar", "70", null));
+        var invoice = schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id());
+        var amountBefore = sales.price(invoice).totals().total();
+        em.flush(); em.clear();
+        var persisted = sales.get(invoice.id());
+        sales.delete(invoice.id());
+        var deleted = trash.list().items().stream().filter(i -> i.type() == be.enrosed.shared.trash.DeletedItemDtos.Type.INVOICE && i.sourceId() == invoice.id()).findFirst().orElseThrow();
+        assertNull(schedules.get(f.purchase.id()).rows().getFirst().invoiceId());
+        assertTrue(trash.detail(deleted.id()).restoreAllowed());
+        trash.restore(deleted.id());
+        assertEquals(invoice.id(), schedules.get(f.purchase.id()).rows().getFirst().invoiceId());
+        assertEquals(persisted, sales.get(invoice.id()));
+        assertEquals(amountBefore, sales.price(sales.get(invoice.id())).totals().total());
+    }
+
+    @Test @TestTransaction
+    void replacementTermInvoiceBlocksRestoringTheOldClaim() {
+        var f = fixture("12000", 12, "50");
+        var plan = save(f.purchase.id(), pct(null, "Start", "100", null));
+        var invoice = schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id());
+        sales.delete(invoice.id());
+        var deleted = trash.list().items().stream().filter(i -> i.type() == be.enrosed.shared.trash.DeletedItemDtos.Type.INVOICE && i.sourceId() == invoice.id()).findFirst().orElseThrow();
+        var replacement = schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id());
+        assertNotEquals(invoice.number(), replacement.number());
+        assertFalse(trash.detail(deleted.id()).restoreAllowed());
+        assertTrue(trash.detail(deleted.id()).blockReason().contains("andere factuur"));
+        assertThrows(BusinessRuleException.class, () -> trash.restore(deleted.id()));
+        assertEquals(replacement.id(), schedules.get(f.purchase.id()).rows().getFirst().invoiceId());
+    }
+
+    @Test @TestTransaction
+    void aNewAuctionSettlementPreventsRestoringAnOldAllocation() {
+        var f = fixture("12000", 12, "100");
+        var plan = save(f.purchase.id(), pct(null, "Voorschot", "100", null));
+        sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id()).id());
+        var first = settle(f, 3, "5000", false);
+        sales.delete(first.id());
+        var deleted = trash.list().items().stream().filter(i -> i.type() == be.enrosed.shared.trash.DeletedItemDtos.Type.INVOICE && i.sourceId() == first.id()).findFirst().orElseThrow();
+        assertTrue(trash.detail(deleted.id()).restoreAllowed());
+        settle(f, 3, "5000", false);
+        assertFalse(trash.detail(deleted.id()).restoreAllowed());
+        assertThrows(BusinessRuleException.class, () -> trash.restore(deleted.id()));
+        assertEquals(9, sales.partnerSettlementAvailability(f.purchase.id()).lines().getFirst().remainingQuantity());
+    }
+
+    @Test @TestTransaction
+    void settlementRestoreCannotCreditAnAdvanceWhoseIssuedStatusWasWithdrawn() {
+        var f = fixture("12000", 12, "100");
+        var plan = save(f.purchase.id(), pct(null, "Voorschot", "100", null));
+        var advance = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id()).id());
+        var settlement = settle(f, 12, "18000", true);
+        assertEquals(amount("12000"), settlements.find(settlement.id()).advanceEur());
+        var frozenAmount = sales.price(settlement).totals().totalInclVat();
+        sales.delete(settlement.id());
+        var deleted = trash.list().items().stream().filter(i -> i.sourceId() == settlement.id()
+                && i.type() == be.enrosed.shared.trash.DeletedItemDtos.Type.INVOICE).findFirst().orElseThrow();
+        assertTrue(trash.detail(deleted.id()).restoreAllowed());
+
+        // Represent a persisted historical/import correction, without adding a new cancellation API.
+        // The current invoice endpoints themselves do not allow cancelling an issued invoice.
+        em.createNativeQuery("update sales_order set status='CONCEPT' where id=:id")
+                .setParameter("id", advance.id()).executeUpdate();
+        em.clear();
+        assertEquals(amount("12000"), sales.price(sales.get(advance.id())).totals().total(),
+                "the advance's identity and monetary claim stay the same; only issuance changed");
+        assertEquals(amount("0"), sales.partnerSettlementAvailability(f.purchase.id()).issuedAdvanceEur());
+        assertFalse(trash.detail(deleted.id()).restoreAllowed());
+        assertThrows(BusinessRuleException.class, () -> trash.restore(deleted.id()));
+        assertEquals(frozenAmount, trash.detail(deleted.id()).totalEur(),
+                "failed restore must retain the original snapshot");
+        assertTrue(sales.partnerSettlementAvailability(f.purchase.id()).settlements().isEmpty());
+    }
+
+    @Test @TestTransaction
+    void settlementRestoreRejectsChangedContainerQuantitiesEvenWhenItsTotalIsIdentical() {
+        var f = fixture("12000", 12, "100");
+        var plan = save(f.purchase.id(), pct(null, "Voorschot", "100", null));
+        sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().getFirst().id()).id());
+        var settlement = settle(f, 9, "13500", false);
+        sales.delete(settlement.id());
+        var deleted = trash.list().items().stream().filter(i -> i.sourceId() == settlement.id()
+                && i.type() == be.enrosed.shared.trash.DeletedItemDtos.Type.INVOICE).findFirst().orElseThrow();
+        var current = purchases.get(f.purchase.id());
+        var beforeTotal = PartnerAdvanceBasis.total(purchases.calculate(current));
+        var beforeLine = current.lines().getFirst();
+        var replacement = new PurchaseOrderLine(beforeLine.id(), beforeLine.productId(), 6,
+                amount("2000"), beforeLine.exwCurrency(), beforeLine.extraUnitCost(), beforeLine.orderedQuantity(),
+                beforeLine.priceBasis(), beforeLine.damagedQuantity(), beforeLine.receiptUnitValueEur(),
+                beforeLine.issueNote(), beforeLine.extraShareEur());
+        purchases.update(current.id(), current.withReceipt(current.status(), current.receivedOn(),
+                current.paidTotalEur(), current.stockBooked(), current.notes(), List.of(replacement)));
+        em.flush(); em.clear();
+        assertEquals(beforeTotal, PartnerAdvanceBasis.total(purchases.calculate(purchases.get(f.purchase.id()))),
+                "6 pieces at 2000 EUR and 12 pieces at 1000 EUR have the same financing total");
+        assertEquals(6, sales.partnerSettlementAvailability(f.purchase.id()).lines().getFirst().totalQuantity());
+        assertFalse(trash.detail(deleted.id()).restoreAllowed());
+        assertThrows(BusinessRuleException.class, () -> trash.restore(deleted.id()));
+        var available = sales.partnerSettlementAvailability(f.purchase.id());
+        assertEquals(6, available.lines().getFirst().remainingQuantity());
+        assertEquals(amount("0"), available.creditedAdvanceEur());
+        assertTrue(available.settlements().isEmpty(), "failed restore may not reserve nine of the remaining six pieces");
     }
 
     private SalesOrder settle(Fixture f, int quantity, String proceeds, boolean finalSettlement) {

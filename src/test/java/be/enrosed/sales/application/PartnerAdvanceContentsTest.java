@@ -149,7 +149,7 @@ class PartnerAdvanceContentsTest {
         assertTrue(contents.capture(ordinary).isEmpty());
         assertNull(resource.get(ordinary.id()).advanceContents());
         sales.delete(first.id());
-        assertNull(entities.find(PartnerAdvanceContentsEntity.class, first.id()), "deleting an unused draft removes only its snapshot");
+        assertNotNull(entities.find(PartnerAdvanceContentsEntity.class, first.id()), "trash retains cargo facts for restoration");
     }
 
     @Test @TestTransaction

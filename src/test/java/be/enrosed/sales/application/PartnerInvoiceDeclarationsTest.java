@@ -109,13 +109,13 @@ class PartnerInvoiceDeclarationsTest {
     }
 
     @Test @TestTransaction
-    void theDatabaseCascadesTheSidecarWhenAnUnusedInvoiceIsDeleted() {
+    void deletingAnUnusedInvoicePreservesItsDeclarationForRestoration() {
         var order = partnerInvoice(SalesPurpose.PARTNER_ADVANCE);
         declarations.save(order.id(), customsDeclaration());
         entities.clear();
         sales.delete(order.id());
         entities.flush(); entities.clear();
-        assertNull(entities.find(PartnerInvoiceDeclarationEntity.class, order.id()));
+        assertNotNull(entities.find(PartnerInvoiceDeclarationEntity.class, order.id()));
         assertThrows(be.enrosed.shared.NotFoundException.class, () -> declarations.get(order.id()));
     }
 

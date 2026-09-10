@@ -47,6 +47,16 @@ public interface SourcingRepositories {
 
     interface PurchaseOrders {
         List<PurchaseOrder> findAll();
+        /** Deleted documents still reserve their original number for a safe restore. */
+        default List<String> numbersIncludingDeleted() {
+            return findAll().stream().map(PurchaseOrder::number).filter(java.util.Objects::nonNull).toList();
+        }
+        default boolean referencesPartnerIncludingDeleted(long customerId) {
+            return findAll().stream().anyMatch(order -> Long.valueOf(customerId).equals(order.partnerCustomerId()));
+        }
+        default boolean referencesSupplierIncludingDeleted(long supplierId) {
+            return findAll().stream().anyMatch(order -> Long.valueOf(supplierId).equals(order.supplierId()));
+        }
         Optional<PurchaseOrder> findById(long id);
         /**
          * Locks one order for a lifecycle-changing transaction.

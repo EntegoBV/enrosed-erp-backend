@@ -153,13 +153,23 @@ public final class PanacheSalesRepositories {
         }
 
         @Override
+        public java.util.List<SalesRepositories.Orders.ReservedNumber> numbersIncludingDeleted() {
+            @SuppressWarnings("unchecked")
+            java.util.List<Object[]> rows = dao.getEntityManager().createNativeQuery("select id, number, docType from sales_order").getResultList();
+            return rows.stream().map(r -> new SalesRepositories.Orders.ReservedNumber(((Number) r[0]).longValue(),
+                    (String) r[1], "FACTUUR".equals(r[2]))).toList();
+        }
+
+        @Override
         public Optional<SalesOrder> findById(long id) {
-            return Optional.ofNullable(dao.findById(id)).map(SalesMapper::toDomain);
+            return dao.find("id = ?1", id).firstResultOptional().map(SalesMapper::toDomain);
         }
 
         @Override
         public void lockById(long id) {
-            dao.findById(id, LockModeType.PESSIMISTIC_WRITE);
+            if (dao.getEntityManager().createNativeQuery("select id from sales_order where id = :id and deleted_at is null for update")
+                    .setParameter("id", id).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList().isEmpty())
+                throw new be.enrosed.shared.NotFoundException("Document", id);
         }
 
         @Override
@@ -169,7 +179,8 @@ public final class PanacheSalesRepositories {
 
         @Override
         public long countByCustomer(long customerId) {
-            return dao.count("customerId", customerId);
+            return ((Number) dao.getEntityManager().createNativeQuery("select count(*) from sales_order where customerId = :id")
+                    .setParameter("id", customerId).getSingleResult()).longValue();
         }
 
         @Override
@@ -179,7 +190,9 @@ public final class PanacheSalesRepositories {
 
         @Override
         public SalesOrder save(SalesOrder order) {
+            if (order.id() != null) lockById(order.id());
             SalesOrderEntity entity = order.id() == null ? null : dao.findById(order.id());
+            if (order.id() != null && entity == null) throw new be.enrosed.shared.NotFoundException("Document", order.id());
             if (entity == null) entity = new SalesOrderEntity();
             SalesMapper.apply(order, entity);
             if (entity.id == null) dao.persist(entity);
@@ -195,6 +208,7 @@ public final class PanacheSalesRepositories {
         /* The archive moment is never written by save(): only this call moves it. */
         @Override
         public void setArchivedAt(long id, java.time.Instant at) {
+            lockById(id);
             SalesOrderEntity entity = dao.findById(id);
             if (entity == null) return;
             entity.archivedAt = at;
@@ -219,13 +233,13 @@ public final class PanacheSalesRepositories {
 
         @Override
         public List<QuoteRevision> findPending() {
-            return dao.list("status = ?1 order by proposedAt asc", RevisionStatus.IN_AFWACHTING)
+            return dao.list("status = ?1 and salesOrderId in (select id from " + dao.getEntityManager().getMetamodel().entity(SalesOrderEntity.class).getName() + ") order by proposedAt asc", RevisionStatus.IN_AFWACHTING)
                     .stream().map(SalesMapper::toDomain).toList();
         }
 
         @Override
         public List<QuoteRevision> findApproved() {
-            return dao.list("status = ?1", RevisionStatus.GOEDGEKEURD)
+            return dao.list("status = ?1 and salesOrderId in (select id from " + dao.getEntityManager().getMetamodel().entity(SalesOrderEntity.class).getName() + ")", RevisionStatus.GOEDGEKEURD)
                     .stream().map(SalesMapper::toDomain).toList();
         }
 

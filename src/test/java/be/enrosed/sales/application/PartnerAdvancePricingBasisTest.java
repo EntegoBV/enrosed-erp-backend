@@ -162,6 +162,7 @@ class PartnerAdvancePricingBasisTest {
     void oneRemainingLegacyInvoiceBlocksCreatingAMissingTermWithoutChangingTheExistingDocument() {
         var f = fixture("100", Allocation.SEPARATE, false);
         var old = legacyTermInvoices(f);
+        em.flush(); em.clear();
         var retained = sales.get(old.getFirst().id());
         sales.delete(old.getLast().id());
         var missing = agreements.rows(f.purchaseId()).getLast();

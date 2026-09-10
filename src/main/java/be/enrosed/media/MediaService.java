@@ -155,6 +155,8 @@ public class MediaService {
                                         Boolean archived, MediaTargetType targetType, Long targetId,
                                         boolean includeArchived, int offset, int limit,
                                         Long folderId, boolean rootOnly, Boolean linked) {
+        if (targetType == MediaTargetType.PURCHASE_ORDER && targetId != null)
+            MediaOrderAccess.requirePurchase(entities, targetId, false);
         List<String> where = new ArrayList<>();
         Map<String, Object> params = new LinkedHashMap<>();
         if (linked != null) {
@@ -185,6 +187,9 @@ public class MediaService {
         }
         if (role != null || targetType != null || targetId != null) {
             List<String> link = new ArrayList<>(List.of("l.assetId = a.id"));
+            String purchases = entities.getMetamodel().entity(SourcingEntities.PurchaseOrderEntity.class).getName();
+            link.add("(l.targetType <> :activePurchaseTarget or exists (select p.id from " + purchases + " p where p.id = l.targetId))");
+            params.put("activePurchaseTarget", MediaTargetType.PURCHASE_ORDER);
             if (role != null) {
                 link.add("l.role = :role");
                 params.put("role", role);
@@ -1141,6 +1146,7 @@ public class MediaService {
     }
 
     private String lockAndLabel(MediaTargetType type, Long id) {
+        if (type == MediaTargetType.PURCHASE_ORDER) MediaOrderAccess.requirePurchase(entities, id, true);
         Object target = switch (type) {
             case PRODUCT -> entities.find(ProductEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
             case PRODUCT_FAMILY -> entities.find(ProductFamilyEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
@@ -1154,6 +1160,7 @@ public class MediaService {
     }
 
     private String targetLabel(MediaTargetType type, Long id) {
+        if (type == MediaTargetType.PURCHASE_ORDER && !MediaOrderAccess.purchaseVisible(entities, id)) return null;
         Object target = switch (type) {
             case PRODUCT -> entities.find(ProductEntity.class, id);
             case PRODUCT_FAMILY -> entities.find(ProductFamilyEntity.class, id);

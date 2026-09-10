@@ -28,9 +28,11 @@ class PurchasePartnerAgreementTest {
     @Inject be.enrosed.sales.application.PartnerAdvanceSchedules schedules;
     @Inject be.enrosed.sales.application.PartnerFinancingService financing;
     @Inject EntityManager em;
+    @Inject be.enrosed.catalog.application.CatalogMutationLock catalogLock;
 
     @Test @TestTransaction
     void linkedAdvanceProtectsPartnerIdentityAndContainerHistory() {
+        catalogLock.acquire(); // Expected failures below mark the test transaction rollback-only.
         var partner = customer("Original partner");
         var other = customer("Different partner");
         var container = container(partner.id());
@@ -71,7 +73,8 @@ class PurchasePartnerAgreementTest {
     }
 
     @Test @TestTransaction
-    void unbilledPlanProtectsPartnerIdentityButCanBeRemovedWithAnUnusedPurchase() {
+    void unbilledPlanProtectsPartnerIdentityAndRemainsStoredWithAnUnusedTrashedPurchase() {
+        catalogLock.acquire(); // Acquire before exercising intentionally rejected partner changes.
         var partner = customer("Unbilled plan partner");
         var other = customer("Replacement plan partner");
         var container = container(partner.id());
@@ -82,8 +85,9 @@ class PurchasePartnerAgreementTest {
         assertThrows(BusinessRuleException.class, () -> purchases.setPartner(container.id(),
                 new PurchaseOrderService.PartnerRequest(other.id(), null, null)));
         purchases.delete(container.id());
-        assertNull(schedules.find(container.id()));
-        assertTrue(schedules.rows(container.id()).isEmpty());
+        assertThrows(NotFoundException.class, () -> purchases.get(container.id()));
+        assertNotNull(schedules.find(container.id()));
+        assertEquals(1, schedules.rows(container.id()).size());
     }
 
     @Test @TestTransaction

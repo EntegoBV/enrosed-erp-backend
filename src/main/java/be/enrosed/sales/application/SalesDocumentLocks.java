@@ -37,11 +37,18 @@ public class SalesDocumentLocks {
         Long purchaseId = partner ? sourceId != null ? sourceId : partnerId : null;
         if (purchaseId != null) purchases.lockForPartnerSettlement(purchaseId);
 
+        // Re-check after any parent-lock wait, bypassing a possibly stale managed instance.
+        // The row lock also prevents trash from changing the marker until this mutation completes.
+        boolean active = !entities.createNativeQuery(
+                        "select id from sales_order where id=:id and deleted_at is null for update")
+                .setParameter("id", id).setFlushMode(FlushModeType.COMMIT).getResultList().isEmpty();
+        if (!active) throw new NotFoundException("Verkooporder", id);
         SalesOrderEntity document = entities.find(SalesOrderEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (document == null) throw new NotFoundException("Verkooporder", id);
         // find(..., lock) does not refresh an already managed instance after waiting for another transaction.
         // This is deliberately local to mutation entry; ordinary repository locks and cargo capture do not refresh.
         entities.refresh(document, LockModeType.PESSIMISTIC_WRITE);
+        if (document.deletedAt != null) throw new NotFoundException("Verkooporder", id);
         boolean lockedPartner = document.partnerPurchaseOrderId != null && document.purpose != SalesPurpose.STANDARD;
         Long lockedSource = document.sourcePurchaseOrderId != null ? document.sourcePurchaseOrderId : document.partnerPurchaseOrderId;
         Long hintedSource = sourceId != null ? sourceId : partnerId;

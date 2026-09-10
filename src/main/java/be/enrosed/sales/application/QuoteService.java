@@ -598,6 +598,7 @@ public class QuoteService {
 
     /** The history of a quote, oldest first. */
     public List<QuoteEvent> history(long orderId) {
+        salesOrders.get(orderId);
         return events.findByOrder(orderId);
     }
 
@@ -693,6 +694,7 @@ public class QuoteService {
     }
 
     public List<QuoteRevision> revisionsFor(long orderId) {
+        salesOrders.get(orderId);
         return revisions.findByOrder(orderId);
     }
 
@@ -928,7 +930,9 @@ public class QuoteService {
     }
 
     private QuoteRevision revision(long id) {
-        return revisions.findById(id).orElseThrow(() -> new NotFoundException("Wijzigingsvoorstel", id));
+        QuoteRevision revision = revisions.findById(id).orElseThrow(() -> new NotFoundException("Wijzigingsvoorstel", id));
+        salesOrders.get(revision.salesOrderId());
+        return revision;
     }
 
     private void requirePending(QuoteRevision revision) {

@@ -28,6 +28,8 @@ public class SupplierService {
 
     @Inject
     Instance<ActivityLogService> activity;
+    @Inject
+    Instance<SourcingRepositories.PurchaseOrders> purchaseOrders;
 
     public SupplierService(SourcingRepositories.Suppliers suppliers, ProductRepository products) {
         this.suppliers = suppliers;
@@ -84,6 +86,9 @@ public class SupplierService {
             throw new BusinessRuleException(
                     "Er hangen nog " + attached + " product(en) aan " + supplier.name());
         }
+        if (purchaseOrders != null && purchaseOrders.isResolvable()
+                && purchaseOrders.get().referencesSupplierIncludingDeleted(id))
+            throw new BusinessRuleException("Deze leverancier heeft inkooporders, mogelijk in de prullenbak, en kan niet worden verwijderd");
         suppliers.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, supplier, "Leverancier verwijderd");
     }

@@ -84,6 +84,10 @@ public class PurchaseOrderService {
     Instance<be.enrosed.sales.application.CustomerService> partnerCustomers;
     @Inject
     Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> partnerAdvanceSchedules;
+    @Inject
+    be.enrosed.shared.trash.DeletedItemsService deletedItems;
+    @Inject
+    Instance<be.enrosed.catalog.application.CatalogMutationLock> catalogMutationLock;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -198,7 +202,7 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchaseOrder archive(long id) {
-        PurchaseOrder order = get(id);
+        PurchaseOrder order = getForUpdate(id);
         if (order.isArchived()) return order;
         orders.setArchivedAt(id, Instant.now());
         PurchaseOrder archived = get(id);
@@ -209,7 +213,7 @@ public class PurchaseOrderService {
     /** Back on the working list, where it left off. */
     @Transactional
     public PurchaseOrder unarchive(long id) {
-        PurchaseOrder order = get(id);
+        PurchaseOrder order = getForUpdate(id);
         if (!order.isArchived()) return order;
         orders.setArchivedAt(id, null);
         PurchaseOrder restored = get(id);
@@ -219,7 +223,7 @@ public class PurchaseOrderService {
 
     @Transactional
     public PurchaseOrder duplicate(long id) {
-        PurchaseOrder source = get(id);
+        PurchaseOrder source = getForUpdate(id);
         String alias = source.alias() == null || source.alias().isBlank()
                 ? null : source.alias() + " (kopie)";
         ActorRef creator = currentActor();
@@ -517,12 +521,11 @@ public class PurchaseOrderService {
      */
     private String numberFor(PurchaseOrder current, PurchaseOrder changes) {
         String wanted = changes.number() == null ? null : changes.number().trim();
-        if (wanted == null || wanted.isBlank() || wanted.equals(current.number())) {
+        if (wanted == null || wanted.isBlank()) {
             return current.number();
         }
-        boolean taken = orders.findAll().stream()
-                .anyMatch(other -> !other.id().equals(current.id())
-                        && wanted.equalsIgnoreCase(other.number()));
+        if (wanted.equalsIgnoreCase(current.number())) return wanted;
+        boolean taken = orders.numbersIncludingDeleted().stream().anyMatch(wanted::equalsIgnoreCase);
         if (taken) {
             throw new BusinessRuleException("Er bestaat al een inkooporder met nummer " + wanted);
         }
@@ -577,7 +580,7 @@ public class PurchaseOrderService {
     @Transactional
     public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                                       String label, PurchasePayment.Payee payee, boolean settles) {
-        PurchaseOrder order = get(orderId);
+        PurchaseOrder order = getForUpdate(orderId);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? Currency.EUR : currency;
         BigDecimal eur = switch (money) {
@@ -669,7 +672,7 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseDocument addDocument(long orderId, PurchaseDocument.Kind kind, String label, Long paymentId,
                                         String filename, String contentType, byte[] bytes) {
-        PurchaseOrder order = get(orderId);
+        PurchaseOrder order = getForUpdate(orderId);
         if (bytes == null || bytes.length == 0) throw new BusinessRuleException("Het bestand is leeg");
         if (bytes.length > 25 * 1024 * 1024) throw new BusinessRuleException("Een bestand mag hoogstens 25 MB zijn");
         if (paymentId != null) {
@@ -702,7 +705,7 @@ public class PurchaseOrderService {
     /** The pencil next to an uploaded file: the title stays editable afterwards. */
     @Transactional
     public PurchaseDocument renameDocument(long orderId, long documentId, String label) {
-        PurchaseOrder order = get(orderId);
+        PurchaseOrder order = getForUpdate(orderId);
         PurchaseDocument current = document(orderId, documentId);
         String cleaned = label == null || label.isBlank() ? null : label.strip();
         PurchaseDocument renamed = documents.get().rename(orderId, documentId, cleaned)
@@ -716,7 +719,7 @@ public class PurchaseOrderService {
 
     @Transactional
     public void deleteDocument(long orderId, long documentId) {
-        PurchaseOrder order = get(orderId);
+        PurchaseOrder order = getForUpdate(orderId);
         PurchaseDocument document = document(orderId, documentId);
         documents.get().delete(orderId, documentId);
         unlinkLegacyMedia(MediaLegacySourceType.PURCHASE_DOCUMENT, documentId);
@@ -1334,6 +1337,7 @@ public class PurchaseOrderService {
 
     @Transactional
     public void delete(long id) {
+        if (catalogMutationLock != null && catalogMutationLock.isResolvable()) catalogMutationLock.get().acquire();
         PurchaseOrder order = getForUpdate(id);
         if (!linkedSalesDocuments(id).isEmpty()) {
             throw new BusinessRuleException("Deze inkooporder heeft gekoppelde offertes of facturen; archiveer de container zodat documenten en ontvangsten gekoppeld blijven");
@@ -1342,32 +1346,12 @@ public class PurchaseOrderService {
             throw new BusinessRuleException(
                     "Een ontvangen inkooporder kan niet verwijderd worden omdat de voorraad al geboekt is");
         }
-        List<String> storageKeys = List.of();
-        List<Long> documentIds = List.of();
-        if (documents != null && documents.isResolvable()) {
-            List<PurchaseDocument> ownedDocuments = documents.get().forOrder(id);
-            storageKeys = ownedDocuments.stream()
-                    .map(PurchaseDocument::storageKey)
-                    .filter(Objects::nonNull)
-                    .filter(key -> !key.isBlank())
-                    .map(String::strip)
-                    .distinct()
-                    .toList();
-            documentIds = ownedDocuments.stream().map(PurchaseDocument::id)
-                    .filter(Objects::nonNull).toList();
-            documents.get().deleteForOrder(id);
-            documentIds.forEach(documentId -> unlinkLegacyMedia(
-                    MediaLegacySourceType.PURCHASE_DOCUMENT, documentId));
-        }
-        if (payments != null && payments.isResolvable()) payments.get().deleteForOrder(id);
-        if (partnerAdvanceSchedules != null && partnerAdvanceSchedules.isResolvable())
-            partnerAdvanceSchedules.get().deleteForPurchase(id);
-        unlinkMediaTarget(MediaTargetType.PURCHASE_ORDER, id);
-        orders.deleteById(id);
+        if (Money.nz(order.paidTotalEur()).signum() != 0
+                || payments != null && payments.isResolvable() && !payments.get().forOrder(id).isEmpty())
+            throw new BusinessRuleException("Deze inkooporder heeft geregistreerde betalingen; archiveer de container zodat de betaalhistorie behouden blijft");
+        // Recovery keeps the complete dossier, partner plan and blob references intact.
+        deletedItems.trashPurchase(order);
         recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
-        if (!storageKeys.isEmpty()) {
-            fireDocumentDeleteCleanup(new PurchaseDocumentStorageCleanup.DeleteReady(id, storageKeys));
-        }
     }
 
     /** Forward-only lifecycle; same-state saves remain possible for details. */
@@ -1701,7 +1685,7 @@ public class PurchaseOrderService {
      */
     @Transactional
     public LandedCost applyToProducts(long id) {
-        PurchaseOrder order = get(id);
+        PurchaseOrder order = getForUpdate(id);
         LandedCost result = calculate(order);
         for (LandedCost.Line line : result.lines()) {
             PurchaseOrderLine ordered = order.lines().stream()
@@ -1792,7 +1776,7 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchaseOrder adoptPartner(long id, Long customerId, BigDecimal costPct, BigDecimal sharePct) {
-        PurchaseOrder current = get(id);
+        PurchaseOrder current = getForUpdate(id);
         if (current.isPartnerContainer() || customerId == null) return current;
         return setPartner(id, new PartnerRequest(customerId, costPct, sharePct));
     }
@@ -1929,8 +1913,7 @@ public class PurchaseOrderService {
     private String nextNumber() {
         int year = LocalDate.now().getYear();
         String prefix = "PO-" + year + "-";
-        int highest = orders.findAll().stream()
-                .map(PurchaseOrder::number)
+        int highest = orders.numbersIncludingDeleted().stream()
                 .filter(number -> number != null && number.startsWith(prefix))
                 .map(number -> number.substring(prefix.length()))
                 .filter(suffix -> suffix.matches("\\d+"))

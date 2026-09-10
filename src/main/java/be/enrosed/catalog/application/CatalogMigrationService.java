@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 public class CatalogMigrationService {
     private static final String SCHEMA_VERSION = "1.0";
     public static final String FULL_RESET_CONFIRMATION = "RESET-ALL-ENROSED-DATA";
+    private static final String TRASH_PROTECTION = "Catalogusvervanging is geblokkeerd zolang de prullenbak offertes, facturen of inkooporders bevat. Hun documenten, producten en historie moeten bewaard blijven";
     private static final String FAMILY_OWNER = "FAMILY";
     private static final String VARIANT_OWNER = "VARIANT";
     private static final List<String> APPLICATION_TABLES = List.of(
@@ -140,6 +141,7 @@ public class CatalogMigrationService {
     public CatalogMigrationPreflight preflight(
             CanonicalCatalogManifest manifest, String verifiedPayloadSha256) {
         Validation validation = validate(manifest);
+        if (hasRetainedOrders()) validation.problems.add(TRASH_PROTECTION);
         if (verifiedPayloadSha256 != null && (manifest == null || manifest.importDescriptor() == null
                 || !verifiedPayloadSha256.equals(manifest.importDescriptor().payloadSha256()))) {
             validation.problems.add("Geverifieerde payload hash komt niet overeen met importDescriptor");
@@ -200,6 +202,10 @@ public class CatalogMigrationService {
             throw new BusinessRuleException("Importcode " + importKey
                     + " bestaat al met andere brondata of een onvolledige status");
         }
+
+        // Trash/restore take the same advisory lock before their order locks. Do not erase their graphs.
+        if ((request.fullReset() || request.replaceExistingProducts()) && hasRetainedOrders())
+            throw new BusinessRuleException(TRASH_PROTECTION);
 
         ReferenceCounts references = referenceCounts(existingProductIds());
         if (!request.fullReset() && request.replaceExistingProducts()
@@ -1392,6 +1398,13 @@ public class CatalogMigrationService {
                 count("select count(l) from SalesOrderLineEntity l where l.productId in :ids", productIds),
                 count("select count(i) from SalesPalletItemEntity i where i.productId in :ids", productIds),
                 count("select count(l) from QuoteRevisionLineEntity l where l.productId in :ids", productIds));
+    }
+
+    private boolean hasRetainedOrders() {
+        return !entityManager.createNativeQuery("select id from sales_order where deleted_at is not null")
+                .setMaxResults(1).getResultList().isEmpty()
+                || !entityManager.createNativeQuery("select id from purchase_order where deleted_at is not null")
+                .setMaxResults(1).getResultList().isEmpty();
     }
 
     private long count(String query, Set<Long> ids) {

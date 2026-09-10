@@ -40,8 +40,10 @@ public class DailyAgendaPush {
         List<PlannerItemEntity> planned = PlannerItemEntity
                 .<PlannerItemEntity>list("onDate = ?1 and done = false order by atTime nulls last",
                         today);
+        String orders = entities.getMetamodel()
+                .entity(be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity.class).getName();
         long overdueInvoices = entities.createQuery(
-                        "select count(o) from SalesOrderEntity o where o.docType = :sort"
+                        "select count(o) from " + orders + " o where o.docType = :sort"
                         + " and o.status = :status and o.invoiceDueDate < :today", Long.class)
                 .setParameter("sort", be.enrosed.sales.domain.DocumentType.FACTUUR)
                 .setParameter("status", be.enrosed.sales.domain.QuoteStatus.VERZONDEN)

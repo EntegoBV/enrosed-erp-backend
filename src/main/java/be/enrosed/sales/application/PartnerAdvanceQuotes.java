@@ -46,7 +46,10 @@ public class PartnerAdvanceQuotes {
     }
 
     public List<Long> quoteIds(long purchaseId) {
-        return entities.createQuery("select q.salesOrderId from PartnerAdvanceQuoteEntity q where q.purchaseOrderId=:id order by q.salesOrderId desc", Long.class)
+        String orders = entities.getMetamodel().entity(be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity.class).getName();
+        // Keep the immutable snapshot for restore, but never let a trashed quote govern the active plan.
+        return entities.createQuery("select q.salesOrderId from PartnerAdvanceQuoteEntity q where q.purchaseOrderId=:id"
+                        + " and exists (select o.id from " + orders + " o where o.id=q.salesOrderId) order by q.salesOrderId desc", Long.class)
                 .setParameter("id", purchaseId).getResultList();
     }
 

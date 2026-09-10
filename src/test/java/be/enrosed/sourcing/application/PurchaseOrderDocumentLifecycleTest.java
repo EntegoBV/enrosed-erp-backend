@@ -38,6 +38,7 @@ class PurchaseOrderDocumentLifecycleTest {
         SourcingRepositories.PurchaseOrders orders = mock(SourcingRepositories.PurchaseOrders.class);
         PurchaseOrder order = order();
         when(orders.findById(41L)).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate(41L)).thenReturn(Optional.of(order));
 
         SourcingRepositories.Documents repository = mock(SourcingRepositories.Documents.class);
         PurchaseDocument document = document();
@@ -66,7 +67,7 @@ class PurchaseOrderDocumentLifecycleTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void deletingAnOrderRemovesDependentRowsAndEmitsOnePostCommitBlobCleanup() {
+    void deletingAnOrderKeepsDependentRowsAndBlobsForRecovery() {
         SourcingRepositories.PurchaseOrders orders = mock(SourcingRepositories.PurchaseOrders.class);
         PurchaseOrder order = order();
         when(orders.findByIdForUpdate(41L)).thenReturn(Optional.of(order));
@@ -98,17 +99,15 @@ class PurchaseOrderDocumentLifecycleTest {
         service.activity = activities;
         service.documentDeleteCleanup = cleanup;
         service.photoStorage = storage;
+        service.deletedItems = mock(be.enrosed.shared.trash.DeletedItemsService.class);
 
         service.delete(41L);
 
-        InOrder sequence = inOrder(documentRepository, paymentRepository, orders, activityLog, cleanup);
-        sequence.verify(documentRepository).deleteForOrder(41L);
-        sequence.verify(paymentRepository).deleteForOrder(41L);
-        sequence.verify(orders).deleteById(41L);
-        sequence.verify(activityLog).record(ActivityLogService.ACTION_DELETED,
-                ActivityLogService.ENTITY_PURCHASE_ORDER, "41", "PO-2026-041", "Inkooporder verwijderd");
-        sequence.verify(cleanup).fire(new PurchaseDocumentStorageCleanup.DeleteReady(
-                41L, List.of("blob-8", "blob-9")));
+        verify(service.deletedItems).trashPurchase(order);
+        verify(documentRepository, never()).deleteForOrder(41L);
+        verify(paymentRepository, never()).deleteForOrder(41L);
+        verify(orders, never()).deleteById(41L);
+        org.mockito.Mockito.verifyNoInteractions(cleanup, activityLog);
         verify(storage, never()).get();
     }
 
@@ -118,6 +117,7 @@ class PurchaseOrderDocumentLifecycleTest {
         SourcingRepositories.PurchaseOrders orders = mock(SourcingRepositories.PurchaseOrders.class);
         PurchaseOrder order = order();
         when(orders.findById(41L)).thenReturn(Optional.of(order));
+        when(orders.findByIdForUpdate(41L)).thenReturn(Optional.of(order));
 
         SourcingRepositories.Documents repository = mock(SourcingRepositories.Documents.class);
         when(repository.forOrder(41L)).thenReturn(List.of());
