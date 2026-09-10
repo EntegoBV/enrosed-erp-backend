@@ -48,6 +48,7 @@ public class SalesOrderService {
     @Inject Instance<PartnerSettlements> partnerSettlements;
     @Inject Instance<PartnerAdvanceScheduleService> advanceSchedules;
     @Inject Instance<PartnerAdvanceQuotes> advanceQuotes;
+    @Inject Instance<PartnerAdvanceContents> advanceContents;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -253,6 +254,7 @@ public class SalesOrderService {
         validatePartnerAdvanceReservation(invoice, null);
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
+        captureAdvanceContents(created);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
@@ -491,6 +493,7 @@ public class SalesOrderService {
         String how = partner
                 ? " als partnercontainer: " + pct(share) + " % winstdeling, " + pct(costPct) + " % van de kost vooraf"
                 : atCost ? " aan kostprijs" : " aan klantprijzen";
+        captureAdvanceContents(created);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
                 (partner ? "Conceptfactuur" : "Offerte") + " opgemaakt vanuit inkooporder " + container.number() + how, null));
@@ -624,6 +627,7 @@ public class SalesOrderService {
         validatePartnerAdvanceReservation(invoice, rowId);
         validateForSave(invoice);
         SalesOrder saved = orders.save(invoice);
+        captureAdvanceContents(saved);
         events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Voorschottermijn " + label + " aangemaakt", null));
         recordActivity(saved, "Voorschottermijn " + label + " aangemaakt");
@@ -634,6 +638,14 @@ public class SalesOrderService {
 
     private void validatePartnerAdvanceReservation(SalesOrder invoice, Long scheduleRowId) {
         if (advanceSchedules != null && advanceSchedules.isResolvable()) advanceSchedules.get().validateReservation(invoice, scheduleRowId);
+    }
+
+    private void captureAdvanceContents(SalesOrder invoice) {
+        if (advanceContents != null && advanceContents.isResolvable()) advanceContents.get().capture(invoice);
+    }
+
+    private boolean hasAdvanceContents(SalesOrder invoice) {
+        return advanceContents != null && advanceContents.isResolvable() && advanceContents.get().find(invoice).isPresent();
     }
 
     /** Net auction proceeds after auction fees; legacy client unit cost is ignored. */
@@ -857,6 +869,9 @@ public class SalesOrderService {
             throw new BusinessRuleException("De partner en container van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
         if (purpose != SalesPurpose.STANDARD && purchaseOrderId == null)
             throw new BusinessRuleException("Koppel een partnervoorschot aan een inkooporder");
+        if (hasAdvanceContents(order)
+                && (purpose != order.purpose() || !Objects.equals(purchaseOrderId, order.linkedPurchaseOrderId())))
+            throw new BusinessRuleException("De containerinhoud van deze voorschotfactuur is vastgelegd; maak een nieuw concept vanuit de juiste inkooporder");
         if (order.status() != QuoteStatus.CONCEPT && (purpose != order.purpose()
                 || !Objects.equals(purchaseOrderId, order.linkedPurchaseOrderId())
                 || !samePercentage(purpose == SalesPurpose.STANDARD ? null : share, order.partnerSharePct())))
@@ -873,6 +888,7 @@ public class SalesOrderService {
             adoptPartnerContainer(purchaseOrderId, order.customerId(), partnerCostPctOf(order.customerId()), share);
         if (changed.status() == QuoteStatus.CONCEPT) validatePartnerAdvanceReservation(changed, null);
         SalesOrder saved = orders.save(changed);
+        captureAdvanceContents(saved);
         String reference = request != null && !isBlank(request.reference())
                 ? request.reference().strip() : "inkooporder " + purchaseOrderId;
         String summary = purchaseOrderId == null
@@ -1150,7 +1166,11 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder update(long id, SalesOrder changes) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
+        orders.lockById(id);
         SalesOrder beforeEdit = get(id);
+        if (hasAdvanceContents(beforeEdit) && (!sameCargoLines(beforeEdit.lines(), changes.lines())
+                || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())))
+            throw new BusinessRuleException("De containerinhoud en bestemming van deze voorschotfactuur zijn vastgelegd; maak een nieuw concept vanuit de inkooporder voor gewijzigde goederen");
         if (hasAdvanceAgreement(beforeEdit) && (!sameQuotedLines(beforeEdit.lines(), changes.lines())
                 || !sameQuotedExtras(beforeEdit.extraLines(), changes.extraLines())
                 || !Objects.equals(beforeEdit.customerId(), changes.customerId())
@@ -1254,6 +1274,16 @@ public class SalesOrderService {
         return saved;
     }
 
+    private static boolean sameCargoLines(List<SalesOrderLine> before, List<SalesOrderLine> after) {
+        if (after == null || before.size() != after.size()) return false;
+        for (int i = 0; i < before.size(); i++) {
+            var a = before.get(i); var b = after.get(i);
+            if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || !Objects.equals(clean(a.deliveryWeek()), clean(b.deliveryWeek()))) return false;
+        }
+        return true;
+    }
+
     private static boolean sameQuotedLines(List<SalesOrderLine> before, List<SalesOrderLine> after) {
         if (after == null || before.size() != after.size()) return false;
         for (int i = 0; i < before.size(); i++) {
@@ -1285,6 +1315,7 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder updateDeliveryWeeks(long id, List<DeliveryWeekChange> requested) {
+        orders.lockById(id);
         SalesOrder current = get(id);
         SalesLifecycle.requireTermsEditable(current);
         if (requested == null || requested.isEmpty()) {
@@ -1317,6 +1348,8 @@ public class SalesOrderService {
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur())
                         : line)
                 .toList();
+        if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
+            throw new BusinessRuleException("De levertermijn op deze voorschotfactuur is vastgelegd; maak een nieuw concept voor een gewijzigde afspraak");
         SalesOrder saved = orders.save(copyWithTerms(current, current.freight(), current.manualFreightEur(),
                 current.freightPricingStrategy(), current.freightRatePerCbmEur(), lines));
         if (!saved.equals(current)) {
@@ -1494,6 +1527,7 @@ public class SalesOrderService {
         events.deleteByOrder(id);
         if (partnerSettlements != null && partnerSettlements.isResolvable()) partnerSettlements.get().delete(id);
         if (advanceQuotes != null && advanceQuotes.isResolvable()) advanceQuotes.get().delete(id);
+        if (advanceContents != null && advanceContents.isResolvable()) advanceContents.get().delete(id);
         if (advanceSchedules != null && advanceSchedules.isResolvable()) advanceSchedules.get().detachInvoice(id);
         orders.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, order,

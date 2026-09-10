@@ -300,26 +300,37 @@
     {#if includeLogistics}<td>
       <span class="label">{t.delivery}</span>
       <div class="ship-facts">
-        {t.destination}: <b>{order.countryCode ?: '-'}</b><br/>
-        {#if !looseCartons}{t.pallets}: <b>{effectivePallets}</b> · {/if}
-        {t.cartons}: <b>{priced.totals.cartons}</b> ·
-        {t.volume}: <b>{totalCbmText ?: '-'}</b><br/>
-        <span class="muted">{priced.totals.weightKg.amount} kg</span>
+        {t.destination}: <b>{displayDestination ?: '-'}</b><br/>
+        {#if advanceInvoice}
+          {#if displayPieces}{t.pieces}: <b>{displayPieces}</b><br/>{/if}
+          {#if displayCartons}{t.cartons}: <b>{displayCartons}</b><br/>{/if}
+          {#if displayPallets}{t.pallets}: <b>{displayPallets}</b><br/>{/if}
+          {#if totalCbmText}{t.volume}: <b>{totalCbmText}</b><br/>{/if}
+          {#if totalWeightText}<span class="muted">{totalWeightText}</span><br/>{/if}
+          {#if cargoDeliveryWeekText}{cargoDeliveryWeekText}<br/>{/if}
+          {#if cargoExpectedArrivalText}{t.expectedArrival}: <b>{cargoExpectedArrivalText}</b>{/if}
+        {#else}
+          {#if !looseCartons}{t.pallets}: <b>{effectivePallets}</b> · {/if}
+          {t.cartons}: <b>{priced.totals.cartons}</b> ·
+          {t.volume}: <b>{totalCbmText ?: '-'}</b><br/>
+          <span class="muted">{priced.totals.weightKg.amount} kg</span>
+        {/if}
       </div>
     </td>{/if}
   </tr>
 </table>
 
+{#if !lines.isEmpty || !priceFreeProducts}
 <table class="lines">
   <thead>
   <tr>
-    <th style="{#if agreementQuote}width:70%{#else if includeLogistics}width:50%{#else}width:62%{/if}">{t.description}</th>
+    <th style="{#if priceFreeProducts}width:70%{#else if includeLogistics}width:50%{#else}width:62%{/if}">{t.description}</th>
     <th class="r">{t.quantity}</th>
     {#if includeLogistics}
       <th class="r">{t.cartons}</th>
-      <th class="r">{#if looseCartons}{t.volume}{#else}{t.pallets}{/if}</th>
+      <th class="r">{#if showProductVolume}{t.volume}{#else}{t.pallets}{/if}</th>
     {/if}
-    {#if !agreementQuote}
+    {#if !priceFreeProducts}
       <th class="r">{t.unitPrice}</th>
       {#if hasDiscounts}<th class="r">{t.discount}</th>{/if}
       <th class="r">{t.total}</th>
@@ -345,19 +356,19 @@
           </td>
         </tr></table>
       </td>
-      <td class="r nowrap">{line.commercial.quantity}</td>
+      <td class="r nowrap">{line.quantity}</td>
       {#if includeLogistics}
-        <td class="r nowrap">{line.commercial.cartons}</td>
-        <td class="r nowrap">{#if looseCartons}{line.commercial.cbm.cbm ?: '-'}{#else}{line.palletPositions}{/if}</td>
+        <td class="r nowrap">{line.cartons ?: '-'}</td>
+        <td class="r nowrap">{#if showProductVolume}{line.volumeText ?: '-'}{#else}{line.palletPositions}{/if}</td>
       {/if}
-      {#if !agreementQuote}
+      {#if !priceFreeProducts}
         <td class="r nowrap">{line.commercial.unitPrice.unit}</td>
         {#if hasDiscounts}<td class="r nowrap">{#if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}
         <td class="r line-total">{line.commercial.net.eur}</td>
       {/if}
     </tr>
   {/for}
-  {#if !agreementQuote}{#for extra in priced.extraLines}
+  {#if !priceFreeProducts}{#for extra in priced.extraLines}
     <tr class="extra-line">
       <td><div class="line-name">{extra.description}</div></td>
       <td class="r nowrap">{extra.quantity.amount}</td>
@@ -369,6 +380,7 @@
   {/for}{/if}
   </tbody>
 </table>
+{/if}
 
 {#if agreementQuote}
 <section class="advance-agreement">
@@ -414,10 +426,10 @@
     <table class="overview-facts">
       <tr><td>{t.customer}</td><td>{#if customer}{customer.company}{#else}-{/if}</td></tr>
       {#if includeLogistics}
-        <tr><td>{t.destination}</td><td>{order.countryCode ?: '-'}</td></tr>
-        <tr><td>{t.cartons}</td><td>{priced.totals.cartons}</td></tr>
-        {#if !looseCartons}<tr><td>{t.pallets}</td><td>{effectivePallets}</td></tr>{/if}
-        <tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>
+        <tr><td>{t.destination}</td><td>{displayDestination ?: '-'}</td></tr>
+        {#if !advanceInvoice || displayCartons}<tr><td>{t.cartons}</td><td>{displayCartons}</td></tr>{/if}
+        {#if !looseCartons && (!advanceInvoice || displayPallets)}<tr><td>{t.pallets}</td><td>{displayPallets}</td></tr>{/if}
+        {#if !advanceInvoice || totalCbmText}<tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>{/if}
       {/if}
     </table>
     {#if includePaymentDetails && partnerNote}<div class="overview-note">{partnerNote}</div>{/if}
@@ -427,6 +439,7 @@
 </td>
 <td class="closing-totals">
 <table class="totals">
+  {#if !advanceInvoice}
   <tr><td>{t.subtotal}</td><td class="r">{priced.totals.subtotal.eur}</td></tr>
   {#if priced.totals.orderDiscountAmount.isPositive}
     <tr class="discount"><td>{t.orderDiscount} {priced.totals.orderDiscountPercent.pct}</td>
@@ -449,7 +462,12 @@
       {#else}<span class="muted">({effectivePallets} {t.pallets})</span>{/if}</td>
       <td class="r">{#if freightPending}<span class="muted">{t.freightToBeDetermined}</span>{#else}{priced.totals.freight.eur}{/if}</td></tr>
   <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
-  <tr class="grand"><td>{t.total}</td><td class="r">{priced.totals.total.eur}</td></tr>
+  {#else}
+  {#for extra in priced.extraLines}
+    <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
+  {/for}
+  {/if}
+  <tr class="grand"><td>{#if advanceInvoice}{t.advanceAmount}{#else}{t.total}{/if}</td><td class="r">{priced.totals.total.eur}</td></tr>
   {#if priced.totals.vatTreatment.isExempt()}
     <tr class="aftertax"><td>{t.vat}</td><td class="r">0,00 EUR</td></tr>
   {#else}

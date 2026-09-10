@@ -67,6 +67,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceQuotes> advanceQuotes;
     @Inject
     Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> advanceSchedules;
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -111,6 +113,10 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 && advanceQuotes != null && advanceQuotes.isResolvable()
                 ? advanceQuotes.get().find(order.id()) : null;
         boolean agreementQuote = advanceAgreement != null;
+        boolean advanceInvoice = invoice && order.isPartnerAdvance();
+        var cargo = advanceInvoice && advanceContents != null && advanceContents.isResolvable()
+                ? advanceContents.get().find(order).orElse(null) : null;
+        boolean priceFreeProducts = agreementQuote || advanceInvoice;
         var settlement = order.partnerSettlement() && order.id() != null
                 && partnerSettlements != null && partnerSettlements.isResolvable()
                 ? partnerSettlements.get().find(order.id()) : null;
@@ -124,7 +130,20 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         ? partialSettlement ? "partnerPartialSettlementNote" : "partnerSettlementNote" : "partnerAdvanceNote"),
                         partnerContainerNumber(order))
                 : null;
-        List<LineView> lines = lineViews(order, priced, language, text, options);
+        List<LineView> lines = cargo == null ? lineViews(order, priced, language, text, options)
+                : advanceLineViews(cargo, text, options);
+        Integer displayCartons = null;
+        Integer displayPallets = null;
+        if (cargo != null) {
+            displayCartons = cargo.totals().cartons();
+            displayPallets = cargo.totals().pallets();
+        } else {
+            if (!advanceInvoice || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
+            if (priced.totals().palletsManual() > 0) displayPallets = priced.totals().palletsManual();
+            else if (!advanceInvoice) displayPallets = priced.totals().palletsStrict();
+        }
+        String totalVolume = DocumentFormat.cbm(cargo == null ? priced.totals().cbm() : cargo.totals().cbm());
+        String totalWeight = DocumentFormat.kg(cargo == null ? priced.totals().weightKg() : cargo.totals().weightKg());
         /* Goods cleared through our fiscal representative say so on the quote and the advance
            invoice, where the goods are supplied; the final settlement only keeps the shifted VAT. */
         String customsLine = customer != null && customer.fiscalRepresentative() && !order.partnerSettlement()
@@ -193,6 +212,18 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())
                 .data("agreementQuote", agreementQuote)
+                .data("advanceInvoice", advanceInvoice)
+                .data("priceFreeProducts", priceFreeProducts)
+                .data("displayDestination", cargo == null || cargo.delivery() == null
+                        ? order.countryCode() : cargo.delivery().destinationCountry())
+                .data("displayCartons", displayCartons)
+                .data("displayPallets", displayPallets)
+                .data("displayPieces", cargo == null ? null : cargo.totals().pieces())
+                .data("totalWeightText", totalWeight)
+                .data("cargoDeliveryWeekText", cargo == null || cargo.delivery() == null ? null
+                        : DocumentText.week(cargo.delivery().deliveryWeek(), language))
+                .data("cargoExpectedArrivalText", cargo == null || cargo.delivery() == null ? null
+                        : DocumentText.date(cargo.delivery().expectedArrival(), language))
                 .data("agreementAmount", agreementQuote
                         ? DocumentFormat.eur(advanceAgreement.agreedAmountEur()) : null)
                 .data("advanceSchedule", agreementQuote ? advanceAgreement.rows().stream().map(row ->
@@ -219,7 +250,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                    web page can change, the document in the mailbox cannot. */
                 .data("termsText", options.includeTerms() ? company.get().termsFor(language) : null)
                 .data("lines", lines)
-                .data("totalCbmText", priced.totals() == null ? null : DocumentFormat.cbm(priced.totals().cbm()))
+                .data("totalCbmText", totalVolume)
                 .data("includePhotos", options.includePhotos())
                 .data("includeProductDetails", options.includeProductDetails())
                 .data("includeLogistics", options.includeLogistics())
@@ -229,6 +260,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("showBarcode", options.showBarcode())
                 .data("hasDiscounts", hasLineDiscounts(priced))
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
+                .data("showProductVolume", advanceInvoice || order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("looseCartons", order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("freightPerCbm", order.freightPricingStrategy()
                         == be.enrosed.sales.domain.FreightPricingStrategy.PER_CBM)
@@ -289,7 +321,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     public record LineView(PricedOrder.Line commercial, String title, String variantText,
                            String description, List<ProductSpec> productSpecs,
                            String photoDataUri, int palletPositions, String skuText,
-                           String deliveryText) {}
+                           String deliveryText, int quantity, Integer cartons, String volumeText) {}
 
     private List<LineView> lineViews(SalesOrder order, PricedOrder priced, Language language,
                                      Map<String, String> text, SalesPdfOptions options) {
@@ -315,9 +347,24 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
             String delivery = options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
             result.add(new LineView(line, title, variant, description, details, photo,
-                    order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery));
+                    order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
+                    line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm())));
         }
         return List.copyOf(result);
+    }
+
+    /** Container contents describe the goods, without adding a second financial or stock claim. */
+    private List<LineView> advanceLineViews(be.enrosed.sales.application.PartnerAdvanceContents.Snapshot cargo,
+                                          Map<String, String> text, SalesPdfOptions options) {
+        Map<String, String> imageCache = new LinkedHashMap<>();
+        return cargo.lines().stream().map(item -> {
+            Product product = product(item.productId());
+            // Only the photo comes from the current catalog. Today's carton data may differ from the frozen shipment.
+            return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
+                    List.of(),
+                    options.includePhotos() ? productImage(product, imageCache) : null,
+                    0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()));
+        }).toList();
     }
 
     /** A document number as a file name: partner/2026/003 becomes partner-2026-003. */

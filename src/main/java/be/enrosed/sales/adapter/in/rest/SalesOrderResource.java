@@ -33,6 +33,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.IncomingPaymentService incoming;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerFinancingService partnerFinancing;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
+    @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceContents advanceContents;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -60,7 +61,16 @@ public class SalesOrderResource {
                             String sourceQuoteNumber, be.enrosed.sales.domain.SalesPaymentSummary paymentSummary,
                             be.enrosed.sales.domain.SalesAccounting accounting,
                             be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
-                            be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement) {
+                            be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                            be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
@@ -136,7 +146,7 @@ public class SalesOrderResource {
                 agreement == null ? view.invoicedAsId() : null, agreement == null ? view.invoiceStatus() : null,
                 view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
                 partnerFinancing.accounting(view.order(), view.priced()), partnerFinancing.settlement(view.order()),
-                agreement);
+                agreement, advanceContents == null ? null : advanceContents.find(view.order()).orElse(null));
     }
 
     @GET @Path("/{id}/payments")

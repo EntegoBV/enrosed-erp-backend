@@ -214,6 +214,113 @@ class PdfQuoteRendererRenderTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void advanceCargoHasQuantitiesAndRealLogisticsWithoutProductPricesInEveryLanguage() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "CONTAINER-2-OF-3", 0)
+                .withPartnerDeal(13L, bd("50"))
+                .withPurpose(be.enrosed.sales.domain.SalesPurpose.PARTNER_ADVANCE, 13L,
+                        be.enrosed.sales.domain.SalesPaymentPlan.FULL);
+        var cargo = cargoSnapshot(14, true);
+        attachCargoSnapshot(invoice, cargo);
+        var catalog = mock(ProductService.class);
+        Instance<ProductService> catalogInstance = mock(Instance.class);
+        when(catalogInstance.isResolvable()).thenReturn(true);
+        when(catalogInstance.get()).thenReturn(catalog);
+        when(catalog.get(anyLong())).thenReturn(productWithPrintableMasterData());
+        renderer.products = catalogInstance;
+        var price = advancePrice("49289.17", "Voorschot · 2/3 na productie");
+        for (Language language : Language.values()) {
+            var labels = be.enrosed.shared.DocumentText.of(language);
+            var document = renderer.render(invoice, price, customer(language), null, language,
+                    new SalesPdfOptions(false, true, true, false, true, true, false));
+            if (language == Language.NL) writePreview("partner-advance-cargo.pdf", document.content());
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains(labels.get("advanceInvoice").toLowerCase()), text);
+                assertTrue(text.contains("frozen glass rose 1") && text.contains("frozen glass rose 14"), text);
+                assertTrue(text.contains("enr-cargo-14"), text);
+                assertTrue(text.contains("3360") && text.contains("140"), text);
+                assertTrue(text.contains("3,36 m³"), text);
+                assertTrue(text.contains(be.enrosed.shared.DocumentText.date(LocalDate.of(2026, 11, 2), language).toLowerCase()), text);
+                assertTrue(text.contains(be.enrosed.shared.DocumentText.week("2026-W46", language).toLowerCase()), text);
+                assertFalse(text.contains("8712345678906") || text.contains("12 stuks per karton"),
+                        "Current packaging must not contradict the frozen cargo: " + text);
+                assertTrue(text.contains("voorschot · 2/3 na productie"), text);
+                assertTrue(text.contains("49.289,17 eur"), text);
+                assertTrue(text.contains("10.350,73 eur") && text.contains("59.639,90 eur"), text);
+                assertFalse(text.contains(labels.get("unitPrice").toLowerCase()), text);
+                assertFalse(text.contains(labels.get("pallets").toLowerCase()), "Unknown pallet counts must not appear as zero: " + text);
+                assertFalse(text.contains(labels.get("goodsValue").toLowerCase()), text);
+                assertFalse(text.contains("internal-margin-sentinel") || text.contains("landed unit cost"), text);
+                assertPortraitAndEmbedded(pdf);
+                assertTextFitsPage(pdf);
+            }
+        }
+        var hidden = renderer.render(invoice, price, customer(), null, Language.NL,
+                new SalesPdfOptions(false, false, false, false, false, false, false));
+        try (PDDocument pdf = Loader.loadPDF(hidden.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("frozen glass rose 14") && text.contains("240"), text);
+            assertTrue(text.contains("59.639,90 eur"), text);
+            assertFalse(text.contains("bestemming") || text.contains("3,36 m³") || text.contains("140"), text);
+        }
+    }
+
+    @Test
+    void unavailableAdvanceLogisticsDoNotInventPalletCartonOrVolumeTotals() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "CONTAINER-100-PCT", 0)
+                .withPartnerDeal(13L, bd("50"))
+                .withPurpose(be.enrosed.sales.domain.SalesPurpose.PARTNER_ADVANCE, 13L,
+                        be.enrosed.sales.domain.SalesPaymentPlan.FULL);
+        attachCargoSnapshot(invoice, cargoSnapshot(1, false));
+        var document = renderer.render(invoice, advancePrice("73933.75", "Voorschot · Volledige bijdrage"),
+                customer(), null, Language.NL, new SalesPdfOptions(false, false, true, false));
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("voorschotfactuur") && text.contains("frozen glass rose 1"), text);
+            assertTrue(text.contains("73.933,75 eur"), text);
+            assertFalse(text.contains("pallets") || text.contains("dozen: 0") || text.contains("volume: -") || text.contains("0 kg"), text);
+            assertFalse(text.contains("stukprijs"), text);
+            assertTextFitsPage(pdf);
+        }
+    }
+
+    private static be.enrosed.sales.application.PartnerAdvanceContents.Snapshot cargoSnapshot(int count, boolean logistics) {
+        var lines = java.util.stream.IntStream.rangeClosed(1, count).mapToObj(i ->
+                new be.enrosed.sales.application.PartnerAdvanceContents.Item((long) i, "ENR-CARGO-" + i,
+                        "Frozen glass rose " + i, 240, logistics ? 10 : null,
+                        logistics ? bd("0.24") : null, logistics ? bd("62") : null)).toList();
+        return new be.enrosed.sales.application.PartnerAdvanceContents.Snapshot(13L, "PO-2026-013", null, lines,
+                new be.enrosed.sales.application.PartnerAdvanceContents.Totals(count * 240, logistics ? count * 10 : null,
+                        logistics ? bd("0.24").multiply(BigDecimal.valueOf(count)) : null,
+                        logistics ? bd("62").multiply(BigDecimal.valueOf(count)) : null, null),
+                new be.enrosed.sales.application.PartnerAdvanceContents.Delivery("NL", null, null, null, "40HQ",
+                        LocalDate.of(2026, 11, 2), null, null, "2026-W46"), java.time.Instant.parse("2026-09-10T09:00:00Z"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void attachCargoSnapshot(SalesOrder invoice, be.enrosed.sales.application.PartnerAdvanceContents.Snapshot cargo) {
+        var contents = mock(be.enrosed.sales.application.PartnerAdvanceContents.class);
+        Instance<be.enrosed.sales.application.PartnerAdvanceContents> instance = mock(Instance.class);
+        when(instance.isResolvable()).thenReturn(true);
+        when(instance.get()).thenReturn(contents);
+        when(contents.find(invoice)).thenReturn(java.util.Optional.of(cargo));
+        renderer.advanceContents = instance;
+    }
+
+    private static PricedOrder advancePrice(String amount, String label) {
+        var zero = BigDecimal.ZERO;
+        var total = bd(amount);
+        var vat = total.multiply(bd("0.21")).setScale(2, RoundingMode.HALF_UP);
+        return new PricedOrder(List.of(), new PricedOrder.Totals(
+                0, 0, 0, 0, 0, 0, zero, zero, zero, zero,
+                zero, zero, zero, zero, zero, zero, null, zero, zero,
+                zero, false, zero, zero, total, bd("21"), vat, total.add(vat), VatTreatment.BINNENLAND,
+                null, null, zero, zero, zero, zero, total), priced(0).validation(),
+                List.of(new PricedOrder.ExtraLine(label, BigDecimal.ONE, total, total)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void compactMilestoneInvoiceHidesLegacyGeneratedInstructionsButKeepsTheBuyerNote() throws Exception {
         String generated = "Voorschot · Start productie. 30% van het afgesproken voorschot. "
                 + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk.";
@@ -451,7 +558,8 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, priced(1), customer(), null).content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("voorschotfactuur f-2026-0452"), text);
-            assertTrue(text.contains("stukprijs") && text.contains("totaal incl. btw"), text);
+            assertFalse(text.contains("stukprijs"), text);
+            assertTrue(text.contains("totaal incl. btw"), text);
             assertFalse(text.contains("voorschotafspraken"), text);
         }
     }

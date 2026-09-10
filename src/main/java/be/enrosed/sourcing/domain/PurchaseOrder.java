@@ -518,7 +518,18 @@ public record PurchaseOrder(
         return departurePort == null || departurePort.isBlank() ? "Ningbo" : departurePort.strip();
     }
 
+    /** Documentary snapshots must distinguish an entered port from the operational default. */
+    @JsonIgnore
+    public String recordedDeparturePort() {
+        return departurePort == null || departurePort.isBlank() ? null : departurePort.strip();
+    }
+
     public String destinationPort() {
         return destinationPort == null || destinationPort.isBlank() ? "Rotterdam" : destinationPort.strip();
+    }
+
+    @JsonIgnore
+    public String recordedDestinationPort() {
+        return destinationPort == null || destinationPort.isBlank() ? null : destinationPort.strip();
     }
 }

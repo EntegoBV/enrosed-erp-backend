@@ -55,4 +55,5 @@ exec psql \
     --file=/app/migrations/bank-balance-as-of-postgresql.sql \
     --file=/app/migrations/bank-movements-and-refunds-postgresql.sql \
     --file=/app/migrations/partner-schedules-and-partial-settlements-postgresql.sql \
-    --file=/app/migrations/advance-quote-arrangements-postgresql.sql
+    --file=/app/migrations/advance-quote-arrangements-postgresql.sql \
+    --file=/app/migrations/partner-advance-contents-postgresql.sql

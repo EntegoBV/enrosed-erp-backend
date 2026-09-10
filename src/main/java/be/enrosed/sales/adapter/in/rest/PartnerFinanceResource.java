@@ -17,6 +17,7 @@ public class PartnerFinanceResource {
     @Inject PartnerFinancingService partner;
     @Inject be.enrosed.sales.application.PartnerAdvanceScheduleService schedules;
     @Inject be.enrosed.sales.application.SalesOrderService sales;
+    @Inject be.enrosed.sales.application.PartnerAdvanceContents contents;
     @GET @Path("/incoming-payments")
     public List<IncomingPaymentService.IncomingPayment> incoming(@QueryParam("from") String from) {
         try { return incoming.list(from == null || from.isBlank() ? null : LocalDate.parse(from)); }
@@ -40,7 +41,8 @@ public class PartnerFinanceResource {
         var invoice = schedules.createInvoice(id, rowId);
         var priced = sales.price(invoice);
         return new SalesOrderResource.OrderView(invoice, priced, false, null, null, null, null,
-                incoming.summary(invoice, priced), partner.accounting(invoice, priced), null);
+                incoming.summary(invoice, priced), partner.accounting(invoice, priced), null, null,
+                contents.find(invoice).orElse(null));
     }
     @GET @Path("/purchase-orders/{id}/partner-settlement-availability")
     public be.enrosed.sales.application.PartnerSettlementLedger.Availability settlementAvailability(@PathParam("id") long id) {
