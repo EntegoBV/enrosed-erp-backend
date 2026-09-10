@@ -18,6 +18,17 @@ public class PartnerFinanceResource {
     @Inject be.enrosed.sales.application.PartnerAdvanceScheduleService schedules;
     @Inject be.enrosed.sales.application.SalesOrderService sales;
     @Inject be.enrosed.sales.application.PartnerAdvanceContents contents;
+    @Inject be.enrosed.sales.application.PartnerContainerDeletionService deletion;
+
+    @GET @Path("/purchase-orders/{id}/partner-container-deletion")
+    public be.enrosed.sales.application.PartnerContainerDeletionService.Preview deletionPreview(@PathParam("id") long id) {
+        return deletion.preview(id);
+    }
+    @POST @Path("/purchase-orders/{id}/partner-container-deletion") @Consumes(MediaType.APPLICATION_JSON)
+    public be.enrosed.sales.application.PartnerContainerDeletionService.Deleted deleteContainer(@PathParam("id") long id,
+            be.enrosed.sales.application.PartnerContainerDeletionService.Request request) {
+        return deletion.delete(id, request);
+    }
     @GET @Path("/incoming-payments")
     public List<IncomingPaymentService.IncomingPayment> incoming(@QueryParam("from") String from) {
         try { return incoming.list(from == null || from.isBlank() ? null : LocalDate.parse(from)); }

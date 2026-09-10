@@ -107,7 +107,10 @@ class PurchaseOrderDocumentLifecycleTest {
         verify(documentRepository, never()).deleteForOrder(41L);
         verify(paymentRepository, never()).deleteForOrder(41L);
         verify(orders, never()).deleteById(41L);
-        org.mockito.Mockito.verifyNoInteractions(cleanup, activityLog);
+        org.mockito.Mockito.verifyNoInteractions(cleanup);
+        verify(activityLog).record(ActivityLogService.ACTION_DELETED, ActivityLogService.ENTITY_PURCHASE_ORDER,
+                order.id().toString(), order.number(), "Inkooporder verwijderd");
+        org.mockito.Mockito.verifyNoMoreInteractions(activityLog);
         verify(storage, never()).get();
     }
 

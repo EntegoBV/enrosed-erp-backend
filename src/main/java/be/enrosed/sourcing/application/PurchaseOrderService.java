@@ -1342,16 +1342,21 @@ public class PurchaseOrderService {
         if (!linkedSalesDocuments(id).isEmpty()) {
             throw new BusinessRuleException("Deze inkooporder heeft gekoppelde offertes of facturen; archiveer de container zodat documenten en ontvangsten gekoppeld blijven");
         }
+        requireDeletableHistory(order);
+        // Recovery keeps the complete dossier, partner plan and blob references intact.
+        deletedItems.trashPurchase(order);
+        recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
+    }
+
+    /** Shared stock/payment guard for a preview; linked documents are checked by the deletion workflow. */
+    public void requireDeletableHistory(PurchaseOrder order) {
         if (order.status() == PurchaseOrderStatus.ONTVANGEN || order.isStockBooked()) {
             throw new BusinessRuleException(
                     "Een ontvangen inkooporder kan niet verwijderd worden omdat de voorraad al geboekt is");
         }
         if (Money.nz(order.paidTotalEur()).signum() != 0
-                || payments != null && payments.isResolvable() && !payments.get().forOrder(id).isEmpty())
+                || payments != null && payments.isResolvable() && !payments.get().forOrder(order.id()).isEmpty())
             throw new BusinessRuleException("Deze inkooporder heeft geregistreerde betalingen; archiveer de container zodat de betaalhistorie behouden blijft");
-        // Recovery keeps the complete dossier, partner plan and blob references intact.
-        deletedItems.trashPurchase(order);
-        recordActivity(ActivityLogService.ACTION_DELETED, order, "Inkooporder verwijderd");
     }
 
     /** Forward-only lifecycle; same-state saves remain possible for details. */

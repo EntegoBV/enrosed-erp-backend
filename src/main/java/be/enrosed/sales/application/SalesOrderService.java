@@ -1533,6 +1533,15 @@ public class SalesOrderService {
         SalesOrder order = get(id);
         if (order.isPartnerDeal() && purchaseOrders != null && purchaseOrders.isResolvable())
             purchaseOrders.get().lockForPartnerSettlement(order.linkedPurchaseOrderId());
+        requireDeletable(order);
+        deletedItems.trashSales(order);
+        recordActivity(ActivityLogService.ACTION_DELETED, order,
+                order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
+    }
+
+    /** Read-only preview uses the same guards; deletion rechecks them under the document lock. */
+    void requireDeletable(SalesOrder order) {
+        long id = order.id();
         if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(id))
             throw new BusinessRuleException("Een factuur met een betaalhistoriek kan niet worden verwijderd, ook niet na intrekking van betalingen");
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
@@ -1542,9 +1551,6 @@ public class SalesOrderService {
             throw new BusinessRuleException(
                     "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
         }
-        deletedItems.trashSales(order);
-        recordActivity(ActivityLogService.ACTION_DELETED, order,
-                order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
     }
 
     /**
