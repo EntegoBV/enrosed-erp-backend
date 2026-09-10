@@ -39,7 +39,8 @@ public class PartnerAdvanceScheduleService {
     public record Schedule(long purchaseOrderId, long partnerCustomerId, BigDecimal agreedAmountEur,
                            BigDecimal financingPct, BigDecimal externalCostEur, BigDecimal allocatedEur,
                            BigDecimal unallocatedEur, BigDecimal reservedOutsideScheduleEur, List<Row> rows,
-                           boolean invoicingBlocked, String invoicingBlockedReason) {}
+                           boolean invoicingBlocked, String invoicingBlockedReason, PartnerAdvanceBasis.Kind financingBasis,
+                           BigDecimal financingBasisEur) {}
 
     public Schedule get(long purchaseId) {
         PurchaseOrder purchase = purchases.get(purchaseId);
@@ -57,7 +58,8 @@ public class PartnerAdvanceScheduleService {
                             invoice == null ? null : invoice.number(), invoice == null ? null : invoice.status(),
                             paid == null ? ZERO : paid.receivedEur(), paid == null ? ZERO : paid.remainingEur());
                 }).toList(), hasSettlement(purchaseId), hasSettlement(purchaseId)
-                    ? "Er bestaat al een afrekening; nieuwe voorschotfacturen zijn niet meer mogelijk." : null);
+                    ? "Er bestaat al een afrekening; nieuwe voorschotfacturen zijn niet meer mogelijk." : null,
+                agreement.financingBasis(), agreement.financingBasisEur());
     }
 
     public boolean hasRows(long purchaseId) { return !schedules.rows(purchaseId).isEmpty(); }
@@ -66,7 +68,14 @@ public class PartnerAdvanceScheduleService {
     @Transactional
     public List<SalesOrder> createInvoices(long purchaseId, Request request) {
         PurchaseOrder purchase = purchases.lockForPartnerSettlement(purchaseId);
-        Schedule plan = request == null || sameSavedPlan(purchase, request) ? get(purchaseId) : save(purchaseId, request);
+        Schedule plan;
+        if (canRecreateLegacyAgreement(purchaseId)) {
+            var chosen = request == null || sameSavedPlan(purchase, new Request(request.rows(), false))
+                    ? regeneratedLegacyPlan(purchase) : request;
+            plan = save(purchaseId, new Request(chosen.rows(), true));
+        } else {
+            plan = request == null || sameSavedPlan(purchase, request) ? get(purchaseId) : save(purchaseId, request);
+        }
         if (plan.agreedAmountEur().signum() <= 0 || plan.rows().isEmpty())
             throw new BusinessRuleException("Bij deze partnerafspraak is geen voorschotfactuur nodig; leg de afspraak vast op de inkooporder");
         BigDecimal planned = plan.rows().stream().map(Row::amountEur).reduce(ZERO, BigDecimal::add);
@@ -75,6 +84,46 @@ public class PartnerAdvanceScheduleService {
         List<SalesOrder> invoices = new ArrayList<>();
         for (Row row : plan.rows()) invoices.add(createInvoice(purchaseId, row.id()));
         return List.copyOf(invoices);
+    }
+
+    /** A new user action may replace an unused legacy agreement; reads and existing documents never do. */
+    private boolean canRecreateLegacyAgreement(long purchaseId) {
+        var agreement = schedules.find(purchaseId);
+        return agreement != null && agreement.financingBasis() == PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST
+                && !hasAnyPartnerInvoice(purchaseId) && advanceQuotes.quoteIds(purchaseId).isEmpty();
+    }
+
+    private boolean hasAnyPartnerInvoice(long purchaseId) {
+        return orders.findAll().stream().anyMatch(order -> order.isInvoice() && order.isPartnerDeal()
+                && Objects.equals(order.linkedPurchaseOrderId(), purchaseId));
+    }
+
+    private Request regeneratedLegacyPlan(PurchaseOrder purchase) {
+        var old = schedules.find(purchase.id());
+        var rows = schedules.rows(purchase.id());
+        if (!rows.isEmpty() && rows.stream().allMatch(row -> row.percentage() != null))
+            return new Request(rows.stream().map(row -> new RowRequest(row.id(), row.label(), row.percentage(), null, row.dueDate())).toList(), true);
+        BigDecimal third = old.agreedAmountEur().divide(BigDecimal.valueOf(3), 2, RoundingMode.HALF_UP);
+        if (rows.size() == 2 && rows.stream().allMatch(row -> row.percentage() == null)
+                && "1/3 bij start productie".equalsIgnoreCase(rows.getFirst().label().strip())
+                && "2/3 na productie".equalsIgnoreCase(rows.getLast().label().strip())
+                && same(rows.getFirst().amountEur(), third)
+                && same(rows.getLast().amountEur(), old.agreedAmountEur().subtract(third))) {
+            BigDecimal amount = calculatedAgreement(purchase).agreedAmountEur();
+            BigDecimal first = amount.divide(BigDecimal.valueOf(3), 2, RoundingMode.HALF_UP);
+            return new Request(List.of(
+                    new RowRequest(rows.getFirst().id(), rows.getFirst().label(), null, first, rows.getFirst().dueDate()),
+                    new RowRequest(rows.getLast().id(), rows.getLast().label(), null, amount.subtract(first), rows.getLast().dueDate())), true);
+        }
+        throw new BusinessRuleException("De oude voorschotbasis is vervallen. Bewaar eerst een nieuw volledig betalingsplan; vaste bedragen worden niet automatisch verhoogd");
+    }
+
+    /** A user recreating a full advance without terms must also leave the old reservation cap behind. */
+    @Transactional
+    public void prepareUnscheduledCreation(long purchaseId) {
+        PurchaseOrder purchase = purchases.lockForPartnerSettlement(purchaseId);
+        if (canRecreateLegacyAgreement(purchaseId) && schedules.rows(purchaseId).isEmpty())
+            schedules.save(calculatedAgreement(purchase));
     }
 
     /** Browser retries can still contain null row ids from before the first save. */
@@ -86,6 +135,7 @@ public class PartnerAdvanceScheduleService {
             var current = calculatedAgreement(purchase);
             if (!same(agreement.agreedAmountEur(), current.agreedAmountEur())
                     || !same(agreement.externalCostEur(), current.externalCostEur())
+                    || agreement.financingBasis() != current.financingBasis()
                     || !same(agreement.financingPct(), current.financingPct())) return false;
         }
         for (int index = 0; index < rows.size(); index++) {
@@ -124,8 +174,9 @@ public class PartnerAdvanceScheduleService {
         var current = schedules.rows(purchaseId);
         var existing = current.stream().collect(Collectors.toMap(PartnerAdvanceSchedules.Row::id, Function.identity()));
         var agreement = schedules.find(purchaseId);
-        if (request.recalculateAgreement() && (hasSettlement(purchaseId) || !advanceInvoices(purchaseId).isEmpty() || current.stream().anyMatch(row -> row.invoiceId() != null)))
-            throw new BusinessRuleException("De financieringsbasis kan niet meer worden herberekend zodra een voorschotfactuur bestaat");
+        if (request.recalculateAgreement() && (hasSettlement(purchaseId) || hasAnyPartnerInvoice(purchaseId)
+                || current.stream().anyMatch(row -> row.invoiceId() != null)))
+            throw new BusinessRuleException("De financieringsbasis kan niet worden herberekend zolang facturen bestaan");
         if (agreement == null || request.recalculateAgreement()) agreement = calculatedAgreement(purchase);
         if (!Objects.equals(purchase.partnerCustomerId(), agreement.partnerCustomerId()))
             throw new BusinessRuleException("De partner verschilt van de vastgelegde financieringsafspraak");
@@ -211,19 +262,28 @@ public class PartnerAdvanceScheduleService {
                 throw new BusinessRuleException("Deze voorschottermijn hoort al bij een andere historische offerte");
             return existing;
         }
+        var quotationIds = advanceQuotes.quoteIds(purchaseId);
+        if (requestedSourceQuoteId == null && quotationIds.isEmpty() && agreement != null
+                && agreement.financingBasis() == PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST) {
+            if (!canRecreateLegacyAgreement(purchaseId))
+                throw new BusinessRuleException("Deze oude financieringsbasis bevat nog facturen of een offerteafspraak. Verwijder eerst alle ongebruikte conceptfacturen en maak het volledige voorschotplan opnieuw");
+            save(purchaseId, regeneratedLegacyPlan(purchase));
+            agreement = schedules.find(purchaseId);
+            row = schedules.rows(purchaseId).stream().filter(value -> value.id() == rowId).findFirst().orElseThrow();
+        }
         if (agreement == null) throw new BusinessRuleException("Bewaar eerst het voorschotplan");
         if (!Objects.equals(purchase.partnerCustomerId(), agreement.partnerCustomerId()))
             throw new BusinessRuleException("De partner verschilt van de financieringsafspraak");
-        var quotationIds = advanceQuotes.quoteIds(purchaseId);
         var planRows = schedules.rows(purchaseId);
+        var quotedAgreement = agreement;
         Long sourceQuoteId = (requestedSourceQuoteId == null ? quotationIds : List.of(requestedSourceQuoteId)).stream().filter(id -> {
             SalesOrder quote = sales.get(id);
             if (quote.isInvoice() || !quote.isPartnerAdvance() || !Objects.equals(quote.linkedPurchaseOrderId(), purchaseId)
                     || !PartnerFinancingService.live(quote) || !Objects.equals(quote.customerId(), purchase.partnerCustomerId())) return false;
             var snapshot = advanceQuotes.find(id);
             return snapshot != null && same(snapshot.sharePct(), purchase.partnerSharePctOrDefault())
-                    && same(snapshot.financingPct(), agreement.financingPct())
-                    && same(snapshot.agreedAmountEur(), agreement.agreedAmountEur())
+                    && same(snapshot.financingPct(), quotedAgreement.financingPct())
+                    && same(snapshot.agreedAmountEur(), quotedAgreement.agreedAmountEur())
                     && snapshot.rows().size() == planRows.size()
                     && planRows.stream().allMatch(planned -> snapshot.rows().stream().anyMatch(quoted ->
                         Objects.equals(quoted.scheduleRowId(), planned.id()) && quoted.label().equals(planned.label())
@@ -232,6 +292,8 @@ public class PartnerAdvanceScheduleService {
         }).findFirst().orElse(null);
         if (requestedSourceQuoteId != null && sourceQuoteId == null)
             throw new BusinessRuleException("De historische offerte stemt niet overeen met het actuele voorschotplan");
+        if (agreement.financingBasis() == PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST && sourceQuoteId == null)
+            throw new BusinessRuleException("Maak eerst een nieuw voorschotplan op basis van het inkooptotaal inclusief aparte kosten");
         String notes = sourceQuoteId == null ? null : sales.get(sourceQuoteId).notes();
         SalesOrder invoice = sales.createScheduledPartnerAdvance(purchase, row.id(), row.label(), row.amountEur(), row.dueDate(), notes, sourceQuoteId);
         schedules.save(new PartnerAdvanceSchedules.Row(row.id(), purchaseId, row.position(), row.label(), row.percentage(),
@@ -278,10 +340,10 @@ public class PartnerAdvanceScheduleService {
 
     private PartnerAdvanceSchedules.Agreement calculatedAgreement(PurchaseOrder purchase) {
         if (purchase.partnerCustomerId() == null) throw new BusinessRuleException("Koppel eerst een partner aan de inkooporder");
-        BigDecimal external = Money.money(purchases.reconciliation(purchase.id()).totals().forecastExternalEur());
+        BigDecimal basis = PartnerAdvanceBasis.total(purchases.calculate(purchase));
         BigDecimal pct = purchase.partnerCostPctOrDefault();
-        return new PartnerAdvanceSchedules.Agreement(purchase.id(), purchase.partnerCustomerId(), external, pct,
-                external.multiply(pct).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
+        return new PartnerAdvanceSchedules.Agreement(purchase.id(), purchase.partnerCustomerId(), basis, pct,
+                PartnerAdvanceBasis.amount(basis, pct), PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS);
     }
     private List<SalesOrder> advanceInvoices(long purchaseId) {
         return orders.findAll().stream().filter(order -> order.isInvoice() && order.isPartnerAdvance()

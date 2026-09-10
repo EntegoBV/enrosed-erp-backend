@@ -14,14 +14,30 @@ import java.util.List;
 public class PartnerAdvanceSchedules {
     @Inject EntityManager entities;
     public record Agreement(long purchaseOrderId, long partnerCustomerId, BigDecimal externalCostEur,
-                            BigDecimal financingPct, BigDecimal agreedAmountEur) {}
+                            BigDecimal financingPct, BigDecimal agreedAmountEur, PartnerAdvanceBasis.Kind financingBasis,
+                            BigDecimal financingBasisEur) {
+        public Agreement {
+            financingBasis = financingBasis == null ? PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST : financingBasis;
+            financingBasisEur = externalCostEur;
+        }
+        public Agreement(long purchaseOrderId, long partnerCustomerId, BigDecimal externalCostEur,
+                         BigDecimal financingPct, BigDecimal agreedAmountEur, PartnerAdvanceBasis.Kind financingBasis) {
+            this(purchaseOrderId, partnerCustomerId, externalCostEur, financingPct, agreedAmountEur, financingBasis, externalCostEur);
+        }
+        /** Historical fixtures and stored agreements used external cost before the pricing-total correction. */
+        public Agreement(long purchaseOrderId, long partnerCustomerId, BigDecimal externalCostEur,
+                         BigDecimal financingPct, BigDecimal agreedAmountEur) {
+            this(purchaseOrderId, partnerCustomerId, externalCostEur, financingPct, agreedAmountEur,
+                    PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST);
+        }
+    }
     public record Row(Long id, long purchaseOrderId, int position, String label, BigDecimal percentage,
                       BigDecimal amountEur, LocalDate dueDate, Long invoiceId) {}
 
     public Agreement find(long purchaseId) {
         var row = entities.find(PartnerAdvanceAgreementEntity.class, purchaseId);
         return row == null ? null : new Agreement(row.purchaseOrderId, row.partnerCustomerId,
-                row.externalCostEur, row.financingPct, row.agreedAmountEur);
+                row.externalCostEur, row.financingPct, row.agreedAmountEur, row.financingBasis);
     }
     public void save(Agreement agreement) {
         var row = entities.find(PartnerAdvanceAgreementEntity.class, agreement.purchaseOrderId());
@@ -29,7 +45,7 @@ public class PartnerAdvanceSchedules {
         if (fresh) row = new PartnerAdvanceAgreementEntity();
         row.purchaseOrderId = agreement.purchaseOrderId(); row.partnerCustomerId = agreement.partnerCustomerId();
         row.externalCostEur = agreement.externalCostEur(); row.financingPct = agreement.financingPct();
-        row.agreedAmountEur = agreement.agreedAmountEur(); row.updatedAt = Instant.now();
+        row.agreedAmountEur = agreement.agreedAmountEur(); row.financingBasis = agreement.financingBasis(); row.updatedAt = Instant.now();
         if (fresh) entities.persist(row);
         entities.flush();
     }

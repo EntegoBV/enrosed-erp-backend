@@ -12,5 +12,7 @@ public class PartnerAdvanceAgreementEntity {
     @Column(name = "external_cost_eur", nullable = false, precision = 19, scale = 2) public BigDecimal externalCostEur;
     @Column(name = "financing_pct", nullable = false, precision = 9, scale = 4) public BigDecimal financingPct;
     @Column(name = "agreed_amount_eur", nullable = false, precision = 19, scale = 2) public BigDecimal agreedAmountEur;
+    @Enumerated(EnumType.STRING) @Column(name = "financing_basis")
+    public be.enrosed.sales.application.PartnerAdvanceBasis.Kind financingBasis;
     @Column(name = "updated_at", nullable = false) public Instant updatedAt;
 }

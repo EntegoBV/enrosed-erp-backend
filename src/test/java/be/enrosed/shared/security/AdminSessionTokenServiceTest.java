@@ -3,6 +3,7 @@ package be.enrosed.shared.security;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -27,10 +28,18 @@ class AdminSessionTokenServiceTest {
     void tamperingAndSigningSecretChangesInvalidateToken() {
         AdminSessionTokenService service = service();
         String token = service.issueAt("emre", NOW).token();
-        String tampered = token.substring(0, token.length() - 1)
-                + (token.endsWith("x") ? "y" : "x");
+        String[] parts = token.split("\\.", -1);
+        byte[] signature = Base64.getUrlDecoder().decode(parts[3]);
+        // Changing the last base64 character can affect unused bits only; change a real signature byte.
+        signature[0] ^= 1;
+        parts[3] = Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
+        String tampered = String.join(".", parts);
 
         assertFalse(service.verifyAt("emre", tampered, NOW.plusSeconds(1)));
+        parts = token.split("\\.", -1);
+        parts[1] = Long.toString(Long.parseLong(parts[1]) + 60);
+        assertFalse(service.verifyAt("emre", String.join(".", parts), NOW.plusSeconds(1)),
+                "changing the signed expiry must fail even while the original token is valid");
         service.configuredSessionSecret = "a-new-secret";
         assertFalse(service.verifyAt("emre", token, NOW.plusSeconds(1)));
     }

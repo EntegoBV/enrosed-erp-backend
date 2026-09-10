@@ -61,6 +61,12 @@ public class PartnerAdvanceContents {
     /** Called in the invoice transaction. Repeated calls never replace the captured cargo. */
     @Transactional
     public Optional<Snapshot> capture(SalesOrder invoice) {
+        return capture(invoice, null);
+    }
+
+    /** Preserve an explicitly chosen arrival week without creating a financial product line. */
+    @Transactional
+    public Optional<Snapshot> capture(SalesOrder invoice, String requestedDeliveryWeek) {
         if (invoice == null || invoice.id() == null || !invoice.isInvoice() || !invoice.isPartnerAdvance()) return Optional.empty();
         orders.lockById(invoice.id());
         var existing = find(invoice.id());
@@ -83,7 +89,8 @@ public class PartnerAdvanceContents {
                 purchase == null ? null : purchase.recordedDestinationPort(), null,
                 purchase == null || purchase.containerType() == null ? null : purchase.containerType().code(),
                 purchase == null ? null : purchase.expectedArrival(), purchase == null ? null : purchase.shippedOn(),
-                purchase == null ? null : purchase.receivedOn(), weeks.size() == 1 ? weeks.getFirst() : null);
+                purchase == null ? null : purchase.receivedOn(), requestedDeliveryWeek != null ? requestedDeliveryWeek
+                        : weeks.size() == 1 ? weeks.getFirst() : null);
         Snapshot snapshot = new Snapshot(invoice.linkedPurchaseOrderId(), purchase == null ? null : purchase.number(),
                 source == null ? null : source.id(), items, totals(items), delivery, Instant.now());
         var entity = new PartnerAdvanceContentsEntity();

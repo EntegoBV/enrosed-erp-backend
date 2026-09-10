@@ -165,13 +165,13 @@ class SalesOrderPartnerDealTest {
         when(orders.save(any(SalesOrder.class))).thenAnswer(call -> withId(call.getArgument(0), 72L));
 
         SalesOrder quote = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
-                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null));
+                13L, 7L, "COST", BigDecimal.ZERO, false, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null));
         assertEquals("2026-W36", quote.lines().get(0).deliveryWeek(), "the week the container arrives");
         assertEquals(DeliveryTermsState.VOLLEDIG, quote.deliveryTerms());
 
         /* A week chosen on the sheet wins; a malformed one is refused before anything is saved. */
         SalesOrder later = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
-                13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null, " 2026-w40 "));
+                13L, 7L, "COST", BigDecimal.ZERO, false, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null, " 2026-w40 "));
         assertEquals("2026-W40", later.lines().get(0).deliveryWeek());
         assertThrows(BusinessRuleException.class, () -> service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("100"), true, List.of(0), null, "week 40")));
@@ -202,25 +202,23 @@ class SalesOrderPartnerDealTest {
         assertNull(quote.portalToken());
         assertNotNull(quote.invoiceDueDate());
         assertEquals(7L, quote.customerId());
-        assertEquals(new BigDecimal("25.0000"), quote.lines().get(0).unitPriceEur(), "external cost includes separate fees once, excludes internal markup");
-        assertEquals(40, quote.lines().get(0).quantity());
-        assertTrue(quote.extraLines().isEmpty(), "all separate costs are already allocated in the external unit cost");
-        assertEquals(new BigDecimal("25.0000"), quote.lines().get(0).unitCostEur(), "the line remembers what the container cost us");
+        assertTrue(quote.lines().isEmpty(), "advance cargo is not a priced product claim");
+        assertEquals(1, quote.extraLines().size());
+        assertEquals(new BigDecimal("1001.45"), quote.extraLines().getFirst().total(), "exact purchasing total including separate costs");
         assertEquals(FreightState.AANGEVULD, quote.freight());
         assertEquals(FreightPricingStrategy.FIXED, quote.freightPricingStrategy(), "no carrier tariff on top of the landed cost");
         assertEquals(BigDecimal.ZERO, quote.manualFreightEur());
         assertEquals(13L, quote.partnerPurchaseOrderId());
         assertEquals(new BigDecimal("50"), quote.partnerSharePct());
         assertEquals("PARTNER", quote.salesChannel());
-        assertTrue(quote.internalNotes().startsWith("Partnercontainer PO-2026-008: goederen aan 100 % van onze gelande kostprijs"), quote.internalNotes());
+        assertTrue(quote.internalNotes().startsWith("Partnercontainer PO-2026-008: voorschot van 100 % van het inkooptotaal"), quote.internalNotes());
         assertNull(quote.notes() == null || quote.notes().isBlank() ? null : quote.notes(), "nothing customer-facing is written");
 
-        /* Half the cost up front: the lines and the separate costs follow. */
+        /* Half of the complete purchase total, rounded once on the invoice. */
         SalesOrder half = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
                 13L, 7L, "COST", BigDecimal.ZERO, true, new BigDecimal("50"), new BigDecimal("50"), true, List.of(), null));
-        assertEquals(new BigDecimal("12.5000"), half.lines().get(0).unitPriceEur());
-        assertEquals(new BigDecimal("25.0000"), half.lines().get(0).unitCostEur(), "half the price, the whole cost");
-        assertTrue(half.extraLines().isEmpty(), "separate costs are financed at the same percentage inside the unit cost");
+        assertTrue(half.lines().isEmpty());
+        assertEquals(new BigDecimal("500.73"), half.extraLines().getFirst().total());
 
         /* Customer prices: no landed cost needed, no partner deal, ordinary freight. */
         SalesOrder plain = service.createFromPurchaseOrder(new SalesOrderService.FromPurchaseOrderRequest(
@@ -412,7 +410,11 @@ class SalesOrderPartnerDealTest {
                 BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, new BigDecimal("771.45"),
                 new BigDecimal("19.2863"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
-        be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), null, null);
+        var totals = new be.enrosed.sourcing.domain.LandedCost.Totals(40, 10, new BigDecimal("1.36"),
+                new BigDecimal("768.00"), new BigDecimal("683.52"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("771.45"), new BigDecimal("19.2863"), BigDecimal.ZERO,
+                new BigDecimal("150"), container.otherCosts(), new BigDecimal("80"), new BigDecimal("230"), new BigDecimal("1001.45"));
+        be.enrosed.sourcing.domain.LandedCost costing = new be.enrosed.sourcing.domain.LandedCost(List.of(costLine), totals, null);
         when(sourcing.get(13L)).thenReturn(container);
         when(sourcing.lockForPartnerSettlement(13L)).thenReturn(container);
         when(sourcing.setPartner(eq(13L), any())).thenReturn(container);
@@ -461,7 +463,7 @@ class SalesOrderPartnerDealTest {
         assertEquals(7L, quote.customerId(), "no customer chosen: the container's partner");
         assertTrue(quote.isPartnerDeal());
         assertEquals(new BigDecimal("40"), quote.partnerSharePct());
-        assertEquals(new BigDecimal("12.5000"), quote.lines().get(0).unitPriceEur(), "half of 19,2863");
+        assertEquals(new BigDecimal("500.73"), quote.extraLines().getFirst().total(), "half of the exact purchase total");
         verify(sourcing).adoptPartner(eq(13L), eq(7L), any(), any());
 
         /* A container without a partner gets one from the first document made for a partner customer. */

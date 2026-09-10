@@ -153,10 +153,11 @@ class PartnerAdvanceContentsTest {
     }
 
     @Test @TestTransaction
-    void unscheduledAdvanceRetainsItsExistingFinancialLinesWithSeparateCargoContext() {
+    void unscheduledAdvanceClaimsOneExactAmountWithSeparateCargoContext() {
         var f = fixture();
         var invoice = sales.createFromPurchaseOrder(request(f, null, SalesPurpose.PARTNER_ADVANCE));
-        assertEquals(1, invoice.lines().size());
+        assertTrue(invoice.lines().isEmpty());
+        assertEquals(1, invoice.extraLines().size());
         assertEquals(new BigDecimal("12000.00"), sales.price(invoice).totals().total());
         assertEquals(240, contents.find(invoice).orElseThrow().totals().pieces());
         assertEquals(invoice.id(), sales.createFromPurchaseOrder(request(f, null, SalesPurpose.PARTNER_ADVANCE)).id());
@@ -169,17 +170,13 @@ class PartnerAdvanceContentsTest {
         var invoice = sales.createFromPurchaseOrder(request(f, null, SalesPurpose.PARTNER_ADVANCE));
         var captured = contents.find(invoice).orElseThrow();
         ObjectNode changed = json.valueToTree(invoice);
-        ((ObjectNode) changed.path("lines").get(0)).put("quantity", 120);
+        changed.withArray("lines").addObject().put("productId", f.productId()).put("quantity", 120).put("unitPriceEur", 100);
         var wrongQuantity = json.treeToValue(changed, SalesOrder.class);
         assertThrows(BusinessRuleException.class, () -> sales.update(invoice.id(), wrongQuantity));
         changed = json.valueToTree(invoice);
         changed.put("countryCode", "NL");
         var wrongDestination = json.treeToValue(changed, SalesOrder.class);
         assertThrows(BusinessRuleException.class, () -> sales.update(invoice.id(), wrongDestination));
-        changed = json.valueToTree(invoice);
-        ((ObjectNode) changed.path("lines").get(0)).put("deliveryWeek", "2027-W02");
-        var wrongDeliveryWeek = json.treeToValue(changed, SalesOrder.class);
-        assertThrows(BusinessRuleException.class, () -> sales.update(invoice.id(), wrongDeliveryWeek));
         changed = json.valueToTree(invoice);
         changed.put("notes", "Bel ons voor aankomst.");
         changed.put("invoiceDueDate", "2026-11-20");

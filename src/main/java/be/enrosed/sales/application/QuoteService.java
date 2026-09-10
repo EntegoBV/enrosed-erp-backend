@@ -100,7 +100,7 @@ public class QuoteService {
     }
 
     private SalesOrder sendInvoiceByMail(SalesOrder order, String personalMessage) {
-        orders.lockById(order.id());
+        salesOrders.lockDocumentForMutation(order.id());
         order = salesOrders.get(order.id());
         salesOrders.validateInvoiceDispatch(order);
         Customer customer = customers.get(order.customerId());

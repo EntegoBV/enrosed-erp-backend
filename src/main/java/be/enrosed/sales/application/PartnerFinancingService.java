@@ -37,7 +37,8 @@ public class PartnerFinancingService {
                           List<IncomingPaymentService.IncomingPayment> payments,
                           boolean settlementComplete, int settledQuantity, int remainingQuantity,
                           BigDecimal unbilledAdvanceEur, int unbilledAdvanceCount,
-                          BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate) {}
+                          BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate,
+                          BigDecimal financingBasisEur, PartnerAdvanceBasis.Kind financingBasis) {}
 
     public PartnerSettlements.Snapshot settlement(SalesOrder order) {
         return order.id() != null && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? settlements.find(order.id()) : null;
@@ -110,6 +111,7 @@ public class PartnerFinancingService {
                 .map(PartnerAdvanceSchedules.Row::amountEur).reduce(ZERO, BigDecimal::add));
         LocalDate nextDue = pending.stream().map(PartnerAdvanceSchedules.Row::dueDate).filter(java.util.Objects::nonNull)
                 .min(LocalDate::compareTo).orElse(null);
+        var agreement = purchase.partnerCustomerId() == null ? null : schedules.get(id);
         return new Summary(id, purchase.partnerCustomerId(), name, purchase.partnerCostPctOrDefault(),
                 purchase.partnerSharePctOrDefault(), docs.stream().filter(SalesOrder::isPartnerAdvance).findFirst()
                 .map(SalesOrder::paymentPlan).orElse(SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION),
@@ -119,7 +121,9 @@ public class PartnerFinancingService {
                 finalInvoice == null ? null : finalInvoice.number(), finalAmount, receivedFinal, openFinal,
                 credit, totalReceived, openAdvance.add(openFinal), reconciliation.totals().paidEur().subtract(totalReceived).max(ZERO),
                 revenue, cost, revenue.subtract(cost), documents, payments, settlementComplete, settledQuantity, remainingQuantity,
-                unbilled, pending.size(), overdue, nextDue);
+                unbilled, pending.size(), overdue, nextDue,
+                agreement == null ? PartnerAdvanceBasis.total(purchases.calculate(purchase)) : agreement.financingBasisEur(),
+                agreement == null ? PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS : agreement.financingBasis());
     }
 
     public static boolean issued(SalesOrder order) { return order.isInvoice() && order.status() != QuoteStatus.CONCEPT && live(order); }

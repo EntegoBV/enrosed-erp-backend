@@ -63,6 +63,7 @@ COPY docs/migrations/2026-09-09/bank-movements-and-refunds-postgresql.sql ./migr
 COPY docs/migrations/2026-09-09/partner-schedules-and-partial-settlements-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-09/advance-quote-arrangements-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-10/partner-advance-contents-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-10/partner-advance-financing-basis-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-line-cost-snapshot-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/media-link-company-cost-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/customer-fiscal-representative-postgresql.sql ./migrations/
