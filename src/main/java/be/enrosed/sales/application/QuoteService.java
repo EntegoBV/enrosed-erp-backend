@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -160,12 +161,14 @@ public class QuoteService {
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
+        Set<Long> unavailable = order.lines().stream().filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
         java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
         int visiblePallets = order.loadMode() == LoadMode.PALLETS ? order.pallets().size() : 0;
         for (int i = 0; i < visiblePallets; i++) {
             OrderPallet pallet = order.pallets().get(i);
             java.util.List<QuoteDocumentRenderer.PackingItem> items = new java.util.ArrayList<>();
             for (OrderPallet.Item item : pallet.items()) {
+                if (unavailable.contains(item.productId())) continue;
                 var product = products.get(item.productId());
                 int per = product.carton() == null ? 1
                         : Math.max(1, product.carton().piecesPerCarton());
@@ -174,7 +177,7 @@ public class QuoteService {
             }
             String label = pallet.label() == null || pallet.label().isBlank()
                     ? "Pallet " + (i + 1) : pallet.label();
-            pallets.add(new QuoteDocumentRenderer.PackingPallet(
+            if (!items.isEmpty()) pallets.add(new QuoteDocumentRenderer.PackingPallet(
                     label, pallet.type(), pallet.heightCm(), items));
         }
 
@@ -184,6 +187,7 @@ public class QuoteService {
         int totalCartons = 0;
         int totalPieces = 0;
         for (var line : order.lines()) {
+            if (line.isUnavailable()) continue;
             var product = products.get(line.productId());
             int per = product.carton() == null ? 1
                     : Math.max(1, product.carton().piecesPerCarton());
@@ -283,8 +287,9 @@ public class QuoteService {
         List<QuoteMailer.DeliveryLine> deliveryLines = priced.lines().stream()
                 .map(line -> new QuoteMailer.DeliveryLine(
                         line.description(),
-                        deliveryTermOf(line, customer.language()),
-                        line.inStock() || (line.deliveryWeek() != null && !line.deliveryWeek().isBlank())))
+                        line.unavailable() ? null : deliveryTermOf(line, customer.language()),
+                        line.unavailable() || line.inStock() || (line.deliveryWeek() != null && !line.deliveryWeek().isBlank()),
+                        line.unavailable(), line.requestedQuantity()))
                 .toList();
 
         /* Track where the delivery terms stand. When a quote leaves with a
@@ -346,7 +351,8 @@ public class QuoteService {
                 agreement == null ? priced.totals().shippingTotal() : null,
                 agreement == null ? priced.totals().total() : null,
                 priced.lines().stream().map(line -> new QuoteMailer.SummaryLine(
-                        line.description(), line.quantity(), agreement == null ? line.net() : null)).toList(), agreement);
+                        line.description(), line.quantity(), agreement == null ? line.net() : null,
+                        line.unavailable(), line.requestedQuantity())).toList(), agreement);
     }
 
     /** Rebuild the PDF, for instance to review or download it ourselves. */
@@ -751,11 +757,11 @@ public class QuoteService {
                     .findFirst()
                     .orElse(null);
 
-            if (proposal == null) {
+            if (proposal == null || line.isUnavailable()) {
                 updated.add(line);
             } else if (proposal.quantity() > 0) {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
-                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()));
+                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()));
             }
             /* quantity 0 means: drop this line */
         }
@@ -795,6 +801,9 @@ public class QuoteService {
 
     /** A message can be answered, but a quoted financing arrangement cannot silently change its goods. */
     private void requireUnchangedAdvanceAgreement(SalesOrder order, List<QuoteRevision.Line> proposedLines) {
+        if (proposedLines != null && proposedLines.stream().anyMatch(proposal -> proposal != null && proposal.quantity() > 0
+                && order.lines().stream().anyMatch(line -> line.isUnavailable() && Objects.equals(line.productId(), proposal.productId()))))
+            throw new BusinessRuleException("Dit product is tijdelijk niet bestelbaar; vraag Enrosed om de beschikbaarheid eerst te bevestigen");
         boolean split = salesOrders.hasSplitOrder(order);
         if ((!salesOrders.hasAdvanceAgreement(order) && !split) || proposedLines == null) return;
         boolean changed = proposedLines.stream().anyMatch(proposal -> proposal == null

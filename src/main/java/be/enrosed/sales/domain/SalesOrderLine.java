@@ -27,8 +27,14 @@ public record SalesOrderLine(
          * of that day. Fixed, so an old quote's margin never drifts when a
          * later container lands cheaper or dearer.
          */
-        BigDecimal unitCostEur
+        BigDecimal unitCostEur,
+        Boolean unavailable,
+        Integer requestedQuantity
 ) {
+    public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
+                          BigDecimal manualDiscountPct, String deliveryWeek, BigDecimal unitCostEur) {
+        this(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, null, null);
+    }
     /** A line written before the cost was remembered on it. */
     public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
                           BigDecimal manualDiscountPct, String deliveryWeek) {
@@ -40,6 +46,10 @@ public record SalesOrderLine(
     }
 
     public SalesOrderLine withUnitCost(BigDecimal unitCost) {
-        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost);
+        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost, unavailable, requestedQuantity);
+    }
+    public boolean isUnavailable() { return Boolean.TRUE.equals(unavailable); }
+    public SalesOrderLine withAvailability(boolean value, int activeQuantity, Integer remembered) {
+        return new SalesOrderLine(id, productId, activeQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, value, remembered);
     }
 }

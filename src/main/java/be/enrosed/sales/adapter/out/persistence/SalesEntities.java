@@ -341,6 +341,8 @@ public final class SalesEntities {
         public String deliveryWeek;
         /** The cost of one piece when the line was written; null on rows from before the snapshot. */
         @Column(name = "unit_cost_eur", precision = 19, scale = 4) public BigDecimal unitCostEur;
+        @Column(name = "unavailable", nullable = false) public boolean unavailable;
+        @Column(name = "requested_quantity") public Integer requestedQuantity;
     }
 
     @Entity(name = "QuoteRevisionEntity")

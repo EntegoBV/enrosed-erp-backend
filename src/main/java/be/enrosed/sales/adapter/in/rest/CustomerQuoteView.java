@@ -40,7 +40,14 @@ public record CustomerQuoteView(
             int piecesPerCarton,
             BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
             boolean inventoryKnown, boolean inStock,
-            String deliveryDate, String deliveryWeek) {}
+            String deliveryDate, String deliveryWeek, boolean unavailable, Integer requestedQuantity) {
+        public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
+                            int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
+                            BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek) {
+            this(productId, sku, description, photoUrl, quantity, cartons, pallets, cbm, piecesPerCarton, unitPrice,
+                    discountPct, net, inventoryKnown, inStock, deliveryDate, deliveryWeek, false, null);
+        }
+    }
 
     public record CustomerTotals(
             int pieces, int cartons, int pallets, BigDecimal cbm,

@@ -101,7 +101,7 @@ public class SalesPricingCalculator {
             /* Quantities are entered in pieces but shipped in full cartons.
                Rounding up happens right here, so what you see on screen is
                what actually goes out the door. */
-            int requested = Math.max(0, line.quantity());
+            int requested = line.isUnavailable() ? 0 : Math.max(0, line.quantity());
             int cartons = carton.cartonsFor(requested);
             /* A partner deal follows the container: the pieces it holds, not a full last carton. */
             int quantity = order.isPartnerDeal() || allocated != null ? requested : cartons * Math.max(1, carton.piecesPerCarton());
@@ -146,7 +146,7 @@ public class SalesPricingCalculator {
             /* The cost the line was written with; a line without one (older
                documents, a product that had no cost yet) reads today's cost. */
             BigDecimal landedUnit = allocated != null ? allocated.landedUnitCost() : line.hasUnitCost() ? line.unitCostEur() : Money.nz(product.landedCostEur());
-            if (landedUnit.signum() == 0) withoutCost.add(product.sku());
+            if (landedUnit.signum() == 0 && !line.isUnavailable()) withoutCost.add(product.sku());
             BigDecimal lineCost = allocated == null ? landedUnit.multiply(BigDecimal.valueOf(quantity)) : allocated.costTotal();
 
             DiscountTier next = nextTier(productLineTiers, quantity);
@@ -186,11 +186,11 @@ public class SalesPricingCalculator {
                     next == null || allocated != null ? null : next.percent(),
                     product.inventoryKnown() ? product.stockQuantity() : null,
                     product.inventoryKnown(),
-                    estimate.fromStock(),
-                    estimate.shortfall(),
-                    estimate.earliestDate() == null ? null : estimate.earliestDate().toString(),
-                    manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
-                    estimate.explanation()));
+                    !line.isUnavailable() && estimate.fromStock(),
+                    line.isUnavailable() ? Integer.valueOf(0) : estimate.shortfall(),
+                    line.isUnavailable() || estimate.earliestDate() == null ? null : estimate.earliestDate().toString(),
+                    line.isUnavailable() ? null : manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
+                    line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity()));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);

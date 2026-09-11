@@ -127,6 +127,13 @@ public class SalesOrderService {
                 draft.extraLines(), draft.manualFreightEur(), draft.extraDiscountPct(), null);
     }
 
+    @Inject jakarta.enterprise.inject.Instance<SalesLineAvailability> lineAvailability;
+
+    public SalesOrder preview(long id, SalesOrder proposed) {
+        SalesOrder stored = get(id);
+        return lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
+    }
+
     public void captureCustomerRequest(long id) {
         if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().capture(get(id));
     }
@@ -144,6 +151,7 @@ public class SalesOrderService {
     }
 
     PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
+        splitPricing = SalesSplits.activePricing(order, splitPricing);
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
         Country country = countries.find(order.countryCode());
@@ -268,7 +276,7 @@ public class SalesOrderService {
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, source.id(), null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -977,7 +985,7 @@ public class SalesOrderService {
         Instant shippedAt = Instant.now();
         boolean historicalShipment = false;
         boolean entirelyHistorical = false;
-        Map<Long, Integer> quantitiesToBook = invoice.lines().stream().filter(line -> line.quantity() > 0)
+        Map<Long, Integer> quantitiesToBook = invoice.lines().stream().filter(line -> !line.isUnavailable() && line.quantity() > 0)
                 .collect(Collectors.toMap(SalesOrderLine::productId, SalesOrderLine::quantity, Integer::sum));
         if (invoice.purpose() == SalesPurpose.PARTNER_SETTLEMENT) {
             if (purchaseOrders != null && purchaseOrders.isResolvable())
@@ -1103,6 +1111,9 @@ public class SalesOrderService {
      * between the two document sorts.
      */
     public void validateInvoiceForSend(SalesOrder invoice) {
+        requireActiveProductsWhenExcluded(invoice);
+        if (invoice.purpose() == SalesPurpose.STANDARD && invoice.lines().stream().anyMatch(line -> !line.isUnavailable() && line.quantity() <= 0))
+            throw new BusinessRuleException("Vul een positief productaantal in of markeer het product uitdrukkelijk als tijdelijk niet bestelbaar");
         /* A settlement invoice carries only its own line; that is a full document too. */
         if (invoice.lines().isEmpty() && invoice.extraLines().isEmpty()) {
             throw new BusinessRuleException("Een factuur zonder regels kan niet verstuurd worden");
@@ -1213,6 +1224,7 @@ public class SalesOrderService {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
+        if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
         if (hasAdvanceContents(beforeEdit) && (!sameCargoLines(beforeEdit.lines(), changes.lines())
@@ -1393,7 +1405,7 @@ public class SalesOrderService {
         List<SalesOrderLine> lines = current.lines().stream()
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur())
+                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -1645,7 +1657,7 @@ public class SalesOrderService {
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -1684,10 +1696,11 @@ public class SalesOrderService {
      * needs a decision. Neither may silently disappear as a zero-value line in a customer PDF.
      */
     private void validateCommercialLinesReady(SalesOrder order) {
+        requireActiveProductsWhenExcluded(order);
         boolean arrangementOnly = hasAdvanceAgreement(order);
         boolean websiteRequest = order.internalNotes() != null
                 && order.internalNotes().stripLeading().startsWith(WEBSITE_REQUEST_MARKER);
-        boolean hasZeroQuantity = order.lines().stream().anyMatch(line -> line.quantity() <= 0);
+        boolean hasZeroQuantity = order.lines().stream().anyMatch(line -> !line.isUnavailable() && line.quantity() <= 0);
         if (websiteRequest && hasZeroQuantity
                 && order.internalNotes().contains(WEBSITE_CARTON_UNRESOLVED_MARKER)) {
             throw new BusinessRuleException(
@@ -1697,6 +1710,7 @@ public class SalesOrderService {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
         for (SalesOrderLine line : order.lines()) {
+            if (line.isUnavailable()) continue;
             if (line.quantity() <= 0) {
                 throw new BusinessRuleException(
                         "Vul voor elke offerteregel een positief productaantal in");
@@ -1710,6 +1724,12 @@ public class SalesOrderService {
                         "Vul een geldige stukprijs groter dan 0 EUR in voor " + product.describe());
             }
         }
+    }
+
+    private static void requireActiveProductsWhenExcluded(SalesOrder order) {
+        if (order.lines().stream().anyMatch(SalesOrderLine::isUnavailable)
+                && order.lines().stream().noneMatch(line -> !line.isUnavailable() && line.quantity() > 0))
+            throw new BusinessRuleException("Alle producten zijn tijdelijk niet bestelbaar; dit concept kan niet uitgereikt of verstuurd worden");
     }
 
     private void validateForSave(SalesOrder order) {
@@ -1784,6 +1804,8 @@ public class SalesOrderService {
             if (line.quantity() < 0) {
                 throw new BusinessRuleException("Een productaantal kan niet negatief zijn");
             }
+            if (line.isUnavailable() && (line.quantity() != 0 || order.isPartnerDeal() || order.purpose() != SalesPurpose.STANDARD))
+                throw new BusinessRuleException("Een uitgesloten product moet nul actieve stuks hebben op een standaarddocument");
             requireNonNegative(line.unitPriceEur(), "Handmatige stukprijs");
             requirePercentage(line.manualDiscountPct(), "Regelkorting");
         }
@@ -2150,7 +2172,7 @@ public class SalesOrderService {
             int rounded = (int) Math.ceil(line.quantity() / (double) per) * per;
             return rounded == line.quantity() ? line
                     : new SalesOrderLine(line.id(), line.productId(), rounded,
-                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur());
+                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity());
         }).toList();
     }
 

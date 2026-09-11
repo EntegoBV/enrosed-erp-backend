@@ -334,7 +334,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     public record LineView(PricedOrder.Line commercial, String title, String variantText,
                            String description, List<ProductSpec> productSpecs,
                            String photoDataUri, int palletPositions, String skuText,
-                           String deliveryText, int quantity, Integer cartons, String volumeText) {}
+                           String deliveryText, int quantity, Integer cartons, String volumeText,
+                           boolean unavailable, String requestedQuantityText) {}
 
     private List<LineView> lineViews(SalesOrder order, PricedOrder priced, Language language,
                                      Map<String, String> text, SalesPdfOptions options) {
@@ -358,10 +359,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     ? List.of() : productSpecs(product, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
             String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
-            String delivery = options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
+            String delivery = !line.unavailable() && options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
+            String requested = line.unavailable() && line.requestedQuantity() != null && line.requestedQuantity() > 0
+                    ? text.get("lineRequestedQuantity").formatted(line.requestedQuantity()) : null;
             result.add(new LineView(line, title, variant, description, details, photo,
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
-                    line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm())));
+                    line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested));
         }
         return List.copyOf(result);
     }
@@ -379,7 +382,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
                     specs,
                     options.includePhotos() ? productImage(product, imageCache) : null,
-                    0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()));
+                    0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()), false, null);
         }).toList();
     }
 

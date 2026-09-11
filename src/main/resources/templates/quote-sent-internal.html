@@ -55,7 +55,7 @@
                   </tr>
                   {#for line in lines}
                     <tr>
-                      <td style="padding:8px 0;border-bottom:1px solid #f0e9e3">{line.description}</td>
+                      <td style="padding:8px 0;border-bottom:1px solid #f0e9e3">{line.description}{#if line.unavailableText}<br/><strong style="color:#a85e10">{line.unavailableText}</strong>{#if line.requestedQuantityText}<br/><span style="color:#736b65">{line.requestedQuantityText}</span>{/if}{/if}</td>
                       <td align="right" style="padding:8px 0 8px 12px;border-bottom:1px solid #f0e9e3;white-space:nowrap">{line.quantity}</td>
                       {#if !advanceAgreement}<td align="right" style="padding:8px 0 8px 12px;border-bottom:1px solid #f0e9e3;white-space:nowrap">{line.net}</td>{/if}
                     </tr>
@@ -75,7 +75,7 @@
                 <div style="margin:0 0 22px;padding:14px 16px;border:1px solid #e9e3de;border-radius:10px;background:#fcfaf8">
                   <p style="margin:0 0 8px;font-weight:700;color:#312723">Levertermijn per regel</p>
                   {#for line in deliveryLines}
-                    <div style="padding:3px 0;font-size:14px">{line.description} — {#if line.known}{line.term}{#else}<span style="color:#a85e10">nog te bepalen</span>{/if}</div>
+                    <div style="padding:3px 0;font-size:14px">{line.description} — {#if line.unavailable}<strong style="color:#a85e10">Tijdelijk niet beschikbaar</strong>{#if line.requestedQuantityText}<br/>{line.requestedQuantityText}{/if}{#else if line.known}{line.term}{#else}<span style="color:#a85e10">nog te bepalen</span>{/if}</div>
                   {/for}
                 </div>
               {/if}

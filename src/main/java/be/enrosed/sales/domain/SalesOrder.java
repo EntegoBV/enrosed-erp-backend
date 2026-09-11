@@ -401,6 +401,18 @@ public record SalesOrder(
     }
 
     /** The same document with its free lines replaced; null or empty clears them. */
+    public SalesOrder withLinesAndPallets(List<SalesOrderLine> value, List<OrderPallet> layout) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, value, layout, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
+    }
+
     public SalesOrder withExtraLines(List<SalesExtraLine> value) {
         return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
                 paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,

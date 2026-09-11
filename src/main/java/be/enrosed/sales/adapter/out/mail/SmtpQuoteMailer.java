@@ -197,7 +197,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("customer", customer)
                 .data("portalUrl", portalUrl)
                 .data("personalMessage", personalMessage)
-                .data("deliveryLines", deliveryLines)
+                .data("deliveryLines", deliveryRows(deliveryLines, language))
                 .data("allDeliveryKnown", allKnown)
                 .data("termsJustAdded", notice.deliveryTermsAdded())
                 .data("freightPending", notice.freightPending())
@@ -299,8 +299,10 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                          List<DeliveryLine> deliveryLines, Summary summary) {
         List<Map<String, String>> lines = summary.lines().stream().map(line -> Map.of(
                 "description", line.description() == null ? "" : line.description(),
-                "quantity", DocumentFormat.amount(java.math.BigDecimal.valueOf(line.quantity())),
-                "net", line.net() == null ? "" : DocumentFormat.money(line.net()) + " EUR")).toList();
+                "quantity", line.unavailable() ? "-" : DocumentFormat.amount(java.math.BigDecimal.valueOf(line.quantity())),
+                "net", line.unavailable() ? "-" : line.net() == null ? "" : DocumentFormat.money(line.net()) + " EUR",
+                "unavailableText", line.unavailable() ? DocumentText.of(Language.NL).get("lineUnavailable") : "",
+                "requestedQuantityText", requestedQuantityText(line.unavailable(), line.requestedQuantity(), Language.NL))).toList();
         return quoteSentInternalTemplate
                 .data("logoUrl", BRAND_LOGO_URL)
                 .data("order", order)
@@ -309,7 +311,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("portalUrl", portalUrl)
                 .data("erpUrl", portalBaseUrl.replaceAll("/+$", "") + "/sales/" + order.id())
                 .data("personalMessage", personalMessage)
-                .data("deliveryLines", deliveryLines)
+                .data("deliveryLines", deliveryRows(deliveryLines, Language.NL))
                 .data("lines", lines)
                 .data("pieces", DocumentFormat.amount(java.math.BigDecimal.valueOf(summary.pieces())))
                 .data("lineCount", summary.lineCount())
@@ -322,6 +324,20 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("validUntil", order.validUntil() == null ? null : DocumentText.date(order.validUntil(), Language.NL))
                 .data("sentAgain", order.sentAt() != null)
                 .render();
+    }
+
+    public record DeliveryRow(String description, String term, boolean known, boolean unavailable,
+                              String requestedQuantityText) {}
+
+    static List<DeliveryRow> deliveryRows(List<DeliveryLine> lines, Language language) {
+        return lines.stream().map(line -> new DeliveryRow(line.description(),
+                line.unavailable() ? null : line.term(), line.known(), line.unavailable(),
+                requestedQuantityText(line.unavailable(), line.requestedQuantity(), language))).toList();
+    }
+
+    private static String requestedQuantityText(boolean unavailable, Integer requested, Language language) {
+        return unavailable && requested != null && requested > 0
+                ? DocumentText.of(language).get("lineRequestedQuantity").formatted(requested) : "";
     }
 
     private static List<Map<String, String>> advanceRows(AdvanceAgreement agreement, Language language) {

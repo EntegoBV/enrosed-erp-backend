@@ -79,6 +79,43 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void unavailableRowsRemainExplicitEvenWithAllOptionalDetailsHidden() throws Exception {
+        var active = priced(1);
+        var zero = BigDecimal.ZERO;
+        var unavailable = new PricedOrder.Line(99L, "UNAVAILABLE-99", "Unavailable rose", "Unavailable rose",
+                null, 0, 0, 0, 0, 0, 0, null, zero, zero,
+                zero, zero, zero, zero, zero, zero, zero, zero,
+                zero, zero, zero, zero, null, null, 0, true, false, null,
+                null, null, null, true, 48);
+        var mixed = new PricedOrder(List.of(unavailable, active.lines().getFirst()),
+                active.totals(), active.validation(), active.extraLines());
+        var output = Path.of("/private/tmp/pdfs/enrosed-unavailable");
+        Files.createDirectories(output);
+        for (var language : List.of(Language.NL, Language.EN)) {
+            boolean logistics = language == Language.NL;
+            var options = new SalesPdfOptions(false, false, logistics, false, false, false, false);
+            var document = renderer.render(order(language == Language.NL ? DocumentType.OFFERTE : DocumentType.FACTUUR,
+                    "availability/2026/001", 2), mixed, customer(language), null, language, options);
+            Files.write(output.resolve("unavailable-" + language.code() + ".pdf"), document.content());
+            try (var pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                var words = be.enrosed.shared.DocumentText.of(language);
+                assertTrue(text.contains(words.get("lineUnavailable").toLowerCase()), text);
+                assertTrue(text.contains(words.get("lineRequestedQuantity").formatted(48).toLowerCase()), text);
+                String unavailableRow = text.substring(text.indexOf("unavailable rose"), text.indexOf("counter display"));
+                assertFalse(unavailableRow.contains("0,00"), "excluded goods must not look free: " + unavailableRow);
+                assertFalse(unavailableRow.contains("0.00"), "excluded goods must not look free: " + unavailableRow);
+                assertFalse(unavailableRow.contains("2026-w37"), unavailableRow);
+                assertTrue(unavailableRow.contains("-"), "monetary and ordered-quantity cells show dashes");
+                assertTrue(text.contains(be.enrosed.shared.DocumentFormat.eur(active.totals().totalInclVat()).toLowerCase()), text);
+                assertFalse(text.contains("internal-margin-sentinel"));
+                javax.imageio.ImageIO.write(new PDFRenderer(pdf).renderImageWithDPI(0, 110), "png",
+                        output.resolve("unavailable-" + language.code() + ".png").toFile());
+            }
+        }
+    }
+
+    @Test
     void quotationSurvivesManyLinesAndShowsEveryCommercialAdjustment() throws Exception {
         String portalUrl = "https://orders.enrosed.com/portal/"
                 + "9yB8a4Qm2Lk7Wn5Pz3Rr6Tt1Vv8Xx4Cc7Dd9Ee2Ff5Gg8Hh1Jj4Kk7";

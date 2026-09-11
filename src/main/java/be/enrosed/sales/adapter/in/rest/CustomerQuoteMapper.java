@@ -53,11 +53,11 @@ public class CustomerQuoteMapper {
                 .map(line -> new CustomerQuoteView.CustomerLine(
                         line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
                         line.quantity(), line.cartons(),
-                        order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
+                        line.unavailable() ? 0 : order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
                         piecesPerCarton(line.productId()),
                         arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(), arrangementOnly ? null : line.net(),
                         line.inventoryKnown(), line.inStock(),
-                        line.deliveryDate(), line.deliveryWeek()))
+                        line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity()))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();

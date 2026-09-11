@@ -295,8 +295,7 @@ public class SalesOrderResource {
     @POST
     @Path("/{id}/preview")
     public OrderView preview(@PathParam("id") long id, SalesOrder order) {
-        salesOrders.get(id);
-        return view(order);
+        return view(salesOrders.preview(id, order));
     }
 
     /** Fills in delivery weeks without reopening every field of a sent quote. */

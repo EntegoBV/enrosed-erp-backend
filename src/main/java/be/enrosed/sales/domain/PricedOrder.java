@@ -68,8 +68,13 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             Integer shortfall,
             String deliveryDate,
             String deliveryWeek,
-            String deliveryExplanation
-    ) {}
+            String deliveryExplanation,
+            boolean unavailable, Integer requestedQuantity
+    ) {
+        public Line(Long productId, String sku, String description, /** * The same description in the customer's language, for the quote * and the portal. Without a translation it is simply identical. */ String customerDescription, String photoUrl, int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer, int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg, BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent, BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice, BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct, Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity, boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate, String deliveryWeek, String deliveryExplanation) {
+            this(productId, sku, description, customerDescription, photoUrl, quantity, cartons, cartonsPerPallet, pallets, cartonsPerLayer, palletLayers, calculatedPalletHeightCm, cbm, weightKg, unitPrice, gross, tierPercent, manualPercent, discountPct, discountAmount, net, netUnitPrice, landedUnitCost, costTotal, marginEur, marginPct, nextTierAtQuantity, nextTierPercent, stockQuantity, inventoryKnown, inStock, shortfall, deliveryDate, deliveryWeek, deliveryExplanation, false, null);
+        }
+    }
 
     public record Totals(
             int pieces,

@@ -9,7 +9,9 @@ import java.util.List;
 public interface QuoteMailer {
 
     /** Per-line delivery term, as it will appear in the mail. */
-    record DeliveryLine(String description, String term, boolean known) {}
+    record DeliveryLine(String description, String term, boolean known, boolean unavailable, Integer requestedQuantity) {
+        public DeliveryLine(String description, String term, boolean known) { this(description, term, known, false, null); }
+    }
 
     /**
      * Why this mail leaves, instead of a row of loose yes/no flags.
@@ -31,7 +33,9 @@ public interface QuoteMailer {
     }
 
     /** One quoted line as the office reads it back: our own description, the quantity, the net line amount. */
-    record SummaryLine(String description, int quantity, java.math.BigDecimal net) {}
+    record SummaryLine(String description, int quantity, java.math.BigDecimal net, boolean unavailable, Integer requestedQuantity) {
+        public SummaryLine(String description, int quantity, java.math.BigDecimal net) { this(description, quantity, net, false, null); }
+    }
 
     /** Customer-safe frozen terms, without the container's costs or a final selling total. */
     record AdvanceTerm(String label, java.math.BigDecimal percentage, java.math.BigDecimal amountEur,

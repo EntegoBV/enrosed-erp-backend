@@ -58,7 +58,10 @@
                   {#for line in deliveryLines}
                     <div style="padding:4px 0;font-size:14px">
                       {line.description} —
-                      {#if line.known}
+                      {#if line.unavailable}
+                        <strong style="color:#a85e10">{t.lineUnavailable}</strong>
+                        {#if line.requestedQuantityText}<br/><span style="color:#736b65">{line.requestedQuantityText}</span>{/if}
+                      {#else if line.known}
                         <strong>{line.term}</strong>
                       {#else}
                         <span style="color:#a85e10">{line.term}</span>
