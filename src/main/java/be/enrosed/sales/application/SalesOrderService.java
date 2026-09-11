@@ -44,6 +44,8 @@ import java.util.stream.Collectors;
  */
 @ApplicationScoped
 public class SalesOrderService {
+    @Inject Instance<SalesSplits> splitOrders;
+    @Inject Instance<SalesCustomerMessages> customerMessages;
     @Inject be.enrosed.shared.trash.DeletedItemsService deletedItems;
     @Inject be.enrosed.catalog.application.CatalogMutationLock trashCatalogLock;
     @Inject Instance<IncomingPaymentService> incomingPayments;
@@ -120,8 +122,28 @@ public class SalesOrderService {
         return orders.findById(id).orElseThrow(() -> new NotFoundException("Verkooporder", id));
     }
 
+    SalesOrder numberSplitDraft(SalesOrder draft) {
+        return SalesSplits.copy(draft, null, draft.isInvoice() ? nextInvoiceNumber() : nextNumber(), draft.lines(),
+                draft.extraLines(), draft.manualFreightEur(), draft.extraDiscountPct(), null);
+    }
+
+    public void captureCustomerRequest(long id) {
+        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().capture(get(id));
+    }
+
+    void copyCustomerRequest(SalesOrder source, SalesOrder target) {
+        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().copy(source, target);
+    }
+    public boolean hasSplitOrder(SalesOrder order) {
+        return splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(order) != null;
+    }
+
     /** Prices an order with the current prices, tiers and rates. */
     public PricedOrder price(SalesOrder order) {
+        return priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null);
+    }
+
+    PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
         Country country = countries.find(order.countryCode());
@@ -137,7 +159,7 @@ public class SalesOrderService {
                 tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
                 vat.determine(country, customer),
-                carrier));
+                carrier, splitPricing));
     }
 
     /** Price this order uses for this product; the portal uses it too. */
@@ -238,7 +260,7 @@ public class SalesOrderService {
                 source.paymentTerms(), source.notes(),
                 source.markupMode(), source.orderMarkupPct(),
                 source.extraDiscountPct(), source.extraDiscountLabel(),
-                null, null, null, 0, null, null, null, source.internalNotes(),
+                null, null, null, 0, null, null, hasSplitOrder(source) ? source.customerMessage() : null, source.internalNotes(),
                 DeliveryTermsState.VOLLEDIG, source.freight(), source.manualFreightEur(),
                 source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
@@ -259,6 +281,8 @@ public class SalesOrderService {
         validatePartnerAdvanceReservation(invoice, null);
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
+        if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().copyToInvoice(source, created);
+        copyCustomerRequest(source, created);
         captureAdvanceContents(created);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
@@ -865,6 +889,8 @@ public class SalesOrderService {
     public SalesOrder setPartnerDeal(long id, PartnerDealRequest request) {
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
+        if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(order) != null)
+            throw new BusinessRuleException("Een gesplitste verkoopbestelling kan niet naar partnerfinanciering worden omgezet");
         if (hasAdvanceAgreement(order))
             throw new BusinessRuleException("De klant, inkooporder en betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder voor een gewijzigde afspraak");
         Long purchaseOrderId = request == null ? null : request.purchaseOrderId();
@@ -936,6 +962,7 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder shipGoods(long id) {
         lockDocumentForMutation(id);
+        if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireShippable(get(id));
         SalesOrder invoice = requireInvoice(get(id));
         if (invoice.isPartnerAdvance()) throw new BusinessRuleException("Een voorschotfactuur boekt geen voorraad af; gebruik de slotfactuur voor de levering");
         if (invoice.status() != QuoteStatus.VERZONDEN && invoice.status() != QuoteStatus.UITGEREIKT && invoice.status() != QuoteStatus.BETAALD) {
@@ -1186,6 +1213,8 @@ public class SalesOrderService {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
+        if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
+        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
         if (hasAdvanceContents(beforeEdit) && (!sameCargoLines(beforeEdit.lines(), changes.lines())
                 || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())))
             throw new BusinessRuleException("De containerinhoud en bestemming van deze voorschotfactuur zijn vastgelegd; maak een nieuw concept vanuit de inkooporder voor gewijzigde goederen");
@@ -1268,6 +1297,7 @@ public class SalesOrderService {
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
                 /* A partner deal keeps the container's exact pieces; other documents ship full cartons. */
                 withCostSnapshots(current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
+                        || splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(current) != null
                         ? changes.lines() : roundLinesToCartons(changes.lines()), current.lines()),
                 changes.pallets())
                 .withExtraLines(keptExtraLines(changes.extraLines()))
@@ -1402,7 +1432,11 @@ public class SalesOrderService {
     public SalesOrder updateFreight(long id, FreightState requestedState, BigDecimal manualFreightEur,
                                     FreightPricingStrategy requestedStrategy,
                                     BigDecimal freightRatePerCbmEur, Long freightCarrierId) {
+        lockDocumentForMutation(id);
         SalesOrder current = get(id);
+        if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(current) != null
+                && (requestedState != FreightState.BEREKEND || requestedStrategy != null && requestedStrategy != FreightPricingStrategy.FIXED))
+            throw new BusinessRuleException("Gesplitste leveringen gebruiken een afgesproken vast transportbedrag");
         if (hasAdvanceAgreement(current))
             throw new BusinessRuleException("De betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder om kosten toe te voegen");
         if (hasSettlementSnapshot(current))
@@ -1583,6 +1617,8 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder duplicate(long id) {
         SalesOrder source = get(id);
+        if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(source) != null)
+            throw new BusinessRuleException("Een gesplitste levering kan niet worden gekopieerd; maak een nieuwe bestelling om dubbele aantallen te voorkomen");
         if (source.isPartnerAdvance())
             throw new BusinessRuleException("Een partnervoorschot kan niet worden gekopieerd; beheer de conceptfacturen via het termijnplan van de inkooporder");
         if (hasAdvanceAgreement(source))

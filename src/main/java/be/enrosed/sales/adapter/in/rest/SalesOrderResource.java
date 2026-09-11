@@ -35,6 +35,8 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceContents advanceContents;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerInvoiceDeclarations invoiceDeclarations;
+    @jakarta.inject.Inject be.enrosed.sales.application.SalesSplits splits;
+    @jakarta.inject.Inject be.enrosed.sales.application.SalesCustomerMessages customerMessages;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -63,7 +65,18 @@ public class SalesOrderResource {
                             be.enrosed.sales.domain.SalesAccounting accounting,
                             be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
                             be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
-                            be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents) {
+                            be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                            be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                            boolean customerRequestMessageReadonly, String customerRequestMessage) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, null, false, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
@@ -142,13 +155,32 @@ public class SalesOrderResource {
     private OrderView enrich(OrderView view) {
         if (incoming == null || partnerFinancing == null) return view;
         var agreement = advanceQuotes == null || view.order().id() == null ? null : advanceQuotes.find(view.order().id());
+        var message = customerMessages == null ? null : customerMessages.find(view.order());
         // An arrangement is followed by several term invoices; one invoice never means the entire quote was billed.
         return new OrderView(view.order(), view.priced(), view.awaitingResend(), agreement == null ? view.invoicedAs() : null,
                 agreement == null ? view.invoicedAsId() : null, agreement == null ? view.invoiceStatus() : null,
                 view.sourceQuoteNumber(), incoming.summary(view.order(), view.priced()),
                 partnerFinancing.accounting(view.order(), view.priced()), partnerFinancing.settlement(view.order()),
-                agreement, advanceContents == null ? null : advanceContents.find(view.order()).orElse(null));
+                agreement, advanceContents == null ? null : advanceContents.find(view.order()).orElse(null),
+                splits == null ? null : splits.fulfillment(view.order()), message != null && message.readonly(), message == null ? null : message.text());
     }
+
+    public record SplitResult(String groupId, OrderView current, OrderView later) {}
+    @GET @Path("/{id}/split")
+    public be.enrosed.sales.application.SalesSplits.Eligibility splitEligibility(@PathParam("id") long id) {
+        return splits.eligibility(id);
+    }
+    @POST @Path("/{id}/split/preview")
+    public be.enrosed.sales.application.SalesSplits.Preview splitPreview(@PathParam("id") long id, be.enrosed.sales.application.SalesSplits.Request request) {
+        return splits.preview(id, request);
+    }
+    @POST @Path("/{id}/split")
+    public SplitResult split(@PathParam("id") long id, be.enrosed.sales.application.SalesSplits.Request request) {
+        var result = splits.split(id, request);
+        return new SplitResult(result.groupId(), view(result.current()), view(result.later()));
+    }
+    @POST @Path("/{id}/fulfillment-ready")
+    public OrderView fulfillmentReady(@PathParam("id") long id) { return view(splits.ready(id)); }
 
     @GET @Path("/{id}/payments")
     public List<be.enrosed.sales.domain.SalesPayment> payments(@PathParam("id") long id) { return incoming.forOrder(id); }

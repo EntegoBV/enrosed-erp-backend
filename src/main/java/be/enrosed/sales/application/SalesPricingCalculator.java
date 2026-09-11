@@ -47,8 +47,14 @@ public class SalesPricingCalculator {
             List<DiscountTier> orderTiers,
             VatCalculator.Result vat,
             /** The shipping organisation, loaded when the order prices freight by staffel. */
-            be.enrosed.shipping.domain.Carrier carrier
+            be.enrosed.shipping.domain.Carrier carrier,
+            SalesSplitPricing splitPricing
     ) {
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, null);
+        }
         /** Pre-carrier signature for callers without a staffel. */
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
@@ -60,6 +66,12 @@ public class SalesPricingCalculator {
     private final DeliveryCalculator delivery;
 
     public PricedOrder price(SalesOrder order, Map<Long, Product> productsById, Context context) {
+
+        SalesSplitPricing split = context.splitPricing();
+        if (split != null && (split.lines().size() != order.lines().size()
+                || context.vat() == null || split.vatTreatment() != context.vat().treatment()
+                || split.vatRatePct().compareTo(context.vat().ratePct()) != 0))
+            throw new be.enrosed.shared.BusinessRuleException("De vastgelegde orderverdeling past niet bij de huidige producten of btw-gegevens; controleer de oorspronkelijke bestelling");
 
         List<PricedOrder.Line> lines = new ArrayList<>();
         List<int[]> palletInput = new ArrayList<>();
@@ -76,8 +88,13 @@ public class SalesPricingCalculator {
         int cartonsTotal = 0;
         boolean palletised = order.loadMode() == LoadMode.PALLETS;
 
+        int splitIndex = 0;
         for (SalesOrderLine line : order.lines()) {
+            SalesSplitPricing.Line allocated = split == null ? null : split.lines().get(splitIndex++);
+            if (allocated != null && (allocated.productId() != line.productId() || allocated.quantity() != line.quantity()))
+                throw new be.enrosed.shared.BusinessRuleException("Aantallen en producten van een gesplitste bestelling staan vast");
             Product product = productsById.get(line.productId());
+            if (product == null && allocated != null) throw new be.enrosed.shared.BusinessRuleException("Een product uit de vastgelegde levering ontbreekt; herstel de productgegevens voordat je verdergaat");
             if (product == null) continue;
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
@@ -87,7 +104,7 @@ public class SalesPricingCalculator {
             int requested = Math.max(0, line.quantity());
             int cartons = carton.cartonsFor(requested);
             /* A partner deal follows the container: the pieces it holds, not a full last carton. */
-            int quantity = order.isPartnerDeal() ? requested : cartons * Math.max(1, carton.piecesPerCarton());
+            int quantity = order.isPartnerDeal() || allocated != null ? requested : cartons * Math.max(1, carton.piecesPerCarton());
 
             boolean validOuterCarton = hasValidOuterCarton(carton);
             if (quantity > 0 && !validOuterCarton) withoutCartonDimensions.add(product.sku());
@@ -114,23 +131,23 @@ public class SalesPricingCalculator {
             BigDecimal exactWeight = Money.nz(carton.weightKg()).multiply(BigDecimal.valueOf(cartons));
             BigDecimal weight = exactWeight.setScale(1, RoundingMode.HALF_UP);
 
-            BigDecimal unitPrice = unitPriceFor(product, order, line.unitPriceEur());
-            BigDecimal lineGross = unitPrice.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal unitPrice = allocated == null ? unitPriceFor(product, order, line.unitPriceEur()) : allocated.unitPrice();
+            BigDecimal lineGross = allocated == null ? unitPrice.multiply(BigDecimal.valueOf(quantity)) : allocated.gross();
 
             List<DiscountTier> productLineTiers = lineTiersForProduct(
                     context.lineTiers(), product.id());
             /* A partner pays our landed cost: no staffel on top of it. */
-            BigDecimal tierPct = order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(productLineTiers, quantity);
-            BigDecimal manualPct = Money.nz(line.manualDiscountPct());
+            BigDecimal tierPct = allocated != null ? allocated.tierPercent() : order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(productLineTiers, quantity);
+            BigDecimal manualPct = allocated == null ? Money.nz(line.manualDiscountPct()) : allocated.manualPercent();
             BigDecimal discountPct = tierPct.add(manualPct).min(Money.HUNDRED);
-            BigDecimal discountAmount = Money.percentOf(lineGross, discountPct);
-            BigDecimal net = lineGross.subtract(discountAmount);
+            BigDecimal discountAmount = allocated == null ? Money.percentOf(lineGross, discountPct) : allocated.discountAmount();
+            BigDecimal net = allocated == null ? lineGross.subtract(discountAmount) : allocated.net();
 
             /* The cost the line was written with; a line without one (older
                documents, a product that had no cost yet) reads today's cost. */
-            BigDecimal landedUnit = line.hasUnitCost() ? line.unitCostEur() : Money.nz(product.landedCostEur());
+            BigDecimal landedUnit = allocated != null ? allocated.landedUnitCost() : line.hasUnitCost() ? line.unitCostEur() : Money.nz(product.landedCostEur());
             if (landedUnit.signum() == 0) withoutCost.add(product.sku());
-            BigDecimal lineCost = landedUnit.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal lineCost = allocated == null ? landedUnit.multiply(BigDecimal.valueOf(quantity)) : allocated.costTotal();
 
             DiscountTier next = nextTier(productLineTiers, quantity);
 
@@ -165,8 +182,8 @@ public class SalesPricingCalculator {
                             ? Money.divide(net.subtract(lineCost).multiply(Money.HUNDRED), net)
                                     .setScale(2, RoundingMode.HALF_UP)
                             : BigDecimal.ZERO,
-                    next == null ? null : next.minQuantity(),
-                    next == null ? null : next.percent(),
+                    next == null || allocated != null ? null : next.minQuantity(),
+                    next == null || allocated != null ? null : next.percent(),
                     product.inventoryKnown() ? product.stockQuantity() : null,
                     product.inventoryKnown(),
                     estimate.fromStock(),
@@ -185,16 +202,17 @@ public class SalesPricingCalculator {
         }
 
         /* ---- kortingen ------------------------------------------------- */
-        BigDecimal subtotal = gross.subtract(lineDiscountTotal);
-        BigDecimal orderTierPct = order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(context.orderTiers(), pieces);
-        BigDecimal orderDiscount = Money.percentOf(subtotal, orderTierPct);
+        BigDecimal subtotal = split == null ? gross.subtract(lineDiscountTotal)
+                : split.lines().stream().map(SalesSplitPricing.Line::net).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal orderTierPct = split != null ? split.orderTierPercent() : order.isPartnerDeal() ? BigDecimal.ZERO : tierPercentFor(context.orderTiers(), pieces);
+        BigDecimal orderDiscount = split == null ? Money.percentOf(subtotal, orderTierPct) : split.orderDiscountAmount();
         BigDecimal afterOrderTier = subtotal.subtract(orderDiscount);
 
         /* The extra discount comes after the tier and computes over what is
            left, so the two never run double over the same amount. */
-        BigDecimal extraPct = Money.nz(order.extraDiscountPct());
-        BigDecimal extraDiscount = Money.percentOf(afterOrderTier, extraPct);
-        BigDecimal goodsTotal = afterOrderTier.subtract(extraDiscount);
+        BigDecimal extraPct = split == null ? Money.nz(order.extraDiscountPct()) : split.extraDiscountPercent();
+        BigDecimal extraDiscount = split == null ? Money.percentOf(afterOrderTier, extraPct) : split.extraDiscountAmount();
+        BigDecimal goodsTotal = split == null ? afterOrderTier.subtract(extraDiscount) : split.goodsTotal();
 
         /* ---- vracht per pallet ----------------------------------------- */
         PalletCalculator.OrderPallets palletCounts = palletised
@@ -287,6 +305,10 @@ public class SalesPricingCalculator {
             handling = BigDecimal.ZERO;
             freightIsMinimum = false;
         }
+        if (split != null) {
+            freight = split.freight(); handling = split.handling();
+            freightIsMinimum = false; carrierFreightIssue = null;
+        }
 
         /* The free lines count in the total as they stand: no tier, no order
            discount, no cost against them. The minimum order value and the
@@ -313,6 +335,7 @@ public class SalesPricingCalculator {
         BigDecimal margin = goodsTotal.subtract(costTotal);
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
         if (order.isPartnerDeal()) minOrderValue = BigDecimal.ZERO;
+        if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
         boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(

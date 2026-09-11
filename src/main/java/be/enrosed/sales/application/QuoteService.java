@@ -795,13 +795,15 @@ public class QuoteService {
 
     /** A message can be answered, but a quoted financing arrangement cannot silently change its goods. */
     private void requireUnchangedAdvanceAgreement(SalesOrder order, List<QuoteRevision.Line> proposedLines) {
-        if (!salesOrders.hasAdvanceAgreement(order) || proposedLines == null) return;
+        boolean split = salesOrders.hasSplitOrder(order);
+        if ((!salesOrders.hasAdvanceAgreement(order) && !split) || proposedLines == null) return;
         boolean changed = proposedLines.stream().anyMatch(proposal -> proposal == null
                 || proposal.productId() == null || order.lines().stream()
                         .filter(line -> line.productId().equals(proposal.productId()))
                         .mapToInt(SalesOrderLine::quantity).findFirst().orElse(0) != proposal.quantity());
-        if (changed) throw new BusinessRuleException(
-                "Deze offerte bevat vastgelegde voorschotafspraken. Bespreek wijzigingen in een bericht en maak indien nodig een nieuwe offerte.");
+        if (changed) throw new BusinessRuleException(split
+                ? "Deze bestelling is verdeeld over gekoppelde leveringen. Bespreek gewijzigde aantallen met Enrosed; het bericht kan de vastgelegde verdeling niet wijzigen."
+                : "Deze offerte bevat vastgelegde voorschotafspraken. Bespreek wijzigingen in een bericht en maak indien nodig een nieuwe offerte.");
     }
 
     /**

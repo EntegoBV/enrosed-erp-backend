@@ -142,6 +142,7 @@ public class CatalogMigrationService {
             CanonicalCatalogManifest manifest, String verifiedPayloadSha256) {
         Validation validation = validate(manifest);
         if (hasRetainedOrders()) validation.problems.add(TRASH_PROTECTION);
+        if (hasSplitOrders()) validation.problems.add("Gesplitste verkoopbestellingen moeten behouden blijven; een volledige catalogusreset is niet toegestaan");
         if (verifiedPayloadSha256 != null && (manifest == null || manifest.importDescriptor() == null
                 || !verifiedPayloadSha256.equals(manifest.importDescriptor().payloadSha256()))) {
             validation.problems.add("Geverifieerde payload hash komt niet overeen met importDescriptor");
@@ -206,6 +207,8 @@ public class CatalogMigrationService {
         // Trash/restore take the same advisory lock before their order locks. Do not erase their graphs.
         if ((request.fullReset() || request.replaceExistingProducts()) && hasRetainedOrders())
             throw new BusinessRuleException(TRASH_PROTECTION);
+        if ((request.fullReset() || request.replaceExistingProducts()) && hasSplitOrders())
+            throw new BusinessRuleException("Gesplitste verkoopbestellingen moeten behouden blijven; een volledige catalogusreset is niet toegestaan");
 
         ReferenceCounts references = referenceCounts(existingProductIds());
         if (!request.fullReset() && request.replaceExistingProducts()
@@ -1406,6 +1409,9 @@ public class CatalogMigrationService {
                 || !entityManager.createNativeQuery("select id from purchase_order where deleted_at is not null")
                 .setMaxResults(1).getResultList().isEmpty();
     }
+    private boolean hasSplitOrders() {
+        return !entityManager.createNativeQuery("select id from sales_split_group").setMaxResults(1).getResultList().isEmpty();
+    }
 
     private long count(String query, Set<Long> ids) {
         return entityManager.createQuery(query, Long.class).setParameter("ids", ids).getSingleResult();
@@ -1426,6 +1432,10 @@ public class CatalogMigrationService {
         Set<Long> revisionIds = new LinkedHashSet<>(ids(
                 "select distinct r.id from QuoteRevisionEntity r join r.lines l where l.productId in :ids",
                 productIds));
+        if (!salesOrderIds.isEmpty() && !entityManager.createQuery(
+                        "select p.salesOrderId from SalesSplitPartEntity p where p.salesOrderId in :ids", Long.class)
+                .setParameter("ids", salesOrderIds).setMaxResults(1).getResultList().isEmpty())
+            throw new BusinessRuleException("De catalogus bevat gesplitste verkoopbestellingen; deze gekoppelde documenten mogen niet door een catalogusreset worden verwijderd");
         if (!salesOrderIds.isEmpty()) {
             revisionIds.addAll(entityManager.createQuery(
                             "select r.id from QuoteRevisionEntity r where r.salesOrderId in :ids", Long.class)

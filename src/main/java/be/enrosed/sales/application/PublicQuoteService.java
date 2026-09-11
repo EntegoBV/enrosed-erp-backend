@@ -157,6 +157,7 @@ public class PublicQuoteService {
                 DocumentType.OFFERTE, null, null, null, null, frozenLines, List.of(),
                 pickupSnapshot(prepared.pickupLocation));
         salesOrders.update(created.id(), changes);
+        salesOrders.captureCustomerRequest(created.id());
         websiteQuoteReady.fire(new WebsiteQuotePushNotifier.Ready(
                 created.id(), created.number()));
         return new SubmissionResponse(created.number(), "RECEIVED",

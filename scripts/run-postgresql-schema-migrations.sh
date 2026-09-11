@@ -59,4 +59,5 @@ exec psql \
     --file=/app/migrations/partner-advance-contents-postgresql.sql \
     --file=/app/migrations/partner-advance-financing-basis-postgresql.sql \
     --file=/app/migrations/partner-invoice-declaration-postgresql.sql \
-    --file=/app/migrations/deleted-items-postgresql.sql
+    --file=/app/migrations/deleted-items-postgresql.sql \
+    --file=/app/migrations/sales-splits-postgresql.sql
