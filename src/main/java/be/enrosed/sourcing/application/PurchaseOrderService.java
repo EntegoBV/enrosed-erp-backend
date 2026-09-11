@@ -355,6 +355,7 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("De Enrosed kost zit altijd in de stukprijs: kies volume, waarde, stuks of zelf per product");
         }
         requireValidPaymentSplit(changes);
+        requirePreservedPaidInstalments(current, changes);
         if (changes.allocSeparate() == Allocation.MANUAL) {
             throw new BusinessRuleException("Inspectie en andere kosten: kies achteraf, volume, waarde of stuks");
         }
@@ -580,7 +581,15 @@ public class PurchaseOrderService {
     @Transactional
     public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                                       String label, PurchasePayment.Payee payee, boolean settles) {
+        return addPayment(orderId, paidOn, amount, currency, label, payee, settles, null);
+    }
+
+    @Transactional
+    public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                                      String label, PurchasePayment.Payee payee, boolean settles,
+                                      PaymentTerms.Moment instalmentDue) {
         PurchaseOrder order = getForUpdate(orderId);
+        requireInstalmentDue(order, payee, instalmentDue);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? Currency.EUR : currency;
         BigDecimal eur = switch (money) {
@@ -594,7 +603,7 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
-                currentActor().displayName(), java.time.Instant.now(), to, settles));
+                currentActor().displayName(), java.time.Instant.now(), to, settles, instalmentDue));
 
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
@@ -606,6 +615,7 @@ public class PurchaseOrderService {
                         .add("payment.date", "Betaald op", null, payment.paidOn())
                         .add("payment.payee", "Begunstigde", null, payment.payee().dutchLabel())
                         .add("payment.settles", "Slotbetaling", null, payment.settles() ? "ja" : null)
+                        .add("payment.instalmentDue", "Betaaltermijn", null, payment.instalmentDue())
                         .privateValue("payment.label", "Omschrijving", null, payment.label())
                         .build());
         return payment;
@@ -628,6 +638,31 @@ public class PurchaseOrderService {
         }
     }
 
+    private static void requireInstalmentDue(PurchaseOrder order, PurchasePayment.Payee payee,
+                                            PaymentTerms.Moment due) {
+        if (due == null) return;
+        if (payee != null && payee != PurchasePayment.Payee.SUPPLIER) {
+            throw new BusinessRuleException("Een betaaltermijn kan alleen aan een leveranciersbetaling worden gekoppeld");
+        }
+        if (order.paymentInstalments().stream().noneMatch(step -> step.due() == due)) {
+            throw new BusinessRuleException("Deze betaaltermijn komt niet voor in de betaalafspraak van de inkooporder");
+        }
+    }
+
+    private void requirePreservedPaidInstalments(PurchaseOrder current, PurchaseOrder changes) {
+        if (payments == null || !payments.isResolvable()) return;
+        for (PurchasePayment payment : payments.get().forOrder(current.id())) {
+            if (payment.instalmentDue() == null) continue;
+            var before = current.paymentInstalments().stream()
+                    .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
+            var after = changes.paymentInstalments().stream()
+                    .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
+            if (before == null || after == null || before.share().compareTo(after.share()) != 0) {
+                throw new BusinessRuleException("Er zijn betalingen aan deze termijn gekoppeld. Pas eerst hun termijnkoppeling aan voordat u de betaalafspraak wijzigt");
+            }
+        }
+    }
+
     private static String paymentNoteLine(PurchasePayment payment) {
         return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
                 + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
@@ -638,7 +673,13 @@ public class PurchaseOrderService {
                     case OTHER -> "andere kosten";
                 }
                 + (payment.label() != null ? " · " + payment.label() : "")
-                + (payment.settles() ? " · slotbetaling, hiermee vereffend" : "") + ".";
+                + (payment.instalmentDue() == null ? "" : " · termijn " + switch (payment.instalmentDue()) {
+                    case ORDERED -> "bij bestelling";
+                    case SHIPPED -> "bij vertrek";
+                    case ARRIVED -> "bij aankomst";
+                })
+                + (payment.settles() ? (payment.instalmentDue() == null
+                    ? " · slotbetaling, hiermee vereffend" : " · slotbetaling, deze termijn vereffend") : "") + ".";
     }
 
     private static String describeMoney(BigDecimal amount, Currency currency) {
@@ -774,42 +815,25 @@ public class PurchaseOrderService {
         List<PurchasePayment> supplierPayments = payments.get().forOrder(order.id()).stream()
                 .filter(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER)
                 .toList();
-        // An explicit final payment settles the supplier, including any agreed difference.
-        // Keep unrelated attention items and leave the recorded payment amounts intact.
-        if (supplierPayments.stream().anyMatch(PurchasePayment::settles)) return items;
-        BigDecimal paid = supplierPayments.stream()
-                .map(PurchasePayment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-        PaymentTerms terms = order.paymentTerms() == null ? PaymentTerms.THIRDS : order.paymentTerms();
-        if (terms.instalments().isEmpty()) {
+        if (supplierPayments.stream().anyMatch(PurchasePayment::settlesWholeGroup)
+                && supplierPayments.stream().noneMatch(payment -> payment.amountEur() == null)) return items;
+        BigDecimal paid = supplierPayments.stream().map(PurchasePayment::amountEur)
+                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        var instalments = SupplierPaymentAllocation.calculate(order, owed, supplierPayments);
+        if (instalments.isEmpty()) {
             if (paid.signum() == 0) items.add("Nog geen betaling genoteerd");
             return items;
         }
-        /* Ticked off against the running total with a few cents of slack, the
-           same way the screen does it. */
-        BigDecimal slack = new BigDecimal("0.05");
-        BigDecimal cumulative = BigDecimal.ZERO;
-        /* What is genuinely still open on the stream: a due instalment never
-           asks for more than that, or the note screen would refuse its own
-           suggestion after earlier payments that did not line up exactly. */
-        BigDecimal stillOpen = owed.subtract(paid).max(BigDecimal.ZERO);
-        boolean earlierOpen = false;
-        for (PaymentTerms.Instalment step : terms.instalments()) {
-            BigDecimal amount = owed.multiply(step.share()).setScale(2, java.math.RoundingMode.HALF_UP);
-            cumulative = cumulative.add(amount);
-            boolean covered = !earlierOpen && paid.compareTo(cumulative.min(owed).subtract(slack)) >= 0;
-            if (covered) continue;
-            earlierOpen = true;
+        for (var step : instalments) {
+            if (step.finalized() || step.remainingEur().signum() <= 0) continue;
             boolean due = switch (step.due()) {
                 case ORDERED -> true;
                 case SHIPPED -> order.status() == PurchaseOrderStatus.ONDERWEG
                         || order.status() == PurchaseOrderStatus.ONTVANGEN;
                 case ARRIVED -> order.status() == PurchaseOrderStatus.ONTVANGEN;
             };
-            BigDecimal ask = amount.min(stillOpen);
-            stillOpen = stillOpen.subtract(ask).max(BigDecimal.ZERO);
-            if (due && ask.signum() > 0) {
-                items.add("Betaling open: " + step.label() + " (" + describeMoney(ask, Currency.EUR) + ")");
-            }
+            if (due) items.add("Betaling open: " + step.label() + " ("
+                    + describeMoney(step.remainingEur(), Currency.EUR) + ")");
         }
         return items;
     }
@@ -821,10 +845,26 @@ public class PurchaseOrderService {
     @Transactional
     public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
                                          Currency currency, String label, PurchasePayment.Payee payee, boolean settles) {
+        return updatePayment(orderId, paymentId, paidOn, amount, currency, label, payee, settles, null, false);
+    }
+
+    @Transactional
+    public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                         Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
+                                         PaymentTerms.Moment instalmentDue) {
+        return updatePayment(orderId, paymentId, paidOn, amount, currency, label, payee, settles, instalmentDue, true);
+    }
+
+    @Transactional
+    public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                         Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
+                                         PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchasePayment before = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        PaymentTerms.Moment due = instalmentDueProvided ? instalmentDue : before.instalmentDue();
+        requireInstalmentDue(order, payee == null ? before.payee() : payee, due);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         BigDecimal recordedAmount = amount.setScale(2, RoundingMode.HALF_UP);
         if (recordedAmount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
@@ -842,7 +882,7 @@ public class PurchaseOrderService {
                 paidOn != null ? paidOn : before.paidOn(),
                 recordedAmount, money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
                 label == null || label.isBlank() ? null : label.strip(),
-                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles));
+                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles, due));
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
@@ -853,6 +893,7 @@ public class PurchaseOrderService {
                         .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
                         .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
                         .add("payment.settles", "Slotbetaling", before.settles() ? "ja" : "nee", after.settles() ? "ja" : "nee")
+                        .add("payment.instalmentDue", "Betaaltermijn", before.instalmentDue(), after.instalmentDue())
                         .privateValue("payment.label", "Omschrijving", before.label(), after.label())
                         .build());
         return after;

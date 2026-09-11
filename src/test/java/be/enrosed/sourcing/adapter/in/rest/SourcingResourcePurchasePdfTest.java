@@ -66,6 +66,7 @@ class SourcingResourcePurchasePdfTest {
         PurchaseOrder order = order(41L);
         LandedCost costing = null;
         List<PurchasePayment> payments = List.of();
+        var report = new PurchaseReconciliation(List.of(), null, List.of(), List.of());
         PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
                 new BigDecimal("100.00"), BigDecimal.ZERO, BigDecimal.ZERO, false, false);
         byte[] pdf = {1, 2, 3};
@@ -75,10 +76,11 @@ class SourcingResourcePurchasePdfTest {
         when(purchases.calculate(order)).thenReturn(costing);
         when(purchases.payments(41L)).thenReturn(payments);
         when(purchases.payable(order, costing, null)).thenReturn(payable);
+        when(purchases.reconciliation(order, costing, payments)).thenReturn(report);
         when(renderer.render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.SUPPLIER,
-                PdfPurchaseRenderer.PdfOptions.defaults())).thenReturn(document);
+                PdfPurchaseRenderer.PdfOptions.defaults(), report)).thenReturn(document);
 
         var response = resource.purchasePdf(41L, true, "portrait", "supplier");
 
@@ -89,7 +91,9 @@ class SourcingResourcePurchasePdfTest {
         verify(renderer).render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.SUPPLIER,
-                PdfPurchaseRenderer.PdfOptions.defaults());
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        verify(purchases).payments(order.id());
+        verify(purchases).reconciliation(order, costing, payments);
     }
 
     @Test
@@ -101,6 +105,7 @@ class SourcingResourcePurchasePdfTest {
         PurchaseOrder order = order(42L);
         LandedCost costing = null;
         List<PurchasePayment> payments = List.of();
+        var report = new PurchaseReconciliation(List.of(), null, List.of(), List.of());
         PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false);
         PdfPurchaseRenderer.Document document = new PdfPurchaseRenderer.Document(
@@ -109,17 +114,20 @@ class SourcingResourcePurchasePdfTest {
         when(purchases.calculate(order)).thenReturn(costing);
         when(purchases.payments(42L)).thenReturn(payments);
         when(purchases.payable(order, costing, null)).thenReturn(payable);
+        when(purchases.reconciliation(order, costing, payments)).thenReturn(report);
         when(renderer.render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.STANDARD,
-                PdfPurchaseRenderer.PdfOptions.defaults())).thenReturn(document);
+                PdfPurchaseRenderer.PdfOptions.defaults(), report)).thenReturn(document);
 
         resource.purchasePdf(42L, true, "PORTRAIT", null);
 
         verify(renderer).render(order, costing, null, true, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
                 PdfPurchaseRenderer.Audience.STANDARD,
-                PdfPurchaseRenderer.PdfOptions.defaults());
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        verify(purchases).payments(order.id());
+        verify(purchases).reconciliation(order, costing, payments);
     }
 
     @Test
@@ -130,6 +138,7 @@ class SourcingResourcePurchasePdfTest {
                 mock(SupplierService.class), purchases, renderer);
         PurchaseOrder order = order(44L);
         List<PurchasePayment> payments = List.of();
+        var report = new PurchaseReconciliation(List.of(), null, List.of(), List.of());
         PurchaseOrderService.Payable payable = new PurchaseOrderService.Payable(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false);
         PdfPurchaseRenderer.PdfOptions options = new PdfPurchaseRenderer.PdfOptions(
@@ -140,9 +149,10 @@ class SourcingResourcePurchasePdfTest {
         when(purchases.get(44L)).thenReturn(order);
         when(purchases.payments(44L)).thenReturn(payments);
         when(purchases.payable(order, null, null)).thenReturn(payable);
+        when(purchases.reconciliation(order, null, payments)).thenReturn(report);
         when(renderer.render(order, null, null, false, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.STANDARD, options)).thenReturn(document);
+                PdfPurchaseRenderer.Audience.STANDARD, options, report)).thenReturn(document);
 
         var response = resource.purchasePdf(44L, false, "PORTRAIT", "STANDARD",
                 false, true, true, true, true, true, true, false, true, true,
@@ -151,7 +161,9 @@ class SourcingResourcePurchasePdfTest {
         assertEquals(200, response.getStatus());
         verify(renderer).render(order, null, null, false, payments, payable,
                 PdfPurchaseRenderer.Layout.PORTRAIT,
-                PdfPurchaseRenderer.Audience.STANDARD, options);
+                PdfPurchaseRenderer.Audience.STANDARD, options, report);
+        verify(purchases).payments(order.id());
+        verify(purchases).reconciliation(order, null, payments);
     }
 
     @Test

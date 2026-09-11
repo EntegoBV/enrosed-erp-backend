@@ -183,6 +183,8 @@ public final class SourcingEntities {
         @Enumerated(EnumType.STRING) public PurchasePayment.Payee payee;
         /** True for the payment that settles its stream, whatever the amount. */
         @Column(name = "settles_stream") public Boolean settles;
+        @Enumerated(EnumType.STRING) @Column(name = "instalment_due", length = 16)
+        public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
     }
 
     /** A file that belongs to a container; the bytes live in the photo blob store. */

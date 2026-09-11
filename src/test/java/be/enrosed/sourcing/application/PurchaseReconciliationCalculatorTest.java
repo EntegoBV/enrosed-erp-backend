@@ -421,6 +421,159 @@ class PurchaseReconciliationCalculatorTest {
         assertConserved(result);
     }
 
+    @Test
+    void oneSettledThirtyPercentTermRetainsTheOtherThirtyAndFortyPercent() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var payment = milestonePayment(1, "17000", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED);
+        var result = calculate(budget, List.of(payment));
+        var supplier = stream(result, SUPPLIER);
+        eq("886.00", supplier.settledSavingEur());
+        eq("41734.00", supplier.remainingEur());
+        eq("58734.00", supplier.forecastEur());
+        assertFalse(supplier.explicitlySettled());
+        assertFalse(supplier.finalized());
+        assertEquals(PARTIAL, supplier.status());
+        assertEquals(3, result.supplierInstalments().size());
+        assertTrue(result.supplierInstalments().getFirst().finalized());
+        eq("17886.00", result.supplierInstalments().get(1).remainingEur());
+        eq("23848.00", result.supplierInstalments().get(2).remainingEur());
+        eq("100.00", result.totals().internalMarkupEur());
+        assertConserved(result);
+    }
+
+    @Test
+    void deletingOrReopeningAScopedFinalPaymentRebuildsItsBalance() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var first = milestonePayment(1, "17000", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED);
+        var second = milestonePayment(2, "17886", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED);
+        var finalPayment = milestonePayment(3, "23000", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ARRIVED);
+        var all = calculate(budget, List.of(first, second, finalPayment));
+        assertTrue(stream(all, SUPPLIER).finalized());
+        eq("1734.00", stream(all, SUPPLIER).settledSavingEur());
+        var deleted = calculate(budget, List.of(first, second));
+        eq("23848.00", stream(deleted, SUPPLIER).remainingEur());
+        eq("886.00", stream(deleted, SUPPLIER).settledSavingEur());
+        assertFalse(deleted.supplierInstalments().getLast().finalized());
+        var reopened = calculate(budget, List.of(first, second,
+                milestonePayment(3, "23000", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ARRIVED)));
+        eq("848.00", stream(reopened, SUPPLIER).remainingEur());
+        eq("886.00", stream(reopened, SUPPLIER).settledSavingEur());
+        assertConserved(reopened);
+    }
+
+    @Test
+    void laterLegacyPaymentsDoNotConsumeADiscountOnAnAlreadySettledTerm() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var first = milestonePayment(1, "17000", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED);
+        var later = milestonePayment(2, "17886", false, null);
+        var result = calculate(budget, List.of(later, first)); // ledger order is authoritative, not input order
+        eq("17000.00", result.supplierInstalments().getFirst().paidEur());
+        eq("17886.00", result.supplierInstalments().get(1).paidEur());
+        eq("886.00", stream(result, SUPPLIER).settledSavingEur());
+        eq("23848.00", stream(result, SUPPLIER).remainingEur());
+        var global = calculate(budget, List.of(first, milestonePayment(2, "17886", true, null)));
+        assertTrue(stream(global, SUPPLIER).explicitlySettled());
+        assertTrue(stream(global, SUPPLIER).finalized());
+        eq("0.00", stream(global, SUPPLIER).remainingEur());
+        assertConserved(global);
+    }
+
+    @Test
+    void earlierUnassignedDepositsAreIncludedWhenThatTermIsLaterSettled() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var result = calculate(budget, List.of(milestonePayment(1, "16000", false, null),
+                milestonePayment(2, "1000", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED)));
+        eq("17000.00", result.supplierInstalments().getFirst().paidEur());
+        eq("886.00", stream(result, SUPPLIER).settledSavingEur());
+        eq("41734.00", stream(result, SUPPLIER).remainingEur());
+    }
+
+    @Test
+    void scopedOverpaymentCannotPayAnotherTermAndUnknownEuroNeverConfirmsSaving() {
+        var budget = milestoneBudget("100", "30", "30", "40");
+        var result = calculate(budget, List.of(milestonePayment(1, "35", true,
+                be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED)));
+        eq("5.00", stream(result, SUPPLIER).overpaidEur());
+        eq("70.00", stream(result, SUPPLIER).remainingEur());
+        eq("105.00", stream(result, SUPPLIER).forecastEur());
+        var unknown = new PurchasePayment(2L, 1L, LocalDate.of(2026, 1, 3), bd("10"), Currency.USD,
+                null, "Historical FX unknown", null, null, SUPPLIER, false, null);
+        var missing = calculate(budget, List.of(milestonePayment(1, "25", true,
+                be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED), unknown));
+        eq("0.00", stream(missing, SUPPLIER).settledSavingEur());
+        assertFalse(stream(missing, SUPPLIER).finalized());
+        assertTrue(missing.supplierInstalments().stream().noneMatch(PurchaseReconciliation.SupplierInstalment::finalized));
+        assertConserved(result);
+        assertConserved(missing);
+    }
+
+    @Test
+    void anEarlyWholeGroupMarkerDoesNotInventOffsettingTermSavingsAndOverruns() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var result = calculate(budget, List.of(milestonePayment(1, "17886", true, null),
+                milestonePayment(2, "17886", false, null), milestonePayment(3, "23848", false, null)));
+        assertExactPaidMilestones(result);
+        eq("0.00", stream(result, SUPPLIER).settledSavingEur());
+        eq("0.00", stream(result, SUPPLIER).overpaidEur());
+        assertConserved(result);
+    }
+
+    @Test
+    void multipleLegacyWholeGroupMarkersRemainWholeGroupWithoutChangingAllocation() {
+        var budget = milestoneBudget("59620", "30", "30", "40");
+        var first = milestonePayment(1, "17886", true, null);
+        var second = milestonePayment(2, "17886", true, null);
+        var last = milestonePayment(3, "23848", true, null);
+        var result = calculate(budget, List.of(first, second, last));
+        assertExactPaidMilestones(result);
+        // Deleting one marker must not silently revoke another explicit legacy marker.
+        var deleted = calculate(budget, List.of(first, second));
+        assertTrue(stream(deleted, SUPPLIER).explicitlySettled());
+        assertTrue(stream(deleted, SUPPLIER).finalized());
+        eq("23848.00", stream(deleted, SUPPLIER).settledSavingEur());
+        eq("0.00", deleted.supplierInstalments().get(1).settledSavingEur());
+    }
+
+    private void assertExactPaidMilestones(PurchaseReconciliation result) {
+        eq("17886.00", result.supplierInstalments().get(0).paidEur());
+        eq("17886.00", result.supplierInstalments().get(1).paidEur());
+        eq("23848.00", result.supplierInstalments().get(2).paidEur());
+        for (var term : result.supplierInstalments()) {
+            eq("0.00", term.remainingEur());
+            eq("0.00", term.settledSavingEur());
+            eq("0.00", term.overpaidEur());
+            assertTrue(term.finalized());
+        }
+    }
+
+    @Test
+    void instalmentRoundingAssignsTheExactResidualToTheLastMoment() {
+        var result = calculate(milestoneBudget("100.01", "30", "30", "40"), List.of());
+        eq("30.00", result.supplierInstalments().getFirst().plannedEur());
+        eq("40.01", result.supplierInstalments().getLast().plannedEur());
+        eq("100.01", result.supplierInstalments().stream().map(PurchaseReconciliation.SupplierInstalment::plannedEur)
+                .reduce(bd("0.00"), BigDecimal::add));
+    }
+
+    private Fixture milestoneBudget(String amount, String ordered, String shipped, String arrived) {
+        var lines = List.of(line(1, 10, 10, 0, false));
+        var order = new PurchaseOrder(1L, "PO-2026-001", null, 1L, LocalDate.of(2026, 1, 1),
+                PurchaseOrderStatus.ONDERWEG, ContainerType.FORTY_HQ,
+                bd("0.14"), bd("0.90"), bd("0.90"), bd("0"), bd("0"), Currency.USD,
+                bd("0"), bd("0"), bd("100"), Allocation.VALUE, Allocation.VALUE, Allocation.VALUE,
+                Allocation.PIECES, "Ningbo", "Rotterdam", null, false, null, null, null, false,
+                be.enrosed.sourcing.domain.PaymentTerms.CUSTOM, null, null, null, null, null, lines)
+                .withPaymentSplit(bd(ordered), bd(shipped), bd(arrived));
+        return fixture(order, amount, "0", "0", "100", false,
+                List.of(cost(1, 10, amount, "0", "0", "100")));
+    }
+
+    private PurchasePayment milestonePayment(long id, String amount, boolean settles,
+                                             be.enrosed.sourcing.domain.PaymentTerms.Moment due) {
+        return new PurchasePayment(id, 1L, LocalDate.of(2026, 1, (int) id + 1), bd(amount), Currency.EUR,
+                bd(amount), "Payment", null, null, SUPPLIER, settles, due);
+    }
+
     private PurchaseReconciliation calculate(Fixture fixture, List<PurchasePayment> payments) {
         return calculator.calculate(fixture.order, fixture.costing, fixture.payable, payments);
     }

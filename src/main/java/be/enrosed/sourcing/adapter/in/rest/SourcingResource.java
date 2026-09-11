@@ -334,16 +334,17 @@ public class SourcingResource {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         LandedCost costing = purchaseOrders.calculate(order);
 
+        var recorded = purchaseOrders.payments(id);
         PdfPurchaseRenderer.Document document = purchasePdf.render(
                 order, costing, supplier, showRevenue,
-                purchaseOrders.payments(id),
+                recorded,
                 purchaseOrders.payable(order, costing,
                         supplier == null ? null : supplier.incoterm()),
                 resolvedLayout, resolvedAudience,
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
                         showFreight, includeFreight, includeEnrosedCost, includeUnitPrice,
                         includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode,
-                        showSeparateCosts));
+                        showSeparateCosts), purchaseOrders.reconciliation(order, costing, recorded));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
@@ -416,10 +417,31 @@ public class SourcingResource {
 
     /* ---- payments ---- */
 
-    public record PaymentRequest(java.time.LocalDate paidOn, java.math.BigDecimal amount,
-                                 be.enrosed.shared.Currency currency, String label, PurchasePayment.Payee payee,
-                                 /** True when this payment settles its stream, whatever the amount. */
-                                 Boolean settles) {}
+    public static final class PaymentRequest {
+        public java.time.LocalDate paidOn;
+        public java.math.BigDecimal amount;
+        public be.enrosed.shared.Currency currency;
+        public String label;
+        public PurchasePayment.Payee payee;
+        public Boolean settles;
+        private be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
+        private boolean instalmentDueProvided;
+
+        // Missing in an older PUT preserves its existing scope; explicit null means the whole group.
+        @com.fasterxml.jackson.annotation.JsonSetter("instalmentDue")
+        public void setInstalmentDue(be.enrosed.sourcing.domain.PaymentTerms.Moment value) {
+            instalmentDue = value;
+            instalmentDueProvided = true;
+        }
+        public java.time.LocalDate paidOn() { return paidOn; }
+        public java.math.BigDecimal amount() { return amount; }
+        public be.enrosed.shared.Currency currency() { return currency; }
+        public String label() { return label; }
+        public PurchasePayment.Payee payee() { return payee; }
+        public Boolean settles() { return settles; }
+        public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue() { return instalmentDue; }
+        public boolean instalmentDueProvided() { return instalmentDueProvided; }
+    }
 
     @GET
     @Path("/purchase-orders/{id}/payments")
@@ -432,7 +454,8 @@ public class SourcingResource {
     public Response addPayment(@PathParam("id") long id, PaymentRequest request) {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
-                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()));
+                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
+                request.instalmentDue());
         return Response.status(Response.Status.CREATED).entity(saved).build();
     }
 
@@ -442,7 +465,8 @@ public class SourcingResource {
                                          PaymentRequest request) {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
-                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()));
+                request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
+                request.instalmentDue(), request.instalmentDueProvided());
     }
 
     @DELETE

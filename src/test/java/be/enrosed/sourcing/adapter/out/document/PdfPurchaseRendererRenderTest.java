@@ -14,6 +14,7 @@ import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
@@ -66,6 +67,31 @@ class PdfPurchaseRendererRenderTest {
     @Inject ProductService products;
     @Inject ProductSupplierAgreementPhotoService supplierAgreementPhotos;
     @Inject StockService stock;
+
+    @Test
+    void internalDossierUsesRemainingSupplierBalanceAfterOnlyFirstMilestoneCloses() throws Exception {
+        var order = PdfPurchasePaymentsRendererTest.instalmentOrder();
+        var costing = costing(1);
+        var payable = PdfPurchasePaymentsRendererTest.instalmentPayable();
+        var payments = List.of(PdfPurchasePaymentsRendererTest.instalmentPayment(PaymentTerms.Moment.ORDERED));
+        var report = new PurchaseReconciliationCalculator().calculate(order, costing, payable, payments);
+        var document = renderer.render(order, costing, supplier(), true, payments, payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE, PdfPurchaseRenderer.Audience.INTERNAL,
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        Path preview = Path.of("target/pdf-preview/purchase-instalment-scope.pdf");
+        Files.createDirectories(preview.getParent());
+        Files.write(preview, document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf);
+            assertTrue(text.contains("41.734,00"), text);
+            assertTrue(text.contains("17.886,00"), text);
+            assertTrue(text.contains("23.848,00"), text);
+            assertTrue(text.replaceAll("\\s+", " ").contains("Slotbetaling termijn: bij bestelling"), text);
+        }
+        var reset = new PurchaseReconciliationCalculator().calculate(order, costing, payable, List.of());
+        assertEquals(be.enrosed.shared.DocumentFormat.eur(new BigDecimal("59620")),
+                PdfPurchaseRenderer.payableView(List.of(), payable, reset).openSupplier());
+    }
 
     @Test
     void internalDossierSurvivesManyLinesAcrossPages() throws Exception {

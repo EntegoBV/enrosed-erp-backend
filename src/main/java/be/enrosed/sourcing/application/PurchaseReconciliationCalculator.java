@@ -48,6 +48,8 @@ public class PurchaseReconciliationCalculator {
         boolean received = order.receivedOn() != null || order.status() == PurchaseOrderStatus.ONTVANGEN;
         UnitCostBasis unitBasis = received ? UnitCostBasis.USABLE_RECEIVED : UnitCostBasis.ORDERED;
 
+        List<PurchaseReconciliation.SupplierInstalment> supplierInstalments =
+                SupplierPaymentAllocation.calculate(order, Money.money(payable.supplierEur()), recorded);
         List<Stream> streams = new ArrayList<>();
         for (PurchasePayment.Payee payee : PurchasePayment.Payee.values()) {
             BigDecimal planned = switch (payee) {
@@ -57,7 +59,7 @@ public class PurchaseReconciliationCalculator {
                 case SEPARATE -> costing.totals().separateCostsEur();
                 case OTHER -> ZERO;
             };
-            streams.add(stream(order, payee, Money.money(planned), recorded, notes));
+            streams.add(stream(order, payee, Money.money(planned), recorded, notes, supplierInstalments));
         }
 
         BigDecimal planned = sum(streams, Stream::plannedEur);
@@ -139,16 +141,17 @@ public class PurchaseReconciliationCalculator {
                 receivedQuantity, damagedQuantity, usableQuantity, unitQuantity, unitBasis,
                 unit(forecast, unitQuantity), unit(forecast.add(markup), unitQuantity), received,
                 order.paidTotalEur() == null ? null : Money.money(order.paidTotalEur()));
-        return new PurchaseReconciliation(List.copyOf(streams), totals, List.copyOf(lines), List.copyOf(notes));
+        return new PurchaseReconciliation(List.copyOf(streams), totals, List.copyOf(lines), List.copyOf(notes), supplierInstalments);
     }
 
     private Stream stream(PurchaseOrder order, PurchasePayment.Payee payee, BigDecimal planned,
-                          List<PurchasePayment> payments, List<String> notes) {
+                          List<PurchasePayment> payments, List<String> notes,
+                          List<PurchaseReconciliation.SupplierInstalment> supplierInstalments) {
         List<PurchasePayment> matching = payments.stream().filter(p -> p.payee() == payee).toList();
         BigDecimal paid = Money.money(matching.stream().map(PurchasePayment::amountEur)
                 .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
         boolean missingAmount = matching.stream().anyMatch(p -> p.amountEur() == null);
-        boolean explicitlySettled = matching.stream().anyMatch(PurchasePayment::settles);
+        boolean explicitlySettled = matching.stream().anyMatch(PurchasePayment::settlesWholeGroup);
         // OTHER records already-incurred incidental fees, not an agreed payable
         // with a balance to settle. Its actual fees are additional cost, never an
         // overpayment to be counted again alongside those fees.
@@ -158,10 +161,18 @@ public class PurchaseReconciliationCalculator {
         BigDecimal forecast = paid.add(remaining);
         BigDecimal saving = explicitlySettled && !missingAmount ? planned.subtract(paid).max(ZERO) : ZERO;
         BigDecimal overpaid = payee == PurchasePayment.Payee.OTHER ? ZERO : paid.subtract(planned).max(ZERO);
+        if (payee == PurchasePayment.Payee.SUPPLIER && !supplierInstalments.isEmpty()
+                && matching.stream().anyMatch(p -> p.instalmentDue() != null)) {
+            remaining = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::remainingEur);
+            saving = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::settledSavingEur);
+            overpaid = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::overpaidEur);
+            finalized = !missingAmount && supplierInstalments.stream().allMatch(PurchaseReconciliation.SupplierInstalment::finalized);
+            forecast = paid.add(remaining);
+        }
         Status status;
         if (paid.signum() > 0 && planned.signum() == 0) status = Status.ADDITIONAL;
         else if (overpaid.signum() > 0) status = Status.OVERPAID;
-        else if (saving.signum() > 0) status = Status.SETTLED_LOWER;
+        else if (saving.signum() > 0 && remaining.signum() == 0) status = Status.SETTLED_LOWER;
         else if (planned.signum() == 0 && paid.signum() == 0) status = Status.NOT_APPLICABLE;
         else if (paid.compareTo(planned) == 0) status = Status.PAID;
         else if (paid.signum() == 0) status = order.status() == PurchaseOrderStatus.CONCEPT ? Status.PLANNED : Status.UNPAID;
@@ -289,7 +300,7 @@ public class PurchaseReconciliationCalculator {
         return quantity == 0 ? null : amount.divide(BigDecimal.valueOf(quantity), Money.UNIT_SCALE, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal sum(List<Stream> streams, Function<Stream, BigDecimal> amount) {
+    private <T> BigDecimal sum(List<T> streams, Function<T, BigDecimal> amount) {
         return streams.stream().map(amount).reduce(ZERO, BigDecimal::add);
     }
 

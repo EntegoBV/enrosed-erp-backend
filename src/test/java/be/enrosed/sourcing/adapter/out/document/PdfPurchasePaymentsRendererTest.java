@@ -8,6 +8,10 @@ import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.PaymentTerms;
+import be.enrosed.sourcing.domain.Allocation;
+import be.enrosed.sourcing.domain.ContainerType;
+import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,70 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PdfPurchasePaymentsRendererTest {
     private final PdfPurchasePaymentsRenderer renderer = new PdfPurchasePaymentsRenderer(new PdfFonts(), new Brand());
+
+    @Test
+    void firstInstalmentCloseKeepsLaterMilestonesOpenAndLabelsItsLimitedScope() throws Exception {
+        var order = instalmentOrder();
+        var costing = PdfPurchaseRendererRenderTest.costing(1);
+        var payable = instalmentPayable();
+        var payments = List.of(instalmentPayment(PaymentTerms.Moment.ORDERED));
+        var report = new PurchaseReconciliationCalculator().calculate(order, costing, payable, payments);
+        var supplier = report.streams().stream().filter(row -> row.payee() == PurchasePayment.Payee.SUPPLIER).findFirst().orElseThrow();
+        assertEquals(0, supplier.remainingEur().compareTo(new BigDecimal("41734")));
+        assertEquals(0, supplier.settledSavingEur().compareTo(new BigDecimal("886")));
+        assertFalse(supplier.explicitlySettled());
+        assertFalse(supplier.finalized());
+        var document = renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/instalment-scope.pdf"), document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf);
+            for (String required : List.of("41.734,00", "886,00", "17.886,00", "23.848,00",
+                    "Slotbetaling termijn: bij bestelling", "Termijn nog open", "Voorlopig")) {
+                assertTrue(text.contains(required), required + " missing from " + text);
+            }
+            assertFalse(text.contains("Slotbetaling hele groep:"), text);
+        }
+    }
+
+    @Test
+    void legacyGlobalCloseAndDeletedPaymentStayDistinctFromInstalmentClose() {
+        var order = instalmentOrder();
+        var costing = PdfPurchaseRendererRenderTest.costing(1);
+        var global = List.of(instalmentPayment(null));
+        var report = new PurchaseReconciliationCalculator().calculate(order, costing, instalmentPayable(), global);
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), report, global);
+        assertTrue(html.contains("Slotbetaling hele groep: Leverancier"), html);
+        var reset = new PurchaseReconciliationCalculator().calculate(order, costing, instalmentPayable(), List.of());
+        String resetHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), reset, List.of());
+        assertEquals(0, reset.totals().remainingEur().compareTo(new BigDecimal("59620")));
+        assertTrue(resetHtml.contains("59.620,00"), resetHtml);
+        assertFalse(resetHtml.contains("Betaling #1"), resetHtml);
+        assertFalse(resetHtml.contains("Slotbetaling hele groep:"), resetHtml);
+    }
+
+    static PurchaseOrder instalmentOrder() {
+        return new PurchaseOrder(1L, "PO-2026-001", "Termijnafspraak 30/30/40", 7L,
+                LocalDate.of(2026, 9, 1), PurchaseOrderStatus.BESTELD, ContainerType.FORTY_HQ,
+                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO,
+                Currency.EUR, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                Allocation.VALUE, Allocation.VALUE, Allocation.VALUE, Allocation.VALUE,
+                "Ningbo", "Rotterdam", null, true, null, null, null, false,
+                PaymentTerms.CUSTOM, null, null, null,
+                List.of(new PurchaseOrderLine(1L, 1L, 252, BigDecimal.TEN, Currency.EUR, BigDecimal.ZERO, 252)))
+                .withPaymentSplit(new BigDecimal("30"), new BigDecimal("30"), new BigDecimal("40"));
+    }
+
+    static PurchaseOrderService.Payable instalmentPayable() {
+        return new PurchaseOrderService.Payable(new BigDecimal("59620"), BigDecimal.ZERO,
+                BigDecimal.ZERO, false, false);
+    }
+
+    static PurchasePayment instalmentPayment(PaymentTerms.Moment due) {
+        return new PurchasePayment(1L, 1L, LocalDate.of(2026, 9, 10), new BigDecimal("17000"), Currency.EUR,
+                new BigDecimal("17000"), "Eerste betaling", "Browsercontrole", Instant.parse("2026-09-10T08:00:00Z"),
+                PurchasePayment.Payee.SUPPLIER, true, due);
+    }
 
     @Test
     void partialSettlementShowsSavingsOpenBalanceUnitCostsAndOriginalPayments() throws Exception {

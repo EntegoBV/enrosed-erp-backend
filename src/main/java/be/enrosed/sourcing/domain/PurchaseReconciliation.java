@@ -6,8 +6,9 @@ import java.util.List;
 /**
  * Read-only reconciliation against the agreed, ordered-quantity container budget.
  * Paid amounts use the euro value persisted with each payment, never a new FX rate.
- * An unpaid balance stays in the forecast until its stream is explicitly settled;
- * only an explicitly settled shortfall is a saving. Overpayments remain visible
+ * An unpaid balance stays in the forecast until its group or milestone is explicitly settled;
+ * only an explicitly settled shortfall is a saving. Supplier milestone savings
+ * may be confirmed while the rest of the supplier group is still open. Overpayments remain visible
  * and provisional until explicitly settled (a refund or correction may follow).
  * OTHER fees have no agreed payable to settle: known payments are additional
  * actual costs, excluded from the overpayment amount, and need no final marker.
@@ -20,8 +21,19 @@ public record PurchaseReconciliation(
         List<Stream> streams,
         Totals totals,
         List<Line> lines,
-        List<String> notes
+        List<String> notes,
+        List<SupplierInstalment> supplierInstalments
 ) {
+    public PurchaseReconciliation(List<Stream> streams, Totals totals, List<Line> lines, List<String> notes) {
+        this(streams, totals, lines, notes, List.of());
+    }
+
+    public record SupplierInstalment(
+            PaymentTerms.Moment due, String label, BigDecimal plannedEur, BigDecimal paidEur,
+            BigDecimal remainingEur, BigDecimal settledSavingEur, BigDecimal overpaidEur,
+            boolean explicitlySettled, boolean finalized
+    ) {}
+
     public enum Status { PLANNED, UNPAID, PARTIAL, PAID, OVERPAID, SETTLED_LOWER, NOT_APPLICABLE, ADDITIONAL }
 
     public enum UnitCostBasis { ORDERED, USABLE_RECEIVED }

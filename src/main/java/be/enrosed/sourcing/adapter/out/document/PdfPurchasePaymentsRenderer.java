@@ -115,8 +115,24 @@ public class PdfPurchasePaymentsRenderer {
         html.append("<tr class=\"sum\"><td>Externe kost</td>");
         moneyCell(html, total.plannedExternalEur()); moneyCell(html, total.paidEur()); moneyCell(html, total.remainingEur());
         moneyCell(html, total.forecastExternalEur()); differenceCell(html, total.varianceEur());
-        html.append("</tr></tbody></table><div class=\"note\"><p><b>Positief verschil = duurder; negatief verschil = goedkoper.</b></p>")
-                .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Een lagere slotbetaling sluit het verschil af. Een overbetaling zonder slotbetaling blijft voorlopig.</p>")
+        html.append("</tr></tbody></table>");
+        if (payments != null && payments.stream().anyMatch(payment -> payment.instalmentDue() != null)
+                && report.supplierInstalments() != null && !report.supplierInstalments().isEmpty()) {
+            html.append("<h3>Leverancier per termijn</h3><table class=\"data\"><thead><tr>")
+                    .append("<th>Termijn</th><th class=\"num\">Afgesproken</th><th class=\"num\">Betaald</th>")
+                    .append("<th class=\"num\">Open</th><th class=\"num\">Besparing</th></tr></thead><tbody>");
+            for (var instalment : report.supplierInstalments()) {
+                html.append("<tr><td><b>").append(escape(instalment.label()))
+                        .append("</b><br/><span class=\"muted small\">")
+                        .append(instalment.finalized() ? "Termijn afgerekend" : "Termijn nog open").append("</span></td>");
+                moneyCell(html, instalment.plannedEur()); moneyCell(html, instalment.paidEur());
+                moneyCell(html, instalment.remainingEur()); moneyCell(html, instalment.settledSavingEur());
+                html.append("</tr>");
+            }
+            html.append("</tbody></table>");
+        }
+        html.append("<div class=\"note\"><p><b>Positief verschil = duurder; negatief verschil = goedkoper.</b></p>")
+                .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Een slotbetaling voor een termijn sluit alleen die termijn af; latere termijnen blijven open. Alleen een slotbetaling voor de hele groep sluit de volledige groep af. Een overbetaling zonder afrekening blijft voorlopig.</p>")
                 .append("<p>Interne Enrosed-opslag is geen uitgaande betaling en staat apart van de externe kost.</p></div>");
 
         html.append("<div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
@@ -161,7 +177,8 @@ public class PdfPurchasePaymentsRenderer {
         for (var payment : sorted) {
             html.append("<tr><td>").append(day(payment.paidOn())).append("</td><td>")
                     .append(escape(payment.payee().dutchLabel())).append("</td><td>").append(escape(payment.label()))
-                    .append(payment.settles() ? "<br/><b class=\"small\">Slotbetaling</b>" : "")
+                    .append(PdfPurchaseRenderer.paymentScopeLabel(payment) == null ? ""
+                            : "<br/><b class=\"small\">" + escape(PdfPurchaseRenderer.paymentScopeLabel(payment)) + "</b>")
                     .append("<br/><span class=\"muted small\">Betaling #").append(payment.id())
                     .append(" · ").append(escape(payment.actor())).append("</span></td><td class=\"num\">")
                     .append(currency(payment.amount(), payment.currency())).append("</td>");

@@ -19,6 +19,7 @@ import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
 import be.enrosed.sourcing.application.LandedCostCalculator;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.OtherCost;
@@ -28,6 +29,7 @@ import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.PurchaseReconciliation;
 import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -450,6 +452,16 @@ public class PdfPurchaseRenderer {
                            boolean showRevenue, List<PurchasePayment> payments,
                            PurchaseOrderService.Payable payable, Layout requestedLayout,
                            Audience requestedAudience, PdfOptions requestedOptions) {
+        return render(order, costing, supplier, showRevenue, payments, payable,
+                requestedLayout, requestedAudience, requestedOptions, null);
+    }
+
+    /** The endpoint passes the reconciliation of the same payment-ledger snapshot. */
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
+                           boolean showRevenue, List<PurchasePayment> payments,
+                           PurchaseOrderService.Payable payable, Layout requestedLayout,
+                           Audience requestedAudience, PdfOptions requestedOptions,
+                           PurchaseReconciliation reconciliation) {
         Layout layout = requestedLayout == null ? Layout.LANDSCAPE : requestedLayout;
         Audience audience = requestedAudience == null ? Audience.STANDARD : requestedAudience;
         audience.validate(layout);
@@ -530,7 +542,10 @@ public class PdfPurchaseRenderer {
                     .data("paymentTermsLabel", order.paymentTermsLabel())
                     .data("schedule", schedule(order, payable))
                     .data("paymentRows", paymentRows(payments))
-                    .data("payableView", payableView(payments, payable))
+                    .data("payableView", payableView(payments, payable, reconciliation != null
+                            ? reconciliation : payable == null ? null
+                            : new PurchaseReconciliationCalculator().calculate(order, costing, payable,
+                                    payments == null ? List.of() : payments)))
                     .data("notesText", internal ? notes : null)
                     .data("usdRateGoods", rate(order.usdToEurGoods()))
                     .data("usdRateTransport", rate(order.usdToEurTransport()))
@@ -1231,7 +1246,7 @@ public class PdfPurchaseRenderer {
                     : DocumentFormat.amount(payment.amount()) + " " + payment.currency();
             rows.add(new PaymentRow(
                     payment.paidOn() == null ? "—" : DocumentFormat.be(payment.paidOn()),
-                    notBlank(payment.label()) ? payment.label() : "Betaling",
+                    paymentLabel(payment),
                     payment.payee().dutchLabel(),
                     DocumentFormat.eur(payment.amountEur()),
                     original));
@@ -1244,16 +1259,29 @@ public class PdfPurchaseRenderer {
 
     static PayableView payableView(List<PurchasePayment> payments,
                                    PurchaseOrderService.Payable payable) {
+        return payableView(payments, payable, null);
+    }
+
+    static PayableView payableView(List<PurchasePayment> payments,
+                                   PurchaseOrderService.Payable payable,
+                                   PurchaseReconciliation reconciliation) {
         if (payable == null) return null;
         BigDecimal paidSupplier = paidTo(payments, PurchasePayment.Payee.SUPPLIER);
         BigDecimal paidLogistics = paidTo(payments, PurchasePayment.Payee.LOGISTICS);
         boolean settled = payments != null && payments.stream()
-                .anyMatch(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER && payment.settles());
-        /* A settling payment closes the stream, whatever the amount: nothing stays open. */
+                .anyMatch(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER && payment.settlesWholeGroup());
+        /* Only a whole-group close affects the compatibility path without a reconciliation. */
         BigDecimal open = payable.supplierEur() == null || settled
                 ? BigDecimal.ZERO : payable.supplierEur().subtract(paidSupplier);
-        /* Short by the small change of paying, up to ten euro, counts as paid: bank charges, rounding. */
-        if (paidSupplier.signum() > 0 && open.signum() > 0 && open.compareTo(PAYMENT_TOLERANCE_EUR) <= 0) open = BigDecimal.ZERO;
+        var supplier = reconciliation == null ? null : reconciliation.streams().stream()
+                .filter(stream -> stream.payee() == PurchasePayment.Payee.SUPPLIER).findFirst().orElse(null);
+        if (supplier != null) {
+            paidSupplier = supplier.paidEur();
+            open = supplier.remainingEur();
+            if (open.signum() == 0 && supplier.overpaidEur().signum() > 0) open = supplier.overpaidEur().negate();
+        } else if (paidSupplier.signum() > 0 && open.signum() > 0 && open.compareTo(PAYMENT_TOLERANCE_EUR) <= 0) {
+            open = BigDecimal.ZERO;
+        }
         return new PayableView(
                 DocumentFormat.eur(payable.supplierEur()),
                 DocumentFormat.eur(payable.logisticsEur()),
@@ -1261,6 +1289,24 @@ public class PdfPurchaseRenderer {
                 payable.freightInSupplierPrice(), payable.ddp(),
                 DocumentFormat.eur(paidSupplier), DocumentFormat.eur(paidLogistics),
                 DocumentFormat.eur(open.abs()), open.signum() < 0);
+    }
+
+    static String paymentLabel(PurchasePayment payment) {
+        String label = notBlank(payment.label()) ? payment.label() : "Betaling";
+        String scope = paymentScopeLabel(payment);
+        return scope == null ? label : label + " - " + scope;
+    }
+
+    static String paymentScopeLabel(PurchasePayment payment) {
+        if (payment.instalmentDue() != null) {
+            return (payment.settles() ? "Slotbetaling termijn: " : "Termijn: ")
+                    + switch (payment.instalmentDue()) {
+                        case ORDERED -> "bij bestelling";
+                        case SHIPPED -> "bij vertrek";
+                        case ARRIVED -> "bij aankomst";
+                    };
+        }
+        return payment.settlesWholeGroup() ? "Slotbetaling hele groep: " + payment.payee().dutchLabel() : null;
     }
 
     static BigDecimal paidTo(List<PurchasePayment> payments, PurchasePayment.Payee payee) {

@@ -29,12 +29,23 @@ public record PurchasePayment(
         /** Who got the money: the factory, or the forwarder and customs. Null reads as supplier. */
         Payee payee,
         /**
-         * The payment that settles its stream: after it nothing is open any more,
-         * even when the amount is not what was agreed. The difference is what
-         * we paid too much or too little.
+         * Closes the selected supplier milestone, or the whole payee group when
+         * instalmentDue is null. No other milestone is closed by a scoped payment.
+         * The difference from its budget is the confirmed saving or overrun.
          */
-        boolean settles
+        boolean settles,
+        /** Supplier milestone; null keeps the historical whole-group meaning. */
+        PaymentTerms.Moment instalmentDue
 ) {
+    /** Compatibility for whole-group payments recorded before milestone allocation. */
+    public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                           BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,
+                           boolean settles) {
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, settles, null);
+    }
+
+    public boolean settlesWholeGroup() { return settles && instalmentDue == null; }
+
     /** Compatibility for callers written before a payment could settle a stream. */
     public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                            BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee) {
