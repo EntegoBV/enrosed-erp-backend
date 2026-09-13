@@ -89,6 +89,7 @@ public enum VatTreatment {
                 case PL -> "Dostawa krajowa";
                 case PT -> "Entrega nacional";
                 case TR -> "Yurt içi teslimat";
+                case EL -> "Εγχώρια παράδοση";
             };
             case INTRACOMMUNAUTAIR -> switch (language) {
                 case NL -> "Intracommunautaire levering";
@@ -99,6 +100,7 @@ public enum VatTreatment {
                 case PL -> "Wewnątrzwspólnotowa dostawa towarów";
                 case PT -> "Entrega intracomunitária";
                 case TR -> "Topluluk içi teslimat";
+                case EL -> "Ενδοκοινοτική παράδοση";
             };
             case EU_ZONDER_BTW_NUMMER -> switch (language) {
                 case NL -> "EU-levering zonder BTW-nummer";
@@ -109,6 +111,7 @@ public enum VatTreatment {
                 case PL -> "Dostawa UE bez numeru VAT";
                 case PT -> "Entrega UE sem NIF";
                 case TR -> "Vergi numarasız AB teslimatı";
+                case EL -> "Παράδοση εντός ΕΕ χωρίς αριθμό ΦΠΑ";
             };
             case VERLEGD_FISCAAL_VERTEGENWOORDIGER -> switch (language) {
                 case NL -> "Btw verlegd via fiscaal vertegenwoordiger (NL)";
@@ -119,6 +122,7 @@ public enum VatTreatment {
                 case PL -> "Odwrotne obciążenie przez przedstawiciela podatkowego (NL)";
                 case PT -> "Autoliquidação via representante fiscal (NL)";
                 case TR -> "Mali temsilci aracılığıyla ters vergilendirme (NL)";
+                case EL -> "Αντίστροφη χρέωση μέσω φορολογικού αντιπροσώπου (NL)";
             };
             case UITVOER -> switch (language) {
                 case NL -> "Uitvoer buiten de EU";
@@ -129,6 +133,7 @@ public enum VatTreatment {
                 case PL -> "Eksport poza UE";
                 case PT -> "Exportação fora da UE";
                 case TR -> "AB dışına ihracat";
+                case EL -> "Εξαγωγή εκτός ΕΕ";
             };
         };
     }
@@ -161,6 +166,9 @@ public enum VatTreatment {
                 case TR -> "KDV istisnası - Topluluk içi teslimat. "
                         + "Belçika KDV Kanunu md. 39bis / 2006/112/AT sayılı Direktif md. 138. "
                         + "KDV alıcı tarafından beyan edilir.";
+                case EL -> "Απαλλαγή από ΦΠΑ - ενδοκοινοτική παράδοση. "
+                        + "Άρθρο 39bis του βελγικού Κώδικα ΦΠΑ / άρθρο 138 της Οδηγίας 2006/112/ΕΚ. "
+                        + "Ο ΦΠΑ αποδίδεται από τον πελάτη (αντίστροφη χρέωση).";
             };
             case UITVOER -> switch (language) {
                 case NL -> "Vrijstelling van BTW - uitvoer. "
@@ -179,6 +187,8 @@ public enum VatTreatment {
                         + "Art. 39 do Código do IVA belga / art. 146 da Diretiva 2006/112/CE.";
                 case TR -> "KDV istisnası - ihracat. "
                         + "Belçika KDV Kanunu md. 39 / 2006/112/AT sayılı Direktif md. 146.";
+                case EL -> "Απαλλαγή από ΦΠΑ - εξαγωγή. "
+                        + "Άρθρο 39 του βελγικού Κώδικα ΦΠΑ / άρθρο 146 της Οδηγίας 2006/112/ΕΚ.";
             };
             case VERLEGD_FISCAAL_VERTEGENWOORDIGER -> switch (language) {
                 case NL -> "BTW VERLEGD - btw verlegd naar de Nederlandse afnemer volgens "
@@ -197,6 +207,8 @@ public enum VatTreatment {
                         + "artigo 12.º, n.º 3, da lei neerlandesa do IVA (Wet OB 1968).";
                 case TR -> "TERS VERGİLENDİRME - KDV, Hollanda KDV Kanunu (Wet OB 1968) madde 12/3 uyarınca "
                         + "Hollandalı alıcıya devredilmiştir.";
+                case EL -> "ΑΝΤΙΣΤΡΟΦΗ ΧΡΕΩΣΗ - ο ΦΠΑ μεταφέρεται στον Ολλανδό πελάτη σύμφωνα με "
+                        + "το άρθρο 12, παράγραφος 3, του ολλανδικού νόμου περί ΦΠΑ (Wet OB 1968).";
             };
             case BINNENLAND, EU_ZONDER_BTW_NUMMER -> null;
         };

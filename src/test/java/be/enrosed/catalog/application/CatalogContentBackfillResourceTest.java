@@ -32,8 +32,8 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-08-31-complete-catalog-v8", backfill.path("version").asText());
-        assertEquals(3, backfill.path("expectedCounts").path("categories").asInt());
+        assertEquals("2026-09-13-greek-catalog-v9", backfill.path("version").asText());
+        assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
         assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
         assertEquals(85, backfill.path("expectedCounts").path("images").asInt());
@@ -43,10 +43,10 @@ class CatalogContentBackfillResourceTest {
         assertEquals(85, values(backfill.path("targetImageKeys")).size());
         assertTrue(values(backfill.path("targetImageKeys"))
                 .containsAll(CatalogFoamPhotoBackfillService.targetImageKeys()));
-        assertEquals(Set.of("display-roses", "divers", "rose-bears"),
+        assertEquals(Set.of("display-roses", "divers", "rose-bears", "domes", "boxes", "foam-roses", "soap-roses"),
                 fieldNames(backfill.path("categories")));
         backfill.path("categories").fields().forEachRemaining(category -> {
-            assertEquals(8, category.getValue().size());
+            assertEquals(9, category.getValue().size());
             category.getValue().forEach(localized -> {
                 for (String field : List.of("name", "eyebrow", "description", "mobileName",
                         "navigationName", "footerName")) {
@@ -70,7 +70,7 @@ class CatalogContentBackfillResourceTest {
 
         JsonNode copy = resource("/i18n/catalog-family-copy.json");
         assertEquals(19, copy.path("families").size());
-        for (String language : Set.of("NL", "FR", "EN", "DE", "ES", "PL", "PT", "TR")) {
+        for (String language : Set.of("NL", "FR", "EN", "DE", "ES", "PL", "PT", "TR", "EL")) {
             Set<String> summaries = new HashSet<>();
             Set<String> descriptions = new HashSet<>();
             copy.path("families").fields().forEachRemaining(family -> {
@@ -89,11 +89,11 @@ class CatalogContentBackfillResourceTest {
     }
 
     @Test
-    void publicCopyResourcesKeepTheReviewedEightLocaleContract() throws Exception {
+    void publicCopyResourcesKeepTheReviewedNineLocaleContract() throws Exception {
         List<List<String>> website = csv("/i18n/website-content.csv");
-        assertEquals(624, website.size(), "one header plus 623 website keys");
-        assertTrue(website.stream().skip(1).allMatch(row -> row.size() == 11
-                && row.subList(3, 11).stream().noneMatch(String::isBlank)));
+        assertEquals(632, website.size(), "one header plus 631 website keys including Greek and consent");
+        assertTrue(website.stream().skip(1).allMatch(row -> row.size() == 12
+                && row.subList(3, 12).stream().noneMatch(String::isBlank)));
         List<String> stemRoses = row(website, "home.counter.item3.title", 0);
         assertEquals("12 steelrozen", stemRoses.get(3));
         assertEquals("12 Stem Roses", stemRoses.get(5));
@@ -106,17 +106,17 @@ class CatalogContentBackfillResourceTest {
                 "quote.error.payloadTooLarge", "quote.error.reviewRequired",
                 "quote.error.network", "quote.error.contact")) {
             List<String> errorCopy = row(website, key, 0);
-            assertEquals(8, errorCopy.subList(3, 11).stream().filter(
+            assertEquals(9, errorCopy.subList(3, 12).stream().filter(
                     value -> !value.isBlank()).count(), key);
         }
         List<String> rateLimited = row(website, "quote.error.rateLimited", 0);
-        assertTrue(rateLimited.subList(3, 11).stream()
+        assertTrue(rateLimited.subList(3, 12).stream()
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
         assertEquals(114, catalog.size(), "one header plus 113 catalogue keys");
-        assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 12
-                && row.subList(4, 12).stream().noneMatch(String::isBlank)));
+        assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
+                && row.subList(4, 13).stream().noneMatch(String::isBlank)));
         assertEquals("GROSSISTA", row(catalog, "catalog.brand.wholesale", 1).get(10));
         assertEquals("AİLELER", row(catalog, "catalog.common.family.plural", 1).get(11));
     }

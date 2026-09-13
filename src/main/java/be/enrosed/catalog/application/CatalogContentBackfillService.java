@@ -113,6 +113,10 @@ public class CatalogContentBackfillService {
             String beforeCategory = categoryFingerprint(category);
             matchedCategories++;
             for (Map.Entry<Language, CategoryCopy> localized : entry.getValue().entrySet()) {
+                // These categories were edited after the original category split; only introduce
+                // the new locale, without restoring an older marketing name in existing locales.
+                if (Set.of("domes", "boxes", "foam-roses", "soap-roses").contains(entry.getKey())
+                        && localized.getKey() != Language.EL) continue;
                 CategoryTextEntity text = category.texts.stream()
                         .filter(item -> item.language == localized.getKey()).findFirst().orElse(null);
                 if (text == null) {
@@ -188,8 +192,11 @@ public class CatalogContentBackfillService {
                         knownFamilyCopy(entry.getKey(), "summary", text.summary,
                                 summaryCandidate, language),
                         correctKnownStale, counter);
-                text.seoTitle = merge(text.seoTitle, name + " | Enrosed Wholesale",
-                        null, false, counter);
+                text.seoTitle = merge(text.seoTitle, text.name
+                                + (language == Language.EL ? " | Enrosed Χονδρική" : " | Enrosed Wholesale"),
+                        knownImportedSeoTitle(entry.getKey(), bundle.knownImportedSeoTitles().getOrDefault(entry.getKey(), Set.of()),
+                                language, text.seoTitle),
+                        correctKnownStale, counter);
                 text.seoDescription = merge(text.seoDescription, summaryCandidate,
                         null, false, counter);
                 String knownDescription = approved != null
@@ -220,23 +227,33 @@ public class CatalogContentBackfillService {
             List<ProductEntity> members = products.list(
                     "familyId = ?1 order by variantPosition, id", family.id);
             for (ProductEntity product : members) {
-                if (product.canonicalVariantKey == null || product.canonicalVariantKey.isBlank()) continue;
-                if (!bundle.targetVariantKeys().contains(product.canonicalVariantKey)) continue;
-                matchedVariants++;
-                if (product.publicName == null || product.publicName.isBlank()) {
+                boolean originalVariant = product.canonicalVariantKey != null
+                        && bundle.targetVariantKeys().contains(product.canonicalVariantKey);
+                if (originalVariant) matchedVariants++;
+                if (originalVariant && (product.publicName == null || product.publicName.isBlank())) {
                     product.publicName = product.name;
                 }
                 String colourHex = product.colour == null
                         ? null : bundle.colourHexes().get(product.colour);
-                if ((product.colourHex == null || product.colourHex.isBlank())
+                if (originalVariant && (product.colourHex == null || product.colourHex.isBlank())
                         && colourHex != null) {
                     product.colourHex = colourHex;
                 }
                 for (Language language : Language.values()) {
-                    String color = localizedColor(bundle, product.colour, language);
-                    String size = localizedSize(product.variantSize, language);
-                    Map<Language, String> namedVariant = bundle.variantNames()
-                            .get(product.canonicalVariantKey);
+                    // New locale coverage also includes variants added since the original import.
+                    // Existing translations of those administrator-owned variants are untouched.
+                    if (!originalVariant && language != Language.EL) continue;
+                    String color = localizedColor(bundle, language == Language.EL
+                            ? publicEnglishColour(product) : product.colour, language);
+                    String sizeSource = product.variantSize;
+                    if (language == Language.EL && (sizeSource == null || sizeSource.isBlank())) {
+                        sizeSource = product.texts.stream().filter(text -> text.language == Language.EN)
+                                .map(text -> text.variantSize).filter(value -> value != null && !value.isBlank())
+                                .findFirst().orElse(null);
+                    }
+                    String size = localizedSize(sizeSource, language);
+                    Map<Language, String> namedVariant = product.canonicalVariantKey == null ? null
+                            : bundle.variantNames().get(product.canonicalVariantKey);
                     String name = namedVariant != null ? namedVariant.get(language)
                             : color == null ? localizedNames.get(language) : color;
                     ProductTextEntity text = product.texts.stream()
@@ -265,17 +282,20 @@ public class CatalogContentBackfillService {
             }
 
             for (ProductFamilyPhotoEntity image : family.photos) {
-                if (!bundle.targetImageKeys().contains(
-                        family.familyKey + ":" + image.sourceKey)) continue;
-                matchedImages++;
+                boolean originalImage = bundle.targetImageKeys().contains(
+                        family.familyKey + ":" + image.sourceKey);
+                if (originalImage) matchedImages++;
                 List<ProductFamilyDto.AltTextDto> existing = readAlts(image.altTextsJson);
                 Map<Language, String> values = new EnumMap<>(Language.class);
                 existing.forEach(alt -> values.put(alt.language(), alt.alt()));
                 String rawColor = image.variantProduct == null
                         ? image.variantColor : image.variantProduct.colour;
                 for (Language language : Language.values()) {
+                    if (!originalImage && language != Language.EL) continue;
                     String familyName = localizedNames.get(language);
-                    String color = localizedColor(bundle, rawColor, language);
+                    String color = localizedColor(bundle,
+                            language == Language.EL && image.variantProduct != null
+                                    ? publicEnglishColour(image.variantProduct) : rawColor, language);
                     String candidate = color == null ? familyName
                             : bundle.altPatterns().get(language)
                                     .replace("{family}", familyName).replace("{color}", color);
@@ -325,8 +345,9 @@ public class CatalogContentBackfillService {
                 family, LockModeType.PESSIMISTIC_WRITE));
 
         List<ProductEntity> targetProducts = products.listAll().stream()
-                .filter(product -> product.id != null && product.canonicalVariantKey != null)
-                .filter(product -> bundle.targetVariantKeys().contains(product.canonicalVariantKey))
+                .filter(product -> product.id != null)
+                .filter(product -> (product.canonicalVariantKey != null && bundle.targetVariantKeys().contains(product.canonicalVariantKey))
+                        || targetFamilies.stream().anyMatch(family -> Objects.equals(family.id, product.familyId)))
                 .sorted(Comparator.comparing(product -> product.id)).toList();
         writeGuard.lockProducts(targetProducts.stream().map(product -> product.id).toList());
 
@@ -467,11 +488,17 @@ public class CatalogContentBackfillService {
             for (Language language : Language.values()) {
                 patterns.put(language, root.path("imageAltPatterns").path(language.name()).asText());
             }
+            Map<String, Set<String>> knownSeoTitles = new LinkedHashMap<>();
+            root.path("knownImportedSeoTitles").fields().forEachRemaining(entry -> {
+                Set<String> values = new LinkedHashSet<>();
+                entry.getValue().forEach(value -> values.add(value.asText()));
+                knownSeoTitles.put(entry.getKey(), Set.copyOf(values));
+            });
             JsonNode counts = root.path("expectedCounts");
             return new Bundle(version, checksum, profiles, formatProfiles, highlightProfiles,
                     categorySeeds, familySeeds, familyCopy, variantNames, colors,
                     Set.copyOf(targetVariantKeys), Set.copyOf(targetImageKeys),
-                    Map.copyOf(colourHexes), Map.copyOf(patterns),
+                    Map.copyOf(colourHexes), Map.copyOf(patterns), Map.copyOf(knownSeoTitles),
                     counts.path("categories").asInt(),
                     counts.path("families").asInt(), counts.path("variants").asInt(),
                     counts.path("images").asInt());
@@ -666,13 +693,27 @@ public class CatalogContentBackfillService {
         }
         if (exact == null) {
             LOG.debugf("Kleur \"%s\" staat niet in de catalogusbundel; blijft zoals ingevuld", wanted);
-            return wanted;
+            // Do not mark an untranslated new colour as Greek. Strict publication will report
+            // the missing locale until the administrator supplies that colour translation.
+            return language == Language.EL ? null : wanted;
         }
         String value = exact.get(language);
         return value == null || value.isBlank() ? wanted : value;
     }
 
-    private static String localizedSize(String raw, Language language) {
+    private static String publicEnglishColour(ProductEntity product) {
+        return product.texts.stream().filter(text -> text.language == Language.EN)
+                .map(text -> text.colour).filter(value -> value != null && !value.isBlank())
+                .findFirst().orElse(product.colour);
+    }
+
+    static String localizedSize(String raw, Language language) {
+        // Measurements are language-neutral. They must still have an explicit source entry
+        // for the strict locale projection, while arbitrary labels need a real translation.
+        if (raw != null && raw.strip().matches(
+                "(?i)[0-9]+(?:[.,][0-9]+)?(?:\\s*[x×*]\\s*[0-9]+(?:[.,][0-9]+)?){1,2}\\s*(?:mm|cm|m)?")) {
+            return raw.strip();
+        }
         return VariantSizes.translate(raw, language);
     }
 
@@ -698,6 +739,21 @@ public class CatalogContentBackfillService {
             default -> null;
         };
         return Objects.equals(previousSeed, current) ? current : null;
+    }
+
+    /** Exact immutable import literals only: the editable base SEO field is never migration evidence. */
+    static String knownImportedSeoTitle(String familyKey, Set<String> importedTitles,
+                                         Language language, String current) {
+        if (current == null) return null;
+        if (importedTitles.contains(current)) return current;
+        String suffix = " | Enrosed Wholesale";
+        if (current.endsWith(suffix)) {
+            String oldName = current.substring(0, current.length() - suffix.length());
+            if (Objects.equals(oldName, knownFamilyName(familyKey, null, language, oldName))) {
+                return current;
+            }
+        }
+        return null;
     }
 
     private static String knownFamilyCopy(
@@ -866,6 +922,7 @@ public class CatalogContentBackfillService {
             Set<String> targetImageKeys,
             Map<String, String> colourHexes,
             Map<Language, String> altPatterns,
+            Map<String, Set<String>> knownImportedSeoTitles,
             int expectedCategories, int expectedFamilies, int expectedVariants, int expectedImages) {}
     public record Result(
             String version, String sha256, int matchedCategories, int matchedFamilies, int matchedVariants,

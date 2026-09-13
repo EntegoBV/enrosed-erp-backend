@@ -23,7 +23,8 @@ public enum Language {
     ES("es", "Spaans", "es-ES"),
     PL("pl", "Pools", "pl-PL"),
     PT("pt", "Portugees", "pt-PT"),
-    TR("tr", "Turks", "tr-TR");
+    TR("tr", "Turks", "tr-TR"),
+    EL("el", "Grieks", "el-GR");
 
     private final String code;
     private final String label;

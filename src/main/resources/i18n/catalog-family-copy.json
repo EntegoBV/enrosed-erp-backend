@@ -1,5 +1,5 @@
 {
-  "version": "2026-08-21-public-family-copy-v3",
+  "version": "2026-09-13-public-family-copy-greek-v4",
   "families": {
     "rose-diamonds-within-display": {
       "NL": {
@@ -81,6 +81,16 @@
           "Tezgâh sunumu için tasarlandı"
         ],
         "description": "Şeffaf fasetli kutuda korunmuş gül ve koku deneyimi; hediye ve dürtüsel satış için sağlam bir tezgâh standında sunulur. Her kutu gülü korurken ürünü görünür tutar ve eksiksiz stant doğrudan tezgâha yerleştirilebilir."
+      },
+      "EL": {
+        "summary": "Ένα διατηρημένο τριαντάφυλλο και άρωμα σε διάφανη πολύεδρη θήκη, μέσα σε ανθεκτικό σταντ πάγκου για δώρα και αυθόρμητες αγορές.",
+        "format": "12 πολύεδρες θήκες με τριαντάφυλλο σε σταντ πάγκου",
+        "highlights": [
+          "Πολύεδρη θήκη έτοιμη για δώρο",
+          "Άρωμα και διατηρημένο τριαντάφυλλο μαζί",
+          "Σχεδιασμένο για παρουσίαση στον πάγκο"
+        ],
+        "description": "Ένα διατηρημένο τριαντάφυλλο και άρωμα σε διάφανη πολύεδρη θήκη, μέσα σε ανθεκτικό σταντ πάγκου για δώρα και αυθόρμητες αγορές. Κάθε ατομική θήκη προστατεύει το τριαντάφυλλο και το αφήνει ορατό, ενώ ολόκληρο το σταντ τοποθετείται απευθείας στον πάγκο."
       }
     },
     "preserved-single-rose-in-display": {
@@ -163,6 +173,16 @@
           "Tezgâhı hızlı yenilemeye hazır"
         ],
         "description": "Şeffaf kılıflar ve siyah tutucularda ayrı ayrı sunulan uzun saplı korunmuş güller, koliden doğrudan tezgâha geçen bir stantta gruplanır. Şeffaf ambalaj sapı, yaprakları ve çiçeği tamamen görünür tutar ve ek hazırlık olmadan tekli satış sağlar."
+      },
+      "EL": {
+        "summary": "Διατηρημένα τριαντάφυλλα με μακρύ μίσχο, σε ατομικές διαφανείς θήκες και μαύρες βάσεις, συγκεντρωμένα σε σταντ που μεταφέρεται από το κιβώτιο στον πάγκο.",
+        "format": "12 τριαντάφυλλα με μίσχο σε ατομική παρουσίαση",
+        "highlights": [
+          "Ολόκληρος ο μίσχος και τα φύλλα παραμένουν ορατά",
+          "Τέσσερις χρωματικές επιλογές",
+          "Έτοιμα για γρήγορη αναπλήρωση στον πάγκο"
+        ],
+        "description": "Διατηρημένα τριαντάφυλλα με μακρύ μίσχο, σε ατομικές διαφανείς θήκες και μαύρες βάσεις, συγκεντρωμένα σε σταντ που μεταφέρεται από το κιβώτιο στον πάγκο. Η διάφανη συσκευασία αφήνει ορατά τον μίσχο, τα φύλλα και το άνθος και επιτρέπει την ατομική πώληση χωρίς πρόσθετη προετοιμασία."
       }
     },
     "preserved-bowl-rose": {
@@ -245,6 +265,16 @@
           "Dört renk seçeneği"
         ],
         "description": "Şeffaf bir kasede yapraklar ve zarif beyaz ayrıntılarla sunulan kompakt korunmuş gül, uyumlu bir satış standı oluşturur. Şeffaf koruyucu form kompakt kompozisyonu düzenli tutar ve her renk seçeneğine rafta tutarlı bir sunum kazandırır."
+      },
+      "EL": {
+        "summary": "Ένα μικρό διατηρημένο τριαντάφυλλο με φύλλωμα και διακριτικές λευκές λεπτομέρειες σε διάφανη σφαίρα, σε συντονισμένο σταντ λιανικής.",
+        "format": "8 μικρές σφαίρες με τριαντάφυλλο σε σταντ πάγκου",
+        "highlights": [
+          "Μικρό μέγεθος δώρου",
+          "Διάφανη προστατευτική σφαίρα",
+          "Τέσσερις χρωματικές επιλογές"
+        ],
+        "description": "Ένα μικρό διατηρημένο τριαντάφυλλο με φύλλωμα και διακριτικές λευκές λεπτομέρειες σε διάφανη σφαίρα, σε συντονισμένο σταντ λιανικής. Το διάφανο προστατευτικό περίβλημα κρατά τη σύνθεση τακτοποιημένη και προσφέρει συνεπή παρουσίαση κάθε χρώματος στο ράφι."
       }
     },
     "bowl-rose-xl": {
@@ -327,6 +357,16 @@
           "Dört renk seçeneği"
         ],
         "description": "Daha büyük kase sunumu, kolay ve satışa hazır tezgâh standı formatını korurken her korunmuş güle daha güçlü bir görünüm kazandırır. Daha geniş hacim çiçeğin görünürlüğünü artırırken standı satışa hazır ve kolay yenilenebilir tutar."
+      },
+      "EL": {
+        "summary": "Η μεγαλύτερη σφαίρα αναδεικνύει περισσότερο κάθε διατηρημένο τριαντάφυλλο, διατηρώντας την εύχρηστη μορφή σταντ πάγκου, έτοιμη για το ράφι.",
+        "format": "6 σφαίρες XL με τριαντάφυλλο σε σταντ πάγκου",
+        "highlights": [
+          "Μεγαλύτερη ατομική σφαίρα",
+          "Κιβώτιο έτοιμο για παρουσίαση",
+          "Τέσσερις χρωματικές επιλογές"
+        ],
+        "description": "Η μεγαλύτερη σφαίρα αναδεικνύει περισσότερο κάθε διατηρημένο τριαντάφυλλο, διατηρώντας την εύχρηστη μορφή σταντ πάγκου, έτοιμη για το ράφι. Ο μεγαλύτερος όγκος κάνει το άνθος πιο ορατό, ενώ το σταντ παραμένει έτοιμο για λιανική πώληση και εύκολο στην αναπλήρωση."
       }
     },
     "cobalt-blue-roos-in-glazen-stolp": {
@@ -409,6 +449,16 @@
           "Dört renk seçeneği"
         ],
         "description": "25 cm cam fanus altında tek bir korunmuş gül, atmosferik LED ışıkla tamamlanır ve satışa uygun dört renkte sunulur. Cam fanus çiçeği korur, yumuşak ışık rengini güçlendirir ve bakım gerektirmeyen ayırt edici bir hediye oluşturur."
+      },
+      "EL": {
+        "summary": "Ένα διατηρημένο τριαντάφυλλο κάτω από γυάλινη καμπάνα 25 cm, με ατμοσφαιρικό φωτισμό LED, διαθέσιμο σε τέσσερα χρώματα για τη λιανική.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε γυάλινη καμπάνα 25 cm",
+        "highlights": [
+          "Ζεστός φωτισμός LED",
+          "Διατηρημένο τριαντάφυλλο χωρίς ανάγκη φροντίδας",
+          "Τέσσερις χρωματικές επιλογές"
+        ],
+        "description": "Ένα διατηρημένο τριαντάφυλλο κάτω από γυάλινη καμπάνα 25 cm, με ατμοσφαιρικό φωτισμό LED, διαθέσιμο σε τέσσερα χρώματα για τη λιανική. Η γυάλινη καμπάνα προστατεύει το άνθος και ο απαλός φωτισμός αναδεικνύει το χρώμα του, δημιουργώντας ένα ξεχωριστό δώρο χωρίς ανάγκη φροντίδας."
       }
     },
     "single-rose-in-acryl-glass-box": {
@@ -491,6 +541,16 @@
           "Kompakt premium hediye"
         ],
         "description": "Şeffaf akrilik kutuda aynalı taban üzerinde sergilenen koyu kırmızı tek bir korunmuş gül: kompakt, zarif ve hediye etmeye hazır. Ayna çiçeği farklı açılardan gösterir, şeffaf kutu ise sunumu korur ve hemen hediye edilmeye hazır tutar."
+      },
+      "EL": {
+        "summary": "Ένα βαθύ κόκκινο διατηρημένο τριαντάφυλλο σε βάση καθρέφτη μέσα σε διάφανο ακρυλικό κουτί: μικρό, προσεγμένο και έτοιμο για δώρο.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε ακρυλικό κουτί με καθρέφτη",
+        "highlights": [
+          "Παρουσίαση με καθρέφτη",
+          "Διάφανη προστατευτική θήκη",
+          "Μικρό δώρο υψηλής αισθητικής"
+        ],
+        "description": "Ένα βαθύ κόκκινο διατηρημένο τριαντάφυλλο σε βάση καθρέφτη μέσα σε διάφανο ακρυλικό κουτί: μικρό, προσεγμένο και έτοιμο για δώρο. Ο καθρέφτης προβάλλει το άνθος από πολλές γωνίες και το διάφανο κουτί προστατεύει τη σύνθεση, έτοιμη να προσφερθεί ως δώρο."
       }
     },
     "one-rose-in-box": {
@@ -573,6 +633,16 @@
           "Hediyeye hazır kurdele bitişi"
         ],
         "description": "Kurdele ayrıntılı kompakt şeffaf küpte tek bir korunmuş gül; küçük jestler ve dikkat çekici hediye sunumları için tasarlanmıştır. Şeffaf ambalaj ve zarif kurdele bitişi, küçük formata ek hediye paketi olmadan güçlü raf etkisi kazandırır."
+      },
+      "EL": {
+        "summary": "Ένα διατηρημένο τριαντάφυλλο σε μικρό διάφανο κύβο με κορδέλα, για μικρές χειρονομίες και ευδιάκριτες παρουσιάσεις δώρων.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε διάφανο κουτί πλεξιγκλάς",
+        "highlights": [
+          "Μικρό μέγεθος 7 × 7 × 9 cm",
+          "Τρεις χρωματικές επιλογές",
+          "Φινίρισμα με κορδέλα, έτοιμο για δώρο"
+        ],
+        "description": "Ένα διατηρημένο τριαντάφυλλο σε μικρό διάφανο κύβο με κορδέλα, για μικρές χειρονομίες και ευδιάκριτες παρουσιάσεις δώρων. Η διάφανη συσκευασία και η προσεγμένη κορδέλα δίνουν στο μικρό μέγεθος έντονη παρουσία στο ράφι, χωρίς πρόσθετη συσκευασία δώρου."
       }
     },
     "hearth-glass-flowerbox": {
@@ -656,6 +726,16 @@
           "İddialı hediye formatı"
         ],
         "description": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on altı korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur. Simetrik kalp kompozisyonu ve yansıtıcı taban güllerin derinliğini artırır ve kutuyu iddialı bir hediyeye dönüştürür."
+      },
+      "EL": {
+        "summary": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα.",
+        "format": "16 διατηρημένα τριαντάφυλλα σε κουτί καρδιά με καθρέφτη",
+        "highlights": [
+          "Σύνθεση σε σχήμα καρδιάς",
+          "Παρουσίαση με καθρέφτη",
+          "Εντυπωσιακό μέγεθος δώρου"
+        ],
+        "description": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα. Η συμμετρική καρδιά και η ανακλαστική βάση ενισχύουν το βάθος των τριαντάφυλλων και κάνουν το κουτί έτοιμο για ένα ξεχωριστό δώρο."
       }
     },
     "roses-in-box-16pcs": {
@@ -738,6 +818,16 @@
           "Bakım gerektirmeyen sunum"
         ],
         "description": "Kompakt kare flowerbox içinde on altı korunmuş gülden oluşan yoğun aranjman, üç farklı renk hikâyesiyle sunulur. Kompakt kare yapı gülleri yoğun ve eşit düzenler, her renk seçeneğine zengin ve özenli bir görünüm kazandırır."
+      },
+      "EL": {
+        "summary": "Πυκνή σύνθεση από δεκαέξι διατηρημένα τριαντάφυλλα σε μικρό τετράγωνο κουτί λουλουδιών, διαθέσιμη σε τρεις χρωματικές επιλογές.",
+        "format": "16 διατηρημένα τριαντάφυλλα σε τετράγωνο κουτί λουλουδιών",
+        "highlights": [
+          "Κουτί 17 × 17 × 15 cm",
+          "Τρεις χρωματικές επιλογές",
+          "Παρουσίαση χωρίς ανάγκη φροντίδας"
+        ],
+        "description": "Πυκνή σύνθεση από δεκαέξι διατηρημένα τριαντάφυλλα σε μικρό τετράγωνο κουτί λουλουδιών, διαθέσιμη σε τρεις χρωματικές επιλογές. Η μικρή τετράγωνη κατασκευή κρατά τα τριαντάφυλλα πυκνά και ομοιόμορφα τοποθετημένα, προσφέροντας πλούσια και προσεγμένη εμφάνιση σε κάθε χρώμα."
       }
     },
     "rose-in-dome-elite": {
@@ -820,6 +910,16 @@
           "Hediye kutusu dâhil"
         ],
         "description": "30 cm cam fanus altında farklı yüksekliklerde üç koyu kırmızı korunmuş gül, sıcak LED ışık ve Enrosed hediye kutusuyla sunulur. Kademeli yükseklikler cam altında derinlik oluşturur, aydınlatma ve hediye kutusu ise eksiksiz premium sunumu tamamlar."
+      },
+      "EL": {
+        "summary": "Τρία διατηρημένα κόκκινα τριαντάφυλλα σε διαφορετικά ύψη κάτω από γυάλινη καμπάνα 30 cm, με ζεστό φωτισμό LED και κουτί δώρου Enrosed.",
+        "format": "Τρία διατηρημένα τριαντάφυλλα σε γυάλινη καμπάνα 30 cm",
+        "highlights": [
+          "Σύνθεση με τρία τριαντάφυλλα",
+          "Ζεστός φωτισμός LED",
+          "Περιλαμβάνεται κουτί δώρου"
+        ],
+        "description": "Τρία διατηρημένα κόκκινα τριαντάφυλλα σε διαφορετικά ύψη κάτω από γυάλινη καμπάνα 30 cm, με ζεστό φωτισμό LED και κουτί δώρου Enrosed. Τα διαφορετικά ύψη δημιουργούν βάθος κάτω από το γυαλί, ενώ ο φωτισμός και το κουτί δώρου ολοκληρώνουν την προσεγμένη παρουσίαση."
       }
     },
     "roses-in-box-9pcs": {
@@ -902,6 +1002,16 @@
           "Kompakt premium hediye"
         ],
         "description": "Kompakt flowerbox içinde dokuz korunmuş gül, rafa renk, yapı ve uzun ömürlü hediye değeri kazandırır. Düzenli ızgara kompozisyonu kompakt kutuya sakin bir premium görünüm verir ve seçilen rengi öne çıkarır."
+      },
+      "EL": {
+        "summary": "Εννέα διατηρημένα τριαντάφυλλα σε μικρό κουτί λουλουδιών, που φέρνει χρώμα, δομή και διαχρονική αξία δώρου στο ράφι.",
+        "format": "9 διατηρημένα τριαντάφυλλα σε τετράγωνο κουτί λουλουδιών",
+        "highlights": [
+          "Κουτί 15 × 15 × 17 cm",
+          "Τρεις χρωματικές επιλογές",
+          "Μικρό δώρο υψηλής αισθητικής"
+        ],
+        "description": "Εννέα διατηρημένα τριαντάφυλλα σε μικρό κουτί λουλουδιών, που φέρνει χρώμα, δομή και διαχρονική αξία δώρου στο ράφι. Η τακτική διάταξη δίνει στο μικρό κουτί ήρεμη, κομψή εμφάνιση και αφήνει το επιλεγμένο χρώμα να πρωταγωνιστεί."
       }
     },
     "acrylic-flowerbox": {
@@ -984,6 +1094,16 @@
           "Tek kırmızı renk seçeneği"
         ],
         "description": "Uzun şeffaf akrilik küp içinde modern korunmuş gül kompozisyonu, bukete sade ve mimari bir alternatif olarak tasarlanmıştır. Düz şeffaf duvarlar kompozisyonu her yönden gösterir ve aranjmana farklı iç mekânlarda modern, sakin bir duruş kazandırır."
+      },
+      "EL": {
+        "summary": "Μια σύγχρονη σύνθεση με διατηρημένα τριαντάφυλλα μέσα σε ψηλό διάφανο ακρυλικό κύβο, ως λιτή, αρχιτεκτονική εναλλακτική σε ένα μπουκέτο.",
+        "format": "Σύνθεση διατηρημένων τριαντάφυλλων σε ακρυλικό κύβο",
+        "highlights": [
+          "Παρουσίαση 12 × 20 cm",
+          "Διάφανη θήκη με καθαρές γραμμές",
+          "Διατίθεται σε κόκκινο"
+        ],
+        "description": "Μια σύγχρονη σύνθεση με διατηρημένα τριαντάφυλλα μέσα σε ψηλό διάφανο ακρυλικό κύβο, ως λιτή, αρχιτεκτονική εναλλακτική σε ένα μπουκέτο. Τα ίσια διάφανα τοιχώματα αποκαλύπτουν τη σύνθεση από κάθε πλευρά και της δίνουν σύγχρονη, ήρεμη παρουσία σε διαφορετικούς εσωτερικούς χώρους."
       }
     },
     "rose-in-dome-m": {
@@ -1067,6 +1187,16 @@
           "Üç renk seçeneği"
         ],
         "description": "30 cm yüksekliğinde LED'li cam fanusta tek bir korunmuş gül, klasik hediye silueti ve güçlü raf görünümü sunar. İnce fanus ve yumuşak ışık tek güle yükseklik ve atmosfer kazandırırken üç renk net ve odaklı bir seçim sunar."
+      },
+      "EL": {
+        "summary": "Ένα διατηρημένο τριαντάφυλλο σε ψηλή γυάλινη καμπάνα 30 cm με LED, με κλασική σιλουέτα δώρου και έντονη παρουσία στο ράφι.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε γυάλινη καμπάνα 30 cm",
+        "highlights": [
+          "Ψηλή καμπάνα 15 × 30 cm",
+          "Ζεστός φωτισμός LED",
+          "Τρεις χρωματικές επιλογές"
+        ],
+        "description": "Ένα διατηρημένο τριαντάφυλλο σε ψηλή γυάλινη καμπάνα 30 cm με LED, με κλασική σιλουέτα δώρου και έντονη παρουσία στο ράφι. Η λεπτή καμπάνα και το απαλό φως δίνουν στο μονό τριαντάφυλλο ύψος και ατμόσφαιρα, ενώ τα τρία χρώματα προσφέρουν σαφείς επιλογές."
       }
     },
     "glass-flowerbox": {
@@ -1150,6 +1280,16 @@
           "Enrosed kurdele bitişi"
         ],
         "description": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on altı korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır. Şeffaf duvarlar kalbi farklı açılardan görünür tutar, siyah kenarlar ve kurdele bitişi sunuma tanınabilir premium bir imza kazandırır."
+      },
+      "EL": {
+        "summary": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed.",
+        "format": "16 διατηρημένα τριαντάφυλλα σε διάφανο κουτί λουλουδιών",
+        "highlights": [
+          "Τριαντάφυλλα σε σχήμα καρδιάς",
+          "Διάφανη θήκη 28 × 28 × 14 cm",
+          "Φινίρισμα με κορδέλα Enrosed"
+        ],
+        "description": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed. Τα διάφανα τοιχώματα αφήνουν την καρδιά ορατή από πολλές γωνίες, ενώ το μαύρο πλαίσιο και η κορδέλα χαρίζουν αναγνωρίσιμη, προσεγμένη ταυτότητα."
       }
     },
     "rose-in-dome-xl": {
@@ -1232,6 +1372,16 @@
           "Dört renk seçeneği"
         ],
         "description": "Yumuşak LED ışıklı 20 cm cam fanus altında küçük bir korunmuş gül; çalışma masaları, komodinler ve kompakt hediye alanları için boyutlandırılmıştır. Küçük siluet klasik cam fanus karakterini korur ve daha büyük hediye ürünlerinin pratik olmadığı alanlara sığar."
+      },
+      "EL": {
+        "summary": "Ένα μικρό διατηρημένο τριαντάφυλλο κάτω από γυάλινη καμπάνα 20 cm με απαλό φωτισμό LED, για γραφεία, κομοδίνα και μικρές ζώνες παρουσίασης δώρων.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε γυάλινη καμπάνα 20 cm",
+        "highlights": [
+          "Μικρή καμπάνα 12 × 20 cm",
+          "Ζεστός φωτισμός LED",
+          "Τέσσερις χρωματικές επιλογές"
+        ],
+        "description": "Ένα μικρό διατηρημένο τριαντάφυλλο κάτω από γυάλινη καμπάνα 20 cm με απαλό φωτισμό LED, για γραφεία, κομοδίνα και μικρές ζώνες παρουσίασης δώρων. Η μικρή σιλουέτα διατηρεί τον χαρακτήρα της κλασικής γυάλινης καμπάνας και χωρά εκεί όπου μεγαλύτερα δώρα είναι λιγότερο πρακτικά."
       }
     },
     "diamond-rose": {
@@ -1314,6 +1464,16 @@
           "Tek kırmızı renk seçeneği"
         ],
         "description": "Büyük fasetli elmas kutuda sunulan tek bir kırmızı korunmuş gül: ışığı yakalayan net ayrıntılara sahip heykelsi bir hediye. Geometrik kutu çiçeği korur ve farklı yönlerden ışığı yakalayarak tek gülü ayırt edici bir dekoratif objeye dönüştürür."
+      },
+      "EL": {
+        "summary": "Ένα διατηρημένο κόκκινο τριαντάφυλλο σε μεγάλη πολύεδρη θήκη διαμαντιού: ένα γλυπτικό ατομικό δώρο με λεπτομέρειες που αντανακλούν το φως.",
+        "format": "Μονό διατηρημένο τριαντάφυλλο σε θήκη διαμάντι XL",
+        "highlights": [
+          "Μεγάλη πολύεδρη θήκη",
+          "Ατομικό δώρο",
+          "Διατίθεται σε κόκκινο"
+        ],
+        "description": "Ένα διατηρημένο κόκκινο τριαντάφυλλο σε μεγάλη πολύεδρη θήκη διαμαντιού: ένα γλυπτικό ατομικό δώρο με λεπτομέρειες που αντανακλούν το φως. Η γεωμετρική θήκη προστατεύει το άνθος και πιάνει το φως από διαφορετικές κατευθύνσεις, μετατρέποντας ένα τριαντάφυλλο σε ξεχωριστό διακοσμητικό αντικείμενο."
       }
     },
     "soaproos-in-vensterdoos": {
@@ -1396,6 +1556,16 @@
           "Ek paketleme gerekmez"
         ],
         "description": "Mat siyah pencereli kutuda dekoratif sabun gülü; çiçekçiler ve perakendeciler için kompakt, hediyeye hazır bir dürtüsel satış ürünü olarak hazırlanmıştır. Pencere kutuyu açmadan rengi ve çiçek formunu gösterir, hızlı yenileme ve doğrudan hediye satışı sağlar."
+      },
+      "EL": {
+        "summary": "Ένα διακοσμητικό τριαντάφυλλο σαπουνιού σε μαύρο ματ κουτί με παράθυρο, ως μικρό δώρο έτοιμο για αυθόρμητες αγορές σε ανθοπωλεία και καταστήματα.",
+        "format": "Μονό τριαντάφυλλο σαπουνιού σε κουτί δώρου με παράθυρο",
+        "highlights": [
+          "Συσκευασία με παράθυρο, έτοιμη για το ράφι",
+          "Μικρό προϊόν για τον πάγκο",
+          "Χωρίς πρόσθετο περιτύλιγμα"
+        ],
+        "description": "Ένα διακοσμητικό τριαντάφυλλο σαπουνιού σε μαύρο ματ κουτί με παράθυρο, ως μικρό δώρο έτοιμο για αυθόρμητες αγορές σε ανθοπωλεία και καταστήματα. Το παράθυρο αποκαλύπτει το χρώμα και το σχήμα του άνθους χωρίς άνοιγμα του κουτιού, επιτρέποντας γρήγορη αναπλήρωση και άμεση πώληση ως δώρου."
       }
     },
     "soap-rose-box-led": {
@@ -1478,6 +1648,16 @@
           "Kokulu dekoratif güller"
         ],
         "description": "Entegre LED ışıklı dekoratif sabun güllerinden oluşan uzun sunum kutusu, renk, koku ve atmosferi tek hediye formatında birleştirir. Uzun form gülleri kesintisiz bir kompozisyon olarak sunar, aydınlatma ise belirgin bir atmosfer unsuru ekler."
+      },
+      "EL": {
+        "summary": "Μακρόστενο κουτί με διακοσμητικά τριαντάφυλλα σαπουνιού και ενσωματωμένο φωτισμό LED, που συνδυάζει χρώμα, άρωμα και ατμόσφαιρα σε ένα δώρο.",
+        "format": "Σύνθεση τριαντάφυλλων σαπουνιού με ενσωματωμένο φωτισμό LED",
+        "highlights": [
+          "Παρουσίαση 10 × 50 cm",
+          "Τρεις χρωματικές επιλογές",
+          "Αρωματικά διακοσμητικά τριαντάφυλλα"
+        ],
+        "description": "Μακρόστενο κουτί με διακοσμητικά τριαντάφυλλα σαπουνιού και ενσωματωμένο φωτισμό LED, που συνδυάζει χρώμα, άρωμα και ατμόσφαιρα σε ένα δώρο. Το μακρόστενο σχήμα παρουσιάζει τα τριαντάφυλλα ως μία συνεχή σύνθεση και ο φωτισμός προσθέτει ένα ευδιάκριτο ατμοσφαιρικό στοιχείο."
       }
     },
     "soap-roos-in-box": {
@@ -1560,6 +1740,16 @@
           "Tezgâha hazır şeffaf kutu"
         ],
         "description": "Altın ayrıntılı siyah kapta, kurdeleli ve şeffaf koruyucu teşhir kutulu kokulu sabun gülü, tezgâhta kolay hediye satışı sağlar. Siyah-altın bitiş hediye değerini yükseltir, sağlam şeffaf kutu ise kokulu çiçeği satış sırasında görünür ve korumalı tutar."
+      },
+      "EL": {
+        "summary": "Ένα αρωματικό τριαντάφυλλο σαπουνιού σε μαύρο κύπελλο με χρυσές λεπτομέρειες, κορδέλα και διάφανο προστατευτικό κουτί, για εύκολη πώληση δώρου στον πάγκο.",
+        "format": "Μονό αρωματικό τριαντάφυλλο σαπουνιού σε διάφανο κουτί δώρου",
+        "highlights": [
+          "Αρωματικό διακοσμητικό τριαντάφυλλο",
+          "Μαύρη και χρυσή παρουσίαση",
+          "Διάφανο κουτί έτοιμο για τον πάγκο"
+        ],
+        "description": "Ένα αρωματικό τριαντάφυλλο σαπουνιού σε μαύρο κύπελλο με χρυσές λεπτομέρειες, κορδέλα και διάφανο προστατευτικό κουτί, για εύκολη πώληση δώρου στον πάγκο. Το μαύρο και χρυσό φινίρισμα ενισχύει την αίσθηση δώρου, ενώ το ανθεκτικό διάφανο κουτί κρατά το αρωματικό άνθος ορατό και προστατευμένο κατά την πώληση."
       }
     }
   }

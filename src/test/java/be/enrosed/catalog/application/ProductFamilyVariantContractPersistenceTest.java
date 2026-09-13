@@ -109,7 +109,7 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void versionedBackfillLeavesLaterManualVariantsAndImagesUntouched() {
+    void versionedBackfillAddsGreekWithoutChangingLaterManualTranslations() throws Exception {
         ProductFamilyEntity family = family("rose-diamonds-within-display");
         entityManager.persist(family);
         entityManager.flush();
@@ -140,8 +140,15 @@ class ProductFamilyVariantContractPersistenceTest {
         assertNull(manual.colourHex);
         assertEquals("Aubergine personnalisée", french.colour);
         assertEquals("Sur mesure", french.variantSize);
-        assertEquals("[{\"language\":\"FR\",\"alt\":\"Photo manuelle\"}]",
-                image.altTextsJson);
+        var alts = json.readTree(image.altTextsJson);
+        assertEquals(2, alts.size());
+        assertEquals("Photo manuelle", alts.get(0).path("alt").asText());
+        assertEquals("FR", alts.get(0).path("language").asText());
+        assertEquals("EL", alts.get(1).path("language").asText());
+        assertTrue(alts.get(1).path("alt").asText().contains("Τριαντάφυλλο"));
+        var greek = manual.texts.stream().filter(text -> text.language == Language.EL).findFirst().orElseThrow();
+        assertNull(greek.colour, "an unknown administrator colour is not falsely labelled Greek");
+        assertNull(greek.variantSize, "a bespoke label still needs a real translation");
     }
 
     @Test

@@ -55,7 +55,7 @@ class ContentTranslationContractTest {
                 new ContentTranslationDto.UpdateDto(created.revision(), "Custom copy", true,
                         values("Updated")));
         assertTrue(updated.revision() > created.revision());
-        assertEquals(8, updated.texts().size());
+        assertEquals(Language.values().length, updated.texts().size());
         assertTrue(updated.texts().stream().allMatch(text -> text.value().startsWith("Updated")));
 
         ContentTranslationDto noOp = content.update(ContentScope.CATALOG, created.key(),

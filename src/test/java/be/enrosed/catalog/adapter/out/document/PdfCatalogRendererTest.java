@@ -968,6 +968,7 @@ class PdfCatalogRendererTest {
             case PL -> "Róża stabilizowana";
             case PT -> "Rosa preservada";
             case TR -> "Korunmuş gül";
+            case EL -> "Διατηρημένο τριαντάφυλλο";
         };
     }
 
@@ -993,6 +994,7 @@ class PdfCatalogRendererTest {
             case PL -> "Ekspozytory na ladę";
             case PT -> "Expositores de balcão";
             case TR -> "Tezgâh teşhirleri";
+            case EL -> "Σταντ πάγκου";
         };
     }
 
@@ -1010,6 +1012,7 @@ class PdfCatalogRendererTest {
             case PL -> "Czerwony";
             case PT -> "Vermelho";
             case TR -> "Kırmızı";
+            case EL -> "Κόκκινο";
         };
     }
 
@@ -1027,6 +1030,7 @@ class PdfCatalogRendererTest {
             case PL -> "Gotowa na prezent";
             case PT -> "Pronta a oferecer";
             case TR -> "Hediyeye hazır";
+            case EL -> "Έτοιμο για δώρο";
         };
     }
 
@@ -1040,6 +1044,7 @@ class PdfCatalogRendererTest {
             case PL -> "bez codziennego podlewania";
             case PT -> "sem rega diária";
             case TR -> "günlük sulama gerektirmez";
+            case EL -> "χωρίς καθημερινό πότισμα";
         };
     }
 

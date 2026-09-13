@@ -53,9 +53,9 @@ class DocumentTextTest {
     }
 
     @Test
-    @DisplayName("het pakboncontract is compleet in alle acht klanttalen")
-    void packingSlipContractIsCompleteInAllEightLanguages() {
-        assertEquals(8, Language.values().length,
+    @DisplayName("het pakboncontract is compleet in alle negen klanttalen")
+    void packingSlipContractIsCompleteInAllNineLanguages() {
+        assertEquals(9, Language.values().length,
                 "pas deze expliciete taalcontracttest aan wanneer een klanttaal wordt toegevoegd");
         Set<String> packingSlipKeys = Set.of(
                 "packingSlip", "deliveryAddress", "pieces", "looseCartons",

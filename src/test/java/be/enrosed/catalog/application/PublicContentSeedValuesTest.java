@@ -37,4 +37,19 @@ class PublicContentSeedValuesTest {
         assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
                 ContentScope.CATALOG, "catalog.brochure.overview.title", Language.NL, "Het volledige assortiment in één oogopslag."));
     }
+
+    @Test
+    void consentUpdateRecognizesOnlyTheExactReleasedPrivacyCopy() throws Exception {
+        try (var input = getClass().getResourceAsStream("/i18n/website-consent-previous-values.json")) {
+            var previous = new com.fasterxml.jackson.databind.ObjectMapper().readTree(input);
+            String old = previous.path("footer.cookie.analyticsDescription").path("NL").asText();
+            assertFalse(old.isBlank());
+            assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.analyticsDescription", Language.NL, old));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.analyticsDescription", Language.NL, "Eigen privacyverklaring van de beheerder"));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.analyticsDescription", Language.EL, old));
+        }
+    }
 }

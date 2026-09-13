@@ -39,7 +39,7 @@ public final class DocumentText {
         if (date == null) return "";
         return switch (language) {
             /* Most of Europe writes day-month-year. */
-            case NL, FR, DE, ES, PT, TR -> DocumentFormat.be(date);
+            case NL, FR, DE, ES, PT, TR, EL -> DocumentFormat.be(date);
             /* Poland writes with dots: 25.05.2026. */
             case PL -> date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"));
             /* English gets the month spelled out: 05/25 and 25/05 read

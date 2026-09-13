@@ -16,14 +16,17 @@ public final class VariantSizes {
             case "small" -> switch (language) {
                 case NL -> "Klein"; case FR -> "Petit"; case EN -> "Small"; case DE -> "Klein";
                 case ES -> "Pequeño"; case PL -> "Mały"; case PT -> "Pequeno"; case TR -> "Küçük";
+                case EL -> "Μικρό";
             };
             case "medium" -> switch (language) {
                 case NL -> "Middelgroot"; case FR -> "Moyen"; case EN -> "Medium"; case DE -> "Mittel";
                 case ES -> "Mediano"; case PL -> "Średni"; case PT -> "Médio"; case TR -> "Orta";
+                case EL -> "Μεσαίο";
             };
             case "large" -> switch (language) {
                 case NL -> "Groot"; case FR -> "Grand"; case EN -> "Large"; case DE -> "Groß";
                 case ES -> "Grande"; case PL -> "Duży"; case PT -> "Grande"; case TR -> "Büyük";
+                case EL -> "Μεγάλο";
             };
             default -> null;
         };

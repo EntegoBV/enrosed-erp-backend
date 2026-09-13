@@ -111,4 +111,5 @@ exec psql \
     --file=/app/migrations/deleted-items-postgresql.sql \
     --file=/app/migrations/sales-splits-postgresql.sql \
     --file=/app/migrations/sales-line-availability-postgresql.sql \
-    --file=/app/migrations/container-cost-markup-mode-postgresql.sql
+    --file=/app/migrations/container-cost-markup-mode-postgresql.sql \
+    --file=/app/migrations/greek-language-postgresql.sql

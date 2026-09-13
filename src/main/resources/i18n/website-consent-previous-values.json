@@ -1,0 +1,82 @@
+{
+  "footer.cookie.description": {
+    "NL": "Deze Enrosed-website gebruikt momenteel geen analyse- of advertentiecookies. Er wordt uitsluitend gebruik gemaakt van de functionaliteit die nodig is om de website weer te geven en de door u gekozen links te openen.",
+    "FR": "Ce site Web Enrosed n'utilise actuellement aucun cookie d'analyse ou publicitaire. Seules les fonctionnalités nécessaires à l'affichage du site Internet et à l'ouverture des liens que vous choisissez sont utilisées.",
+    "EN": "This Enrosed website currently uses no analytics or advertising cookies. Only the functionality required to display the website and open the links you choose is used.",
+    "DE": "Diese Enrosed-Website verwendet derzeit keine Analyse- oder Werbecookies. Es werden nur die Funktionen genutzt, die zum Anzeigen der Website und zum Öffnen der von Ihnen ausgewählten Links erforderlich sind.",
+    "ES": "Este sitio web Enrosed actualmente no utiliza cookies de análisis ni publicidad. Solo se utiliza la funcionalidad requerida para mostrar el sitio web y abrir los enlaces que usted elija.",
+    "PL": "Ta witryna internetowa Enrosed nie wykorzystuje obecnie żadnych plików cookie do celów analitycznych ani reklamowych. Wykorzystywane są wyłącznie funkcjonalności niezbędne do wyświetlenia strony internetowej i otwarcia wybranych przez Ciebie linków.",
+    "PT": "Este website Enrosed não utiliza atualmente cookies analíticos ou publicitários. Apenas são utilizadas as funcionalidades necessárias para exibir o site e abrir os links que escolher.",
+    "TR": "Bu Enrosed web sitesi şu anda hiçbir analiz veya reklam çerezi kullanmamaktadır. Yalnızca web sitesini görüntülemek ve seçtiğiniz bağlantıları açmak için gereken işlevler kullanılır."
+  },
+  "footer.cookie.analyticsTitle": {
+    "NL": "Analyse/marketing",
+    "FR": "Analyse / marketing",
+    "EN": "Analytics / marketing",
+    "DE": "Analytik / Marketing",
+    "ES": "Análisis / marketing",
+    "PL": "Analityka / marketing",
+    "PT": "Análise/marketing",
+    "TR": "Analitik / pazarlama"
+  },
+  "footer.cookie.analyticsDescription": {
+    "NL": "Geen bezoekersprofilerings- of advertentiecookies",
+    "FR": "Aucun cookie de profilage des visiteurs ni de cookies publicitaires",
+    "EN": "No visitor profiling or advertising cookies",
+    "DE": "Keine Cookies zur Besucherprofilierung oder Werbung",
+    "ES": "Sin perfiles de visitantes ni cookies publicitarias",
+    "PL": "Brak plików cookie służących do profilowania odwiedzających i reklam",
+    "PT": "Sem perfil de visitante ou cookies de publicidade",
+    "TR": "Ziyaretçi profili oluşturma veya reklam çerezleri yok"
+  },
+  "footer.cookie.notUsed": {
+    "NL": "Niet gebruikt",
+    "FR": "Non utilisé",
+    "EN": "Not used",
+    "DE": "Nicht verwendet",
+    "ES": "No utilizado",
+    "PL": "Nieużywane",
+    "PT": "Não utilizado",
+    "TR": "Kullanılmıyor"
+  },
+  "footer.cookie.scope": {
+    "NL": "Deze details beschrijven het cookiegebruik op deze Enrosed-website. Lees het privacybeleid voor meer informatie over hoe Enrosed omgaat met persoonlijke gegevens.",
+    "FR": "Ces détails décrivent l'utilisation des cookies sur ce site Web Enrosed. Pour plus d'informations sur la façon dont Enrosed gère les données personnelles, lisez la politique de confidentialité.",
+    "EN": "These details describe cookie use on this Enrosed website. For more information about how Enrosed handles personal data, read the privacy policy.",
+    "DE": "Diese Details beschreiben die Verwendung von Cookies auf dieser Enrosed-Website. Weitere Informationen zum Umgang von Enrosed mit personenbezogenen Daten finden Sie in der Datenschutzerklärung.",
+    "ES": "Estos detalles describen el uso de cookies en este sitio web Enrosed. Para obtener más información sobre cómo Enrosed maneja los datos personales, lea la política de privacidad.",
+    "PL": "Te szczegóły opisują wykorzystanie plików cookie w tej witrynie internetowej Enrosed. Aby uzyskać więcej informacji o tym, jak Enrosed obchodzi się z danymi osobowymi, zapoznaj się z polityką prywatności.",
+    "PT": "Estes detalhes descrevem a utilização de cookies neste website Enrosed. Para mais informações sobre a forma como a Enrosed trata os dados pessoais, leia a política de privacidade.",
+    "TR": "Bu ayrıntılar, bu Enrosed web sitesindeki çerez kullanımını açıklamaktadır. Enrosed'in kişisel verileri nasıl işlediği hakkında daha fazla bilgi için gizlilik politikasını okuyun."
+  },
+  "legal.privacy.updated": {
+    "NL": "28 augustus 2026",
+    "FR": "28 août 2026",
+    "EN": "28 August 2026",
+    "DE": "28. August 2026",
+    "ES": "28 de agosto de 2026",
+    "PL": "28 sierpnia 2026 r",
+    "PT": "28 de agosto de 2026",
+    "TR": "28 Ağustos 2026"
+  },
+  "legal.privacy.cookies.p1": {
+    "NL": "Deze groothandelswebsite gebruikt momenteel geen analyse- of advertentiecookies. Technische functionaliteit wordt gebruikt om de website aan te bieden en de formulieren tegen spam te beschermen. Dit omvat kortlevende formuliertokens en, wanneer ingeschakeld, een uitdrukkelijke beveiligingscontrole via Cloudflare Turnstile. De bediening voor cookievoorkeuren in de voettekst toont de huidige status.",
+    "FR": "Ce site de vente en gros n’utilise actuellement aucun cookie d’analyse ou publicitaire. Des fonctionnalités techniques servent à fournir le site et à protéger ses formulaires contre le spam. Elles comprennent des jetons de formulaire à courte durée de vie et, lorsqu’il est activé, un contrôle de sécurité explicite Cloudflare Turnstile. Le contrôle des préférences de cookies dans le pied de page indique l’état actuel.",
+    "EN": "This wholesale website currently uses no analytics or advertising cookies. Technical functionality is used to deliver the website and protect its forms against spam. This includes short-lived form tokens and, when enabled, an explicit Cloudflare Turnstile security check. The Cookie preferences control in the footer shows the current status.",
+    "DE": "Diese Großhandelswebsite verwendet derzeit keine Analyse- oder Werbecookies. Technische Funktionen werden eingesetzt, um die Website bereitzustellen und ihre Formulare vor Spam zu schützen. Dazu gehören kurzlebige Formular-Tokens und, sofern aktiviert, eine ausdrückliche Sicherheitsprüfung durch Cloudflare Turnstile. Die Steuerung der Cookie-Einstellungen in der Fußzeile zeigt den aktuellen Status an.",
+    "ES": "Este sitio web mayorista no utiliza actualmente cookies analíticas ni publicitarias. Se utilizan funciones técnicas para prestar el sitio web y proteger sus formularios frente al spam. Esto incluye tokens de formulario de corta duración y, cuando esté habilitada, una comprobación de seguridad explícita de Cloudflare Turnstile. El control Preferencias de cookies del pie de página muestra el estado actual.",
+    "PL": "Niniejsza hurtowa witryna internetowa nie korzysta obecnie z analitycznych ani reklamowych plików cookie. Do udostępniania witryny i ochrony jej formularzy przed spamem stosowane są funkcje techniczne. Obejmują one krótkotrwałe tokeny formularzy oraz, jeśli ta funkcja jest włączona, jawną weryfikację bezpieczeństwa Cloudflare Turnstile. Element Preferencje plików cookie w stopce pokazuje aktualny stan.",
+    "PT": "Este sítio Web grossista não utiliza atualmente cookies analíticos nem publicitários. É utilizada funcionalidade técnica para disponibilizar o sítio Web e proteger os respetivos formulários contra spam. Esta inclui tokens de formulário de curta duração e, quando ativada, uma verificação de segurança explícita do Cloudflare Turnstile. O controlo Preferências de cookies no rodapé apresenta o estado atual.",
+    "TR": "Bu toptan satış web sitesi şu anda analiz veya reklam çerezleri kullanmamaktadır. Web sitesini sunmak ve formlarını spam mesajlarına karşı korumak için teknik işlevler kullanılmaktadır. Buna kısa ömürlü form belirteçleri ve etkinleştirildiğinde açık bir Cloudflare Turnstile güvenlik kontrolü dahildir. Alt bilgideki Çerez tercihleri denetimi mevcut durumu gösterir."
+  },
+  "legal.privacy.cookies.p2": {
+    "NL": "Externe websites die via een link worden geopend, hebben hun eigen privacy- en cookiepraktijken. Als analyse-, marketing- of andere optionele technologieën later worden toegevoegd, worden dit beleid en de toestemmingscontroles bijgewerkt voordat ze worden gebruikt waar toestemming vereist is.",
+    "FR": "Les sites Web externes ouverts via un lien ont leurs propres pratiques en matière de confidentialité et de cookies. Si des technologies d'analyse, de marketing ou d'autres technologies facultatives sont ajoutées ultérieurement, cette politique et les contrôles de consentement seront mis à jour avant d'être utilisés lorsque le consentement est requis.",
+    "EN": "External websites opened through a link have their own privacy and cookie practices. If analytics, marketing or other optional technologies are added later, this policy and the consent controls will be updated before they are used where consent is required.",
+    "DE": "Externe Websites, die über einen Link geöffnet werden, haben ihre eigenen Datenschutz- und Cookie-Praktiken. Wenn später Analyse-, Marketing- oder andere optionale Technologien hinzugefügt werden, werden diese Richtlinie und die Einwilligungskontrollen aktualisiert, bevor sie dort verwendet werden, wo eine Einwilligung erforderlich ist.",
+    "ES": "Los sitios web externos abiertos a través de un enlace tienen sus propias prácticas de privacidad y cookies. Si más adelante se agregan análisis, marketing u otras tecnologías opcionales, esta política y los controles de consentimiento se actualizarán antes de que se utilicen cuando se requiera el consentimiento.",
+    "PL": "Zewnętrzne strony internetowe otwierane za pomocą łącza mają własne zasady dotyczące prywatności i plików cookie. Jeśli później zostaną dodane technologie analityczne, marketingowe lub inne opcjonalne technologie, niniejsze zasady i mechanizmy kontroli zgody zostaną zaktualizowane przed ich użyciem w przypadku, gdy wymagana jest zgoda.",
+    "PT": "Os sites externos abertos através de um link têm as suas próprias práticas de privacidade e cookies. Se forem posteriormente adicionadas análises, marketing ou outras tecnologias opcionais, esta política e os controlos de consentimento serão atualizados antes de serem utilizados quando o consentimento for necessário.",
+    "TR": "Bağlantı yoluyla açılan harici web sitelerinin kendi gizlilik ve çerez uygulamaları vardır. Daha sonra analitik, pazarlama veya diğer isteğe bağlı teknolojilerin eklenmesi halinde bu politika ve izin kontrolleri, iznin gerekli olduğu yerlerde kullanılmadan önce güncellenecektir."
+  }
+}

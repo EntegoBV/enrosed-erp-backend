@@ -102,8 +102,10 @@ class CatalogDurabilityBackfillResourceTest {
     }
 
     private static void assertEightLanguages(JsonNode translations, List<String> fields) {
-        assertEquals(Language.values().length, translations.size());
-        for (Language language : Language.values()) {
+        // Historical migration input remains immutable; the current seed introduces Greek.
+        List<Language> originalLanguages = List.of(Language.NL, Language.FR, Language.EN, Language.DE, Language.ES, Language.PL, Language.PT, Language.TR);
+        assertEquals(originalLanguages.size(), translations.size());
+        for (Language language : originalLanguages) {
             JsonNode value = translations.path(language.name());
             assertFalse(value.isMissingNode(), language.name());
             for (String field : fields) {

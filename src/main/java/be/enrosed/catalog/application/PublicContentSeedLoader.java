@@ -29,6 +29,7 @@ public class PublicContentSeedLoader {
     private static final Logger LOG = Logger.getLogger(PublicContentSeedLoader.class);
     private static final String CATALOG_RESOURCE = "/i18n/public-content.csv";
     private static final String WEBSITE_RESOURCE = "/i18n/website-content.csv";
+    private static final Map<String, Map<Language, String>> LEGACY_CONSENT_VALUES = previousConsentValues();
     private static final Set<String> PROTECTED_TERMS = Set.of(
             "Royal FloraHolland", "TICA", "SKU", "EAN", "B2B", "EXW", "DDP");
     private static final Set<String> RETIRED_WEBSITE_KEYS = Set.of(
@@ -450,7 +451,7 @@ public class PublicContentSeedLoader {
         if (seed.values().size() != Language.values().length
                 || seed.values().values().stream().anyMatch(value -> value == null || value.isBlank())) {
             throw new IllegalStateException("Public copy key " + seed.key()
-                    + " moet alle acht niet-lege talen bevatten");
+                    + " moet alle ondersteunde talen met niet-lege tekst bevatten");
         }
         for (Map.Entry<Language, String> localized : seed.values().entrySet()) {
             String value = localized.getValue();
@@ -487,6 +488,8 @@ public class PublicContentSeedLoader {
             return previous != null && previous.contains(current);
         }
         if (scope == ContentScope.WEBSITE) {
+            if (current != null && Objects.equals(current,
+                    LEGACY_CONSENT_VALUES.getOrDefault(key, Map.of()).get(language))) return true;
             if ("home.counter.item2.title".equals(key)) {
                 String previousSeed = switch (language) {
                     case NL -> "De kom XL";
@@ -534,4 +537,23 @@ public class PublicContentSeedLoader {
 
     private record Seed(ContentScope scope, String key, String label, boolean required,
                         Map<Language, String> values) {}
+
+    /** Exact released copy only. Administrator-authored privacy terms are never overwritten. */
+    private static Map<String, Map<Language, String>> previousConsentValues() {
+        try (InputStream input = PublicContentSeedLoader.class.getResourceAsStream(
+                "/i18n/website-consent-previous-values.json")) {
+            if (input == null) throw new IllegalStateException("Previous consent copy is missing");
+            var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(input);
+            Map<String, Map<Language, String>> result = new LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> {
+                Map<Language, String> values = new EnumMap<>(Language.class);
+                entry.getValue().fields().forEachRemaining(value -> values.put(
+                        Language.valueOf(value.getKey()), value.getValue().asText()));
+                result.put(entry.getKey(), Map.copyOf(values));
+            });
+            return Map.copyOf(result);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Previous consent copy cannot be read", exception);
+        }
+    }
 }

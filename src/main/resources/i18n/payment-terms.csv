@@ -1,10 +1,10 @@
-﻿key;nl;fr;en;de;es;pl;pt;tr
-Vooruitbetaling;Vooruitbetaling;Paiement anticipé;Payment in advance;Vorkasse;Pago anticipado;Przedpłata;Pré-pagamento;Peşin ödeme
-50% voorschot / 50% bij levering;50% voorschot / 50% bij levering;50% d'acompte, 50% à la livraison;50% deposit, 50% on delivery;50% Anzahlung, 50% bei Lieferung;50% de anticipo, 50% a la entrega;50% zaliczki, 50% przy dostawie;50% de sinal, 50% na entrega;%50 avans, %50 teslimatta
-Bij levering;Bij levering;À la livraison;On delivery;Bei Lieferung;A la entrega;Przy dostawie;Na entrega;Teslimatta
-14 dagen netto;14 dagen netto;14 jours net;Net 14 days;14 Tage netto;14 días neto;14 dni netto;14 dias líquidos;14 gün net
-30 dagen netto;30 dagen netto;30 jours net;Net 30 days;30 Tage netto;30 días neto;30 dni netto;30 dias líquidos;30 gün net
-30 dagen;30 dagen;30 jours net;Net 30 days;30 Tage netto;30 días neto;30 dni netto;30 dias líquidos;30 gün net
-60 dagen netto;60 dagen netto;60 jours net;Net 60 days;60 Tage netto;60 días neto;60 dni netto;60 dias líquidos;60 gün net
-30% voorschot / 70% bij levering;30% voorschot / 70% bij levering;30% d'acompte, 70% à la livraison;30% deposit, 70% on delivery;30% Anzahlung, 70% bei Lieferung;30% de anticipo, 70% a la entrega;30% zaliczki, 70% przy dostawie;30% de sinal, 70% na entrega;%30 peşinat, %70 teslimatta
-30% voorschot / 40% voor verzending / 30% bij levering;30% voorschot / 40% voor verzending / 30% bij levering;30% d'acompte, 40% avant expédition, 30% à la livraison;30% deposit, 40% before shipment, 30% on delivery;30% Anzahlung, 40% vor Versand, 30% bei Lieferung;30% de anticipo, 40% antes del envío, 30% a la entrega;30% zaliczki, 40% przed wysyłką, 30% przy dostawie;30% de sinal, 40% antes do envio, 30% na entrega;%30 peşinat, %40 sevkiyattan önce, %30 teslimatta
+﻿key;nl;fr;en;de;es;pl;pt;tr;el
+Vooruitbetaling;Vooruitbetaling;Paiement anticipé;Payment in advance;Vorkasse;Pago anticipado;Przedpłata;Pré-pagamento;Peşin ödeme;Πληρωμή προκαταβολικά
+50% voorschot / 50% bij levering;50% voorschot / 50% bij levering;50% d'acompte, 50% à la livraison;50% deposit, 50% on delivery;50% Anzahlung, 50% bei Lieferung;50% de anticipo, 50% a la entrega;50% zaliczki, 50% przy dostawie;50% de sinal, 50% na entrega;%50 avans, %50 teslimatta;50% προκαταβολή, 50% κατά την παράδοση
+Bij levering;Bij levering;À la livraison;On delivery;Bei Lieferung;A la entrega;Przy dostawie;Na entrega;Teslimatta;Κατά την παράδοση
+14 dagen netto;14 dagen netto;14 jours net;Net 14 days;14 Tage netto;14 días neto;14 dni netto;14 dias líquidos;14 gün net;Εξόφληση σε 14 ημέρες
+30 dagen netto;30 dagen netto;30 jours net;Net 30 days;30 Tage netto;30 días neto;30 dni netto;30 dias líquidos;30 gün net;Εξόφληση σε 30 ημέρες
+30 dagen;30 dagen;30 jours net;Net 30 days;30 Tage netto;30 días neto;30 dni netto;30 dias líquidos;30 gün net;Εξόφληση σε 30 ημέρες
+60 dagen netto;60 dagen netto;60 jours net;Net 60 days;60 Tage netto;60 días neto;60 dni netto;60 dias líquidos;60 gün net;Εξόφληση σε 60 ημέρες
+30% voorschot / 70% bij levering;30% voorschot / 70% bij levering;30% d'acompte, 70% à la livraison;30% deposit, 70% on delivery;30% Anzahlung, 70% bei Lieferung;30% de anticipo, 70% a la entrega;30% zaliczki, 70% przy dostawie;30% de sinal, 70% na entrega;%30 peşinat, %70 teslimatta;30% προκαταβολή, 70% κατά την παράδοση
+30% voorschot / 40% voor verzending / 30% bij levering;30% voorschot / 40% voor verzending / 30% bij levering;30% d'acompte, 40% avant expédition, 30% à la livraison;30% deposit, 40% before shipment, 30% on delivery;30% Anzahlung, 40% vor Versand, 30% bei Lieferung;30% de anticipo, 40% antes del envío, 30% a la entrega;30% zaliczki, 40% przed wysyłką, 30% przy dostawie;30% de sinal, 40% antes do envio, 30% na entrega;%30 peşinat, %40 sevkiyattan önce, %30 teslimatta;30% προκαταβολή, 40% πριν από την αποστολή, 30% κατά την παράδοση

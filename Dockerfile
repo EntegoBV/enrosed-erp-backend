@@ -69,6 +69,7 @@ COPY docs/migrations/2026-09-10/deleted-items-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-11/sales-splits-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-11/sales-line-availability-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-13/container-cost-markup-mode-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-13/greek-language-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/sales-line-cost-snapshot-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/media-link-company-cost-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/customer-fiscal-representative-postgresql.sql ./migrations/
