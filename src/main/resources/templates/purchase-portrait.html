@@ -473,6 +473,19 @@
 </table>
 {#if hasAgreements}
 <div class="section-title agreements-title">Agreed product instructions and reference images<span class="section-title__legend">a specific instruction takes precedence over the general terms</span></div>
+{#for agreement in supplierAgreements}
+<table class="agreement"><thead><tr><th>
+  <div class="agreement-head__kicker">Agreed product instruction {agreement.reference}</div>
+  <div class="agreement-head__name">Applies to these ordered variants</div>
+  <div class="agreement-head__meta">{agreement.firstVariant}</div>
+</th></tr></thead><tbody>
+{#for variant in agreement.appliesTo}<tr><td class="agreement-cell">{variant}</td></tr>{/for}
+{#for item in agreement.noteLines}
+<tr><td class="agreement-cell">{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}</td></tr>
+{/for}
+{#for photo in agreement.photos}<tr><td class="agreement-gallery"><div class="agreement-photo"><img src="{photo.dataUri}" alt=""/><div class="agreement-photo__caption"><b>{agreement.reference} · Reference {photo.position}</b>{#if photo.caption}<br/>{photo.caption}{/if}</div></div></td></tr>{/for}
+</tbody></table>
+{/for}
 {#for line in supplierLines}
 {#if line.hasAgreement}
 <table class="agreement">

@@ -31,6 +31,37 @@ import static org.mockito.Mockito.when;
 class SourcingResourcePurchasePdfTest {
 
     @Test
+    void inspectionPdfUsesOnlyOrderAndSupplierWithoutFinancialReads() {
+        var purchases = mock(PurchaseOrderService.class);
+        var suppliers = mock(SupplierService.class);
+        var renderer = mock(be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer.class);
+        var resource = new SourcingResource(suppliers, purchases, mock(PdfPurchaseRenderer.class));
+        resource.inspectionPdf = renderer;
+        var order = order(43L);
+        var options = new be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer.Options(
+                be.enrosed.shared.Language.NL, false, true);
+        var document = new PdfPurchaseRenderer.Document("inspection-PO-nl.pdf", new byte[]{1, 2}, "application/pdf");
+        when(purchases.get(43L)).thenReturn(order);
+        when(renderer.render(order, null, options)).thenReturn(document);
+        var response = resource.inspectionPdf(43L, "nl", false, true);
+        assertSame(document.content(), response.getEntity());
+        assertEquals("private, no-store", response.getHeaderString("Cache-Control"));
+        verify(purchases).get(43L);
+        org.mockito.Mockito.verifyNoMoreInteractions(purchases);
+        verify(renderer).render(order, null, options);
+    }
+
+    @Test
+    void inspectionRejectsUnsupportedLanguageBeforeReadingOrder() {
+        var purchases = mock(PurchaseOrderService.class);
+        var resource = new SourcingResource(mock(SupplierService.class), purchases, mock(PdfPurchaseRenderer.class));
+        assertThrows(BadRequestException.class, () -> resource.inspectionPdf(43, "DE", true, true));
+        verifyNoInteractions(purchases);
+        assertEquals(be.enrosed.shared.Language.EN,
+                be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer.language(null));
+    }
+
+    @Test
     void paymentPdfUsesOneLedgerSnapshotForBothRegisterAndCostCalculation() {
         var purchases = mock(PurchaseOrderService.class);
         var renderer = mock(PdfPurchasePaymentsRenderer.class);

@@ -111,6 +111,8 @@ public class ProductService {
     @Inject
     Instance<ProductSupplierAgreementPhotoService> supplierAgreementPhotos;
     @Inject
+    Instance<ProductSupplierAgreementService> supplierAgreements;
+    @Inject
     Instance<MediaService> mediaRegistry;
 
     @Inject
@@ -500,6 +502,9 @@ public class ProductService {
         }
         Product current = get(id);
         Product merged = mergeUpdate(current, changes, familyExplicit);
+        if (supplierAgreements != null && supplierAgreements.isResolvable()) {
+            supplierAgreements.get().beforeProductChange(current, merged);
+        }
         /* A series shares one category. Changing it on one variant moves the
            whole series - the alternative, silently snapping back to the old
            category, looked like a form that does not save. Compared against
@@ -686,6 +691,9 @@ public class ProductService {
         ProductRepository.ReferenceCounts references = products.referenceCounts(id);
         if (references.total() > 0) {
             throw new BusinessRuleException(deleteBlockedMessage(product, references));
+        }
+        if (supplierAgreements != null && supplierAgreements.isResolvable()) {
+            supplierAgreements.get().beforeProductDelete(id);
         }
         if (supplierAgreementPhotos != null && supplierAgreementPhotos.isResolvable()) {
             supplierAgreementPhotos.get().deleteAllForProduct(id);

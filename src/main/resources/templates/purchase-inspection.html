@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="{language}">
+<head><meta charset="UTF-8"/><title>{t.title} - {brief.number}</title>
+<style>
+@page { size: A4; margin: 15mm 14mm 18mm; @bottom-left { content: element(document-footer); font-family: 'DejaVu Sans'; font-size: 6.5pt; color: #716a66; } @bottom-right { content: counter(page) " / " counter(pages); font-family: 'DejaVu Sans'; font-size: 7pt; color: #716a66; } }
+body { font-family: 'DejaVu Sans', sans-serif; color: #282323; font-size: 8pt; line-height: 1.4; }
+* { box-sizing: border-box; }
+.running-footer { position: running(document-footer); }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+td, th { vertical-align: top; overflow-wrap: break-word; word-wrap: break-word; }
+.header td { vertical-align: middle; padding-bottom: 6mm; }
+.logo { width: 39mm; }
+.identity { text-align: right; font-size: 8pt; }
+.eyebrow { text-transform: uppercase; letter-spacing: .13em; color: #81283e; font-size: 7pt; font-weight: bold; }
+h1 { font-size: 25pt; letter-spacing: -.04em; line-height: 1.12; margin: 1.8mm 0 2mm; }
+h2 { font-size: 14pt; line-height: 1.25; margin: 0 0 4mm; color: #81283e; }
+h3 { font-size: 11pt; line-height: 1.25; margin: 0 0 1mm; }
+p { margin: 0 0 3mm; }
+.muted { color: #726b68; font-size: 7pt; }
+.notice { padding: 3mm 4mm; border-left: 2pt solid #81283e; background: #f8f3f2; margin: 4mm 0 6mm; }
+.overview td { width: 50%; padding-right: 6mm; }
+.supplier-name { font-size: 11pt; font-weight: bold; margin: 1mm 0; }
+.facts td { font-size: 7.2pt; padding: 1mm 0; border-bottom: .4pt solid #eee9e7; }
+.facts td:first-child { width: 47%; color: #726b68; padding-right: 2mm; }
+.section { margin-top: 7mm; }
+.manifest th { background: #81283e; color: white; font-size: 6.8pt; padding: 2.6mm 2mm; text-align: left; }
+.manifest td { padding: 2.5mm 2mm; border-bottom: .5pt solid #ddd3cf; font-size: 7pt; }
+.manifest { -fs-table-paginate: paginate; }
+.manifest thead { display: table-header-group; }
+.manifest tr, .product-card, .reference-image, .signoff { page-break-inside: avoid; }
+.number { text-align: right; }
+.total { text-align: right; padding: 3mm 0; font-size: 9pt; font-weight: bold; }
+.page-start { page-break-before: always; }
+.product-card { border: .7pt solid #d8ceca; margin-bottom: 5mm; }
+.product-head { background: #f8f3f2; padding: 3mm 4mm; border-bottom: .5pt solid #e3d9d5; }
+.product-head .eyebrow { margin-bottom: 1mm; }
+.product-body { padding: 3mm 4mm; }
+.photo-cell { width: 38mm; padding-right: 4mm; }
+.product-photo { width: 33mm; height: 33mm; }
+.photo-placeholder { height: 30mm; padding: 8mm 2mm 0; border: .5pt dashed #d8ceca; text-align: center; color: #8b807b; font-size: 6.5pt; }
+.product-facts td { padding: .5mm 0; font-size: 6.6pt; }
+.product-facts td:first-child { width: 48%; color: #726b68; padding-right: 2mm; }
+.counts { font-size: 8pt; font-weight: bold; padding: 2mm 0; }
+.write-row { margin-top: 2mm; border-bottom: .5pt solid #b8b0ab; min-height: 7mm; font-size: 6.7pt; color: #625953; }
+.write-grid td { width: 50%; padding-right: 4mm; }
+.write-grid td:last-child { padding-right: 0; }
+.agreement { margin-bottom: 6mm; -fs-table-paginate: paginate; }
+.agreement thead { display: table-header-group; }
+.agreement th { text-align: left; padding: 3mm 4mm; background: #f8f3f2; font-weight: normal; }
+.agreement td { padding: 1.5mm 4mm; font-size: 8pt; }
+.agreement tr { page-break-inside: avoid; }
+.applies { font-size: 7pt; margin-top: 1mm; }
+.reference-image { padding: 2mm 0 4mm; }
+.reference-image img { width: 120mm; height: 81.6mm; }
+.reference-image p { font-size: 7pt; margin: 1mm 0; }
+.checklist th { background: #f8f3f2; padding: 2mm 3mm; text-align: left; border: .5pt solid #ddd3cf; font-size: 7pt; }
+.checklist td { border: .5pt solid #ddd3cf; padding: 2mm 3mm; height: 12mm; font-size: 7pt; }
+.checklist tr { page-break-inside: avoid; }
+.log { height: 27mm; border: .5pt solid #c5b9b3; margin: 2mm 0 4mm; }
+.conclusion { height: 20mm; }
+.signoff td { width: 50%; padding: 2mm 5mm 0 0; }
+.signoff .write-row { height: 18mm; }
+</style></head>
+<body>
+<div class="running-footer">ENROSED · {brief.number}</div>
+<table class="header"><tr><td>{#if logo}<img class="logo" src="{logo}" alt="ENROSED"/>{#else}<b>ENROSED</b>{/if}</td><td class="identity"><b>{t.reference} {brief.number}</b><br/>{t.generated}: {brief.generatedOn}</td></tr></table>
+<div class="eyebrow">{t.subtitle}</div><h1>{t.title}</h1>
+<div class="notice">{t.draft}</div>
+<table class="overview"><tr><td>
+  <div class="eyebrow">{t.supplier}</div><div class="supplier-name">{brief.supplierName}</div>
+  {#for address in brief.supplierAddress}<div>{address}</div>{/for}
+  <table class="facts">{#for fact in brief.supplierContact}<tr><td>{fact.label}</td><td>{fact.value}</td></tr>{/for}</table>
+  <p class="muted">{t.factoryNote}</p>
+</td><td><div class="eyebrow">{t.shipment}</div><table class="facts">{#for fact in brief.shipment}<tr><td>{fact.label}</td><td>{fact.value}</td></tr>{/for}</table></td></tr></table>
+<div class="section"><h2>{t.manifest}</h2>
+<table class="manifest"><colgroup><col style="width:7%"/><col style="width:43%"/><col style="width:17%"/><col style="width:16%"/><col style="width:17%"/></colgroup><thead><tr><th>#</th><th>{t.product}</th><th class="number">{t.ordered}</th><th class="number">{t.packing}</th><th class="number">{t.cartons}</th></tr></thead><tbody>
+{#for line in brief.lines}<tr><td>{line.position}</td><td><b>{line.name}</b><br/>SKU {line.sku}<br/>{line.colour} · {line.variantSize}{#if line.agreementReference}<br/>{t.agreement}: {line.agreementReference}{/if}</td><td class="number">{line.ordered}</td><td class="number">{line.piecesPerCarton}</td><td class="number">{line.cartons}</td></tr>{/for}
+</tbody></table><div class="total">{t.total}: {brief.orderedPieces}</div><p class="muted">{t.unknown}</p><p class="muted">{t.baseline}</p></div>
+<div class="page-start"><h2>{t.details}</h2>
+{#for line in brief.lines}<div class="product-card"><div class="product-head"><div class="eyebrow">{t.line} {line.position} · SKU {line.sku}</div><h3>{line.name}</h3><span>{t.colour}: {line.colour} · {t.sizeLabel}: {line.variantSize}</span>{#if line.agreementReference}<span> · {t.agreement} {line.agreementReference}</span>{/if}</div>
+<div class="product-body"><table><tr><td class="photo-cell">{#if line.photo}<img class="product-photo" src="{line.photo}" alt=""/>{#else}<div class="photo-placeholder">{t.noPhoto}</div>{/if}<div class="muted">{t.photo}</div></td><td><table class="product-facts">{#for fact in line.facts}<tr><td>{fact.label}</td><td>{fact.value}</td></tr>{/for}</table></td></tr></table>
+<div class="counts">{t.ordered}: {line.ordered} · {t.packing}: {line.piecesPerCarton} · {t.cartons}: {line.cartons}</div>
+<table class="write-grid"><tr><td><div class="write-row">{t.sampled}</div></td><td><div class="write-row">{t.packed}</div></td></tr><tr><td><div class="write-row">{t.measured}</div></td><td><div class="write-row">{t.defects}</div></td></tr></table><div class="write-row">{t.photoRefs}</div><div class="write-row">{t.observations}</div>
+</div></div>{/for}</div>
+{#if !brief.agreements.isEmpty}<div class="page-start"><h2>{t.agreements}</h2><p class="muted">{t.agreementLead}</p>
+{#for agreement in brief.agreements}<table class="agreement"><thead><tr><th><div class="eyebrow">{t.agreement} {agreement.reference}</div><div class="applies"><b>{t.appliesTo}</b></div></th></tr></thead><tbody>
+{#for variant in agreement.appliesTo}<tr><td class="applies">{variant}</td></tr>{/for}
+{#for paragraph in agreement.paragraphs}<tr><td>{paragraph}</td></tr>{/for}
+{#for photo in agreement.photos}<tr><td><div class="reference-image">{#if photo.dataUri}<img src="{photo.dataUri}" alt=""/>{#else}<div class="notice">{t.missingReference}</div>{/if}<p><b>{agreement.reference} · {t.imageReference} {photo.position}</b>{#if photo.caption}<br/>{photo.caption}{/if}</p></div></td></tr>{/for}
+</tbody></table>{/for}</div>{/if}
+<div class="page-start"><h2>{t.checklist}</h2><p class="muted">{t.method}</p>
+<table class="write-grid"><tr><td><div class="write-row">{t.inspector}</div></td><td><div class="write-row">{t.inspectionDate}</div></td></tr></table><div class="write-row" style="margin-bottom:5mm">{t.sampling}</div>
+<table class="checklist"><colgroup><col style="width:46%"/><col style="width:54%"/></colgroup><thead><tr><th>{t.check}</th><th>{t.result}</th></tr></thead><tbody>
+<tr><td>{t.identityCheck}</td><td></td></tr><tr><td>{t.quantityCheck}</td><td></td></tr><tr><td>{t.qualityCheck}</td><td></td></tr><tr><td>{t.functionCheck}</td><td></td></tr><tr><td>{t.packingCheck}</td><td></td></tr><tr><td>{t.labelsCheck}</td><td></td></tr><tr><td>{t.instructionCheck}</td><td></td></tr>
+</tbody></table>
+<div class="section"><h3>{t.defectLog}</h3><div class="muted">{t.defectDetail}</div><div class="log"></div><h3>{t.conclusion}</h3><div class="log conclusion"></div></div>
+<table class="signoff"><tr><td><div class="write-row">{t.signature}</div></td><td><div class="write-row">{t.acknowledgement}</div></td></tr></table><p class="muted" style="margin-top:4mm">{t.footer}</p>
+</div></body></html>

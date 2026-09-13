@@ -34,6 +34,7 @@ public class SourcingResource {
     private final PurchaseOrderService purchaseOrders;
     private final PdfPurchaseRenderer purchasePdf;
     @jakarta.inject.Inject PdfPurchasePaymentsRenderer paymentsPdf;
+    @jakarta.inject.Inject be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer inspectionPdf;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -349,6 +350,25 @@ public class SourcingResource {
         return Response.ok(document.content())
                 .header("Content-Disposition",
                         "attachment; filename=\"" + document.filename() + "\"")
+                .build();
+    }
+
+    /** Inspector-facing worksheet: no costing calculation or payment ledger enters the export. */
+    @GET
+    @Path("/purchase-orders/{id}/inspection.pdf")
+    @Produces("application/pdf")
+    public Response inspectionPdf(@PathParam("id") long id,
+            @QueryParam("language") @DefaultValue("EN") String language,
+            @QueryParam("includePhotos") @DefaultValue("true") boolean includePhotos,
+            @QueryParam("includeSupplierAgreements") @DefaultValue("true") boolean includeSupplierAgreements) {
+        var resolvedLanguage = be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer.language(language);
+        PurchaseOrder order = purchaseOrders.get(id);
+        Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
+        var document = inspectionPdf.render(order, supplier,
+                new be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer.Options(
+                        resolvedLanguage, includePhotos, includeSupplierAgreements));
+        return Response.ok(document.content()).header("Cache-Control", "private, no-store")
+                .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
                 .build();
     }
 

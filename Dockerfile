@@ -79,6 +79,7 @@ COPY docs/migrations/2026-09-08/company-partner-number-series-postgresql.sql ./m
 COPY docs/migrations/2026-09-08/purchase-payment-settles-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-11/purchase-payment-instalment-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-08/purchase-payment-payees-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-13/shared-supplier-agreements-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

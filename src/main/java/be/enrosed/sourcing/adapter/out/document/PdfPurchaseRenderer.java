@@ -3,6 +3,7 @@ package be.enrosed.sourcing.adapter.out.document;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.ProductSupplierAgreementPhotoService;
+import be.enrosed.catalog.application.ProductSupplierAgreementService;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
@@ -135,6 +136,9 @@ public class PdfPurchaseRenderer {
     /** Optional in pure tests; production resolves names such as Zaltbommel. */
     @Inject
     Instance<StockService> locations;
+
+    @Inject
+    ProductSupplierAgreementService effectiveSupplierAgreements;
 
     public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
                                @Location("purchase-portrait.html") Template portraitTemplate,
@@ -411,7 +415,13 @@ public class PdfPurchaseRenderer {
         }
     }
 
-    private record SupplierPrepared(List<SupplierLineView> lines) {}
+    public record SupplierAgreementGroup(String reference, List<String> appliesTo,
+            List<NoteLine> noteLines, List<SupplierAgreementPhotoView> photos) {
+        /** A compact source identity repeats on continuation pages; the full applicability list can paginate. */
+        public String firstVariant() { return appliesTo.isEmpty() ? "" : appliesTo.getFirst(); }
+    }
+
+    private record SupplierPrepared(List<SupplierLineView> lines, List<SupplierAgreementGroup> agreements) {}
 
     /**
      * @param showRevenue shows the desired extra revenue as its own line.
@@ -499,7 +509,9 @@ public class PdfPurchaseRenderer {
             SupplierPrepared prepared = prepareSupplier(order, costing);
             instance.data("supplierLines", prepared.lines())
                     .data("supplierTotals", supplierTotals(prepared.lines()))
-                    .data("hasAgreements", prepared.lines().stream().anyMatch(SupplierLineView::hasAgreement))
+                    .data("supplierAgreements", prepared.agreements())
+                    .data("hasAgreements", !prepared.agreements().isEmpty()
+                            || prepared.lines().stream().anyMatch(SupplierLineView::hasAgreement))
                     .data("supplierTradeTerm", supplierTradeTerm(prepared.lines()));
         } else {
             /* Landscape keeps its historical contract: every packing fact, always. */
@@ -567,46 +579,57 @@ public class PdfPurchaseRenderer {
         Map<Long, Product> byId = products.list().stream()
                 .filter(product -> product.id() != null)
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
-        Map<Long, PurchaseOrderLine> orderLines = order.lines().stream()
-                .filter(line -> line != null && line.productId() != null)
-                .collect(Collectors.toMap(PurchaseOrderLine::productId, Function.identity(),
-                        (left, right) -> left));
+        Map<Long, LandedCost.Line> costingLines = costing.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(LandedCost.Line::productId, Function.identity(), (left, right) -> left));
         Map<String, String> photoCache = new HashMap<>();
         Map<Long, List<SupplierAgreementPhotoView>> agreementPhotoCache = new HashMap<>();
+        Map<Long, ProductSupplierAgreementService.ResolvedAgreement> resolvedAgreements = new HashMap<>();
+        Map<String, SupplierAgreementGroup> groupedAgreements = new java.util.LinkedHashMap<>();
         List<SupplierLineView> lines = new ArrayList<>();
         /* One read of the order book serves every line: what arrived short or
            damaged before is printed as a warning the supplier signs for. */
         List<PurchaseOrder> history = orders == null ? List.of() : orders.findAll();
 
         int position = 0;
-        for (LandedCost.Line costingLine : costing.lines()) {
+        for (PurchaseOrderLine orderLine : order.lines()) {
+            if (orderLine == null) continue;
             position++;
-            Product product = byId.get(costingLine.productId());
-            PurchaseOrderLine orderLine = orderLines.get(costingLine.productId());
+            Product product = byId.get(orderLine.productId());
+            LandedCost.Line costingLine = costingLines.get(orderLine.productId());
             AgreedUnitPrice price = agreedUnitPrice(orderLine, product);
-            int orderedQuantity = orderLine == null
-                    ? Math.max(0, costingLine.quantity()) : orderLine.ordered();
+            int orderedQuantity = orderLine.ordered();
             int orderedCartons = product == null || product.carton() == null
-                    ? Math.max(0, costingLine.cartons())
+                    ? (costingLine == null ? 0 : Math.max(0, costingLine.cartons()))
                     : product.carton().cartonsFor(orderedQuantity);
             boolean matchingSupplier = product != null && order.supplierId() != null
                     && Objects.equals(product.supplierId(), order.supplierId());
             Carton carton = product == null ? null : product.carton();
             PackagingFacts packaging = supplierPackaging(product);
 
+            if (matchingSupplier) {
+                var agreement = resolvedAgreements.computeIfAbsent(product.id(), effectiveSupplierAgreements::resolve);
+                if (agreement.available() && Objects.equals(agreement.supplierId(), order.supplierId())
+                        && (notBlank(agreement.note()) || !agreement.photos().isEmpty())) {
+                    var group = groupedAgreements.computeIfAbsent(agreement.groupKey(), key ->
+                            new SupplierAgreementGroup("A" + (groupedAgreements.size() + 1), new ArrayList<>(),
+                                    noteLines(agreement.note()), agreementPhotoCache.computeIfAbsent(
+                                            agreement.sourceProductId(), this::supplierAgreementPhotoViews)));
+                    group.appliesTo().add("Line " + position + " · " + supplierProductName(product)
+                            + " · SKU " + product.sku() + " · " + supplierColour(product)
+                            + " · " + orderedQuantity + " pcs");
+                }
+            }
+
             lines.add(new SupplierLineView(
-                    costingLine.productId(), product == null ? null : product.sku(),
-                    product == null ? costingLine.productName() : supplierProductName(product),
+                    orderLine.productId(), product == null ? null : product.sku(),
+                    product == null ? (costingLine == null ? "Product #" + orderLine.productId() : costingLine.productName()) : supplierProductName(product),
                     photo(product, photoCache, true), supplierProductSpecs(product),
                     piecesPerCarton(product), ean(product),
-                    supplierNoteLines(matchingSupplier ? product : null),
-                    matchingSupplier
-                            ? agreementPhotoCache.computeIfAbsent(costingLine.productId(),
-                                    this::supplierAgreementPhotoViews)
-                            : List.of(),
-                    costingLine.productId() == null ? List.of()
+                    List.of(), List.of(),
+                    orderLine.productId() == null ? List.of()
                             : be.enrosed.sourcing.application.ReceiptIssues.forProduct(history,
-                                    reportedMovements(costingLine.productId()), costingLine.productId(), order.id()),
+                                    reportedMovements(orderLine.productId()), orderLine.productId(), order.id()),
                     orderedQuantity, orderedCartons, cartonCbm(product),
                     lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
@@ -620,7 +643,9 @@ public class PdfPurchaseRenderer {
                     product == null || product.barcodes() == null ? null : blankToNull(product.barcodes().outer()),
                     packaging.pieces(), packaging.ean()));
         }
-        return new SupplierPrepared(List.copyOf(lines));
+        return new SupplierPrepared(List.copyOf(lines), groupedAgreements.values().stream()
+                .map(group -> new SupplierAgreementGroup(group.reference(), List.copyOf(group.appliesTo()),
+                        group.noteLines(), group.photos())).toList());
     }
 
     /** The stock lines that name a container: what the warehouse reported after receipt. */

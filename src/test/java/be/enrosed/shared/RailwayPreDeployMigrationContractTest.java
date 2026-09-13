@@ -73,6 +73,20 @@ class RailwayPreDeployMigrationContractTest {
         assertNonDestructive(sql);
     }
 
+    @Test
+    void sharedSupplierApplicabilityIsAdditiveAndRegisteredBeforeAppStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-13/shared-supplier-agreements-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists product_supplier_agreement_link"));
+        assertTrue(sql.contains("product_id <> source_product_id"));
+        assertTrue(sql.contains("fk_supplier_agreement_target"));
+        assertTrue(sql.contains("fk_supplier_agreement_source"));
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
+                .contains("--file=/app/migrations/" + migration.getFileName()));
+    }
+
     private static String normalizedSql(Path path) throws IOException {
         return Files.readString(path)
                 .replaceAll("--[^\\r\\n]*", " ")
