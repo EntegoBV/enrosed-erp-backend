@@ -43,6 +43,7 @@ public enum QuoteStatus {
      * make a new quote.
      */
     public boolean canReopen() {
-        return this == AFGEWEZEN || this == VERLOPEN || this == GEANNULEERD;
+        return this == AFGEWEZEN || this == VERLOPEN || this == GEANNULEERD
+                || this == VERZONDEN || this == BEKEKEN || this == UITGEREIKT;
     }
 }

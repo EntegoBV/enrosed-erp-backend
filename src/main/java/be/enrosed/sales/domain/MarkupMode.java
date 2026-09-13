@@ -5,5 +5,7 @@ public enum MarkupMode {
     /** Each product uses its own markup from the catalogue. */
     PRODUCT,
     /** One percentage over the whole order. */
-    ORDER
+    ORDER,
+    /** Explicit container landed prices: only deliberately entered discounts apply. */
+    CONTAINER_COST
 }

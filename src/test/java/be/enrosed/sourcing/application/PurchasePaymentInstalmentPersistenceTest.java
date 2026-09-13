@@ -104,18 +104,35 @@ class PurchasePaymentInstalmentPersistenceTest {
 
     @Test
     @TestTransaction
-    void anExistingPaymentProtectsItsMilestoneButNotUnpaidMilestones() {
+    void aRenegotiatedPercentageKeepsThePaidMilestoneAndItsHistoricalTransfer() {
         var order = order(PurchaseOrderStatus.CONCEPT);
-        service.addPayment(order.id(), DAY, BigDecimal.TEN, Currency.EUR, "Deposit", SUPPLIER, true, ORDERED);
+        var first = service.addPayment(order.id(), DAY, new BigDecimal("4500"), Currency.USD, "Deposit", SUPPLIER, true, ORDERED);
         var current = service.get(order.id());
-        service.update(order.id(), current.withPaymentSplit(new BigDecimal("30.00"),
-                new BigDecimal("20"), new BigDecimal("50")));
-        assertEquals(new BigDecimal("20.00"), service.get(order.id()).payPctShipped().setScale(2));
+        service.update(order.id(), current.withPaymentSplit(new BigDecimal("50"),
+                new BigDecimal("50"), BigDecimal.ZERO));
+        entities.flush(); entities.clear();
+        var saved = service.get(order.id());
+        var loadedPayment = service.payments(order.id()).getFirst();
+        assertEquals(first.id(), loadedPayment.id());
+        assertEquals(first.amount(), loadedPayment.amount());
+        assertEquals(first.amountEur(), loadedPayment.amountEur());
+        assertEquals(first.currency(), loadedPayment.currency());
+        assertEquals(first.paidOn(), loadedPayment.paidOn());
+        assertEquals(first.label(), loadedPayment.label());
+        assertEquals(first.instalmentDue(), loadedPayment.instalmentDue());
+        assertTrue(loadedPayment.settles());
+        assertEquals(new BigDecimal("50.00"), saved.payPctOrdered().setScale(2));
+        var allocation = SupplierPaymentAllocation.calculate(saved, new BigDecimal("7774.20"), List.of(loadedPayment));
+        assertEquals("50% bij bestelling", allocation.getFirst().label());
+        assertEquals(new BigDecimal("3887.10"), allocation.getFirst().plannedEur());
+        assertEquals(new BigDecimal("4050.00"), allocation.getFirst().paidEur());
+        assertEquals(new BigDecimal("162.90"), allocation.getFirst().overpaidEur());
+        assertTrue(saved.notes().contains("Deposit"));
+
         var reason = assertThrows(BusinessRuleException.class, () -> service.update(order.id(),
-                service.get(order.id()).withPaymentSplit(new BigDecimal("40"),
-                        new BigDecimal("20"), new BigDecimal("40"))));
+                saved.withPaymentSplit(BigDecimal.ZERO, new BigDecimal("50"), new BigDecimal("50"))));
         assertTrue(reason.getMessage().contains("betalingen aan deze termijn"));
-        assertEquals(new BigDecimal("30.00"), service.get(order.id()).payPctOrdered().setScale(2));
+        assertEquals(new BigDecimal("50.00"), service.get(order.id()).payPctOrdered().setScale(2));
     }
 
     @Test

@@ -94,6 +94,68 @@ class PurchasePaymentPersistenceTest {
 
     @Test
     @TestTransaction
+    void editingAndDeletingAMultilinePaymentRemoveOnlyItsExactDiaryEntry() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Diary Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        var order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"), BigDecimal.ZERO);
+        var manual = "Afspraak douane: eerst controleren.\nFactuur 250,00 nog vergelijken met exportdocument.";
+        var stored = entityManager.find(PurchaseOrderEntity.class, order.id());
+        stored.notes = manual;
+        entityManager.flush(); entityManager.clear();
+        var first = purchaseOrders.addPayment(order.id(), LocalDate.of(2026, 9, 1), new BigDecimal("250"),
+                Currency.EUR, "Douane inklaring\nExportdocument 123", PurchasePayment.Payee.LOGISTICS);
+        var second = purchaseOrders.addPayment(order.id(), first.paidOn(), first.amount(), first.currency(),
+                first.label(), PurchasePayment.Payee.LOGISTICS);
+        entityManager.flush(); entityManager.clear();
+
+        purchaseOrders.updatePayment(order.id(), first.id(), first.paidOn(), first.amount(), first.currency(),
+                "Douane gecorrigeerd\nExportdocument 456", PurchasePayment.Payee.LOGISTICS, false);
+        entityManager.flush(); entityManager.clear();
+        var edited = purchaseOrders.get(order.id()).notes();
+        assertEquals(1, edited.split("Exportdocument 123", -1).length - 1, "The identical sibling retains exactly one entry");
+        assertEquals(1, edited.split("Exportdocument 456", -1).length - 1);
+        assertTrue(edited.startsWith(manual));
+
+        purchaseOrders.deletePayment(order.id(), first.id());
+        entityManager.flush(); entityManager.clear();
+        var remaining = purchaseOrders.get(order.id()).notes();
+        assertFalse(remaining.contains("Exportdocument 456"));
+        assertTrue(remaining.contains("Exportdocument 123"));
+        assertTrue(remaining.startsWith(manual));
+        assertEquals(List.of(second.id()), purchaseOrders.payments(order.id()).stream().map(PurchasePayment::id).toList());
+
+        purchaseOrders.deletePayment(order.id(), second.id());
+        entityManager.flush(); entityManager.clear();
+        assertEquals(manual, purchaseOrders.get(order.id()).notes());
+    }
+
+    @Test
+    @TestTransaction
+    void logisticsPaymentsCanBeEditedAboveTheRemainingBudgetWithoutChangingTheirSiblings() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Separate transfers Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        var order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"), BigDecimal.ZERO);
+        var day = LocalDate.of(2026, 9, 1);
+        var customs = purchaseOrders.addPayment(order.id(), day, new BigDecimal("1046.95"), Currency.EUR,
+                "Douane", PurchasePayment.Payee.LOGISTICS, false);
+        var transport = purchaseOrders.addPayment(order.id(), day, new BigDecimal("789.50"), Currency.EUR,
+                "Transport", PurchasePayment.Payee.LOGISTICS, false);
+        var inspection = purchaseOrders.addPayment(order.id(), day, new BigDecimal("125"), Currency.USD,
+                "Inspectie", PurchasePayment.Payee.SEPARATE, false);
+        var corrected = purchaseOrders.updatePayment(order.id(), customs.id(), day.plusDays(1),
+                new BigDecimal("1200.25"), Currency.EUR, "Douane en exportdocumenten", PurchasePayment.Payee.LOGISTICS, false);
+        entityManager.flush(); entityManager.clear();
+        var recorded = purchaseOrders.payments(order.id());
+        assertEquals(3, recorded.size());
+        assertEquals(new BigDecimal("1200.25"), corrected.amountEur());
+        assertEquals(transport.amountEur(), recorded.stream().filter(p -> p.id().equals(transport.id())).findFirst().orElseThrow().amountEur());
+        assertEquals(inspection.amountEur(), recorded.stream().filter(p -> p.id().equals(inspection.id())).findFirst().orElseThrow().amountEur());
+        assertTrue(purchaseOrders.get(order.id()).notes().contains("€ 1.200,25 aan douane & transport · Douane en exportdocumenten."));
+        assertFalse(purchaseOrders.get(order.id()).notes().contains("€ 1.046,95"));
+    }
+
+    @Test
+    @TestTransaction
     void metadataCorrectionsPreserveHistoricalEuroAmountsAfterOrderRatesChange() {
         var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Pinned FX Co", "CN", "Yiwu",
                 null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));

@@ -94,6 +94,22 @@ class QuoteServiceSalesActivityTest {
     }
 
     @Test
+    void reopeningUsesFinancialGuardsKeepsSendingHistoryAndNeverSendsAnEmail() {
+        for (DocumentType type : DocumentType.values()) {
+            SalesOrder sent = order(type, QuoteStatus.VERZONDEN, "retained-portal-link");
+            when(salesOrders.get(42L)).thenReturn(sent);
+            SalesOrder reopened = service.reopen(42L);
+            assertEquals(QuoteStatus.CONCEPT, reopened.status());
+            assertEquals(sent.number(), reopened.number());
+            assertEquals(sent.sentAt(), reopened.sentAt());
+            assertEquals(sent.portalToken(), reopened.portalToken());
+            verify(salesOrders).requireReopenable(sent);
+        }
+        verify(salesOrders, times(DocumentType.values().length)).lockDocumentForMutation(42L);
+        org.mockito.Mockito.verifyNoInteractions(mailer, renderer);
+    }
+
+    @Test
     void quotePushCarriesActorAndInvoiceDelegatesItsSingleAuditAndPushToSalesOrderService() {
         SalesOrder quote = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null);
         when(salesOrders.get(42L)).thenReturn(quote);

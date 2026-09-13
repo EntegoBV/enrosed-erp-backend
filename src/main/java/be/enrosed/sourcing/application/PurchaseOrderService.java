@@ -621,7 +621,6 @@ public class PurchaseOrderService {
         return payment;
     }
 
-    /** The diary line a payment writes; built one way so deleting can find it again. */
     /** A plan of one's own adds up to the whole goods value, and every share stays between 0 and 100. */
     private static void requireValidPaymentSplit(PurchaseOrder changes) {
         if (changes.paymentTerms() != PaymentTerms.CUSTOM || !changes.hasPaymentSplit()) return;
@@ -653,16 +652,19 @@ public class PurchaseOrderService {
         if (payments == null || !payments.isResolvable()) return;
         for (PurchasePayment payment : payments.get().forOrder(current.id())) {
             if (payment.instalmentDue() == null) continue;
-            var before = current.paymentInstalments().stream()
-                    .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
             var after = changes.paymentInstalments().stream()
                     .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
-            if (before == null || after == null || before.share().compareTo(after.share()) != 0) {
-                throw new BusinessRuleException("Er zijn betalingen aan deze termijn gekoppeld. Pas eerst hun termijnkoppeling aan voordat u de betaalafspraak wijzigt");
+            // A transfer belongs to a stable milestone, not to the percentage
+            // currently budgeted for it. Renegotiating that share never edits
+            // the ledger or its historical euro amount. Removing the actual
+            // milestone would lose its allocation and needs an explicit choice.
+            if (after == null) {
+                throw new BusinessRuleException("Er zijn betalingen aan deze termijn gekoppeld. Behoud het betaalmoment of pas eerst de termijnkoppeling van die betalingen aan");
             }
         }
     }
 
+    /** Exact generated entry; a historical multi-line bank description remains one entry. */
     private static String paymentNoteLine(PurchasePayment payment) {
         return "Betaald " + payment.paidOn().format(DAY) + ": " + describeMoney(payment.amount(), payment.currency())
                 + (payment.currency() != Currency.EUR ? " (≈ " + describeMoney(payment.amountEur(), Currency.EUR) + ")" : "")
@@ -921,16 +923,24 @@ public class PurchaseOrderService {
                         .build());
     }
 
-    /** Removes the first line that matches, and nothing else someone wrote. */
+    /** Removes one complete exact entry, including a multi-line description; never matches on amount alone. */
     private static String removeNoteLine(String notes, String line) {
         if (notes == null || notes.isBlank()) return notes;
-        List<String> kept = new ArrayList<>();
-        boolean removed = false;
-        for (String candidate : notes.split("\n", -1)) {
-            if (!removed && candidate.strip().equals(line)) { removed = true; continue; }
-            kept.add(candidate);
+        List<String> kept = new ArrayList<>(java.util.Arrays.asList(notes.split("\\R", -1)));
+        String[] expected = line.split("\\R", -1);
+        int found = -1;
+        for (int start = 0; start <= kept.size() - expected.length; start++) {
+            boolean matches = true;
+            for (int offset = 0; offset < expected.length; offset++) {
+                if (!kept.get(start + offset).strip().equals(expected[offset].strip())) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) { found = start; break; }
         }
-        if (!removed) return notes;
+        if (found < 0) return notes;
+        kept.subList(found, found + expected.length).clear();
         String joined = String.join("\n", kept).replaceAll("\n{3,}", "\n\n").strip();
         return joined.isBlank() ? null : joined;
     }

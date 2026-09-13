@@ -829,6 +829,7 @@ public class QuoteService {
      */
     @Transactional
     public SalesOrder reopen(long orderId) {
+        salesOrders.lockDocumentForMutation(orderId);
         SalesOrder order = salesOrders.get(orderId);
 
         if (!order.status().canReopen()) {
@@ -838,9 +839,10 @@ public class QuoteService {
                     : "Offerte " + order.number() + " staat op "
                             + order.status().name().toLowerCase() + " en hoeft niet heropend.");
         }
+        salesOrders.requireReopenable(order);
 
         record(order, QuoteEvent.Type.HEROPEND, false, null,
-                "Offerte heropend om bij te sturen", null);
+                (order.isInvoice() ? "Factuur" : "Offerte") + " heropend naar concept zonder e-mail", null);
 
         /* A fresh validity date: the old one is usually the very reason the
            quote expired, and a quote leaving today with last month's date
@@ -848,7 +850,7 @@ public class QuoteService {
         SalesOrder reopened = withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, null);
-        return orders.save(withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
+        return orders.save(order.isInvoice() ? reopened : withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
     }
 
     /**

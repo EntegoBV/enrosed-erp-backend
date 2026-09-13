@@ -555,6 +555,31 @@ class PurchaseReconciliationCalculatorTest {
                 .reduce(bd("0.00"), BigDecimal::add));
     }
 
+    @Test
+    void actualPaymentsAboveTheNamedMilestoneRemainVisibleWithoutCappingOrMovingTheirExcess() {
+        var half = calculate(milestoneBudget("7774.20", "50", "50", "0"), List.of(
+                milestonePayment(1, "4500", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED)));
+        var ordered = half.supplierInstalments().getFirst();
+        assertEquals("50% bij bestelling", ordered.label());
+        eq("3887.10", ordered.plannedEur());
+        eq("4500.00", ordered.paidEur());
+        eq("612.90", ordered.overpaidEur());
+        eq("0.00", half.supplierInstalments().getLast().paidEur());
+        eq("3887.10", half.supplierInstalments().getLast().remainingEur());
+
+        var thirds = calculate(milestoneBudget("50273.40", "33.3333", "33.3333", "33.3334"), List.of(
+                milestonePayment(1, "20289.56", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED)));
+        var shipped = thirds.supplierInstalments().get(1);
+        eq("16757.78", shipped.plannedEur());
+        eq("20289.56", shipped.paidEur());
+        eq("3531.78", shipped.overpaidEur());
+        eq("0.00", thirds.supplierInstalments().getFirst().paidEur());
+        eq("0.00", thirds.supplierInstalments().getLast().paidEur());
+        eq("20289.56", stream(thirds, SUPPLIER).paidEur());
+        assertConserved(half);
+        assertConserved(thirds);
+    }
+
     private Fixture milestoneBudget(String amount, String ordered, String shipped, String arrived) {
         var lines = List.of(line(1, 10, 10, 0, false));
         var order = new PurchaseOrder(1L, "PO-2026-001", null, 1L, LocalDate.of(2026, 1, 1),

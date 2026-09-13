@@ -211,6 +211,50 @@ class SalesPricingCalculatorTest {
         assertEquals(decimal("7"), priced.lines().get(1).nextTierPercent());
     }
 
+    @Test
+    void orderDiscountIsIncludedInEveryInternalMarginWithoutChangingThePrintedLineNet() {
+        Product product = product(1L, "BEAR", carton("10", "10", "10", 1, "2"));
+        var order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED, BigDecimal.ZERO, null,
+                FreightState.AANGEVULD, List.of(new SalesOrderLine(null, 1L, 7200,
+                        decimal("2.9084"), null, null, decimal("2.9084"))), List.of());
+        var result = calculator.price(order, Map.of(1L, product), new SalesPricingCalculator.Context(
+                null, null, PalletSpec.euro(), List.of(),
+                List.of(new DiscountTier(1L, TierScope.ORDER, 1, decimal("10"), null)), null));
+        assertEquals(decimal("20940.48"), result.lines().getFirst().net());
+        assertEquals(decimal("18846.43"), result.totals().goodsTotal());
+        assertEquals(decimal("-2094.05"), result.totals().marginEur());
+        assertEquals(result.totals().marginEur(), result.lines().getFirst().marginEur());
+        assertEquals(decimal("-11.11"), result.lines().getFirst().marginPct());
+    }
+
+    @Test
+    void centResidualsAndOrderDiscountsNeverMakeTheLineMarginSumDrift() {
+        Product first = product(1L, "FIRST", carton("10", "10", "10", 1, "1"));
+        Product second = product(2L, "SECOND", carton("10", "10", "10", 1, "1"));
+        var order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED, BigDecimal.ZERO, null,
+                FreightState.AANGEVULD, List.of(new SalesOrderLine(null, 1L, 1, decimal("1.005"), null, null, decimal("0.555")),
+                        new SalesOrderLine(null, 2L, 1, decimal("1.005"), null, null, decimal("0.555"))), List.of());
+        var result = calculator.price(order, Map.of(1L, first, 2L, second), new SalesPricingCalculator.Context(
+                null, null, PalletSpec.euro(), List.of(),
+                List.of(new DiscountTier(1L, TierScope.ORDER, 1, decimal("10"), null)), null));
+        assertEquals(result.totals().marginEur(), result.lines().stream().map(PricedOrder.Line::marginEur).reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertEquals(result.totals().costTotal(), result.lines().stream().map(PricedOrder.Line::costTotal).reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertEquals(decimal("1.81"), result.totals().goodsTotal());
+    }
+
+    @Test
+    void marginUsesDisplayedGoodsAndCostAtTheHalfCentBoundary() {
+        Product product = product(1L, "CENT", carton("10", "10", "10", 1, "1"));
+        var draft = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED, BigDecimal.ZERO, null,
+                FreightState.AANGEVULD, List.of(new SalesOrderLine(null, 1L, 1, decimal("1.005"), null, null, decimal("0.004"))), List.of());
+        var priced = calculator.price(draft, Map.of(1L, product), new SalesPricingCalculator.Context(
+                null, null, PalletSpec.euro(), List.of(), List.of(), null));
+        assertEquals(decimal("1.01"), priced.totals().goodsTotal());
+        assertEquals(decimal("0.00"), priced.totals().costTotal());
+        assertEquals(decimal("1.01"), priced.totals().marginEur());
+        assertEquals(priced.totals().marginEur(), priced.lines().getFirst().marginEur());
+    }
+
     private PricedOrder price(SalesOrder order, Map<Long, Product> products) {
         return price(order, products, List.of());
     }
