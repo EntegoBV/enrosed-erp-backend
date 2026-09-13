@@ -4,9 +4,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -133,10 +135,18 @@ public class PdfImageEncoder {
 
     ImageSize inspect(byte[] source) {
         if (source == null || source.length == 0) return ImageSize.EMPTY;
-        try {
-            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
-            return decoded == null ? ImageSize.EMPTY
-                    : new ImageSize(decoded.getWidth(), decoded.getHeight());
+        // Layout selection only needs the header. Decoding every source here used to
+        // allocate a full-resolution raster before the actual print rendition did so again.
+        try (var input = new MemoryCacheImageInputStream(new ByteArrayInputStream(source))) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) return ImageSize.EMPTY;
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                return new ImageSize(reader.getWidth(0), reader.getHeight(0));
+            } finally {
+                reader.dispose();
+            }
         } catch (Exception ignored) {
             return ImageSize.EMPTY;
         }

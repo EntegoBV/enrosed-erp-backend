@@ -79,14 +79,12 @@ COPY docs/migrations/2026-09-11/purchase-payment-instalment-postgresql.sql ./mig
 COPY docs/migrations/2026-09-08/purchase-payment-payees-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
-# Soft memory discipline rather than a tight cap: G1 collects while idle and
-# hands freed heap back to the OS within minutes, so a PDF or photo burst no
-# longer parks gigabytes (the JVM otherwise sizes its heap at a quarter of the
-# host and never shrinks). The 3 GB ceiling is far above anything the app
-# needs - the heaviest renders peak around 500 MB - so throughput is never
-# throttled; only a runaway would reach it, and then the process exits so the
-# platform restarts it instead of thrashing.
-ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -Xms256m -Xmx3g -XX:SoftMaxHeapSize=1g \
+# Retain image-heavy PDF export headroom while allowing the idle heap to shrink
+# to 128 MiB. Keep the existing idle collection policy: a periodic full G1
+# collection can reclaim old image buffers without waiting for mixed GC cycles.
+# Framework/native memory remains outside this heap floor; 3 GiB is the heap
+# ceiling, not a process-RAM limit. SoftMaxHeapSize is not used by G1.
+ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -Xms128m -Xmx3g \
     -XX:G1PeriodicGCInterval=120000 -XX:-G1PeriodicGCInvokesConcurrent \
     -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 \
     -XX:MaxMetaspaceSize=320m -Xss512k -XX:+ExitOnOutOfMemoryError"

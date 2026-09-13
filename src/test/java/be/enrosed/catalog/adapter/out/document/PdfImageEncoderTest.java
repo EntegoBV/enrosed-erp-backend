@@ -9,7 +9,10 @@ import java.awt.Graphics2D;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.Base64;
+import java.util.Arrays;
+import java.util.zip.CRC32;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,6 +47,32 @@ class PdfImageEncoderTest {
         assertNull(encoder.encode(new byte[] {1, 2, 3, 4}));
         assertNull(encoder.encodeContained(new byte[] {1, 2, 3, 4},
                 400, 300, Color.WHITE));
+        assertEquals(new PdfImageEncoder.ImageSize(0, 0),
+                encoder.inspect(new byte[] {1, 2, 3, 4}));
+        assertEquals(new PdfImageEncoder.ImageSize(0, 0), encoder.inspect(null));
+    }
+
+    @Test
+    void layoutInspectionReadsDimensionsWithoutRequiringOrAllocatingPixelData() throws Exception {
+        // A valid 24-megapixel PNG header, deliberately without image-data chunks:
+        // inspecting its dimensions must not attempt a 72+ MB raster decode.
+        byte[] header = Arrays.copyOf(png(solid(1, 1, Color.WHITE)), 33);
+        ByteBuffer.wrap(header).putInt(16, 6_000).putInt(20, 4_000);
+        CRC32 crc = new CRC32();
+        crc.update(header, 12, 17);
+        ByteBuffer.wrap(header).putInt(29, (int) crc.getValue());
+
+        assertEquals(new PdfImageEncoder.ImageSize(6_000, 4_000), encoder.inspect(header));
+    }
+
+    @Test
+    void metadataInspectionSupportsTheRealCanonicalWebpReader() throws Exception {
+        try (InputStream in = getClass().getResourceAsStream("/images/soap-roos-in-box-480.webp")) {
+            byte[] source = java.util.Objects.requireNonNull(in).readAllBytes();
+            BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
+            assertEquals(new PdfImageEncoder.ImageSize(decoded.getWidth(), decoded.getHeight()),
+                    encoder.inspect(source));
+        }
     }
 
     @Test
