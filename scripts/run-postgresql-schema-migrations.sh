@@ -11,6 +11,54 @@ export PGUSER="${PGUSER:-${DB_USERNAME:-enrosed}}"
 export PGPASSWORD="${PGPASSWORD:-${DB_PASSWORD:-}}"
 : "${PGPASSWORD:?PGPASSWORD or DB_PASSWORD is required for the schema migration}"
 
+# A restored database can need a short time to publish its private DNS record
+# and accept connections. Retry only this read-only probe, never a migration:
+# an earlier migration file may already have committed before a later failure.
+wait_for_database() (
+    db_wait_attempts="${ENROSED_DB_WAIT_ATTEMPTS:-30}"
+    db_wait_delay="${ENROSED_DB_WAIT_DELAY_SECONDS:-2}"
+    export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-3}"
+    case "$db_wait_attempts:$db_wait_delay:$PGCONNECT_TIMEOUT" in
+        *[!0-9:]*|:*|*::*|*:)
+            echo "Invalid database readiness timing configuration" >&2
+            exit 1 ;;
+    esac
+    if [ "$db_wait_attempts" -lt 1 ] || [ "$db_wait_attempts" -gt 60 ] \
+            || [ "$db_wait_delay" -gt 5 ] || [ "$PGCONNECT_TIMEOUT" -lt 1 ] \
+            || [ "$PGCONNECT_TIMEOUT" -gt 10 ]; then
+        echo "Database readiness timing exceeds the supported bounds" >&2
+        exit 1
+    fi
+    db_probe_error=$(mktemp "${TMPDIR:-/tmp}/enrosed-db-readiness.XXXXXX")
+    trap 'rm -f "$db_probe_error"' 0
+    trap 'exit 1' 1 2 15
+    db_attempt=1
+    while :; do
+        if LC_ALL=C psql --no-psqlrc --no-password --set=ON_ERROR_STOP=1 \
+                --tuples-only --no-align --command='SELECT 1;' \
+                >/dev/null 2>"$db_probe_error"; then
+            echo "Database connection ready; starting schema migrations once"
+            exit 0
+        else
+            db_probe_status=$?
+        fi
+        # Authentication, missing database/role, SQL, and other configuration
+        # failures are not transient. Never log raw errors or credential values.
+        if ! grep -Eqi 'could not translate host name|name or service not known|temporary failure in name resolution|connection refused|connection timed out|timeout expired|network is unreachable|no route to host|database system is starting up|database system is in recovery mode|database system is shutting down|the database system is not yet accepting connections|server closed the connection unexpectedly' "$db_probe_error"; then
+            echo "Database readiness failed with a non-transient error (psql exit $db_probe_status); no migrations started" >&2
+            exit "$db_probe_status"
+        fi
+        if [ "$db_attempt" -ge "$db_wait_attempts" ]; then
+            echo "Database remains unavailable after $db_wait_attempts readiness attempts; no migrations started" >&2
+            exit "$db_probe_status"
+        fi
+        echo "Database DNS/network/startup not ready; retrying ($db_attempt/$db_wait_attempts)" >&2
+        sleep "$db_wait_delay"
+        db_attempt=$((db_attempt + 1))
+    done
+)
+wait_for_database
+
 # One session-level lock serializes overlapping deployments. Each migration
 # owns its transaction: an earlier additive change may safely remain committed
 # when a later one fails, while ON_ERROR_STOP prevents the release from starting.
