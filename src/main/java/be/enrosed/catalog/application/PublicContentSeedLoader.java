@@ -30,6 +30,10 @@ public class PublicContentSeedLoader {
     private static final String CATALOG_RESOURCE = "/i18n/public-content.csv";
     private static final String WEBSITE_RESOURCE = "/i18n/website-content.csv";
     private static final Map<String, Map<Language, String>> LEGACY_CONSENT_VALUES = previousConsentValues();
+    /** Additional exact former cookie intros still present when optional analytics went live. */
+    private static final Map<Language, String> LEGACY_COOKIE_INTRO_VARIANTS = Map.of(
+            Language.NL, "Deze Enrosed-website gebruikt momenteel geen analyse- of advertentiecookies. Er wordt alleen gebruik gemaakt van de functionaliteit die nodig is om de website weer te geven en de door u gekozen links te openen.",
+            Language.PL, "Ta witryna internetowa Enrosed nie wykorzystuje obecnie żadnych plików cookie do celów analitycznych ani reklamowych. Wykorzystywane są wyłącznie funkcjonalności niezbędne do wyświetlenia strony i otwarcia wybranych przez Ciebie linków.");
     private static final Set<String> PROTECTED_TERMS = Set.of(
             "Royal FloraHolland", "TICA", "SKU", "EAN", "B2B", "EXW", "DDP");
     private static final Set<String> RETIRED_WEBSITE_KEYS = Set.of(
@@ -490,6 +494,8 @@ public class PublicContentSeedLoader {
         if (scope == ContentScope.WEBSITE) {
             if (current != null && Objects.equals(current,
                     LEGACY_CONSENT_VALUES.getOrDefault(key, Map.of()).get(language))) return true;
+            if ("footer.cookie.description".equals(key) && current != null
+                    && Objects.equals(current, LEGACY_COOKIE_INTRO_VARIANTS.get(language))) return true;
             if ("home.counter.item2.title".equals(key)) {
                 String previousSeed = switch (language) {
                     case NL -> "De kom XL";

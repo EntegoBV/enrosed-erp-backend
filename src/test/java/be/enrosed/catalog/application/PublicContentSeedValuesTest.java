@@ -52,4 +52,35 @@ class PublicContentSeedValuesTest {
                     "footer.cookie.analyticsDescription", Language.EL, old));
         }
     }
+
+    @Test
+    void cookieIntroCorrectsTheTwoObservedLegacyVariantsWithoutMatchingAdministratorEdits() throws Exception {
+        Map<Language, String> old = Map.of(
+                Language.NL, "Deze Enrosed-website gebruikt momenteel geen analyse- of advertentiecookies. Er wordt alleen gebruik gemaakt van de functionaliteit die nodig is om de website weer te geven en de door u gekozen links te openen.",
+                Language.PL, "Ta witryna internetowa Enrosed nie wykorzystuje obecnie żadnych plików cookie do celów analitycznych ani reklamowych. Wykorzystywane są wyłącznie funkcjonalności niezbędne do wyświetlenia strony i otwarcia wybranych przez Ciebie linków.");
+        for (var entry : old.entrySet()) {
+            assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.description", entry.getKey(), entry.getValue()));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.description", entry.getKey(), entry.getValue() + " Eigen aanvulling."));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.analyticsDescription", entry.getKey(), entry.getValue()));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.description", Language.EL, entry.getValue()));
+        }
+        for (Language language : Language.values()) {
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.description", language, null));
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                    "footer.cookie.description", language, ""));
+        }
+        try (var input = getClass().getResourceAsStream("/i18n/website-consent-previous-values.json")) {
+            var previous = new com.fasterxml.jackson.databind.ObjectMapper().readTree(input)
+                    .path("footer.cookie.description");
+            for (Language language : old.keySet()) {
+                assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(ContentScope.WEBSITE,
+                        "footer.cookie.description", language, previous.path(language.name()).asText()));
+            }
+        }
+    }
 }
