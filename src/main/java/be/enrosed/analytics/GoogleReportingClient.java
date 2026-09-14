@@ -3,6 +3,8 @@ package be.enrosed.analytics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.auth.oauth2.GoogleCredentials;
+import com.google.auth.oauth2.UserCredentials;
 import com.google.auth.oauth2.AccessToken;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.LowLevelHttpRequest;
@@ -29,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** Fixed Google endpoints, service-account credentials and read-only scopes stay on the server. */
+/** Fixed Google endpoints and credentials stay on the server; consent grants only reporting scopes. */
 @ApplicationScoped
 public class GoogleReportingClient {
     static final List<String> SCOPES = List.of("https://www.googleapis.com/auth/analytics.readonly",
@@ -37,23 +39,30 @@ public class GoogleReportingClient {
     private static final Set<String> HOSTS = Set.of("analyticsdata.googleapis.com", "www.googleapis.com");
     private final ObjectMapper json;
     private final String serviceAccountJson;
+    private final String userCredentialsJson;
     private final HttpClient http;
     private final Clock clock;
     private String authFailure;
     private Instant authRetryAfter;
-    private ServiceAccountCredentials credentials;
+    private GoogleCredentials credentials;
     private AccessToken token;
 
     @Inject
     public GoogleReportingClient(ObjectMapper json,
-            @ConfigProperty(name="enrosed.google-reporting.service-account-json") Optional<String> secret) {
-        this(json,secret.orElse(""),HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
+            @ConfigProperty(name="enrosed.google-reporting.service-account-json") Optional<String> secret,
+            @ConfigProperty(name="enrosed.google-reporting.user-credentials-json") Optional<String> userSecret) {
+        this(json,secret.orElse(""),userSecret.orElse(""),HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
                 .followRedirects(HttpClient.Redirect.NEVER).build(),Clock.systemUTC());
     }
+    GoogleReportingClient(ObjectMapper json,Optional<String> secret) { this(json,secret,Optional.empty()); }
     GoogleReportingClient(ObjectMapper json,String secret,HttpClient http,Clock clock) {
-        this.json=json; this.serviceAccountJson=secret.trim(); this.http=http; this.clock=clock;
+        this(json,secret,"",http,clock);
     }
-    public boolean configured() { return !serviceAccountJson.isEmpty(); }
+    GoogleReportingClient(ObjectMapper json,String secret,String userSecret,HttpClient http,Clock clock) {
+        this.json=json; this.serviceAccountJson=secret.trim(); this.userCredentialsJson=userSecret.trim();
+        this.http=http; this.clock=clock;
+    }
+    public boolean configured() { return !serviceAccountJson.isEmpty() || !userCredentialsJson.isEmpty(); }
 
     public JsonNode post(String endpoint, Map<String,Object> body) {
         URI uri=URI.create(endpoint);
@@ -76,18 +85,31 @@ public class GoogleReportingClient {
 
     private synchronized String accessToken() {
         if (!configured()) throw new Failure("NOT_CONFIGURED");
+        if (!serviceAccountJson.isEmpty() && !userCredentialsJson.isEmpty()) throw rememberAuthFailure("INVALID_CONFIGURATION");
         if (authFailure!=null && authRetryAfter!=null && clock.instant().isBefore(authRetryAfter)) throw new Failure(authFailure);
         if (token!=null && token.getExpirationTime()!=null
                 && token.getExpirationTime().toInstant().isAfter(clock.instant().plusSeconds(60))) return token.getTokenValue();
         if (credentials==null) {
             try {
-                JsonNode value=json.readTree(serviceAccountJson);
-                validateCredentialDocument(value);
-                credentials=(ServiceAccountCredentials)ServiceAccountCredentials.fromStream(
-                        new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)),this::tokenTransport)
-                        .createScoped(SCOPES);
-                // No delegated domain user, custom token endpoints, automatic token retries or JWT access.
-                credentials=credentials.toBuilder().setServiceAccountUser(null).setDefaultRetriesEnabled(false).build();
+                if (!userCredentialsJson.isEmpty()) {
+                    JsonNode value=json.readTree(userCredentialsJson);
+                    validateUserCredentialDocument(value);
+                    // This refreshes the two read-only scopes granted at internal OAuth consent.
+                    // No generic ADC/envelope loader, delegated user or configurable token endpoint.
+                    credentials=UserCredentials.newBuilder()
+                            .setClientId(value.path("client_id").asText())
+                            .setClientSecret(value.path("client_secret").asText())
+                            .setRefreshToken(value.path("refresh_token").asText())
+                            .setTokenServerUri(URI.create("https://oauth2.googleapis.com/token"))
+                            .setHttpTransportFactory(this::tokenTransport).build();
+                } else {
+                    JsonNode value=json.readTree(serviceAccountJson);
+                    validateCredentialDocument(value);
+                    ServiceAccountCredentials service=(ServiceAccountCredentials)ServiceAccountCredentials.fromStream(
+                            new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)),this::tokenTransport)
+                            .createScoped(SCOPES);
+                    credentials=service.toBuilder().setServiceAccountUser(null).setDefaultRetriesEnabled(false).build();
+                }
             } catch (Exception invalid) { throw rememberAuthFailure("INVALID_CONFIGURATION"); }
         }
         try {
@@ -101,7 +123,7 @@ public class GoogleReportingClient {
         authFailure=code; authRetryAfter=clock.instant().plusSeconds(30); return new Failure(code);
     }
 
-    /** Google Auth creates/signs the OAuth assertion; this adapter bounds its network request too. */
+    /** Google Auth prepares the token request; this adapter bounds its network request too. */
     private HttpTransport tokenTransport() {
         return new HttpTransport() {
             @Override protected LowLevelHttpRequest buildRequest(String method,String url) throws IOException {
@@ -147,6 +169,15 @@ public class GoogleReportingClient {
                 || !value.path("client_email").asText().endsWith(".gserviceaccount.com")
                 || !value.path("private_key").asText().contains("-----BEGIN PRIVATE KEY-----")
                 || !"googleapis.com".equals(value.path("universe_domain").asText("googleapis.com"))) {
+            throw new Failure("INVALID_CONFIGURATION");
+        }
+    }
+    static void validateUserCredentialDocument(JsonNode value) {
+        if (value==null || !"authorized_user".equals(value.path("type").asText())
+                || !value.path("client_id").isTextual() || !value.path("client_id").asText().endsWith(".apps.googleusercontent.com")
+                || !value.path("client_secret").isTextual() || value.path("client_secret").asText().isBlank()
+                || !value.path("refresh_token").isTextual() || value.path("refresh_token").asText().isBlank()
+                || value.has("token_uri") && !"https://oauth2.googleapis.com/token".equals(value.path("token_uri").asText())) {
             throw new Failure("INVALID_CONFIGURATION");
         }
     }

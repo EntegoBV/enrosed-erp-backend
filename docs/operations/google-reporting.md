@@ -25,7 +25,8 @@ the Angular build:
 | --- | --- |
 | `GOOGLE_ANALYTICS_PROPERTY_ID` | `554014865` |
 | `GOOGLE_SEARCH_CONSOLE_SITE_URL` | `sc-domain:enrosed.com` |
-| `GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON` | The dedicated service account's JSON credential, stored as a deployment secret |
+| `GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON` | Optional service account JSON credential, stored as a deployment secret; leave empty when using internal OAuth |
+| `GOOGLE_REPORTING_USER_CREDENTIALS_JSON` | Internal OAuth authorized-user envelope, stored as a deployment secret; leave empty when using a service account |
 
 The website measurement ID (`G-SZPBRC1X6J`) identifies the collection tag. It is
 not the reporting property ID or an API credential. The test website continues
@@ -56,6 +57,33 @@ For key rotation, configure the replacement credential, verify both report
 sources, and then revoke the old key in Google Cloud. Removing a property grant
 or disabling an API should produce a visible connection error, not zero-valued
 traffic statistics.
+
+## Internal OAuth when organization policy blocks service account keys
+
+Keep the organization policy intact. The reporting backend also supports an
+internal OAuth app in the managed Google organization. Use one credential mode
+only: configuring both credential variables is rejected rather than silently
+choosing an identity.
+
+1. Enable the same two reporting APIs in the managed Google Cloud project.
+2. Create an **Internal** OAuth app and client for the authorized reporting user
+   (`emre@entego.be`). Grant only `analytics.readonly` and
+   `webmasters.readonly` using the full scope URLs listed above. Request offline
+   access so the backend can refresh access without repeated browser sign-in.
+3. Confirm the user has access to the GA4 property and Search Console site.
+4. Store `GOOGLE_REPORTING_USER_CREDENTIALS_JSON` as a backend deployment secret
+   with exactly the fields `type` (value `authorized_user`), `client_id`,
+   `client_secret`, and `refresh_token`. Leave
+   `GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON` empty. Never place the real envelope
+   in this repository, a frontend build, logs or a support export.
+5. Redeploy and verify both providers. OAuth revocation or expiry must appear as
+   a visible connection error. Obtain fresh consent and replace the secret when
+   needed; the ERP never asks for a Google password.
+
+The backend uses Google's `UserCredentials` refresh flow through the same fixed
+Google token endpoint, bounded network transport and shared failure cooldown.
+It has no generic credential-file/ADC loader or configurable OAuth redirect/token
+endpoint, and it does not request additional scopes when refreshing a token.
 
 ## Interpret reports
 
