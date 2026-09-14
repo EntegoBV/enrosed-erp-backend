@@ -10,6 +10,7 @@ public final class GoogleReportingDtos {
             String fetchedAt, String errorCode, String message, T data) {}
     public record Report(int days, String from, String to, String generatedAt,
             Source<GaData> googleAnalytics, Source<SearchData> searchConsole, Source<Realtime> realtime) {}
+    public record SearchReport(int days, String generatedAt, Source<SearchData> searchConsole) {}
     public record GaTotals(long users, long sessions, long views, long engagedSessions,
             double engagementRate, double keyEvents, double avgSessionDurationSeconds) {}
     public record GaDay(String date, long users, long sessions, long views) {}
@@ -23,8 +24,20 @@ public final class GoogleReportingDtos {
     public record SearchDay(String date, double clicks, double impressions, double ctr, double position) {}
     public record SearchQuery(String query, double clicks, double impressions, double ctr, double position) {}
     public record SearchPage(String page, double clicks, double impressions, double ctr, double position) {}
+    public record SearchComparison(Status status, String from, String to, SearchTotals totals,
+            String errorCode, String message) {}
+    public record SearchDevice(String device, double clicks, double impressions, double ctr, double position) {}
+    public record SearchDevices(Status status, List<SearchDevice> rows, String errorCode, String message) {}
+    public record SearchIssue(String section, String errorCode, String message) {}
     public record SearchData(SearchTotals totals, List<SearchDay> perDay, List<SearchQuery> queries,
             List<SearchPage> pages, String dataState, String timeZone,
-            String availableThrough, List<String> warnings) {}
+            String availableThrough, List<String> warnings, SearchComparison comparison, SearchDevices devices,
+            Integer rowLimit, String periodBasis, List<SearchIssue> issues) {
+        public SearchData(SearchTotals totals, List<SearchDay> perDay, List<SearchQuery> queries,
+                List<SearchPage> pages, String dataState, String timeZone,
+                String availableThrough, List<String> warnings) {
+            this(totals,perDay,queries,pages,dataState,timeZone,availableThrough,warnings,null,null,null,null,List.of());
+        }
+    }
     public record Realtime(long activeUsers, int windowMinutes) {}
 }

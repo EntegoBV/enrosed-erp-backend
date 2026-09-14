@@ -26,6 +26,8 @@ public class GoogleReportingService {
     private final Clock clock;
     private final ReportCache<GaData> gaCache=new ReportCache<>(Duration.ofMinutes(15),Duration.ofHours(24));
     private final ReportCache<SearchData> searchCache=new ReportCache<>(Duration.ofMinutes(15),Duration.ofHours(24));
+    private final ReportCache<SearchData> searchDetailCache=new ReportCache<>(Duration.ofMinutes(15),Duration.ofHours(24));
+    private final ReportCache<SearchAvailability> searchAvailabilityCache=new ReportCache<>(Duration.ofMinutes(15),Duration.ofHours(24));
     private final ReportCache<Realtime> realtimeCache=new ReportCache<>(Duration.ofMinutes(1),Duration.ofMinutes(5));
 
     @Inject
@@ -70,6 +72,157 @@ public class GoogleReportingService {
         LocalDate to=LocalDate.now(clock.withZone(zone)); return new Period(to.minusDays(days-1L).toString(),to.toString());
     }
     private record Period(String from,String to) {}
+
+    /** Search-only entry: no GA batch or realtime work, even on a cold cache. */
+    public SearchReport searchConsole(int requestedDays) {
+        int days=Math.max(1,Math.min(365,requestedDays));
+        LocalDate today=LocalDate.now(clock.withZone(SEARCH_ZONE));
+        Period probe=new Period(today.minusDays(13).toString(),today.toString());
+        Source<SearchAvailability> availability=source(site,validSite(),probe,searchAvailabilityCache,
+                ()->fetchSearchAvailability(probe,today),value->value.through==null);
+        SearchAvailability known=availability.data();
+        LocalDate through=known!=null && known.through!=null?known.through:today.minusDays(1);
+        Period effective=new Period(through.minusDays(days-1L).toString(),through.toString());
+        Source<SearchData> result=source(site,validSite(),effective,searchDetailCache,
+                ()->fetchSearchDetail(effective,days,today,availability),
+                data->data.totals().impressions()==0 && data.totals().clicks()==0);
+        return new SearchReport(days,clock.instant().toString(),result);
+    }
+
+    private record SearchAvailability(LocalDate through,String basis) {}
+
+    private String searchEndpoint() {
+        return "https://www.googleapis.com/webmasters/v3/sites/"
+                +URLEncoder.encode(site,StandardCharsets.UTF_8)+"/searchAnalytics/query";
+    }
+
+    private SearchAvailability fetchSearchAvailability(Period probe,LocalDate today) {
+        // Fresh metrics are never displayed. Google's metadata identifies where final
+        // calendar days stop, including final days with no impressions/omitted rows.
+        var request=new LinkedHashMap<>(searchRequest(probe,List.of("date"),14));
+        request.put("dataState","all");
+        JsonNode response=client.post(searchEndpoint(),request);
+        searchRows(response);
+        JsonNode metadata=response.path("metadata");
+        JsonNode incomplete=metadata.has("firstIncompleteDate")?metadata.get("firstIncompleteDate"):
+                metadata.path("first_incomplete_date");
+        if (metadata.has("firstIncompleteDate") && metadata.has("first_incomplete_date")
+                && !metadata.get("firstIncompleteDate").equals(metadata.get("first_incomplete_date"))) throw new Failure("INVALID_RESPONSE");
+        if (!incomplete.isMissingNode()) {
+            LocalDate first=searchDate(incomplete.asText());
+            if (first.isBefore(LocalDate.parse(probe.from)) || first.isAfter(today)) throw new Failure("INVALID_RESPONSE");
+            return new SearchAvailability(first.minusDays(1),"GOOGLE_FINAL_BOUNDARY");
+        }
+        // An absent metadata field does not prove that recent zero-traffic days are
+        // complete. Fall back explicitly to the latest date actually reported as final.
+        List<SearchDay> finalDays=searchDays(client.post(searchEndpoint(),searchRequest(probe,List.of("date"),14)),probe);
+        LocalDate latest=finalDays.stream().map(day->LocalDate.parse(day.date()))
+                .filter(day->day.isBefore(today)).max(Comparator.naturalOrder()).orElse(null);
+        return new SearchAvailability(latest,latest==null?"UNCONFIRMED":"LATEST_REPORTED_FINAL_DAY");
+    }
+
+    private record SearchPart<T>(T data,String error) {}
+    private static <T> SearchPart<T> searchPart(Supplier<T> fetch) {
+        try { return new SearchPart<>(fetch.get(),null); }
+        catch (Failure failed) { return new SearchPart<>(null,failed.code); }
+        catch (RuntimeException failed) { return new SearchPart<>(null,"UNAVAILABLE"); }
+    }
+
+    private SearchData fetchSearchDetail(Period period,int days,LocalDate today,Source<SearchAvailability> availability) {
+        var warnings=new ArrayList<String>();
+        warnings.add("Alle cijfers zijn definitieve webzoekresultaten, per kalenderdag in America/Los_Angeles. Begin- en einddatum tellen mee.");
+        warnings.add("Zoekopdrachten en pagina’s tonen maximaal 100 resultaten, gerangschikt op klikken. Geanonimiseerde zoekopdrachten ontbreken; tel deze rijen niet op voor het totaal.");
+        SearchAvailability known=availability.data();
+        String basis=known==null?"UNCONFIRMED":known.basis;
+        if ("LATEST_REPORTED_FINAL_DAY".equals(basis)) warnings.add("Google gaf geen grens voor de verwerking. De periode eindigt op de laatste dag waarvoor Google definitieve gegevens teruggaf.");
+        if (availability.status()==Status.STALE) warnings.add("De laatst bekende verwerkingsgrens wordt gebruikt; de nieuwe controle bij Google is tijdelijk mislukt.");
+        LocalDate previousTo=LocalDate.parse(period.from).minusDays(1);
+        Period previous=new Period(previousTo.minusDays(days-1L).toString(),previousTo.toString());
+        String comparisonError="UNCONFIRMED".equals(basis)?"FINAL_DATES_UNCONFIRMED":
+                LocalDate.parse(previous.from).isBefore(today.minusMonths(16))?"COMPARISON_OUTSIDE_RETENTION":null;
+        if (comparisonError!=null) warnings.add(searchMessage(comparisonError));
+        try (var executor=Executors.newVirtualThreadPerTaskExecutor()) {
+            var totals=CompletableFuture.supplyAsync(()->searchPart(()->searchTotals(client.post(searchEndpoint(),searchRequest(period,List.of(),1)))),executor);
+            var perDay=CompletableFuture.supplyAsync(()->searchPart(()->searchDays(client.post(searchEndpoint(),searchRequest(period,List.of("date"),366)),period)),executor);
+            var queries=CompletableFuture.supplyAsync(()->searchPart(()->searchQueries(client.post(searchEndpoint(),searchRequest(period,List.of("query"),100)))),executor);
+            var pages=CompletableFuture.supplyAsync(()->searchPart(()->searchPages(client.post(searchEndpoint(),searchRequest(period,List.of("page"),100)))),executor);
+            var devices=CompletableFuture.supplyAsync(()->searchPart(()->searchDevices(client.post(searchEndpoint(),searchRequest(period,List.of("device"),3)))),executor);
+            var comparison=comparisonError==null
+                    ? CompletableFuture.supplyAsync(()->searchPart(()->searchTotals(client.post(searchEndpoint(),searchRequest(previous,List.of(),1)))),executor)
+                    : CompletableFuture.completedFuture(new SearchPart<SearchTotals>(null,comparisonError));
+            SearchPart<SearchTotals> core=totals.join();
+            if (core.error!=null) throw new Failure(core.error);
+            var dayResult=perDay.join(); var queryResult=queries.join(); var pageResult=pages.join();
+            var deviceResult=devices.join(); var previousResult=comparison.join();
+            var issues=new ArrayList<SearchIssue>();
+            if (known==null || known.through==null) issues.add(new SearchIssue("AVAILABILITY",
+                    availability.errorCode()==null?"FINAL_DATES_UNCONFIRMED":availability.errorCode(),searchMessage("FINAL_DATES_UNCONFIRMED")));
+            addSearchIssue(issues,"PER_DAY",dayResult); addSearchIssue(issues,"QUERIES",queryResult); addSearchIssue(issues,"PAGES",pageResult);
+            SearchComparison compared=new SearchComparison(previousResult.error==null
+                    ? searchStatus(previousResult.data):Status.ERROR,previous.from,previous.to,previousResult.data,
+                    previousResult.error,previousResult.error==null?null:searchMessage(previousResult.error));
+            SearchDevices breakdown=new SearchDevices(deviceResult.error==null
+                    ? deviceResult.data.isEmpty()?Status.NO_DATA:Status.CONNECTED:Status.ERROR,
+                    deviceResult.data,deviceResult.error,deviceResult.error==null?null:searchMessage(deviceResult.error));
+            List<SearchDay> dates=dayResult.data==null?List.of():dayResult.data;
+            return new SearchData(core.data,dates,queryResult.data==null?List.of():queryResult.data,
+                    pageResult.data==null?List.of():pageResult.data,"final",SEARCH_ZONE.getId(),
+                    known!=null&&known.through!=null?known.through.toString():dates.isEmpty()?null:dates.getLast().date(),
+                    List.copyOf(warnings),compared,breakdown,100,basis,List.copyOf(issues));
+        }
+    }
+
+    private static void addSearchIssue(List<SearchIssue> issues,String section,SearchPart<?> part) {
+        if (part.error!=null) issues.add(new SearchIssue(section,part.error,searchMessage(part.error)));
+    }
+    private static String searchMessage(String code) {
+        return switch (code) {
+            case "FINAL_DATES_UNCONFIRMED" -> "De definitieve einddatum kon niet worden vastgesteld. De cijfers blijven beschikbaar, maar een betrouwbare periodevergelijking ontbreekt.";
+            case "COMPARISON_OUTSIDE_RETENTION" -> "De vorige periode valt deels buiten de circa 16 maanden die Search Console bewaart. Kies een kortere periode om eerlijk te vergelijken.";
+            default -> message(code);
+        };
+    }
+    private static Status searchStatus(SearchTotals totals) {
+        return totals.clicks()==0 && totals.impressions()==0?Status.NO_DATA:Status.CONNECTED;
+    }
+    private static SearchTotals searchTotals(JsonNode response) {
+        JsonNode row=firstSearchRow(response);
+        return new SearchTotals(number(row,"clicks"),number(row,"impressions"),number(row,"ctr"),number(row,"position"));
+    }
+    private static LocalDate searchDate(String text) {
+        try { return LocalDate.parse(text); } catch (RuntimeException invalid) { throw new Failure("INVALID_RESPONSE"); }
+    }
+    private static List<SearchDay> searchDays(JsonNode response,Period period) {
+        var days=new TreeMap<String,SearchDay>();
+        for (JsonNode row:searchRows(response)) {
+            String date=searchDate(searchKey(row)).toString();
+            if (date.compareTo(period.from)<0 || date.compareTo(period.to)>0 || days.containsKey(date)) throw new Failure("INVALID_RESPONSE");
+            days.put(date,new SearchDay(date,number(row,"clicks"),number(row,"impressions"),number(row,"ctr"),number(row,"position")));
+        }
+        return List.copyOf(days.values());
+    }
+    private static List<SearchQuery> searchQueries(JsonNode response) {
+        var rows=new ArrayList<SearchQuery>();
+        for (JsonNode row:searchRows(response)) rows.add(new SearchQuery(searchKey(row),number(row,"clicks"),number(row,"impressions"),number(row,"ctr"),number(row,"position")));
+        if (rows.size()>100) throw new Failure("INVALID_RESPONSE");
+        return List.copyOf(rows);
+    }
+    private static List<SearchPage> searchPages(JsonNode response) {
+        var rows=new ArrayList<SearchPage>();
+        for (JsonNode row:searchRows(response)) rows.add(new SearchPage(searchKey(row),number(row,"clicks"),number(row,"impressions"),number(row,"ctr"),number(row,"position")));
+        if (rows.size()>100) throw new Failure("INVALID_RESPONSE");
+        return List.copyOf(rows);
+    }
+    private static List<SearchDevice> searchDevices(JsonNode response) {
+        var rows=new ArrayList<SearchDevice>();
+        for (JsonNode row:searchRows(response)) {
+            String device=searchKey(row);
+            if (!Set.of("DESKTOP","MOBILE","TABLET").contains(device)) throw new Failure("INVALID_RESPONSE");
+            rows.add(new SearchDevice(device,number(row,"clicks"),number(row,"impressions"),number(row,"ctr"),number(row,"position")));
+        }
+        if (rows.size()>3) throw new Failure("INVALID_RESPONSE");
+        return List.copyOf(rows);
+    }
 
     private GaData fetchGa(Period period) {
         List<Map<String,Object>> requests=List.of(
@@ -167,6 +320,11 @@ public class GoogleReportingService {
         return Map.of("startDate",period.from,"endDate",period.to,"dimensions",dimensions,
                 "type","web","dataState","final","rowLimit",dimensions.isEmpty()?1:dimensions.getFirst().equals("date")?366:20);
     }
+    private static Map<String,Object> searchRequest(Period period,List<String> dimensions,int limit) {
+        return Map.of("startDate",period.from,"endDate",period.to,"dimensions",dimensions,
+                "type","web","dataState","final","rowLimit",limit,
+                "aggregationType",dimensions.contains("page")?"auto":"byProperty");
+    }
     private static JsonNode gaRows(JsonNode report) {
         // Empty standard totals can omit both rows and headers. Accept only the
         // typed Google envelope, optionally carrying its metadata object.
@@ -182,13 +340,18 @@ public class GoogleReportingService {
         JsonNode rows=gaRows(report); return rows.isEmpty()?null:rows.get(0);
     }
     private static JsonNode searchRows(JsonNode report) {
+        if (report==null || !report.isObject()) throw new Failure("INVALID_RESPONSE");
         JsonNode rows=report.path("rows"); if (!rows.isMissingNode() && !rows.isArray()) throw new Failure("INVALID_RESPONSE"); return rows;
     }
     private static JsonNode firstSearchRow(JsonNode report) {
         JsonNode rows=searchRows(report); return rows.isEmpty()?null:rows.get(0);
     }
     private static String dimension(JsonNode row) { return row.path("dimensionValues").path(0).path("value").asText(); }
-    private static String searchKey(JsonNode row) { return row.path("keys").path(0).asText(); }
+    private static String searchKey(JsonNode row) {
+        JsonNode keys=row.path("keys");
+        if (!keys.isArray() || keys.size()!=1 || !keys.get(0).isTextual() || keys.get(0).asText().isBlank()) throw new Failure("INVALID_RESPONSE");
+        return keys.get(0).asText();
+    }
     private static String gaDate(String value) {
         try { return LocalDate.parse(value,DateTimeFormatter.BASIC_ISO_DATE).toString(); }
         catch (Exception invalid) { throw new Failure("INVALID_RESPONSE"); }
