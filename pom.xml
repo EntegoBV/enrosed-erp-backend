@@ -50,6 +50,12 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-scheduler</artifactId>
     </dependency>
+    <!-- Server-side, read-only Google reporting service-account authentication. -->
+    <dependency>
+      <groupId>com.google.auth</groupId>
+      <artifactId>google-auth-library-oauth2-http</artifactId>
+      <version>1.50.0</version>
+    </dependency>
     <!-- Web Push (VAPID) for the phone notifications. -->
     <dependency>
       <groupId>nl.martijndwars</groupId>
