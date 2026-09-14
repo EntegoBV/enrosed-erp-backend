@@ -44,17 +44,17 @@ import java.util.Set;
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
-    /** Family and group rows the range table fits on one A4 page. */
-    private static final int OVERVIEW_ROWS_PER_PAGE = 16;
-    /** The category tints, bordeaux first; chapters take them in turn. */
-    private static final int TONE_COUNT = 6;
+    /** Conservative A4 budget including chapter rows; long real SKUs wrap over several lines. */
+    private static final int OVERVIEW_ROWS_PER_PAGE = 12;
+    /** All chapters share the same restrained bordeaux brand palette. */
+    private static final int TONE_COUNT = 1;
     /* Real four-variant families with complete translated sales copy still fit the compact
        A4 composition. Keep a generous guard for pathological dashboard content without
        rejecting normal, print-ready product families. */
     private static final int FAMILY_PAGE_CAPACITY = 3_400;
     /** The overview says each family in one line; longer copy is cut at a word. */
     private static final int OVERVIEW_SUMMARY_CHARS = 92;
-    private static final Color CATALOG_IMAGE_BACKGROUND = new Color(255, 252, 248);
+    private static final Color CATALOG_IMAGE_BACKGROUND = Color.WHITE;
 
     private final Template simpleTemplate;
     private final Template brochureTemplate;
@@ -101,7 +101,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureVariant(
             String sku, String name, String colour, String size, String colourHex,
             String productSize, String cartonSize, int piecesPerCarton,
-            String ean, String priceLabel) {}
+            String ean, String priceLabel, String image) {
+        public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
+                               String productSize, String cartonSize, int piecesPerCarton,
+                               String ean, String priceLabel) {
+            this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
+                    ean, priceLabel, null);
+        }
+    }
 
     /** One line of the specification block: a translated label and its value. */
     public record SpecRow(String label, String value) {}
@@ -173,6 +180,26 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         /** One variant reads better as a specification list than as a one-row table. */
         public boolean showVariantTable() {
             return variants != null && variants.size() > 1;
+        }
+
+        /** Colour photographs identify the selected SKUs independently of the hero budget. */
+        public boolean showVariantPhotos() {
+            return showVariantTable() && variants.stream().anyMatch(variant -> present(variant.image()));
+        }
+
+        public List<List<BrochureVariant>> variantPhotoRows() {
+            if (!showVariantPhotos()) return List.of();
+            List<List<BrochureVariant>> rows = new ArrayList<>();
+            for (int index = 0; index < variants.size(); index += 4) {
+                rows.add(variants.subList(index, Math.min(index + 4, variants.size())));
+            }
+            return List.copyOf(rows);
+        }
+
+        /** An entirely unknown EAN column only consumes room needed by actual SKU values. */
+        public boolean showVariantEan() {
+            return variants != null && variants.stream()
+                    .anyMatch(variant -> present(variant.ean()) && !"-".equals(variant.ean()));
         }
 
         /** A single product without story copy gets the large product shot and the roomy list. */
@@ -371,7 +398,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         CompanyProfile profile = company.get();
 
         int index = 1;
-        for (CatalogExportService.FamilyGroup group : catalog.families()) {
+        for (CatalogExportService.FamilyGroup group : brochureFamilyOrder(catalog.families())) {
             FamilyRenderData rendered = brochureFamily(
                     group, language, request, photos, copy, index++);
             BrochureFamily family = rendered.family();
@@ -392,7 +419,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         int page = 2 + (options.includeOverview() ? overviewPageCount : 0);
         List<BrochureSection> sections = new ArrayList<>();
         List<BrochureFamily> pagedFamilies = new ArrayList<>();
-        List<PhotoRef> categoryLeads = new ArrayList<>();
         int sectionIndex = 1;
         int familyNumber = 1;
         for (Map.Entry<String, List<FamilyRenderData>> entry : byCategory.entrySet()) {
@@ -404,12 +430,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                chapter opens with a mosaic of its products. */
             PhotoRef categoryLead = category == null || category.leadPhoto() == null
                     ? null : photos.productRef(category.leadPhoto());
-            if (categoryLead != null && photos.usable(categoryLead)) categoryLeads.add(categoryLead);
             List<PhotoRef> categoryPhotos = categoryLead != null && photos.usable(categoryLead)
                     ? List.of(categoryLead) : photos.diverseFamilyPhotos(entry.getValue());
             int sectionPage = page;
             if (options.includeCategoryIntros()) page++;
-            /* Bordeaux for the first chapter, then the other tones, round and round. */
+            /* One coherent brand palette across every chapter. */
             String tone = "tone-" + ((sectionIndex - 1) % TONE_COUNT + 1);
             List<BrochureFamily> chapter = new ArrayList<>();
             for (FamilyRenderData rendered : entry.getValue()) {
@@ -418,28 +443,20 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
                     entry.getValue().getFirst().family().categoryKey(),
-                    photos.editorialLayout(categoryPhotos, false),
+                    options.includeCategoryIntros() ? photos.editorialLayout(categoryPhotos, false)
+                            : EditorialLayout.empty(),
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
                             copy(copy, "catalog.common.selectedfamily.plural")),
                     List.copyOf(chapter), sectionPage, tone));
         }
 
-        List<PhotoRef> selectedPhotos = photos.diverseFamilyPhotos(renderedFamilies);
-        /* The cover opens with one picture: the first chapter's own photo when
-           it has one, else the strongest product photo of the selection. */
-        List<PhotoRef> coverLead = !categoryLeads.isEmpty() ? List.of(categoryLeads.getFirst())
-                : selectedPhotos.isEmpty() ? List.of() : List.of(selectedPhotos.getFirst());
-        EditorialLayout coverImages = photos.coverLayout(coverLead);
-        EditorialLayout backImages = photos.editorialLayout(selectedPhotos, true);
-
         List<OverviewPage> overviewPages = overviewPages(overviewSlots, sections);
         String title = present(request.title())
                 ? request.title().trim()
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
                         + LocalDate.now().getYear();
-        String intro = present(request.intro()) ? request.intro().trim()
-                : copy(copy, "catalog.brochure.defaultintro");
+        String intro = present(request.intro()) ? request.intro().trim() : "";
 
         return brochureTemplate
                 .data("title", title)
@@ -460,22 +477,95 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("includePrices", request.includePrices())
                 .data("copy", copy)
                 .data("company", profile)
-                .data("logo", editorial.image("logo-gold.png"))
-                .data("coverImages", coverImages)
-                .data("backImages", backImages)
-                .data("customisationImage", editorial.image("flowerbox-hero.jpg"))
+                .data("logo", editorial.image("logo-gold-print.png"))
+                .data("privateLabelMinimum", privateLabelMinimum(language))
+                .data("customisationImage", options.includeCustomisation() && request.resolvedPhotosPerProduct() > 0
+                        ? editorial.image("private-label-editorial-v2.png") : "")
+                .data("orderingImage", options.includeOrdering() && request.resolvedPhotosPerProduct() > 0
+                        ? editorial.image("ordering-editorial-v2.png") : "")
+                .data("quoteUrl", "https://enrosed.com/"
+                        + (language == Language.EN ? "" : language.code() + "/") + "quote/")
+                .data("quoteQr", options.includeOrdering()
+                        ? editorial.image("quote-qr-" + language.code() + ".png") : "")
                 .data("year", LocalDate.now().getYear())
                 .data("languageCode", language.code())
                 .render();
     }
 
+    /** Order actual domes within their chapter before numbering both the overview and detail sheets. */
+    static List<CatalogExportService.FamilyGroup> brochureFamilyOrder(
+            List<CatalogExportService.FamilyGroup> families) {
+        List<CatalogExportService.FamilyGroup> ordered = new ArrayList<>(families);
+        Map<String, List<Integer>> chapterSlots = new LinkedHashMap<>();
+        for (int index = 0; index < families.size(); index++) {
+            CatalogExportService.FamilyGroup group = families.get(index);
+            String code = group.category() != null && present(group.category().code())
+                    ? group.category().code() : group.content() == null ? null : group.content().categoryKey();
+            if ("domes".equalsIgnoreCase(code)) {
+                chapterSlots.computeIfAbsent(categoryKey(group.category(), group.content()),
+                        ignored -> new ArrayList<>()).add(index);
+            }
+        }
+        for (List<Integer> slots : chapterSlots.values()) {
+            List<CatalogExportService.FamilyGroup> chapter = new ArrayList<>(
+                    slots.stream().map(families::get).toList());
+            chapter.sort((left, right) -> {
+                boolean leftDome = isDomeFamily(left);
+                boolean rightDome = isDomeFamily(right);
+                if (!leftDome || !rightDome) return Boolean.compare(!leftDome, !rightDome);
+                return DOME_SIZE_ORDER.compare(domeSize(left), domeSize(right));
+            });
+            for (int index = 0; index < slots.size(); index++) ordered.set(slots.get(index), chapter.get(index));
+        }
+        return List.copyOf(ordered);
+    }
+
+    private static boolean isDomeFamily(CatalogExportService.FamilyGroup group) {
+        if (group.content() != null && domeIdentity(group.content().familyKey())) return true;
+        // Newly imported models can have generic family keys. Their source product model
+        // names still identify the physical type; translated catalogue titles never do.
+        return group.variants().stream().anyMatch(product ->
+                domeIdentity(product.familyKey()) || domeIdentity(product.name()));
+    }
+
+    private static boolean domeIdentity(String value) {
+        if (value == null) return false;
+        for (String token : value.toLowerCase(Locale.ROOT).split("[^a-z]+")) {
+            if (token.equals("dome") || token.equals("stolp") || token.equals("rozenstolp")) return true;
+        }
+        return false;
+    }
+
+    private record DomeSize(BigDecimal height, BigDecimal diameter) {}
+
+    private static final Comparator<DomeSize> DOME_SIZE_ORDER = Comparator
+            .comparing(DomeSize::height, Comparator.nullsLast(BigDecimal::compareTo))
+            .thenComparing(DomeSize::diameter, Comparator.nullsLast(BigDecimal::compareTo));
+
+    private static DomeSize domeSize(CatalogExportService.FamilyGroup group) {
+        // Product axes are explicit centimetres. Legacy family dimensions may store
+        // "12 x 25" as width/depth with no height, so they are not an ordering source.
+        // A family with multiple sizes starts at its smallest known selected size.
+        return group.variants().stream().map(Product::dimensions).filter(Objects::nonNull)
+                .filter(dimensions -> positive(dimensions.heightCm()))
+                .map(dimensions -> {
+                    BigDecimal width = positive(dimensions.lengthCm()) ? dimensions.lengthCm() : null;
+                    BigDecimal depth = positive(dimensions.widthCm()) ? dimensions.widthCm() : null;
+                    BigDecimal diameter = width == null ? depth : depth == null ? width : width.max(depth);
+                    return new DomeSize(dimensions.heightCm(), diameter);
+                })
+                .min(DOME_SIZE_ORDER).orElseGet(() -> new DomeSize(null, null));
+    }
+
     private Item simpleItem(Product product, Language language,
                             CatalogExportService.Request request, PhotoResolver photos,
                             Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
-        int allowed = request.resolvedPhotosPerProduct();
+        int allowed = request.resolvedPhotosPerProduct(product.familyId());
         List<PhotoRef> imageRefs = new ArrayList<>();
         Set<String> imageKeys = new LinkedHashSet<>();
-        for (Photo photo : product.photos()) {
+        for (Photo photo : product.photos().stream()
+                .sorted(Comparator.comparing((Photo photo) -> !photo.leads(
+                        be.enrosed.catalog.domain.PhotoRole.CATALOGUE))).toList()) {
             if (imageRefs.size() >= allowed) break;
             /* Product projections can contain family photos from every publication channel.
                An inherited photo is safe only when the CATALOGUE-filtered family reader
@@ -523,15 +613,26 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 ? copy(copy, "catalog.common.collection")
                 : group.category().nameIn(language);
 
-        int allowed = request.resolvedPhotosPerProduct();
+        int allowed = request.resolvedPhotosPerProduct(
+                family != null && family.id() != null ? family.id() : first.familyId());
         List<PhotoRef> imageRefs = new ArrayList<>();
         Set<String> imageKeys = new LinkedHashSet<>();
-        /* A photo the buyer chose to open the catalogue with goes first,
-           whatever the gallery order; the rest fill in behind it. */
+        Set<Long> selectedIds = group.variants().stream().map(Product::id)
+                .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        Set<Long> allowedFamilyPhotoIds = family == null ? Set.of() : family.photos().stream()
+                .filter(photo -> photo.variantProductId() == null
+                        || selectedIds.contains(photo.variantProductId()))
+                .map(CatalogFamilyReader.GalleryPhoto::id)
+                .collect(java.util.stream.Collectors.toSet());
+        /* A photo the buyer chose to open the catalogue with goes first. An inherited
+           lead still has to belong to this channel and the selected variants. */
         if (allowed > 0) {
             for (Product variant : group.variants()) {
+                if (imageRefs.size() >= allowed) break;
                 for (Photo photo : variant.photos()) {
+                    if (imageRefs.size() >= allowed) break;
                     if (!photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE)) continue;
+                    if (photo.inherited() && !allowedFamilyPhotoIds.contains(photo.familyPhotoId())) continue;
                     PhotoRef ref = photos.productRef(photo);
                     if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
                         imageRefs.add(ref);
@@ -540,8 +641,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             }
         }
         if (allowed > 0 && family != null) {
-            Set<Long> selectedIds = group.variants().stream().map(Product::id)
-                    .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
             for (CatalogFamilyReader.GalleryPhoto photo : family.photos()) {
                 if (imageRefs.size() >= allowed) break;
                 if (photo.variantProductId() != null && !selectedIds.contains(photo.variantProductId())) {
@@ -584,7 +683,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         product.carton() == null ? "" : compactDimensions(product.carton().dimensions()),
                         product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                         defaultText(product.canonicalBarcode(), "-"),
-                        request.includePrices() ? priceLabel(product, language) : null))
+                        request.includePrices() ? priceLabel(product, language) : null,
+                        allowed > 0 && group.variants().size() > 1
+                                ? photos.variantImage(product, family) : null))
                 .toList();
 
         String familySize = familyDimension(family, first);
@@ -601,7 +702,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 highlights, categoryKey, categoryName, familySize,
                 packageLine, overviewImage, photoLayout, referencePriceLabel,
                 compactDetail(summary, description, highlights, variants.size(),
-                        photoLayout.extras().size()),
+                        photoLayout.extras().size(),
+                        variants.stream().anyMatch(variant -> present(variant.image()))),
                 variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1");
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
@@ -680,18 +782,22 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      * {chapter index, family index} with -1 for the heading itself.
      */
     static List<List<int[]>> overviewSlots(List<Integer> chapterSizes) {
+        int totalRows = chapterSizes.stream().filter(size -> size > 0).mapToInt(size -> size + 1).sum();
+        int pageCount = Math.max(1, (totalRows + OVERVIEW_ROWS_PER_PAGE - 1) / OVERVIEW_ROWS_PER_PAGE);
+        /* Share spare space between pages instead of leaving one orphaned family on the last. */
+        int rowsPerPage = Math.max(2, (totalRows + pageCount - 1) / pageCount);
         List<List<int[]>> pages = new ArrayList<>();
         List<int[]> current = new ArrayList<>();
         for (int chapter = 0; chapter < chapterSizes.size(); chapter++) {
             int size = chapterSizes.get(chapter);
             if (size <= 0) continue;
-            if (current.size() >= OVERVIEW_ROWS_PER_PAGE - 1) {
+            if (current.size() >= rowsPerPage - 1) {
                 pages.add(List.copyOf(current));
                 current = new ArrayList<>();
             }
             current.add(new int[] {chapter, -1});
             for (int family = 0; family < size; family++) {
-                if (current.size() >= OVERVIEW_ROWS_PER_PAGE) {
+                if (current.size() >= rowsPerPage) {
                     pages.add(List.copyOf(current));
                     current = new ArrayList<>();
                 }
@@ -718,10 +824,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static boolean compactDetail(
             String summary, String description, List<String> highlights,
-            int variantCount, int galleryCount) {
+            int variantCount, int galleryCount, boolean hasVariantPhotos) {
         int copyLength = textLength(summary) + textLength(description)
                 + highlights.stream().mapToInt(PdfCatalogRenderer::textLength).sum();
-        return variantCount >= 4 || galleryCount > 0 || copyLength > 520;
+        // The colour strip takes a further 31 mm. Reserve that space even when
+        // a shorter translation would otherwise select the spacious layout.
+        return variantCount >= 4 || galleryCount > 0 || copyLength > 520
+                || (hasVariantPhotos && (variantCount >= 3 || copyLength > 350));
     }
 
     /** Prevents a fixed print sheet from silently clipping extreme dashboard content. */
@@ -946,14 +1055,34 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .toList();
         if (prices.isEmpty()) return copy(copy, "catalog.brochure.overview.priceonrequest");
         String minimum = formatPrice(prices.getFirst(), language);
-        if (prices.size() == variants.size() && prices.getFirst().compareTo(prices.getLast()) == 0) {
-            return minimum;
-        }
-        if (prices.size() == variants.size()) {
-            return minimum + " - " + formatPrice(prices.getLast(), language);
+        long pricedVariants = variants.stream().map(Product::computedSalesPriceEur)
+                .filter(PdfCatalogRenderer::positive).count();
+        if (pricedVariants == variants.size()) {
+            return prices.size() == 1 ? minimum
+                    : minimum + " - " + formatPrice(prices.getLast(), language);
         }
         return copy(copy, "catalog.brochure.overview.from") + " " + minimum + " · "
                 + copy(copy, "catalog.brochure.overview.priceonrequest");
+    }
+
+    /** Confirmed trade policy; also shown when the catalogue omits individual prices. */
+    private static String privateLabelMinimum(Language language) {
+        java.text.NumberFormat format = java.text.NumberFormat.getCurrencyInstance(language.locale());
+        format.setCurrency(java.util.Currency.getInstance("EUR"));
+        format.setMaximumFractionDigits(0);
+        format.setMinimumFractionDigits(0);
+        String amount = format.format(10_000);
+        return switch (language) {
+            case NL -> "Private label is mogelijk vanaf een orderwaarde van " + amount + ".";
+            case EN -> "Private label is available from a minimum order value of " + amount + ".";
+            case FR -> "La marque privée est possible à partir d’une commande de " + amount + ".";
+            case DE -> "Private Label ist ab einem Mindestbestellwert von " + amount + " möglich.";
+            case ES -> "La marca propia está disponible a partir de un pedido mínimo de " + amount + ".";
+            case PL -> "Marka własna jest dostępna od minimalnej wartości zamówienia " + amount + ".";
+            case PT -> "A marca própria está disponível a partir de uma encomenda mínima de " + amount + ".";
+            case TR -> "Özel marka için minimum sipariş tutarı " + amount + ".";
+            case EL -> "Η ιδιωτική ετικέτα είναι διαθέσιμη από ελάχιστη αξία παραγγελίας " + amount + ".";
+        };
     }
 
     private static String formatPrice(BigDecimal price, Language language) {
@@ -1160,7 +1289,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private enum PhotoOwner { PRODUCT, FAMILY }
 
-    private record PhotoRef(String storageKey, PhotoOwner owner) {}
+    private record PhotoRef(String storageKey, PhotoOwner owner, boolean catalogueLead) {}
 
     private record FamilyRenderData(BrochureFamily family, List<PhotoRef> sourcePhotos) {}
 
@@ -1173,12 +1302,51 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
         PhotoRef productRef(Photo photo) {
             return photo == null || !present(photo.storageKey())
-                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.PRODUCT);
+                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.PRODUCT,
+                            photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE));
         }
 
         PhotoRef familyRef(CatalogFamilyReader.GalleryPhoto photo) {
             return photo == null || !present(photo.storageKey())
-                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY);
+                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY, false);
+        }
+
+        /** Never borrow a generic family photograph to illustrate a particular colour. */
+        String variantImage(Product product, CatalogFamilyReader.Family family) {
+            List<CatalogFamilyReader.GalleryPhoto> exactPhotos = family == null || product.id() == null
+                    ? List.of() : family.photos().stream()
+                    .filter(photo -> product.id().equals(photo.variantProductId()))
+                    .sorted(Comparator.comparingInt(CatalogFamilyReader.GalleryPhoto::position))
+                    .toList();
+            List<PhotoRef> candidates = new ArrayList<>();
+            List<Photo> productPhotos = product.photos().stream()
+                    .sorted(Comparator.comparingInt(Photo::position)).toList();
+            /* An explicitly chosen catalogue image replaces an older original in the
+               colour strip too. Inherited leads must still match this exact variant
+               and the canonical image published for the catalogue channel. */
+            for (Photo photo : productPhotos) {
+                if (!photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE)) continue;
+                if (!photo.inherited()) {
+                    candidates.add(productRef(photo));
+                    continue;
+                }
+                /* The projection can carry a lead from another colour or an internal channel.
+                   Both canonical row identity and the exact published blob must agree. */
+                exactPhotos.stream().filter(published ->
+                                photo.familyPhotoId().equals(published.id())
+                                        && Objects.equals(photo.storageKey(), published.storageKey()))
+                        .findFirst().ifPresent(published -> candidates.add(new PhotoRef(
+                                published.storageKey(), PhotoOwner.FAMILY, true)));
+            }
+            productPhotos.stream().filter(photo -> !photo.inherited())
+                    .forEach(photo -> candidates.add(productRef(photo)));
+            exactPhotos.forEach(photo -> candidates.add(familyRef(photo)));
+            for (PhotoRef candidate : uniquePhotos(candidates)) {
+                if (!usable(candidate)) continue;
+                String image = contained(candidate, "variant-colour", 40, 26, 720);
+                if (present(image)) return image;
+            }
+            return null;
         }
 
         List<PhotoRef> preferLargeLead(List<PhotoRef> refs) {
@@ -1265,27 +1433,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return editorialRows(images);
         }
 
-        /* The overview card is landscape: a 4:3 crop fills its picture frame edge to edge. */
+        /* The small overview still shows the complete selected product, including its packaging. */
         String overview(PhotoRef ref) {
-            return cropped(ref, "overview-landscape", 4, 3, 1_200);
-        }
-
-        /** The cover opens on one picture cropped to the hero frame above the title panel. */
-        EditorialLayout coverLayout(List<PhotoRef> refs) {
-            List<PhotoRef> unique = uniquePhotos(refs);
-            if (unique.isEmpty()) return EditorialLayout.empty();
-            String image = cropped(unique.getFirst(), "cover", 210, 176, 2_400);
-            if (!present(image)) return EditorialLayout.empty();
-            return new EditorialLayout("one", true,
-                    List.of(new EditorialRow("full", List.of(new EditorialTile(image, 1)))));
+            return contained(ref, "overview-landscape", 4, 3, 1_200);
         }
 
         private String simple(PhotoRef ref, int count, int index) {
-            if (count == 1) return cropped(ref, "simple-one", 4, 3, 1_000);
-            if (count == 2) return cropped(ref, "simple-two", 2, 3, 900);
-            if (count == 3) return cropped(ref,
+            if (count == 1) return contained(ref, "simple-one", 4, 3, 1_000);
+            if (count == 2) return contained(ref, "simple-two", 2, 3, 900);
+            if (count == 3) return contained(ref,
                     index == 0 ? "simple-three-lead" : "simple-three-stack", 7, 8, 900);
-            return cropped(ref, index < 4 ? "simple-grid" : "simple-extra",
+            return contained(ref, index < 4 ? "simple-grid" : "simple-extra",
                     index < 4 ? 4 : 3, index < 4 ? 3 : 2, index < 4 ? 800 : 600);
         }
 
@@ -1301,13 +1459,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
 
         private String editorial(PhotoRef ref, int count, int index) {
-            if (count == 1) return cropped(ref, "editorial-one", 210, 297, 2_400);
-            if (count == 2) return cropped(ref, "editorial-two", 210, 149, 2_200);
-            if (count == 3) return cropped(ref,
+            if (count == 1) return contained(ref, "editorial-one", 184, 178, 2_400);
+            if (count == 2) return contained(ref, "editorial-two", 184, 89, 2_200);
+            if (count == 3) return contained(ref,
                     index == 0 ? "editorial-three-lead" : "editorial-three-tail",
-                    index == 0 ? 210 : 105, index == 0 ? 178 : 119,
+                    index == 0 ? 184 : 92, index == 0 ? 107 : 71,
                     index == 0 ? 2_200 : 1_400);
-            return cropped(ref, "editorial-four", 105, 149, 1_600);
+            return contained(ref, "editorial-four", 92, 89, 1_600);
         }
 
         boolean usable(PhotoRef ref) {
@@ -1316,6 +1474,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
 
         private int bestLeadIndex(List<PhotoRef> refs, double targetAspect) {
+            for (int index = 0; index < refs.size(); index++) {
+                if (refs.get(index).catalogueLead()) return index;
+            }
             int best = 0;
             double bestScore = Double.NEGATIVE_INFINITY;
             for (int index = 0; index < refs.size(); index++) {
@@ -1373,18 +1534,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             if (ref == null) return null;
             String value = renditionCache.computeIfAbsent(cacheKey(ref, rendition), ignored -> {
                 String uri = imageEncoder.encodeContainedTrimmed(
-                        source(ref), aspectWidth, aspectHeight, maxEdge, CATALOG_IMAGE_BACKGROUND);
-                if (uri == null) failed(ref.storageKey(), null);
-                return defaultText(uri, "");
-            });
-            return present(value) ? value : null;
-        }
-
-        private String cropped(
-                PhotoRef ref, String rendition, int aspectWidth, int aspectHeight, int maxEdge) {
-            if (ref == null) return null;
-            String value = renditionCache.computeIfAbsent(cacheKey(ref, rendition), ignored -> {
-                String uri = imageEncoder.encodeCoverCropped(
                         source(ref), aspectWidth, aspectHeight, maxEdge, CATALOG_IMAGE_BACKGROUND);
                 if (uri == null) failed(ref.storageKey(), null);
                 return defaultText(uri, "");

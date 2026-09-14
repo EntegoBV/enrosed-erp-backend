@@ -114,9 +114,17 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(114, catalog.size(), "one header plus 113 catalogue keys");
+        assertEquals(134, catalog.size(), "one header plus 133 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
                 && row.subList(4, 13).stream().noneMatch(String::isBlank)));
+        List<List<String>> editorialCopy = catalog.stream().skip(1)
+                .filter(row -> row.get(1).startsWith("catalog.brochure.atelier.")
+                        || row.get(1).startsWith("catalog.brochure.buying."))
+                .toList();
+        assertEquals(20, editorialCopy.size(), "both editorial pages have complete reviewed copy");
+        assertEquals(20, editorialCopy.stream().map(row -> row.get(1)).distinct().count());
+        assertTrue(editorialCopy.stream().allMatch(row -> "true".equals(row.get(3))),
+                "editorial copy is required in all nine catalogue languages");
         assertEquals("GROSSISTA", row(catalog, "catalog.brand.wholesale", 1).get(10));
         assertEquals("AİLELER", row(catalog, "catalog.common.family.plural", 1).get(11));
     }

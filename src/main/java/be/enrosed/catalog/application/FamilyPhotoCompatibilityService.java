@@ -5,7 +5,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /** Keeps existing ProductDto/sales/purchasing photo consumers backed by the canonical family gallery. */
 @ApplicationScoped
@@ -30,12 +33,9 @@ public class FamilyPhotoCompatibilityService {
         for (ProductEntity product : members) {
             List<ProductPhotoEntity> inherited = product.photos.stream()
                     .filter(photo -> photo.familyPhotoId != null).toList();
-            inherited.forEach(photo -> {
-                product.photos.remove(photo);
-                entityManager.remove(photo);
-            });
-
-            int nextPosition = product.photos.stream().mapToInt(photo -> photo.position).max().orElse(-1) + 1;
+            int nextPosition = product.photos.stream()
+                    .filter(photo -> photo.familyPhotoId == null)
+                    .mapToInt(photo -> photo.position).max().orElse(-1) + 1;
             List<ProductFamilyPhotoEntity> ordered = family.photos.stream()
                     .filter(image -> variantResolver.rank(image, product, members) < 2)
                     .sorted(Comparator
@@ -43,8 +43,16 @@ public class FamilyPhotoCompatibilityService {
                                     variantResolver.rank(image, product, members))
                             .thenComparingInt(image -> image.position))
                     .toList();
+            Set<ProductPhotoEntity> retained = new HashSet<>();
             for (ProductFamilyPhotoEntity source : ordered) {
-                ProductPhotoEntity photo = new ProductPhotoEntity();
+                /* Keep the projection's identity and channel leads across gallery edits.
+                   Recreating every row broke existing photo URLs and silently cleared
+                   WEBSITE/CATALOGUE choices when another image was uploaded. */
+                ProductPhotoEntity photo = inherited.stream()
+                        .filter(existing -> Objects.equals(existing.familyPhotoId, source.id))
+                        .findFirst().orElse(null);
+                boolean added = photo == null;
+                if (added) photo = new ProductPhotoEntity();
                 photo.product = product;
                 photo.familyPhotoId = source.id;
                 photo.storageKey = source.largeStorageKey;
@@ -54,9 +62,18 @@ public class FamilyPhotoCompatibilityService {
                 photo.widthPx = source.largeWidthPx;
                 photo.heightPx = source.largeHeightPx;
                 photo.position = nextPosition++;
-                entityManager.persist(photo);
-                product.photos.add(photo);
+                if (added) {
+                    entityManager.persist(photo);
+                    product.photos.add(photo);
+                }
+                retained.add(photo);
             }
+            /* Removed or reassigned images lose their projection only for affected
+               variants. Never transfer a deleted image's leads to a different image. */
+            inherited.stream().filter(photo -> !retained.contains(photo)).forEach(photo -> {
+                product.photos.remove(photo);
+                entityManager.remove(photo);
+            });
         }
         entityManager.flush();
     }

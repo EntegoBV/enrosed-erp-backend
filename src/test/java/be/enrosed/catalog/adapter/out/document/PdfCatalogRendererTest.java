@@ -6,6 +6,8 @@ import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.CategoryText;
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
@@ -16,6 +18,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
@@ -66,7 +69,7 @@ class PdfCatalogRendererTest {
         String simpleHtml = renderer.renderHtml(simple);
         String brochureHtml = renderer.renderHtml(brochure);
 
-        assertTrue(simpleHtml.contains("#120c0a"));
+        assertTrue(simpleHtml.contains("#552137"));
         assertTrue(simpleHtml.contains("SKU-1"));
         assertTrue(simpleHtml.contains("data:image/jpeg;base64,"));
         assertFalse(simpleHtml.contains("Beschrijving"));
@@ -86,7 +89,9 @@ class PdfCatalogRendererTest {
         assertFalse(brochureHtml.toLowerCase().contains("confidence"));
         assertFalse(brochureHtml.toLowerCase().contains("dashboard"));
         assertFalse(brochureHtml.toLowerCase().contains("canonical"));
-        assertTrue(brochureHtml.contains("1 FAMILY · 1 VARIANT"));
+        assertFalse(sectionFragment(brochureHtml, "<section class=\"page cover\">")
+                .contains("1 FAMILY · 1 VARIANT"));
+        assertTrue(brochureHtml.contains("Private label is available from a minimum order value of €10,000."));
         assertTrue(simpleHtml.contains("1 item"));
 
         CatalogDocumentRenderer.Document simplePdf = renderer.render(simple);
@@ -121,7 +126,7 @@ class PdfCatalogRendererTest {
         CatalogDocumentRenderer.Document qaBrochure = renderer.render(
                 comparisonQaModel(counterFixture, preservedFixture, fixture));
         try (PDDocument pdf = Loader.loadPDF(qaBrochure.content())) {
-            assertEquals(23, pdf.getNumberOfPages(), "one range page now carries every family");
+            assertEquals(23, pdf.getNumberOfPages(), "range pages reserve room for long SKUs and logistics");
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
                 assertTrue(pdf.getPage(page).getMediaBox().getHeight()
                         > pdf.getPage(page).getMediaBox().getWidth());
@@ -139,7 +144,7 @@ class PdfCatalogRendererTest {
         for (String overviewPage : overviewPages) {
             int lines = occurrences(overviewPage, "class=\"range-row range-row--")
                     + occurrences(overviewPage, "class=\"range-group range-group--");
-            assertTrue(lines <= 16, "an A4 range page holds at most sixteen lines");
+            assertTrue(lines <= 12, "an A4 range page reserves room for wrapped commercial details");
             assertFalse(overviewPage.trim().endsWith("range-group"), "a chapter heading never ends a page");
         }
         assertTrue(html.contains("class=\"range-group range-group--tone-1\""), "the first chapter is bordeaux");
@@ -154,11 +159,101 @@ class PdfCatalogRendererTest {
     @Test
     void rangePagesNeverStrandAChapterHeadingAtTheirFoot() {
         List<List<int[]>> pages = PdfCatalogRenderer.overviewSlots(List.of(17, 1, 3, 20));
-        assertEquals(List.of(16, 16, 13), pages.stream().map(List::size).toList());
-        assertEquals(-1, pages.get(1).get(2)[1], "the second chapter opens with its heading, never split from it");
-        assertEquals(1, pages.get(1).get(2)[0]);
-        assertEquals(16, pages.get(1).size(), "a page fills up once its heading is safe");
+        assertEquals(List.of(12, 12, 12, 9), pages.stream().map(List::size).toList());
+        for (List<int[]> page : pages) {
+            assertTrue(page.getLast()[1] != -1, "a chapter heading never ends a page alone");
+        }
         assertTrue(PdfCatalogRenderer.overviewSlots(List.of()).isEmpty());
+        List<List<int[]>> productionShape = PdfCatalogRenderer.overviewSlots(List.of(5, 7, 7, 6, 3));
+        assertEquals(3, productionShape.size());
+        assertTrue(productionShape.getLast().size() > 2, "the last page must not strand a single family");
+        assertTrue(productionShape.stream().allMatch(page -> page.size() <= 12));
+    }
+
+    @Test
+    void domeOverviewAndPhysicalFamilyPagesUseHeightBeforeDiameterAndKeepOtherManualOrder()
+            throws Exception {
+        Category displays = new Category(1L, "counter", "Displays", null, 0);
+        Category domes = new Category(9L, "domes", "Domes", null, 1);
+        List<CatalogExportService.FamilyGroup> groups = List.of(
+                orderingFamily(200L, "display-large", "Display large", "Manual first", displays, 40, 80),
+                orderingFamily(201L, "display-small", "Display small", "Manual second", displays, 4, 5),
+                orderingFamily(15L, "cobalt-blue-roos-in-glazen-stolp", "Rose In Dome - 12*25", "Lumi 25", domes, 12, 25),
+                orderingFamily(42L, "model-123-124", "Rose In Dome - 7*23", "Slim 23", domes, 7, 23),
+                orderingFamily(20L, "rose-in-dome-elite", "Rose In Dome - 15x30 Tripple", "Trio 30", domes, 15, 30),
+                orderingFamily(25L, "rose-in-dome-xl", "Rose In Dome - 12*20", "Petite 20", domes, 12, 20),
+                orderingFamily(31L, "odoo-dome-15x30-single-review", "Rose In Dome - 15x30 Single", "Grande 30", domes, 15, 30),
+                orderingFamily(22L, "acrylic-flowerbox", "Acrylic Flowerbox", "Flower Cube 21", domes, 12, 21),
+                orderingFamily(41L, "model-119-120", "Rose In Dome - 12*25 NO GIFTBOX", "Classic 25", domes, 12, 25));
+        List<Long> expectedOrder = List.of(200L, 201L, 25L, 42L, 15L, 41L, 20L, 31L, 22L);
+        CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
+                true, false, false, false, false, "A lasting collection", "Ready for retail");
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                null, false, false, 0, null, null, "en", CatalogExportService.Layout.BROCHURE, options);
+        CatalogExportService.Model catalog = new CatalogExportService.Model(
+                groups.stream().flatMap(group -> group.variants().stream()).toList(),
+                Map.of(displays.id(), displays, domes.id(), domes), groups, request);
+        Map<Long, CatalogExportService.FamilyGroup> byId = new LinkedHashMap<>();
+        groups.forEach(group -> byId.put(group.content().id(), group));
+
+        String html = renderer.renderHtml(catalog);
+        List<String> overview = overviewPageFragments(html);
+        assertEquals(1, overview.size());
+        int previousRow = -1;
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(catalog).content())) {
+            assertEquals(11, pdf.getNumberOfPages(), "cover, one overview and nine family sheets");
+            for (int index = 0; index < expectedOrder.size(); index++) {
+                CatalogExportService.FamilyGroup group = byId.get(expectedOrder.get(index));
+                String number = String.format(java.util.Locale.ROOT, "%02d", index + 1);
+                String link = "href=\"#family-" + number + "\">" + group.content().name() + "</a>";
+                int row = overview.getFirst().indexOf(link);
+                assertTrue(row > previousRow, "the overview must place " + group.content().name() + " in reading order");
+                previousRow = row;
+                String detail = sectionFragment(html, "<section id=\"family-" + number + "\"");
+                assertTrue(detail.contains("<h2>" + group.content().name() + "</h2>"));
+                PDFTextStripper stripper = new PDFTextStripper();
+                stripper.setStartPage(index + 3);
+                stripper.setEndPage(index + 3);
+                String sheet = normalizeWhitespace(stripper.getText(pdf));
+                assertTrue(sheet.contains(group.content().name()), "the linked physical sheet has the right family");
+                assertTrue(sheet.replaceAll("\\s+", "").contains(group.variants().getFirst().sku()));
+            }
+        }
+    }
+
+    @Test
+    void domeSortingKeepsEqualSizesStableAndLeavesUnknownSizesAndNonDomesAfterKnownDomes() {
+        Category domes = new Category(9L, "domes", "Domes", null, 1);
+        Category other = new Category(1L, "counter", "Displays", null, 0);
+        List<CatalogExportService.FamilyGroup> input = List.of(
+                orderingFamily(301L, "acrylic-flowerbox", "Acrylic Flowerbox", "Cube", domes, 4, 5),
+                orderingFamily(302L, "rose-in-dome-wide", "Source model", "Wide", domes, 15, 25),
+                orderingFamily(303L, "rose-in-dome-other-category", "Source model", "Keep this slot", other, 1, 1),
+                orderingFamily(304L, "rose-in-dome-narrow", "Source model", "First equal size", domes, 12, 25),
+                orderingFamily(305L, "rose-in-dome-narrow-two", "Source model", "Second equal size", domes, 12, 25),
+                orderingFamily(306L, "rose-in-dome-unmeasured", "Source model", "Unknown height", domes, 12, 0),
+                orderingFamily(307L, "rectangular-flowerbox", "Flowerbox", "Second box", domes, 2, 3));
+
+        List<CatalogExportService.FamilyGroup> ordered = PdfCatalogRenderer.brochureFamilyOrder(input);
+
+        assertEquals(List.of(304L, 305L, 303L, 302L, 306L, 301L, 307L),
+                ordered.stream().map(group -> group.content().id()).toList());
+        assertEquals(List.of(301L, 302L, 303L, 304L, 305L, 306L, 307L),
+                input.stream().map(group -> group.content().id()).toList(), "source/manual order is not mutated");
+    }
+
+    @Test
+    void domeSortingRecognizesFinalizedAndDutchCompoundIdentitiesWithoutUsingDisplayCopy() {
+        Category domes = new Category(9L, "domes", "Domes", null, 1);
+        List<CatalogExportService.FamilyGroup> input = List.of(
+                orderingFamily(301L, "acrylic-flowerbox", "Acrylic Flowerbox", "Rozenstolp display", domes, 1, 1),
+                orderingFamily(302L, "model-119-120", "Rozenstolp Classic 25 cm", "Classic", domes, 12, 25),
+                orderingFamily(303L, "rose-in-dome-7x23", "Source model", "Slim", domes, 7, 23),
+                orderingFamily(304L, "rozenstolp-petite", "Source model", "Petite", domes, 12, 20));
+
+        assertEquals(List.of(304L, 303L, 302L, 301L),
+                PdfCatalogRenderer.brochureFamilyOrder(input).stream()
+                        .map(group -> group.content().id()).toList());
     }
 
     @Test
@@ -199,7 +294,7 @@ class PdfCatalogRendererTest {
         assertFalse(html.contains("class=\"image-placeholder\""),
                 "a missing catalogue-family blob must not suppress a valid product fallback");
         String expectedHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(owned), 16, 9, 2_400, Color.WHITE);
         assertTrue(html.contains(expectedHero));
     }
 
@@ -216,7 +311,7 @@ class PdfCatalogRendererTest {
         String curatedHero = editorialAssets.contained(
                 "families/soap-rose-box-led.png", 1_600, 900);
         String actualHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(actual), 16, 9, 2_400, Color.WHITE);
 
         assertFalse(curatedHero.isBlank());
         assertFalse(html.contains(curatedHero));
@@ -234,7 +329,7 @@ class PdfCatalogRendererTest {
 
         String html = renderer.renderHtml(catalog);
         String actualHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(actual), 16, 9, 2_400, Color.WHITE);
 
         assertFalse(html.contains(actualHero));
         assertFalse(html.contains("editorial-grid--one"));
@@ -252,7 +347,7 @@ class PdfCatalogRendererTest {
 
         String html = renderer.renderHtml(catalog);
         String actualHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(actual), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(actual), 16, 9, 2_400, Color.WHITE);
 
         assertTrue(html.contains(actualHero));
         assertEquals(1, occurrences(html, actualHero));
@@ -293,13 +388,14 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void internalInheritedPhotoNeverLeaksIntoSimpleOrBrochureFallback() throws Exception {
+    void internalInheritedPhotoNeverLeaksEvenIfItHasAnOldCatalogueLeadFlag() throws Exception {
         Photo inheritedSource = storedPhoto(95L, "/catalog-assets/counter-bowl-retail.jpg",
                 "internal-family-photo.jpg", "image/jpeg");
         Photo inherited = new Photo(
                 inheritedSource.id(), inheritedSource.storageKey(), inheritedSource.originalFilename(),
                 inheritedSource.contentType(), inheritedSource.sizeBytes(), inheritedSource.widthPx(),
-                inheritedSource.heightPx(), 0, 501L);
+                inheritedSource.heightPx(), 0, 501L,
+                java.util.Set.of(be.enrosed.catalog.domain.PhotoRole.CATALOGUE));
         Photo owned = storedPhoto(96L, "/images/soap-roos-in-box-480.webp",
                 "owned-product-photo.webp", "image/webp");
         List<Photo> photos = List.of(inherited, owned);
@@ -310,14 +406,14 @@ class PdfCatalogRendererTest {
 
         String simpleHtml = renderer.renderHtml(simple);
         String brochureHtml = renderer.renderHtml(brochure);
-        String inheritedSimple = imageEncoder.encodeCoverCropped(
-                photoBytes(inherited), 4, 3, 1_000, new Color(255, 252, 248));
-        String ownedSimple = imageEncoder.encodeCoverCropped(
-                photoBytes(owned), 4, 3, 1_000, new Color(255, 252, 248));
+        String inheritedSimple = imageEncoder.encodeContainedTrimmed(
+                photoBytes(inherited), 4, 3, 1_000, Color.WHITE);
+        String ownedSimple = imageEncoder.encodeContainedTrimmed(
+                photoBytes(owned), 4, 3, 1_000, Color.WHITE);
         String inheritedHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(inherited), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(inherited), 16, 9, 2_400, Color.WHITE);
         String ownedHero = imageEncoder.encodeContainedTrimmed(
-                photoBytes(owned), 16, 9, 2_400, new Color(255, 252, 248));
+                photoBytes(owned), 16, 9, 2_400, Color.WHITE);
 
         assertFalse(simpleHtml.contains(inheritedSimple));
         assertTrue(simpleHtml.contains(ownedSimple));
@@ -355,13 +451,51 @@ class PdfCatalogRendererTest {
 
         String html = renderer.renderHtml(catalogue);
 
-        assertTrue(html.contains(imageEncoder.encodeCoverCropped(
-                        photoBytes(inherited), 4, 3, 1_000, new Color(255, 252, 248))),
+        assertTrue(html.contains(imageEncoder.encodeContainedTrimmed(
+                        photoBytes(inherited), 4, 3, 1_000, Color.WHITE)),
                 "a CATALOGUE-published inherited family photo must remain usable");
     }
 
     @Test
-    void coverBackAndCategoryUseOnlyActualSelectedPhotosInDistinctMosaics()
+    void explicitCatalogueLeadWinsOverBiggerPhotosOnFamilyAndSimpleLayouts() throws Exception {
+        Photo large = storedPhoto(976L, "/catalog-assets/preserved-roses.jpg",
+                "automatic-large.jpg", "image/jpeg");
+        Photo other = storedPhoto(977L, "/catalog-assets/counter-bowl-retail.jpg",
+                "automatic-counter.jpg", "image/jpeg");
+        Photo chosen = storedPhoto(978L, "/images/soap-roos-in-box-480.webp",
+                "chosen-studio.webp", "image/webp")
+                .withLeadFor(java.util.Set.of(be.enrosed.catalog.domain.PhotoRole.CATALOGUE));
+        CatalogExportService.Model source = withPhotoBudget(withPhotos(
+                model(1, CatalogExportService.Layout.BROCHURE), List.of(large, other, chosen)), true, 3);
+        CatalogExportService.FamilyGroup oldGroup = source.families().getFirst();
+        Category category = oldGroup.category().withPhotos(List.of(large));
+        CatalogExportService.Model selected = new CatalogExportService.Model(source.products(),
+                Map.of(category.id(), category), List.of(new CatalogExportService.FamilyGroup(
+                        oldGroup.content(), oldGroup.variants(), category, false)), source.request());
+
+        String html = renderer.renderHtml(selected);
+        String cover = sectionFragment(html, "<section class=\"page cover\">");
+        assertFalse(cover.contains("editorial-grid"));
+        String familyMedia = familyMediaFragment(html);
+        String chosenDetail = imageEncoder.encodeContainedTrimmed(
+                photoBytes(chosen), 7, 6, 1_900, Color.WHITE);
+        assertTrue(familyMedia.substring(familyMedia.indexOf("src=\"") + 5).startsWith(chosenDetail),
+                "an explicit print lead stays in the large tile even when another photo is larger");
+
+        String simple = renderer.renderHtml(withPhotoBudget(withPhotos(
+                model(1, CatalogExportService.Layout.SIMPLE), List.of(large, other, chosen)), true, 1));
+        assertTrue(simple.contains(imageEncoder.encodeContainedTrimmed(
+                photoBytes(chosen), 4, 3, 1_000, Color.WHITE)));
+        String bounded = renderer.renderHtml(withPhotoBudget(withPhotos(
+                model(1, CatalogExportService.Layout.BROCHURE), List.of(chosen,
+                        large.withLeadFor(chosen.leadFor()), other.withLeadFor(chosen.leadFor()))), true, 2));
+        assertTrue(bounded.contains("class=\"family-media family-media--two\""),
+                "multiple explicit leads cannot overrun the requested photo budget");
+        assertFalse(bounded.contains("class=\"family-media family-media--three\""));
+    }
+
+    @Test
+    void categoryUsesSelectedPhotosWhileBothCoversKeepTheBrandComposition()
             throws Exception {
         List<Photo> selected = List.of(
                 storedPhoto(981L, "/catalog-assets/counter-bowl-retail.jpg",
@@ -383,38 +517,227 @@ class PdfCatalogRendererTest {
         assertFalse(html.contains(oldBack));
         assertEquals(1, occurrences(html, "editorial-grid--four-plus"),
                 "the category chapter opens with a mosaic of all four selected photos");
-        assertEquals(1, occurrences(html, "editorial-grid--three"),
-                "the back cover must omit the front lead and use the other three photos");
+        assertEquals(0, occurrences(html, "editorial-grid--three"),
+                "the back cover must contain no product mosaic");
         String cover = sectionFragment(html, "<section class=\"page cover\">");
         String back = sectionFragment(html, "<section class=\"page back\">");
-        /* The cover opens on one hero picture, the strongest lead, cropped to the frame above the title panel. */
-        String frontLead = imageEncoder.encodeCoverCropped(
-                photoBytes(selected.get(1)), 210, 176, 2_400, new Color(255, 252, 248));
-        String backLead = imageEncoder.encodeCoverCropped(
-                photoBytes(selected.get(2)), 210, 178, 2_200, new Color(255, 252, 248));
-        assertTrue(cover.contains(frontLead));
-        assertEquals(1, occurrences(cover, "<td colspan="), "one hero picture on the cover, not a mosaic");
-        assertFalse(back.contains(frontLead));
-        assertTrue(back.contains(backLead));
+        String backLead = imageEncoder.encodeContainedTrimmed(
+                photoBytes(selected.get(2)), 184, 107, 2_200, Color.WHITE);
+        assertFalse(cover.contains("editorial-grid"));
+        assertEquals(1, occurrences(cover, "<img "), "the brand logo is the only cover image");
+        assertFalse(back.contains(backLead));
+        assertFalse(back.contains("editorial-grid"));
+        assertEquals(1, occurrences(back, "<img "), "the back cover only displays the brand logo");
         assertFalse(cover.contains(backLead));
-        assertTrue(cover.contains("class=\"cover-toc\""), "the cover carries the table of contents");
+        assertFalse(cover.contains("class=\"cover-toc\""));
         assertTrue(html.indexOf("class=\"page cover\"")
                 < html.indexOf("class=\"page overview-page\""));
         assertTrue(html.contains("class=\"page back\""));
     }
 
     @Test
-    void coverOpensOnOneHeroPhotoUnderAReadableShade() throws Exception {
+    void coverUsesLargeGoldBrandingAndReadableBordeauxCopy() throws Exception {
         Photo selected = storedPhoto(985L, "/catalog-assets/preserved-roses.jpg",
                 "selected-cover.jpg", "image/jpeg");
         String html = renderer.renderHtml(withPhoto(
                 model(1, CatalogExportService.Layout.BROCHURE), selected));
 
-        assertTrue(html.contains("<div class=\"cover-media__shade\"></div>"));
-        assertTrue(html.contains("rgba(18,12,10,.62) 100%"), "the shade darkens towards the title panel");
-        assertTrue(html.indexOf("editorial-grid editorial-grid--one")
-                < html.indexOf("<div class=\"cover-media__shade\"></div>"));
-        assertTrue(html.contains("class=\"cover-panel__contents\""));
+        String cover = sectionFragment(html, "<section class=\"page cover\">");
+        String back = sectionFragment(html, "<section class=\"page back\">");
+        String printLogo = editorialAssets.image("logo-gold-print.png");
+        assertFalse(printLogo.isBlank(), "the high-resolution gold print logo must be bundled");
+        assertTrue(cover.contains("class=\"cover-brand\""));
+        assertTrue(cover.contains("class=\"cover-logo\""));
+        assertTrue(cover.contains("src=\"" + printLogo + "\""));
+        assertTrue(back.contains("src=\"" + printLogo + "\""));
+        String simpleLogo = editorialAssets.image("logo-gold.png");
+        assertFalse(simpleLogo.isBlank(), "the SIMPLE layout keeps its existing bundled logo");
+        String simple = renderer.renderHtml(model(1, CatalogExportService.Layout.SIMPLE));
+        assertTrue(simple.contains("src=\"" + simpleLogo + "\""));
+        assertFalse(simple.contains(printLogo));
+        assertTrue(html.contains("background: #651629"));
+        assertFalse(cover.contains("cover-media"));
+        assertTrue(cover.contains("class=\"cover-copy\""));
+    }
+
+    @Test
+    void blankBrochureIntroLeavesTheCoverCleanWhileCustomIntroRemainsVisible() throws Exception {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        for (String intro : new String[] {null, "", "   "}) {
+            String cover = sectionFragment(renderer.renderHtml(
+                    withIntroAndLanguage(source, intro, "en")), "<section class=\"page cover\">");
+            assertFalse(cover.isBlank());
+            assertFalse(cover.contains("cover-facts"), "selection totals do not belong on the cover");
+            assertFalse(cover.contains("1 FAMILY"));
+            assertFalse(cover.contains("1 VARIANT"));
+            assertFalse(cover.contains("class=\"cover-intro\""),
+                    "a missing or blank request intro must not insert automatic copy");
+        }
+
+        String customIntro = "Prepared for our autumn trade customers.";
+        CatalogExportService.Model custom = withIntroAndLanguage(source, "  " + customIntro + "  ", "en");
+        String cover = sectionFragment(renderer.renderHtml(custom), "<section class=\"page cover\">");
+        assertTrue(cover.contains("<p class=\"cover-intro\">" + customIntro + "</p>"));
+        assertFalse(cover.contains("cover-facts"));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(custom).content())) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(1);
+            stripper.setEndPage(1);
+            String coverText = normalizeWhitespace(stripper.getText(pdf));
+            assertTrue(coverText.contains(customIntro), "the custom intro stays on the physical cover");
+            assertFalse(coverText.contains("1 FAMILY"));
+            assertFalse(coverText.contains("1 VARIANT"));
+        }
+    }
+
+    @Test
+    void utilityPagesUseDedicatedEditorialAssetsWhileRespectingThePhotoSetting() throws Exception {
+        String atelierImage = editorialAssets.image("private-label-editorial-v2.png");
+        String orderingImage = editorialAssets.image("ordering-editorial-v2.png");
+        assertFalse(atelierImage.isBlank(), "the private-label editorial asset must be bundled");
+        assertFalse(orderingImage.isBlank(), "the ordering editorial asset must be bundled");
+        assertFalse(atelierImage.equals(orderingImage), "each utility page has its own editorial image");
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        Photo soap = storedPhoto(987L, "/images/soap-roos-in-box-480.webp",
+                "utility-selection-soap.webp", "image/webp");
+        Photo bowl = storedPhoto(988L, "/catalog-assets/counter-bowl-retail.jpg",
+                "utility-selection-bowl.jpg", "image/jpeg");
+        String atelierMarker = "<section class=\"page ivory utility\">";
+        String orderingMarker = "<section class=\"page utility\">";
+        String expectedAtelier = null;
+        String expectedOrdering = null;
+        for (CatalogExportService.Model selection : List.of(
+                withPhoto(source, soap), withPhoto(source, bowl))) {
+            String html = renderer.renderHtml(selection);
+            assertEquals(1, occurrences(html, atelierMarker));
+            assertEquals(1, occurrences(html, orderingMarker));
+            String atelier = sectionFragment(html, atelierMarker);
+            String ordering = sectionFragment(html, orderingMarker);
+            assertTrue(atelier.contains("class=\"utility-image\" src=\"" + atelierImage + "\""));
+            assertTrue(ordering.contains("class=\"utility-image\" src=\"" + orderingImage + "\""));
+            assertFalse(atelier.contains(orderingImage));
+            assertFalse(ordering.contains(atelierImage));
+            assertTrue(atelier.contains("Your brand. Our roses."));
+            assertTrue(atelier.contains("Packaging concept for inspiration."));
+            assertTrue(ordering.contains("Your next collection starts here."));
+            if (expectedAtelier != null) {
+                assertEquals(expectedAtelier, atelier,
+                        "a different selected product photo must not change the atelier page");
+                assertEquals(expectedOrdering, ordering,
+                        "a different selected product photo must not change the ordering page");
+            }
+            expectedAtelier = atelier;
+            expectedOrdering = ordering;
+        }
+        String withoutPhotos = renderer.renderHtml(source);
+        String unpicturedAtelier = sectionFragment(withoutPhotos, atelierMarker);
+        String unpicturedOrdering = sectionFragment(withoutPhotos, orderingMarker);
+        assertTrue(unpicturedAtelier.contains("Your brand. Our roses."));
+        assertTrue(unpicturedOrdering.contains("Your next collection starts here."));
+        assertFalse(unpicturedAtelier.contains("class=\"utility-image\""));
+        assertFalse(unpicturedOrdering.contains("class=\"utility-image\""));
+        assertFalse(unpicturedAtelier.contains(atelierImage));
+        assertFalse(unpicturedOrdering.contains(orderingImage));
+        assertTrue(unpicturedOrdering.contains("class=\"quote-qr\""),
+                "the ordering QR remains functional when product photos are disabled");
+    }
+
+    @Test
+    void familyPhotoOverrideAddsThreeAnglesWithoutExpandingOtherFamiliesOrLosingColourPhotos()
+            throws Exception {
+        List<Photo> angles = List.of(
+                storedPhoto(991L, "/catalog-assets/counter-bowl-retail.jpg", "angle-one.jpg", "image/jpeg"),
+                storedPhoto(992L, "/catalog-assets/preserved-roses.jpg", "angle-two.jpg", "image/jpeg"),
+                storedPhoto(993L, "/catalog-assets/soap-roses.jpg", "angle-three.jpg", "image/jpeg"));
+        for (CatalogExportService.Layout layout : CatalogExportService.Layout.values()) {
+            CatalogExportService.Model source = model(3, layout);
+            CatalogFamilyReader.Family base = source.families().getFirst().content();
+            List<Product> products = List.of(
+                    source.products().get(0).withCanonicalIdentity(16L, "mirror", null, 0, true)
+                            .withPhotos(angles),
+                    source.products().get(1).withCanonicalIdentity(17L, "other-red", null, 0, true)
+                            .withPhotos(angles),
+                    source.products().get(2).withCanonicalIdentity(17L, "other-white", null, 1, true)
+                            .withPhotos(angles));
+            List<CatalogExportService.FamilyGroup> groups = List.of(
+                    new CatalogExportService.FamilyGroup(photoLimitFamily(base, 16L, "Mirror Rose"),
+                            List.of(products.get(0)), source.families().getFirst().category(), false),
+                    new CatalogExportService.FamilyGroup(photoLimitFamily(base, 17L, "Other Roses"),
+                            products.subList(1, 3), source.families().getFirst().category(), false));
+            CatalogExportService.Request request = new CatalogExportService.Request(
+                    null, false, true, 1, "Photo selection", null, "en", layout,
+                    source.request().brochure(), null, Map.of(16L, 3));
+            CatalogExportService.Model selected = new CatalogExportService.Model(
+                    products, source.categoriesById(), groups, request);
+            String html = renderer.renderHtml(selected);
+            if (layout == CatalogExportService.Layout.BROCHURE) {
+                String mirror = sectionFragment(html, "<section id=\"family-01\"");
+                String other = sectionFragment(html, "<section id=\"family-02\"");
+                assertEquals(3, occurrences(familyMediaFragment(mirror), "<img "));
+                assertEquals(1, occurrences(familyMediaFragment(other), "<img "),
+                        "the unconfigured family keeps its one-photo main budget");
+                assertEquals(2, occurrences(other, "data-sku="),
+                        "both colour photos remain in addition to the single main photo");
+            } else {
+                assertEquals(1, occurrences(html, "class=\"media media--three\""));
+                assertEquals(2, occurrences(html, "class=\"media media--one\""),
+                        "both variants of the other family keep the global one-photo budget");
+            }
+
+            CatalogExportService.Request noPhotos = new CatalogExportService.Request(
+                    null, false, false, 1, "Photo selection", null, "en", layout,
+                    source.request().brochure(), null, Map.of(16L, 3));
+            String unpictured = renderer.renderHtml(new CatalogExportService.Model(
+                    products, source.categoriesById(), groups, noPhotos));
+            if (layout == CatalogExportService.Layout.BROCHURE) {
+                for (String anchor : List.of("family-01", "family-02")) {
+                    String family = sectionFragment(unpictured, "<section id=\"" + anchor + "\"");
+                    assertEquals(0, occurrences(familyMediaFragment(family), "<img "));
+                    assertFalse(family.contains("data-sku="), "noPhotos also suppresses the colour strip");
+                }
+            } else {
+                assertEquals(1, occurrences(unpictured, "<img "), "SIMPLE retains only its brand logo");
+            }
+        }
+    }
+
+    @Test
+    void orderingQrAndClickableQuoteLinksFollowTheDutchAndEnglishCatalogueLanguage() throws Exception {
+        for (String language : List.of("nl", "en")) {
+            String quoteUrl = language.equals("nl")
+                    ? "https://enrosed.com/nl/quote/" : "https://enrosed.com/quote/";
+            String qr = editorialAssets.image("quote-qr-" + language + ".png");
+            assertFalse(qr.isBlank(), "the " + language + " quote QR asset must be bundled");
+            CatalogExportService.Model catalogue = withIntroAndLanguage(
+                    model(1, CatalogExportService.Layout.BROCHURE), null, language);
+            String ordering = sectionFragment(renderer.renderHtml(catalogue),
+                    "<section class=\"page utility\">");
+            assertEquals(2, occurrences(ordering, "href=\"" + quoteUrl + "\""),
+                    "the text call to action and QR image link to the same localized quote page");
+            assertTrue(ordering.contains("class=\"quote-qr\" src=\"" + qr + "\""));
+            String atelierTitle = language.equals("nl") ? "Uw merk. Onze rozen." : "Your brand. Our roses.";
+            String orderingTitle = language.equals("nl")
+                    ? "Uw volgende collectie begint hier." : "Your next collection starts here.";
+            try (PDDocument pdf = Loader.loadPDF(renderer.render(catalogue).content())) {
+                assertEquals(7, pdf.getNumberOfPages(), "each utility page occupies one physical A4 page");
+                PDFTextStripper stripper = new PDFTextStripper();
+                stripper.setStartPage(5);
+                stripper.setEndPage(5);
+                assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(atelierTitle));
+                stripper.setStartPage(6);
+                stripper.setEndPage(6);
+                assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(orderingTitle));
+                long quoteLinks = pdf.getPage(5).getAnnotations().stream()
+                        .filter(PDAnnotationLink.class::isInstance)
+                        .map(PDAnnotationLink.class::cast)
+                        .map(PDAnnotationLink::getAction)
+                        .filter(PDActionURI.class::isInstance)
+                        .map(PDActionURI.class::cast)
+                        .filter(action -> quoteUrl.equals(action.getURI()))
+                        .count();
+                assertTrue(quoteLinks >= 2, "both quote actions remain clickable on the ordering PDF page");
+            }
+        }
     }
 
     @Test
@@ -441,8 +764,9 @@ class PdfCatalogRendererTest {
                 source.request());
 
         String html = renderer.renderHtml(dense);
-        assertTrue(html.contains(
-                "class=\"page family-page family-page--counter family-page--tone-1 family-page--compact\""));
+        String familyOpeningTag = sectionFragment(html, "<section id=\"family-01\"")
+                .split(">", 2)[0];
+        assertTrue(familyOpeningTag.contains("family-page--compact"));
         CatalogDocumentRenderer.Document document = renderer.render(dense);
         Path qa = Path.of("target", "catalog-qa");
         Files.createDirectories(qa);
@@ -454,10 +778,172 @@ class PdfCatalogRendererTest {
                         > pdf.getPage(page).getMediaBox().getWidth());
             }
             String text = new PDFTextStripper().getText(pdf);
-            assertTrue(text.contains(finalMarker));
+            assertTrue(text.replaceAll("\\s+", "").contains(finalMarker),
+                    "the final copy marker may wrap but every character must remain in the PDF");
             assertTrue(text.contains("SKU-4"));
             assertTrue(maxTextBottom(pdf, 4) < pdf.getPage(3).getMediaBox().getHeight() - 4,
                     "dense family text must remain inside the visible A4 sheet");
+        }
+    }
+
+    @Test
+    void threePicturedVariantsWithModerateEnglishCopyKeepEverySkuOnFamilyDetailPage()
+            throws Exception {
+        CatalogExportService.Model source = model(3, CatalogExportService.Layout.BROCHURE);
+        CatalogExportService.FamilyGroup originalGroup = source.families().getFirst();
+        CatalogFamilyReader.Family original = originalGroup.content();
+        Photo fixture = storedPhoto(986L, "/images/soap-roos-in-box-480.webp",
+                "three-colour-detail.webp", "image/webp");
+        List<String> skus = List.of("ENR-SOAP-ROSE-BOX-LED-RED",
+                "ENR-SOAP-ROSE-BOX-LED-WHITE", "ENR-SOAP-ROSE-BOX-LED-CHERRY-PINK");
+        List<String> colours = List.of("Red", "White", "Cherry Pink");
+        List<String> colourHexes = List.of("#A91F32", "#EEE8DD", "#D9577E");
+        List<Product> variants = new ArrayList<>();
+        for (int index = 0; index < skus.size(); index++) {
+            variants.add(source.products().get(index).withSku(skus.get(index))
+                    .withVariantAttributes(colours.get(index), null, colourHexes.get(index))
+                    .withPhotos(List.of(fixture)));
+        }
+        String summary = "A long presentation box of decorative soap roses with integrated LED light, "
+                + "combining colour, fragrance and atmosphere in one gift format.";
+        String description = summary + " The elongated form presents the roses as one continuous "
+                + "composition, and the lighting adds a clearly visible atmospheric element.";
+        List<String> highlights = List.of("10 × 50 cm presentation", "Three colour directions",
+                "Fragrant decorative roses");
+        assertEquals(477, summary.length() + description.length()
+                + highlights.stream().mapToInt(String::length).sum(),
+                "moderate translated copy must not rely on the existing long-copy layout trigger");
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(),
+                original.categoryId(), original.categoryKey(), original.categoryName(),
+                original.categoryPosition(), original.productPosition(), "Soap Roses with LED",
+                summary, description, "Soap rose arrangement with integrated LED light", highlights,
+                original.dimensions(), original.texts(), original.packages(), original.photos());
+        CatalogExportService.Request oldRequest = source.request();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                oldRequest.productIds(), false, true, 1, oldRequest.title(), oldRequest.intro(),
+                "en", oldRequest.layout(), oldRequest.brochure());
+        CatalogExportService.Model pictured = new CatalogExportService.Model(
+                List.copyOf(variants), source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        family, List.copyOf(variants), originalGroup.category(), false)), request);
+
+        String html = renderer.renderHtml(pictured);
+        assertEquals(3, occurrences(sectionFragment(html, "<section id=\"family-01\""), "data-sku="),
+                "the colour-photo strip must remain present alongside all three product rows");
+        CatalogDocumentRenderer.Document document = renderer.render(pictured);
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            assertEquals(7, pdf.getNumberOfPages(), "one family keeps its assigned A4 detail sheet");
+            PDFTextStripper detail = new PDFTextStripper();
+            detail.setStartPage(4);
+            detail.setEndPage(4);
+            String detailText = detail.getText(pdf);
+            assertTrue(normalizeWhitespace(detailText).contains("Soap Roses with LED"));
+            String unwrappedDetail = detailText.replaceAll("\\s+", "");
+            for (String sku : skus) {
+                assertTrue(unwrappedDetail.contains(sku),
+                        () -> "Family detail page 4 must contain " + sku
+                                + "; an occurrence in the assortment overview is insufficient");
+            }
+        }
+    }
+
+    @Test
+    void twoPicturedPricedVariantsWithDutchCopyAndLogisticsStayAboveTheFooter() throws Exception {
+        CatalogExportService.Model source = model(2, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        String copy = "Een verkoopklaar cadeauarrangement met decoratieve foamrozen, langdurige kleur "
+                + "en een verfijnde retailpresentatie.";
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(), original.categoryId(),
+                original.categoryKey(), original.categoryName(), 0, 0,
+                "Halve hartvorm met foamrozen 25 cm", copy, copy,
+                "Verkoopklaar foamrozen-arrangement",
+                List.of("Lang houdbare decoratieve foamrozen", "Consistente kleur en afwerking",
+                        "Verkoopklaar cadeauarrangement"),
+                null, List.of(), List.of(), List.of());
+        List<String> skus = List.of("ENR-ODOO-HALF-HEART-FOAM-25-PINK", "ENR-ODOO-HALF-HEART-FOAM-25-RED");
+        List<Product> variants = new ArrayList<>();
+        for (int index = 0; index < skus.size(); index++) {
+            Product variant = source.products().get(index).withSku(skus.get(index))
+                    .withVariantAttributes(index == 0 ? "Roze" : "Rood", "25 cm",
+                            index == 0 ? "#D889A2" : "#A91F32");
+            variants.add(withPriceLayoutDetails(variant,
+                    new Dimensions(new BigDecimal("24.5"), new BigDecimal("24.5"), new BigDecimal("12")),
+                    new Carton(new Dimensions(new BigDecimal("55"), new BigDecimal("28"),
+                            new BigDecimal("63.5")), 10, null),
+                    "6702 10 00 00", new BigDecimal("4.95")));
+        }
+        Photo fixture = storedPhoto(989L, "/images/soap-roos-in-box-480.webp",
+                "two-variant-price-layout.webp", "image/webp");
+        assertPricedFamilyRowsStayAboveFooter(
+                pricedPicturedFamily(source, family, variants, fixture), skus, "€ 4,95");
+    }
+
+    @Test
+    void fourPicturedLongSkusWithDutchCopyAndRequestPricesStayAboveTheFooter() throws Exception {
+        CatalogExportService.Model source = model(4, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(), original.categoryId(),
+                original.categoryKey(), original.categoryName(), 0, 0, "12 Steelrozen met display",
+                "Afzonderlijk gepresenteerde gepreserveerde rozen met lange steel in transparante hoezen "
+                        + "en zwarte houders, gegroepeerd in een display dat rechtstreeks van doos naar toonbank gaat.",
+                "Deze gepreserveerde rozen worden per stuk geleverd in een stijlvolle zwarte koker met "
+                        + "transparante top, gepresenteerd in een stevige toonbankdisplay. Ideaal als impulsproduct "
+                        + "aan de kassa : premium uitstraling, direct verkoopklaar en perfect voor last-minute "
+                        + "cadeaus. De rozen behouden langdurig hun mooie vorm en kleur, zonder water of onderhoud"
+                        + "—waardoor ze zeer geschikt zijn voor retail, bloemisten en cadeauwinkels, vooral tijdens "
+                        + "Valentijn, Moederdag en feestdagen.",
+                "12 afzonderlijk gepresenteerde steelrozen",
+                List.of("Sterk toonbankproduct : valt meteen op bij de kassa",
+                        "Hoge cadeauwaarde : luxe verpakking verhoogt gemiddelde bon",
+                        "Onderhoudsvrij : geen water, geen verwelking, geen verlies door derving",
+                        "Snel cadeau : ideaal voor “ik heb nog iets nodig”-momenten",
+                        "Klaar voor presentatie: netjes presenteren, snel aanvullen"),
+                null, List.of(), List.of(), List.of());
+        List<String> skus = List.of("ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-RED",
+                "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-PINK", "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-BLUE",
+                "ENR-PRESERVED-SINGLE-ROSE-IN-DISPLAY-WHITE");
+        List<String> colours = List.of("Rood", "Roze", "Blauw", "Wit");
+        List<String> hexes = List.of("#A91F32", "#D889A2", "#6C8FC4", "#EEE8DD");
+        List<Product> variants = new ArrayList<>();
+        for (int index = 0; index < skus.size(); index++) {
+            Product variant = source.products().get(index).withSku(skus.get(index))
+                    .withVariantAttributes(colours.get(index), null, hexes.get(index));
+            variants.add(withPriceLayoutDetails(variant, Dimensions.empty(), Carton.empty(),
+                    null, BigDecimal.ZERO));
+        }
+        Photo fixture = storedPhoto(990L, "/images/soap-roos-in-box-480.webp",
+                "four-variant-price-layout.webp", "image/webp");
+        assertPricedFamilyRowsStayAboveFooter(
+                pricedPicturedFamily(source, family, variants, fixture), skus, "Prijs op aanvraag");
+    }
+
+    private void assertPricedFamilyRowsStayAboveFooter(
+            CatalogExportService.Model model, List<String> skus, String expectedPrice) throws Exception {
+        String family = sectionFragment(renderer.renderHtml(model), "<section id=\"family-01\"");
+        assertEquals(skus.size(), occurrences(family, "data-sku="),
+                "the regression must retain a photo for every selected colour");
+        assertEquals(skus.size(), occurrences(family, "class=\"variant-price\""),
+                "every SKU has a separate price line in its order row");
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(model).content())) {
+            assertEquals(7, pdf.getNumberOfPages(), "priced rows stay on their assigned family detail page");
+            MatchingTextBoundsStripper detail = new MatchingTextBoundsStripper();
+            detail.setStartPage(4);
+            detail.setEndPage(4);
+            detail.getText(pdf);
+            for (String sku : skus) {
+                double bottom = detail.bottomOf(sku);
+                assertTrue(bottom > 0, "the physical family detail page must contain " + sku);
+                assertTrue(bottom < 795, () -> sku + " reaches " + bottom
+                        + " pt and must stay clear of the footer rule near 802 pt");
+            }
+            assertEquals(skus.size() + 1, detail.occurrencesOf(expectedPrice),
+                    "the reference price and every variant price must remain on the detail page");
+            double lastPriceBottom = detail.bottomOf(expectedPrice);
+            assertTrue(lastPriceBottom < 795, () -> "The last price reaches " + lastPriceBottom
+                    + " pt and must stay clear of the footer rule near 802 pt");
         }
     }
 
@@ -593,6 +1079,16 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void identicalKnownVariantPricesRemainOneExactReferencePrice() {
+        String html = renderer.renderHtml(model(3, CatalogExportService.Layout.BROCHURE));
+        String family = sectionFragment(html, "<section id=\"family-01\"");
+        String header = family.substring(0, family.indexOf("class=\"gold-rule\""));
+        assertTrue(header.contains("€4.95"));
+        assertFalse(header.contains("From €4.95"));
+        assertFalse(header.contains("Price on request"));
+    }
+
+    @Test
     void allFiftySevenSelectedSkusStayWithinABoundedRenderBudget() {
         assertTimeout(Duration.ofSeconds(45), () -> {
             CatalogDocumentRenderer.Document simple = renderer.render(
@@ -605,7 +1101,7 @@ class PdfCatalogRendererTest {
     }
 
     @Test
-    void writesAllEightLocaleQaCatalogsWhenRequested() throws Exception {
+    void writesEverySupportedLocaleQaCatalogWhenRequested() throws Exception {
         String configured = System.getProperty("catalog.qa.output");
         Assumptions.assumeTrue(configured != null && !configured.isBlank(),
                 "set -Dcatalog.qa.output to create delivery QA PDFs");
@@ -627,7 +1123,8 @@ class PdfCatalogRendererTest {
                     assertTrue(pdf.getNumberOfPages() >= 1);
                     String extracted = new PDFTextStripper().getText(pdf);
                     assertTrue(extracted.contains("B × D × H"), stem);
-                    assertTrue(extracted.contains(localizedFamilyName(language)), stem);
+                    assertTrue(extracted.replaceAll("\\s+", " ").contains(localizedFamilyName(language)), stem);
+                    assertFalse(extracted.contains("###"), "all localized glyphs must render: " + stem);
                     assertFalse(extracted.toLowerCase().contains("dashboard"), stem);
                     assertFalse(extracted.toLowerCase().contains("canonical"), stem);
                     assertFalse(extracted.toLowerCase().contains("provenance"), stem);
@@ -636,9 +1133,9 @@ class PdfCatalogRendererTest {
                 written++;
             }
         }
-        assertEquals(16, written);
+        assertEquals(Language.values().length * CatalogExportService.Layout.values().length, written);
         try (var files = Files.list(output)) {
-            assertEquals(16, files.filter(path -> path.getFileName().toString()
+            assertEquals(written, files.filter(path -> path.getFileName().toString()
                     .startsWith("enrosed-catalog-")).count());
         }
     }
@@ -789,6 +1286,29 @@ class PdfCatalogRendererTest {
         return withPhotos(model, List.of(photo));
     }
 
+    private static CatalogFamilyReader.Family photoLimitFamily(
+            CatalogFamilyReader.Family base, Long id, String name) {
+        return new CatalogFamilyReader.Family(id, "photo-limit-" + id, "photo-limit-" + id,
+                base.categoryId(), base.categoryKey(), base.categoryName(), base.categoryPosition(),
+                base.productPosition(), name, base.summary(), base.description(), base.format(),
+                base.highlights(), base.dimensions(), base.texts(), base.packages(), base.photos());
+    }
+
+    private static CatalogExportService.FamilyGroup orderingFamily(
+            Long id, String key, String rawModelName, String displayName, Category category,
+            int diameter, int height) {
+        Product product = withPriceLayoutDetails(
+                product(id, rawModelName, id, category.id(), 0).withSku("ORDER-" + id),
+                new Dimensions(BigDecimal.valueOf(diameter), BigDecimal.valueOf(diameter), BigDecimal.valueOf(height)),
+                Carton.empty(), null, BigDecimal.ZERO);
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                id, key, key, category.id(), category.code(), category.name(), category.position(), 0,
+                displayName, null, null, null, List.of(),
+                new CatalogFamilyReader.Dimensions(BigDecimal.valueOf(diameter), BigDecimal.valueOf(height), null, "cm"),
+                List.of(), List.of(), List.of());
+        return new CatalogExportService.FamilyGroup(family, List.of(product), category, false);
+    }
+
     private static CatalogExportService.Model withFamilyKey(
             CatalogExportService.Model model, String familyKey) {
         CatalogExportService.FamilyGroup oldGroup = model.families().getFirst();
@@ -812,6 +1332,17 @@ class PdfCatalogRendererTest {
                 oldRequest.productIds(), oldRequest.includePrices(), includePhotos, photosPerProduct,
                 oldRequest.title(), oldRequest.intro(), oldRequest.language(), oldRequest.layout(),
                 oldRequest.brochure(), oldRequest.strictLanguage());
+        return new CatalogExportService.Model(
+                model.products(), model.categoriesById(), model.families(), request);
+    }
+
+    private static CatalogExportService.Model withIntroAndLanguage(
+            CatalogExportService.Model model, String intro, String language) {
+        CatalogExportService.Request oldRequest = model.request();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                oldRequest.productIds(), oldRequest.includePrices(), oldRequest.includePhotos(),
+                oldRequest.photosPerProduct(), oldRequest.title(), intro, language,
+                oldRequest.layout(), oldRequest.brochure(), oldRequest.strictLanguage());
         return new CatalogExportService.Model(
                 model.products(), model.categoriesById(), model.families(), request);
     }
@@ -848,6 +1379,32 @@ class PdfCatalogRendererTest {
                 base.carton(), base.exwPrice(), base.exwCurrency(), base.extraUnitCost(),
                 BigDecimal.ZERO, "test", BigDecimal.ZERO, BigDecimal.ZERO,
                 base.stockQuantity(), base.photos(), base.texts());
+    }
+
+    private static Product withPriceLayoutDetails(
+            Product base, Dimensions dimensions, Carton carton, String hsCode, BigDecimal price) {
+        return new Product(
+                base.id(), base.sku(), base.name(), dimensions, base.packaging(),
+                base.colour(), base.variantSize(), base.colourHex(), base.description(),
+                base.categoryId(), base.supplierId(), base.active(), base.familyId(),
+                base.canonicalVariantKey(), null, base.variantPosition(), base.inventoryKnown(),
+                base.familyKey(), base.publicHandle(), base.websiteStatus(), base.orderAppStatus(),
+                base.barcodes(), hsCode, carton, base.exwPrice(), base.exwCurrency(), base.extraUnitCost(),
+                BigDecimal.ZERO, "test", BigDecimal.ZERO, price,
+                base.stockQuantity(), base.photos(), base.texts());
+    }
+
+    private static CatalogExportService.Model pricedPicturedFamily(
+            CatalogExportService.Model source, CatalogFamilyReader.Family family,
+            List<Product> variants, Photo photo) {
+        List<Product> pictured = variants.stream().map(product -> product.withPhotos(List.of(photo))).toList();
+        CatalogExportService.Request oldRequest = source.request();
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                oldRequest.productIds(), true, true, 1, oldRequest.title(), null,
+                "nl", oldRequest.layout(), oldRequest.brochure());
+        return new CatalogExportService.Model(pictured, source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(family, pictured,
+                        source.families().getFirst().category(), false)), request);
     }
 
     private static int occurrences(String haystack, String needle) {
@@ -891,6 +1448,45 @@ class PdfCatalogRendererTest {
         protected void processTextPosition(TextPosition text) {
             maxBottom = Math.max(maxBottom, text.getYDirAdj() + text.getHeightDir());
             super.processTextPosition(text);
+        }
+    }
+
+    /** Match complete text across wrapped PDF glyph runs, excluding unrelated footer text. */
+    private static final class MatchingTextBoundsStripper extends PDFTextStripper {
+        private final StringBuilder text = new StringBuilder();
+        private final List<Double> bottoms = new ArrayList<>();
+
+        private MatchingTextBoundsStripper() throws IOException {}
+
+        @Override
+        protected void processTextPosition(TextPosition position) {
+            String value = compact(position.getUnicode());
+            for (int index = 0; index < value.length(); index++) {
+                text.append(value.charAt(index));
+                bottoms.add((double) position.getYDirAdj() + position.getHeightDir());
+            }
+            super.processTextPosition(position);
+        }
+
+        private int occurrencesOf(String value) {
+            return occurrences(text.toString(), compact(value));
+        }
+
+        private double bottomOf(String value) {
+            String needle = compact(value);
+            double bottom = -1;
+            int from = 0;
+            while ((from = text.indexOf(needle, from)) >= 0) {
+                for (int index = from; index < from + needle.length(); index++) {
+                    bottom = Math.max(bottom, bottoms.get(index));
+                }
+                from += needle.length();
+            }
+            return bottom;
+        }
+
+        private static String compact(String value) {
+            return value.replaceAll("[\\s\\p{Z}]+", "");
         }
     }
 

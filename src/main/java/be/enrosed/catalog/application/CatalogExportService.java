@@ -72,7 +72,16 @@ public class CatalogExportService {
             String language,
             Layout layout,
             BrochureOptions brochure,
-            Boolean strictLanguage) {
+            Boolean strictLanguage,
+            Map<Long, Integer> familyPhotoLimits) {
+
+        /** Source compatibility for callers written before per-family photo limits. */
+        public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
+                       Integer photosPerProduct, String title, String intro, String language,
+                       Layout layout, BrochureOptions brochure, Boolean strictLanguage) {
+            this(productIds, includePrices, includePhotos, photosPerProduct,
+                    title, intro, language, layout, brochure, strictLanguage, Map.of());
+        }
 
         /** Source compatibility for builder callers written before strict locale validation. */
         public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
@@ -91,6 +100,7 @@ public class CatalogExportService {
 
         public Request {
             productIds = productIds == null ? null : List.copyOf(productIds);
+            familyPhotoLimits = familyPhotoLimits == null ? Map.of() : Map.copyOf(familyPhotoLimits);
         }
 
         public static Request defaults() {
@@ -109,6 +119,13 @@ public class CatalogExportService {
             if (!includePhotos) return 0;
             if (photosPerProduct == null) return 4;
             return Math.max(0, Math.min(8, photosPerProduct));
+        }
+
+        /** A family can use its own photo budget; the global no-photos setting still wins. */
+        public int resolvedPhotosPerProduct(Long familyId) {
+            int defaultLimit = resolvedPhotosPerProduct();
+            if (defaultLimit == 0 || familyId == null) return defaultLimit;
+            return Math.max(0, Math.min(8, familyPhotoLimits.getOrDefault(familyId, defaultLimit)));
         }
 
         public boolean resolvedStrictLanguage() {

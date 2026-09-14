@@ -15,6 +15,8 @@ import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,6 +69,44 @@ public class CatalogExportServiceTest {
         assertEquals(true, request.resolvedBrochure().includeCategoryIntros());
         assertEquals("Trade collection", request.resolvedBrochure().coverTitle());
         assertEquals("Selected for you", request.resolvedBrochure().coverSubtitle());
+        assertEquals(Map.of(), request.familyPhotoLimits(), "older JSON needs no new field");
+        assertEquals(4, request.resolvedPhotosPerProduct(16L));
+    }
+
+    @Test
+    void optionalFamilyPhotoLimitsRoundTripWithoutChangingTheGlobalBudget() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        CatalogExportService.Request request = mapper.readValue("""
+                {"includePhotos":true,"photosPerProduct":1,"layout":"BROCHURE",
+                 "familyPhotoLimits":{"16":3}}
+                """, CatalogExportService.Request.class);
+
+        assertEquals(1, request.resolvedPhotosPerProduct());
+        assertEquals(3, request.resolvedPhotosPerProduct(16L));
+        assertEquals(1, request.resolvedPhotosPerProduct(17L));
+        assertEquals(1, request.resolvedPhotosPerProduct(null));
+        CatalogExportService.Request restored = mapper.readValue(
+                mapper.writeValueAsString(request), CatalogExportService.Request.class);
+        assertEquals(request, restored);
+    }
+
+    @Test
+    void familyPhotoLimitsAreImmutableBoundedAndCannotOverrideNoPhotos() {
+        Map<Long, Integer> limits = new LinkedHashMap<>(Map.of(16L, 3, 17L, 20, 18L, -1));
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                null, false, true, 1, null, null, "nl", null, null, null, limits);
+        limits.put(16L, 7);
+        assertEquals(3, request.resolvedPhotosPerProduct(16L));
+        assertEquals(8, request.resolvedPhotosPerProduct(17L));
+        assertEquals(0, request.resolvedPhotosPerProduct(18L));
+        assertThrows(UnsupportedOperationException.class, () -> request.familyPhotoLimits().put(16L, 7));
+
+        CatalogExportService.Request photosDisabled = new CatalogExportService.Request(
+                null, false, false, 1, null, null, "nl", null, null, null, limits);
+        CatalogExportService.Request zeroGlobalBudget = new CatalogExportService.Request(
+                null, false, true, 0, null, null, "nl", null, null, null, limits);
+        assertEquals(0, photosDisabled.resolvedPhotosPerProduct(16L));
+        assertEquals(0, zeroGlobalBudget.resolvedPhotosPerProduct(16L));
     }
 
     @Test

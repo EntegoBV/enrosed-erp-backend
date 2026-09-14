@@ -7,26 +7,26 @@
     @page {
       size: A4;
       margin: 13mm 10mm 15mm;
-      @bottom-left { content: "ENROSED · {copy['catalog.brand.wholesale']}"; font-family: "Jost"; font-size: 6pt; letter-spacing: 1.2px; color: #9b8461; }
-      @bottom-right { content: counter(page) " / " counter(pages); font-family: "Jost"; font-size: 6pt; color: #9b8461; }
+      @bottom-left { content: "ENROSED · {copy['catalog.brand.wholesale']}"; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6pt; letter-spacing: 1.2px; color: #9b8461; }
+      @bottom-right { content: counter(page) " / " counter(pages); font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6pt; color: #9b8461; }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #241815; background: #fffaf4; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; }
-    .masthead { margin: -13mm -10mm 8mm; padding: 12mm 10mm 8mm; color: #f4ece4; background: #120c0a; border-bottom: 1px solid #d6b25e; }
+    body { margin: 0; color: #241815; background: #fbf8f3; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; }
+    .masthead { margin: -13mm -10mm 8mm; padding: 12mm 10mm 8mm; color: #f4ece4; background: #552137; border-bottom: 1px solid #ba9b63; }
     .masthead table { width: 100%; border-collapse: collapse; }
     .masthead td { vertical-align: bottom; }
     .logo { height: 29px; max-width: 160px; }
-    h1 { margin: 7px 0 0; font-family: "Cormorant Garamond"; font-size: 27pt; font-weight: 600; line-height: .92; }
-    .eyebrow { color: #d6b25e; font-size: 6.3pt; font-weight: 600; letter-spacing: 2.1px; text-transform: uppercase; }
+    h1 { margin: 7px 0 0; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 27pt; font-weight: 600; line-height: .92; }
+    .eyebrow { color: #ba9b63; font-size: 6.3pt; font-weight: 600; letter-spacing: 2.1px; text-transform: uppercase; }
     .meta { text-align: right; color: #cdbfb4; font-size: 6.5pt; line-height: 1.55; }
     .meta strong { color: #f4ece4; font-weight: 500; }
-    .intro { margin: 0 0 6mm; padding: 4mm 5mm; color: #594840; background: #f4ece4; border-left: 2px solid #d6b25e; font-family: "Cormorant Garamond"; font-size: 12pt; line-height: 1.25; }
+    .intro { margin: 0 0 6mm; padding: 4mm 5mm; color: #594840; background: #f4ece4; border-left: 2px solid #ba9b63; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12pt; line-height: 1.25; }
     .chapter { margin: 7mm 0 2mm; page-break-after: avoid; }
     .chapter table { width: 100%; border-collapse: collapse; }
-    .chapter .number { width: 12mm; color: #d6b25e; font-family: "Cormorant Garamond"; font-size: 23pt; font-weight: 600; vertical-align: bottom; }
-    .chapter h2 { margin: 0; color: #120c0a; font-family: "Cormorant Garamond"; font-size: 17pt; font-weight: 600; line-height: 1; }
+    .chapter .number { width: 12mm; color: #ba9b63; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 23pt; font-weight: 600; vertical-align: bottom; }
+    .chapter h2 { margin: 0; color: #552137; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 17pt; font-weight: 600; line-height: 1; }
     .chapter .desc { max-width: 150mm; margin-top: 1mm; color: #6b5a51; font-size: 7pt; line-height: 1.35; }
-    .rule { height: 1px; margin-top: 2mm; background: #d6b25e; }
+    .rule { height: 1px; margin-top: 2mm; background: #ba9b63; }
     table.grid { width: 100%; border-collapse: separate; border-spacing: 3.2mm 3.2mm; margin: 0 -3.2mm; }
     td.cell { width: 33.333%; padding: 0; vertical-align: top; background: #fff; border: 1px solid #dfd3c5; page-break-inside: avoid; }
     td.empty { border: 0; background: transparent; }
@@ -44,15 +44,17 @@
     .strip img { width: auto; height: 7mm; max-width: 10mm; margin-right: 1mm; border: 1px solid #eadfd4; }
     .noimage { padding-top: 19mm; color: #b4a394; font-size: 6pt; letter-spacing: 1px; text-transform: uppercase; }
     .body { padding: 3mm 3.2mm 3.5mm; }
-    .sku { color: #a18455; font-size: 5.5pt; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; }
-    .name { min-height: 8mm; margin: .8mm 0 1mm; color: #241815; font-family: "Cormorant Garamond"; font-size: 11.5pt; font-weight: 600; line-height: 1.05; }
-    .spec { color: #594840; font-size: 6.1pt; line-height: 1.45; }
+    .sku { color: #a18455; font-size: 6.5pt; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; }
+    .name { min-height: 8mm; margin: .8mm 0 1mm; color: #241815; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11.5pt; font-weight: 600; line-height: 1.05; }
+    .spec { color: #594840; font-size: 7pt; line-height: 1.45; }
     .spec strong { color: #241815; font-weight: 500; }
-    .barcode { margin-top: 1mm; color: #938075; font-family: "DejaVu Sans"; font-size: 5.2pt; }
-    .price { margin-top: 2mm; padding-top: 2mm; color: #120c0a; border-top: 1px solid #d6b25e; font-size: 9.2pt; font-weight: 600; }
-    .price small { color: #8c776c; font-size: 5.2pt; font-weight: 400; }
+    .barcode { margin-top: 1mm; color: #938075; font-family: "DejaVu Sans"; font-size: 6.3pt; }
+    .price { margin-top: 2mm; padding-top: 2mm; color: #552137; border-top: 1px solid #ba9b63; font-size: 9.2pt; font-weight: 600; }
+    .price small { color: #8c776c; font-size: 6.3pt; font-weight: 400; }
     .nostock { margin-top: 1mm; color: #9e582e; font-size: 5.4pt; }
     .foot { margin-top: 6mm; padding-top: 3mm; color: #8c776c; border-top: 1px solid #d8c8b7; font-size: 6pt; line-height: 1.45; }
+    html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
+    html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
   </style>
 </head>
 <body>
