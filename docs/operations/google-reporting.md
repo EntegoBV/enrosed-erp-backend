@@ -4,7 +4,7 @@ The ERP's own website statistics, Google Analytics and Google Search Console are
 separate measurement sources. Do not add their visitors or conversions together.
 The Google integration reads reports; it does not submit visits or leads.
 
-Authenticated staff use `GET /api/analytics/website/google?days=30`. The response
+Authenticated administrators use `GET /api/analytics/website/google?days=30`. The response
 contains independent `googleAnalytics`, `searchConsole` and `realtime` sources.
 Each source carries its own status, range, retrieval time and optional data.
 The requested range is bounded to 1–365 days. No migration changes existing
@@ -33,7 +33,7 @@ not the reporting property ID or an API credential. The test website continues
 to exclude Google Analytics collection even when an ERP test backend is allowed
 to read production reports.
 
-## Grant access
+## Optional service-account access
 
 1. In Google Cloud, use a project managed by ENROSED/Entego and enable the
    **Google Analytics Data API** and **Google Search Console API**.
@@ -59,6 +59,12 @@ or disabling an API should produce a visible connection error, not zero-valued
 traffic statistics.
 
 ## Internal OAuth when organization policy blocks service account keys
+
+The production and test backends use this mode with Google Cloud project
+**ENROSED Reporting** (`enrosed-reporting`), internal app **ENROSED Dashboard**,
+and Desktop client **ENROSED Reporting connector** under `emre@entego.be`.
+Initial consent uses a local loopback callback with PKCE; only the resulting
+authorized-user credential is retained in the backend deployment secrets.
 
 Keep the organization policy intact. The reporting backend also supports an
 internal OAuth app in the managed Google organization. Use one credential mode

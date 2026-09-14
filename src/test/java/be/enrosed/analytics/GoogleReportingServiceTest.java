@@ -23,6 +23,7 @@ class GoogleReportingServiceTest {
         boolean configured=true,empty=false,malformed=false;
         volatile boolean failGa=false,failSearch=false,failRealtime=false;
         Runnable gaHook=()->{};
+        JsonNode realtimeOverride,gaOverride;
         final AtomicInteger gaCalls=new AtomicInteger(),searchCalls=new AtomicInteger(),realtimeCalls=new AtomicInteger();
         final List<Map<String,Object>> calls=new CopyOnWriteArrayList<>();
         FakeClient() { super(json,Optional.empty()); }
@@ -32,6 +33,7 @@ class GoogleReportingServiceTest {
             if (endpoint.endsWith("batchRunReports")) {
                 gaCalls.incrementAndGet(); gaHook.run();
                 if(failGa)throw new Failure("ACCESS_DENIED");
+                if(gaOverride!=null)return gaOverride;
                 if(malformed)return json.valueToTree(Map.of("reports",List.of(Map.of(),Map.of(),Map.of(),Map.of(),Map.of())));
                 return json.valueToTree(Map.of("reports",List.of(
                     ga(List.of(),empty?List.of():List.of(row(null,"5","9","20","6","0.6666667","3","42.5"))),
@@ -42,6 +44,7 @@ class GoogleReportingServiceTest {
             }
             if (endpoint.endsWith("runRealtimeReport")) {
                 realtimeCalls.incrementAndGet(); if(failRealtime)throw new Failure("QUOTA_EXCEEDED");
+                if(realtimeOverride!=null)return realtimeOverride;
                 return json.valueToTree(ga(List.of(),List.of(row(null,"2"))));
             }
             searchCalls.incrementAndGet(); if(failSearch)throw new Failure("ACCESS_DENIED");
@@ -136,10 +139,72 @@ class GoogleReportingServiceTest {
         client.failGa=true; clock.advance(Duration.ofMinutes(16));
         service.report(30); service.report(30); assertEquals(2,client.gaCalls.get());
     }
+    @Test void exactLiveGoogleEmptyRealtimeEnvelopeMeansZeroActiveUsers() throws Exception {
+        var client=new FakeClient();
+        client.realtimeOverride=json.readTree("{\"kind\":\"analyticsData#runRealtimeReport\"}");
+        var report=service(client,Clock.systemUTC()).report(30);
+        assertEquals(Status.NO_DATA,report.realtime().status());
+        assertEquals(0,report.realtime().data().activeUsers());
+        assertEquals(30,report.realtime().data().windowMinutes());
+        assertNull(report.realtime().errorCode());
+        assertEquals(Status.CONNECTED,report.googleAnalytics().status());
+    }
+    @Test void untypedOrMalformedRealtimeBodiesStillFailInsteadOfInventingZero() throws Exception {
+        for(String body:List.of("{}", "{\"kind\":\"wrong-kind\"}",
+                "{\"kind\":\"analyticsData#runReport\"}",
+                "{\"kind\":\"analyticsData#runRealtimeReport\",\"rows\":[{}]}",
+                "{\"kind\":\"analyticsData#runRealtimeReport\",\"rows\":null}")) {
+            var client=new FakeClient(); client.realtimeOverride=json.readTree(body);
+            var report=service(client,Clock.systemUTC()).report(30);
+            assertEquals(Status.ERROR,report.realtime().status(),body);
+            assertEquals("INVALID_RESPONSE",report.realtime().errorCode(),body);
+            assertNull(report.realtime().data(),body);
+            assertEquals(Status.CONNECTED,report.googleAnalytics().status());
+        }
+    }
     @Test void malformedSuccessfulGaResponseIsAnErrorInsteadOfInventedZero() {
         var client=new FakeClient(); client.malformed=true;
         var report=service(client,Clock.systemUTC()).report(30);
         assertEquals(Status.ERROR,report.googleAnalytics().status()); assertEquals("INVALID_RESPONSE",report.googleAnalytics().errorCode());
         assertNull(report.googleAnalytics().data()); assertEquals(Status.CONNECTED,report.realtime().status());
+    }
+    @Test void exactLiveGoogleEmptyStandardTotalsEnvelopeMeansNoProcessedData() throws Exception {
+        var emptyTotals=json.readTree("""
+                {"metadata":{"currencyCode":"EUR","timeZone":"Europe/Brussels"},"kind":"analyticsData#runReport"}
+                """);
+        var emptyEvents=json.readTree("""
+                {"dimensionHeaders":[{"name":"eventName"}],"metricHeaders":[{"name":"eventCount","type":"TYPE_INTEGER"}],
+                 "metadata":{"currencyCode":"EUR","timeZone":"Europe/Brussels"},"kind":"analyticsData#runReport"}
+                """);
+        for(JsonNode totals:List.of(emptyTotals,json.readTree("{\"kind\":\"analyticsData#runReport\"}"))) {
+            var client=new FakeClient();
+            client.gaOverride=json.valueToTree(Map.of("reports",List.of(totals,
+                    ga(List.of("date"),List.of()),ga(List.of("pagePath"),List.of()),
+                    ga(List.of("sessionDefaultChannelGroup"),List.of()),emptyEvents),
+                    "kind","analyticsData#batchRunReports"));
+            var source=service(client,Clock.systemUTC()).report(30).googleAnalytics();
+            assertEquals(Status.NO_DATA,source.status()); assertNull(source.errorCode());
+            assertEquals(0,source.data().totals().users()); assertEquals(0,source.data().totals().sessions());
+            assertEquals(0,source.data().totals().views()); assertTrue(source.data().events().isEmpty());
+            assertTrue(source.data().perDay().isEmpty()); assertNull(source.data().availableThrough());
+            assertEquals("Europe/Brussels",source.data().timeZone());
+        }
+    }
+    @Test void malformedHeaderlessStandardReportsRemainErrors() throws Exception {
+        for(String body:List.of("{}", "{\"kind\":\"wrong-kind\"}",
+                "{\"kind\":\"analyticsData#runReport\",\"metadata\":null}",
+                "{\"kind\":\"analyticsData#runReport\",\"rows\":[{}]}",
+                "{\"kind\":\"analyticsData#runReport\",\"rows\":null}",
+                "{\"kind\":\"analyticsData#runReport\",\"rowCount\":1}")) {
+            var client=new FakeClient();
+            client.gaOverride=json.valueToTree(Map.of("reports",List.of(json.readTree(body),
+                    ga(List.of("date"),List.of()),ga(List.of("pagePath"),List.of()),
+                    ga(List.of("sessionDefaultChannelGroup"),List.of()),ga(List.of("eventName"),List.of()))));
+            var report=service(client,Clock.systemUTC()).report(30);
+            assertEquals(Status.ERROR,report.googleAnalytics().status(),body);
+            assertEquals("INVALID_RESPONSE",report.googleAnalytics().errorCode(),body);
+            assertNull(report.googleAnalytics().data(),body);
+            assertEquals(Status.CONNECTED,report.realtime().status());
+        }
     }
 }

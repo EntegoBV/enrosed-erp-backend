@@ -127,6 +127,12 @@ public class GoogleReportingService {
         JsonNode response=client.post(GA_BASE+property+":runRealtimeReport",
                 Map.of("metrics",List.of(Map.of("name","activeUsers")),"limit","1",
                         "minuteRanges",List.of(Map.of("startMinutesAgo",29,"endMinutesAgo",0))));
+        // Google returns only this typed envelope when no users are active. Unlike an
+        // arbitrary empty/malformed response, this is a successful, explicit zero result.
+        if (response.size()==1 && "analyticsData#runRealtimeReport".equals(response.path("kind").asText())) {
+            return new Realtime(0,30);
+        }
+        if (!response.has("metricHeaders")) throw new Failure("INVALID_RESPONSE");
         return new Realtime(integerMetric(firstGaRow(response),0),30);
     }
     private SearchData fetchSearch(Period period) {
@@ -162,6 +168,12 @@ public class GoogleReportingService {
                 "type","web","dataState","final","rowLimit",dimensions.isEmpty()?1:dimensions.getFirst().equals("date")?366:20);
     }
     private static JsonNode gaRows(JsonNode report) {
+        // Empty standard totals can omit both rows and headers. Accept only the
+        // typed Google envelope, optionally carrying its metadata object.
+        if (report.isObject() && "analyticsData#runReport".equals(report.path("kind").asText())
+                && (report.size()==1 || (report.size()==2 && report.path("metadata").isObject()))) {
+            return com.fasterxml.jackson.databind.node.MissingNode.getInstance();
+        }
         if (!report.isObject() || !report.path("metricHeaders").isArray() || report.path("metricHeaders").isEmpty()) throw new Failure("INVALID_RESPONSE");
         JsonNode rows=report.path("rows");
         if (!rows.isMissingNode() && !rows.isArray()) throw new Failure("INVALID_RESPONSE"); return rows;
