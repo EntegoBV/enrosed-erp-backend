@@ -95,6 +95,19 @@ class RailwayPreDeployMigrationContractTest {
                 .toLowerCase(Locale.ROOT);
     }
 
+    @Test
+    void quotePriceVisibilityMigrationPreservesSavedChoiceAndRunsBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-14/website-quote-settings-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists website_quote_settings"));
+        assertTrue(sql.contains("prices_visible boolean not null default true"));
+        assertTrue(sql.contains("on conflict (id) do nothing"));
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
+                .contains("--file=/app/migrations/" + migration.getFileName()));
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

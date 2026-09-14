@@ -9,6 +9,8 @@ import be.enrosed.publicform.PublicFormSecurityService;
 import be.enrosed.sales.application.*;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,9 +32,16 @@ class PublicQuoteResourceHttpTest {
     @InjectMock PublicFormRateLimiter rateLimiter;
     @InjectMock PublicFormIdempotencyService idempotency;
     @InjectMock ClientIdentityResolver identities;
+    @Inject WebsiteQuoteSettingsService quoteSettings;
+
+    @AfterEach
+    void restorePriceVisibility() {
+        quoteSettings.update(true);
+    }
 
     @BeforeEach
     void allowNormalRequests() {
+        quoteSettings.update(true);
         when(identities.resolve(any())).thenReturn("127.0.0.1");
         when(idempotency.replay(any(), nullable(String.class), anyString(), any()))
                 .thenReturn(Optional.empty());
@@ -73,6 +82,57 @@ class PublicQuoteResourceHttpTest {
                 .body("reference", equalTo("ENR-2026-0041"))
                 .body("bindingStatus", equalTo("REQUEST_RECEIVED_NOT_BINDING"));
         verify(quotes).submit(argThat(request -> request.items().getFirst().cartons() == 2));
+    }
+
+    @Test
+    void hidingPricesProtectsConfigurationPreviewAndNewSubmission() {
+        quoteSettings.update(false);
+        when(quotes.configuration("EN")).thenReturn(new PublicQuoteDtos.ConfigurationResponse(
+                "EUR", "NET_EXCL_VAT", "FULL_CARTONS", List.of("DELIVERY"), "ESTIMATE_NOT_BINDING",
+                List.of(new PublicQuoteDtos.CountryOption("BE", "Belgium", decimal("100"), 2)),
+                List.of(new PublicQuoteDtos.ProductPrice(1L, decimal("10"), true, 12))));
+        when(quotes.preview(any())).thenReturn(PublicQuotePriceVisibilityTest.pricedEstimate());
+        when(quotes.submit(any())).thenReturn(new PublicQuoteDtos.SubmissionResponse("WEB-123", "RECEIVED",
+                "REQUEST_RECEIVED_NOT_BINDING", "FINAL_QUOTE_FOLLOWS", PublicQuotePriceVisibilityTest.pricedEstimate()));
+        given().get("/api/v1/public/quotes/configuration").then().statusCode(200)
+                .body("pricesVisible", equalTo(false))
+                .body("countries[0].minimumOrderNet", org.hamcrest.Matchers.nullValue())
+                .body("products[0].unitPriceNet", org.hamcrest.Matchers.nullValue())
+                .body("products[0].piecesPerCarton", equalTo(12));
+        given().contentType("application/json").body("{}").post("/api/v1/public/quotes/preview")
+                .then().statusCode(200).body("pricesVisible", equalTo(false))
+                .body("lines[0].unitPriceNet", org.hamcrest.Matchers.nullValue())
+                .body("shipping.totalNet", org.hamcrest.Matchers.nullValue())
+                .body("totals.totalNet", org.hamcrest.Matchers.nullValue())
+                .body("validation.canSubmit", equalTo(true));
+        given().contentType("application/json").body(validSubmitJson()).post("/api/v1/public/quotes/requests")
+                .then().statusCode(201).body("reference", equalTo("WEB-123"))
+                .body("estimate.pricesVisible", equalTo(false))
+                .body("estimate.lines[0].unitPriceNet", org.hamcrest.Matchers.nullValue())
+                .body("estimate.validation.minimumShortfallNet", org.hamcrest.Matchers.nullValue());
+        verify(quotes).submit(any());
+    }
+
+    @Test
+    void hidingAfterSubmissionRedactsAnExistingPricedIdempotencyReplay() {
+        var saved = new PublicQuoteDtos.SubmissionResponse("WEB-OLD", "RECEIVED", "REQUEST_RECEIVED_NOT_BINDING",
+                "FINAL_QUOTE_FOLLOWS", PublicQuotePriceVisibilityTest.pricedEstimate());
+        when(idempotency.replay(any(), nullable(String.class), anyString(), any())).thenReturn(Optional.of(saved));
+        quoteSettings.update(false);
+        given().contentType("application/json").header("Idempotency-Key", "existing-submission-123")
+                .body(validSubmitJson()).post("/api/v1/public/quotes/requests")
+                .then().statusCode(201).body("reference", equalTo("WEB-OLD"))
+                .body("estimate.pricesVisible", equalTo(false))
+                .body("estimate.lines[0].unitPriceNet", org.hamcrest.Matchers.nullValue())
+                .body("estimate.shipping.totalNet", org.hamcrest.Matchers.nullValue())
+                .body("estimate.totals.totalInclVat", org.hamcrest.Matchers.nullValue())
+                .body("estimate.validation.meetsMinimum", org.hamcrest.Matchers.nullValue());
+        verifyNoInteractions(quotes, security);
+        quoteSettings.update(true);
+        given().contentType("application/json").header("Idempotency-Key", "existing-submission-123")
+                .body(validSubmitJson()).post("/api/v1/public/quotes/requests")
+                .then().statusCode(201).body("estimate.pricesVisible", equalTo(true))
+                .body("estimate.lines[0].unitPriceNet", equalTo(123.45f));
     }
 
     @Test

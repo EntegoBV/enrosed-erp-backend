@@ -9,6 +9,7 @@ import be.enrosed.publicform.PublicFormRateLimiter;
 import be.enrosed.publicform.PublicFormSecurityService;
 import be.enrosed.publicform.PublicFormValidationException;
 import be.enrosed.sales.application.PublicQuoteService;
+import be.enrosed.sales.application.WebsiteQuoteSettingsService;
 import be.enrosed.shared.BusinessRuleException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.http.HttpServerRequest;
@@ -36,6 +37,7 @@ public class PublicQuoteResource {
     private final PublicFormIdempotencyService idempotency;
     private final ClientIdentityResolver identities;
     private final ObjectMapper json;
+    private final WebsiteQuoteSettingsService quoteSettings;
 
     @Context
     HttpServerRequest httpRequest;
@@ -43,19 +45,21 @@ public class PublicQuoteResource {
     public PublicQuoteResource(PublicQuoteService quotes, PublicFormSecurityService security,
                                PublicFormRateLimiter rateLimiter,
                                PublicFormIdempotencyService idempotency,
-                               ClientIdentityResolver identities, ObjectMapper json) {
+                               ClientIdentityResolver identities, ObjectMapper json,
+                               WebsiteQuoteSettingsService quoteSettings) {
         this.quotes = quotes;
         this.security = security;
         this.rateLimiter = rateLimiter;
         this.idempotency = idempotency;
         this.identities = identities;
         this.json = json;
+        this.quoteSettings = quoteSettings;
     }
 
     @GET
     @Path("/configuration")
     public Response configuration(@QueryParam("language") @DefaultValue("EN") String language) {
-        return Response.ok(quotes.configuration(language))
+        return Response.ok(PublicQuotePriceVisibility.apply(quotes.configuration(language), quoteSettings.pricesVisible()))
                 .header("Cache-Control", "no-store")
                 .build();
     }
@@ -64,7 +68,7 @@ public class PublicQuoteResource {
     @Path("/preview")
     public Response preview(PublicQuoteDtos.PreviewRequest request) {
         rateLimiter.checkIp(PublicFormAction.QUOTE_PREVIEW, identities.resolve(httpRequest));
-        return Response.ok(quotes.preview(request))
+        return Response.ok(PublicQuotePriceVisibility.apply(quotes.preview(request), quoteSettings.pricesVisible()))
                 .header("Cache-Control", "no-store")
                 .build();
     }
@@ -111,8 +115,9 @@ public class PublicQuoteResource {
         return created(response);
     }
 
-    private static Response created(PublicQuoteDtos.SubmissionResponse response) {
-        return Response.status(Response.Status.CREATED).entity(response)
+    private Response created(PublicQuoteDtos.SubmissionResponse response) {
+        return Response.status(Response.Status.CREATED)
+                .entity(PublicQuotePriceVisibility.apply(response, quoteSettings.pricesVisible()))
                 .header("Cache-Control", "no-store")
                 .build();
     }

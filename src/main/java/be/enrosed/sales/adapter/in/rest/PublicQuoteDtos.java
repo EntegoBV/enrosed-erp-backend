@@ -87,8 +87,16 @@ public final class PublicQuoteDtos {
             String disclaimerCode,
             List<CountryOption> countries,
             List<ProductPrice> products,
-            List<PickupLocation> pickupLocations
+            List<PickupLocation> pickupLocations,
+            boolean pricesVisible
     ) {
+        public ConfigurationResponse(String currency, String priceBasis, String quantityBasis,
+                                     List<String> fulfillmentMethods, String disclaimerCode,
+                                     List<CountryOption> countries, List<ProductPrice> products,
+                                     List<PickupLocation> pickupLocations) {
+            this(currency, priceBasis, quantityBasis, fulfillmentMethods, disclaimerCode,
+                    countries, products, pickupLocations, true);
+        }
         /** Compatibility for server/resource tests predating public pickup choices. */
         public ConfigurationResponse(String currency, String priceBasis, String quantityBasis,
                                      List<String> fulfillmentMethods, String disclaimerCode,
@@ -131,8 +139,18 @@ public final class PublicQuoteDtos {
             List<LineEstimate> lines,
             ShippingEstimate shipping,
             TotalsEstimate totals,
-            ValidationSummary validation
-    ) {}
+            ValidationSummary validation,
+            boolean pricesVisible
+    ) {
+        public EstimateResponse(String currency, String priceBasis, String fulfillment,
+                                PickupLocation pickupLocation, String estimateStatus,
+                                String disclaimerCode, List<LineEstimate> lines,
+                                ShippingEstimate shipping, TotalsEstimate totals,
+                                ValidationSummary validation) {
+            this(currency, priceBasis, fulfillment, pickupLocation, estimateStatus,
+                    disclaimerCode, lines, shipping, totals, validation, true);
+        }
+    }
 
     public record LineEstimate(
             Long productId,
@@ -175,7 +193,7 @@ public final class PublicQuoteDtos {
     public record ValidationSummary(
             boolean canSubmit,
             boolean requiresReview,
-            boolean meetsMinimum,
+            Boolean meetsMinimum,
             BigDecimal minimumOrderNet,
             BigDecimal minimumShortfallNet,
             List<String> messageCodes
