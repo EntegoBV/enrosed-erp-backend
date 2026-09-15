@@ -81,7 +81,7 @@ class PdfCatalogStandaloneQaTest {
                 assertEquals("%PDF", new String(document.content(), 0, 4,
                         StandardCharsets.US_ASCII));
                 try (PDDocument pdf = Loader.loadPDF(document.content())) {
-                    assertEquals(layout == CatalogExportService.Layout.SIMPLE ? 1 : 7,
+                    assertEquals(layout == CatalogExportService.Layout.SIMPLE ? 1 : 8,
                             pdf.getNumberOfPages(), stem);
                     if (layout == CatalogExportService.Layout.BROCHURE) {
                         for (int page = 0; page < pdf.getNumberOfPages(); page++) {

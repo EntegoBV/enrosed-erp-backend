@@ -55,6 +55,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     /** The overview says each family in one line; longer copy is cut at a word. */
     private static final int OVERVIEW_SUMMARY_CHARS = 92;
     private static final Color CATALOG_IMAGE_BACKGROUND = Color.WHITE;
+    /** Row-major order matches the single, reviewed five-by-four rose-head photograph. */
+    private static final List<String> PALETTE_COLOURS = List.of(
+            "white", "ivory", "champagne", "peach", "yellow",
+            "blushPink", "rosePink", "fuchsia", "cherryPink", "orange",
+            "red", "bordeaux", "lilac", "purple", "black",
+            "lightBlue", "blue", "navy", "mint", "emerald");
 
     private final Template simpleTemplate;
     private final Template brochureTemplate;
@@ -112,6 +118,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /** One line of the specification block: a translated label and its value. */
     public record SpecRow(String label, String value) {}
+
+    /** Millimetre offsets expose one rose from the shared plate without modifying its pixels. */
+    public record PaletteColour(String label, int left, int top) {}
 
     public record BrochureFamily(
             String anchor, String number, String name, String summary, String description, String format,
@@ -452,6 +461,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
 
         List<OverviewPage> overviewPages = overviewPages(overviewSlots, sections);
+        int palettePage = options.includeCustomisation() ? page++ : 0;
+        if (options.includeCustomisation()) page++;
+        if (options.includeOrdering()) page++;
+        if (options.includeBackCover()) page++;
         String title = present(request.title())
                 ? request.title().trim()
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
@@ -473,12 +486,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("sections", sections)
                 .data("overviewPages", overviewPages)
                 .data("lastPage", page - 1)
+                .data("palettePage", palettePage)
                 .data("options", options)
                 .data("includePrices", request.includePrices())
                 .data("copy", copy)
                 .data("company", profile)
                 .data("logo", editorial.image("logo-gold-print.png"))
                 .data("privateLabelMinimum", privateLabelMinimum(language))
+                .data("paletteRows", paletteRows(copy))
+                .data("paletteImage", options.includeCustomisation() && request.resolvedPhotosPerProduct() > 0
+                        ? editorial.image("rose-head-colour-palette-v1.png") : "")
                 .data("customisationImage", options.includeCustomisation() && request.resolvedPhotosPerProduct() > 0
                         ? editorial.image("private-label-editorial-v2.png") : "")
                 .data("orderingImage", options.includeOrdering() && request.resolvedPhotosPerProduct() > 0
@@ -490,6 +507,20 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("year", LocalDate.now().getYear())
                 .data("languageCode", language.code())
                 .render();
+    }
+
+    private static List<List<PaletteColour>> paletteRows(Map<String, String> copy) {
+        List<List<PaletteColour>> rows = new ArrayList<>();
+        for (int row = 0; row < 4; row++) {
+            List<PaletteColour> colours = new ArrayList<>();
+            for (int column = 0; column < 5; column++) {
+                String key = PALETTE_COLOURS.get(row * 5 + column);
+                colours.add(new PaletteColour(copy(copy, "catalog.brochure.palette.colour." + key),
+                        column * 30, row * 30));
+            }
+            rows.add(List.copyOf(colours));
+        }
+        return List.copyOf(rows);
     }
 
     /** Order actual domes within their chapter before numbering both the overview and detail sheets. */

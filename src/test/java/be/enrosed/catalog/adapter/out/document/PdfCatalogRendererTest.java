@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.out.document;
 
 import be.enrosed.catalog.application.CatalogExportService;
+import be.enrosed.catalog.application.PublicContentSeedLoader;
 import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
@@ -104,7 +105,7 @@ class PdfCatalogRendererTest {
             assertEquals(1, pdf.getNumberOfPages());
         }
         try (PDDocument pdf = Loader.loadPDF(brochurePdf.content())) {
-            assertEquals(7, pdf.getNumberOfPages());
+            assertEquals(8, pdf.getNumberOfPages());
             assertTrue(pdf.getPage(0).getMediaBox().getHeight()
                     > pdf.getPage(0).getMediaBox().getWidth());
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
@@ -643,6 +644,96 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void roseHeadPaletteKeepsTwentyNamedColoursAndMaterialCopyOnOnePageInEveryLocale()
+            throws Exception {
+        String plate = editorialAssets.image("rose-head-colour-palette-v1.png");
+        assertFalse(plate.isBlank(), "the reviewed palette plate must be bundled");
+        Photo fixture = storedPhoto(989L, "/images/soap-roos-in-box-480.webp",
+                "palette-selection.webp", "image/webp");
+        List<String> colourKeys = List.of("white", "ivory", "champagne", "peach", "yellow",
+                "blushPink", "rosePink", "fuchsia", "cherryPink", "orange",
+                "red", "bordeaux", "lilac", "purple", "black",
+                "lightBlue", "blue", "navy", "mint", "emerald");
+        Path qa = Path.of("target", "catalog-qa");
+        Files.createDirectories(qa);
+        for (Language language : Language.values()) {
+            CatalogExportService.Model selected = localizedQaModel(
+                    language, CatalogExportService.Layout.BROCHURE, fixture);
+            String html = renderer.renderHtml(selected);
+            String palette = sectionFragment(html, "<section class=\"page utility palette-page\"");
+            Map<String, String> copy = PublicContentSeedLoader.catalogSeedValues(language);
+            assertEquals(1, occurrences(html, "class=\"page utility palette-page\""));
+            assertTrue(palette.contains("data-page=\"5\""));
+            assertTrue(html.contains("<body data-page-count=\"8\">"));
+            assertEquals(20, occurrences(palette, "class=\"palette-plate\""));
+            assertEquals(20, occurrences(palette, "class=\"palette-label\""));
+            assertTrue(html.indexOf(palette) > html.indexOf("id=\"family-01\""));
+            assertTrue(html.indexOf(palette) < html.indexOf("<section class=\"page ivory utility\">"));
+            int previousLabel = -1;
+            for (String key : colourKeys) {
+                String label = copy.get("catalog.brochure.palette.colour." + key);
+                int currentLabel = palette.indexOf("class=\"palette-label\">" + label + "</div>");
+                assertTrue(currentLabel > previousLabel, language + " ordered colour " + key);
+                previousLabel = currentLabel;
+            }
+            CatalogDocumentRenderer.Document document = renderer.render(selected);
+            Files.write(qa.resolve("palette-" + language.code() + ".pdf"), document.content());
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                assertEquals(8, pdf.getNumberOfPages(), language + " palette stays on one physical page");
+                MatchingTextBoundsStripper text = new MatchingTextBoundsStripper();
+                text.setStartPage(5);
+                text.setEndPage(5);
+                text.getText(pdf);
+                for (Map.Entry<String, String> entry : copy.entrySet()) {
+                    if (!entry.getKey().startsWith("catalog.brochure.palette.")
+                            || entry.getKey().endsWith(".imagealt") || entry.getKey().endsWith(".kicker")) continue;
+                    assertTrue(text.occurrencesOf(entry.getValue()) >= 1,
+                            language + " complete vector text: " + entry.getKey());
+                    assertTrue(text.bottomOf(entry.getValue()) < 790,
+                            language + " above the footer: " + entry.getKey());
+                    if (entry.getKey().endsWith(".title")) {
+                        assertTrue(text.widthOf(entry.getValue()) < 148,
+                                language + " material heading stays within its column: " + entry.getKey());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void paletteUsesTheExistingCustomisationSwitchAndRespectsPhotoAndBackCoverSettings()
+            throws Exception {
+        CatalogExportService.Model source = model(1, CatalogExportService.Layout.BROCHURE);
+        String unpictured = renderer.renderHtml(source);
+        String palette = sectionFragment(unpictured, "<section class=\"page utility palette-page\"");
+        assertEquals(20, occurrences(palette, "class=\"palette-label\""));
+        assertFalse(palette.contains("class=\"palette-plate\""), "the no-photo export omits the plate");
+        assertFalse(renderer.renderHtml(model(1, CatalogExportService.Layout.SIMPLE))
+                .contains("Your colour. Your collection."));
+        for (boolean customisation : List.of(false, true)) {
+            for (boolean backCover : List.of(false, true)) {
+                CatalogExportService.Request old = source.request();
+                CatalogExportService.BrochureOptions options = new CatalogExportService.BrochureOptions(
+                        true, true, customisation, true, backCover, null, null);
+                CatalogExportService.Request request = new CatalogExportService.Request(
+                        old.productIds(), old.includePrices(), old.includePhotos(), old.photosPerProduct(),
+                        old.title(), old.intro(), old.language(), old.layout(), options, old.strictLanguage());
+                CatalogExportService.Model selected = new CatalogExportService.Model(
+                        source.products(), source.categoriesById(), source.families(), request);
+                String html = renderer.renderHtml(selected);
+                int expectedPages = 5 + (customisation ? 2 : 0) + (backCover ? 1 : 0);
+                assertTrue(html.contains("<body data-page-count=\"" + expectedPages + "\">"));
+                assertEquals(customisation, html.contains("class=\"page utility palette-page\""));
+                assertEquals(customisation, html.contains("class=\"page ivory utility\""));
+                assertEquals(backCover, html.contains("class=\"page back\""));
+                try (PDDocument pdf = Loader.loadPDF(renderer.render(selected).content())) {
+                    assertEquals(expectedPages, pdf.getNumberOfPages());
+                }
+            }
+        }
+    }
+
+    @Test
     void familyPhotoOverrideAddsThreeAnglesWithoutExpandingOtherFamiliesOrLosingColourPhotos()
             throws Exception {
         List<Photo> angles = List.of(
@@ -719,15 +810,15 @@ class PdfCatalogRendererTest {
             String orderingTitle = language.equals("nl")
                     ? "Uw volgende collectie begint hier." : "Your next collection starts here.";
             try (PDDocument pdf = Loader.loadPDF(renderer.render(catalogue).content())) {
-                assertEquals(7, pdf.getNumberOfPages(), "each utility page occupies one physical A4 page");
+                assertEquals(8, pdf.getNumberOfPages(), "each utility page occupies one physical A4 page");
                 PDFTextStripper stripper = new PDFTextStripper();
-                stripper.setStartPage(5);
-                stripper.setEndPage(5);
-                assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(atelierTitle));
                 stripper.setStartPage(6);
                 stripper.setEndPage(6);
+                assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(atelierTitle));
+                stripper.setStartPage(7);
+                stripper.setEndPage(7);
                 assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(orderingTitle));
-                long quoteLinks = pdf.getPage(5).getAnnotations().stream()
+                long quoteLinks = pdf.getPage(6).getAnnotations().stream()
                         .filter(PDAnnotationLink.class::isInstance)
                         .map(PDAnnotationLink.class::cast)
                         .map(PDAnnotationLink::getAction)
@@ -772,7 +863,7 @@ class PdfCatalogRendererTest {
         Files.createDirectories(qa);
         Files.write(qa.resolve("dense-family.pdf"), document.content());
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(7, pdf.getNumberOfPages());
+            assertEquals(8, pdf.getNumberOfPages());
             for (int page = 0; page < pdf.getNumberOfPages(); page++) {
                 assertTrue(pdf.getPage(page).getMediaBox().getHeight()
                         > pdf.getPage(page).getMediaBox().getWidth());
@@ -833,7 +924,7 @@ class PdfCatalogRendererTest {
                 "the colour-photo strip must remain present alongside all three product rows");
         CatalogDocumentRenderer.Document document = renderer.render(pictured);
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(7, pdf.getNumberOfPages(), "one family keeps its assigned A4 detail sheet");
+            assertEquals(8, pdf.getNumberOfPages(), "one family keeps its assigned A4 detail sheet");
             PDFTextStripper detail = new PDFTextStripper();
             detail.setStartPage(4);
             detail.setEndPage(4);
@@ -928,7 +1019,7 @@ class PdfCatalogRendererTest {
         assertEquals(skus.size(), occurrences(family, "class=\"variant-price\""),
                 "every SKU has a separate price line in its order row");
         try (PDDocument pdf = Loader.loadPDF(renderer.render(model).content())) {
-            assertEquals(7, pdf.getNumberOfPages(), "priced rows stay on their assigned family detail page");
+            assertEquals(8, pdf.getNumberOfPages(), "priced rows stay on their assigned family detail page");
             MatchingTextBoundsStripper detail = new MatchingTextBoundsStripper();
             detail.setStartPage(4);
             detail.setEndPage(4);
@@ -1033,7 +1124,7 @@ class PdfCatalogRendererTest {
         Files.createDirectories(qa);
         Files.write(qa.resolve("long-dutch-titles.pdf"), document.content());
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
-            assertEquals(7, pdf.getNumberOfPages());
+            assertEquals(8, pdf.getNumberOfPages());
             PDFTextStripper cover = new PDFTextStripper();
             cover.setStartPage(1);
             cover.setEndPage(1);
@@ -1455,6 +1546,8 @@ class PdfCatalogRendererTest {
     private static final class MatchingTextBoundsStripper extends PDFTextStripper {
         private final StringBuilder text = new StringBuilder();
         private final List<Double> bottoms = new ArrayList<>();
+        private final List<Double> lefts = new ArrayList<>();
+        private final List<Double> rights = new ArrayList<>();
 
         private MatchingTextBoundsStripper() throws IOException {}
 
@@ -1464,6 +1557,8 @@ class PdfCatalogRendererTest {
             for (int index = 0; index < value.length(); index++) {
                 text.append(value.charAt(index));
                 bottoms.add((double) position.getYDirAdj() + position.getHeightDir());
+                lefts.add((double) position.getXDirAdj());
+                rights.add((double) position.getXDirAdj() + position.getWidthDirAdj());
             }
             super.processTextPosition(position);
         }
@@ -1483,6 +1578,19 @@ class PdfCatalogRendererTest {
                 from += needle.length();
             }
             return bottom;
+        }
+
+        private double widthOf(String value) {
+            String needle = compact(value);
+            int from = text.indexOf(needle);
+            if (from < 0) return Double.POSITIVE_INFINITY;
+            double left = Double.POSITIVE_INFINITY;
+            double right = Double.NEGATIVE_INFINITY;
+            for (int index = from; index < from + needle.length(); index++) {
+                left = Math.min(left, lefts.get(index));
+                right = Math.max(right, rights.get(index));
+            }
+            return right - left;
         }
 
         private static String compact(String value) {

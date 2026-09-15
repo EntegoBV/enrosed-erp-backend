@@ -183,6 +183,20 @@
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media--one tr, .family-page--compact.family-page--variant-photos.family-page--priced .family-media--two tr { height: 51mm; }
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media--three tr, .family-page--compact.family-page--variant-photos.family-page--priced .family-media--four-plus tr { height: 24.5mm; }
     .utility h2 { max-width: 174mm; margin-top: 5mm; color: #651629; font-size: 35pt; font-weight: 400; line-height: 1.04; }
+    .palette-page h2 { margin-top: 3mm; font-size: 32pt; }
+    .palette-page .lead { max-width: 174mm; margin-top: 3mm; font-size: 8.6pt; line-height: 1.4; }
+    .palette-grid { width: 174mm; margin: 5mm auto 0; border-collapse: collapse; table-layout: fixed; }
+    .palette-grid td { width: 20%; padding: 0 0 1.6mm; text-align: center; vertical-align: top; }
+    .palette-rose { position: relative; width: 30mm; height: 29.6mm; margin: 0 auto; overflow: hidden; }
+    .palette-plate { position: absolute; width: 150mm; height: 120mm; max-width: none; }
+    .palette-label { margin-top: 1mm; color: #651629; font-size: 8.2pt; line-height: 1.2; }
+    .palette-caption { max-width: 174mm; margin: 1mm auto 0; color: #806c70; font-size: 7.5pt; line-height: 1.35; }
+    .palette-materials { width: 174mm; margin: 5mm auto 0; border-collapse: separate; border-spacing: 3mm 0; table-layout: fixed; }
+    .palette-materials td { width: 33.333%; padding: 3mm 2mm 0 0; vertical-align: top; border-top: .4mm solid #cbb07b; }
+    .palette-materials h3 { color: #651629; font-size: 17pt; line-height: 1.1; }
+    .palette-materials p { margin-top: 2mm; color: #594840; font-size: 8pt; line-height: 1.4; }
+    html[lang="el"] .palette-page h2 { font-size: 28pt; }
+    html[lang="el"] .palette-materials h3 { font-size: 12pt; line-height: 1.2; }
     .lead { max-width: 158mm; margin-top: 4mm; color: #594840; font-size: 9pt; line-height: 1.5; }
     .private-label-minimum { display: inline-block; margin: 4mm 0 0; padding: 2.2mm 0; color: #651629; border-top: .3mm solid #cbb07b; border-bottom: .3mm solid #cbb07b; font-size: 9pt; font-weight: 600; line-height: 1.4; }
     .utility-frame { width: 166mm; margin: 6mm auto 0; background: #ffffff; }
@@ -224,7 +238,7 @@
     html[lang="el"] .range-group td > div { font-family: "DejaVu Sans", sans-serif; }
   </style>
 </head>
-<body>
+<body data-page-count="{lastPage}">
 
 <section class="page cover">
   <div class="cover-frame"></div>
@@ -331,6 +345,24 @@
 {/for}
 
 {#if options.includeCustomisation}
+<section class="page utility palette-page" data-page="{palettePage}">
+  <div class="eyebrow">{copy['catalog.brochure.palette.kicker']}</div>
+  <h2>{copy['catalog.brochure.palette.heading']}</h2>
+  <p class="lead">{copy['catalog.brochure.palette.intro']}</p>
+  <table class="palette-grid" aria-label="{copy['catalog.brochure.palette.imagealt']}">
+    {#for row in paletteRows}<tr>{#for colour in row}<td>
+      {#if paletteImage}<div class="palette-rose"><img class="palette-plate" src="{paletteImage}" alt="{colour.label}" style="left:-{colour.left}mm;top:-{colour.top}mm"/></div>{/if}
+      <div class="palette-label">{colour.label}</div>
+    </td>{/for}</tr>{/for}
+  </table>
+  <p class="palette-caption">{copy['catalog.brochure.palette.caption']}</p>
+  <table class="palette-materials"><tr>
+    <td><h3>{copy['catalog.brochure.palette.heads.title']}</h3><p>{copy['catalog.brochure.palette.heads.body']}</p></td>
+    <td><h3>{copy['catalog.brochure.palette.foam.title']}</h3><p>{copy['catalog.brochure.palette.foam.body']}</p></td>
+    <td><h3>{copy['catalog.brochure.palette.soap.title']}</h3><p>{copy['catalog.brochure.palette.soap.body']}</p></td>
+  </tr></table>
+  <div class="footer">ENROSED · {copy['catalog.brochure.palette.kicker']} <span class="page-no">{copy['catalog.brochure.overview.page']} {palettePage}</span></div>
+</section>
 <section class="page ivory utility">
   <div class="eyebrow">{copy['catalog.brochure.custom.eyebrow']}</div>
   <h2>{copy['catalog.brochure.atelier.title']}</h2>

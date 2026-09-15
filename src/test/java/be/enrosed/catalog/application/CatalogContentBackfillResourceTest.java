@@ -114,7 +114,7 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(134, catalog.size(), "one header plus 133 catalogue keys");
+        assertEquals(165, catalog.size(), "one header plus 164 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
                 && row.subList(4, 13).stream().noneMatch(String::isBlank)));
         List<List<String>> editorialCopy = catalog.stream().skip(1)
@@ -125,6 +125,12 @@ class CatalogContentBackfillResourceTest {
         assertEquals(20, editorialCopy.stream().map(row -> row.get(1)).distinct().count());
         assertTrue(editorialCopy.stream().allMatch(row -> "true".equals(row.get(3))),
                 "editorial copy is required in all nine catalogue languages");
+        List<List<String>> paletteCopy = catalog.stream().skip(1)
+                .filter(row -> row.get(1).startsWith("catalog.brochure.palette.")).toList();
+        assertEquals(31, paletteCopy.size(), "twenty colours and eleven palette copy fields");
+        assertEquals(31, paletteCopy.stream().map(row -> row.get(1)).distinct().count());
+        assertTrue(paletteCopy.stream().allMatch(row -> "true".equals(row.get(3))));
+        assertEquals("Zwart", row(catalog, "catalog.brochure.palette.colour.black", 1).get(4));
         assertEquals("GROSSISTA", row(catalog, "catalog.brand.wholesale", 1).get(10));
         assertEquals("AİLELER", row(catalog, "catalog.common.family.plural", 1).get(11));
     }
