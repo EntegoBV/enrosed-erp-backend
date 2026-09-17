@@ -170,6 +170,24 @@ class GreekCatalogBackfillPersistenceTest {
         assertTrue(bearGreek.description.contains("ENROSED"));
         assertTrue(bearGreek.highlightsJson.contains("χρωματική αντίθεση"));
 
+        ProductFamilyEntity noGiftDome = family("model-119-120");
+        ProductEntity noGiftVariant = new ProductEntity();
+        noGiftVariant.sku = "EL-NO-GIFTBOX-TRANSLATION-CHECK";
+        noGiftVariant.name = "Rose In Dome - 12*25 NO GIFTBOX";
+        noGiftVariant.familyId = noGiftDome.id;
+        noGiftVariant.colour = "Red";
+        entities.persist(noGiftVariant);
+        entities.flush();
+        backfill.apply();
+        entities.flush();
+        ProductFamilyTextEntity noGiftGreek = noGiftDome.texts.stream()
+                .filter(value -> value.language == Language.EL).findFirst().orElseThrow();
+        assertTrue(noGiftGreek.name.contains("γυάλινη καμπάνα"));
+        assertTrue(noGiftGreek.highlightsJson.contains("Χωρίς ξεχωριστό κουτί δώρου"));
+        ProductEntity storedNoGift = entities.find(ProductEntity.class, noGiftVariant.id);
+        assertTrue(storedNoGift.texts.stream().filter(value -> value.language == Language.EL)
+                .findFirst().orElseThrow().name.contains("γυάλινη καμπάνα"));
+
         backfill.apply();
         entities.flush();
         assertEquals(1, display.texts.stream().filter(value -> value.language == Language.EL).count());
