@@ -333,6 +333,13 @@ public class CatalogContentBackfillService {
 
         completeSupplementalGreekFamilies(counter);
 
+        /* Compact catalogue exports use the document-level product name rather than the
+           family headline. A number of variants received their public web name during the
+           original import, but their document name was left empty. Complete only those
+           empty names from the already reviewed, language-specific family name. Existing
+           document names remain administrator-owned and are never replaced. */
+        completeLocalizedProductNames(counter);
+
         /* A product may be linked to the catalogue after the original import bundle was
            created. Its family copy is administrator-owned, but its colour and dimensional
            size still need an explicit source row in every document language. Fill only
@@ -359,6 +366,37 @@ public class CatalogContentBackfillService {
         }
         return new Result(bundle.version(), bundle.sha256(), matchedCategories, matchedFamilies,
                 matchedVariants, matchedImages, counter.inserted, counter.corrected);
+    }
+
+    private void completeLocalizedProductNames(Counter counter) {
+        if (families == null || products == null) return;
+        Map<Long, ProductFamilyEntity> familiesById = families.listAll().stream()
+                .filter(family -> family.id != null)
+                .collect(java.util.stream.Collectors.toMap(family -> family.id,
+                        family -> family, (left, right) -> left));
+        for (ProductEntity product : products.listAll()) {
+            if (product.familyId == null) continue;
+            ProductFamilyEntity family = familiesById.get(product.familyId);
+            if (family == null) continue;
+            for (Language language : Language.values()) {
+                String familyName = family.texts.stream()
+                        .filter(text -> text.language == language)
+                        .map(text -> text.name)
+                        .filter(value -> value != null && !value.isBlank())
+                        .findFirst().orElse(null);
+                if (familyName == null) continue;
+                ProductTextEntity text = product.texts.stream()
+                        .filter(item -> item.language == language).findFirst().orElse(null);
+                if (text == null) {
+                    text = new ProductTextEntity();
+                    text.product = product;
+                    text.language = language;
+                    product.texts.add(text);
+                    counter.inserted++;
+                }
+                text.name = merge(text.name, familyName, null, false, counter);
+            }
+        }
     }
 
     /** Locks the same aggregates as the editor, in its global family -> product -> category order. */

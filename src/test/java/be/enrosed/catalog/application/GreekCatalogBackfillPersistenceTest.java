@@ -81,6 +81,9 @@ class GreekCatalogBackfillPersistenceTest {
         assertEquals("Public custom base", after.publicName);
         assertEquals(0, new BigDecimal("3.25").compareTo(after.landedCostEur));
         assertEquals("#ab0000", after.colourHex);
+        assertTrue(after.texts.stream().filter(t -> t.language == Language.EL)
+                .findFirst().orElseThrow().name.contains("Τριαντάφυλλο"),
+                "a missing Greek document name follows the reviewed family name");
         assertEquals("Μπλε", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().colour);
         assertEquals("4.5*4.5cm", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().variantSize);
         assertEquals(java.util.Set.of(Language.values()), after.texts.stream()
