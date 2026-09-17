@@ -38,6 +38,10 @@ class CatalogDurabilityBackfillResourceTest {
                 identity.path("translations").size());
         assertEightLanguages(identity.path("translations"), List.of(
                 "name", "summary", "description", "format", "seoTitle", "seoDescription"));
+        for (String language : List.of("NL", "FR", "EN", "DE", "ES", "PL", "PT", "TR")) {
+            assertEquals(3, identity.path("translations").path(language).path("highlights").size(),
+                    language + ".highlights");
+        }
         assertEquals("12 extra lange steelrozen in individuele boxen met display",
                 identity.path("translations").path("NL").path("name").asText());
         assertEquals("12 Extra-Long Preserved Roses in Individual Boxes with Display",

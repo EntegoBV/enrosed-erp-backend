@@ -136,6 +136,12 @@ class GreekCatalogBackfillPersistenceTest {
         authoredGreek.format = null;
         authoredGreek.seoDescription = null;
         authoredGreek.highlightsJson = "[]";
+        ProductEntity stemVariant = new ProductEntity();
+        stemVariant.sku = "EL-STEM-TRANSLATION-CHECK";
+        stemVariant.name = "12 longroses with transparent box display";
+        stemVariant.familyId = display.id;
+        stemVariant.colour = "Red";
+        entities.persist(stemVariant);
         ProductFamilyEntity bear = family("model-116-117");
         entities.flush();
 
@@ -149,6 +155,14 @@ class GreekCatalogBackfillPersistenceTest {
         assertEquals("12 ατομικά κουτιά · 1 σταντ πάγκου", authoredGreek.format);
         assertTrue(authoredGreek.seoDescription.contains("Δώδεκα"));
         assertTrue(authoredGreek.highlightsJson.contains("Σταντ πάγκου"));
+        ProductFamilyTextEntity dutch = display.texts.stream()
+                .filter(value -> value.language == Language.NL).findFirst().orElseThrow();
+        assertEquals("12 extra lange steelrozen in individuele boxen met display", dutch.name);
+        assertTrue(dutch.highlightsJson.contains("Klaar voor de toonbank"));
+        ProductEntity storedStem = entities.find(ProductEntity.class, stemVariant.id);
+        assertEquals("12 extra lange steelrozen in individuele boxen met display",
+                storedStem.texts.stream().filter(value -> value.language == Language.NL)
+                        .findFirst().orElseThrow().publicName);
 
         ProductFamilyTextEntity bearGreek = bear.texts.stream()
                 .filter(value -> value.language == Language.EL).findFirst().orElseThrow();

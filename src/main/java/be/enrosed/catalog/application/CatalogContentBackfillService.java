@@ -47,6 +47,8 @@ public class CatalogContentBackfillService {
     private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(CatalogContentBackfillService.class);
     private static final String RESOURCE = "/i18n/catalog-content-backfill.json";
     private static final String FAMILY_COPY_RESOURCE = "/i18n/catalog-family-copy.json";
+    private static final String DURABILITY_RESOURCE = "/i18n/catalog-durability-backfill.json";
+    private static final String LONG_STEM_FAMILY_KEY = "long-stem-rose-box-display";
     private static final Pattern DUTCH_IN_EN = Pattern.compile(
             "(?i)\\b(roos|rozen|gepreserveerde|geconserveerde|stolp|spiegeldoos|vensterdoos)\\b");
     private static final Map<String, SupplementalGreekFamilyCopy> SUPPLEMENTAL_GREEK_FAMILIES = Map.of(
@@ -332,6 +334,7 @@ public class CatalogContentBackfillService {
         }
 
         completeSupplementalGreekFamilies(counter);
+        completeSupplementalFamilyCopy(counter);
 
         /* Compact catalogue exports use the document-level product name rather than the
            family headline. A number of variants received their public web name during the
@@ -395,8 +398,95 @@ public class CatalogContentBackfillService {
                     counter.inserted++;
                 }
                 text.name = merge(text.name, familyName, null, false, counter);
+                text.publicName = merge(text.publicName, familyName, null, false, counter);
             }
         }
+    }
+
+    /**
+     * The extra-long stem display was imported through the durability manifest rather than the
+     * original catalogue-content bundle. Keep that reviewed copy in the same startup repair path
+     * so compact exports can use the complete family record in every document language.
+     */
+    private void completeSupplementalFamilyCopy(Counter counter) {
+        ProductFamilyEntity family = families.find("familyKey", LONG_STEM_FAMILY_KEY).firstResult();
+        if (family == null) return;
+        Map<Language, SupplementalFamilyCopy> candidates = loadDurabilityFamilyCopy();
+        SupplementalGreekFamilyCopy greek = SUPPLEMENTAL_GREEK_FAMILIES.get(LONG_STEM_FAMILY_KEY);
+        if (greek != null) candidates.putIfAbsent(Language.EL, toFamilyCopy(greek));
+        for (Language language : Language.values()) {
+            SupplementalFamilyCopy candidate = candidates.get(language);
+            if (candidate == null) continue;
+            ProductFamilyTextEntity text = family.texts.stream()
+                    .filter(item -> item.language == language).findFirst().orElse(null);
+            if (text == null) {
+                text = new ProductFamilyTextEntity();
+                text.family = family;
+                text.language = language;
+                family.texts.add(text);
+                counter.inserted++;
+            }
+            text.name = merge(text.name, candidate.name(), null, false, counter);
+            text.summary = merge(text.summary, candidate.summary(), null, false, counter);
+            text.description = merge(text.description, candidate.description(), null, false, counter);
+            text.format = merge(text.format, candidate.format(), null, false, counter);
+            text.seoTitle = merge(text.seoTitle, candidate.seoTitle(), null, false, counter);
+            text.seoDescription = merge(text.seoDescription, candidate.seoDescription(), null, false, counter);
+            if (text.highlightsJson == null || text.highlightsJson.isBlank()
+                    || "[]".equals(text.highlightsJson.strip())) {
+                text.highlightsJson = write(candidate.highlights());
+            }
+        }
+        List<ProductEntity> members = products.list(
+                "familyId = ?1 order by variantPosition, id", family.id);
+        for (ProductEntity product : members) {
+            for (Language language : Language.values()) {
+                SupplementalFamilyCopy candidate = candidates.get(language);
+                if (candidate == null) continue;
+                ProductTextEntity text = product.texts.stream()
+                        .filter(item -> item.language == language).findFirst().orElse(null);
+                if (text == null) {
+                    text = new ProductTextEntity();
+                    text.product = product;
+                    text.language = language;
+                    product.texts.add(text);
+                    counter.inserted++;
+                }
+                text.name = merge(text.name, candidate.name(), null, false, counter);
+                text.publicName = merge(text.publicName, candidate.name(), null, false, counter);
+            }
+        }
+    }
+
+    private Map<Language, SupplementalFamilyCopy> loadDurabilityFamilyCopy() {
+        EnumMap<Language, SupplementalFamilyCopy> result = new EnumMap<>(Language.class);
+        try (InputStream input = CatalogContentBackfillService.class
+                .getResourceAsStream(DURABILITY_RESOURCE)) {
+            if (input == null) throw new IllegalStateException("Durability-catalogusvertaling ontbreekt");
+            JsonNode translations = json.readTree(input)
+                    .path("familyIdentity").path("translations");
+            for (Language language : Language.values()) {
+                JsonNode node = translations.path(language.name());
+                if (!node.isObject()) continue;
+                List<String> highlights = new ArrayList<>();
+                node.path("highlights").forEach(value -> highlights.add(value.asText()));
+                if (highlights.isEmpty()) continue;
+                result.put(language, new SupplementalFamilyCopy(
+                        node.path("name").asText(null), node.path("summary").asText(null),
+                        node.path("description").asText(null), node.path("format").asText(null),
+                        node.path("seoTitle").asText(null), node.path("seoDescription").asText(null),
+                        List.copyOf(highlights)));
+            }
+            return result;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Durability-catalogusvertalingen konden niet worden gelezen", exception);
+        }
+    }
+
+    private static SupplementalFamilyCopy toFamilyCopy(SupplementalGreekFamilyCopy value) {
+        if (value == null) return null;
+        return new SupplementalFamilyCopy(value.name(), value.summary(), value.description(),
+                value.format(), value.name(), value.summary(), value.highlights());
     }
 
     /** Locks the same aggregates as the editor, in its global family -> product -> category order. */
@@ -1028,6 +1118,10 @@ public class CatalogContentBackfillService {
     private record SupplementalGreekFamilyCopy(
             String name, String summary, String description, String format,
             List<String> highlights) {}
+
+    private record SupplementalFamilyCopy(
+            String name, String summary, String description, String format,
+            String seoTitle, String seoDescription, List<String> highlights) {}
 
     private static final class Counter { int inserted; int corrected; }
     private record CategoryCopy(
