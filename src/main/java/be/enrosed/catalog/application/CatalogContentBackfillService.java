@@ -49,6 +49,24 @@ public class CatalogContentBackfillService {
     private static final String FAMILY_COPY_RESOURCE = "/i18n/catalog-family-copy.json";
     private static final Pattern DUTCH_IN_EN = Pattern.compile(
             "(?i)\\b(roos|rozen|gepreserveerde|geconserveerde|stolp|spiegeldoos|vensterdoos)\\b");
+    private static final Map<String, SupplementalGreekFamilyCopy> SUPPLEMENTAL_GREEK_FAMILIES = Map.of(
+            "long-stem-rose-box-display", new SupplementalGreekFamilyCopy(
+                    "12 διατηρημένα τριαντάφυλλα με πολύ μακρύ μίσχο σε ατομικά κουτιά με σταντ",
+                    "Δώδεκα διατηρημένα τριαντάφυλλα με πολύ μακρύ μίσχο, το καθένα σε ατομικό διάφανο κουτί, παραδίδονται μαζί σε ένα σταντ πάγκου.",
+                    "Κάθε διατηρημένο τριαντάφυλλο παρουσιάζεται στο δικό του διάφανο κουτί. Τα δώδεκα ατομικά κουτιά παραδίδονται μαζί σε ένα σταντ πάγκου, έτοιμα να πωληθούν χωριστά ως είδη δώρου.",
+                    "12 ατομικά κουτιά · 1 σταντ πάγκου",
+                    List.of("12 μακρόστελεχα τριαντάφυλλα σε ατομικά κουτιά",
+                            "Σταντ πάγκου έτοιμο για λιανική",
+                            "Κάθε τεμάχιο πωλείται χωριστά")),
+            "model-116-117", new SupplementalGreekFamilyCopy(
+                    "Αρκουδάκι με καρδιά από αφρώδη τριαντάφυλλα 40 cm",
+                    "Μεγάλο διακοσμητικό αρκουδάκι από αφρώδη τριαντάφυλλα με καρδιά σε χρωματική αντίθεση, έτοιμο για πώληση σε διάφανο κουτί.",
+                    "Μια εντυπωσιακή σύνθεση δώρου 40 cm από διακοσμητικά αφρώδη τριαντάφυλλα, με καρδιά σε χρωματική αντίθεση. Το διάφανο κουτί παρουσίασης με κορδέλα ENROSED την κάνει έτοιμη για καταστήματα δώρων και εποχικές βιτρίνες.",
+                    "Αρκουδάκι από αφρώδη τριαντάφυλλα 40 cm σε διάφανο κουτί",
+                    List.of("Μεγάλο, εντυπωσιακό μέγεθος 40 cm",
+                            "Καρδιά σε χρωματική αντίθεση",
+                            "Διακοσμητικά αφρώδη τριαντάφυλλα μεγάλης διάρκειας",
+                            "Έτοιμο για πώληση σε διάφανο κουτί")));
 
     private final CanonicalCatalogDaos.Families families;
     private final CatalogDaos.Products products;
@@ -313,6 +331,16 @@ public class CatalogContentBackfillService {
             }
         }
 
+        completeSupplementalGreekFamilies(counter);
+
+        /* A product may be linked to the catalogue after the original import bundle was
+           created. Its family copy is administrator-owned, but its colour and dimensional
+           size still need an explicit source row in every document language. Fill only
+           missing attributes; existing names, descriptions and translated values win. */
+        for (ProductEntity product : products.listAll()) {
+            if (product.familyId != null) completeLocalizedProductAttributes(bundle, product, counter);
+        }
+
         boolean completeTarget = matchedCategories == bundle.expectedCategories()
                 && matchedFamilies == bundle.expectedFamilies()
                 && matchedVariants == bundle.expectedVariants()
@@ -337,7 +365,8 @@ public class CatalogContentBackfillService {
     private void lockTargets(Bundle bundle) {
         if (writeGuard == null || families == null || products == null || categories == null) return;
         List<ProductFamilyEntity> targetFamilies = families.listAll().stream()
-                .filter(family -> bundle.families().containsKey(family.familyKey))
+                .filter(family -> bundle.families().containsKey(family.familyKey)
+                        || SUPPLEMENTAL_GREEK_FAMILIES.containsKey(family.familyKey))
                 .filter(family -> family.id != null)
                 .sorted(Comparator.comparing(family -> family.id)).toList();
         writeGuard.lockFamilies(targetFamilies.stream().map(family -> family.id).toList());
@@ -346,8 +375,9 @@ public class CatalogContentBackfillService {
 
         List<ProductEntity> targetProducts = products.listAll().stream()
                 .filter(product -> product.id != null)
-                .filter(product -> (product.canonicalVariantKey != null && bundle.targetVariantKeys().contains(product.canonicalVariantKey))
-                        || targetFamilies.stream().anyMatch(family -> Objects.equals(family.id, product.familyId)))
+                .filter(product -> product.familyId != null
+                        || (product.canonicalVariantKey != null
+                                && bundle.targetVariantKeys().contains(product.canonicalVariantKey)))
                 .sorted(Comparator.comparing(product -> product.id)).toList();
         writeGuard.lockProducts(targetProducts.stream().map(product -> product.id).toList());
 
@@ -692,6 +722,7 @@ public class CatalogContentBackfillService {
                     .findFirst().orElse(null);
         }
         if (exact == null) {
+            if ("Panda".equalsIgnoreCase(wanted)) return "Panda";
             LOG.debugf("Kleur \"%s\" staat niet in de catalogusbundel; blijft zoals ingevuld", wanted);
             // Do not mark an untranslated new colour as Greek. Strict publication will report
             // the missing locale until the administrator supplies that colour translation.
@@ -699,6 +730,62 @@ public class CatalogContentBackfillService {
         }
         String value = exact.get(language);
         return value == null || value.isBlank() ? wanted : value;
+    }
+
+    private static void completeLocalizedProductAttributes(
+            Bundle bundle, ProductEntity product, Counter counter) {
+        String colourSource = publicEnglishColour(product);
+        String sizeSource = product.variantSize;
+        if (sizeSource == null || sizeSource.isBlank()) {
+            sizeSource = product.texts.stream().filter(text -> text.language == Language.EN)
+                    .map(text -> text.variantSize).filter(value -> value != null && !value.isBlank())
+                    .findFirst().orElse(null);
+        }
+        for (Language language : Language.values()) {
+            String colour = localizedColor(bundle, colourSource, language);
+            String size = localizedSize(sizeSource, language);
+            if ((colour == null || colour.isBlank()) && (size == null || size.isBlank())) continue;
+            ProductTextEntity text = product.texts.stream()
+                    .filter(item -> item.language == language).findFirst().orElse(null);
+            if (text == null) {
+                text = new ProductTextEntity();
+                text.product = product;
+                text.language = language;
+                product.texts.add(text);
+                counter.inserted++;
+            }
+            text.colour = merge(text.colour, colour, null, false, counter);
+            text.variantSize = merge(text.variantSize, size, null, false, counter);
+        }
+    }
+
+    private void completeSupplementalGreekFamilies(Counter counter) {
+        SUPPLEMENTAL_GREEK_FAMILIES.forEach((familyKey, candidate) -> {
+            ProductFamilyEntity family = families.find("familyKey", familyKey).firstResult();
+            if (family == null) return;
+            ProductFamilyTextEntity text = family.texts.stream()
+                    .filter(item -> item.language == Language.EL).findFirst().orElse(null);
+            if (text == null) {
+                text = new ProductFamilyTextEntity();
+                text.family = family;
+                text.language = Language.EL;
+                text.highlightsJson = "[]";
+                family.texts.add(text);
+                counter.inserted++;
+            }
+            text.name = merge(text.name, candidate.name(), null, false, counter);
+            text.summary = merge(text.summary, candidate.summary(), null, false, counter);
+            text.description = merge(text.description, candidate.description(), null, false, counter);
+            text.format = merge(text.format, candidate.format(), null, false, counter);
+            text.seoTitle = merge(text.seoTitle,
+                    candidate.name() + " | Enrosed Χονδρική", null, false, counter);
+            text.seoDescription = merge(text.seoDescription,
+                    candidate.summary(), null, false, counter);
+            if (text.highlightsJson == null || text.highlightsJson.isBlank()
+                    || "[]".equals(text.highlightsJson.strip())) {
+                text.highlightsJson = write(candidate.highlights());
+            }
+        });
     }
 
     private static String publicEnglishColour(ProductEntity product) {
@@ -899,6 +986,10 @@ public class CatalogContentBackfillService {
         }
         return value.strip();
     }
+
+    private record SupplementalGreekFamilyCopy(
+            String name, String summary, String description, String format,
+            List<String> highlights) {}
 
     private static final class Counter { int inserted; int corrected; }
     private record CategoryCopy(

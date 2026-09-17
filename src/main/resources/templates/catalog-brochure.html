@@ -195,8 +195,8 @@
     .palette-materials td { width: 33.333%; padding: 3mm 2mm 0 0; vertical-align: top; border-top: .4mm solid #cbb07b; }
     .palette-materials h3 { color: #651629; font-size: 17pt; line-height: 1.1; }
     .palette-materials p { margin-top: 2mm; color: #594840; font-size: 8pt; line-height: 1.4; }
-    html[lang="el"] .palette-page h2 { font-size: 28pt; }
-    html[lang="el"] .palette-materials h3 { font-size: 12pt; line-height: 1.2; }
+    .lang-el .palette-page h2 { font-size: 28pt; }
+    .lang-el .palette-materials h3 { font-size: 12pt; line-height: 1.2; }
     .lead { max-width: 158mm; margin-top: 4mm; color: #594840; font-size: 9pt; line-height: 1.5; }
     .private-label-minimum { display: inline-block; margin: 4mm 0 0; padding: 2.2mm 0; color: #651629; border-top: .3mm solid #cbb07b; border-bottom: .3mm solid #cbb07b; font-size: 9pt; font-weight: 600; line-height: 1.4; }
     .utility-frame { width: 166mm; margin: 6mm auto 0; background: #ffffff; }
@@ -233,12 +233,58 @@
     .utility .lead { color: #6c565e; }
     /* Cormorant only contains a few Greek glyphs. Keep Greek headings in one
        complete embedded face instead of mixing letter shapes within a word. */
-    html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] h3, html[lang="el"] h4,
-    html[lang="el"] .summary, html[lang="el"] .family-format,
-    html[lang="el"] .range-group td > div { font-family: "DejaVu Sans", sans-serif; }
+    .lang-el h1, .lang-el h2, .lang-el h3, .lang-el h4,
+    .lang-el .summary, .lang-el .family-format,
+    .lang-el .range-group td > div { font-family: "DejaVu Sans", sans-serif; }
+    .lang-el .family-page--compact .variants { margin-top: .8mm; }
+    .lang-el .family-page--compact .variants th { padding: .8mm; font-size: 6.5pt; }
+    .lang-el .family-page--compact .variants td { padding: .6mm .9mm; font-size: 6.8pt; line-height: 1.05; }
+    .lang-el .family-page--compact .variant-price { margin-top: .15mm; font-size: 6.5pt; }
+    .lang-el .family-page--compact.family-page--priced .variants { margin-top: .5mm; }
+    .lang-el .family-page--compact.family-page--priced .variants th { padding: .55mm .7mm; font-size: 6.2pt; }
+    .lang-el .family-page--compact.family-page--priced .variants td { padding: .2mm .5mm; font-size: 6pt; line-height: .95; }
+    .lang-el .family-page--compact.family-page--priced .variant-price { margin-top: 0; font-size: 6pt; }
+    /* Greek compact sheets need a little extra bottom clearance for the final
+       wrapped SKU/carton row. Keep the complete product table, while giving
+       the media block a modestly tighter height. */
+    .lang-el .family-page--compact.family-page--variant-photos .family-media { height: 70mm; }
+    .lang-el .family-page--compact.family-page--variant-photos .family-media--one tr,
+    .lang-el .family-page--compact.family-page--variant-photos .family-media--two tr { height: 67mm; }
+    /* Portuguese priced dome copy is the longest of the Latin translations on
+       the 25 cm sheet. Preserve every price row and reclaim a few millimetres
+       from the hero block so the print footer stays clear. */
+    .lang-pt .family-page--compact.family-page--variant-photos.family-page--priced .family-media { height: 51mm; }
+    .lang-pt .family-page--compact.family-page--variant-photos.family-page--priced .family-media--one tr,
+    .lang-pt .family-page--compact.family-page--variant-photos.family-page--priced .family-media--two tr { height: 48mm; }
+    /* The foam sheets have two colour photos plus a complete commercial table.
+       A slightly narrower hero keeps the final row clear of the print footer in
+       the longer Polish and Portuguese translations without reducing type. */
+    .family-page--foam-roses.family-page--variant-photos .family-media { width: 145mm; height: 78mm; }
+    .family-page--foam-roses.family-page--variant-photos .family-media--one tr,
+    .family-page--foam-roses.family-page--variant-photos .family-media--two tr { height: 75mm; }
+    .family-page--foam-roses .family-info { margin-top: 2.5mm; }
+    /* Greek needs slightly more vertical room on the foam range sheets. Keep
+       the complete SKU table on the same printed page without changing the
+       product order or omitting commercial data. */
+    .lang-el .family-page--foam-roses.family-page--variant-photos .family-media { width: 115mm; height: 66mm; }
+    .lang-el .family-page--foam-roses.family-page--variant-photos .family-media--one tr,
+    .lang-el .family-page--foam-roses.family-page--variant-photos .family-media--two tr { height: 63mm; }
+    .lang-el .family-page--foam-roses .family-info { margin-top: 1.5mm; border-spacing: 2.5mm 0; }
+    .lang-el .family-page--foam-roses .family-info .story { padding: 1mm; }
+    .lang-el .family-page--foam-roses .summary { font-size: 10.5pt; line-height: 1.05; }
+    .lang-el .family-page--foam-roses .description { margin-top: 1mm; font-size: 6.8pt; line-height: 1.17; }
+    .lang-el .family-page--foam-roses .highlights { margin-top: 1mm; }
+    .lang-el .family-page--foam-roses .highlights li { margin-top: .4mm; font-size: 6.6pt; line-height: 1.12; }
+    .lang-el .family-page--foam-roses .spec-title { margin-bottom: .8mm; font-size: 6.2pt; }
+    .lang-el .family-page--foam-roses .spec-list { margin-bottom: 1mm; }
+    .lang-el .family-page--foam-roses .spec-list th { padding: .7mm 1mm; font-size: 5.6pt; line-height: 1.06; }
+    .lang-el .family-page--foam-roses .spec-list td { padding: .7mm 1mm; font-size: 6.7pt; line-height: 1.1; }
+    .lang-el .family-page--foam-roses .variants { margin-top: 1.5mm; }
+    .lang-el .family-page--foam-roses .variants th { padding: 1.2mm; font-size: 6.2pt; }
+    .lang-el .family-page--foam-roses .variants td { padding: 1.1mm 1.2mm; font-size: 7pt; line-height: 1.12; }
   </style>
 </head>
-<body data-page-count="{lastPage}">
+<body data-page-count="{lastPage}" class="lang-{languageCode}">
 
 <section class="page cover">
   <div class="cover-frame"></div>

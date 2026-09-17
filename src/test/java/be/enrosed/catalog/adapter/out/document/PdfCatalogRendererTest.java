@@ -664,7 +664,8 @@ class PdfCatalogRendererTest {
             Map<String, String> copy = PublicContentSeedLoader.catalogSeedValues(language);
             assertEquals(1, occurrences(html, "class=\"page utility palette-page\""));
             assertTrue(palette.contains("data-page=\"5\""));
-            assertTrue(html.contains("<body data-page-count=\"8\">"));
+            assertTrue(html.contains("<body data-page-count=\"8\" class=\"lang-"
+                    + language.code() + "\">"));
             assertEquals(20, occurrences(palette, "class=\"palette-plate\""));
             assertEquals(20, occurrences(palette, "class=\"palette-label\""));
             assertTrue(html.indexOf(palette) > html.indexOf("id=\"family-01\""));
@@ -722,7 +723,8 @@ class PdfCatalogRendererTest {
                         source.products(), source.categoriesById(), source.families(), request);
                 String html = renderer.renderHtml(selected);
                 int expectedPages = 5 + (customisation ? 2 : 0) + (backCover ? 1 : 0);
-                assertTrue(html.contains("<body data-page-count=\"" + expectedPages + "\">"));
+                assertTrue(html.contains("<body data-page-count=\"" + expectedPages
+                        + "\" class=\"lang-" + source.request().language() + "\">"));
                 assertEquals(customisation, html.contains("class=\"page utility palette-page\""));
                 assertEquals(customisation, html.contains("class=\"page ivory utility\""));
                 assertEquals(backCover, html.contains("class=\"page back\""));

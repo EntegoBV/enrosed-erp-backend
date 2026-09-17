@@ -44,6 +44,13 @@ class GreekCatalogBackfillPersistenceTest {
         source.colour = "Blue"; // The public colour was deliberately corrected after the import.
         source.variantSize = "4.5*4.5cm"; // Existing public measurement, no operational size value.
         product.texts.add(source);
+        ProductTextEntity authoredGerman = new ProductTextEntity();
+        authoredGerman.product = product;
+        authoredGerman.language = Language.DE;
+        authoredGerman.publicName = "Eigener öffentlicher Name";
+        authoredGerman.colour = "Eigene Farbe";
+        authoredGerman.variantSize = "Sondermaß";
+        product.texts.add(authoredGerman);
         entities.persist(product);
         ProductFamilyPhotoEntity image = new ProductFamilyPhotoEntity();
         image.family = family;
@@ -76,10 +83,27 @@ class GreekCatalogBackfillPersistenceTest {
         assertEquals("#ab0000", after.colourHex);
         assertEquals("Μπλε", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().colour);
         assertEquals("4.5*4.5cm", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().variantSize);
-        assertEquals(2, after.texts.size(), "existing variants get only the newly introduced locale");
+        assertEquals(java.util.Set.of(Language.values()), after.texts.stream()
+                .map(text -> text.language).collect(java.util.stream.Collectors.toSet()),
+                "every document language receives an explicit colour and dimensional size");
+        assertEquals("Bleu", after.texts.stream().filter(t -> t.language == Language.FR)
+                .findFirst().orElseThrow().colour,
+                "missing locales follow the administrator-corrected public English colour");
+        assertEquals("Blue", after.texts.stream().filter(t -> t.language == Language.EN)
+                .findFirst().orElseThrow().colour, "authored English remains unchanged");
+        ProductTextEntity storedGerman = after.texts.stream()
+                .filter(t -> t.language == Language.DE).findFirst().orElseThrow();
+        assertEquals("Eigener öffentlicher Name", storedGerman.publicName);
+        assertEquals("Eigene Farbe", storedGerman.colour,
+                "administrator-authored translations always win");
+        assertEquals("Sondermaß", storedGerman.variantSize,
+                "administrator-authored sizes always win");
+        assertTrue(after.texts.stream().filter(t -> t.language != Language.DE)
+                .allMatch(t -> "4.5*4.5cm".equals(t.variantSize)));
         backfill.apply();
         entities.flush();
-        assertEquals(2, after.texts.size(), "reapplying never duplicates a locale");
+        assertEquals(Language.values().length, after.texts.size(),
+                "reapplying never duplicates a locale");
     }
 
     @Test
@@ -96,6 +120,43 @@ class GreekCatalogBackfillPersistenceTest {
                 family.texts.stream().filter(t -> t.language == Language.EN).findFirst().orElseThrow().seoTitle);
         assertEquals("Eigener Titel für den Fachhandel",
                 family.texts.stream().filter(t -> t.language == Language.DE).findFirst().orElseThrow().seoTitle);
+    }
+
+    @Test
+    @TestTransaction
+    void greekSupplementCompletesLaterFamiliesAndPreservesAuthoredFields() {
+        ProductFamilyEntity display = family("long-stem-rose-box-display");
+        ProductFamilyTextEntity authoredGreek = text(
+                display, Language.EL, "Όνομα γραμμένο από τον διαχειριστή", null);
+        authoredGreek.summary = null;
+        authoredGreek.description = null;
+        authoredGreek.format = null;
+        authoredGreek.seoDescription = null;
+        authoredGreek.highlightsJson = "[]";
+        ProductFamilyEntity bear = family("model-116-117");
+        entities.flush();
+
+        backfill.apply();
+        entities.flush();
+
+        assertEquals("Όνομα γραμμένο από τον διαχειριστή", authoredGreek.name,
+                "administrator-authored Greek copy wins");
+        assertTrue(authoredGreek.summary.contains("Δώδεκα"));
+        assertTrue(authoredGreek.description.contains("διάφανο κουτί"));
+        assertEquals("12 ατομικά κουτιά · 1 σταντ πάγκου", authoredGreek.format);
+        assertTrue(authoredGreek.seoDescription.contains("Δώδεκα"));
+        assertTrue(authoredGreek.highlightsJson.contains("Σταντ πάγκου"));
+
+        ProductFamilyTextEntity bearGreek = bear.texts.stream()
+                .filter(value -> value.language == Language.EL).findFirst().orElseThrow();
+        assertTrue(bearGreek.name.contains("40 cm"));
+        assertTrue(bearGreek.description.contains("ENROSED"));
+        assertTrue(bearGreek.highlightsJson.contains("χρωματική αντίθεση"));
+
+        backfill.apply();
+        entities.flush();
+        assertEquals(1, display.texts.stream().filter(value -> value.language == Language.EL).count());
+        assertEquals(1, bear.texts.stream().filter(value -> value.language == Language.EL).count());
     }
 
     private ProductFamilyEntity family(String key) {
