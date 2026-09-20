@@ -12,6 +12,7 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.BusinessRuleException;
+import be.enrosed.shared.ColourSwatches;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
@@ -709,7 +710,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         .thenComparing(Product::id, Comparator.nullsLast(Long::compareTo)))
                 .map(product -> new BrochureVariant(
                         product.sku(), product.nameIn(language), product.colourIn(language),
-                        product.variantSizeIn(language), product.colourHex(),
+                        product.variantSizeIn(language),
+                        ColourSwatches.orDefault(product.colourHex(), product.colour()),
                         compactDimensions(product.dimensions()),
                         product.carton() == null ? "" : compactDimensions(product.carton().dimensions()),
                         product.carton() == null ? 0 : product.carton().piecesPerCarton(),
@@ -748,7 +750,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         Set<String> seen = new LinkedHashSet<>();
         for (Product product : variants) {
             String name = product.colourIn(language);
-            String hex = product.colourHex();
+            String hex = ColourSwatches.orDefault(product.colourHex(), product.colour());
             if (!present(name) && !present(hex)) continue;
             String key = (present(hex) ? hex.toLowerCase(Locale.ROOT) : "") + "|" + (present(name) ? name.strip().toLowerCase(Locale.ROOT) : "");
             if (seen.add(key)) colours.add(new ColourDot(present(hex) ? hex : null, present(name) ? name.strip() : ""));

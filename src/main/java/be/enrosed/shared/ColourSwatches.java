@@ -8,7 +8,7 @@ import java.util.Map;
  * A product sold as "Rood" should never trip "swatch missing" on the
  * website: the name already says what the dot looks like. The seller can
  * still pick an exact sample on the product; this only fills the blank.
- * Keys are the Dutch names of the colour pick-list.
+ * Keys are the Dutch colour pick-list names and supported catalogue aliases.
  */
 public final class ColourSwatches {
 
@@ -26,6 +26,8 @@ public final class ColourSwatches {
             Map.entry("Oranje", "#EF8A2F"),
             Map.entry("Groen", "#3E7D4F"),
             Map.entry("Blauw", "#2F5D9E"),
+            Map.entry("Marineblauw", "#243253"),
+            Map.entry("Navy", "#243253"),
             Map.entry("Paars", "#6E3C9A"),
             Map.entry("Lila", "#B69AD6"),
             Map.entry("Zwart", "#1A1614"),

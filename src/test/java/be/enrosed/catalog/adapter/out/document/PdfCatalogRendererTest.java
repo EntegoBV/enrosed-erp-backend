@@ -158,6 +158,66 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void brochureResolvesNavySwatchesBeforeTranslatingColourLabels() {
+        String html = renderer.renderHtml(colourSwatchModel("Navy", "Marineblauw", null));
+
+        assertBrochureColourSwatch(html, "Marineblauw", "#243253");
+        assertFalse(html.contains("class=\"dot dot--none\""),
+                "a known canonical colour must not become an unspecified dot after translation");
+    }
+
+    @Test
+    void brochureKeepsAnExplicitSwatchInsteadOfTheStandardColourDefault() {
+        String html = renderer.renderHtml(colourSwatchModel("Navy", "Marineblauw", "#123456"));
+
+        assertBrochureColourSwatch(html, "Marineblauw", "#123456");
+        assertFalse(html.contains("style=\"background:#243253\""),
+                "a seller's exact colour sample wins over the standard navy shade");
+    }
+
+    @Test
+    void brochureLeavesUnknownColoursUnspecifiedRatherThanInventingASwatch() {
+        String html = renderer.renderHtml(colourSwatchModel("Custom finish", "Eigen afwerking", null));
+        String overview = overviewPageFragments(html).getFirst();
+        String detail = sectionFragment(html, "<section id=\"family-01\"");
+
+        assertEquals(1, occurrences(overview, "class=\"dot dot--none\""));
+        assertTrue(overview.contains("Eigen afwerking"));
+        assertTrue(detail.contains("<span class=\"dot dot--none\"></span><span class=\"name\">Eigen afwerking</span>"));
+        assertTrue(detail.contains("<td>Eigen afwerking · Small</td>"),
+                "an unknown variant still has its name but no fabricated colour sample");
+        assertFalse(html.contains("style=\"background:#243253\""));
+    }
+
+    private static void assertBrochureColourSwatch(String html, String label, String hex) {
+        String overview = overviewPageFragments(html).getFirst();
+        String detail = sectionFragment(html, "<section id=\"family-01\"");
+        String dot = "<span class=\"dot\" style=\"background:" + hex + "\"></span>";
+
+        assertTrue(overview.contains(dot), "the range overview shows the resolved colour dot");
+        assertTrue(overview.contains(label), "the overview retains the translated colour label");
+        assertTrue(detail.contains(dot + "<span class=\"name\">" + label + "</span>"),
+                "the family header pairs the resolved dot with its translated label");
+        assertTrue(detail.contains("<span class=\"swatch\" style=\"background:" + hex + "\"></span>" + label),
+                "the variant table shows the same resolved colour as the overview and header");
+    }
+
+    private static CatalogExportService.Model colourSwatchModel(
+            String canonicalColour, String dutchColour, String colourHex) {
+        CatalogExportService.Model source = model(2, CatalogExportService.Layout.BROCHURE);
+        CatalogExportService.FamilyGroup family = source.families().getFirst();
+        Product first = family.variants().getFirst()
+                .withVariantAttributes(canonicalColour, "Small", colourHex)
+                .withTexts(List.of(new ProductText(Language.NL, null, null, dutchColour)));
+        List<Product> variants = List.of(first, family.variants().get(1));
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                null, false, false, 0, null, null, "nl", source.request().layout(), source.request().brochure());
+        return new CatalogExportService.Model(variants, source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        family.content(), variants, family.category(), family.synthetic())), request);
+    }
+
+    @Test
     void rangePagesNeverStrandAChapterHeadingAtTheirFoot() {
         List<List<int[]>> pages = PdfCatalogRenderer.overviewSlots(List.of(17, 1, 3, 20));
         assertEquals(List.of(12, 12, 12, 9), pages.stream().map(List::size).toList());
