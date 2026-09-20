@@ -47,7 +47,7 @@ public class WebsiteVisitService {
     private static final Duration ACTIVE_WINDOW = Duration.ofMinutes(30);
     private static final Pattern VISITOR = Pattern.compile("^[a-f0-9]{16,64}$");
     private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");
-    private static final Set<String> SITE_LOCALES = Set.of("nl", "fr", "de", "es", "pl", "pt", "tr");
+    private static final Set<String> SITE_LOCALES = Set.of("nl", "fr", "de", "es", "pl", "pt", "tr", "el");
     private static final Set<String> DEVICES = Set.of("MOBILE", "TABLET", "DESKTOP");
 
     /**
