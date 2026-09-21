@@ -96,14 +96,32 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.content = content;
     }
 
-    /** One compact, SKU-level card. */
+    /** One complete SKU-level row in the compact catalogue. */
     public record Item(String sku, String name, String size, String colour, String variantSize,
                        String barcodeInner, String barcodeOuter,
-                       int piecesPerCarton, String cartonSize,
+                       int piecesPerCarton, String cartonSize, String hsCode, Integer piecesPer20Ft,
                        String priceLabel, boolean inventoryKnown, Integer stockQuantity,
-                       PhotoLayout photos) {}
+                       PhotoLayout photos, boolean photosRequested) {
+        /** Keep every selected image in source order without a clipped mosaic or extra strip. */
+        public List<List<String>> photoRows() {
+            List<String> images = new ArrayList<>();
+            for (PhotoRow row : photos.rows()) {
+                for (PhotoTile tile : row.tiles()) images.add(tile.image());
+            }
+            images.addAll(photos.extras());
+            List<List<String>> rows = new ArrayList<>();
+            for (int index = 0; index < images.size(); index += 2) {
+                rows.add(List.copyOf(images.subList(index, Math.min(index + 2, images.size()))));
+            }
+            return List.copyOf(rows);
+        }
+    }
 
-    public record Section(String number, String name, String description, List<List<Item>> rows) {}
+    public record Section(String number, String name, String description, List<List<Item>> rows) {
+        public List<Item> items() {
+            return rows.stream().flatMap(List::stream).toList();
+        }
+    }
 
     public record BrochureVariant(
             String sku, String name, String colour, String size, String colourHex,
@@ -621,12 +639,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                 product.carton() == null || product.carton().dimensions() == null
                         ? "" : dimensionLabel(product.carton().dimensions()),
+                product.hsCode(), product.carton() == null ? null : product.carton().piecesPer20Ft(),
                 request.includePrices()
                         ? defaultText(priceLabel(product, language),
                                 copy(copy, "catalog.brochure.overview.priceonrequest"))
                         : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
-                photos.simpleLayout(imageRefs));
+                photos.simpleLayout(imageRefs), allowed > 0);
     }
 
     private FamilyRenderData brochureFamily(
@@ -1496,12 +1515,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
 
         private String simple(PhotoRef ref, int count, int index) {
-            if (count == 1) return contained(ref, "simple-one", 4, 3, 1_000);
-            if (count == 2) return contained(ref, "simple-two", 2, 3, 900);
-            if (count == 3) return contained(ref,
-                    index == 0 ? "simple-three-lead" : "simple-three-stack", 7, 8, 900);
-            return contained(ref, index < 4 ? "simple-grid" : "simple-extra",
-                    index < 4 ? 4 : 3, index < 4 ? 3 : 2, index < 4 ? 800 : 600);
+            return contained(ref, "simple-row", 4, 3, 1_000);
         }
 
         /* Specification pages show the whole product: fitted, never cropped. */

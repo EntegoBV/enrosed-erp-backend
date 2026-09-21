@@ -913,6 +913,7 @@ public class ProductService {
                         beforeCarton.dimensions().label(), afterCarton.dimensions().label())
                 .add("cartonWeight", "Kartongewicht", beforeCarton.weightKg(), afterCarton.weightKg())
                 .add("piecesPerHc", "Stuks per 40' HC", beforeCarton.piecesPerHc(), afterCarton.piecesPerHc())
+                .add("piecesPer20Ft", "Stuks per 20ft GP", beforeCarton.piecesPer20Ft(), afterCarton.piecesPer20Ft())
                 .add("exwPrice", "EXW-prijs", before.exwPrice(), after.exwPrice())
                 .add("exwCurrency", "EXW-valuta", before.exwCurrency(), after.exwCurrency())
                 .add("extraUnitCost", "Extra kost per stuk",

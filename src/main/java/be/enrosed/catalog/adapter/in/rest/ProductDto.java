@@ -3,9 +3,15 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.domain.*;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.Language;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Product as it goes over the wire.
@@ -71,12 +77,90 @@ public record ProductDto(
     public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {}
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
-    public record CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
-                            Integer piecesPerCarton, BigDecimal weightKg,
-                            /** Hand-counted pieces per 40' HC; null = derived. */
-                            Integer piecesPerHc,
-                            /** What fits a 40' HC: the hand count, or full cartons by volume. */
-                            Integer hcCapacity) {}
+    public static final class CartonDto {
+        public final BigDecimal lengthCm;
+        public final BigDecimal widthCm;
+        public final BigDecimal heightCm;
+        public final Integer piecesPerCarton;
+        public final BigDecimal weightKg;
+        /** Hand-counted pieces per 40' HC; null = derived. */
+        public final Integer piecesPerHc;
+        /** What fits a 40' HC: the hand count, or full cartons by volume. */
+        public final Integer hcCapacity;
+        private Integer piecesPer20Ft;
+        private boolean piecesPer20FtProvided;
+
+        /** Missing new properties in older clients must not clear existing manual capacity. */
+        @JsonCreator
+        public CartonDto(@JsonProperty("lengthCm") BigDecimal lengthCm,
+                         @JsonProperty("widthCm") BigDecimal widthCm,
+                         @JsonProperty("heightCm") BigDecimal heightCm,
+                         @JsonProperty("piecesPerCarton") Integer piecesPerCarton,
+                         @JsonProperty("weightKg") BigDecimal weightKg,
+                         @JsonProperty("piecesPerHc") Integer piecesPerHc,
+                         @JsonProperty("hcCapacity") Integer hcCapacity) {
+            this.lengthCm = lengthCm;
+            this.widthCm = widthCm;
+            this.heightCm = heightCm;
+            this.piecesPerCarton = piecesPerCarton;
+            this.weightKg = weightKg;
+            this.piecesPerHc = piecesPerHc;
+            this.hcCapacity = hcCapacity;
+        }
+
+        public CartonDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm,
+                         Integer piecesPerCarton, BigDecimal weightKg, Integer piecesPerHc,
+                         Integer hcCapacity, Integer piecesPer20Ft) {
+            this(lengthCm, widthCm, heightCm, piecesPerCarton, weightKg, piecesPerHc, hcCapacity);
+            this.piecesPer20Ft = piecesPer20Ft;
+            this.piecesPer20FtProvided = true;
+        }
+
+        public BigDecimal lengthCm() { return lengthCm; }
+        public BigDecimal widthCm() { return widthCm; }
+        public BigDecimal heightCm() { return heightCm; }
+        public Integer piecesPerCarton() { return piecesPerCarton; }
+        public BigDecimal weightKg() { return weightKg; }
+        public Integer piecesPerHc() { return piecesPerHc; }
+        public Integer hcCapacity() { return hcCapacity; }
+
+        @JsonProperty("piecesPer20Ft")
+        public Integer piecesPer20Ft() { return piecesPer20Ft; }
+
+        /** Explicit null clears the manual value; an omitted property preserves it. */
+        @JsonSetter("piecesPer20Ft")
+        public void setPiecesPer20Ft(JsonNode value) {
+            if (value != null && !value.isNull()
+                    && (!value.isIntegralNumber() || !value.canConvertToInt())) {
+                throw new IllegalArgumentException("Stuks per 20ft GP moet een geheel getal zijn");
+            }
+            piecesPer20Ft = value == null || value.isNull() ? null : value.intValue();
+            piecesPer20FtProvided = true;
+        }
+
+        @JsonIgnore
+        public boolean piecesPer20FtProvided() { return piecesPer20FtProvided; }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof CartonDto box)) return false;
+            return Objects.equals(lengthCm, box.lengthCm)
+                    && Objects.equals(widthCm, box.widthCm)
+                    && Objects.equals(heightCm, box.heightCm)
+                    && Objects.equals(piecesPerCarton, box.piecesPerCarton)
+                    && Objects.equals(weightKg, box.weightKg)
+                    && Objects.equals(piecesPerHc, box.piecesPerHc)
+                    && Objects.equals(hcCapacity, box.hcCapacity)
+                    && Objects.equals(piecesPer20Ft, box.piecesPer20Ft);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(lengthCm, widthCm, heightCm, piecesPerCarton,
+                    weightKg, piecesPerHc, hcCapacity, piecesPer20Ft);
+        }
+    }
 
     public record TextDto(
             Language language, String name, String description, String colour, String variantSize) {
@@ -141,7 +225,8 @@ public record ProductDto(
                 product.publicationState(CatalogChannel.ORDER_APP),
                 codes.inner(), codes.outer(), product.hsCode(),
                 new CartonDto(cartonSize.lengthCm(), cartonSize.widthCm(), cartonSize.heightCm(),
-                        carton.piecesPerCarton(), carton.weightKg(), carton.piecesPerHc(), carton.hcCapacity()),
+                        carton.piecesPerCarton(), carton.weightKg(), carton.piecesPerHc(),
+                        carton.hcCapacity(), carton.piecesPer20Ft()),
                 product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
                 product.landedCostEur(), product.landedCostSource(),
                 product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
@@ -151,6 +236,10 @@ public record ProductDto(
     }
 
     public Product toDomain(Long id) {
+        return toDomain(id, null);
+    }
+
+    private Product toDomain(Long id, Integer preservedPiecesPer20Ft) {
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
@@ -178,7 +267,8 @@ public record ProductDto(
                 new Barcodes(barcodeInner, barcodeOuter), hsCode,
                 new Carton(new Dimensions(box.lengthCm(), box.widthCm(), box.heightCm()),
                         box.piecesPerCarton() == null ? 1 : box.piecesPerCarton(), box.weightKg(),
-                        box.piecesPerHc()),
+                        box.piecesPerHc(), box.piecesPer20FtProvided()
+                                ? box.piecesPer20Ft() : preservedPiecesPer20Ft),
                 exwPrice, exwCurrency == null ? Currency.USD : exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource,
                 markupPct, fixedSalesPriceEur,
@@ -194,7 +284,8 @@ public record ProductDto(
 
     /** Preserves fields that older full-PUT clients could not send yet. */
     public Product toDomainForUpdate(Product current) {
-        Product changes = toDomain(current.id());
+        Product changes = toDomain(current.id(), current.carton() == null
+                ? null : current.carton().piecesPer20Ft());
         if (inventoryKnown == null) {
             changes = changes.withCanonicalIdentity(
                     changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),

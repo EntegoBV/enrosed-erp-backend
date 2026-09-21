@@ -6,61 +6,76 @@
   <style>
     @page {
       size: A4;
-      margin: 13mm 10mm 15mm;
-      @bottom-left { content: "ENROSED · {copy['catalog.brand.wholesale']}"; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6pt; letter-spacing: 1.2px; color: #9b8461; }
-      @bottom-right { content: counter(page) " / " counter(pages); font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 6pt; color: #9b8461; }
+      margin: 19mm 12mm 21mm;
+      @top-center { content: element(catalog-header); }
+      @bottom-center { content: element(catalog-footer); }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #241815; background: #fbf8f3; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; }
-    .masthead { margin: -13mm -10mm 8mm; padding: 12mm 10mm 8mm; color: #f4ece4; background: #552137; border-bottom: 1px solid #ba9b63; }
-    .masthead table { width: 100%; border-collapse: collapse; }
-    .masthead td { vertical-align: bottom; }
-    .logo { height: 29px; max-width: 160px; }
-    h1 { margin: 7px 0 0; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 27pt; font-weight: 600; line-height: .92; }
-    .eyebrow { color: #ba9b63; font-size: 6.3pt; font-weight: 600; letter-spacing: 2.1px; text-transform: uppercase; }
-    .meta { text-align: right; color: #cdbfb4; font-size: 6.5pt; line-height: 1.55; }
-    .meta strong { color: #f4ece4; font-weight: 500; }
-    .intro { margin: 0 0 6mm; padding: 4mm 5mm; color: #594840; background: #f4ece4; border-left: 2px solid #ba9b63; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12pt; line-height: 1.25; }
-    .chapter { margin: 7mm 0 2mm; page-break-after: avoid; }
-    .chapter table { width: 100%; border-collapse: collapse; }
-    .chapter .number { width: 12mm; color: #ba9b63; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 23pt; font-weight: 600; vertical-align: bottom; }
-    .chapter h2 { margin: 0; color: #552137; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 17pt; font-weight: 600; line-height: 1; }
-    .chapter .desc { max-width: 150mm; margin-top: 1mm; color: #6b5a51; font-size: 7pt; line-height: 1.35; }
-    .rule { height: 1px; margin-top: 2mm; background: #ba9b63; }
-    table.grid { width: 100%; border-collapse: separate; border-spacing: 3.2mm 3.2mm; margin: 0 -3.2mm; }
-    td.cell { width: 33.333%; padding: 0; vertical-align: top; background: #fff; border: 1px solid #dfd3c5; page-break-inside: avoid; }
-    td.empty { border: 0; background: transparent; }
-    .media { height: 42mm; overflow: hidden; background: #f8f4ee; border-bottom: 1px solid #eadfd4; text-align: center; }
-    .media table { width: 100%; height: 42mm; border-collapse: collapse; table-layout: fixed; }
-    .media--one tr, .media--two tr { height: 42mm; }
-    .media--three tr, .media--four-plus tr { height: 21mm; }
-    .media td { padding: 0; overflow: hidden; vertical-align: middle; text-align: center; border-right: 1px solid #eadfd4; border-bottom: 1px solid #eadfd4; }
-    .media .tile--single { width: 100%; }
-    .media .tile--half, .media .tile--quarter { width: 50%; }
-    .media .tile--lead { width: 66%; }
-    .media .tile--stack { width: 34%; }
-    .media img { display: block; width: 100%; height: auto; margin: 0; }
-    .strip { height: 9mm; padding: 1mm 2mm; white-space: nowrap; border-bottom: 1px solid #eadfd4; }
-    .strip img { width: auto; height: 7mm; max-width: 10mm; margin-right: 1mm; border: 1px solid #eadfd4; }
-    .noimage { padding-top: 19mm; color: #b4a394; font-size: 6pt; letter-spacing: 1px; text-transform: uppercase; }
-    .body { padding: 3mm 3.2mm 3.5mm; }
-    .sku { color: #a18455; font-size: 6.5pt; font-weight: 600; letter-spacing: 1.1px; text-transform: uppercase; }
-    .name { min-height: 8mm; margin: .8mm 0 1mm; color: #241815; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11.5pt; font-weight: 600; line-height: 1.05; }
-    .spec { color: #594840; font-size: 7pt; line-height: 1.45; }
-    .spec strong { color: #241815; font-weight: 500; }
-    .barcode { margin-top: 1mm; color: #938075; font-family: "DejaVu Sans"; font-size: 6.3pt; }
-    .price { margin-top: 2mm; padding-top: 2mm; color: #552137; border-top: 1px solid #ba9b63; font-size: 9.2pt; font-weight: 600; }
-    .price small { color: #8c776c; font-size: 6.3pt; font-weight: 400; }
-    .nostock { margin-top: 1mm; color: #9e582e; font-size: 5.4pt; }
-    .foot { margin-top: 6mm; padding-top: 3mm; color: #8c776c; border-top: 1px solid #d8c8b7; font-size: 6pt; line-height: 1.45; }
+    body { margin: 0; color: #30242a; background: #fff; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8.5pt; line-height: 1.35; }
+    table { border-collapse: collapse; }
+    td { vertical-align: top; word-wrap: break-word; }
+    .running-header { position: running(catalog-header); width: 100%; border-bottom: .25mm solid #c8ac78; padding-bottom: 2mm; color: #725b62; font-size: 7.5pt; }
+    .running-header table, .running-footer table { width: 100%; table-layout: fixed; }
+    .running-brand { width: 29mm; color: #59172d; font-weight: 600; letter-spacing: 1.2px; }
+    .running-title { text-align: right; }
+    .running-footer { position: running(catalog-footer); width: 100%; border-top: .2mm solid #d8c8bb; padding-top: 2mm; color: #7d6a6c; font-size: 6.7pt; line-height: 1.35; }
+    .footer-note { margin-bottom: 1mm; }
+    .footer-page { width: 22mm; text-align: right; color: #59172d; }
+    .page-number:before { content: counter(page); }
+    .page-total:before { content: counter(pages); }
+    .masthead { margin: 0 0 5mm; padding: 5mm 6mm; color: #fffaf3; background: #4b1024; border-bottom: .5mm solid #bea16a; }
+    .masthead table { width: 100%; table-layout: fixed; }
+    .masthead .heading { padding-right: 5mm; }
+    .logo { width: 39mm; height: auto; }
+    h1 { margin: 3mm 0 2mm; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 25pt; font-weight: 600; line-height: 1.06; word-wrap: break-word; }
+    .eyebrow { color: #e1c590; font-size: 7.5pt; letter-spacing: .8px; }
+    .meta { width: 62mm; padding-top: 1mm; text-align: right; color: #eee3dc; font-size: 7.5pt; line-height: 1.5; }
+    .meta strong { color: #fff; font-weight: 600; }
+    .intro { margin: 0 0 5mm; padding: 2mm 0 2mm 4mm; color: #59454d; border-left: .5mm solid #bea16a; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12pt; line-height: 1.3; word-wrap: break-word; }
+    /* Retry the complete product on the next page; td-only avoidance cannot do that. */
+    .product-block { page-break-inside: avoid; margin-bottom: 2.2mm; }
+    /* Keep the heading with just the first product, never the whole category. */
+    .chapter { padding: 3mm 0 2.2mm; page-break-after: avoid; }
+    .chapter table { width: 100%; table-layout: fixed; }
+    .chapter .number { width: 12mm; color: #ad8952; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 22pt; line-height: 1; }
+    .chapter h2 { margin: 0; color: #59172d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 18pt; font-weight: 600; line-height: 1.1; word-wrap: break-word; }
+    .chapter .description { margin-top: 1mm; color: #756168; font-size: 8pt; line-height: 1.35; }
+    .product-row { width: 100%; table-layout: fixed; border-top: .35mm solid #a88051; border-bottom: .2mm solid #e5d9d2; }
+    .product-row > tbody > tr { page-break-inside: avoid; }
+    .product-row > tbody > tr > td { padding: 3mm; }
+    .product-row .visual { width: 38mm; padding: 2mm 2mm 2mm 0; vertical-align: middle; }
+    .photo-grid { width: 100%; table-layout: fixed; }
+    .photo-grid td { padding: .5mm; text-align: center; vertical-align: middle; }
+    .photo-grid.multiple td { width: 50%; }
+    .photo-grid img { display: block; width: 100%; height: auto; }
+    .image-unavailable { padding: 4mm 1mm; color: #9d898d; font-size: 7.5pt; text-align: center; }
+    .identity { padding-left: 1mm; }
+    .name { margin: 0 0 1.4mm; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 14pt; font-weight: 600; line-height: 1.12; word-wrap: break-word; }
+    .sku { color: #6e585d; font-size: 7.7pt; line-height: 1.3; word-wrap: break-word; }
+    .option { margin-top: 2mm; color: #382a30; font-size: 9pt; font-weight: 500; }
+    .dimensions { margin-top: 1mm; color: #725e64; font-size: 8pt; }
+    .facts { width: 64mm; background: #f6f1ed; color: #524047; font-size: 8pt; line-height: 1.4; }
+    .fact { margin-bottom: .6mm; word-wrap: break-word; }
+    .fact-label { color: #826b72; font-size: 7.5pt; }
+    .fact strong { font-weight: 500; }
+    .price { margin-top: 2mm; padding-top: 1.4mm; border-top: .2mm solid #d6c2af; color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
+    .price small { font-size: 7.5pt; font-weight: 400; color: #725b63; }
+    .nostock { margin-top: 1.5mm; color: #9a552f; font-size: 7.5pt; }
     html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
     html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
+    html[lang="el"] .name { font-size: 11pt; }
   </style>
 </head>
 <body>
+<div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title} · {itemCountLabel}</td></tr></table></div>
+<div class="running-footer">
+  <div class="footer-note">{copy['catalog.simple.footer']}</div>
+  <table><tr><td>ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
+</div>
+
 <div class="masthead">
   <table><tr>
-    <td>
+    <td class="heading">
       {#if logo}<img class="logo" src="{logo}" alt="{company.name}"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
       <h1>{title}</h1>
       <div class="eyebrow">{todayText} · {itemCountLabel}</div>
@@ -69,7 +84,7 @@
       <strong>{company.name}</strong><br/>
       {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
       {#if company.vatNumber}{copy['catalog.simple.vatnumber']} {company.vatNumber}<br/>{/if}
-      {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}
+      {#if company.email}{company.email}{/if}{#if company.phone}<br/>{company.phone}{/if}
       {#if company.website}<br/>{company.website}{/if}
     </td>
   </tr></table>
@@ -78,44 +93,44 @@
 {#if intro}<div class="intro">{intro}</div>{/if}
 
 {#for section in sections}
-  {#if section.name}
-    <div class="chapter">
-      <table><tr><td class="number">{section.number}</td><td>
-        <h2>{section.name}</h2>
-        {#if section.description}<div class="desc">{section.description}</div>{/if}
-      </td></tr></table>
-      <div class="rule"></div>
-    </div>
-  {/if}
-  <table class="grid">
-    {#for row in section.rows}
-      <tr>
-      {#for it in row}
-        <td class="cell">
-          {#if it.photos.present}
-            <div class="media media--{it.photos.kind}"><table>{#for photoRow in it.photos.rows}<tr>{#for tile in photoRow.tiles}<td class="tile--{tile.cssClass}" rowspan="{tile.rowSpan}"><img src="{tile.image}" alt="{it.name}"/></td>{/for}</tr>{/for}</table></div>
-            {#if it.photos.extras.size > 0}<div class="strip">{#for extra in it.photos.extras}<img src="{extra}" alt=""/>{/for}</div>{/if}
-          {#else}<div class="media"><div class="noimage">{copy['catalog.common.imageunavailable']}</div></div>{/if}
-          <div class="body">
-            <div class="sku">{it.sku}</div>
-            <div class="name">{it.name}</div>
-            <div class="spec">
-              {#if it.size}<strong>{it.size}</strong>{/if}{#if it.colour} · {it.colour}{/if}{#if it.variantSize} · {it.variantSize}{/if}<br/>
-              {it.piecesPerCarton} {copy['catalog.simple.perbox']}{#if it.cartonSize} · {copy['catalog.common.carton']} {it.cartonSize}{/if}
-            </div>
-            {#if it.barcodeInner || it.barcodeOuter}<div class="barcode">{#if it.barcodeInner}{it.barcodeInner}{/if}{#if it.barcodeOuter} · {it.barcodeOuter}{/if}</div>{/if}
-            {#if it.priceLabel}<div class="price">{it.priceLabel} <small>{copy['catalog.simple.perpiece']}</small></div>{/if}
-            {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}{/if}
-          </div>
+  {#for it in section.items}
+    <div class="product-block">
+      {#if it_index == 0 && section.name}
+        <div class="chapter">
+          <table><tr><td class="number">{section.number}</td><td>
+            <h2>{section.name}</h2>
+            {#if section.description}<div class="description">{section.description}</div>{/if}
+          </td></tr></table>
+        </div>
+      {/if}
+      <table class="product-row"><tbody><tr>
+        {#if it.photosRequested}
+          <td class="visual">
+            {#if it.photos.present}
+              <table class="photo-grid{#if it.photos.count > 1} multiple{/if}">
+                {#for photoRow in it.photoRows}<tr>{#for photo in photoRow}<td><img src="{photo}" alt="{it.name}"/></td>{/for}{#if it.photos.count > 1 && photoRow.size == 1}<td></td>{/if}</tr>{/for}
+              </table>
+            {#else}<div class="image-unavailable">{copy['catalog.common.imageunavailable']}</div>{/if}
+          </td>
+        {/if}
+        <td class="identity">
+          <h3 class="name">{it.name}</h3>
+          <div class="sku">SKU · {it.sku}</div>
+          {#if it.colour || it.variantSize}<div class="option">{#if it.colour}{it.colour}{/if}{#if it.colour && it.variantSize} · {/if}{#if it.variantSize}{it.variantSize}{/if}</div>{/if}
+          {#if it.size}<div class="dimensions">{copy['catalog.spec.productsize']} · {it.size}</div>{/if}
+          {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}{/if}
         </td>
-      {/for}
-      {#if row.size == 1}<td class="cell empty"></td><td class="cell empty"></td>{/if}
-      {#if row.size == 2}<td class="cell empty"></td>{/if}
-      </tr>
-    {/for}
-  </table>
+        <td class="facts">
+          <div class="fact"><span class="fact-label">{copy['catalog.common.carton']}</span><br/><strong>{it.piecesPerCarton} {copy['catalog.simple.perbox']}</strong>{#if it.cartonSize} · {it.cartonSize}{/if}</div>
+          {#if it.barcodeInner}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.product']}</span> {it.barcodeInner}</div>{/if}
+          {#if it.barcodeOuter}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.carton']}</span> {it.barcodeOuter}</div>{/if}
+          <div class="fact"><span class="fact-label">{copy['catalog.spec.hscode']}</span> {#if it.hsCode}{it.hsCode}{#else}-{/if}</div>
+          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.piecesPer20Ft != null && it.piecesPer20Ft > 0}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}</div>
+          {#if it.priceLabel}<div class="price">{it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}</div>{/if}
+        </td>
+      </tr></tbody></table>
+    </div>
+  {/for}
 {/for}
-
-<div class="foot">{copy['catalog.simple.footer']}</div>
 </body>
 </html>

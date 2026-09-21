@@ -65,7 +65,8 @@ final class CatalogMapper {
                 new Barcodes(entity.barcodeInner, entity.barcodeOuter),
                 entity.hsCode,
                 new Carton(new Dimensions(entity.cartonLengthCm, entity.cartonWidthCm, entity.cartonHeightCm),
-                        entity.piecesPerCarton, entity.cartonWeightKg, entity.piecesPerHc),
+                        entity.piecesPerCarton, entity.cartonWeightKg,
+                        entity.piecesPerHc, entity.piecesPer20Ft),
                 entity.exwPrice,
                 entity.exwCurrency,
                 entity.extraUnitCost,
@@ -139,6 +140,7 @@ final class CatalogMapper {
         entity.piecesPerCarton = carton.piecesPerCarton();
         entity.cartonWeightKg = carton.weightKg();
         entity.piecesPerHc = carton.piecesPerHc();
+        entity.piecesPer20Ft = carton.piecesPer20Ft();
 
         entity.exwPrice = product.exwPrice();
         entity.exwCurrency = product.exwCurrency();

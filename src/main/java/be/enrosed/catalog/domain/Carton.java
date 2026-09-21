@@ -6,11 +6,19 @@ import java.math.RoundingMode;
 /** De omdoos: afmeting, inhoud en gewicht. */
 public record Carton(Dimensions dimensions, int piecesPerCarton, BigDecimal weightKg,
                      /** Hand-counted pieces per 40' HC; null = derive from the carton size. */
-                     Integer piecesPerHc) {
+                     Integer piecesPerHc,
+                     /** Manually confirmed product units per 20ft GP; null = unknown. */
+                     Integer piecesPer20Ft) {
+
+    /** Compatibility for callers written before the independent 20ft count existed. */
+    public Carton(Dimensions dimensions, int piecesPerCarton, BigDecimal weightKg,
+                  Integer piecesPerHc) {
+        this(dimensions, piecesPerCarton, weightKg, piecesPerHc, null);
+    }
 
     /** Compatibility for callers written before the HC count existed. */
     public Carton(Dimensions dimensions, int piecesPerCarton, BigDecimal weightKg) {
-        this(dimensions, piecesPerCarton, weightKg, null);
+        this(dimensions, piecesPerCarton, weightKg, null, null);
     }
 
     public static Carton empty() {
