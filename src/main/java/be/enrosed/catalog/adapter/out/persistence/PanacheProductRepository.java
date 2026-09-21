@@ -69,6 +69,16 @@ public class PanacheProductRepository implements ProductRepository {
     }
 
     @Override
+    public Product savePhotos(Product product) {
+        ProductEntity entity = product.id() == null ? null : dao.findById(product.id());
+        if (entity == null) throw new be.enrosed.shared.NotFoundException("Product", product.id());
+        // Photo actions must not trim legacy text, infer swatches or rewrite commercial data.
+        CatalogMapper.applyPhotos(product, entity);
+        dao.flush();
+        return CatalogMapper.toDomain(entity);
+    }
+
+    @Override
     public Optional<Product> setStock(long productId, int quantity) {
         ProductEntity entity = dao.findById(productId);
         if (entity == null) return Optional.empty();

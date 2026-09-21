@@ -35,6 +35,13 @@ public interface ProductRepository {
     Optional<Product> findByPublicHandle(String publicHandle);
     Product save(Product product);
 
+    /** Persists only the photo series; product master data and translations stay untouched. */
+    default Product savePhotos(Product product) {
+        Product current = findById(product.id())
+                .orElseThrow(() -> new be.enrosed.shared.NotFoundException("Product", product.id()));
+        return save(current.withPhotos(product.photos()));
+    }
+
     /**
      * Changes stock as one storage operation.
      *

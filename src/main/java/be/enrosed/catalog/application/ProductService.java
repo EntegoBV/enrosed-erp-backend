@@ -974,7 +974,7 @@ public class ProductService {
                 stored.sizeBytes(), stored.widthPx(), stored.heightPx(), photos.size()));
         product.photos().stream().filter(Photo::inherited).forEach(photos::add);
 
-        Product saved = products.save(product.withPhotos(renumber(photos)));
+        Product saved = products.savePhotos(product.withPhotos(renumber(photos)));
         recordActivity(ActivityLogService.ACTION_PHOTO_ADDED, saved, "Productfoto toegevoegd",
                 ActivityChangeSet.create()
                         .add("photoCount", "Aantal productfoto's",
@@ -1030,7 +1030,7 @@ public class ProductService {
         photos.remove(target);
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
-        Product saved = products.save(updated);
+        Product saved = products.savePhotos(updated);
         if (saved.familyId() != null && families != null && publishedFamilyGallery != null
                 && publishedFamilyGallery.isResolvable()) {
             ProductFamilyEntity family = families.findById(saved.familyId());
@@ -1093,7 +1093,7 @@ public class ProductService {
         /* Family projections remain read-only and keep their canonical relative order. */
         photos.stream().filter(Photo::inherited).forEach(ordered::add);
 
-        Product saved = products.save(product.withPhotos(renumber(ordered)));
+        Product saved = products.savePhotos(product.withPhotos(renumber(ordered)));
         List<Long> previousOrder = productOwned.stream().map(Photo::id).toList();
         if (!previousOrder.equals(wanted)) {
             recordActivity(ActivityLogService.ACTION_PHOTO_REORDERED, saved,
@@ -1125,7 +1125,7 @@ public class ProductService {
             return roles.equals(photo.leadFor()) ? photo : photo.withLeadFor(roles);
         }).toList();
         if (photos.equals(product.photos())) return product;
-        Product saved = products.save(product.withPhotos(photos));
+        Product saved = products.savePhotos(product.withPhotos(photos));
         recordActivity(ActivityLogService.ACTION_PHOTO_REORDERED, saved,
                 (role == PhotoRole.WEBSITE ? "Websitefoto" : "Catalogusfoto") + (lead ? " gekozen" : " losgelaten"),
                 ActivityChangeSet.create()
