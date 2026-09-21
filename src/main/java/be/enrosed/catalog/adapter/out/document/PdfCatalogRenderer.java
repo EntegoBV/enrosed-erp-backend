@@ -1016,11 +1016,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private static String familyDimension(CatalogFamilyReader.Family family, Product first) {
-        if (family != null && family.dimensions() != null) {
+        if (family != null) {
             CatalogFamilyReader.Dimensions size = family.dimensions();
-            if (positive(size.width()) || positive(size.depth()) || positive(size.height())) {
-                return axisLabel(size.width(), size.depth(), size.height(), size.unit());
-            }
+            // A null shared size means incomplete or different ERP variant dimensions.
+            return size == null ? "" : axisLabel(size.width(), size.depth(), size.height(), size.unit());
         }
         return dimensionLabel(first.dimensions());
     }

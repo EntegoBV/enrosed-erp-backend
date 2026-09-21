@@ -40,7 +40,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Inserts missing canonical translations and corrects only exact known stale import values. */
+/** Inserts missing translations without overwriting the current ERP content. */
 @ApplicationScoped
 public class CatalogContentBackfillService {
 
@@ -125,9 +125,9 @@ public class CatalogContentBackfillService {
                     + " bestaat al met een andere inhoud; geef de nieuwe payload een nieuwe versie");
         }
         lockTargets(bundle);
-        /* Exact known-stale values are safe to correct on every replacement import; dashboard
-           edits differ from those source literals and are therefore still preserved. */
-        boolean correctKnownStale = true;
+        /* The import is retired. Existing values belong to the ERP, even when they
+           happen to equal an old import literal. Seeds only fill missing content. */
+        boolean correctKnownStale = false;
         Counter counter = new Counter();
 
         Map<String, CategoryEntity> categoriesByKey = new HashMap<>();

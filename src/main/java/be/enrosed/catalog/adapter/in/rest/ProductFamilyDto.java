@@ -2,6 +2,8 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
+import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.FamilyVariantRules;
 import be.enrosed.catalog.domain.CatalogChannel;
@@ -228,6 +230,10 @@ public record ProductFamilyDto(
     public static List<String> publicationIssues(
             ProductFamilyEntity family, List<ProductEntity> memberRows, ObjectMapper json) {
         List<ProductEntity> members = memberRows == null ? List.of() : memberRows;
+        FamilyPhotoVariantResolver photoVariants = new FamilyPhotoVariantResolver();
+        PublicFamilyPhotoProjection publicPhotos = new PublicFamilyPhotoProjection(
+                new FamilyPhotoPublicationPolicy(photoVariants, json), photoVariants,
+                new PublicProductNameResolver(), json);
         List<String> issues = new ArrayList<>();
         if (!family.active) issues.add("Productfamilie is niet actief");
         if (blank(family.familyKey)) issues.add("Familiecode ontbreekt");
@@ -249,16 +255,17 @@ public record ProductFamilyDto(
             if (blank(primary.collection.eyebrow)) issues.add("Collectie-eyebrow ontbreekt");
             if (blank(primary.collection.description)) issues.add("Collectiebeschrijving ontbreekt");
         }
-        if (family.photos.isEmpty()) issues.add("Minstens één foto is verplicht");
-        else if (family.photos.stream().noneMatch(photo -> publicPhoto(photo, members, json))) {
+        boolean hasPhoto = java.util.Arrays.stream(CatalogChannel.values())
+                .anyMatch(channel -> !publicPhotos.images(family, members, channel).isEmpty());
+        if (!hasPhoto) {
             issues.add("Minstens één publiceerbare foto met afmetingen, alt-tekst "
                     + "en actieve variantkoppeling is verplicht");
         }
-        channelPhotoIssue(issues, family, members, json, CatalogChannel.WEBSITE,
+        channelPhotoIssue(issues, family, members, publicPhotos, CatalogChannel.WEBSITE,
                 family.websiteStatus, "website");
-        channelPhotoIssue(issues, family, members, json, CatalogChannel.ORDER_APP,
+        channelPhotoIssue(issues, family, members, publicPhotos, CatalogChannel.ORDER_APP,
                 family.orderAppStatus, "orderApp");
-        channelPhotoIssue(issues, family, members, json, CatalogChannel.CATALOGUE,
+        channelPhotoIssue(issues, family, members, publicPhotos, CatalogChannel.CATALOGUE,
                 family.catalogueStatus, "catalog");
         if (members.stream().noneMatch(member -> member.active)) {
             issues.add("Minstens één actieve variant is verplicht");
@@ -279,49 +286,20 @@ public record ProductFamilyDto(
                     .findFirst().orElse(null);
             if (featured == null) {
                 issues.add("Uitgelicht kaartproduct is geen actieve familievariant");
-            } else if (family.photos.stream().noneMatch(photo ->
-                    photoForVariant(photo, featured, members, json))) {
+            } else if (publicPhotos.primary(family, featured, members, CatalogChannel.WEBSITE) == null) {
                 issues.add("Uitgelicht kaartproduct heeft geen eigen of familiebrede publieke foto");
             }
         }
         return List.copyOf(issues);
     }
 
-    private static boolean publicPhoto(
-            ProductFamilyPhotoEntity photo, List<ProductEntity> members, ObjectMapper json) {
-        if (!FamilyPhotoPublicationPolicy.hasPublicMetadata(photo, json)) return false;
-        if (FamilyPhotoPublicationPolicy.selectedChannels(photo, json).isEmpty()) return false;
-        ProductEntity resolved = FamilyPhotoVariantResolver.resolvePhoto(photo, members);
-        return FamilyPhotoVariantResolver.familyWide(photo)
-                || resolved != null && resolved.active;
-    }
-
-    private static boolean publicPhoto(
-            ProductFamilyPhotoEntity photo, List<ProductEntity> members, ObjectMapper json,
-            CatalogChannel channel) {
-        return FamilyPhotoPublicationPolicy.isSelectedFor(photo, channel, json)
-                && publicPhoto(photo, members, json);
-    }
-
     private static void channelPhotoIssue(
             List<String> issues, ProductFamilyEntity family, List<ProductEntity> members,
-            ObjectMapper json, CatalogChannel channel, PublicationState publicationState,
+            PublicFamilyPhotoProjection publicPhotos, CatalogChannel channel, PublicationState publicationState,
             String prefix) {
         if (state(publicationState) == PublicationState.DRAFT) return;
-        if (family.photos.stream().anyMatch(photo ->
-                publicPhoto(photo, members, json, channel))) return;
+        if (!publicPhotos.images(family, members, channel).isEmpty()) return;
         issues.add(prefix + ".Minstens één foto moet voor dit kanaal gepubliceerd zijn");
-    }
-
-    private static boolean photoForVariant(
-            ProductFamilyPhotoEntity photo, ProductEntity product,
-            List<ProductEntity> members, ObjectMapper json) {
-        if (!FamilyPhotoPublicationPolicy.hasPublicMetadata(photo, json)) return false;
-        if (FamilyPhotoPublicationPolicy.selectedChannels(photo, json).isEmpty()) return false;
-        if (FamilyPhotoVariantResolver.familyWide(photo)) return true;
-        ProductEntity resolved = FamilyPhotoVariantResolver.resolvePhoto(photo, members);
-        return resolved != null && resolved.active
-                && java.util.Objects.equals(resolved.id, product.id);
     }
 
     /** Compatibility check for callers that only know the member count. */

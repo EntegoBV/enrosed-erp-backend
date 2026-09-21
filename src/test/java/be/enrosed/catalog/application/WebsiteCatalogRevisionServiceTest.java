@@ -170,10 +170,6 @@ class WebsiteCatalogRevisionServiceTest {
         CanonicalCatalogDaos.Families families = mock(CanonicalCatalogDaos.Families.class);
         CatalogDaos.Products products = mock(CatalogDaos.Products.class);
         CatalogDaos.Categories categories = mock(CatalogDaos.Categories.class);
-        CanonicalCatalogDaos.PriceObservations prices = mock(
-                CanonicalCatalogDaos.PriceObservations.class);
-        CanonicalCatalogDaos.DimensionObservations dimensions = mock(
-                CanonicalCatalogDaos.DimensionObservations.class);
         CanonicalCatalogDaos.WebsiteHomepageLayouts homepageLayouts = mock(
                 CanonicalCatalogDaos.WebsiteHomepageLayouts.class);
         when(homepageLayouts.findById(1L)).thenReturn(homepage);
@@ -183,15 +179,14 @@ class WebsiteCatalogRevisionServiceTest {
         when(families.listAll()).thenReturn(List.of(graph.family()));
         when(products.list("familyId = ?1 order by variantPosition, canonicalVariantKey, sku",
                 graph.family().id)).thenReturn(List.of(graph.product()));
-        when(prices.list("productId = ?1 and publicPrice = true order by publicRole, context, id",
-                graph.product().id)).thenReturn(List.of());
-        when(dimensions.list("familyId = ?1 order by position, id", graph.family().id))
-                .thenReturn(List.of());
         ObjectMapper json = new ObjectMapper();
+        FamilyPhotoVariantResolver variants = new FamilyPhotoVariantResolver();
+        PublicProductNameResolver names = new PublicProductNameResolver();
+        PublicFamilyPhotoProjection photos = new PublicFamilyPhotoProjection(
+                new FamilyPhotoPublicationPolicy(variants, json), variants, names, json);
         return new WebsiteCatalogRevisionService(
-                content, families, products, categories, prices, dimensions,
-                homepageLayouts, new PublicProductNameResolver(),
-                new FamilyPhotoPublicationPolicy(new FamilyPhotoVariantResolver(), json), json);
+                content, families, products, categories,
+                homepageLayouts, names, photos, json);
     }
 
     private static Graph graph(

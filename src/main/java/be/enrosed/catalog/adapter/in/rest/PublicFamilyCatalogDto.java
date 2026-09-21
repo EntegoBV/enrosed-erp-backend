@@ -78,7 +78,7 @@ public record PublicFamilyCatalogDto(
             Integer piecesPerPackage,
             BigDecimal weight,
             String weightUnit,
-            String variantExternalId
+            Long variantProductId
     ) {}
 
     public record ImageDto(
@@ -106,7 +106,7 @@ public record PublicFamilyCatalogDto(
             String colorHex,
             String name,
             int position,
-            Object availability,
+            String availability,
             Long primaryImageId,
             PublicPriceDto publicPrice,
             Map<String, Language> textSources

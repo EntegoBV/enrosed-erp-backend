@@ -1,6 +1,6 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
-import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.domain.CatalogChannel;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +20,7 @@ class PanacheCatalogFamilyReaderTest {
     void projectsOnlyPhotosPublishedForTheCatalogueChannel() {
         CanonicalCatalogDaos.Families families = mock(CanonicalCatalogDaos.Families.class);
         CatalogDaos.Products products = mock(CatalogDaos.Products.class);
-        FamilyPhotoPublicationPolicy publication = mock(FamilyPhotoPublicationPolicy.class);
+        PublicFamilyPhotoProjection publicPhotos = mock(PublicFamilyPhotoProjection.class);
 
         ProductFamilyEntity family = new ProductFamilyEntity();
         family.id = 41L;
@@ -40,21 +40,18 @@ class PanacheCatalogFamilyReaderTest {
         when(products.list(
                 "familyId in ?1 order by familyId, variantPosition, id", Set.of(family.id)))
                 .thenReturn(members);
-        when(publication.isPublic(catalogue, members, CatalogChannel.CATALOGUE))
-                .thenReturn(true);
-        when(publication.isPublic(websiteOnly, members, CatalogChannel.CATALOGUE))
-                .thenReturn(false);
+        when(publicPhotos.images(family, members, CatalogChannel.CATALOGUE))
+                .thenReturn(List.of(catalogue));
 
         PanacheCatalogFamilyReader reader = new PanacheCatalogFamilyReader(
-                families, products, publication, new ObjectMapper());
+                families, products, publicPhotos, new ObjectMapper());
 
         List<CatalogFamilyReader.GalleryPhoto> photos = reader.findByIds(Set.of(family.id))
                 .getFirst().photos();
 
         assertEquals(List.of("catalogue-large"), photos.stream()
                 .map(CatalogFamilyReader.GalleryPhoto::storageKey).toList());
-        verify(publication).isPublic(catalogue, members, CatalogChannel.CATALOGUE);
-        verify(publication).isPublic(websiteOnly, members, CatalogChannel.CATALOGUE);
+        verify(publicPhotos).images(family, members, CatalogChannel.CATALOGUE);
     }
 
     private static ProductFamilyPhotoEntity photo(

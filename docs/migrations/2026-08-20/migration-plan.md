@@ -1,5 +1,10 @@
 # ENROSED canonical catalogue migration
 
+> Archived on 21 September 2026. This one-time import is retired: the extraction
+> and apply scripts were removed and the administrator endpoints return 410.
+> The ERP is the only source for current catalogue data. The evidence below is
+> historical and must not be reapplied to live products.
+
 This migration moves product master data into the ENROSED backend while keeping the
 operational product form focused on daily purchasing and sales. Public website,
 order-app and future catalogue content live on a product family; stock, colour and

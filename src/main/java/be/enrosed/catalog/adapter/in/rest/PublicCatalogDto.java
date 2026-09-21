@@ -24,6 +24,7 @@ public record PublicCatalogDto(
 
     public enum Availability {
         IN_STOCK,
+        OUT_OF_STOCK,
         AVAILABLE_ON_ORDER,
         UNKNOWN
     }
@@ -77,21 +78,29 @@ public record PublicCatalogDto(
     public static PublicProductDto product(
             Product product, Category category, Language language, String apiBaseUrl,
             String publicName) {
+        String base = apiBaseUrl.endsWith("/") ? apiBaseUrl : apiBaseUrl + "/";
+        // Direct callers have no family publication context. Never expose inherited images.
+        List<PhotoDto> photos = product.photosFor(be.enrosed.catalog.domain.PhotoRole.WEBSITE).stream()
+                .filter(photo -> !photo.inherited())
+                .map(photo -> new PhotoDto(
+                        photo.id(), photo.contentType(), photo.widthPx(), photo.heightPx(), photo.position(),
+                        base + "api/v1/public/catalog/products/" + product.id()
+                                + "/photos/" + photo.id()))
+                .toList();
+        return product(product, category, language, publicName, photos);
+    }
+
+    /** The adapter supplies the same authorized ERP image projection as the family catalogue. */
+    public static PublicProductDto product(
+            Product product, Category category, Language language, String publicName,
+            List<PhotoDto> photos) {
         Dimensions size = product.dimensions() == null ? Dimensions.empty() : product.dimensions();
         Carton carton = product.carton() == null ? Carton.empty() : product.carton();
         Dimensions box = carton.dimensions() == null ? Dimensions.empty() : carton.dimensions();
         CategoryDto publicCategory = category == null ? null
                 : new CategoryDto(category.id(), category.code(), category.name(),
                         category.description(), category.mobileName(), category.featuredProductId());
-        String base = apiBaseUrl.endsWith("/") ? apiBaseUrl : apiBaseUrl + "/";
-
-        /* The website opens with the photo chosen for it; the rest keep their order. */
-        List<PhotoDto> photos = product.photosFor(be.enrosed.catalog.domain.PhotoRole.WEBSITE).stream()
-                .map(photo -> new PhotoDto(
-                        photo.id(), photo.contentType(), photo.widthPx(), photo.heightPx(), photo.position(),
-                        base + "api/v1/public/catalog/products/" + product.id()
-                                + "/photos/" + photo.id()))
-                .toList();
+        BigDecimal salesPrice = product.computedSalesPriceEur();
 
         return new PublicProductDto(
                 product.id(), product.sku(), product.familyKey(), product.publicHandle(),
@@ -99,10 +108,10 @@ public record PublicCatalogDto(
                 publicCategory,
                 new DimensionsDto(size.lengthCm(), size.widthCm(), size.heightCm()),
                 new CartonDto(box.lengthCm(), box.widthCm(), box.heightCm(), carton.piecesPerCarton()),
-                product.computedSalesPriceEur(),
+                salesPrice != null && salesPrice.signum() > 0 ? salesPrice : null,
                 !product.inventoryKnown() ? Availability.UNKNOWN
                         : product.stockQuantity() > 0
-                            ? Availability.IN_STOCK : Availability.AVAILABLE_ON_ORDER,
+                            ? Availability.IN_STOCK : Availability.OUT_OF_STOCK,
                 photos);
     }
 }

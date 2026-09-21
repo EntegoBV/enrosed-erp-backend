@@ -114,6 +114,8 @@ public class ProductService {
     Instance<ProductSupplierAgreementService> supplierAgreements;
     @Inject
     Instance<MediaService> mediaRegistry;
+    @Inject
+    Instance<PublishedFamilyGalleryGuard> publishedFamilyGallery;
 
     @Inject
     public ProductService(
@@ -1021,6 +1023,11 @@ public class ProductService {
         Product updated = product.withPhotos(renumber(photos));
         ensurePublishable(updated);
         Product saved = products.save(updated);
+        if (saved.familyId() != null && families != null && publishedFamilyGallery != null
+                && publishedFamilyGallery.isResolvable()) {
+            ProductFamilyEntity family = families.findById(saved.familyId());
+            if (family != null) publishedFamilyGallery.get().validate(family);
+        }
         unlinkLegacyMedia(MediaLegacySourceType.PRODUCT_PHOTO, photoId);
         recordActivity(ActivityLogService.ACTION_PHOTO_DELETED, saved, "Productfoto verwijderd",
                 ActivityChangeSet.create()

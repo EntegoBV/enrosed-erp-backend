@@ -45,6 +45,9 @@ class PublicCatalogDtoTest {
         assertEquals(0, new BigDecimal("35.00")
                 .compareTo(publicProduct.path("salesPriceEur").decimalValue()));
         assertEquals("IN_STOCK", publicProduct.path("availability").asText());
+        assertEquals(PublicCatalogDto.Availability.OUT_OF_STOCK,
+                PublicCatalogDto.product(product.withStockQuantity(0), category,
+                        Language.EN, "https://erp.example.test/").availability());
         assertEquals("https://erp.example.test/api/v1/public/catalog/products/1/photos/9",
                 publicProduct.path("photos").get(0).path("url").asText());
 

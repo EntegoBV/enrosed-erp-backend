@@ -2,14 +2,16 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
-import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.application.ContentTranslationService;
 import be.enrosed.catalog.application.PublicProductNameResolver;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
+import be.enrosed.catalog.application.SharedProductDimensions;
 import be.enrosed.catalog.application.WebsiteCatalogRevisionService;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.ContentScope;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LanguageFallback;
@@ -36,13 +38,11 @@ import java.util.function.Function;
 @PermitAll
 public class PublicFamilyCatalogResource {
     private final CanonicalCatalogDaos.Families families;
-    private final CanonicalCatalogDaos.DimensionObservations dimensionObservations;
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
-    private final CanonicalCatalogDaos.PriceObservations prices;
     private final PhotoStorage photoStorage;
     private final FamilyPhotoVariantResolver variantResolver;
-    private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicFamilyPhotoProjection publicPhotos;
     private final PublicProductNameResolver publicProductNames;
     private final ContentTranslationService content;
     private final ObjectMapper json;
@@ -52,24 +52,20 @@ public class PublicFamilyCatalogResource {
 
     public PublicFamilyCatalogResource(
             CanonicalCatalogDaos.Families families,
-            CanonicalCatalogDaos.DimensionObservations dimensionObservations,
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
-            CanonicalCatalogDaos.PriceObservations prices,
             PhotoStorage photoStorage,
             FamilyPhotoVariantResolver variantResolver,
-            FamilyPhotoPublicationPolicy photoPublication,
+            PublicFamilyPhotoProjection publicPhotos,
             PublicProductNameResolver publicProductNames,
             ContentTranslationService content,
             ObjectMapper json) {
         this.families = families;
-        this.dimensionObservations = dimensionObservations;
         this.products = products;
         this.categories = categories;
-        this.prices = prices;
         this.photoStorage = photoStorage;
         this.variantResolver = variantResolver;
-        this.photoPublication = photoPublication;
+        this.publicPhotos = publicPhotos;
         this.publicProductNames = publicProductNames;
         this.content = content;
         this.json = json;
@@ -171,14 +167,14 @@ public class PublicFamilyCatalogResource {
         if (family == null || !family.active || !publishedAnywhere(family)) {
             throw new NotFoundException();
         }
-        ProductFamilyPhotoEntity image = family.photos.stream()
-                .filter(candidate -> Objects.equals(candidate.sourceKey, sourceId))
-                .findFirst().orElseThrow(NotFoundException::new);
         List<ProductEntity> familyMembers = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        if (!publishedOnAnActiveChannel(family, image, familyMembers)) {
-            throw new NotFoundException();
-        }
+        // Re-resolve ownership, active membership and channel publication on every request.
+        ProductFamilyPhotoEntity image = Arrays.stream(CatalogChannel.values())
+                .filter(channel -> status(family, channel) == PublicationState.PUBLISHED)
+                .flatMap(channel -> publicPhotos.images(family, familyMembers, channel).stream())
+                .filter(candidate -> Objects.equals(candidate.sourceKey, sourceId))
+                .findFirst().orElseThrow(NotFoundException::new);
         boolean small = "small".equalsIgnoreCase(rendition);
         if (!small && !"large".equalsIgnoreCase(rendition)) throw new NotFoundException();
         String storageKey = small ? image.smallStorageKey : image.largeStorageKey;
@@ -188,7 +184,8 @@ public class PublicFamilyCatalogResource {
         /* Old statically deployed pages may briefly carry the preceding checksum while a new
            website build is pending. They still receive the current bytes, but only an exact
            content-addressed URL is immutable. */
-        boolean versioned = requestedVersion != null && !requestedVersion.isEmpty()
+        boolean versioned = PublicFamilyPhotoProjection.isProductProjection(image)
+                || requestedVersion != null && !requestedVersion.isEmpty()
                 && checksum != null && checksum.equalsIgnoreCase(requestedVersion);
         return PhotoResponses.inline(photoStorage.read(storageKey), contentType, image.originalFilename)
                 .header("Cache-Control", versioned
@@ -228,10 +225,9 @@ public class PublicFamilyCatalogResource {
                 "familyId = ?1 order by variantPosition, id", family.id);
         /* Demo pieces are ours to show, never the website's to sell. */
         List<ProductEntity> variants = familyMembers.stream().filter(item -> item.active && !item.demo).toList();
-        List<PublicFamilyCatalogDto.ImageDto> images = family.photos.stream()
-                .filter(image -> photoPublication.isPublic(image, familyMembers, channel))
-                .sorted(Comparator.comparingInt(item -> item.position))
-                .map(image -> image(family, image, familyMembers, language))
+        List<ProductFamilyPhotoEntity> projectedImages = publicPhotos.images(family, familyMembers, channel);
+        List<PublicFamilyCatalogDto.ImageDto> images = java.util.stream.IntStream.range(0, projectedImages.size())
+                .mapToObj(position -> image(family, projectedImages.get(position), familyMembers, language, position))
                 .toList();
         /* Fail-safe for stale data created outside the validated write paths. */
         if (images.isEmpty() || variants.isEmpty()) return null;
@@ -240,11 +236,10 @@ public class PublicFamilyCatalogResource {
                 .map(variant -> variant(family, variant, familyMembers, language, channel))
                 .toList();
 
-        PublicFamilyCatalogDto.DimensionsDto dimensions = channel == CatalogChannel.WEBSITE
-                ? websiteDimensions(family.id)
-                : noDimensions(family) ? null : new PublicFamilyCatalogDto.DimensionsDto(
-                    family.dimensionLength, family.dimensionWidth, family.dimensionHeight,
-                    family.dimensionUnit, family.dimensionRaw);
+        var size = SharedProductDimensions.resolve(variants);
+        PublicFamilyCatalogDto.DimensionsDto dimensions = size == null ? null
+                : new PublicFamilyCatalogDto.DimensionsDto(
+                        size.lengthCm(), size.widthCm(), size.heightCm(), "cm", null);
         List<PublicFamilyCatalogDto.PackageDto> packages = family.packages.stream()
                 .filter(item -> Boolean.TRUE.equals(item.operational))
                 .sorted(Comparator.comparingInt(item -> item.position))
@@ -254,7 +249,7 @@ public class PublicFamilyCatalogResource {
                                 item.lengthValue, item.widthValue, item.heightValue,
                                 item.dimensionUnit, item.rawValue),
                         item.piecesPerPackage, item.weightValue, item.weightUnit,
-                        item.variantExternalId))
+                        item.productId))
                 .toList();
         ProductFamilyCollectionEntity primaryCollection = family.collections.stream()
                 .filter(item -> item.primaryCollection).findFirst()
@@ -285,30 +280,14 @@ public class PublicFamilyCatalogResource {
     private PublicFamilyCatalogDto.VariantDto variant(
             ProductFamilyEntity family, ProductEntity product,
             List<ProductEntity> familyMembers, Language language, CatalogChannel channel) {
-        ProductFamilyPhotoEntity primary = family.photos.stream()
-                .filter(image -> photoPublication.isUsableBy(
-                        image, product, familyMembers, channel))
-                .min(Comparator
-                        .comparingInt((ProductFamilyPhotoEntity image) ->
-                                variantResolver.rank(image, product, familyMembers))
-                        .thenComparingInt(image -> image.position))
-                .orElse(null);
-        ProductPriceObservationEntity retail = publicPrice(product.id, "RETAIL");
-        ProductPriceObservationEntity compareAt = publicPrice(product.id, "COMPARE_AT");
-        PublicFamilyCatalogDto.PublicPriceDto publicPrice;
-        if (product.fixedSalesPriceEur != null && product.fixedSalesPriceEur.signum() > 0) {
-            /* An explicit dashboard-owned fixed price supersedes historical import observations. */
-            publicPrice = new PublicFamilyCatalogDto.PublicPriceDto(
-                    product.fixedSalesPriceEur, "EUR", null);
-        } else {
-            publicPrice = retail == null ? null : new PublicFamilyCatalogDto.PublicPriceDto(
-                    retail.amount, retail.currency, compareAt == null ? null : compareAt.amount);
-        }
-        /* Recorded ERP inventory supersedes the historical Shopify availability
-           flag. Keep that import signal only while inventory remains unknown. */
-        Object availability = product.inventoryKnown
+        ProductFamilyPhotoEntity primary = publicPhotos.primary(family, product, familyMembers, channel);
+        BigDecimal amount = Product.calculateSalesPriceEur(
+                product.fixedSalesPriceEur, product.landedCostEur, product.markupPct);
+        PublicFamilyCatalogDto.PublicPriceDto publicPrice = amount.signum() > 0
+                ? new PublicFamilyCatalogDto.PublicPriceDto(amount, "EUR", null) : null;
+        String availability = product.inventoryKnown
                 ? product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
-                : product.publicAvailability != null ? product.publicAvailability : "UNKNOWN";
+                : "UNKNOWN";
         LanguageFallback.Resolved<String> color = productText(
                 product, language, item -> item.colour, product.colour);
         LanguageFallback.Resolved<String> size = productText(
@@ -331,7 +310,7 @@ public class PublicFamilyCatalogResource {
 
     private PublicFamilyCatalogDto.ImageDto image(
             ProductFamilyEntity family, ProductFamilyPhotoEntity image,
-            List<ProductEntity> familyMembers, Language language) {
+            List<ProductEntity> familyMembers, Language language, int position) {
         LanguageFallback.Resolved<String> alt = alt(image, language);
         Map<String, Language> sources = new LinkedHashMap<>();
         source(sources, "alt", alt.sourceLanguage());
@@ -341,9 +320,9 @@ public class PublicFamilyCatalogResource {
                 imageUrl(family.publicHandle, image.sourceKey, "large", image.largeSha256),
                 image.smallWidthPx, image.smallHeightPx,
                 image.largeWidthPx, image.largeHeightPx,
-                alt.value(), image.position,
+                alt.value(), position,
                 resolvedProductId(image, familyMembers),
-                image.variantExternalId, image.variantColor,
+                null, image.variantColor,
                 Collections.unmodifiableMap(sources));
     }
 
@@ -494,8 +473,7 @@ public class PublicFamilyCatalogResource {
         }
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        boolean hasPhoto = family.photos.stream().anyMatch(image ->
-                photoPublication.isUsableBy(image, product, members, channel));
+        boolean hasPhoto = publicPhotos.primary(family, product, members, channel) != null;
         return hasPhoto ? productId : null;
     }
 
@@ -504,25 +482,6 @@ public class PublicFamilyCatalogResource {
             Function<ProductTextEntity, String> field, String baseFallback) {
         return LanguageFallback.text(product.texts, requested,
                 item -> item.language, field, baseFallback);
-    }
-
-    private ProductPriceObservationEntity publicPrice(long productId, String role) {
-        return prices.find("productId = ?1 and publicRole = ?2 and publicPrice = true", productId, role)
-                .firstResult();
-    }
-
-    /** Website dimensions are presentation content; PDF-only operational facts stay internal. */
-    private PublicFamilyCatalogDto.DimensionsDto websiteDimensions(long familyId) {
-        ProductDimensionObservationEntity observation = dimensionObservations.find(
-                        "familyId = ?1 and dimensionType = ?2 and sourceType = ?3 order by position",
-                        familyId, "PRODUCT_DISPLAY", "WEBSITE_FRONTEND")
-                .firstResult();
-        if (observation == null) return null;
-        List<BigDecimal> values = ProductFamilyDto.read(json, observation.valuesJson,
-                new TypeReference<List<BigDecimal>>() {});
-        return new PublicFamilyCatalogDto.DimensionsDto(
-                value(values, 0), value(values, 1), value(values, 2),
-                observation.unit, observation.rawValue);
     }
 
     private static LanguageFallback.Resolved<String> familyText(
@@ -755,31 +714,10 @@ public class PublicFamilyCatalogResource {
                 || status(family, CatalogChannel.CATALOGUE) == PublicationState.PUBLISHED;
     }
 
-    private boolean publishedOnAnActiveChannel(
-            ProductFamilyEntity family, ProductFamilyPhotoEntity image,
-            List<ProductEntity> members) {
-        return status(family, CatalogChannel.WEBSITE) == PublicationState.PUBLISHED
-                    && photoPublication.isPublic(image, members, CatalogChannel.WEBSITE)
-                || status(family, CatalogChannel.ORDER_APP) == PublicationState.PUBLISHED
-                    && photoPublication.isPublic(image, members, CatalogChannel.ORDER_APP)
-                || status(family, CatalogChannel.CATALOGUE) == PublicationState.PUBLISHED
-                    && photoPublication.isPublic(image, members, CatalogChannel.CATALOGUE);
-    }
-
-    private static boolean noDimensions(ProductFamilyEntity family) {
-        return family.dimensionLength == null && family.dimensionWidth == null
-                && family.dimensionHeight == null && family.dimensionUnit == null
-                && family.dimensionRaw == null;
-    }
-
     static String imageUrl(String handle, String sourceId, String rendition, String sha256) {
         String path = "/api/v1/public/catalog/families/" + encode(handle)
                 + "/images/" + encode(sourceId) + "/" + rendition;
         return sha256 == null || sha256.isBlank() ? path : path + "?v=" + encode(sha256);
-    }
-
-    private static BigDecimal value(List<BigDecimal> values, int index) {
-        return values.size() > index ? values.get(index) : null;
     }
 
     private static String encode(String value) {

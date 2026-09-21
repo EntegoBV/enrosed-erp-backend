@@ -32,19 +32,19 @@ public class PublicLocalizationCompletenessService {
     private final CatalogDaos.Categories categories;
     private final ContentTranslationService content;
     private final PublicProductNameResolver publicProductNames;
-    private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicFamilyPhotoProjection publicPhotos;
     private final ObjectMapper json;
 
     public PublicLocalizationCompletenessService(
             CatalogDaos.Categories categories,
             ContentTranslationService content,
             PublicProductNameResolver publicProductNames,
-            FamilyPhotoPublicationPolicy photoPublication,
+            PublicFamilyPhotoProjection publicPhotos,
             ObjectMapper json) {
         this.categories = categories;
         this.content = content;
         this.publicProductNames = publicProductNames;
-        this.photoPublication = photoPublication;
+        this.publicPhotos = publicPhotos;
         this.json = json;
     }
 
@@ -146,8 +146,7 @@ public class PublicLocalizationCompletenessService {
                 }
             }
 
-            family.photos.stream()
-                    .filter(image -> photoPublication.isSelectedFor(image, channel))
+            publicPhotos.selected(family, members, channel).stream()
                     .sorted(Comparator.comparingInt(image -> image.position))
                     .forEach(image -> {
                         List<ProductFamilyDto.AltTextDto> alts = read(

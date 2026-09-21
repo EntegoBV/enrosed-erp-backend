@@ -266,6 +266,12 @@ public record Product(
 
     /** The same price rule used by sales: a positive fixed price wins over cost + markup. */
     public BigDecimal computedSalesPriceEur() {
+        return calculateSalesPriceEur(fixedSalesPriceEur, landedCostEur, markupPct);
+    }
+
+    /** Shared by the ERP product and its public projections; imported price observations are historical only. */
+    public static BigDecimal calculateSalesPriceEur(
+            BigDecimal fixedSalesPriceEur, BigDecimal landedCostEur, BigDecimal markupPct) {
         BigDecimal price = fixedSalesPriceEur != null && fixedSalesPriceEur.signum() > 0
                 ? fixedSalesPriceEur
                 : Money.addPercent(landedCostEur, markupPct);

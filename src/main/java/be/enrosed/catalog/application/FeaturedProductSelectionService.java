@@ -7,6 +7,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.shared.BusinessRuleException;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -19,19 +20,19 @@ public class FeaturedProductSelectionService {
     private final CatalogDaos.Categories categories;
     private final CanonicalCatalogDaos.Families families;
     private final CanonicalCatalogDaos.Collections collections;
-    private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicFamilyPhotoProjection publicPhotos;
 
     public FeaturedProductSelectionService(
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
             CanonicalCatalogDaos.Families families,
             CanonicalCatalogDaos.Collections collections,
-            FamilyPhotoPublicationPolicy photoPublication) {
+            PublicFamilyPhotoProjection publicPhotos) {
         this.products = products;
         this.categories = categories;
         this.families = families;
         this.collections = collections;
-        this.photoPublication = photoPublication;
+        this.publicPhotos = publicPhotos;
     }
 
     public ProductEntity requireFamilyMember(ProductFamilyEntity family, Long productId) {
@@ -106,8 +107,7 @@ public class FeaturedProductSelectionService {
     private void requirePublicPhoto(ProductFamilyEntity family, ProductEntity product) {
         var familyMembers = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        boolean found = family.photos.stream().anyMatch(photo ->
-                photoPublication.isUsableBy(photo, product, familyMembers));
+        boolean found = publicPhotos.primary(family, product, familyMembers, CatalogChannel.WEBSITE) != null;
         if (!found) {
             throw new BusinessRuleException(
                     "Uitgelicht product " + product.id

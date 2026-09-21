@@ -87,7 +87,7 @@ public class ProductEntity {
     /** False means that zero stock is only a persistence placeholder, not an observed value. */
     public boolean inventoryKnown = true;
 
-    /** Explicit customer-facing availability from a source such as Shopify; null is unknown. */
+    /** Historical import availability retained for provenance; public projections use ERP inventory only. */
     public Boolean publicAvailability;
 
     /** Optional stable grouping key shared by related stock-bearing SKUs. */

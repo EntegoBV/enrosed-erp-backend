@@ -3,12 +3,18 @@ package be.enrosed.catalog.adapter.in.rest;
 import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
+import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Language;
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
@@ -25,7 +31,12 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 
 import java.util.Comparator;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -39,6 +50,13 @@ public class PublicCatalogResource {
     private final CategoryService categories;
     private final CatalogDaos.Products productRows;
     private final PublicProductNameResolver publicProductNames;
+
+    @Inject
+    CanonicalCatalogDaos.Families families;
+    @Inject
+    PublicFamilyPhotoProjection publicPhotos;
+    @Inject
+    FamilyPhotoPublicationPolicy photoPublication;
 
     @Inject
     public PublicCatalogResource(
@@ -72,22 +90,12 @@ public class PublicCatalogResource {
                 .thenComparing(product -> safe(publicName(product, language)), String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(product -> safe(product.sku()), String.CASE_INSENSITIVE_ORDER);
 
-        /* The canonical family owns WEBSITE publication. Reuse the same
-           projection as public quotations so the legacy flat endpoint cannot
-           keep exposing stale SKU publication flags after a family is hidden.
-           Unlinked pre-family products still use their own WEBSITE state in
-           ProductService.websiteOrderableProducts(). */
-        var candidates = channel == CatalogChannel.WEBSITE
-                ? products.websiteOrderableProducts()
-                : products.list().stream()
-                    .filter(product -> product.isPublishedTo(channel))
-                    .toList();
-
-        var publicProducts = candidates.stream()
+        var publicProducts = products.list().stream()
+                .filter(product -> isPublished(product, channel))
                 .sorted(order)
-                .map(product -> PublicCatalogDto.product(
-                        product, categoryById.get(product.categoryId()), language,
-                        uriInfo.getBaseUri().toString(), publicName(product, language)))
+                .map(product -> publicProduct(product, categoryById.get(product.categoryId()),
+                        language, channel, uriInfo.getBaseUri().toString()))
+                .filter(Objects::nonNull)
                 .toList();
 
         return Response.ok(new PublicCatalogDto(channel, language, publicProducts))
@@ -125,16 +133,84 @@ public class PublicCatalogResource {
     @Produces(MediaType.WILDCARD)
     public Response photo(@PathParam("productId") long productId,
                           @PathParam("photoId") long photoId) {
-        Product product = products.get(productId);
-        if (!product.isPublishedToAnyPublicChannel()) throw new NotFoundException();
+        Product product;
+        try {
+            product = products.get(productId);
+        } catch (be.enrosed.shared.NotFoundException missing) {
+            throw new NotFoundException();
+        }
+        if (Arrays.stream(CatalogChannel.values()).noneMatch(channel -> isPublished(product, channel))) {
+            throw new NotFoundException();
+        }
 
         Photo photo = product.photos().stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == photoId)
                 .findFirst()
                 .orElseThrow(NotFoundException::new);
+        if (!isPublicPhoto(product, photo)) throw new NotFoundException();
         return PhotoResponses.inline(products.photoData(photo.storageKey()), photo.contentType())
-                .header("Cache-Control", "public, max-age=31536000, immutable")
+                .header("Cache-Control", "public, max-age=60")
                 .build();
+    }
+
+    private PublicCatalogDto.PublicProductDto publicProduct(
+            Product product, Category category, Language language, CatalogChannel channel, String baseUrl) {
+        if (product.familyId() == null) {
+            return PublicCatalogDto.product(product, category, language, baseUrl, publicName(product, language));
+        }
+        ProductFamilyEntity family = families.findById(product.familyId());
+        ProductEntity row = productRows.findById(product.id());
+        if (family == null || row == null || !family.active || !row.active || row.demo
+                || !Objects.equals(row.familyId, family.id) || !isPublished(product, channel)
+                || family.publicHandle == null || family.publicHandle.isBlank()) return null;
+        List<ProductEntity> members = productRows.list("familyId = ?1 order by variantPosition, id", family.id);
+        ProductFamilyPhotoEntity primary = publicPhotos.primary(family, row, members, channel);
+        String base = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+        List<PublicCatalogDto.PhotoDto> images = publicPhotos.images(family, members, channel).stream()
+                .filter(image -> photoPublication.isUsableBy(image, row, members, channel))
+                .sorted(Comparator.comparingInt((ProductFamilyPhotoEntity image) ->
+                        primary != null && Objects.equals(image.id, primary.id) ? 0 : 1)
+                        .thenComparingInt(image -> image.position))
+                .map(image -> new PublicCatalogDto.PhotoDto(
+                        image.id, image.largeContentType, image.largeWidthPx, image.largeHeightPx, image.position,
+                        base + "api/v1/public/catalog/families/" + encode(family.publicHandle)
+                                + "/images/" + encode(image.sourceKey) + "/large"))
+                .toList();
+        return PublicCatalogDto.product(product, category, language, publicName(product, language), images);
+    }
+
+    private boolean isPublished(Product product, CatalogChannel channel) {
+        if (!product.active() || product.demo()) return false;
+        if (product.familyId() == null) return product.isPublishedTo(channel);
+        if (families == null) return false;
+        ProductFamilyEntity family = families.findById(product.familyId());
+        if (family == null || !family.active) return false;
+        PublicationState state = switch (channel) {
+            case WEBSITE -> family.websiteStatus;
+            case ORDER_APP -> family.orderAppStatus;
+            case CATALOGUE -> family.catalogueStatus;
+        };
+        return state == PublicationState.PUBLISHED;
+    }
+
+    private boolean isPublicPhoto(Product product, Photo photo) {
+        if (product.familyId() == null) return !photo.inherited();
+        ProductFamilyEntity family = families.findById(product.familyId());
+        ProductEntity row = productRows.findById(product.id());
+        if (family == null || row == null || !family.active || !row.active || row.demo
+                || !Objects.equals(row.familyId, family.id)) return false;
+        List<ProductEntity> members = productRows.list("familyId = ?1 order by variantPosition, id", family.id);
+        return Arrays.stream(CatalogChannel.values())
+                .filter(channel -> isPublished(product, channel))
+                .anyMatch(channel -> publicPhotos.images(family, members, channel).stream()
+                        .filter(image -> photoPublication.isUsableBy(image, row, members, channel))
+                        .anyMatch(image -> Objects.equals(image.largeStorageKey, photo.storageKey())
+                                && (photo.inherited() ? Objects.equals(image.id, photo.familyPhotoId())
+                                    : Objects.equals(image.id, -photo.id()))));
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static String safe(String value) {

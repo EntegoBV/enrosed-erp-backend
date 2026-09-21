@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
-import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
+import be.enrosed.catalog.application.SharedProductDimensions;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.domain.CatalogChannel;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,17 +22,17 @@ public class PanacheCatalogFamilyReader implements CatalogFamilyReader {
 
     private final CanonicalCatalogDaos.Families families;
     private final CatalogDaos.Products products;
-    private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicFamilyPhotoProjection publicPhotos;
     private final ObjectMapper json;
 
     public PanacheCatalogFamilyReader(
             CanonicalCatalogDaos.Families families,
             CatalogDaos.Products products,
-            FamilyPhotoPublicationPolicy photoPublication,
+            PublicFamilyPhotoProjection publicPhotos,
             ObjectMapper json) {
         this.families = families;
         this.products = products;
-        this.photoPublication = photoPublication;
+        this.publicPhotos = publicPhotos;
         this.json = json;
     }
 
@@ -54,6 +55,7 @@ public class PanacheCatalogFamilyReader implements CatalogFamilyReader {
     }
 
     private Family toFamily(ProductFamilyEntity entity, List<ProductEntity> members) {
+        var size = SharedProductDimensions.resolve(members);
         List<Text> texts = entity.texts.stream().map(item -> new Text(
                 item.language, item.name, item.summary, item.description, item.format,
                 strings(item.highlightsJson))).toList();
@@ -65,10 +67,7 @@ public class PanacheCatalogFamilyReader implements CatalogFamilyReader {
                         item.dimensionUnit, item.piecesPerPackage,
                         item.weightValue, item.weightUnit, item.operational))
                 .toList();
-        List<GalleryPhoto> photos = entity.photos.stream()
-                .filter(item -> photoPublication.isPublic(
-                        item, members, CatalogChannel.CATALOGUE))
-                .sorted(Comparator.comparingInt(item -> item.position))
+        List<GalleryPhoto> photos = publicPhotos.images(entity, members, CatalogChannel.CATALOGUE).stream()
                 .map(item -> new GalleryPhoto(
                         item.id, item.largeStorageKey, item.largeContentType, item.position,
                         item.variantProduct == null ? null : item.variantProduct.id))
@@ -78,8 +77,8 @@ public class PanacheCatalogFamilyReader implements CatalogFamilyReader {
                 entity.categoryKey, entity.categoryName, entity.categoryPosition,
                 entity.productPosition, entity.name, entity.summary, entity.description,
                 entity.format, strings(entity.highlightsJson),
-                new Dimensions(entity.dimensionLength, entity.dimensionWidth,
-                        entity.dimensionHeight, entity.dimensionUnit),
+                size == null ? null : new Dimensions(
+                        size.lengthCm(), size.widthCm(), size.heightCm(), "cm"),
                 texts, packages, photos);
     }
 

@@ -19,17 +19,17 @@ import java.util.Objects;
 public class PublishedFamilyGalleryGuard {
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
-    private final FamilyPhotoPublicationPolicy photoPublication;
+    private final PublicFamilyPhotoProjection publicPhotos;
     private final FeaturedProductSelectionService featuredProducts;
 
     public PublishedFamilyGalleryGuard(
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
-            FamilyPhotoPublicationPolicy photoPublication,
+            PublicFamilyPhotoProjection publicPhotos,
             FeaturedProductSelectionService featuredProducts) {
         this.products = products;
         this.categories = categories;
-        this.photoPublication = photoPublication;
+        this.publicPhotos = publicPhotos;
         this.featuredProducts = featuredProducts;
     }
 
@@ -71,8 +71,7 @@ public class PublishedFamilyGalleryGuard {
             ProductFamilyEntity family, List<ProductEntity> members,
             CatalogChannel channel, PublicationState state) {
         if (state != PublicationState.PUBLISHED) return;
-        if (family.photos.stream().anyMatch(photo ->
-                photoPublication.isPublic(photo, members, channel))) return;
+        if (!publicPhotos.images(family, members, channel).isEmpty()) return;
         throw new BusinessRuleException(
                 "Een op " + channel.name()
                         + " gepubliceerde productfamilie moet minstens één publiceerbare foto "

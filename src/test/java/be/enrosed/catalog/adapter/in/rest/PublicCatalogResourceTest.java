@@ -4,10 +4,14 @@ import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.BarcodeValidator;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.PublicProductNameResolver;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
+import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
+import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
@@ -41,13 +45,13 @@ import static org.mockito.Mockito.when;
 class PublicCatalogResourceTest {
 
     @Test
-    void websiteCatalogRendersTheCanonicalWebsiteOrderableProjection() {
+    void websiteCatalogKeepsUnlinkedProductPublicationAsTheCompatibilityBoundary() {
         ProductService products = mock(ProductService.class);
         CategoryService categories = mock(CategoryService.class);
         UriInfo uriInfo = mock(UriInfo.class);
         when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
         when(categories.list()).thenReturn(List.of(category()));
-        when(products.websiteOrderableProducts()).thenReturn(List.of(
+        when(products.list()).thenReturn(List.of(
                 product(1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT),
                 product(4L, true, PublicationState.DRAFT, PublicationState.DRAFT)));
 
@@ -57,7 +61,7 @@ class PublicCatalogResourceTest {
 
         assertEquals(200, response.getStatus());
         assertEquals(Language.EN, catalog.language());
-        assertEquals(List.of(1L, 4L), catalog.products().stream()
+        assertEquals(List.of(1L), catalog.products().stream()
                 .map(PublicCatalogDto.PublicProductDto::id).toList());
         assertEquals("public, max-age=60, stale-while-revalidate=300",
                 response.getHeaderString("Cache-Control"));
@@ -67,24 +71,49 @@ class PublicCatalogResourceTest {
     void legacyWebsiteCatalogUsesCanonicalWebsiteProjectionInsteadOfStaleSkuFlags() {
         ProductService products = mock(ProductService.class);
         CategoryService categories = mock(CategoryService.class);
+        CatalogDaos.Products rows = mock(CatalogDaos.Products.class);
+        CanonicalCatalogDaos.Families families = mock(CanonicalCatalogDaos.Families.class);
         UriInfo uriInfo = mock(UriInfo.class);
         when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
         when(categories.list()).thenReturn(List.of(category()));
         Product stalePublishedSku = product(
-                1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT);
+                1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT)
+                .withCanonicalIdentity(11L, "variant-1", null, 0, true);
         Product familyPublishedSku = product(
-                2L, true, PublicationState.DRAFT, PublicationState.DRAFT);
-        when(products.list()).thenReturn(List.of(stalePublishedSku));
-        when(products.websiteOrderableProducts()).thenReturn(List.of(familyPublishedSku));
+                2L, true, PublicationState.DRAFT, PublicationState.DRAFT)
+                .withCanonicalIdentity(12L, "variant-2", null, 0, true);
+        when(products.list()).thenReturn(List.of(stalePublishedSku, familyPublishedSku));
+        ProductFamilyEntity hiddenFamily = new ProductFamilyEntity();
+        hiddenFamily.id = 11L;
+        hiddenFamily.websiteStatus = PublicationState.DRAFT;
+        ProductFamilyEntity publicFamily = new ProductFamilyEntity();
+        publicFamily.id = 12L;
+        publicFamily.publicHandle = "public-family";
+        publicFamily.websiteStatus = PublicationState.PUBLISHED;
+        when(families.findById(11L)).thenReturn(hiddenFamily);
+        when(families.findById(12L)).thenReturn(publicFamily);
+        ProductEntity publicRow = new ProductEntity();
+        publicRow.id = 2L;
+        publicRow.familyId = 12L;
+        publicRow.name = "Public rose";
+        when(rows.findById(2L)).thenReturn(publicRow);
+        when(rows.list("familyId = ?1 order by variantPosition, id", 12L))
+                .thenReturn(List.of(publicRow));
+        PublicCatalogResource resource = new PublicCatalogResource(
+                products, categories, rows, new PublicProductNameResolver());
+        resource.families = families;
+        resource.publicPhotos = mock(PublicFamilyPhotoProjection.class);
+        resource.photoPublication = mock(FamilyPhotoPublicationPolicy.class);
+        when(resource.publicPhotos.images(publicFamily, List.of(publicRow), CatalogChannel.WEBSITE))
+                .thenReturn(List.of());
 
-        Response response = new PublicCatalogResource(products, categories)
-                .catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
+        Response response = resource.catalog(CatalogChannel.WEBSITE, "EN", uriInfo);
         PublicCatalogDto catalog = (PublicCatalogDto) response.getEntity();
 
         assertEquals(List.of(2L), catalog.products().stream()
                 .map(PublicCatalogDto.PublicProductDto::id).toList());
-        verify(products).websiteOrderableProducts();
-        verify(products, never()).list();
+        verify(products).list();
+        verify(products, never()).websiteOrderableProducts();
     }
 
     @Test
@@ -96,7 +125,7 @@ class PublicCatalogResourceTest {
         when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
         when(categories.list()).thenReturn(List.of(category()));
         Product domain = product(1L, true, PublicationState.PUBLISHED, PublicationState.DRAFT);
-        when(products.websiteOrderableProducts()).thenReturn(List.of(domain));
+        when(products.list()).thenReturn(List.of(domain));
         ProductEntity row = new ProductEntity();
         row.id = 1L;
         row.name = "Internal invoice name";
@@ -141,7 +170,7 @@ class PublicCatalogResourceTest {
                 .photo(1L, 9L);
 
         assertEquals(200, response.getStatus());
-        assertEquals("public, max-age=31536000, immutable",
+        assertEquals("public, max-age=60",
                 response.getHeaderString("Cache-Control"));
         assertEquals("nosniff", response.getHeaderString("X-Content-Type-Options"));
     }

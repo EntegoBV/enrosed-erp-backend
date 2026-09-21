@@ -6,7 +6,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.application.ContentTranslationService;
-import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
@@ -29,14 +29,10 @@ class PublicFamilyCatalogImageCacheTest {
     @Test
     void onlyTheCurrentChecksumIsImmutableAndLegacyOrStaleUrlsStillServe() {
         CanonicalCatalogDaos.Families families = mock(CanonicalCatalogDaos.Families.class);
-        CanonicalCatalogDaos.DimensionObservations dimensions =
-                mock(CanonicalCatalogDaos.DimensionObservations.class);
         CatalogDaos.Products products = mock(CatalogDaos.Products.class);
         CatalogDaos.Categories categories = mock(CatalogDaos.Categories.class);
-        CanonicalCatalogDaos.PriceObservations prices =
-                mock(CanonicalCatalogDaos.PriceObservations.class);
         PhotoStorage storage = mock(PhotoStorage.class);
-        FamilyPhotoPublicationPolicy publication = mock(FamilyPhotoPublicationPolicy.class);
+        PublicFamilyPhotoProjection publicPhotos = mock(PublicFamilyPhotoProjection.class);
 
         ProductFamilyEntity family = new ProductFamilyEntity();
         family.id = 41L;
@@ -66,13 +62,13 @@ class PublicFamilyCatalogImageCacheTest {
         when(familyQuery.firstResult()).thenReturn(family);
         when(products.list("familyId = ?1 order by variantPosition, id", family.id))
                 .thenReturn(members);
-        when(publication.isPublic(photo, members, CatalogChannel.WEBSITE)).thenReturn(true);
+        when(publicPhotos.images(family, members, CatalogChannel.WEBSITE)).thenReturn(List.of(photo));
         when(storage.read("small-key"))
                 .thenAnswer(ignored -> new ByteArrayInputStream(new byte[] {1, 2, 3}));
 
         PublicFamilyCatalogResource resource = new PublicFamilyCatalogResource(
-                families, dimensions, products, categories, prices, storage,
-                mock(FamilyPhotoVariantResolver.class), publication,
+                families, products, categories, storage,
+                mock(FamilyPhotoVariantResolver.class), publicPhotos,
                 mock(PublicProductNameResolver.class), mock(ContentTranslationService.class),
                 new ObjectMapper());
 
