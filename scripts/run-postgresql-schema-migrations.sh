@@ -114,4 +114,5 @@ exec psql \
     --file=/app/migrations/container-cost-markup-mode-postgresql.sql \
     --file=/app/migrations/greek-language-postgresql.sql \
     --file=/app/migrations/shared-supplier-agreements-postgresql.sql \
-    --file=/app/migrations/website-quote-settings-postgresql.sql
+    --file=/app/migrations/website-quote-settings-postgresql.sql \
+    --file=/app/migrations/family-catalogue-photo-choices-postgresql.sql

@@ -81,6 +81,7 @@ COPY docs/migrations/2026-09-11/purchase-payment-instalment-postgresql.sql ./mig
 COPY docs/migrations/2026-09-08/purchase-payment-payees-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-13/shared-supplier-agreements-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-14/website-quote-settings-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-21/family-catalogue-photo-choices-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink
