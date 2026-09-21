@@ -595,16 +595,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         int allowed = request.resolvedPhotosPerProduct(product.familyId());
         List<PhotoRef> imageRefs = new ArrayList<>();
         Set<String> imageKeys = new LinkedHashSet<>();
-        for (Photo photo : product.photos().stream()
-                .sorted(Comparator.comparing((Photo photo) -> !photo.leads(
-                        be.enrosed.catalog.domain.PhotoRole.CATALOGUE))).toList()) {
+        /* Inherited photos remain channel-filtered. Once a usable catalogue choice exists,
+           the requested count caps that selection; it does not refill it with old originals. */
+        List<Photo> eligiblePhotos = product.photos().stream()
+                .filter(photo -> !photo.inherited()
+                        || catalogueFamilyPhotoIds.contains(photo.familyPhotoId())).toList();
+        List<Photo> catalogueLeads = allowed <= 0 ? List.of() : eligiblePhotos.stream()
+                .filter(photo -> photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE))
+                .filter(photo -> {
+                    PhotoRef ref = photos.productRef(photo);
+                    return ref != null && photos.usable(ref);
+                }).toList();
+        for (Photo photo : catalogueLeads.isEmpty() ? eligiblePhotos : catalogueLeads) {
             if (imageRefs.size() >= allowed) break;
-            /* Product projections can contain family photos from every publication channel.
-               An inherited photo is safe only when the CATALOGUE-filtered family reader
-               exposed that exact canonical family-photo row for this export. */
-            if (photo.inherited() && !catalogueFamilyPhotoIds.contains(photo.familyPhotoId())) {
-                continue;
-            }
             PhotoRef ref = photos.productRef(photo);
             if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
                 imageRefs.add(ref);
@@ -678,7 +681,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 }
             }
         }
-        if (allowed > 0 && family != null) {
+        // A usable manual detail or variant catalogue lead is an authoritative selection.
+        // Larger photo limits must not bring older unselected backgrounds back into the PDF.
+        boolean explicitSelection = !imageRefs.isEmpty();
+        if (!explicitSelection && allowed > 0 && family != null) {
             for (CatalogFamilyReader.GalleryPhoto photo : family.photos()) {
                 if (imageRefs.size() >= allowed) break;
                 if (photo.variantProductId() != null && !selectedIds.contains(photo.variantProductId())) {
@@ -690,7 +696,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 }
             }
         }
-        if (allowed > 0 && imageRefs.size() < allowed) {
+        if (!explicitSelection && allowed > 0 && imageRefs.size() < allowed) {
             for (Product variant : group.variants()) {
                 for (Photo photo : variant.photos()) {
                     /* Inherited photos may be internal or selected for another channel.

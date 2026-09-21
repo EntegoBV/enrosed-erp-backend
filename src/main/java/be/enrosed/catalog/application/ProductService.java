@@ -1322,7 +1322,7 @@ public class ProductService {
             Photo photo = photos.get(i);
             result.add(new Photo(photo.id(), photo.storageKey(), photo.originalFilename(),
                     photo.contentType(), photo.sizeBytes(), photo.widthPx(), photo.heightPx(),
-                    i, photo.familyPhotoId()));
+                    i, photo.familyPhotoId(), photo.leadFor()));
         }
         return result;
     }
