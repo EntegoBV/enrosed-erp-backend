@@ -496,11 +496,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("privateLabelMinimum", privateLabelMinimum(language))
                 .data("paletteRows", paletteRows(copy))
                 .data("paletteImage", options.includeCustomisation() && request.resolvedPhotosPerProduct() > 0
-                        ? editorial.image("rose-head-colour-palette-v1.png") : "")
+                        ? editorial.image("rose-head-colour-palette-transparent-v1.png") : "")
                 .data("customisationImage", options.includeCustomisation() && request.resolvedPhotosPerProduct() > 0
-                        ? editorial.image("private-label-editorial-v2.png") : "")
+                        ? editorial.image("private-label-editorial-transparent-v1.png") : "")
                 .data("orderingImage", options.includeOrdering() && request.resolvedPhotosPerProduct() > 0
-                        ? editorial.image("ordering-editorial-v2.png") : "")
+                        ? editorial.image("ordering-editorial-transparent-v1.png") : "")
                 .data("quoteUrl", "https://enrosed.com/"
                         + (language == Language.EN ? "" : language.code() + "/") + "quote/")
                 .data("quoteQr", options.includeOrdering()
