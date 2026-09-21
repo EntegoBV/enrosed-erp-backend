@@ -304,11 +304,11 @@ public class PublicFamilyCatalogResource {
             publicPrice = retail == null ? null : new PublicFamilyCatalogDto.PublicPriceDto(
                     retail.amount, retail.currency, compareAt == null ? null : compareAt.amount);
         }
-        Object availability = product.publicAvailability != null
-                ? product.publicAvailability
-                : product.inventoryKnown
-                    ? product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
-                    : "UNKNOWN";
+        /* Recorded ERP inventory supersedes the historical Shopify availability
+           flag. Keep that import signal only while inventory remains unknown. */
+        Object availability = product.inventoryKnown
+                ? product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
+                : product.publicAvailability != null ? product.publicAvailability : "UNKNOWN";
         LanguageFallback.Resolved<String> color = productText(
                 product, language, item -> item.colour, product.colour);
         LanguageFallback.Resolved<String> size = productText(
