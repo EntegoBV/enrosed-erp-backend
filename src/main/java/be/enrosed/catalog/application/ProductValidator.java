@@ -56,7 +56,7 @@ public class ProductValidator {
             throw new BusinessRuleException("Stuks per karton moet minstens 1 zijn");
         }
         if (carton.piecesPer20Ft() != null && carton.piecesPer20Ft() < 1) {
-            throw new BusinessRuleException("Stuks per 20ft GP moet minstens 1 zijn, of leeg voor onbekend");
+            throw new BusinessRuleException("Stuks per 20ft GP moet minstens 1 zijn, of leeg voor automatische berekening");
         }
 
         validateDimensions(product.dimensions(), "Productafmeting");

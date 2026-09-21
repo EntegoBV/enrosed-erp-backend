@@ -115,7 +115,7 @@ public class ProductEntity {
     public BigDecimal cartonWeightKg;
     /** Hand-counted pieces per 40' HC; null lets the carton size decide. */
     public Integer piecesPerHc;
-    /** Manually confirmed product units per 20ft GP; null remains unknown. */
+    /** Manual 20ft GP count; null allows a derived capacity without storing the estimate. */
     public Integer piecesPer20Ft;
 
     @Column(precision = 19, scale = 6)
