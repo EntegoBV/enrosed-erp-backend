@@ -124,6 +124,19 @@ public record ProductDto(
         public Integer piecesPerHc() { return piecesPerHc; }
         public Integer hcCapacity() { return hcCapacity; }
 
+        /** Derived output only: sending it back cannot turn an estimate into manual input. */
+        @JsonProperty(value = "gpCapacity", access = JsonProperty.Access.READ_ONLY)
+        public Integer gpCapacity() { return capacityCarton().gpCapacity(); }
+
+        @JsonProperty(value = "gpCapacitySource", access = JsonProperty.Access.READ_ONLY)
+        public String gpCapacitySource() { return capacityCarton().gpCapacitySource(); }
+
+        private Carton capacityCarton() {
+            return new Carton(new Dimensions(lengthCm, widthCm, heightCm),
+                    piecesPerCarton == null ? 0 : piecesPerCarton, weightKg,
+                    piecesPerHc, piecesPer20Ft);
+        }
+
         @JsonProperty("piecesPer20Ft")
         public Integer piecesPer20Ft() { return piecesPer20Ft; }
 

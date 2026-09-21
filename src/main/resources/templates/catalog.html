@@ -125,7 +125,7 @@
           {#if it.barcodeInner}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.product']}</span> {it.barcodeInner}</div>{/if}
           {#if it.barcodeOuter}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.carton']}</span> {it.barcodeOuter}</div>{/if}
           <div class="fact"><span class="fact-label">{copy['catalog.spec.hscode']}</span> {#if it.hsCode}{it.hsCode}{#else}-{/if}</div>
-          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.piecesPer20Ft != null && it.piecesPer20Ft > 0}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}</div>
+          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.piecesPer20Ft != null}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}</div>
           {#if it.priceLabel}<div class="price">{it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}</div>{/if}
         </td>
       </tr></tbody></table>

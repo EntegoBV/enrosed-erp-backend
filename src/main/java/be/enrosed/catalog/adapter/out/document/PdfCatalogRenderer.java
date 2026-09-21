@@ -659,7 +659,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                 product.carton() == null || product.carton().dimensions() == null
                         ? "" : dimensionLabel(product.carton().dimensions()),
-                product.hsCode(), product.carton() == null ? null : product.carton().piecesPer20Ft(),
+                product.hsCode(), product.carton() == null ? null : product.carton().gpCapacity(),
                 request.includePrices()
                         ? defaultText(priceLabel(product, language),
                                 copy(copy, "catalog.brochure.overview.priceonrequest"))
@@ -995,8 +995,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         addSpec(rows, copy(copy, "catalog.spec.cartonvolume"), variants,
                 product -> product.carton() == null || !positive(product.carton().cbm())
                         ? "" : DocumentFormat.cbm(product.carton().cbm()));
-        // A dash is retained as a real unknown, so one entered variant cannot
-        // accidentally supply a capacity for every other variant in its family.
+        // Resolve each variant separately: a manual count or its own calculated
+        // capacity. A real unknown must not inherit another variant's value.
         addSpec(rows, copy(copy, "catalog.spec.container20ft"), variants,
                 product -> capacity20Ft(product, language));
         addSpec(rows, copy(copy, "catalog.spec.container"), variants, product -> {
@@ -1023,8 +1023,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private static String capacity20Ft(Product product, Language language) {
-        Integer capacity = product.carton() == null ? null : product.carton().piecesPer20Ft();
-        return capacity == null || capacity <= 0 ? "-" : integer(capacity, language);
+        Integer capacity = product.carton() == null ? null : product.carton().gpCapacity();
+        return capacity == null ? "-" : integer(capacity, language);
     }
 
     /** Adds the value every variant shares; a differing or blank value is left to the table. */
