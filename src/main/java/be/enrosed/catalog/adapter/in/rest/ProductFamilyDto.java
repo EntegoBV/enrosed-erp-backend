@@ -84,7 +84,7 @@ public record ProductFamilyDto(
                            List<CatalogChannel> publishedChannels) {}
     public record MemberDto(Long productId, String canonicalVariantKey, String sku,
                             String name, String colour, String size, String colourHex,
-                            int position, boolean active) {}
+                            int position, boolean active, boolean hasPublicWebsiteImage) {}
     public record ExternalIdentifierDto(String source, String identifierType, String value) {}
     public record PriceObservationDto(
             Long id, String ownerType, String ownerKey, Long productId,
@@ -164,6 +164,7 @@ public record ProductFamilyDto(
                 .toList();
         long variantCount = orderedMembers.size();
         List<String> issues = publicationIssues(family, orderedMembers, json);
+        PublicFamilyPhotoProjection publicPhotos = publicPhotos(json);
         return new ProductFamilyDto(
                 family.id, family.familyKey, family.publicHandle, family.categoryId,
                 family.categoryKey, family.categoryName, family.categoryPosition,
@@ -201,7 +202,9 @@ public record ProductFamilyDto(
                 orderedMembers.stream().map(item -> new MemberDto(
                         item.id, item.canonicalVariantKey, item.sku, item.name,
                         item.colour, item.variantSize, item.colourHex,
-                        item.variantPosition, item.active)).toList(),
+                        item.variantPosition, item.active,
+                        item.active && !item.demo && publicPhotos.primary(
+                                family, item, orderedMembers, CatalogChannel.WEBSITE) != null)).toList(),
                 issues, variantCount);
     }
 
@@ -230,10 +233,7 @@ public record ProductFamilyDto(
     public static List<String> publicationIssues(
             ProductFamilyEntity family, List<ProductEntity> memberRows, ObjectMapper json) {
         List<ProductEntity> members = memberRows == null ? List.of() : memberRows;
-        FamilyPhotoVariantResolver photoVariants = new FamilyPhotoVariantResolver();
-        PublicFamilyPhotoProjection publicPhotos = new PublicFamilyPhotoProjection(
-                new FamilyPhotoPublicationPolicy(photoVariants, json), photoVariants,
-                new PublicProductNameResolver(), json);
+        PublicFamilyPhotoProjection publicPhotos = publicPhotos(json);
         List<String> issues = new ArrayList<>();
         if (!family.active) issues.add("Productfamilie is niet actief");
         if (blank(family.familyKey)) issues.add("Familiecode ontbreekt");
@@ -291,6 +291,13 @@ public record ProductFamilyDto(
             }
         }
         return List.copyOf(issues);
+    }
+
+    private static PublicFamilyPhotoProjection publicPhotos(ObjectMapper json) {
+        FamilyPhotoVariantResolver photoVariants = new FamilyPhotoVariantResolver();
+        return new PublicFamilyPhotoProjection(
+                new FamilyPhotoPublicationPolicy(photoVariants, json), photoVariants,
+                new PublicProductNameResolver(), json);
     }
 
     private static void channelPhotoIssue(
