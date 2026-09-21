@@ -35,6 +35,10 @@ public class ProductFamilyEntity {
     public int productPosition;
     /** Optional active member selected for family cards; null means the normal/base member. */
     public Long cardFeaturedProductId;
+    /** Positive family-photo id or negative own-product-photo id; null keeps automatic choice. */
+    public Long catalogueOverviewPhotoId;
+    public Long catalogueDetailPhotoId;
+    @Column(length = 16) public String catalogueDetailSize;
     @Column(length = 10000) public String tagsJson;
 
     @Enumerated(EnumType.STRING)

@@ -41,6 +41,9 @@ public class ProductResource {
     private final StockService stock;
     private final ProductOverviewOrder overviewOrder;
 
+    @Inject
+    be.enrosed.catalog.application.PhotoDeliveryService photoDelivery;
+
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.ProductCostHistoryService> costHistory;
 
@@ -303,6 +306,35 @@ public class ProductResource {
                         photo.contentType(), photo.originalFilename())
                 .header("Cache-Control", "private, max-age=60")
                 .build();
+    }
+
+    /** Reports exact sizes of read-only copies while retaining the original upload. */
+    @GET @Path("/{id}/photos/{photoId}/renditions")
+    public be.enrosed.catalog.application.PhotoDeliveryService.Images photoRenditions(
+            @PathParam("id") long id, @PathParam("photoId") long photoId,
+            @QueryParam("width") Integer width, @QueryParam("quality") Integer quality) {
+        Photo photo = products.photo(id, photoId);
+        String base = "/api/products/" + id + "/photos/" + photoId;
+        return photoDelivery.metadata(photoSource(photo), base + "/renditions", base, width, quality);
+    }
+
+    @GET @Path("/{id}/photos/{photoId}/renditions/{profile}") @Produces(MediaType.WILDCARD)
+    public Response photoRendition(@PathParam("id") long id, @PathParam("photoId") long photoId,
+                                  @PathParam("profile") String profile,
+                                  @QueryParam("width") Integer width, @QueryParam("quality") Integer quality) {
+        Photo photo = products.photo(id, photoId);
+        if ("original".equals(profile) || "large".equals(profile)) return viewPhoto(id, photoId);
+        var rendition = photoDelivery.render(photoSource(photo), profile, width, quality);
+        return PhotoResponses.inline(new java.io.ByteArrayInputStream(rendition.bytes()),
+                        rendition.contentType(), rendition.filename())
+                .header("Cache-Control", "private, max-age=86400")
+                .header("ETag", "\"" + rendition.sha256() + "\"").build();
+    }
+
+    private be.enrosed.catalog.application.PhotoDeliveryService.Source photoSource(Photo photo) {
+        return new be.enrosed.catalog.application.PhotoDeliveryService.Source(
+                photo.storageKey(), photo.originalFilename(), photo.contentType(), photo.sizeBytes(),
+                photo.widthPx(), photo.heightPx(), () -> products.photoData(photo.storageKey()));
     }
 
     /** Downloads the photo under its original file name. */

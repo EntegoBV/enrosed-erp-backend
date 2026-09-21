@@ -53,8 +53,55 @@ public record ProductFamilyDto(
         List<ConflictDto> conflicts,
         List<MemberDto> members,
         List<String> publicationIssues,
-        long variantCount
+        long variantCount,
+        Long catalogueOverviewPhotoId,
+        Long catalogueDetailPhotoId,
+        List<CataloguePhotoOptionDto> cataloguePhotoOptions,
+        String catalogueDetailSize
 ) {
+    /** Compatibility for existing clients and resource fixtures. */
+    public ProductFamilyDto(
+        Long id,
+        String familyKey,
+        String publicHandle,
+        Long categoryId,
+        String categoryKey,
+        String categoryName,
+        int categoryPosition,
+        String collectionKey,
+        List<CollectionDto> collections,
+        int productPosition,
+        Long cardFeaturedProductId,
+        List<String> tags,
+        PublicationState websiteStatus,
+        PublicationState orderAppStatus,
+        PublicationState catalogueStatus,
+        boolean active,
+        String name,
+        String summary,
+        String description,
+        String format,
+        List<String> highlights,
+        String seoTitle,
+        String seoDescription,
+        DimensionsDto dimensions,
+        List<TextDto> texts,
+        List<PackageDto> packages,
+        List<ImageDto> images,
+        List<ExternalIdentifierDto> externalIdentifiers,
+        List<PriceObservationDto> priceObservations,
+        List<ProvenanceDto> provenance,
+        List<ConflictDto> conflicts,
+        List<MemberDto> members,
+        List<String> publicationIssues,
+        long variantCount
+    ) {
+        this(id, familyKey, publicHandle, categoryId, categoryKey, categoryName, categoryPosition, collectionKey, collections, productPosition, cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus, active, name, summary, description, format, highlights, seoTitle, seoDescription, dimensions, texts, packages, images, externalIdentifiers, priceObservations, provenance, conflicts, members, publicationIssues, variantCount, null, null, List.of(), "STANDARD");
+    }
+
+    public record CataloguePhotoOptionDto(Long id, Long productId, String originalFilename,
+                                          String source, String smallUrl, String largeUrl) {}
+
     /** Legacy wire names; length=B, width=D, height=H. */
     public record DimensionsDto(BigDecimal length, BigDecimal width, BigDecimal height,
                                 String unit, String raw) {}
@@ -81,7 +128,8 @@ public record ProductFamilyDto(
                            int position, Long variantProductId,
                            String variantExternalId, String variantColor,
                            String altTextSource, List<AltTextDto> altTexts,
-                           List<CatalogChannel> publishedChannels) {}
+                           List<CatalogChannel> publishedChannels,
+                           String mediumUrl, long originalSizeBytes, long smallSizeBytes) {}
     public record MemberDto(Long productId, String canonicalVariantKey, String sku,
                             String name, String colour, String size, String colourHex,
                             int position, boolean active, boolean hasPublicWebsiteImage) {}
@@ -107,7 +155,7 @@ public record ProductFamilyDto(
                 active, name, summary, description, format, highlights, seoTitle,
                 seoDescription, dimensions, texts, packages, images, externalIdentifiers,
                 priceObservations, provenance, conflicts, members, List.copyOf(combined),
-                variantCount);
+                variantCount, catalogueOverviewPhotoId, catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize);
     }
 
     /** Request-copy helper used by clients that edit the revisioned family text snapshot. */
@@ -120,7 +168,8 @@ public record ProductFamilyDto(
                 seoDescription, dimensions,
                 replacementTexts == null ? List.of() : List.copyOf(replacementTexts),
                 packages, images, externalIdentifiers, priceObservations, provenance, conflicts,
-                members, publicationIssues, variantCount);
+                members, publicationIssues, variantCount, catalogueOverviewPhotoId,
+                catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize);
     }
 
     public static ProductFamilyDto from(
@@ -142,7 +191,9 @@ public record ProductFamilyDto(
                 photo.variantExternalId, photo.variantColor,
                 photo.altTextSource,
                 read(json, photo.altTextsJson, new TypeReference<List<AltTextDto>>() {}),
-                FamilyPhotoPublicationPolicy.selectedChannels(photo, json))).toList();
+                FamilyPhotoPublicationPolicy.selectedChannels(photo, json),
+                "/api/product-families/" + family.id + "/images/" + photo.id + "/medium",
+                photo.largeSizeBytes, photo.smallSizeBytes)).toList();
         List<TextDto> texts = family.texts.stream().map(text -> new TextDto(
                 text.language, text.name, text.summary, text.description, text.format,
                 readStrings(json, text.highlightsJson), text.seoTitle, text.seoDescription)).toList();
@@ -205,7 +256,11 @@ public record ProductFamilyDto(
                         item.variantPosition, item.active,
                         item.active && !item.demo && publicPhotos.primary(
                                 family, item, orderedMembers, CatalogChannel.WEBSITE) != null)).toList(),
-                issues, variantCount);
+                issues, variantCount, family.catalogueOverviewPhotoId, family.catalogueDetailPhotoId,
+                be.enrosed.catalog.application.CataloguePhotoChoices.available(family, orderedMembers, json)
+                        .stream().map(choice -> new CataloguePhotoOptionDto(choice.id(), choice.productId(),
+                                choice.originalFilename(), choice.source(), choice.smallUrl(), choice.largeUrl()))
+                        .toList(), "LARGE".equals(family.catalogueDetailSize) ? "LARGE" : "STANDARD");
     }
 
     /** Compatibility projection for callers that only need readiness counts. */
@@ -227,7 +282,8 @@ public record ProductFamilyDto(
                 dto.format, dto.highlights, dto.seoTitle, dto.seoDescription, dto.dimensions,
                 dto.texts, dto.packages, dto.images, dto.externalIdentifiers,
                 dto.priceObservations, dto.provenance, dto.conflicts, List.of(),
-                publicationIssues(family, variantCount, json), variantCount);
+                publicationIssues(family, variantCount, json), variantCount,
+                dto.catalogueOverviewPhotoId, dto.catalogueDetailPhotoId, dto.cataloguePhotoOptions, dto.catalogueDetailSize);
     }
 
     public static List<String> publicationIssues(

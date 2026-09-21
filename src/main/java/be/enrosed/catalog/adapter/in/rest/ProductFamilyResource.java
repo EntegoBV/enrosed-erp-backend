@@ -89,6 +89,9 @@ public class ProductFamilyResource {
     @Inject
     Instance<MediaService> mediaRegistry;
 
+    @Inject
+    be.enrosed.catalog.application.PhotoDeliveryService photoDelivery;
+
     public ProductFamilyResource(
             CanonicalCatalogDaos.Families families,
             ProductFamilyDtoFactory familyDtos,
@@ -488,6 +491,45 @@ public class ProductFamilyResource {
         }
     }
 
+    public record CataloguePhotosRequest(Long catalogueOverviewPhotoId, Long catalogueDetailPhotoId,
+                                         String catalogueDetailSize) {}
+
+    @PUT @Path("/{id}/catalogue-photos") @Transactional
+    public ProductFamilyDto cataloguePhotos(@PathParam("id") long id, CataloguePhotosRequest request) {
+        if (request == null) throw new BadRequestException("Geen fotokeuze meegestuurd");
+        lockFamily(id);
+        ProductFamilyEntity family = family(id);
+        List<ProductEntity> members = products.list("familyId = ?1 order by variantPosition, id", id);
+        Set<Long> allowed = be.enrosed.catalog.application.CataloguePhotoChoices
+                .available(family, members, json).stream()
+                .map(be.enrosed.catalog.application.CataloguePhotoChoices.Choice::id)
+                .collect(java.util.stream.Collectors.toSet());
+        for (Long choice : Arrays.asList(request.catalogueOverviewPhotoId(), request.catalogueDetailPhotoId())) {
+            if (choice != null && !allowed.contains(choice)) {
+                throw new BusinessRuleException("Kies een eigen foto van een actieve variant in deze reeks "
+                        + "of een reeksfoto die voor de catalogus gepubliceerd is");
+            }
+        }
+        String detailSize = request.catalogueDetailSize() == null ? "STANDARD" : request.catalogueDetailSize();
+        if (!Set.of("STANDARD", "LARGE").contains(detailSize)) {
+            throw new BusinessRuleException("Kies STANDARD of LARGE voor het detailbeeld");
+        }
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("catalogueDetailSize", "Detailbeeld formaat", family.catalogueDetailSize, detailSize)
+                .add("catalogueOverviewPhotoId", "Catalogusoverzicht foto",
+                        family.catalogueOverviewPhotoId, request.catalogueOverviewPhotoId())
+                .add("catalogueDetailPhotoId", "Catalogusdetail foto",
+                        family.catalogueDetailPhotoId, request.catalogueDetailPhotoId());
+        family.catalogueOverviewPhotoId = request.catalogueOverviewPhotoId();
+        family.catalogueDetailPhotoId = request.catalogueDetailPhotoId();
+        family.catalogueDetailSize = detailSize;
+        family.updatedAt = Instant.now();
+        families.flush();
+        recordFamilyActivity(ActivityLogService.ACTION_UPDATED, family,
+                "Catalogusfoto’s gekozen", changes);
+        return dto(family);
+    }
+
     @POST @Path("/{id}/images") @Consumes(MediaType.MULTIPART_FORM_DATA) @Transactional
     public ProductFamilyDto uploadImage(
             @PathParam("id") long id,
@@ -645,6 +687,7 @@ public class ProductFamilyResource {
         List<CatalogChannel> beforeChannels = photoPublication.publishedChannels(photo);
         List<CatalogChannel> wantedChannels = canonicalChannels(request.channels());
         if (beforeChannels.equals(wantedChannels)) return dto(family);
+        if (!wantedChannels.contains(CatalogChannel.CATALOGUE)) requireNotCatalogueChoice(family, imageId);
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
         if (!wantedChannels.isEmpty() && !photoPublication.isEligible(photo, members)) {
@@ -713,6 +756,7 @@ public class ProductFamilyResource {
         lockFamily(id);
         ProductFamilyEntity family = family(id);
         ProductFamilyPhotoEntity photo = photo(family, imageId);
+        requireNotCatalogueChoice(family, imageId);
         int beforePosition = photo.position;
         Long beforeVariantId = variantProductId(photo);
         List<CatalogChannel> beforeChannels = photoPublication.publishedChannels(photo);
@@ -756,16 +800,62 @@ public class ProductFamilyResource {
         return changed(family);
     }
 
+    private static void requireNotCatalogueChoice(ProductFamilyEntity family, long photoId) {
+        if (Objects.equals(family.catalogueOverviewPhotoId, photoId)
+                || Objects.equals(family.catalogueDetailPhotoId, photoId)) {
+            throw new BusinessRuleException("Kies eerst een andere catalogusfoto of Automatisch "
+                    + "voordat je deze foto verwijdert of voor de catalogus verbergt");
+        }
+    }
+
     @GET @Path("/{id}/images/{imageId}/{rendition}") @Produces(MediaType.WILDCARD)
     public Response image(@PathParam("id") long id, @PathParam("imageId") long imageId,
                           @PathParam("rendition") String rendition) {
         ProductFamilyPhotoEntity photo = photo(family(id), imageId);
+        if ("medium".equals(rendition)) {
+            return deliveryResponse(photoDelivery.render(familyPhotoSource(photo), "medium", null, null));
+        }
         boolean small = "small".equalsIgnoreCase(rendition);
-        if (!small && !"large".equalsIgnoreCase(rendition)) throw new NotFoundException("Foto", imageId);
+        if (!small && !"large".equalsIgnoreCase(rendition) && !"original".equalsIgnoreCase(rendition)) {
+            throw new NotFoundException("Foto", imageId);
+        }
         String key = small ? photo.smallStorageKey : photo.largeStorageKey;
         String type = small ? photo.smallContentType : photo.largeContentType;
         return PhotoResponses.inline(photoStorage.read(key), type, photo.originalFilename)
                 .header("Cache-Control", "private, max-age=60").build();
+    }
+
+    @GET @Path("/{id}/images/{imageId}/renditions")
+    public be.enrosed.catalog.application.PhotoDeliveryService.Images imageRenditions(
+            @PathParam("id") long id, @PathParam("imageId") long imageId,
+            @QueryParam("width") Integer width, @QueryParam("quality") Integer quality) {
+        ProductFamilyPhotoEntity photo = photo(family(id), imageId);
+        String base = "/api/product-families/" + id + "/images/" + imageId;
+        var small = new be.enrosed.catalog.application.PhotoDeliveryService.Image(
+                base + "/small", photo.smallWidthPx, photo.smallHeightPx,
+                photo.smallSizeBytes, photo.smallContentType);
+        return photoDelivery.metadata(familyPhotoSource(photo), base, base + "/large", width, quality, small);
+    }
+
+    @GET @Path("/{id}/images/{imageId}/custom") @Produces(MediaType.WILDCARD)
+    public Response customImage(@PathParam("id") long id, @PathParam("imageId") long imageId,
+                                @QueryParam("width") Integer width, @QueryParam("quality") Integer quality) {
+        ProductFamilyPhotoEntity photo = photo(family(id), imageId);
+        return deliveryResponse(photoDelivery.render(familyPhotoSource(photo), "custom", width, quality));
+    }
+
+    private be.enrosed.catalog.application.PhotoDeliveryService.Source familyPhotoSource(
+            ProductFamilyPhotoEntity photo) {
+        return new be.enrosed.catalog.application.PhotoDeliveryService.Source(photo.largeStorageKey,
+                photo.originalFilename, photo.largeContentType, photo.largeSizeBytes,
+                photo.largeWidthPx, photo.largeHeightPx, () -> photoStorage.read(photo.largeStorageKey));
+    }
+
+    private static Response deliveryResponse(be.enrosed.catalog.application.PhotoRenditionService.Rendition image) {
+        return PhotoResponses.inline(new java.io.ByteArrayInputStream(image.bytes()),
+                        image.contentType(), image.filename())
+                .header("Cache-Control", "private, max-age=86400")
+                .header("ETag", "\"" + image.sha256() + "\"").build();
     }
 
     private void applyEditable(

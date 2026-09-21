@@ -134,7 +134,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             /** The facts the range table shows on one line. */
             RangeFacts facts,
             /** The chapter's tint class: bordeaux for the first chapter, then the other tones. */
-            String tone) {
+            String tone, boolean largeDetailPhoto) {
 
         /** Compatibility for callers written before the pages were numbered. */
         public BrochureFamily(
@@ -145,7 +145,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 List<BrochureVariant> variants, List<SpecRow> specs) {
             this(anchor, number, name, summary, description, format, highlights, categoryKey,
                     categoryName, familySize, packageLine, overviewImage, photos, referencePriceLabel,
-                    compactDetail, variants, specs, 0, RangeFacts.empty(), "tone-1");
+                    compactDetail, variants, specs, 0, RangeFacts.empty(), "tone-1", false);
         }
 
         /** The same family on its printed page, numbered in reading order. */
@@ -157,7 +157,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         public BrochureFamily placed(String number, int page, String tone) {
             return new BrochureFamily("family-" + number, number, name, summary, description, format,
                     highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
-                    referencePriceLabel, compactDetail, variants, specs, page, facts, tone);
+                    referencePriceLabel, compactDetail, variants, specs, page, facts, tone, largeDetailPhoto);
         }
 
         /** The one line the overview says about this family. */
@@ -656,6 +656,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         || selectedIds.contains(photo.variantProductId()))
                 .map(CatalogFamilyReader.GalleryPhoto::id)
                 .collect(java.util.stream.Collectors.toSet());
+        PhotoRef manualDetail = allowed > 0 && family != null
+                ? photos.selectedFamilyPhoto(family.catalogueDetailPhoto(), selectedIds) : null;
+        if (manualDetail != null) {
+            imageRefs.add(manualDetail);
+            imageKeys.add(manualDetail.storageKey());
+        }
         /* A photo the buyer chose to open the catalogue with goes first. An inherited
            lead still has to belong to this channel and the selected variants. */
         if (allowed > 0) {
@@ -701,9 +707,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             }
         }
         List<PhotoRef> detailOrder = photos.preferLargeLead(imageRefs);
-        String overviewImage = detailOrder.isEmpty()
-                ? null : photos.overview(detailOrder.getFirst());
-        PhotoLayout photoLayout = photos.brochureLayout(detailOrder);
+        PhotoRef manualOverview = allowed > 0 && family != null
+                ? photos.selectedFamilyPhoto(family.catalogueOverviewPhoto(), selectedIds) : null;
+        String overviewImage = manualOverview != null ? photos.overview(manualOverview)
+                : detailOrder.isEmpty() ? null : photos.overview(detailOrder.getFirst());
+        boolean largeDetail = family != null && "LARGE".equals(family.catalogueDetailSize())
+                && detailOrder.size() == 1;
+        PhotoLayout photoLayout = photos.brochureLayout(detailOrder, largeDetail);
 
         List<BrochureVariant> variants = group.variants().stream()
                 .sorted(Comparator.comparingInt(Product::variantPosition)
@@ -737,7 +747,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 compactDetail(summary, description, highlights, variants.size(),
                         photoLayout.extras().size(),
                         variants.stream().anyMatch(variant -> present(variant.image()))),
-                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1");
+                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1", largeDetail);
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
@@ -1343,6 +1353,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY, false);
         }
 
+        PhotoRef selectedFamilyPhoto(CatalogFamilyReader.GalleryPhoto photo, Set<Long> selectedIds) {
+            if (photo == null || (photo.variantProductId() != null
+                    && !selectedIds.contains(photo.variantProductId()))) return null;
+            PhotoRef ref = familyRef(photo);
+            return ref != null && usable(ref) ? new PhotoRef(ref.storageKey(), ref.owner(), true) : null;
+        }
+
         /** Never borrow a generic family photograph to illustrate a particular colour. */
         String variantImage(Product product, CatalogFamilyReader.Family family) {
             List<CatalogFamilyReader.GalleryPhoto> exactPhotos = family == null || product.id() == null
@@ -1421,11 +1438,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return photoLayout(images);
         }
 
-        PhotoLayout brochureLayout(List<PhotoRef> refs) {
+        PhotoLayout brochureLayout(List<PhotoRef> refs, boolean largeDetail) {
             List<PhotoRef> unique = uniquePhotos(refs);
             List<String> images = new ArrayList<>();
             for (int index = 0; index < unique.size(); index++) {
-                String image = detail(unique.get(index), unique.size(), index);
+                String image = largeDetail && unique.size() == 1
+                        ? contained(unique.get(index), "detail-one-large", 80, 27, 2_400)
+                        : detail(unique.get(index), unique.size(), index);
                 if (present(image)) images.add(image);
             }
             return photoLayout(images);

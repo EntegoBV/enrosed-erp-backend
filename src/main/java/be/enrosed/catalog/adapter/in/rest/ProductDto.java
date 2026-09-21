@@ -93,7 +93,8 @@ public record ProductDto(
                            String url, String downloadUrl,
                            Long familyPhotoId, PhotoOrigin origin, boolean readOnly,
                            /** The channels this photo opens: WEBSITE, CATALOGUE. */
-                           List<be.enrosed.catalog.domain.PhotoRole> leadFor) {}
+                           List<be.enrosed.catalog.domain.PhotoRole> leadFor,
+                           String smallUrl, String mediumUrl) {}
 
     public static ProductDto from(Product product) {
         Dimensions size = product.dimensions() == null ? Dimensions.empty() : product.dimensions();
@@ -109,7 +110,9 @@ public record ProductDto(
                         photo.familyPhotoId(),
                         photo.inherited() ? PhotoOrigin.FAMILY : PhotoOrigin.PRODUCT,
                         photo.inherited(),
-                        photo.leadFor().stream().sorted().toList()))
+                        photo.leadFor().stream().sorted().toList(),
+                        "/api/products/" + product.id() + "/photos/" + photo.id() + "/renditions/small",
+                        "/api/products/" + product.id() + "/photos/" + photo.id() + "/renditions/medium"))
                 .toList();
 
         List<TextDto> texts = product.texts().stream()

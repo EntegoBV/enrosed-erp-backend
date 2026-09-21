@@ -1018,6 +1018,14 @@ public class ProductService {
                     "Deze foto komt uit het model en is hier alleen-lezen; beheer haar in de modelgalerij");
         }
 
+        if (product.familyId() != null && families != null) {
+            ProductFamilyEntity family = families.findById(product.familyId());
+            if (family != null && (Objects.equals(family.catalogueOverviewPhotoId, -photoId)
+                    || Objects.equals(family.catalogueDetailPhotoId, -photoId))) {
+                throw new BusinessRuleException("Kies eerst een andere catalogusfoto of Automatisch "
+                        + "voordat je deze foto verwijdert");
+            }
+        }
         List<Photo> photos = new ArrayList<>(product.photos());
         photos.remove(target);
         Product updated = product.withPhotos(renumber(photos));

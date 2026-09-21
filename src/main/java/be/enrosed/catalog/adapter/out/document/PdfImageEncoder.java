@@ -87,10 +87,10 @@ public class PdfImageEncoder {
     }
 
     /**
-     * A product shot for a specification page: near-white upload margins are
-     * trimmed, then the whole product is fitted inside a canvas of the
-     * requested aspect with a little breathing room. Nothing is cropped away,
-     * and the canvas colour matches the page so the fit never shows as bars.
+     * A product shot for a specification page: empty upload margins are trimmed,
+     * then the whole product is fitted inside the requested aspect. Transparent
+     * assets retain their alpha and opaque white product details; opaque photos
+     * keep the existing page-coloured JPEG canvas.
      */
     String encodeContainedTrimmed(
             byte[] source, int aspectWidth, int aspectHeight, int maxEdge, Color background) {
@@ -98,22 +98,31 @@ public class PdfImageEncoder {
         try {
             BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(source));
             if (decoded == null) return null;
-            BufferedImage trimmed = trimNearWhite(decoded);
-            int longestSource = Math.max(trimmed.getWidth(), trimmed.getHeight());
-            /* Never inflate a small upload into a large blurry canvas. */
-            int edge = Math.max(480, Math.min(Math.min(MAX_PRINT_EDGE, maxEdge), longestSource * 2));
+            boolean transparent = hasTransparency(decoded);
+            BufferedImage trimmed = trimBlankMargins(decoded, transparent);
+            double inset = 0.94d;
+            // Letterboxing can require a larger canvas without enlarging the actual photo.
+            // Retain available source pixels up to the print cap; draw factor below never exceeds one.
+            double requiredWidth = Math.max(trimmed.getWidth() / inset,
+                    trimmed.getHeight() / inset * aspectWidth / aspectHeight);
+            double requiredEdge = aspectWidth >= aspectHeight ? requiredWidth
+                    : requiredWidth * aspectHeight / aspectWidth;
+            int edge = Math.max(1, (int) Math.min(Math.min(MAX_PRINT_EDGE, maxEdge),
+                    Math.ceil(requiredEdge)));
             int canvasWidth = aspectWidth >= aspectHeight ? edge
                     : Math.max(1, (int) Math.round(edge * (double) aspectWidth / aspectHeight));
             int canvasHeight = aspectWidth >= aspectHeight
                     ? Math.max(1, (int) Math.round(edge * (double) aspectHeight / aspectWidth)) : edge;
-            BufferedImage canvas = new BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_RGB);
+            BufferedImage canvas = new BufferedImage(canvasWidth, canvasHeight,
+                    transparent ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
             Graphics2D graphics = canvas.createGraphics();
             try {
-                graphics.setColor(background == null ? Color.WHITE : background);
-                graphics.fillRect(0, 0, canvasWidth, canvasHeight);
-                double inset = 0.94d;
-                double factor = Math.min(canvasWidth * inset / trimmed.getWidth(),
-                        canvasHeight * inset / trimmed.getHeight());
+                if (!transparent) {
+                    graphics.setColor(background == null ? Color.WHITE : background);
+                    graphics.fillRect(0, 0, canvasWidth, canvasHeight);
+                }
+                double factor = Math.min(1d, Math.min(canvasWidth * inset / trimmed.getWidth(),
+                        canvasHeight * inset / trimmed.getHeight()));
                 int width = Math.max(1, (int) Math.round(trimmed.getWidth() * factor));
                 int height = Math.max(1, (int) Math.round(trimmed.getHeight() * factor));
                 graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
@@ -127,7 +136,9 @@ public class PdfImageEncoder {
             } finally {
                 graphics.dispose();
             }
-            return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg(canvas));
+            String mime = transparent ? "image/png" : "image/jpeg";
+            byte[] encoded = transparent ? png(canvas) : jpeg(canvas);
+            return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(encoded);
         } catch (Exception ignored) {
             return null;
         }
@@ -218,13 +229,29 @@ public class PdfImageEncoder {
     }
 
     private static BufferedImage trimNearWhite(BufferedImage source) {
+        return trimBlankMargins(source, false);
+    }
+
+    private static boolean hasTransparency(BufferedImage source) {
+        if (!source.getColorModel().hasAlpha()) return false;
+        for (int y = 0; y < source.getHeight(); y++) {
+            for (int x = 0; x < source.getWidth(); x++) {
+                if ((source.getRGB(x, y) >>> 24) != 255) return true;
+            }
+        }
+        return false;
+    }
+
+    private static BufferedImage trimBlankMargins(BufferedImage source, boolean transparent) {
         int minX = source.getWidth();
         int minY = source.getHeight();
         int maxX = -1;
         int maxY = -1;
         for (int y = 0; y < source.getHeight(); y++) {
             for (int x = 0; x < source.getWidth(); x++) {
-                if (nearWhiteOrTransparent(source.getRGB(x, y))) continue;
+                int pixel = source.getRGB(x, y);
+                // A white petal, ribbon or box is part of a cut-out, not its background.
+                if (transparent ? (pixel >>> 24) == 0 : nearWhiteOrTransparent(pixel)) continue;
                 minX = Math.min(minX, x);
                 minY = Math.min(minY, y);
                 maxX = Math.max(maxX, x);

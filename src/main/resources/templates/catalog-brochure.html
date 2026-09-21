@@ -182,6 +182,8 @@
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media { width: 92mm; height: 54mm; }
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media--one tr, .family-page--compact.family-page--variant-photos.family-page--priced .family-media--two tr { height: 51mm; }
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media--three tr, .family-page--compact.family-page--variant-photos.family-page--priced .family-media--four-plus tr { height: 24.5mm; }
+    .family-page.family-page--large-photo .family-media.family-media--one { width: 160mm; height: 54mm; margin: 0 auto; border-spacing: 0; }
+    .family-page.family-page--large-photo .family-media.family-media--one tr { height: 54mm; }
     .utility h2 { max-width: 174mm; margin-top: 5mm; color: #651629; font-size: 35pt; font-weight: 400; line-height: 1.04; }
     .palette-page h2 { margin-top: 3mm; font-size: 32pt; }
     .palette-page .lead { max-width: 174mm; margin-top: 3mm; font-size: 8.6pt; line-height: 1.4; }
@@ -349,7 +351,7 @@
   {/if}
 
   {#for family in section.families}
-  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey} family-page--{family.tone}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}{#if family.showVariantPhotos} family-page--variant-photos{/if}{#if includePrices} family-page--priced{/if}">
+  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey} family-page--{family.tone}{#if family.largeDetailPhoto} family-page--large-photo{/if}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}{#if family.showVariantPhotos} family-page--variant-photos{/if}{#if includePrices} family-page--priced{/if}">
     <a name="{family.anchor}"></a>
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>

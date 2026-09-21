@@ -44,7 +44,23 @@ public class PhotoRenditionService {
         return render(source, MAX_WEB_WIDTH);
     }
 
+    /** Read-only delivery copies; the print/upload source is never replaced. */
+    public Rendition custom(ValidatedPhoto source, int width, int quality) {
+        if (width < 160 || width > 2400 || quality < 40 || quality > 95) {
+            throw invalid("Kies een breedte van 160–2400 pixels en JPEG-kwaliteit van 40–95");
+        }
+        return render(source, width, quality / 100f, true);
+    }
+
+    public Rendition medium(ValidatedPhoto source) {
+        return render(source, 1280);
+    }
+
     private Rendition render(ValidatedPhoto source, int maxWidth) {
+        return render(source, maxWidth, JPEG_QUALITY, false);
+    }
+
+    private Rendition render(ValidatedPhoto source, int maxWidth, float quality, boolean recompress) {
         if (source == null || source.bytes() == null || source.bytes().length == 0) {
             throw invalid("De kleine fotoversie kon niet worden gemaakt");
         }
@@ -59,7 +75,7 @@ public class PhotoRenditionService {
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 requireSafeDimensions(width, height);
-                if (fits(width, height, maxWidth)) {
+                if (!recompress && fits(width, height, maxWidth)) {
                     return original(source, width, height, ReuseReason.ALREADY_SMALL);
                 }
                 int frameCount = frameCount(reader);
@@ -80,7 +96,7 @@ public class PhotoRenditionService {
                 BufferedImage scaled = scale(decoded, maxWidth);
                 boolean alpha = decoded.getColorModel().hasAlpha();
                 String contentType = alpha ? "image/png" : "image/jpeg";
-                byte[] bytes = alpha ? png(scaled) : jpeg(scaled);
+                byte[] bytes = alpha ? png(scaled) : jpeg(scaled, quality);
                 if (bytes.length == 0) throw invalid("De kleine fotoversie is leeg");
                 /* A browser rendition must never make the transfer heavier. This also avoids a
                    duplicate blob for already well-compressed or tiny alpha sources. */
@@ -165,7 +181,7 @@ public class PhotoRenditionService {
         }
     }
 
-    private static byte[] jpeg(BufferedImage image) throws Exception {
+    private static byte[] jpeg(BufferedImage image, float quality) throws Exception {
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
         if (!writers.hasNext()) throw invalid("JPEG-encoder voor de kleine fotoversie ontbreekt");
         ImageWriter writer = writers.next();
@@ -175,7 +191,7 @@ public class PhotoRenditionService {
             ImageWriteParam parameters = writer.getDefaultWriteParam();
             if (parameters.canWriteCompressed()) {
                 parameters.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-                parameters.setCompressionQuality(JPEG_QUALITY);
+                parameters.setCompressionQuality(quality);
             }
             if (parameters.canWriteProgressive()) {
                 parameters.setProgressiveMode(ImageWriteParam.MODE_DEFAULT);

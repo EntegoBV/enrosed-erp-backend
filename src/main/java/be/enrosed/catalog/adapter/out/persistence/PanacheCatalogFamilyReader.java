@@ -79,7 +79,16 @@ public class PanacheCatalogFamilyReader implements CatalogFamilyReader {
                 entity.format, strings(entity.highlightsJson),
                 size == null ? null : new Dimensions(
                         size.lengthCm(), size.widthCm(), size.heightCm(), "cm"),
-                texts, packages, photos);
+                texts, packages, photos, selectedPhoto(entity, members, entity.catalogueOverviewPhotoId),
+                selectedPhoto(entity, members, entity.catalogueDetailPhotoId), entity.catalogueDetailSize);
+    }
+
+    private GalleryPhoto selectedPhoto(ProductFamilyEntity family, List<ProductEntity> members, Long id) {
+        if (id == null) return null;
+        return be.enrosed.catalog.application.CataloguePhotoChoices.available(family, members, json)
+                .stream().filter(choice -> id.equals(choice.id()))
+                .map(choice -> new GalleryPhoto(choice.id(), choice.storageKey(), choice.contentType(),
+                        -1, choice.productId())).findFirst().orElse(null);
     }
 
     private List<String> strings(String raw) {

@@ -29,7 +29,17 @@ public interface CatalogFamilyReader {
             Dimensions dimensions,
             List<Text> texts,
             List<PackageInfo> packages,
-            List<GalleryPhoto> photos) {
+            List<GalleryPhoto> photos, GalleryPhoto catalogueOverviewPhoto,
+            GalleryPhoto catalogueDetailPhoto, String catalogueDetailSize) {
+
+        public Family(Long id, String familyKey, String publicHandle, Long categoryId,
+                      String categoryKey, String categoryName, int categoryPosition, int productPosition,
+                      String name, String summary, String description, String format, List<String> highlights,
+                      Dimensions dimensions, List<Text> texts, List<PackageInfo> packages, List<GalleryPhoto> photos) {
+            this(id, familyKey, publicHandle, categoryId, categoryKey, categoryName, categoryPosition,
+                    productPosition, name, summary, description, format, highlights, dimensions, texts,
+                    packages, photos, null, null, "STANDARD");
+        }
 
         public Family {
             highlights = highlights == null ? List.of() : List.copyOf(highlights);
