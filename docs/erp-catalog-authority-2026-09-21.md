@@ -10,11 +10,14 @@ records, not fallbacks for current offers or availability.
 - Availability uses known ERP inventory only. Unknown inventory remains unknown.
 - Shared dimensions come from current product masters only when all active,
   non-demo family variants agree on a complete positive triple.
-- Photo selection follows the ERP channel preference, then the current own
-  primary photo, then published ERP family photography. Channel preferences
-  choose the opening photo; they are not separate publication permissions.
-- Shopify-origin family images are excluded from all public channels. Published
-  family status and active, non-demo membership govern access to product images.
+- Saved ERP family photography retains its published gallery order, including
+  photographs originally imported from another source. The variant's explicit
+  ERP channel lead wins; otherwise the matching family photo, then a shared
+  family photo, supplies its primary image. An own product photo is added only
+  for an explicit channel lead or when no usable family photo exists.
+- Stored photos are ERP-managed assets; provenance does not block publication
+  or the existing image URLs. Published family status and active, non-demo
+  membership govern access to product images.
   The same projection drives public endpoints, localized image descriptions,
   publication checks, catalogue revisions and catalogue PDF galleries.
 - Old external variant identifiers are not public image or packaging identities.
@@ -25,8 +28,9 @@ records, not fallbacks for current offers or availability.
   intact so order references and audit evidence are preserved.
 
 The production audit covered all 23 published families and 55 public variants.
-Every variant had a valid current ERP-owned photo. The old projection exposed 67
-Shopify-origin images. Thirteen variants had no positive calculable ERP price:
+Every variant had a valid current ERP-owned photo. The saved gallery also contains
+67 photographs originally imported from Shopify, which remain available as
+ERP-managed assets. Thirteen variants had no positive calculable ERP price:
 49–52, 66–68, 70–72 and 74–76. Their pages remain available with price on request.
 Draft families and demo products remain unpublished. No stock quantities, prices,
 publication statuses or photo files were changed by this repair.

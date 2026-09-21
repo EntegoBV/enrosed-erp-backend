@@ -17,10 +17,9 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
-/** Read-only public gallery: current ERP product photos plus published ERP family images. */
+/** Read-only public gallery: saved ERP family order, explicit product leads and missing-photo fallbacks. */
 @ApplicationScoped
 public class PublicFamilyPhotoProjection {
     private final FamilyPhotoPublicationPolicy publication;
@@ -40,22 +39,25 @@ public class PublicFamilyPhotoProjection {
     /** Includes selected incomplete images so publication preflight can report missing alts. */
     public List<ProductFamilyPhotoEntity> selected(
             ProductFamilyEntity family, List<ProductEntity> members, CatalogChannel channel) {
-        List<ProductFamilyPhotoEntity> result = new ArrayList<>();
+        List<ProductFamilyPhotoEntity> familyImages = family.photos.stream()
+                .filter(image -> publication.isSelectedFor(image, channel))
+                .sorted(Comparator.comparingInt((ProductFamilyPhotoEntity image) -> image.position)
+                        .thenComparing(image -> image.id, Comparator.nullsLast(Long::compareTo)))
+                .toList();
+        // Once stored in the ERP, a photo is managed here regardless of its original source.
+        List<ProductFamilyPhotoEntity> result = new ArrayList<>(familyImages);
         members.stream().filter(product -> product.active && !product.demo
                         && Objects.equals(product.familyId, family.id))
                 .sorted(Comparator.comparingInt((ProductEntity product) -> product.variantPosition)
                         .thenComparing(product -> product.id, Comparator.nullsLast(Long::compareTo)))
                 .forEach(product -> {
                     ProductPhotoEntity lead = channelPhoto(product, channel);
-                    if (lead != null) result.add(project(family, product, lead));
+                    boolean hasFamilyPhoto = familyImages.stream().anyMatch(image ->
+                            publication.isUsableBy(image, product, members, channel));
+                    if (lead != null && (channelLead(lead, channel) || !hasFamilyPhoto)) {
+                        result.add(project(family, product, lead));
+                    }
                 });
-        family.photos.stream()
-                .filter(image -> publication.isSelectedFor(image, channel))
-                // Historical imports remain in ERP; they are no longer public publication inputs.
-                .filter(image -> !importedFromShopify(image))
-                .sorted(Comparator.comparingInt((ProductFamilyPhotoEntity image) -> image.position)
-                        .thenComparing(image -> image.id, Comparator.nullsLast(Long::compareTo)))
-                .forEach(result::add);
         return List.copyOf(result);
     }
 
@@ -75,7 +77,6 @@ public class PublicFamilyPhotoProjection {
                 .filter(image -> publication.isUsableBy(image, product, members, channel))
                 .min(Comparator.comparingInt((ProductFamilyPhotoEntity image) ->
                                 explicitlyLeads(image, product, channel) ? 0 : 1)
-                        .thenComparingInt(image -> isProductProjection(image) ? 0 : 1)
                         .thenComparingInt(image -> variants.rank(image, product, members))
                         .thenComparingInt(image -> image.position))
                 .orElse(null);
@@ -84,15 +85,6 @@ public class PublicFamilyPhotoProjection {
     public static boolean isProductProjection(ProductFamilyPhotoEntity image) {
         return image != null && image.id != null && image.id < 0
                 && image.sourceKey != null && image.sourceKey.startsWith("erp-photo-");
-    }
-
-    static boolean importedFromShopify(ProductFamilyPhotoEntity image) {
-        return containsShopify(image.sourceUrl) || containsShopify(image.sourceKey)
-                || containsShopify(image.sourceAssetId) || containsShopify(image.altTextSource);
-    }
-
-    private static boolean containsShopify(String value) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains("shopify");
     }
 
     private static ProductPhotoEntity channelPhoto(ProductEntity product, CatalogChannel channel) {
