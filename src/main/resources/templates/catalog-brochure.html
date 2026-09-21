@@ -325,7 +325,7 @@
           <td class="range-product"><div><a href="#{row.anchor}">{row.name}</a><small><span class="ref">{row.number}</span> · {copy['catalog.brochure.overview.page']} {row.page}</small>{#if row.facts.skuLabel}<small>{row.facts.skuLabel}</small>{/if}{#if row.facts.ean}<small>EAN {row.facts.ean}</small>{/if}</div></td>
           <td class="range-colours"><div>{#for colour in row.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{/for}{#if row.facts.colourLabel}<small>{row.facts.colourLabel}</small>{/if}{#if row.facts.sizeLabel}<small>{row.facts.sizeLabel}</small>{/if}</div></td>
           <td class="range-size"><div>{row.facts.productSize}{#if row.facts.packaging}<small>{row.facts.packaging}</small>{/if}</div></td>
-          <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm || row.facts.hcCapacity}<small>{#if row.facts.cbm}{row.facts.cbm}{/if}{#if row.facts.cbm && row.facts.hcCapacity} · {/if}{#if row.facts.hcCapacity}{row.facts.hcCapacity} / 40' HC{/if}</small>{/if}</div></td>
+          <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm}<small>{row.facts.cbm}</small>{/if}<small>{copy['catalog.brochure.range.container20ft']}: {row.facts.gpCapacity}{#if row.facts.hcCapacity} · {copy['catalog.brochure.range.container']}: {row.facts.hcCapacity}{/if}</small></div></td>
           <td class="range-price"><div>{#if includePrices}{#if row.priceLabel}<b>{row.priceLabel}</b>{#else}<small>{copy['catalog.brochure.overview.priceonrequest']}</small>{/if}{/if}</div></td>
         </tr>{/if}
       {/for}
@@ -383,7 +383,7 @@
             <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.priceLabel}{variant.priceLabel}{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
-            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}</td>
+            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{#if family.showVariant20Ft}<br/>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity}{/if}</td>
             {#if family.showVariantEan}<td>{variant.ean}</td>{/if}
           </tr>{/for}</tbody>
         </table>{/if}

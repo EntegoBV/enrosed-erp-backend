@@ -126,7 +126,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureVariant(
             String sku, String name, String colour, String size, String colourHex,
             String productSize, String cartonSize, int piecesPerCarton,
-            String ean, String priceLabel, String image) {
+            String ean, String priceLabel, String image, String gpCapacity) {
+        public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
+                               String productSize, String cartonSize, int piecesPerCarton,
+                               String ean, String priceLabel, String image) {
+            this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
+                    ean, priceLabel, image, "-");
+        }
+
         public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
                                String productSize, String cartonSize, int piecesPerCarton,
                                String ean, String priceLabel) {
@@ -230,6 +237,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     .anyMatch(variant -> present(variant.ean()) && !"-".equals(variant.ean()));
         }
 
+        /** Differing or partially unknown capacities belong to the individual SKU. */
+        public boolean showVariant20Ft() {
+            return showVariantTable() && variants.stream().map(BrochureVariant::gpCapacity)
+                    .distinct().limit(2).count() > 1;
+        }
+
         /** A single product without story copy gets the large product shot and the roomy list. */
         public boolean sheetLayout() {
             return !hasStory() && !showVariantTable();
@@ -296,7 +309,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      */
     public record RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
                              String productSize, String packaging, String carton, String cartonPieces,
-                             String cbm, String hcCapacity, String ean) {
+                             String cbm, String hcCapacity, String ean, String gpCapacity) {
+        public RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
+                          String productSize, String packaging, String carton, String cartonPieces,
+                          String cbm, String hcCapacity, String ean) {
+            this(skuLabel, colours, colourLabel, sizeLabel, productSize, packaging, carton,
+                    cartonPieces, cbm, hcCapacity, ean, "-");
+        }
+
         static RangeFacts empty() {
             return new RangeFacts("", List.of(), "", "", "", "", "", "", "", "", "");
         }
@@ -753,7 +773,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         defaultText(product.canonicalBarcode(), "-"),
                         request.includePrices() ? priceLabel(product, language) : null,
                         allowed > 0 && group.variants().size() > 1
-                                ? photos.variantImage(product, family) : null))
+                                ? photos.variantImage(product, family) : null,
+                        capacity20Ft(product, language)))
                 .toList();
 
         String familySize = familyDimension(family, first);
@@ -818,7 +839,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
                     return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
                 }),
-                variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "");
+                variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "",
+                sharedOrFirst(variants, product -> capacity20Ft(product, language)));
     }
 
     /** One SKU, two SKUs, or the first and the last with a dash: enough to find the family in a price list. */
@@ -973,6 +995,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         addSpec(rows, copy(copy, "catalog.spec.cartonvolume"), variants,
                 product -> product.carton() == null || !positive(product.carton().cbm())
                         ? "" : DocumentFormat.cbm(product.carton().cbm()));
+        // A dash is retained as a real unknown, so one entered variant cannot
+        // accidentally supply a capacity for every other variant in its family.
+        addSpec(rows, copy(copy, "catalog.spec.container20ft"), variants,
+                product -> capacity20Ft(product, language));
         addSpec(rows, copy(copy, "catalog.spec.container"), variants, product -> {
             Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
             return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
@@ -994,6 +1020,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             }
         }
         return List.copyOf(rows);
+    }
+
+    private static String capacity20Ft(Product product, Language language) {
+        Integer capacity = product.carton() == null ? null : product.carton().piecesPer20Ft();
+        return capacity == null || capacity <= 0 ? "-" : integer(capacity, language);
     }
 
     /** Adds the value every variant shares; a differing or blank value is left to the table. */
@@ -1036,6 +1067,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + capacityText(variant.size(), 24)
                 + capacityText(variant.productSize(), 40)
                 + capacityText(variant.cartonSize(), 48)
+                + capacityText(variant.gpCapacity(), 14)
                 + capacityText(variant.ean(), 24)
                 + capacityText(variant.priceLabel(), 24);
     }
