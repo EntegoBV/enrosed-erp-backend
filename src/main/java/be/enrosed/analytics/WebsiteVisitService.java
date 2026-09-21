@@ -47,6 +47,11 @@ public class WebsiteVisitService {
     private static final Duration ACTIVE_WINDOW = Duration.ofMinutes(30);
     private static final Pattern VISITOR = Pattern.compile("^[a-f0-9]{16,64}$");
     private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");
+    // Matches the website's URL-safe handle contract, not a list of today's
+    // products or articles: valid historical and future HTML routes still count.
+    private static final Pattern CONTENT_PATH = Pattern.compile("^/(?:[a-z0-9]+(?:-[a-z0-9]+)*/)*$");
+    private static final Pattern NON_CONTENT_PATH = Pattern.compile(
+            "^/(?:(?:en|nl|fr|de|es|pl|pt|tr|el)/)?(?:404|api|brand|fonts|photos|video)(?:/|$)");
     private static final Set<String> SITE_LOCALES = Set.of("nl", "fr", "de", "es", "pl", "pt", "tr", "el");
     private static final Set<String> DEVICES = Set.of("MOBILE", "TABLET", "DESKTOP");
 
@@ -142,6 +147,11 @@ public class WebsiteVisitService {
         return ownVisit(row.country, row.city) || excludedReferrer(row.referrerHost) || excludedSource(row.source);
     }
 
+    /** Reporting only: legacy resource/error beacons remain stored for reference. */
+    private boolean reportableRow(WebsiteVisitEntity row) {
+        return contentPagePath(row.path) && !excludedRow(row);
+    }
+
     /** Removes every stored view the rules would refuse today; returns how many went. */
     @Transactional
     public long purgeExcluded() {
@@ -180,7 +190,7 @@ public class WebsiteVisitService {
         if (input == null) return false;
         String path = cleanPath(input.path());
         String visitor = lower(input.visitor());
-        if (path == null || visitor == null || !VISITOR.matcher(visitor).matches()) return false;
+        if (!contentPagePath(path) || visitor == null || !VISITOR.matcher(visitor).matches()) return false;
 
         WebsiteVisitEntity visit = new WebsiteVisitEntity();
         visit.occurredAt = Instant.now();
@@ -249,7 +259,7 @@ public class WebsiteVisitService {
                 Instant.now().toString());
     }
 
-    /** Every stored view between the two days, folded; own visits stored before the town list never count. */
+    /** Fold only content visits, excluding legacy resource/error beacons without deleting them. */
     private Fold fold(LocalDate firstDay, LocalDate lastDay) {
         Instant from = firstDay.atStartOfDay(ZONE).toInstant();
         Instant to = lastDay.plusDays(1).atStartOfDay(ZONE).toInstant();
@@ -257,7 +267,7 @@ public class WebsiteVisitService {
                 "occurredAt >= ?1 and occurredAt < ?2 order by visitor, occurredAt", from, to);
         Fold fold = new Fold(firstDay, lastDay);
         for (WebsiteVisitEntity row : rows) {
-            if (excludedRow(row)) continue;
+            if (!reportableRow(row)) continue;
             fold.add(row);
         }
         fold.finish();
@@ -269,7 +279,7 @@ public class WebsiteVisitService {
         List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list("occurredAt >= ?1", since);
         Set<String> active = new HashSet<>();
         for (WebsiteVisitEntity row : rows) {
-            if (!ownVisit(row.country, row.city)) active.add(row.visitor);
+            if (reportableRow(row)) active.add(row.visitor);
         }
         return active.size();
     }
@@ -431,6 +441,16 @@ public class WebsiteVisitService {
         if (cut >= 0) path = path.substring(0, cut);
         if (!path.startsWith("/") || path.length() > 255 || path.chars().anyMatch(Character::isISOControl)) return null;
         return path;
+    }
+
+    /** HTML routes have extensionless, lowercase segments in every site language. */
+    static boolean contentPagePath(String raw) {
+        String path = cleanPath(raw);
+        if (path == null) return false;
+        // Older real-page beacons may predate canonical trailing slashes. This
+        // is validation only: never rewrite the historical path in storage.
+        String route = path.endsWith("/") ? path : path + "/";
+        return CONTENT_PATH.matcher(route).matches() && !NON_CONTENT_PATH.matcher(route).find();
     }
 
     /** The locale is in the first path segment; English lives at the root. */

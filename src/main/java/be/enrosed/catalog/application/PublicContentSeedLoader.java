@@ -492,6 +492,22 @@ public class PublicContentSeedLoader {
             return previous != null && previous.contains(current);
         }
         if (scope == ContentScope.WEBSITE) {
+            // Make the original generic heading describe the wholesale product.
+            // ERP-authored alternatives remain authoritative and are not replaced.
+            if ("home.hero.title".equals(key)) {
+                String previousSeed = switch (language) {
+                    case NL -> "Groothandelsrozen.";
+                    case FR -> "Roses en gros.";
+                    case EN -> "Wholesale roses.";
+                    case DE -> "Rosen für den Großhandel.";
+                    case ES -> "Rosas al por mayor.";
+                    case PL -> "Róże dla hurtowni.";
+                    case PT -> "Rosas para grossistas.";
+                    case TR -> "Toptan güller.";
+                    case EL -> "Τριαντάφυλλα χονδρικής.";
+                };
+                return Objects.equals(previousSeed, current);
+            }
             if (current != null && Objects.equals(current,
                     LEGACY_CONSENT_VALUES.getOrDefault(key, Map.of()).get(language))) return true;
             if ("footer.cookie.description".equals(key) && current != null
