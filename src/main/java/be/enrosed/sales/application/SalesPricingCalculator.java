@@ -170,8 +170,8 @@ public class SalesPricingCalculator {
                        our own description. */
                     product.describeIn(context.customer() == null
                             ? Language.NL : context.customer().language()),
-                    product.primaryPhoto() == null ? null
-                            : "/api/products/" + product.id() + "/photos/" + product.primaryPhoto().id(),
+                    product.photoForSalesDocument() == null ? null
+                            : "/api/products/" + product.id() + "/photos/" + product.photoForSalesDocument().id(),
                     quantity, cartons, fit.cartonsPerPallet(), linePallets,
                     fit.perLayer(), usedPalletLayers, calculatedPalletHeight,
                     cbm, weight,

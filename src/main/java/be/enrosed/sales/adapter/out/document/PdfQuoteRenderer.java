@@ -492,11 +492,11 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     }
 
     private String productImage(Product product, Map<String, String> cache) {
-        if (product == null || product.primaryPhoto() == null || imageEncoder == null
+        if (product == null || product.photoForSalesDocument() == null || imageEncoder == null
                 || !imageEncoder.isResolvable() || products == null || !products.isResolvable()) {
             return null;
         }
-        String storageKey = product.primaryPhoto().storageKey();
+        String storageKey = product.photoForSalesDocument().storageKey();
         if (storageKey == null || storageKey.isBlank()) return null;
         String encoded = cache.computeIfAbsent(storageKey, key -> {
             try (var input = products.get().photoData(key)) {

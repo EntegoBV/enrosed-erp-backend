@@ -381,6 +381,27 @@ public record Product(
         return photos().stream().filter(photo -> photo.leads(role)).findFirst().orElse(primaryPhoto());
     }
 
+    /**
+     * Photo used on sales quotes, invoices and the customer quote portal.
+     *
+     * A quote must follow the canonical merchandising image for the variant,
+     * rather than the first legacy upload in the ERP series. An explicitly
+     * selected website lead wins (for example the mirror-base product). When
+     * no own lead exists, the first inherited family-gallery row is the
+     * variant projection created from the numeric family-photo link. The old
+     * first photo remains the final fallback for products without that link.
+     */
+    public Photo photoForSalesDocument() {
+        Photo websiteLead = photos().stream()
+                .filter(photo -> photo.leads(PhotoRole.WEBSITE))
+                .findFirst().orElse(null);
+        if (websiteLead != null) return websiteLead;
+        return photos().stream()
+                .filter(Photo::inherited)
+                .findFirst()
+                .orElse(primaryPhoto());
+    }
+
     /** The series with the channel's lead first; the rest keep their order. */
     public List<Photo> photosFor(PhotoRole role) {
         Photo lead = photos().stream().filter(photo -> photo.leads(role)).findFirst().orElse(null);

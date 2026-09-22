@@ -93,7 +93,7 @@ public class PortalResource {
                         product.id(),
                         product.sku(),
                         product.describeIn(language),
-                        product.primaryPhoto() == null ? null
+                        product.photoForSalesDocument() == null ? null
                                 : "/api/portal/" + token + "/products/" + product.id() + "/photo",
                         product.carton() == null ? 1 : product.carton().piecesPerCarton(),
                         salesOrders.unitPriceFor(product, order),
@@ -114,7 +114,7 @@ public class PortalResource {
         quotes.byToken(token);
         Product product = products.get(productId);
         if (!product.active()) return Response.status(Response.Status.NOT_FOUND).build();
-        Photo photo = product.primaryPhoto();
+        Photo photo = product.photoForSalesDocument();
         if (photo == null) return Response.status(Response.Status.NOT_FOUND).build();
         return PhotoResponses.inline(products.photoData(photo.storageKey()), photo.contentType())
                 .header("Cache-Control", "public, max-age=86400")
