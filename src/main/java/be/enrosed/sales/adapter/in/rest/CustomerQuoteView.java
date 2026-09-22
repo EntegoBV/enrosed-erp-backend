@@ -40,7 +40,17 @@ public record CustomerQuoteView(
             int piecesPerCarton,
             BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
             boolean inventoryKnown, boolean inStock,
-            String deliveryDate, String deliveryWeek, boolean unavailable, Integer requestedQuantity) {
+            String deliveryDate, String deliveryWeek, boolean unavailable, Integer requestedQuantity,
+            /** Basis of the unchanged commercial quantity and price; no costs or internal stock data. */
+            String salesUnit, Integer piecesPerDisplay) {
+        public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
+                            int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
+                            BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek,
+                            boolean unavailable, Integer requestedQuantity) {
+            this(productId, sku, description, photoUrl, quantity, cartons, pallets, cbm, piecesPerCarton, unitPrice,
+                    discountPct, net, inventoryKnown, inStock, deliveryDate, deliveryWeek, unavailable, requestedQuantity,
+                    "PIECE", null);
+        }
         public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
                             int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
                             BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek) {

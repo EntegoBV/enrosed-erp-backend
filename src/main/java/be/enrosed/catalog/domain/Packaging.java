@@ -9,7 +9,27 @@ package be.enrosed.catalog.domain;
  */
 public record Packaging(PackagingKind kind, Dimensions dimensions, String barcode,
                         /** Pieces a display holds; null or 1 for a gift box around one piece. */
-                        Integer piecesPerUnit) {
+                        Integer piecesPerUnit,
+                        /** Basis of stored sales quantities and prices; does not change their values. */
+                        SalesUnit salesUnit) {
+
+    public Packaging(PackagingKind kind, Dimensions dimensions, String barcode, Integer piecesPerUnit) {
+        this(kind, dimensions, barcode, piecesPerUnit, SalesUnit.PIECE);
+    }
+
+    public SalesUnit salesUnit() {
+        return kind() == PackagingKind.DISPLAY && salesUnit == SalesUnit.DISPLAY
+                ? SalesUnit.DISPLAY : SalesUnit.PIECE;
+    }
+
+    public boolean soldAsDisplay() {
+        return salesUnit() == SalesUnit.DISPLAY;
+    }
+
+    /** Legacy frozen document JSON may predate the explicit commercial-unit field. */
+    public boolean hasExplicitSalesUnit() {
+        return salesUnit != null;
+    }
 
     public static Packaging none() {
         return new Packaging(PackagingKind.NONE, Dimensions.empty(), null, null);

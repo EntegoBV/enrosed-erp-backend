@@ -83,6 +83,9 @@ public class ProductValidator {
             if (pieces != null && pieces < 1) {
                 throw new BusinessRuleException("Stuks per display moet minstens 1 zijn");
             }
+            if (product.packaging().soldAsDisplay() && (pieces == null || pieces < 2)) {
+                throw new BusinessRuleException("Vul minstens 2 stuks per display in voor verkoop per display");
+            }
         }
 
         if (product.publicHandle() != null

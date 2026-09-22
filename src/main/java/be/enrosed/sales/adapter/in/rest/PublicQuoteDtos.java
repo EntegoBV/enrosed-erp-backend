@@ -16,7 +16,7 @@ public final class PublicQuoteDtos {
             String address
     ) {}
 
-    /** Public quantities are cartons; the server derives pieces from catalogue packaging. */
+    /** Public quantities are cartons; the server derives stored sales units from catalogue packaging. */
     public record ItemRequest(Long productId, Integer cartons) {}
 
     public record PreviewRequest(
@@ -126,8 +126,14 @@ public final class PublicQuoteDtos {
             Long productId,
             BigDecimal unitPriceNet,
             boolean priceAvailable,
-            int piecesPerCarton
-    ) {}
+            int piecesPerCarton,
+            String salesUnit,
+            Integer piecesPerDisplay
+    ) {
+        public ProductPrice(Long productId, BigDecimal unitPriceNet, boolean priceAvailable, int piecesPerCarton) {
+            this(productId, unitPriceNet, priceAvailable, piecesPerCarton, "PIECE", null);
+        }
+    }
 
     public record EstimateResponse(
             String currency,

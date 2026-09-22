@@ -311,7 +311,11 @@ public class PublicFamilyCatalogResource {
                 size.value(), product.colourHex,
                 name.value(), product.variantPosition, availability,
                 primary == null ? null : primary.id, publicPrice,
-                Collections.unmodifiableMap(sources));
+                Collections.unmodifiableMap(sources),
+                product.packagingKind == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                        && product.packagingSalesUnit == be.enrosed.catalog.domain.SalesUnit.DISPLAY ? "DISPLAY" : "PIECE",
+                product.packagingKind == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                        ? product.packagingPiecesPerUnit : null);
     }
 
     private PublicFamilyCatalogDto.ImageDto image(

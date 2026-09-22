@@ -28,6 +28,14 @@ sku;SKU;Réf.;SKU;Art.-Nr.;Ref.;Nr kat.;Ref.;Ürün kodu;SKU
 description;Omschrijving;Désignation;Description;Bezeichnung;Descripción;Opis;Descrição;Açıklama;Περιγραφή
 quantity;Aantal;Quantité;Quantity;Menge;Cantidad;Ilość;Quantidade;Adet;Ποσότητα
 unitPrice;Stukprijs;Prix unitaire;Unit price;Stückpreis;Precio unitario;Cena jednostkowa;Preço unitário;Birim fiyat;Τιμή μονάδας
+salesUnitPrice;Prijs per eenheid;Prix par unité;Price per unit;Preis je Einheit;Precio por unidad;Cena za jednostkę;Preço por unidade;Birim fiyat;Τιμή ανά μονάδα
+salesDisplayUnits;Displays;Présentoirs;Displays;Displays;Expositores;Ekspozytory;Expositores;Stand;Σταντ
+salesPricePerPiece;per stuk;par pièce;per piece;pro Stück;por unidad;za sztukę;por unidade;adet başına;ανά τεμάχιο
+salesPricePerDisplay;per display;par présentoir;per display;pro Display;por expositor;za ekspozytor;por expositor;stand başına;ανά σταντ
+salesDisplayCount;Displays: %s;Présentoirs : %s;Displays: %s;Displays: %s;Expositores: %s;Ekspozytory: %s;Expositores: %s;Stand: %s;Σταντ: %s
+salesLoosePieces;Losse stuks: %s;Pièces seules : %s;Loose pieces: %s;Einzelstücke: %s;Unidades sueltas: %s;Sztuki luzem: %s;Unidades avulsas: %s;Tekli adet: %s;Μεμονωμένα τεμάχια: %s
+salesTotalInnerPieces;Totaal: %s stuks;Total : %s pièces;Total: %s pieces;Gesamt: %s Stück;Total: %s unidades;Łącznie: %s sztuk;Total: %s unidades;Toplam: %s adet;Σύνολο: %s τεμάχια
+salesPiecesPerDisplay;%s stuks/display;%s pièces/présentoir;%s pieces/display;%s Stück/Display;%s unidades/expositor;%s sztuk/ekspozytor;%s unidades/expositor;stand başına %s adet;%s τεμάχια/σταντ
 discount;Korting;Remise;Discount;Rabatt;Descuento;Rabat;Desconto;İndirim;Έκπτωση
 total;Totaal;Total;Total;Gesamt;Total;Razem;Total;Toplam;Σύνολο
 subtotal;Subtotaal;Sous-total;Subtotal;Zwischensumme;Subtotal;Suma częściowa;Subtotal;Ara toplam;Μερικό σύνολο
@@ -203,3 +211,7 @@ portalFreightAddedTitle;Transportkosten toegevoegd;Frais de transport ajoutés;F
 portalFreightAddedText;De actuele transportkosten zijn hieronder in de totalen opgenomen. Controleer het bijgewerkte totaal voordat u tekent.;Les frais de transport actuels sont inclus dans les totaux ci-dessous. Vérifiez le total mis à jour avant de signer.;The current freight charges are included in the totals below. Check the updated total before signing.;Die aktuellen Transportkosten sind in den Summen unten enthalten. Prüfen Sie die aktualisierte Gesamtsumme vor der Unterschrift.;Los gastos de transporte actuales están incluidos en los totales siguientes. Revise el total actualizado antes de firmar.;Aktualne koszty transportu są uwzględnione w poniższych sumach. Prosimy sprawdzić zaktualizowaną kwotę przed podpisaniem.;Os custos de transporte atuais estão incluídos nos totais abaixo. Verifique o total atualizado antes de assinar.;Güncel nakliye ücreti aşağıdaki toplamlara dahildir. İmzalamadan önce güncellenen toplamı kontrol edin.;Τα τρέχοντα μεταφορικά περιλαμβάνονται στα παρακάτω σύνολα. Ελέγξτε το ενημερωμένο σύνολο πριν υπογράψετε.
 portalTotalWithoutFreight;Totaal zonder transport;Total hors transport;Total excluding freight;Gesamt ohne Transport;Total sin transporte;Razem bez transportu;Total sem transporte;Nakliye hariç toplam;Σύνολο χωρίς μεταφορικά
 portalTotalInclVatWithoutFreight;Totaal incl. btw, zonder transport;Total TTC hors transport;Total incl. VAT, excluding freight;Gesamt inkl. MwSt., ohne Transport;Total con IVA, sin transporte;Razem z VAT, bez transportu;Total com IVA, sem transporte;KDV dahil, nakliye hariç toplam;Σύνολο με ΦΠΑ, χωρίς μεταφορικά
+salesRequestedUnits;Oorspronkelijk aangevraagd: %s;Quantité initialement demandée : %s;Originally requested: %s;Ursprünglich angefragt: %s;Cantidad solicitada originalmente: %s;Pierwotnie zamówiono: %s;Quantidade originalmente solicitada: %s;İlk talep edilen: %s;Αρχικά ζητήθηκαν: %s
+salesDisplaysPerCarton;displays per karton;présentoirs par carton;displays per carton;Displays pro Karton;expositores por caja;ekspozytorów w kartonie;expositores por caixa;koli başına stand;σταντ ανά κιβώτιο
+salesQuantityUnits;Verkoopeenheden;Unités de vente;Sales units;Verkaufseinheiten;Unidades de venta;Jednostki sprzedaży;Unidades de venda;Satış birimleri;Μονάδες πώλησης
+salesUnitsPerCarton;verkoopeenheden per karton;unités de vente par carton;sales units per carton;Verkaufseinheiten pro Karton;unidades de venta por caja;jednostek sprzedaży w kartonie;unidades de venda por caixa;koli başına satış birimi;μονάδες πώλησης ανά κιβώτιο

@@ -74,7 +74,12 @@ public record ProductDto(
         }
     }
 
-    public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {}
+    public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode,
+                               Integer piecesPerUnit, SalesUnit salesUnit) {
+        public PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {
+            this(kind, dimensions, barcode, piecesPerUnit, null);
+        }
+    }
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public static final class CartonDto {
@@ -226,7 +231,8 @@ public record ProductDto(
                         product.packaging().dimensions().heightCm(),
                         product.packaging().dimensions().weightKg()),
                         product.packaging().barcode(),
-                        product.packaging().isPresent() ? product.packaging().unitPieces() : null),
+                        product.packaging().isPresent() ? product.packaging().unitPieces() : null,
+                        product.packaging().salesUnit()),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
                 product.demo(),
@@ -249,10 +255,10 @@ public record ProductDto(
     }
 
     public Product toDomain(Long id) {
-        return toDomain(id, null);
+        return toDomain(id, null, null);
     }
 
-    private Product toDomain(Long id, Integer preservedPiecesPer20Ft) {
+    private Product toDomain(Long id, Integer preservedPiecesPer20Ft, SalesUnit preservedSalesUnit) {
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
@@ -265,7 +271,8 @@ public record ProductDto(
                 ? Packaging.none()
                 : new Packaging(packaging.kind(),
                         new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm(), wrap.weightKg()),
-                        packaging.barcode(), packaging.piecesPerUnit());
+                        packaging.barcode(), packaging.piecesPerUnit(),
+                        packaging.salesUnit() == null ? preservedSalesUnit : packaging.salesUnit());
 
         return new Product(
                 id, sku, name,
@@ -298,7 +305,7 @@ public record ProductDto(
     /** Preserves fields that older full-PUT clients could not send yet. */
     public Product toDomainForUpdate(Product current) {
         Product changes = toDomain(current.id(), current.carton() == null
-                ? null : current.carton().piecesPer20Ft());
+                ? null : current.carton().piecesPer20Ft(), current.packaging().salesUnit());
         if (inventoryKnown == null) {
             changes = changes.withCanonicalIdentity(
                     changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),

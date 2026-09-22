@@ -81,7 +81,7 @@ public record Product(
         BigDecimal markupPct,
         BigDecimal fixedSalesPriceEur,
 
-        /** Pieces in stock; grows when a purchase order is received. */
+        /** Stock in sales units (pieces or complete displays); grows when a purchase is received. */
         int stockQuantity,
 
         List<Photo> photos,

@@ -17,7 +17,7 @@ final class PublicQuotePriceVisibility {
                 value.countries().stream().map(country -> new CountryOption(country.code(),
                         country.name(), null, country.transitDays())).toList(),
                 value.products().stream().map(product -> new ProductPrice(product.productId(),
-                        null, false, product.piecesPerCarton())).toList(),
+                        null, false, product.piecesPerCarton(), product.salesUnit(), product.piecesPerDisplay())).toList(),
                 value.pickupLocations(), false);
     }
 

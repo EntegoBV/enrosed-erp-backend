@@ -175,6 +175,8 @@ public class WebsiteCatalogRevisionService {
     private void product(StringBuilder out, ProductEntity product) {
         add(out, "variant"); add(out, product.id); add(out, product.canonicalVariantKey);
         add(out, product.sku);
+        add(out, product.packagingKind); add(out, product.packagingSalesUnit);
+        add(out, product.packagingPiecesPerUnit);
         add(out, product.canonicalBarcode); add(out, product.active);
         add(out, product.inventoryKnown); add(out, product.stockQuantity); add(out, product.variantPosition);
         for (Language language : Language.values()) {

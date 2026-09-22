@@ -44,7 +44,7 @@ final class CatalogMapper {
                 new Packaging(entity.packagingKind == null ? PackagingKind.NONE : entity.packagingKind,
                         new Dimensions(entity.packagingLengthCm, entity.packagingWidthCm,
                                 entity.packagingHeightCm, entity.packagingWeightKg),
-                        entity.packagingBarcode, entity.packagingPiecesPerUnit),
+                        entity.packagingBarcode, entity.packagingPiecesPerUnit, entity.packagingSalesUnit),
                 entity.colour,
                 entity.variantSize,
                 entity.colourHex,
@@ -102,6 +102,7 @@ final class CatalogMapper {
         entity.packagingWeightKg = packaging.isPresent() ? packagingSize.weightKg() : null;
         entity.packagingBarcode = packaging.barcode();
         entity.packagingPiecesPerUnit = packaging.isPresent() ? packaging.piecesPerUnit() : null;
+        entity.packagingSalesUnit = packaging.salesUnit();
 
         entity.colour = product.colour();
         entity.variantSize = blankToNull(product.variantSize());

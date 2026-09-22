@@ -18,6 +18,7 @@ import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.catalog.domain.PackagingKind;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -135,7 +136,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         partnerContainerNumber(order))
                 : null;
         List<LineView> lines = cargo == null ? lineViews(order, priced, language, text, options)
-                : advanceLineViews(cargo, text, options);
+                : advanceLineViews(cargo, language, text, options);
         Integer displayCartons = null;
         Integer displayPallets = null;
         if (cargo != null) {
@@ -335,7 +336,70 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                            String description, List<ProductSpec> productSpecs,
                            String photoDataUri, int palletPositions, String skuText,
                            String deliveryText, int quantity, Integer cartons, String volumeText,
-                           boolean unavailable, String requestedQuantityText) {}
+                           boolean unavailable, String requestedQuantityText, UnitView units) {
+        public LineView(PricedOrder.Line commercial, String title, String variantText,
+                        String description, List<ProductSpec> productSpecs, String photoDataUri,
+                        int palletPositions, String skuText, String deliveryText, int quantity,
+                        Integer cartons, String volumeText, boolean unavailable, String requestedQuantityText) {
+            this(commercial, title, variantText, description, productSpecs, photoDataUri,
+                    palletPositions, skuText, deliveryText, quantity, cartons, volumeText,
+                    unavailable, requestedQuantityText, null);
+        }
+    }
+
+    /** Explanatory units only; never a replacement for the priced line or its financial values. */
+    public record UnitView(String quantityLabel, List<String> quantityDetails, String priceLabel,
+                           String secondaryPrice, String secondaryPriceLabel) {}
+
+    static UnitView unitView(Packaging packaging, int quantity, java.math.BigDecimal unitPrice,
+                             Language language, Map<String, String> text) {
+        if (packaging != null && packaging.kind() == PackagingKind.DISPLAY && !packaging.hasExplicitSalesUnit()) {
+            return unknownUnits(text);
+        }
+        boolean displayBasis = packaging != null && packaging.soldAsDisplay();
+        String quantityLabel = text.get(displayBasis ? "salesDisplayUnits" : "pieces");
+        String priceLabel = text.get(displayBasis ? "salesPricePerDisplay" : "salesPricePerPiece");
+        List<String> details = new ArrayList<>();
+        String secondaryPrice = null;
+        String secondaryPriceLabel = null;
+        Integer pieces = packaging != null && packaging.kind() == PackagingKind.DISPLAY
+                ? packaging.piecesPerUnit() : null;
+        if (pieces != null && pieces > 1 && quantity >= 0) {
+            var numbers = java.text.NumberFormat.getIntegerInstance(language.locale());
+            if (displayBasis) {
+                details.add(text.get("salesTotalInnerPieces").formatted(
+                        numbers.format((long) quantity * pieces)));
+            } else {
+                int displays = quantity / pieces;
+                int remainder = quantity % pieces;
+                if (displays > 0 || remainder == 0) {
+                    details.add(text.get("salesDisplayCount").formatted(numbers.format(displays)));
+                }
+                if (remainder > 0) {
+                    details.add(text.get("salesLoosePieces").formatted(numbers.format(remainder)));
+                }
+            }
+            details.add(text.get("salesPiecesPerDisplay").formatted(numbers.format(pieces)));
+            if (unitPrice != null) {
+                var factor = java.math.BigDecimal.valueOf(pieces);
+                var amount = displayBasis
+                        ? unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP)
+                        : unitPrice.multiply(factor);
+                var shown = amount.setScale(3, java.math.RoundingMode.HALF_UP);
+                boolean approximate = displayBasis
+                        ? shown.multiply(factor).compareTo(unitPrice) != 0
+                        : shown.compareTo(amount) != 0;
+                secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
+                secondaryPriceLabel = text.get(displayBasis ? "salesPricePerPiece" : "salesPricePerDisplay");
+            }
+        }
+        return new UnitView(quantityLabel, List.copyOf(details), priceLabel,
+                secondaryPrice, secondaryPriceLabel);
+    }
+
+    private static UnitView unknownUnits(Map<String, String> text) {
+        return new UnitView(text.get("salesQuantityUnits"), List.of(), text.get("salesUnitPrice"), null, null);
+    }
 
     private List<LineView> lineViews(SalesOrder order, PricedOrder priced, Language language,
                                      Map<String, String> text, SalesPdfOptions options) {
@@ -360,18 +424,23 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
             String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
             String delivery = !line.unavailable() && options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
+            UnitView units = unitView(product == null ? null : product.packaging(), line.quantity(),
+                    line.unitPrice(), language, text);
             String requested = line.unavailable() && line.requestedQuantity() != null && line.requestedQuantity() > 0
-                    ? text.get("lineRequestedQuantity").formatted(line.requestedQuantity()) : null;
+                    ? text.get("salesRequestedUnits").formatted(
+                            java.text.NumberFormat.getIntegerInstance(language.locale()).format(line.requestedQuantity())
+                                    + " " + units.quantityLabel()) : null;
             result.add(new LineView(line, title, variant, description, details, photo,
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
-                    line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested));
+                    line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested,
+                    units));
         }
         return List.copyOf(result);
     }
 
     /** Container contents describe the goods, without adding a second financial or stock claim. */
     private List<LineView> advanceLineViews(be.enrosed.sales.application.PartnerAdvanceContents.Snapshot cargo,
-                                          Map<String, String> text, SalesPdfOptions options) {
+                                          Language language, Map<String, String> text, SalesPdfOptions options) {
         Map<String, String> imageCache = new LinkedHashMap<>();
         return cargo.lines().stream().map(item -> {
             Product product = product(item.productId());
@@ -382,7 +451,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
                     specs,
                     options.includePhotos() ? productImage(product, imageCache) : null,
-                    0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()), false, null);
+                    0, nonBlank(item.sku(), null), null, item.quantity(), item.cartons(), DocumentFormat.cbm(item.cbm()), false, null,
+                    item.productDetails() == null ? unknownUnits(text)
+                            : unitView(item.productDetails().packaging(), item.quantity(), null, language, text));
         }).toList();
     }
 
@@ -471,9 +542,17 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
+            boolean displayBasis = product.packaging() != null && product.packaging().soldAsDisplay();
+            boolean unknownBasis = product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
+                    && !product.packaging().hasExplicitSalesUnit();
+            int cartonUnits = Math.max(1, product.carton().piecesPerCarton());
+            Integer innerPieces = product.packaging() == null ? null : product.packaging().piecesPerUnit();
+            String cartonContents = cartonUnits + " " + text.get(unknownBasis ? "salesUnitsPerCarton" : displayBasis ? "salesDisplaysPerCarton" : "piecesPerCarton");
+            String innerContents = displayBasis && innerPieces != null && innerPieces > 1
+                    ? ((long) cartonUnits * innerPieces) + " " + text.get("piecesPerCarton") : null;
             addSpec(details, text.get("catalogCarton"),
                     parts(dimensions(product.carton().dimensions()),
-                            Math.max(1, product.carton().piecesPerCarton()) + " " + text.get("piecesPerCarton"),
+                            cartonContents, innerContents,
                             DocumentFormat.cbm(product.carton().cbm()),
                             DocumentFormat.kg(product.carton().weightKg())),
                     options.showBarcode()

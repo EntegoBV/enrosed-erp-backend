@@ -100,8 +100,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record Item(String sku, String name, String size, String colour, String variantSize,
                        String barcodeInner, String barcodeOuter,
                        int piecesPerCarton, String cartonSize, String hsCode, Integer piecesPer20Ft,
-                       String priceLabel, boolean inventoryKnown, Integer stockQuantity,
-                       PhotoLayout photos, boolean photosRequested) {
+                       String priceLabel, String displayPriceLabel, boolean inventoryKnown, Integer stockQuantity,
+                       PhotoLayout photos, boolean photosRequested, String cartonQuantityLabel, String capacity20FtLabel) {
         /** Keep every selected image in source order without a clipped mosaic or extra strip. */
         public List<List<String>> photoRows() {
             List<String> images = new ArrayList<>();
@@ -126,7 +126,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     public record BrochureVariant(
             String sku, String name, String colour, String size, String colourHex,
             String productSize, String cartonSize, int piecesPerCarton,
-            String ean, String priceLabel, String image, String gpCapacity) {
+            String ean, String priceLabel, String image, String gpCapacity, String displayPriceLabel, String cartonQuantityLabel) {
+        public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
+                               String productSize, String cartonSize, int piecesPerCarton,
+                               String ean, String priceLabel, String image, String gpCapacity) {
+            this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
+                    ean, priceLabel, image, gpCapacity, null, null);
+        }
         public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
                                String productSize, String cartonSize, int piecesPerCarton,
                                String ean, String priceLabel, String image) {
@@ -159,7 +165,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             /** The facts the range table shows on one line. */
             RangeFacts facts,
             /** The chapter's tint class: bordeaux for the first chapter, then the other tones. */
-            String tone, boolean largeDetailPhoto) {
+            String tone, boolean largeDetailPhoto, String displayPriceLabel) {
+
+        public BrochureFamily(String anchor, String number, String name, String summary, String description,
+                String format, List<String> highlights, String categoryKey, String categoryName,
+                String familySize, String packageLine, String overviewImage, PhotoLayout photos,
+                String referencePriceLabel, boolean compactDetail, List<BrochureVariant> variants,
+                List<SpecRow> specs, int page, RangeFacts facts, String tone, boolean largeDetailPhoto) {
+            this(anchor, number, name, summary, description, format, highlights, categoryKey, categoryName,
+                    familySize, packageLine, overviewImage, photos, referencePriceLabel, compactDetail,
+                    variants, specs, page, facts, tone, largeDetailPhoto, null);
+        }
 
         /** Compatibility for callers written before the pages were numbered. */
         public BrochureFamily(
@@ -182,7 +198,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         public BrochureFamily placed(String number, int page, String tone) {
             return new BrochureFamily("family-" + number, number, name, summary, description, format,
                     highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
-                    referencePriceLabel, compactDetail, variants, specs, page, facts, tone, largeDetailPhoto);
+                    referencePriceLabel, compactDetail, variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel);
         }
 
         /** The one line the overview says about this family. */
@@ -329,16 +345,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /** A line of the range table: a chapter heading in its tint, or one family with its facts. */
     public record OverviewRow(boolean header, String tone, String number, String name, String countLabel,
-                              String anchor, int page, String image, RangeFacts facts, String priceLabel) {
+                              String anchor, int page, String image, RangeFacts facts, String priceLabel, String displayPriceLabel) {
         static OverviewRow group(BrochureSection section) {
             return new OverviewRow(true, section.tone(), section.number(), section.name(),
-                    section.familyCountLabel(), "", section.page(), null, RangeFacts.empty(), null);
+                    section.familyCountLabel(), "", section.page(), null, RangeFacts.empty(), null, null);
         }
 
         static OverviewRow family(BrochureFamily family) {
             return new OverviewRow(false, family.tone(), family.number(), family.name(), "",
                     family.anchor(), family.page(), family.overviewImage(), family.facts(),
-                    family.referencePriceLabel());
+                    family.referencePriceLabel(), family.displayPriceLabel());
         }
     }
 
@@ -718,8 +734,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? defaultText(priceLabel(product, language),
                                 copy(copy, "catalog.brochure.overview.priceonrequest"))
                         : null,
+                request.includePrices() ? displayPriceLabel(product, language, copy) : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
-                photos.simpleLayout(imageRefs), allowed > 0);
+                photos.simpleLayout(imageRefs), allowed > 0,
+                product.packaging().soldAsDisplay() ? cartonQuantity(product, language, copy, false) : null,
+                product.packaging().soldAsDisplay() ? capacity20Ft(product, language, copy) : null);
     }
 
     private FamilyRenderData brochureFamily(
@@ -829,7 +848,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         request.includePrices() ? priceLabel(product, language) : null,
                         allowed > 0 && group.variants().size() > 1
                                 ? photos.variantImage(product, family) : null,
-                        capacity20Ft(product, language)))
+                        capacity20Ft(product, language, copy),
+                        request.includePrices() ? displayPriceLabel(product, language, copy) : null,
+                        cartonQuantity(product, language, copy, true)))
                 .toList();
 
         String familySize = familyDimension(family, first);
@@ -848,7 +869,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 compactDetail(summary, description, highlights, variants.size(),
                         photoLayout.extras().size(),
                         variants.stream().anyMatch(variant -> present(variant.image()))),
-                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1", largeDetail);
+                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1", largeDetail,
+                request.includePrices() ? familyDisplayPriceLabel(group.variants(), language, copy) : null);
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
@@ -876,7 +898,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String cartonPieces = sharedOrFirst(variants, product -> {
             if (product.carton() == null) return "";
             String count = product.carton().piecesPerCarton() > 0
-                    ? integer(product.carton().piecesPerCarton(), language) + " " + pieces : "";
+                    ? cartonQuantity(product, language, copy, true) : "";
             String weight = positive(product.carton().weightKg()) ? DocumentFormat.kg(product.carton().weightKg()) : "";
             return count.isEmpty() ? weight : weight.isEmpty() ? count : count + " · " + weight;
         });
@@ -892,10 +914,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? "" : DocumentFormat.cbm(product.carton().cbm())),
                 sharedOrFirst(variants, product -> {
                     Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
-                    return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
+                    return capacity == null || capacity <= 0 ? "" : capacityQuantity(product, capacity, language, copy);
                 }),
                 variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "",
-                sharedOrFirst(variants, product -> capacity20Ft(product, language)));
+                sharedOrFirst(variants, product -> capacity20Ft(product, language, copy)));
     }
 
     /** One SKU, two SKUs, or the first and the last with a dash: enough to find the family in a price list. */
@@ -1041,9 +1063,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         });
         addSpec(rows, copy(copy, "catalog.spec.outercarton"), variants,
                 product -> product.carton() == null ? "" : dimensionLabel(product.carton().dimensions()));
-        addSpec(rows, copy(copy, "catalog.spec.piecespercarton"), variants,
+        addSpec(rows, copy(copy, variants.stream().anyMatch(product -> product.packaging().soldAsDisplay())
+                ? "catalog.spec.unitspercarton" : "catalog.spec.piecespercarton"), variants,
                 product -> product.carton() == null || product.carton().piecesPerCarton() <= 0
-                        ? "" : integer(product.carton().piecesPerCarton(), language));
+                        ? "" : cartonQuantity(product, language, copy, false));
         addSpec(rows, copy(copy, "catalog.spec.cartonweight"), variants,
                 product -> product.carton() == null || !positive(product.carton().weightKg())
                         ? "" : DocumentFormat.kg(product.carton().weightKg()));
@@ -1052,11 +1075,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? "" : DocumentFormat.cbm(product.carton().cbm()));
         // Resolve each variant separately: a manual count or its own calculated
         // capacity. A real unknown must not inherit another variant's value.
-        addSpec(rows, copy(copy, "catalog.spec.container20ft"), variants,
-                product -> capacity20Ft(product, language));
-        addSpec(rows, copy(copy, "catalog.spec.container"), variants, product -> {
+        addSpec(rows, copy(copy, variants.stream().anyMatch(product -> product.packaging().soldAsDisplay())
+                ? "catalog.spec.capacity20ft" : "catalog.spec.container20ft"), variants,
+                product -> capacity20Ft(product, language, copy));
+        addSpec(rows, copy(copy, variants.stream().anyMatch(product -> product.packaging().soldAsDisplay())
+                ? "catalog.spec.capacity40ft" : "catalog.spec.container"), variants, product -> {
             Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
-            return capacity == null || capacity <= 0 ? "" : integer(capacity, language);
+            return capacity == null || capacity <= 0 ? "" : capacityQuantity(product, capacity, language, copy);
         });
         addSpec(rows, copy(copy, "catalog.spec.hscode"), variants,
                 product -> defaultText(product.hsCode(), ""));
@@ -1068,18 +1093,39 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         } else {
             if (present(first.canonicalBarcode())) rows.add(new SpecRow("EAN", first.canonicalBarcode()));
             if (includePrices) {
-                BigDecimal price = first.computedSalesPriceEur();
+                String price = priceLabel(first, language);
                 rows.add(new SpecRow(copy(copy, "catalog.brochure.overview.referenceprice"),
-                        positive(price) ? formatPrice(price, language)
+                        present(price) ? price + " " + copy(copy, "catalog.simple.perpiece")
                                 : copy(copy, "catalog.brochure.overview.priceonrequest")));
             }
         }
         return List.copyOf(rows);
     }
 
-    private static String capacity20Ft(Product product, Language language) {
+    private static String capacity20Ft(Product product, Language language, Map<String, String> copy) {
         Integer capacity = product.carton() == null ? null : product.carton().gpCapacity();
-        return capacity == null ? "-" : integer(capacity, language);
+        return capacity == null ? "-" : capacityQuantity(product, capacity, language, copy);
+    }
+
+    /** Quantities remain stored commercial units; the label makes displays distinct from inner pieces. */
+    private static String capacityQuantity(Product product, int quantity, Language language,
+                                           Map<String, String> copy) {
+        String count = integer(quantity, language);
+        return product.packaging().soldAsDisplay()
+                ? copy(copy, "catalog.quantity.displays").replace("{count}", count) : count;
+    }
+
+    private static String cartonQuantity(Product product, Language language,
+                                          Map<String, String> copy, boolean pieceSuffix) {
+        int quantity = product.carton() == null ? 0 : product.carton().piecesPerCarton();
+        if (!product.packaging().soldAsDisplay()) {
+            return integer(quantity, language) + (pieceSuffix ? " " + copy(copy, "catalog.common.pieces") : "");
+        }
+        Integer perDisplay = product.packaging().piecesPerUnit();
+        if (perDisplay == null || perDisplay <= 1) return capacityQuantity(product, quantity, language, copy);
+        return copy(copy, "catalog.quantity.displaycontents")
+                .replace("{count}", integer(quantity, language))
+                .replace("{pieces}", integer((long) quantity * perDisplay, language));
     }
 
     /** Adds the value every variant shares; a differing or blank value is left to the table. */
@@ -1104,7 +1150,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return String.join(" · ", values);
     }
 
-    private static String integer(int value, Language language) {
+    private static String integer(long value, Language language) {
         return java.text.NumberFormat.getIntegerInstance(language.locale()).format(value);
     }
 
@@ -1124,7 +1170,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + capacityText(variant.cartonSize(), 48)
                 + capacityText(variant.gpCapacity(), 14)
                 + capacityText(variant.ean(), 24)
-                + capacityText(variant.priceLabel(), 24);
+                + capacityText(variant.priceLabel(), 24)
+                + capacityText(variant.displayPriceLabel(), 48);
     }
 
     /** Narrow table cells consume extra vertical space once their comfortable line length is exceeded. */
@@ -1192,25 +1239,74 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return value != null && value.signum() > 0;
     }
 
-    private String priceLabel(Product product, Language language) {
-        BigDecimal price = product.computedSalesPriceEur();
-        if (!positive(price)) return null;
-        return formatPrice(price, language);
+    /** Stored commercial price stays untouched; display sales only change its presentation here. */
+    private record CatalogPrices(BigDecimal piece, BigDecimal display, Integer pieces,
+                                 boolean approximatePiece) {}
+
+    private static CatalogPrices catalogPrices(Product product) {
+        BigDecimal amount = product.computedSalesPriceEur();
+        if (!positive(amount)) return new CatalogPrices(null, null, null, false);
+        var packaging = product.packaging();
+        Integer pieces = packaging == null ? null : packaging.piecesPerUnit();
+        boolean confirmedDisplay = packaging != null
+                && packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                && pieces != null && pieces > 1;
+        if (!confirmedDisplay) {
+            // A display-based amount without confirmed contents cannot become a claimed piece price.
+            return new CatalogPrices(packaging != null && packaging.soldAsDisplay() ? null : amount,
+                    null, null, false);
+        }
+        BigDecimal quantity = BigDecimal.valueOf(pieces);
+        if (packaging.soldAsDisplay()) {
+            BigDecimal piece = amount.divide(quantity, 2, java.math.RoundingMode.HALF_UP);
+            return new CatalogPrices(piece, amount, pieces,
+                    piece.multiply(quantity).compareTo(amount) != 0);
+        }
+        return new CatalogPrices(amount, amount.multiply(quantity), pieces, false);
+    }
+
+    private static String priceLabel(Product product, Language language) {
+        CatalogPrices prices = catalogPrices(product);
+        return prices.piece() == null ? null
+                : (prices.approximatePiece() ? "≈ " : "") + formatPrice(prices.piece(), language);
+    }
+
+    private static String displayPriceLabel(Product product, Language language, Map<String, String> copy) {
+        CatalogPrices prices = catalogPrices(product);
+        return prices.display() == null ? null : displayPriceLabel(
+                prices.pieces(), formatPrice(prices.display(), language), language, copy);
+    }
+
+    private static String displayPriceLabel(int pieces, String amount, Language language,
+                                           Map<String, String> copy) {
+        return copy(copy, "catalog.price.displaytotal")
+                .replace("{pieces}", integer(pieces, language)).replace("{price}", amount);
+    }
+
+    /** A family total is meaningful only when all selected variants share confirmed display contents. */
+    private static String familyDisplayPriceLabel(List<Product> variants, Language language,
+                                                  Map<String, String> copy) {
+        List<CatalogPrices> prices = variants.stream().map(PdfCatalogRenderer::catalogPrices).toList();
+        if (prices.isEmpty() || prices.stream().anyMatch(price -> price.display() == null)) return null;
+        Integer pieces = prices.getFirst().pieces();
+        if (prices.stream().anyMatch(price -> !Objects.equals(pieces, price.pieces()))) return null;
+        List<BigDecimal> amounts = prices.stream().map(CatalogPrices::display).distinct().sorted().toList();
+        String amount = formatPrice(amounts.getFirst(), language);
+        if (amounts.size() > 1) amount += " - " + formatPrice(amounts.getLast(), language);
+        return displayPriceLabel(pieces, amount, language, copy);
     }
 
     private String referencePriceLabel(
             List<Product> variants, Language language, Map<String, String> copy) {
-        List<BigDecimal> prices = variants.stream()
-                .map(Product::computedSalesPriceEur)
-                .filter(PdfCatalogRenderer::positive)
+        List<CatalogPrices> resolved = variants.stream().map(PdfCatalogRenderer::catalogPrices).toList();
+        List<BigDecimal> prices = resolved.stream().map(CatalogPrices::piece)
+                .filter(Objects::nonNull)
                 .map(value -> value.setScale(2, java.math.RoundingMode.HALF_UP))
-                .distinct()
-                .sorted()
-                .toList();
+                .distinct().sorted().toList();
         if (prices.isEmpty()) return copy(copy, "catalog.brochure.overview.priceonrequest");
-        String minimum = formatPrice(prices.getFirst(), language);
-        long pricedVariants = variants.stream().map(Product::computedSalesPriceEur)
-                .filter(PdfCatalogRenderer::positive).count();
+        String approximation = resolved.stream().anyMatch(CatalogPrices::approximatePiece) ? "≈ " : "";
+        String minimum = approximation + formatPrice(prices.getFirst(), language);
+        long pricedVariants = resolved.stream().map(CatalogPrices::piece).filter(Objects::nonNull).count();
         if (pricedVariants == variants.size()) {
             return prices.size() == 1 ? minimum
                     : minimum + " - " + formatPrice(prices.getLast(), language);

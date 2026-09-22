@@ -109,8 +109,17 @@ public record PublicFamilyCatalogDto(
             String availability,
             Long primaryImageId,
             PublicPriceDto publicPrice,
-            Map<String, Language> textSources
-    ) {}
+            Map<String, Language> textSources,
+            String salesUnit,
+            Integer piecesPerDisplay
+    ) {
+        public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
+                          String name, int position, String availability, Long primaryImageId,
+                          PublicPriceDto publicPrice, Map<String, Language> textSources) {
+            this(id, sku, barcode, color, size, colorHex, name, position, availability,
+                    primaryImageId, publicPrice, textSources, "PIECE", null);
+        }
+    }
 
     public record PublicPriceDto(
             BigDecimal amount,

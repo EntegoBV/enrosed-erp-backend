@@ -2,6 +2,7 @@ package be.enrosed.catalog.adapter.out.persistence;
 
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.shared.Currency;
 import jakarta.persistence.*;
 
@@ -48,6 +49,8 @@ public class ProductEntity {
     public String packagingBarcode;
     /** Pieces one display holds; null for a gift box around a single piece. */
     public Integer packagingPiecesPerUnit;
+    @Enumerated(EnumType.STRING)
+    public SalesUnit packagingSalesUnit;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;

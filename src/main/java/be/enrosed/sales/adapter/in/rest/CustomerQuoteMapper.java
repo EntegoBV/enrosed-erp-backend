@@ -50,14 +50,7 @@ public class CustomerQuoteMapper {
         boolean arrangementOnly = agreement != null;
 
         List<CustomerQuoteView.CustomerLine> lines = priced.lines().stream()
-                .map(line -> new CustomerQuoteView.CustomerLine(
-                        line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
-                        line.quantity(), line.cartons(),
-                        line.unavailable() ? 0 : order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
-                        piecesPerCarton(line.productId()),
-                        arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(), arrangementOnly ? null : line.net(),
-                        line.inventoryKnown(), line.inStock(),
-                        line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity()))
+                .map(line -> customerLine(line, order, arrangementOnly))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();
@@ -110,14 +103,31 @@ public class CustomerQuoteMapper {
                 extraLines, agreement);
     }
 
-    private int piecesPerCarton(Long productId) {
-        if (productId == null) return 1;
+    private CustomerQuoteView.CustomerLine customerLine(
+            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly) {
+        be.enrosed.catalog.domain.Product product = null;
         try {
-            int per = products.get(productId).carton().piecesPerCarton();
-            return Math.max(1, per);
+            if (line.productId() != null) product = products.get(line.productId());
         } catch (RuntimeException e) {
-            return 1;
+            // A missing product retains the commercial line; no packaging facts are guessed.
         }
+        var packaging = product == null ? null : product.packaging();
+        String basis = packaging == null ? "PIECE" : packaging.salesUnit().name();
+        Integer perDisplay = packaging != null
+                && packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                && packaging.piecesPerUnit() != null && packaging.piecesPerUnit() > 1
+                ? packaging.piecesPerUnit() : null;
+        int perCarton = product == null || product.carton() == null
+                ? 1 : Math.max(1, product.carton().piecesPerCarton());
+        return new CustomerQuoteView.CustomerLine(
+                line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
+                line.quantity(), line.cartons(),
+                line.unavailable() ? 0 : order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
+                perCarton,
+                arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(),
+                arrangementOnly ? null : line.net(), line.inventoryKnown(), line.inStock(),
+                line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity(),
+                basis, perDisplay);
     }
 
     private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {

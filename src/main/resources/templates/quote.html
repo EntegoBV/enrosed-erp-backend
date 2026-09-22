@@ -143,6 +143,11 @@
       border: 0.3mm solid #e2d9cf; background: #ffffff;
     }
     .line-total { font-weight: bold; white-space: nowrap; }
+    .line-number { white-space: nowrap; }
+    .line-unit { margin-top: 1px; color: #453e39; font-size: 7pt; line-height: 1.25; }
+    .line-unit-details { margin-top: 5px; color: #736b65; font-size: 6.5pt; line-height: 1.35; }
+    .line-unit-details div { margin-top: 2px; }
+    .line-price-secondary { margin-top: 5px; color: #736b65; font-size: 6.5pt; line-height: 1.35; }
     .nowrap { white-space: nowrap; }
 
     /* -- totals -------------------------------------------------------- */
@@ -304,7 +309,7 @@
       <div class="ship-facts">
         {t.destination}: <b>{displayDestination ?: '-'}</b><br/>
         {#if advanceInvoice}
-          {#if displayPieces}{t.pieces}: <b>{displayPieces}</b><br/>{/if}
+          {#if displayPieces}{t.quantity}: <b>{displayPieces}</b><br/>{/if}
           {#if displayCartons}{t.cartons}: <b>{displayCartons}</b><br/>{/if}
           {#if displayPallets}{t.pallets}: <b>{displayPallets}</b><br/>{/if}
           {#if totalCbmText}{t.volume}: <b>{totalCbmText}</b><br/>{/if}
@@ -333,7 +338,7 @@
       <th class="r">{#if showProductVolume}{t.volume}{#else}{t.pallets}{/if}</th>
     {/if}
     {#if !priceFreeProducts}
-      <th class="r">{t.unitPrice}</th>
+      <th class="r">{t.salesUnitPrice}</th>
       {#if hasDiscounts}<th class="r">{t.discount}</th>{/if}
       <th class="r">{t.total}</th>
     {/if}
@@ -359,13 +364,27 @@
           </td>
         </tr></table>
       </td>
-      <td class="r nowrap">{#if line.unavailable}-{#else}{line.quantity}{/if}</td>
+      <td class="r">
+        {#if line.unavailable}-{#else}
+          <div class="line-number">{line.quantity}</div>
+          {#if line.units}<div class="line-unit">{line.units.quantityLabel}</div>
+            {#if !line.units.quantityDetails.isEmpty}<div class="line-unit-details">{#for detail in line.units.quantityDetails}<div>{detail}</div>{/for}</div>{/if}
+          {/if}
+        {/if}
+      </td>
       {#if includeLogistics}
         <td class="r nowrap">{#if line.unavailable}-{#else}{line.cartons ?: '-'}{/if}</td>
         <td class="r nowrap">{#if line.unavailable}-{#else if showProductVolume}{line.volumeText ?: '-'}{#else}{line.palletPositions}{/if}</td>
       {/if}
       {#if !priceFreeProducts}
-        <td class="r nowrap">{#if line.unavailable}-{#else}{line.commercial.unitPrice.unit}{/if}</td>
+        <td class="r">
+          {#if line.unavailable}-{#else}
+            <div class="line-number">{line.commercial.unitPrice.unit}</div>
+            {#if line.units}<div class="line-unit">{line.units.priceLabel}</div>
+              {#if line.units.secondaryPrice}<div class="line-price-secondary"><span class="line-number">{line.units.secondaryPrice}</span><br/>{line.units.secondaryPriceLabel}</div>{/if}
+            {/if}
+          {/if}
+        </td>
         {#if hasDiscounts}<td class="r nowrap">{#if line.unavailable}-{#else if line.commercial.discountPct.isPositive}-{line.commercial.discountPct.pct}{#else}·{/if}</td>{/if}
         <td class="r line-total">{#if line.unavailable}-{#else}{line.commercial.net.eur}{/if}</td>
       {/if}

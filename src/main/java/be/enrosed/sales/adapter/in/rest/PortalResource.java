@@ -3,6 +3,7 @@ package be.enrosed.sales.adapter.in.rest;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.domain.Photo;
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.CustomerService;
 import be.enrosed.sales.application.QuoteService;
@@ -56,7 +57,14 @@ public class PortalResource {
     public record CatalogItem(Long productId, String sku, String description, String photoUrl,
                               int piecesPerCarton, BigDecimal unitPrice,
                               /* Available from stock, or do we need to order it first? */
-                              boolean inventoryKnown, boolean inStock) {}
+                              boolean inventoryKnown, boolean inStock,
+                              String salesUnit, Integer piecesPerDisplay) {
+        public CatalogItem(Long productId, String sku, String description, String photoUrl,
+                           int piecesPerCarton, BigDecimal unitPrice, boolean inventoryKnown, boolean inStock) {
+            this(productId, sku, description, photoUrl, piecesPerCarton, unitPrice,
+                    inventoryKnown, inStock, "PIECE", null);
+        }
+    }
 
     public record AcceptRequest(String signedByName, String message) {}
     public record RejectRequest(String message) {}
@@ -90,7 +98,11 @@ public class PortalResource {
                         product.carton() == null ? 1 : product.carton().piecesPerCarton(),
                         salesOrders.unitPriceFor(product, order),
                         product.inventoryKnown(),
-                        product.stockQuantity() > 0))
+                        product.stockQuantity() > 0,
+                        product.packaging() != null && product.packaging().soldAsDisplay() ? "DISPLAY" : "PIECE",
+                        product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
+                                && product.packaging().piecesPerUnit() != null && product.packaging().piecesPerUnit() > 1
+                                ? product.packaging().piecesPerUnit() : null))
                 .toList();
     }
 

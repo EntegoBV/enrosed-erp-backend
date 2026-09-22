@@ -60,6 +60,7 @@
     .fact strong { font-weight: 500; }
     .price { margin-top: 2mm; padding-top: 1.4mm; border-top: .2mm solid #d6c2af; color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
     .price small { font-size: 7.5pt; font-weight: 400; color: #725b63; }
+    .display-price { margin-top: .7mm; color: #725b63; font-size: 7.5pt; font-weight: 400; line-height: 1.25; }
     .nostock { margin-top: 1.5mm; color: #9a552f; font-size: 7.5pt; }
     html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
     html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
@@ -121,12 +122,12 @@
           {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}{/if}
         </td>
         <td class="facts">
-          <div class="fact"><span class="fact-label">{copy['catalog.common.carton']}</span><br/><strong>{it.piecesPerCarton} {copy['catalog.simple.perbox']}</strong>{#if it.cartonSize} · {it.cartonSize}{/if}</div>
+          <div class="fact"><span class="fact-label">{copy['catalog.common.carton']}</span><br/><strong>{#if it.cartonQuantityLabel}{it.cartonQuantityLabel}{#else}{it.piecesPerCarton} {copy['catalog.simple.perbox']}{/if}</strong>{#if it.cartonSize} · {it.cartonSize}{/if}</div>
           {#if it.barcodeInner}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.product']}</span> {it.barcodeInner}</div>{/if}
           {#if it.barcodeOuter}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.carton']}</span> {it.barcodeOuter}</div>{/if}
           <div class="fact"><span class="fact-label">{copy['catalog.spec.hscode']}</span> {#if it.hsCode}{it.hsCode}{#else}-{/if}</div>
-          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.piecesPer20Ft != null}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}</div>
-          {#if it.priceLabel}<div class="price">{it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}</div>{/if}
+          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.capacity20FtLabel}{it.capacity20FtLabel}{#else}{#if it.piecesPer20Ft != null}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}{/if}</div>
+          {#if it.priceLabel}<div class="price">{it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}{#if it.displayPriceLabel}<div class="display-price">{it.displayPriceLabel}</div>{/if}</div>{/if}
         </td>
       </tr></tbody></table>
     </div>

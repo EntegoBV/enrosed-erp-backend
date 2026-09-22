@@ -79,7 +79,9 @@ public class PublicQuoteService {
                     BigDecimal amount = pricing.unitPriceFor(product, priceTemplate, null);
                     boolean available = amount != null && amount.signum() > 0;
                     return new ProductPrice(product.id(), available ? amount : null, available,
-                            piecesPerCarton(product));
+                            piecesPerCarton(product), product.packaging().salesUnit().name(),
+                            product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                                    ? product.packaging().piecesPerUnit() : null);
                 }).toList();
         List<CountryOption> destinations = countries.list().stream()
                 .map(country -> new CountryOption(country.code(), country.name(),

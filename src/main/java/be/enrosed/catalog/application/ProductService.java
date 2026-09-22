@@ -364,7 +364,7 @@ public class ProductService {
                     sourcePackaging.kind(),
                     sourcePackaging.dimensions(),
                     target.packaging().barcode(),
-                    sourcePackaging.piecesPerUnit());
+                    sourcePackaging.piecesPerUnit(), sourcePackaging.salesUnit());
         }
 
         List<ProductText> texts = name || description
@@ -651,7 +651,8 @@ public class ProductService {
            unique as any other barcode and stays behind, like the piece and
            carton codes. */
         Packaging packaging = new Packaging(source.packaging().kind(),
-                source.packaging().dimensions(), null);
+                source.packaging().dimensions(), null, source.packaging().piecesPerUnit(),
+                source.packaging().salesUnit());
         return create(new Product(
                 null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
