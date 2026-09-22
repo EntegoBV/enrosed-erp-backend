@@ -1385,6 +1385,90 @@ public class SalesOrderService {
     /** One line whose promised delivery week may be filled in separately. */
     public record DeliveryWeekChange(Long productId, String deliveryWeek) {}
 
+    /** Complete transport snapshot; null optional values clear them, and an empty list clears the pallet plan. */
+    public record ShippingUpdate(LoadMode loadMode, PalletProfile palletProfile,
+                                 BigDecimal maxPalletHeightCm,
+                                 FreightPricingStrategy freightPricingStrategy,
+                                 BigDecimal freightRatePerCbmEur, BigDecimal manualFreightEur,
+                                 Long freightCarrierId, BigDecimal freightCarrierExtraEur,
+                                 FreightState freight, List<OrderPallet> pallets) {}
+
+    /** Changes transport only, including for an open sent quote, without reopening its commercial fields. */
+    @Transactional
+    public SalesOrder updateShipping(long id, ShippingUpdate request) {
+        lockDocumentForMutation(id);
+        SalesOrder current = get(id);
+        requireFreightEditable(current);
+        if (request == null || request.loadMode() == null || request.palletProfile() == null
+                || request.freightPricingStrategy() == null || request.freight() == null || request.pallets() == null) {
+            throw new BusinessRuleException("Stuur de volledige transportinstellingen en palletindeling mee");
+        }
+        if (request.pallets().stream().anyMatch(pallet -> pallet == null
+                || pallet.items().stream().anyMatch(Objects::isNull))) {
+            throw new BusinessRuleException("Een pallet of palletregel mag niet leeg zijn");
+        }
+        FreightState state = current.freight() == FreightState.TE_BEPALEN
+                && request.freight() != FreightState.TE_BEPALEN
+                ? FreightState.AANGEVULD : request.freight();
+        SalesOrder updated = new SalesOrder(current.id(), current.number(), current.customerId(), current.countryCode(),
+                current.orderDate(), current.validUntil(), current.status(), current.incoterm(),
+                current.paymentTerms(), current.notes(), current.markupMode(), current.orderMarkupPct(),
+                current.extraDiscountPct(), current.extraDiscountLabel(), current.portalToken(),
+                current.sentAt(), current.viewedAt(), current.viewCount(), current.decidedAt(),
+                current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
+                state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
+                request.loadMode(), request.palletProfile(), request.maxPalletHeightCm(), request.freightPricingStrategy(),
+                request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
+                request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
+                current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(), current.lines(), request.pallets())
+                .carrying(current);
+        if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(current, updated);
+        requireNonNegative(request.manualFreightEur(), "Handmatige vracht");
+        requireNonNegative(request.freightRatePerCbmEur(), "CBM-vrachttarief");
+        requireNonNegative(request.freightCarrierExtraEur(), "Extra vervoerderskost");
+        PalletSpec palletSpec = validatePalletHeight(updated);
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        for (SalesOrderLine line : current.lines()) {
+            if (line == null || line.productId() == null || !byId.containsKey(line.productId()))
+                throw new BusinessRuleException("Een product op deze offerte bestaat niet meer; controleer de offerteregels");
+        }
+        validatePallets(updated, byId, palletSpec);
+        // Draft autosave keeps its existing incomplete-input policy. A sent quote needs a priceable freight basis.
+        if (current.status() != QuoteStatus.CONCEPT) {
+            validateNarrowFreightUpdate(updated);
+            if (updated.freight() != FreightState.TE_BEPALEN
+                    && updated.freightPricingStrategy() == FreightPricingStrategy.CARRIER) {
+                String issue = price(updated).validation().freightPricingIssue();
+                if (issue != null) throw new BusinessRuleException(issue);
+            }
+        }
+        validatePartnerAdvanceReservation(updated, null);
+        SalesOrder saved = orders.save(updated);
+        if (!saved.equals(current)) {
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Transport en palletindeling bijgewerkt",
+                    salesChanges(current, saved));
+        }
+        return saved;
+    }
+
+    private void requireFreightEditable(SalesOrder current) {
+        SalesLifecycle.requireTermsEditable(current);
+        if (current.isInvoice() && current.status() != QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("De bedragen van een uitgereikte factuur kunnen niet meer worden gewijzigd");
+        if (!current.isInvoice() && orders.existsBySourceQuoteId(current.id()))
+            throw new BusinessRuleException("Er bestaat al een factuur uit deze offerte; open de gekoppelde factuur");
+        if (current.paidAt() != null || incomingPayments != null && incomingPayments.isResolvable()
+                && incomingPayments.get().hasHistory(current.id()))
+            throw new BusinessRuleException("Transport van een document met betaalhistoriek kan niet meer worden gewijzigd");
+        if (current.goodsShippedAt() != null || current.signedByName() != null && !current.signedByName().isBlank())
+            throw new BusinessRuleException("Transport kan niet meer worden gewijzigd na ondertekening of verzending van de goederen");
+        if (hasAdvanceAgreement(current))
+            throw new BusinessRuleException("De betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder om kosten toe te voegen");
+        if (hasSettlementSnapshot(current))
+            throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
+    }
+
     /**
      * Narrow update for a promise that was left open on a sent quotation.
      * Prices, quantities, customer data and every other field stay untouched.
@@ -1462,16 +1546,10 @@ public class SalesOrderService {
                                     BigDecimal freightRatePerCbmEur, Long freightCarrierId) {
         lockDocumentForMutation(id);
         SalesOrder current = get(id);
+        requireFreightEditable(current);
         if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(current) != null
                 && (requestedState != FreightState.BEREKEND || requestedStrategy != null && requestedStrategy != FreightPricingStrategy.FIXED))
             throw new BusinessRuleException("Gesplitste leveringen gebruiken een afgesproken vast transportbedrag");
-        if (hasAdvanceAgreement(current))
-            throw new BusinessRuleException("De betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder om kosten toe te voegen");
-        if (hasSettlementSnapshot(current))
-            throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
-        if (current.isInvoice() && current.status() != QuoteStatus.CONCEPT)
-            throw new BusinessRuleException("De bedragen van een uitgereikte factuur kunnen niet meer worden gewijzigd");
-        SalesLifecycle.requireTermsEditable(current);
         if (requestedState == null) {
             throw new BusinessRuleException("Kies of de vracht berekend of nog te bepalen is");
         }
@@ -1815,17 +1893,7 @@ public class SalesOrderService {
         requireNonNegative(order.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(order.freightRatePerCbmEur(), "CBM-vrachttarief");
 
-        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
-        if (order.maxPalletHeightCm() != null) {
-            if (order.maxPalletHeightCm().compareTo(palletSpec.baseHeightCm()) <= 0) {
-                throw new BusinessRuleException(
-                        "Maximale pallethoogte moet hoger zijn dan de palletbasis van "
-                                + palletSpec.baseHeightCm().stripTrailingZeros().toPlainString() + " cm");
-            }
-            if (order.maxPalletHeightCm().compareTo(BigDecimal.valueOf(300)) > 0) {
-                throw new BusinessRuleException("Maximale pallethoogte kan niet hoger zijn dan 300 cm");
-            }
-        }
+        PalletSpec palletSpec = validatePalletHeight(order);
 
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -1849,6 +1917,21 @@ public class SalesOrderService {
             requirePercentage(line.manualDiscountPct(), "Regelkorting");
         }
         validatePallets(order, byId, palletSpec);
+    }
+
+    private PalletSpec validatePalletHeight(SalesOrder order) {
+        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        if (order.maxPalletHeightCm() != null) {
+            if (order.maxPalletHeightCm().compareTo(palletSpec.baseHeightCm()) <= 0) {
+                throw new BusinessRuleException(
+                        "Maximale pallethoogte moet hoger zijn dan de palletbasis van "
+                                + palletSpec.baseHeightCm().stripTrailingZeros().toPlainString() + " cm");
+            }
+            if (order.maxPalletHeightCm().compareTo(BigDecimal.valueOf(300)) > 0) {
+                throw new BusinessRuleException("Maximale pallethoogte kan niet hoger zijn dan 300 cm");
+            }
+        }
+        return palletSpec;
     }
 
     /**

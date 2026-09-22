@@ -320,6 +320,13 @@ public class SalesOrderResource {
         return view(saved);
     }
 
+    /** Complete transport-only update; commercial fields on a sent quote remain frozen. */
+    @PUT
+    @Path("/{id}/shipping")
+    public OrderView updateShipping(@PathParam("id") long id, SalesOrderService.ShippingUpdate request) {
+        return view(salesOrders.updateShipping(id, request));
+    }
+
     @POST
     @Path("/{id}/duplicate")
     public OrderView duplicate(@PathParam("id") long id) {
