@@ -271,6 +271,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                                List<BrochureFamily> families, int page) {
             this(number, name, description, categoryKey, images, familyCountLabel, families, page, "tone-1");
         }
+
+        /** A repeated category run continues with its family sheet, without another opener. */
+        public boolean hasIntroduction() {
+            return families != null && !families.isEmpty() && families.getFirst().page() > page;
+        }
     }
 
     public record PhotoTile(String image, String cssClass, int rowSpan) {}
@@ -380,30 +385,35 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
-        Map<Long, List<Item>> byCategory = new LinkedHashMap<>();
-        List<Category> ordered = catalog.categoriesById().values().stream()
-                .sorted(Comparator.comparingInt(Category::position))
-                .toList();
-        for (Category category : ordered) byCategory.put(category.id(), new ArrayList<>());
-        List<Item> uncategorised = new ArrayList<>();
-        for (Product product : catalog.products()) {
-            Item item = simpleItem(
-                    product, language, request, photos, copy, catalogueFamilyPhotoIds);
-            List<Item> bucket = product.categoryId() == null
-                    ? uncategorised : byCategory.get(product.categoryId());
-            (bucket == null ? uncategorised : bucket).add(item);
-        }
+        List<Section> sections;
+        if (request.resolvedPreserveProductOrder()) {
+            sections = orderedSimpleSections(catalog, language, request, photos, copy, catalogueFamilyPhotoIds);
+        } else {
+            Map<Long, List<Item>> byCategory = new LinkedHashMap<>();
+            List<Category> ordered = catalog.categoriesById().values().stream()
+                    .sorted(Comparator.comparingInt(Category::position))
+                    .toList();
+            for (Category category : ordered) byCategory.put(category.id(), new ArrayList<>());
+            List<Item> uncategorised = new ArrayList<>();
+            for (Product product : catalog.products()) {
+                Item item = simpleItem(
+                        product, language, request, photos, copy, catalogueFamilyPhotoIds);
+                List<Item> bucket = product.categoryId() == null
+                        ? uncategorised : byCategory.get(product.categoryId());
+                (bucket == null ? uncategorised : bucket).add(item);
+            }
 
-        List<Section> sections = new ArrayList<>();
-        int chapter = 1;
-        for (Category category : ordered) {
-            List<Item> items = byCategory.get(category.id());
-            if (items.isEmpty()) continue;
-            sections.add(new Section(twoDigits(chapter++), category.nameIn(language),
-                    category.descriptionIn(language), chunk(items)));
-        }
-        if (!uncategorised.isEmpty()) {
-            sections.add(new Section(twoDigits(chapter), null, null, chunk(uncategorised)));
+            sections = new ArrayList<>();
+            int chapter = 1;
+            for (Category category : ordered) {
+                List<Item> items = byCategory.get(category.id());
+                if (items.isEmpty()) continue;
+                sections.add(new Section(twoDigits(chapter++), category.nameIn(language),
+                        category.descriptionIn(language), chunk(items)));
+            }
+            if (!uncategorised.isEmpty()) {
+                sections.add(new Section(twoDigits(chapter), null, null, chunk(uncategorised)));
+            }
         }
 
         CompanyProfile profile = company.get();
@@ -425,6 +435,38 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .render();
     }
 
+    /** Category transitions label the requested order instead of sorting its family blocks. */
+    private List<Section> orderedSimpleSections(
+            CatalogExportService.Model catalog, Language language,
+            CatalogExportService.Request request, PhotoResolver photos,
+            Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
+        List<Section> sections = new ArrayList<>();
+        List<Item> items = new ArrayList<>();
+        String previousKey = null;
+        Category previousCategory = null;
+        for (CatalogExportService.FamilyGroup group : catalog.families()) {
+            String key = categoryKey(group.category(), group.content());
+            if (!items.isEmpty() && !Objects.equals(previousKey, key)) {
+                sections.add(simpleSection(sections.size() + 1, previousCategory, items, language));
+                items = new ArrayList<>();
+            }
+            for (Product product : group.variants()) {
+                items.add(simpleItem(product, language, request, photos, copy, catalogueFamilyPhotoIds));
+            }
+            previousKey = key;
+            previousCategory = group.category();
+        }
+        if (!items.isEmpty()) {
+            sections.add(simpleSection(sections.size() + 1, previousCategory, items, language));
+        }
+        return List.copyOf(sections);
+    }
+
+    private static Section simpleSection(int number, Category category, List<Item> items, Language language) {
+        return new Section(twoDigits(number), category == null ? null : category.nameIn(language),
+                category == null ? null : category.descriptionIn(language), chunk(items));
+    }
+
     private String brochureHtml(CatalogExportService.Model catalog) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
@@ -441,36 +483,46 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         PhotoResolver photos = new PhotoResolver();
         List<BrochureFamily> allFamilies = new ArrayList<>();
         List<FamilyRenderData> renderedFamilies = new ArrayList<>();
-        Map<String, List<FamilyRenderData>> byCategory = new LinkedHashMap<>();
-        Map<String, Category> categoryByKey = new LinkedHashMap<>();
+        Map<String, List<FamilyRenderData>> byChapter = new LinkedHashMap<>();
+        Map<String, Category> categoryByChapter = new LinkedHashMap<>();
+        Map<String, String> categoryIdentityByChapter = new LinkedHashMap<>();
         CompanyProfile profile = company.get();
 
         int index = 1;
-        for (CatalogExportService.FamilyGroup group : brochureFamilyOrder(catalog.families())) {
+        int categoryRun = 0;
+        String previousCategoryKey = null;
+        List<CatalogExportService.FamilyGroup> familyOrder = request.resolvedPreserveProductOrder()
+                ? catalog.families() : brochureFamilyOrder(catalog.families());
+        for (CatalogExportService.FamilyGroup group : familyOrder) {
             FamilyRenderData rendered = brochureFamily(
                     group, language, request, photos, copy, index++);
             BrochureFamily family = rendered.family();
             allFamilies.add(family);
             renderedFamilies.add(rendered);
             String key = categoryKey(group.category(), group.content());
-            byCategory.computeIfAbsent(key, ignored -> new ArrayList<>()).add(rendered);
-            categoryByKey.putIfAbsent(key, group.category());
+            if (!Objects.equals(previousCategoryKey, key)) categoryRun++;
+            String chapterKey = request.resolvedPreserveProductOrder() ? "run:" + categoryRun : key;
+            byChapter.computeIfAbsent(chapterKey, ignored -> new ArrayList<>()).add(rendered);
+            categoryByChapter.putIfAbsent(chapterKey, group.category());
+            categoryIdentityByChapter.putIfAbsent(chapterKey, key);
+            previousCategoryKey = key;
         }
 
         /* The book in reading order: cover, overview, then per chapter its
            intro page and the family sheets. Every family learns its page so
            the overview can point at it and the footers can say it. */
         List<List<int[]>> overviewSlots = overviewSlots(
-                byCategory.values().stream().map(List::size).toList());
+                byChapter.values().stream().map(List::size).toList());
         int overviewPageCount = overviewSlots.size();
         /* The first page after the cover is 2; the overview pages come before the chapters. */
         int page = 2 + (options.includeOverview() ? overviewPageCount : 0);
         List<BrochureSection> sections = new ArrayList<>();
         List<BrochureFamily> pagedFamilies = new ArrayList<>();
+        Set<String> introducedCategories = new LinkedHashSet<>();
         int sectionIndex = 1;
         int familyNumber = 1;
-        for (Map.Entry<String, List<FamilyRenderData>> entry : byCategory.entrySet()) {
-            Category category = categoryByKey.get(entry.getKey());
+        for (Map.Entry<String, List<FamilyRenderData>> entry : byChapter.entrySet()) {
+            Category category = categoryByChapter.get(entry.getKey());
             String name = category != null && present(category.nameIn(language))
                     ? category.nameIn(language) : entry.getValue().getFirst().family().categoryName();
             String description = category == null ? null : category.descriptionIn(language);
@@ -481,7 +533,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<PhotoRef> categoryPhotos = categoryLead != null && photos.usable(categoryLead)
                     ? List.of(categoryLead) : photos.diverseFamilyPhotos(entry.getValue());
             int sectionPage = page;
-            if (options.includeCategoryIntros()) page++;
+            boolean showIntroduction = options.includeCategoryIntros()
+                    && introducedCategories.add(categoryIdentityByChapter.get(entry.getKey()));
+            if (showIntroduction) page++;
             /* One coherent brand palette across every chapter. */
             String tone = "tone-" + ((sectionIndex - 1) % TONE_COUNT + 1);
             List<BrochureFamily> chapter = new ArrayList<>();
@@ -491,7 +545,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
                     entry.getValue().getFirst().family().categoryKey(),
-                    options.includeCategoryIntros() ? photos.editorialLayout(categoryPhotos, false)
+                    showIntroduction ? photos.editorialLayout(categoryPhotos, false)
                             : EditorialLayout.empty(),
                     countLabel(entry.getValue().size(),
                             copy(copy, "catalog.common.selectedfamily.singular"),
@@ -760,9 +814,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 && detailOrder.size() == 1;
         PhotoLayout photoLayout = photos.brochureLayout(detailOrder, largeDetail);
 
-        List<BrochureVariant> variants = group.variants().stream()
-                .sorted(Comparator.comparingInt(Product::variantPosition)
-                        .thenComparing(Product::id, Comparator.nullsLast(Long::compareTo)))
+        List<Product> variantOrder = request.resolvedPreserveProductOrder() ? group.variants()
+                : group.variants().stream().sorted(Comparator.comparingInt(Product::variantPosition)
+                        .thenComparing(Product::id, Comparator.nullsLast(Long::compareTo))).toList();
+        List<BrochureVariant> variants = variantOrder.stream()
                 .map(product -> new BrochureVariant(
                         product.sku(), product.nameIn(language), product.colourIn(language),
                         product.variantSizeIn(language),

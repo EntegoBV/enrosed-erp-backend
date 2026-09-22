@@ -337,7 +337,7 @@
 {/if}
 
 {#for section in sections}
-  {#if options.includeCategoryIntros}
+  {#if options.includeCategoryIntros && section.hasIntroduction}
   <section class="page category-page category-page--{section.categoryKey} category-page--{section.tone}">
     {#if section.images.present}<table class="editorial-grid editorial-grid--{section.images.kind}">{#for row in section.images.rows}<tr class="editorial-row--{row.cssClass}">{#for tile in row.tiles}<td colspan="{tile.columnSpan}"><img src="{tile.image}" alt=""/></td>{/for}</tr>{/for}</table>{/if}<div class="shade"></div>
     <div class="category-copy">

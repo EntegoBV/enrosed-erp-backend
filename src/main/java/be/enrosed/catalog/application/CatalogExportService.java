@@ -73,7 +73,17 @@ public class CatalogExportService {
             Layout layout,
             BrochureOptions brochure,
             Boolean strictLanguage,
-            Map<Long, Integer> familyPhotoLimits) {
+            Map<Long, Integer> familyPhotoLimits,
+            Boolean preserveProductOrder) {
+
+        /** Older clients retain the existing category and dome ordering. */
+        public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
+                       Integer photosPerProduct, String title, String intro, String language,
+                       Layout layout, BrochureOptions brochure, Boolean strictLanguage,
+                       Map<Long, Integer> familyPhotoLimits) {
+            this(productIds, includePrices, includePhotos, photosPerProduct,
+                    title, intro, language, layout, brochure, strictLanguage, familyPhotoLimits, false);
+        }
 
         /** Source compatibility for callers written before per-family photo limits. */
         public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
@@ -130,6 +140,11 @@ public class CatalogExportService {
 
         public boolean resolvedStrictLanguage() {
             return Boolean.TRUE.equals(strictLanguage);
+        }
+
+        /** Family blocks follow their first requested ID; their variants retain requested order. */
+        public boolean resolvedPreserveProductOrder() {
+            return Boolean.TRUE.equals(preserveProductOrder);
         }
     }
 
