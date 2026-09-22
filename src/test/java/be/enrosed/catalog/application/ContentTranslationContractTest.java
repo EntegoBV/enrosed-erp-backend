@@ -323,6 +323,69 @@ class ContentTranslationContractTest {
 
     @Test
     @TestTransaction
+    void reviewedProductsPageCopySwapsOnlyTheExactLiveValueAndKeepsDashboardEdits() {
+        ContentTranslationEntity heading = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "products.hero.title").firstResult();
+        ContentTranslationEntity title = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "meta.products.title").firstResult();
+        ContentTranslationEntity description = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "meta.products.description").firstResult();
+
+        ContentTranslationTextEntity headingEnglish = translation(heading, Language.EN);
+        ContentTranslationTextEntity headingDutch = translation(heading, Language.NL);
+        ContentTranslationTextEntity headingGreek = translation(heading, Language.EL);
+        ContentTranslationTextEntity titleFrench = translation(title, Language.FR);
+        ContentTranslationTextEntity titleGerman = translation(title, Language.DE);
+        ContentTranslationTextEntity descriptionEnglish = translation(description, Language.EN);
+        ContentTranslationTextEntity descriptionTurkish = translation(description, Language.TR);
+        ContentTranslationTextEntity descriptionPolish = translation(description, Language.PL);
+
+        String expectedHeadingEnglish = headingEnglish.value;
+        String expectedHeadingDutch = headingDutch.value;
+        String expectedTitleFrench = titleFrench.value;
+        String expectedDescriptionEnglish = descriptionEnglish.value;
+        String expectedDescriptionTurkish = descriptionTurkish.value;
+        assertEquals("The complete wholesale rose collection.", expectedHeadingEnglish);
+        assertEquals("Catalogue de roses stabilisées : cloches, boîtes | Enrosed", expectedTitleFrench);
+
+        // Exact production values of 2026-09-23 ...
+        headingEnglish.value = "The complete rose collection.";
+        headingDutch.value = "De complete rozencollectie.";
+        titleFrench.value = "Collection de roses en gros | Enrosed";
+        descriptionEnglish.value = "Explore all Enrosed preserved and decorative rose formats for wholesalers, florists and retail buyers. Request trade pricing and carton details directly.";
+        // ... an earlier seed value that a test database may still hold ...
+        descriptionTurkish.value = "En çok satan cam kaselerimizin öncülük ettiği tüm Enrosed toptan gül formatlarını; korunmuş gül stantlarını, fanusları ve flowerboxları keşfedin. Ticari fiyatları ve karton bilgilerini doğrudan isteyin.";
+        // ... and dashboard edits, including a production value in the wrong language.
+        headingGreek.value = "Η δική μας συλλογή τριαντάφυλλων.";
+        titleGerman.value = "Collection de roses en gros | Enrosed";
+        descriptionPolish.value = "Opis kolekcji zatwierdzony w panelu.";
+        entityManager.flush();
+        long revisionBefore = heading.revision;
+
+        seeds.onStart(null);
+        entityManager.flush();
+
+        assertEquals(expectedHeadingEnglish, headingEnglish.value);
+        assertEquals(expectedHeadingDutch, headingDutch.value);
+        assertEquals(expectedTitleFrench, titleFrench.value);
+        assertEquals(expectedDescriptionEnglish, descriptionEnglish.value,
+                "the exact live production value must move to the reviewed seed");
+        assertEquals(expectedDescriptionTurkish, descriptionTurkish.value,
+                "an exact earlier seed value must move to the reviewed seed");
+        assertEquals("Η δική μας συλλογή τριαντάφυλλων.", headingGreek.value);
+        assertEquals("Collection de roses en gros | Enrosed", titleGerman.value,
+                "a former value of another language is a dashboard edit here");
+        assertEquals("Opis kolekcji zatwierdzony w panelu.", descriptionPolish.value,
+                "dashboard-authored copy must never be overwritten");
+        assertTrue(heading.revision > revisionBefore,
+                "the swap must bump the revision so a stale dashboard page cannot overwrite it");
+    }
+
+    @Test
+    @TestTransaction
     void startupSeedDeltaQueuesAnExistingLiveWebsiteWithoutNoOpLoops() {
         ContentTranslationEntity entity = rows.find(
                 "scope = ?1 and key = ?2", ContentScope.WEBSITE,
