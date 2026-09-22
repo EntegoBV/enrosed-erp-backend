@@ -112,6 +112,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (8 languages); the older CSV endpoints remain available for compatibility.
 - Catalogue PDF: language choice, chapters per category with
   descriptions, two full photos per product card.
+- **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
+  `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
+  15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
+  PermitAll (the 256-bit token is the authorization) so the browser
+  downloads natively. One folder per SKU (`SKU - name - colour[ - size]`,
+  Windows/macOS-safe), `01-hoofdfoto` = `Product.photoForSalesDocument()`,
+  then website photos, then the rest; always the stored original bytes
+  (family photos: the `large` object, never `small`), STORED entries, one
+  blob in memory at a time. LEESMIJ.txt/README.txt is written last, texts
+  from `i18n/photo-export-text.csv`, and carries no prices, costs,
+  supplier, stock or HS code. Tickets live in memory
+  (`PhotoExportTokenStore`): this assumes one backend instance.
 - Product remains the stock-bearing SKU. Optional `familyKey` groups variants;
   unique `publicHandle` is the stable public identity. WEBSITE and ORDER_APP
   each have DRAFT/READY/PUBLISHED state; legacy and new rows default DRAFT.
