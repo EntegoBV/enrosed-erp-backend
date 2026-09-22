@@ -451,7 +451,7 @@ class ProductPhotoOverviewPersistenceTest {
         Fixture f = fixture("promote-duplicate");
         byte[] png = png(40, 30, Color.BLUE);
         String sha = FamilyPhotoUploadService.sha256(png);
-        ProductFamilyPhotoEntity imported = photo(f.family(), "shopify-import-dome", 3);
+        ProductFamilyPhotoEntity imported = photo(f.family(), "legacy-import-dome", 3);
         imported.largeSha256 = sha;
         imported.largeStorageKey = "sha256-" + sha + ".png";
         imported.largeContentType = "image/png";

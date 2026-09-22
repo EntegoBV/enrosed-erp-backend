@@ -116,7 +116,7 @@ public class ProductValidator {
     public static void validateCanonicalVariantKey(String value) {
         if (value != null && value.strip().toLowerCase(java.util.Locale.ROOT).startsWith("shopify-")) {
             throw new BusinessRuleException(
-                    "De oude Shopify-variantcode is vervangen door een ERP-code. "
+                    "De oude webshop-variantcode is vervangen door een ERP-code. "
                             + "Herlaad het product voordat u opnieuw opslaat.");
         }
     }

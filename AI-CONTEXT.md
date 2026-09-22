@@ -12,7 +12,7 @@ customer watches, so screens are mobile-first and purchase figures can be
 hidden at a double-tap.
 
 - Company: Enrosed BV · Vekeblok 17, 2400 Mol, Belgium · BE 1034.273.386
-- Contact: hello@enrosed.com · retail webshop: enrosed.com
+- Contact: hello@enrosed.com · public B2B website: https://enrosed.com (EN at `/`, 8 prefixed locales)
 - Frontend repo: `enrosed-erp-frontend` (Angular 22, Vercel)
 - This repo deploys to Railway via the `Dockerfile` (Java 25 multi-stage)
 

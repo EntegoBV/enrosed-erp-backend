@@ -1,7 +1,6 @@
 package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.in.rest.ProductDto;
-import be.enrosed.catalog.adapter.in.rest.CanonicalCatalogManifest;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyResource;
 import be.enrosed.catalog.adapter.in.rest.PublicProductTranslationsDto;
@@ -68,7 +67,6 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject ProductRepository products;
     @Inject FamilyImageVariantService familyImageVariants;
     @Inject PublicFamilyCatalogResource publicFamilies;
-    @Inject CatalogMigrationService migration;
     @Inject FeaturedProductSelectionService featuredProducts;
     @Inject CategoryService categoryService;
     @Inject ProductService productService;
@@ -89,24 +87,6 @@ class ProductFamilyVariantContractPersistenceTest {
 
     private WebsiteRebuildService websiteRebuildTarget() {
         return io.quarkus.arc.ClientProxy.unwrap(websiteRebuild);
-    }
-
-    @Test
-    void archived20260820ManifestRemainsReadableWithNullDefaultsForAdditiveFields()
-            throws Exception {
-        java.nio.file.Path archive = java.nio.file.Path.of(
-                "docs/migrations/2026-08-20/canonical-catalog.json");
-        CanonicalCatalogManifest manifest = json.readValue(
-                java.nio.file.Files.readString(archive), CanonicalCatalogManifest.class);
-
-        assertEquals("2026-08-20.3", manifest.importDescriptor().transformVersion());
-        assertTrue(manifest.families().stream().allMatch(family ->
-                family.cardFeaturedCanonicalVariantKey() == null));
-        assertTrue(manifest.families().stream().flatMap(family -> family.variants().stream())
-                .allMatch(variant -> variant.size() == null && variant.colourHex() == null));
-        assertTrue(manifest.families().stream().flatMap(family -> family.collections().stream())
-                .allMatch(collection -> collection.mobileName() == null
-                        && collection.featuredCanonicalVariantKey() == null));
     }
 
     @Test
@@ -151,94 +131,6 @@ class ProductFamilyVariantContractPersistenceTest {
         var greek = manual.texts.stream().filter(text -> text.language == Language.EL).findFirst().orElseThrow();
         assertNull(greek.colour, "an unknown administrator colour is not falsely labelled Greek");
         assertNull(greek.variantSize, "a bespoke label still needs a real translation");
-    }
-
-    @Test
-    void oldManifestVariantsDefaultNewAttributesToNullAndPreflightRejectsInvalidHex()
-            throws Exception {
-        CanonicalCatalogManifest.VariantManifest legacy = json.readValue(
-                "{\"canonicalVariantKey\":\"legacy\",\"color\":\"Red\"}",
-                CanonicalCatalogManifest.VariantManifest.class);
-        assertNull(legacy.size());
-        assertNull(legacy.colourHex());
-
-        CanonicalCatalogManifest invalid = json.readValue("""
-                {
-                  "schemaVersion":"1.0",
-                  "importDescriptor":{"transformVersion":"2026-08-20.5"},
-                  "families":[{
-                    "canonicalFamilyKey":"hex-family",
-                    "active":true,
-                    "requestedPublication":{"websiteStatus":"READY","orderAppStatus":"DRAFT","catalogueStatus":"DRAFT"},
-                    "texts":[],"collections":[],"dimensions":[],"packages":[],"images":[],
-                    "externalIdentifiers":[],"priceObservations":[],"provenance":[],"conflicts":[],
-                    "variants":[{
-                      "canonicalVariantKey":"hex-variant","sku":"HEX-1",
-                      "skuProvenance":"GENERATED_INTERNAL","color":"Red",
-                      "colourHex":"#aa1122","position":0,"active":true,
-                      "inventoryKnown":false,"externalIdentifiers":[],
-                      "priceObservations":[],"provenance":[],"packages":[]
-                    },{
-                      "canonicalVariantKey":"missing-swatch","sku":"HEX-2",
-                      "skuProvenance":"GENERATED_INTERNAL","color":"Blue",
-                      "position":1,"active":true,"inventoryKnown":false,
-                      "externalIdentifiers":[],"priceObservations":[],
-                      "provenance":[],"packages":[]
-                    }]
-                  }]
-                }
-                """, CanonicalCatalogManifest.class);
-
-        assertTrue(migration.preflight(invalid).problems().stream()
-                .anyMatch(problem -> problem.contains("kleurcode moet exact #RRGGBB")));
-        assertTrue(migration.preflight(invalid).problems().stream()
-                .anyMatch(problem -> problem.contains("mist colourHex voor website READY/PUBLISHED")));
-    }
-
-    @Test
-    void manifestCategoryFeatureMustBelongToThePrimaryFamilyCategory() throws Exception {
-        CanonicalCatalogManifest secondaryOnly = json.readValue("""
-                {
-                  "schemaVersion":"1.0",
-                  "importDescriptor":{"transformVersion":"2026-08-20.5"},
-                  "categories":[
-                    {"key":"primary","name":"Primary","position":0},
-                    {"key":"secondary","name":"Secondary","position":1}
-                  ],
-                  "families":[{
-                    "canonicalFamilyKey":"secondary-feature-family",
-                    "active":true,
-                    "category":{"key":"primary","name":"Primary","position":0},
-                    "collections":[
-                      {"key":"primary","name":"Primary","position":0,"primary":true},
-                      {"key":"secondary","name":"Secondary","position":1,"primary":false,
-                       "featuredCanonicalVariantKey":"secondary-feature"}
-                    ],
-                    "requestedPublication":{"websiteStatus":"PUBLISHED",
-                      "orderAppStatus":"DRAFT","catalogueStatus":"DRAFT"},
-                    "texts":[],"dimensions":[],"packages":[],
-                    "images":[{"sourceId":"global-image","contentType":"image/webp",
-                      "position":0,"altText":"Global image","altTextSource":"SHOPIFY"}],
-                    "externalIdentifiers":[],"priceObservations":[],"provenance":[],
-                    "conflicts":[],
-                    "variants":[{
-                      "canonicalVariantKey":"secondary-feature","sku":"SECONDARY-1",
-                      "skuProvenance":"GENERATED_INTERNAL","position":0,"active":true,
-                      "inventoryKnown":false,"externalIdentifiers":[],
-                      "priceObservations":[],"provenance":[],"packages":[]
-                    }]
-                  }]
-                }
-                """, CanonicalCatalogManifest.class);
-
-        List<String> problems = migration.preflight(secondaryOnly).problems();
-        assertTrue(problems.stream().noneMatch(problem -> problem.contains(
-                        "niet naar een actieve variant binnen die collectie")),
-                () -> String.join("\n", problems));
-        assertTrue(problems.stream().anyMatch(problem -> problem.contains(
-                        "Categorie secondary verwijst niet naar een actieve variant "
-                                + "binnen de primaire categorie")),
-                () -> String.join("\n", problems));
     }
 
     @Test

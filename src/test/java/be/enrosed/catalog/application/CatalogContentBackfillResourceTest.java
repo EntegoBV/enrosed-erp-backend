@@ -32,14 +32,14 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-09-13-greek-catalog-v9", backfill.path("version").asText());
+        assertEquals("2026-09-23-erp-variant-keys-v10", backfill.path("version").asText());
         assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
-        assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
+        assertEquals(61, backfill.path("expectedCounts").path("variants").asInt());
         assertEquals(85, backfill.path("expectedCounts").path("images").asInt());
-        assertEquals(64, backfill.path("targetVariantKeys").size());
+        assertEquals(61, backfill.path("targetVariantKeys").size());
         assertEquals(85, backfill.path("targetImageKeys").size());
-        assertEquals(64, values(backfill.path("targetVariantKeys")).size());
+        assertEquals(61, values(backfill.path("targetVariantKeys")).size());
         assertEquals(85, values(backfill.path("targetImageKeys")).size());
         assertTrue(values(backfill.path("targetImageKeys"))
                 .containsAll(CatalogFoamPhotoBackfillService.targetImageKeys()));
