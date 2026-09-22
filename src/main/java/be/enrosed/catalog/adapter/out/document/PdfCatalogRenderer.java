@@ -1094,8 +1094,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             if (present(first.canonicalBarcode())) rows.add(new SpecRow("EAN", first.canonicalBarcode()));
             if (includePrices) {
                 String price = priceLabel(first, language);
+                String display = displayPriceLabel(first, language, copy);
+                boolean displayPrice = present(display);
+                if (present(display) && present(price)
+                        && !price.equals(copy(copy, "catalog.brochure.overview.priceonrequest"))) {
+                    price = display + " · " + price + " " + copy(copy, "catalog.simple.perpiece");
+                } else if (present(display)) {
+                    price = display;
+                }
                 rows.add(new SpecRow(copy(copy, "catalog.brochure.overview.referenceprice"),
-                        present(price) ? price + " " + copy(copy, "catalog.simple.perpiece")
+                        present(price) ? displayPrice ? price : price + " " + copy(copy, "catalog.simple.perpiece")
                                 : copy(copy, "catalog.brochure.overview.priceonrequest")));
             }
         }

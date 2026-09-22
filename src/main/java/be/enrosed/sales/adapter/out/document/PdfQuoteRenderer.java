@@ -349,7 +349,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     /** Explanatory units only; never a replacement for the priced line or its financial values. */
     public record UnitView(String quantityLabel, List<String> quantityDetails, String priceLabel,
-                           String secondaryPrice, String secondaryPriceLabel) {}
+                           String primaryPrice, String secondaryPrice, String secondaryPriceLabel) {}
 
     static UnitView unitView(Packaging packaging, int quantity, java.math.BigDecimal unitPrice,
                              Language language, Map<String, String> text) {
@@ -357,13 +357,15 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             return unknownUnits(text);
         }
         boolean displayBasis = packaging != null && packaging.soldAsDisplay();
-        String quantityLabel = text.get(displayBasis ? "salesDisplayUnits" : "pieces");
-        String priceLabel = text.get(displayBasis ? "salesPricePerDisplay" : "salesPricePerPiece");
-        List<String> details = new ArrayList<>();
-        String secondaryPrice = null;
-        String secondaryPriceLabel = null;
         Integer pieces = packaging != null && packaging.kind() == PackagingKind.DISPLAY
                 ? packaging.piecesPerUnit() : null;
+        String quantityLabel = text.get(displayBasis ? "salesDisplayUnits" : "pieces");
+        String priceLabel = text.get(pieces != null && pieces > 1
+                ? "salesPricePerSet" : displayBasis ? "salesPricePerDisplay" : "salesPricePerPiece");
+        List<String> details = new ArrayList<>();
+        String primaryPrice = null;
+        String secondaryPrice = null;
+        String secondaryPriceLabel = null;
         if (pieces != null && pieces > 1 && quantity >= 0) {
             var numbers = java.text.NumberFormat.getIntegerInstance(language.locale());
             if (displayBasis) {
@@ -382,23 +384,25 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             details.add(text.get("salesPiecesPerDisplay").formatted(numbers.format(pieces)));
             if (unitPrice != null) {
                 var factor = java.math.BigDecimal.valueOf(pieces);
-                var amount = displayBasis
+                var setAmount = displayBasis ? unitPrice : unitPrice.multiply(factor);
+                var pieceAmount = displayBasis
                         ? unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP)
-                        : unitPrice.multiply(factor);
-                var shown = amount.setScale(3, java.math.RoundingMode.HALF_UP);
+                        : unitPrice;
+                primaryPrice = DocumentFormat.unit(setAmount);
+                var shown = pieceAmount.setScale(3, java.math.RoundingMode.HALF_UP);
                 boolean approximate = displayBasis
                         ? shown.multiply(factor).compareTo(unitPrice) != 0
-                        : shown.compareTo(amount) != 0;
+                        : shown.compareTo(pieceAmount) != 0;
                 secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
-                secondaryPriceLabel = text.get(displayBasis ? "salesPricePerPiece" : "salesPricePerDisplay");
+                secondaryPriceLabel = text.get("salesPricePerPiece");
             }
         }
-        return new UnitView(quantityLabel, List.copyOf(details), priceLabel,
+        return new UnitView(quantityLabel, List.copyOf(details), priceLabel, primaryPrice,
                 secondaryPrice, secondaryPriceLabel);
     }
 
     private static UnitView unknownUnits(Map<String, String> text) {
-        return new UnitView(text.get("salesQuantityUnits"), List.of(), text.get("salesUnitPrice"), null, null);
+        return new UnitView(text.get("salesQuantityUnits"), List.of(), text.get("salesUnitPrice"), null, null, null);
     }
 
     private List<LineView> lineViews(SalesOrder order, PricedOrder priced, Language language,

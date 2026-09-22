@@ -379,9 +379,15 @@
       {#if !priceFreeProducts}
         <td class="r">
           {#if line.unavailable}-{#else}
-            <div class="line-number">{line.commercial.unitPrice.unit}</div>
-            {#if line.units}<div class="line-unit">{line.units.priceLabel}</div>
+            {#if line.units && line.units.primaryPrice}
+              <div class="line-number">{line.units.primaryPrice}</div>
+              <div class="line-unit">{line.units.priceLabel}</div>
               {#if line.units.secondaryPrice}<div class="line-price-secondary"><span class="line-number">{line.units.secondaryPrice}</span><br/>{line.units.secondaryPriceLabel}</div>{/if}
+            {#else}
+              <div class="line-number">{line.commercial.unitPrice.unit}</div>
+              {#if line.units}<div class="line-unit">{line.units.priceLabel}</div>
+              {#if line.units.secondaryPrice}<div class="line-price-secondary"><span class="line-number">{line.units.secondaryPrice}</span><br/>{line.units.secondaryPriceLabel}</div>{/if}
+              {/if}
             {/if}
           {/if}
         </td>

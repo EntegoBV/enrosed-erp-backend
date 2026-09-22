@@ -32,6 +32,7 @@ salesUnitPrice;Prijs per eenheid;Prix par unité;Price per unit;Preis je Einheit
 salesDisplayUnits;Displays;Présentoirs;Displays;Displays;Expositores;Ekspozytory;Expositores;Stand;Σταντ
 salesPricePerPiece;per stuk;par pièce;per piece;pro Stück;por unidad;za sztukę;por unidade;adet başına;ανά τεμάχιο
 salesPricePerDisplay;per display;par présentoir;per display;pro Display;por expositor;za ekspozytor;por expositor;stand başına;ανά σταντ
+salesPricePerSet;per set;par lot;per set;pro Set;por conjunto;za zestaw;por conjunto;set başına;ανά σετ
 salesDisplayCount;Displays: %s;Présentoirs : %s;Displays: %s;Displays: %s;Expositores: %s;Ekspozytory: %s;Expositores: %s;Stand: %s;Σταντ: %s
 salesLoosePieces;Losse stuks: %s;Pièces seules : %s;Loose pieces: %s;Einzelstücke: %s;Unidades sueltas: %s;Sztuki luzem: %s;Unidades avulsas: %s;Tekli adet: %s;Μεμονωμένα τεμάχια: %s
 salesTotalInnerPieces;Totaal: %s stuks;Total : %s pièces;Total: %s pieces;Gesamt: %s Stück;Total: %s unidades;Łącznie: %s sztuk;Total: %s unidades;Toplam: %s adet;Σύνολο: %s τεμάχια

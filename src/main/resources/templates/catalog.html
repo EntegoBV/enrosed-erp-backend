@@ -61,6 +61,7 @@
     .price { margin-top: 2mm; padding-top: 1.4mm; border-top: .2mm solid #d6c2af; color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
     .price small { font-size: 7.5pt; font-weight: 400; color: #725b63; }
     .display-price { margin-top: .7mm; color: #725b63; font-size: 7.5pt; font-weight: 400; line-height: 1.25; }
+    .display-price--primary { margin-top: 0; color: #64132e; font-size: 12pt; font-weight: 600; }
     .nostock { margin-top: 1.5mm; color: #9a552f; font-size: 7.5pt; }
     html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
     html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
@@ -127,7 +128,14 @@
           {#if it.barcodeOuter}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.carton']}</span> {it.barcodeOuter}</div>{/if}
           <div class="fact"><span class="fact-label">{copy['catalog.spec.hscode']}</span> {#if it.hsCode}{it.hsCode}{#else}-{/if}</div>
           <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.capacity20FtLabel}{it.capacity20FtLabel}{#else}{#if it.piecesPer20Ft != null}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}{/if}</div>
-          {#if it.priceLabel}<div class="price">{it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}{#if it.displayPriceLabel}<div class="display-price">{it.displayPriceLabel}</div>{/if}</div>{/if}
+          {#if it.priceLabel}<div class="price">
+            {#if it.displayPriceLabel}
+              <div class="display-price display-price--primary">{it.displayPriceLabel}</div>
+              {#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{it.priceLabel} · {copy['catalog.simple.perpiece']}</small>{/if}
+            {#else}
+              {it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}
+            {/if}
+          </div>{/if}
         </td>
       </tr></tbody></table>
     </div>
