@@ -21,7 +21,7 @@ class UnitNamesTest {
     @Test
     @DisplayName("de lijst staat vast en begint met stuk")
     void pickListOrderIsTheFileOrder() {
-        assertEquals(List.of("stuk", "bowl", "stolp", "box", "roos", "hart", "beer"), UnitNames.KEYS);
+        assertEquals(List.of("stuk", "bowl", "stolp", "box", "diamant", "roos", "hart", "beer"), UnitNames.KEYS);
         assertEquals("stuk", UnitNames.DEFAULT);
     }
 
@@ -118,6 +118,8 @@ class UnitNamesTest {
         assertEquals("3 misie", UnitNames.count("beer", 3, Language.PL));
         assertEquals("za misia", UnitNames.per("beer", Language.PL));
         assertEquals("za różę", UnitNames.per("roos", Language.PL));
+        assertEquals("3 diamenty", UnitNames.count("diamant", 3, Language.PL));
+        assertEquals("5 diamentów", UnitNames.count("diamant", 5, Language.PL));
     }
 
     @Test

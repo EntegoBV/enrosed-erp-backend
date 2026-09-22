@@ -23,6 +23,12 @@ box.many;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
 box.other;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
 box.short;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
 box.per;per box;par boîte;per box;pro Box;por estuche;za pudełko;por estojo;kutu başına;ανά κουτί
+diamant.one;diamant;diamant;diamond;Diamant;diamante;diament;diamante;elmas;διαμάντι
+diamant.few;diamanten;diamants;diamonds;Diamanten;diamantes;diamenty;diamantes;elmas;διαμάντια
+diamant.many;diamanten;diamants;diamonds;Diamanten;diamantes;diamentów;diamantes;elmas;διαμάντια
+diamant.other;diamanten;diamants;diamonds;Diamanten;diamantes;diamentów;diamantes;elmas;διαμάντια
+diamant.short;diamanten;diamants;diamonds;Diamanten;diamantes;diamentów;diamantes;elmas;διαμάντια
+diamant.per;per diamant;par diamant;per diamond;pro Diamant;por diamante;za diament;por diamante;elmas başına;ανά διαμάντι
 roos.one;roos;rose;rose;Rose;rosa;róża;rosa;gül;τριαντάφυλλο
 roos.few;rozen;roses;roses;Rosen;rosas;róże;rosas;gül;τριαντάφυλλα
 roos.many;rozen;roses;roses;Rosen;rosas;róż;rosas;gül;τριαντάφυλλα

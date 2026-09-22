@@ -19,7 +19,7 @@ class ProductUnitNamesResourceHttpTest {
         given()
                 .when().get("/api/products/unit-names")
                 .then().statusCode(200)
-                .body("", hasSize(7))
+                .body("", hasSize(8))
                 .body("[0].key", equalTo("stuk"))
                 .body("[0].one", equalTo("stuk"))
                 .body("[0].other", equalTo("stuks"))
