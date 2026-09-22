@@ -17,6 +17,7 @@ import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.NotFoundException;
+import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.VariantSizes;
 import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityChangeSet;
@@ -364,7 +365,8 @@ public class ProductService {
                     sourcePackaging.kind(),
                     sourcePackaging.dimensions(),
                     target.packaging().barcode(),
-                    sourcePackaging.piecesPerUnit(), sourcePackaging.salesUnit());
+                    sourcePackaging.piecesPerUnit(), sourcePackaging.salesUnit(),
+                    sourcePackaging.unitKey());
         }
 
         List<ProductText> texts = name || description
@@ -652,7 +654,7 @@ public class ProductService {
            carton codes. */
         Packaging packaging = new Packaging(source.packaging().kind(),
                 source.packaging().dimensions(), null, source.packaging().piecesPerUnit(),
-                source.packaging().salesUnit());
+                source.packaging().salesUnit(), source.packaging().unitKey());
         return create(new Product(
                 null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
@@ -867,6 +869,11 @@ public class ProductService {
                 summary, changes);
     }
 
+    /** The editor's own words for the commercial basis, so the log reads like the screen. */
+    private static String salesUnitLabel(Packaging packaging) {
+        return packaging.soldAsDisplay() ? "Volledig display (set)" : "Los stuk";
+    }
+
     private static List<ActivityChangeDto> productChanges(Product before, Product after) {
         Dimensions beforeDimensions = before.dimensions() == null ? Dimensions.empty() : before.dimensions();
         Dimensions afterDimensions = after.dimensions() == null ? Dimensions.empty() : after.dimensions();
@@ -902,6 +909,11 @@ public class ProductService {
                 .add("packaging", "Verpakking", before.packaging().label(), after.packaging().label())
                 .add("packagingPieces", "Stuks per display",
                         before.packaging().piecesPerUnit(), after.packaging().piecesPerUnit())
+                .add("salesUnit", "Prijs en orderaantal per",
+                        salesUnitLabel(before.packaging()), salesUnitLabel(after.packaging()))
+                .add("unitKey", "Eenheid",
+                        UnitNames.one(before.packaging().unitKey(), Language.NL),
+                        UnitNames.one(after.packaging().unitKey(), Language.NL))
                 .add("packagingBarcode", "Verpakkingsbarcode",
                         before.packaging().barcode(), after.packaging().barcode())
                 .add("dimensions", "Productafmetingen", beforeDimensions.label(), afterDimensions.label())
@@ -990,9 +1002,26 @@ public class ProductService {
     /**
      * The same picture twice helps nobody. Compared by content, not by name:
      * a renamed copy is still the same photo. Only photos of the same byte
-     * size are read back from storage, so the check stays cheap.
+     * size are read back from storage, so the check stays cheap. Series
+     * photos carry the checksum of their original, so no bytes are read for them.
      */
     private void rejectDuplicatePhoto(Product product, PhotoUploadPolicy.ValidatedPhoto upload) {
+        Set<Long> seriesIds = product.photos().stream().filter(Photo::inherited)
+                .map(Photo::familyPhotoId).collect(Collectors.toSet());
+        if (!seriesIds.isEmpty()) {
+            String checksum = FamilyPhotoUploadService.sha256(upload.bytes());
+            String seriesKey = "sha256-" + checksum + ".";
+            boolean known = product.photos().stream().anyMatch(existing -> existing.inherited()
+                    && existing.storageKey() != null && existing.storageKey().startsWith(seriesKey));
+            if (!known && families != null && product.familyId() != null) {
+                ProductFamilyEntity family = families.findById(product.familyId());
+                known = family != null && family.photos.stream().anyMatch(image ->
+                        seriesIds.contains(image.id) && checksum.equalsIgnoreCase(image.largeSha256));
+            }
+            if (known) {
+                throw new BusinessRuleException("Deze foto staat al bij de reeksfoto's van dit product.");
+            }
+        }
         for (Photo existing : product.photos()) {
             if (existing.inherited() || existing.sizeBytes() != upload.bytes().length) continue;
             byte[] stored;
@@ -1026,6 +1055,10 @@ public class ProductService {
                     || Objects.equals(family.catalogueDetailPhotoId, -photoId))) {
                 throw new BusinessRuleException("Kies eerst een andere catalogusfoto of Automatisch "
                         + "voordat je deze foto verwijdert");
+            }
+            /* The quote page falls back to its automatic photo; do not keep a reference to nothing. */
+            if (family != null && Objects.equals(family.websiteQuotePhotoId, -photoId)) {
+                family.websiteQuotePhotoId = null;
             }
         }
         List<Photo> photos = new ArrayList<>(product.photos());

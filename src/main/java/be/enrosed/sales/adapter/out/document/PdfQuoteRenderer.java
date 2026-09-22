@@ -3,6 +3,7 @@ package be.enrosed.sales.adapter.out.document;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.application.PartnerAdvanceContents.ProductDetails;
+import be.enrosed.sales.application.SalesUnitText;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.PricedOrder;
@@ -12,6 +13,7 @@ import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PaymentReference;
 import be.enrosed.shared.PdfFonts;
+import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
@@ -351,26 +353,38 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     public record UnitView(String quantityLabel, List<String> quantityDetails, String priceLabel,
                            String primaryPrice, String secondaryPrice, String secondaryPriceLabel) {}
 
+    /**
+     * The quantity and price wording of one line. A product packed in a display
+     * leads with what one full display costs, as every other channel does:
+     * "€ 60,00 per display" when it is priced per display, "€ 31,60 per display
+     * van 8 bowls" when it is priced per bowl. The piece price follows as
+     * explanation ("€ 3,95 per bowl", "≈ € 5,00 per bowl"), and the quantity
+     * details (displays, bowls outside a display) keep Aantal × Prijs readable.
+     * Plain pieces print the line's own price "per bowl".
+     */
     static UnitView unitView(Packaging packaging, int quantity, java.math.BigDecimal unitPrice,
                              Language language, Map<String, String> text) {
-        if (packaging != null && packaging.kind() == PackagingKind.DISPLAY && !packaging.hasExplicitSalesUnit()) {
+        if (SalesUnitText.unknownBasis(packaging)) {
             return unknownUnits(text);
         }
-        boolean displayBasis = packaging != null && packaging.soldAsDisplay();
+        String unit = SalesUnitText.unitKey(packaging);
+        boolean displayBasis = SalesUnitText.displayBasis(packaging);
         Integer pieces = packaging != null && packaging.kind() == PackagingKind.DISPLAY
                 ? packaging.piecesPerUnit() : null;
-        String quantityLabel = text.get(displayBasis ? "salesDisplayUnits" : "pieces");
-        String priceLabel = text.get(pieces != null && pieces > 1
-                ? "salesPricePerSet" : displayBasis ? "salesPricePerDisplay" : "salesPricePerPiece");
+        boolean set = pieces != null && pieces > 1;
+        String quantityLabel = displayBasis
+                ? text.get("salesDisplayUnits") : UnitNames.noun(unit, quantity, language);
+        String priceLabel = displayBasis
+                ? text.get("salesPricePerDisplay") : UnitNames.per(unit, language);
         List<String> details = new ArrayList<>();
         String primaryPrice = null;
         String secondaryPrice = null;
         String secondaryPriceLabel = null;
-        if (pieces != null && pieces > 1 && quantity >= 0) {
+        if (set && quantity >= 0) {
             var numbers = java.text.NumberFormat.getIntegerInstance(language.locale());
             if (displayBasis) {
-                details.add(text.get("salesTotalInnerPieces").formatted(
-                        numbers.format((long) quantity * pieces)));
+                details.add(text.get("salesTotalUnits").formatted(
+                        UnitNames.count(unit, (long) quantity * pieces, language)));
             } else {
                 int displays = quantity / pieces;
                 int remainder = quantity % pieces;
@@ -378,23 +392,29 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     details.add(text.get("salesDisplayCount").formatted(numbers.format(displays)));
                 }
                 if (remainder > 0) {
-                    details.add(text.get("salesLoosePieces").formatted(numbers.format(remainder)));
+                    details.add(text.get("salesLooseUnits").formatted(
+                            UnitNames.count(unit, remainder, language)));
                 }
             }
-            details.add(text.get("salesPiecesPerDisplay").formatted(numbers.format(pieces)));
+            details.add(text.get("salesUnitsPerDisplay").formatted(UnitNames.count(unit, pieces, language)));
             if (unitPrice != null) {
                 var factor = java.math.BigDecimal.valueOf(pieces);
-                var setAmount = displayBasis ? unitPrice : unitPrice.multiply(factor);
-                var pieceAmount = displayBasis
-                        ? unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP)
-                        : unitPrice;
-                primaryPrice = DocumentFormat.unit(setAmount);
-                var shown = pieceAmount.setScale(3, java.math.RoundingMode.HALF_UP);
-                boolean approximate = displayBasis
-                        ? shown.multiply(factor).compareTo(unitPrice) != 0
-                        : shown.compareTo(pieceAmount) != 0;
-                secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
-                secondaryPriceLabel = text.get("salesPricePerPiece");
+                if (displayBasis) {
+                    primaryPrice = DocumentFormat.unit(unitPrice);
+                    var pieceAmount = unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP);
+                    var shown = pieceAmount.setScale(3, java.math.RoundingMode.HALF_UP);
+                    boolean approximate = shown.multiply(factor).compareTo(unitPrice) != 0;
+                    secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
+                    secondaryPriceLabel = UnitNames.per(unit, language);
+                } else {
+                    primaryPrice = DocumentFormat.unit(unitPrice.multiply(factor));
+                    priceLabel = text.get("salesPricePerDisplayOf")
+                            .formatted(UnitNames.count(unit, pieces, language));
+                    var shown = unitPrice.setScale(3, java.math.RoundingMode.HALF_UP);
+                    boolean approximate = shown.compareTo(unitPrice) != 0;
+                    secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
+                    secondaryPriceLabel = UnitNames.per(unit, language);
+                }
             }
         }
         return new UnitView(quantityLabel, List.copyOf(details), priceLabel, primaryPrice,
@@ -424,16 +444,16 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             String description = product == null || !options.includeProductDetails() || internalNames
                     ? null : distinctDescription(product.descriptionIn(language), title);
             List<ProductSpec> details = product == null
-                    ? List.of() : productSpecs(product, text, options);
+                    ? List.of() : productSpecs(product, language, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
             String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
             String delivery = !line.unavailable() && options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
             UnitView units = unitView(product == null ? null : product.packaging(), line.quantity(),
                     line.unitPrice(), language, text);
             String requested = line.unavailable() && line.requestedQuantity() != null && line.requestedQuantity() > 0
-                    ? text.get("salesRequestedUnits").formatted(
-                            java.text.NumberFormat.getIntegerInstance(language.locale()).format(line.requestedQuantity())
-                                    + " " + units.quantityLabel()) : null;
+                    ? text.get("salesRequestedUnits").formatted(SalesUnitText.quantity(
+                            product == null ? null : product.packaging(), line.requestedQuantity(), language))
+                    : null;
             result.add(new LineView(line, title, variant, description, details, photo,
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
                     line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested,
@@ -450,8 +470,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             Product product = product(item.productId());
             // New snapshots freeze printable specifications with the cargo. Older snapshots only have
             // names/quantities: their optional specifications come from the available product fiche.
-            var specs = item.productDetails() != null ? productSpecs(item.productDetails(), text, options)
-                    : product == null ? List.<ProductSpec>of() : productSpecs(product, text, options);
+            var specs = item.productDetails() != null ? productSpecs(item.productDetails(), language, text, options)
+                    : product == null ? List.<ProductSpec>of() : productSpecs(product, language, text, options);
             return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
                     specs,
                     options.includePhotos() ? productImage(product, imageCache) : null,
@@ -514,14 +534,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         return encoded.isBlank() ? null : encoded;
     }
 
-    private static List<ProductSpec> productSpecs(Product product, Map<String, String> text,
-                                                  SalesPdfOptions options) {
+    private static List<ProductSpec> productSpecs(Product product, Language language,
+                                                  Map<String, String> text, SalesPdfOptions options) {
         return productSpecs(new ProductDetails(product.dimensions(), product.packaging(), product.carton(),
-                product.barcodes(), product.canonicalBarcode()), text, options);
+                product.barcodes(), product.canonicalBarcode()), language, text, options);
     }
 
-    private static List<ProductSpec> productSpecs(ProductDetails product, Map<String, String> text,
-                                                  SalesPdfOptions options) {
+    private static List<ProductSpec> productSpecs(ProductDetails product, Language language,
+                                                  Map<String, String> text, SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
         /* One row per thing you can hold - product, packaging, master carton -
            each reading sizes, count, volume, weight and, on its own line, the
@@ -540,23 +560,18 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             addSpec(details, packagingLabel,
                     parts(dimensions(product.packaging().dimensions()),
                             product.packaging().unitPieces() > 1
-                                    ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
+                                    ? UnitNames.count(product.packaging().unitKey(),
+                                            product.packaging().unitPieces(), language) : null,
                             weightText(product.packaging().dimensions())),
                     options.showBarcode() ? eanText(product.packaging().barcode()) : null);
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
-            boolean displayBasis = product.packaging() != null && product.packaging().soldAsDisplay();
-            boolean unknownBasis = product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
-                    && !product.packaging().hasExplicitSalesUnit();
-            int cartonUnits = Math.max(1, product.carton().piecesPerCarton());
-            Integer innerPieces = product.packaging() == null ? null : product.packaging().piecesPerUnit();
-            String cartonContents = cartonUnits + " " + text.get(unknownBasis ? "salesUnitsPerCarton" : displayBasis ? "salesDisplaysPerCarton" : "piecesPerCarton");
-            String innerContents = displayBasis && innerPieces != null && innerPieces > 1
-                    ? ((long) cartonUnits * innerPieces) + " " + text.get("piecesPerCarton") : null;
+            int cartonUnits = product.carton().piecesPerCarton();
+            String cartonContents = SalesUnitText.cartonContents(product.packaging(), cartonUnits, language);
             addSpec(details, text.get("catalogCarton"),
                     parts(dimensions(product.carton().dimensions()),
-                            cartonContents, innerContents,
+                            cartonContents,
                             DocumentFormat.cbm(product.carton().cbm()),
                             DocumentFormat.kg(product.carton().weightKg())),
                     options.showBarcode()

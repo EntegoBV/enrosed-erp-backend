@@ -8,9 +8,16 @@ import java.util.List;
 /** Outbound port sending the quote to the customer. */
 public interface QuoteMailer {
 
-    /** Per-line delivery term, as it will appear in the mail. */
-    record DeliveryLine(String description, String term, boolean known, boolean unavailable, Integer requestedQuantity) {
+    /**
+     * Per-line delivery term, as it will appear in the mail. The packaging
+     * says what the requested quantity counts ("48 bowls"); null is a plain piece.
+     */
+    record DeliveryLine(String description, String term, boolean known, boolean unavailable, Integer requestedQuantity,
+                        be.enrosed.catalog.domain.Packaging packaging) {
         public DeliveryLine(String description, String term, boolean known) { this(description, term, known, false, null); }
+        public DeliveryLine(String description, String term, boolean known, boolean unavailable, Integer requestedQuantity) {
+            this(description, term, known, unavailable, requestedQuantity, null);
+        }
     }
 
     /**
@@ -33,8 +40,12 @@ public interface QuoteMailer {
     }
 
     /** One quoted line as the office reads it back: our own description, the quantity, the net line amount. */
-    record SummaryLine(String description, int quantity, java.math.BigDecimal net, boolean unavailable, Integer requestedQuantity) {
+    record SummaryLine(String description, int quantity, java.math.BigDecimal net, boolean unavailable, Integer requestedQuantity,
+                       be.enrosed.catalog.domain.Packaging packaging) {
         public SummaryLine(String description, int quantity, java.math.BigDecimal net) { this(description, quantity, net, false, null); }
+        public SummaryLine(String description, int quantity, java.math.BigDecimal net, boolean unavailable, Integer requestedQuantity) {
+            this(description, quantity, net, unavailable, requestedQuantity, null);
+        }
     }
 
     /** Customer-safe frozen terms, without the container's costs or a final selling total. */

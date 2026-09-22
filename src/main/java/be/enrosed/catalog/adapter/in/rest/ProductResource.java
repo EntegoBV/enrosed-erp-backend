@@ -44,6 +44,12 @@ public class ProductResource {
     @Inject
     be.enrosed.catalog.application.PhotoDeliveryService photoDelivery;
 
+    @Inject
+    be.enrosed.catalog.application.ProductPhotoOverviewService photoOverviews;
+
+    @Inject
+    be.enrosed.catalog.application.ProductPhotoCommandService photoCommands;
+
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.ProductCostHistoryService> costHistory;
 
@@ -78,6 +84,13 @@ public class ProductResource {
         var found = supplierId == null ? products.list() : products.listBySupplier(supplierId);
         if (supplierId != null && overviewOrder != null) found = overviewOrder.sort(found);
         return found.stream().map(ProductDto::from).toList();
+    }
+
+    /** The units a product can be sold per ("stuk", "bowl", ...), in pick-list order, in Dutch. */
+    @GET
+    @Path("/unit-names")
+    public List<UnitDto.Name> unitNames() {
+        return be.enrosed.shared.UnitNames.KEYS.stream().map(UnitDto.Name::of).toList();
     }
 
     @GET
@@ -360,6 +373,39 @@ public class ProductResource {
     @Path("/{id}/photos/order")
     public ProductDto reorderPhotos(@PathParam("id") long id, List<Long> photoIdsInOrder) {
         return ProductDto.from(products.reorderPhotos(id, photoIdsInOrder));
+    }
+
+    /* ------------------------------------------------------ fotorollen */
+
+    /** Own photos, the family's series photos and which photo fills which role. */
+    @GET
+    @Path("/{id}/photo-overview")
+    public ProductPhotoOverviewDto photoOverview(@PathParam("id") long id) {
+        return photoOverviews.overview(id);
+    }
+
+    /** {@code photoKey} "F221" (series) or "P5501" (own); null gives the role back to automatic. */
+    public record PhotoRoleRequest(ProductPhotoOverviewDto.Role role, String photoKey) {}
+
+    @PUT
+    @Path("/{id}/photo-roles")
+    public ProductPhotoOverviewDto setPhotoRole(@PathParam("id") long id, PhotoRoleRequest request) {
+        if (request == null || request.role() == null) {
+            throw new BadRequestException("Kies waarvoor de foto gebruikt wordt");
+        }
+        return photoCommands.setRole(id, request.role(), request.photoKey());
+    }
+
+    public record PhotoPromoteRequest(String photoKey, ProductPhotoOverviewDto.Scope scope) {}
+
+    /** Moves an own photo into the product's series ("Zet in de reeks"), or clears a duplicate. */
+    @POST
+    @Path("/{id}/photos/promote")
+    public ProductPhotoOverviewDto promotePhoto(@PathParam("id") long id, PhotoPromoteRequest request) {
+        if (request == null || request.photoKey() == null || request.photoKey().isBlank()) {
+            throw new BadRequestException("Kies welke foto in de reeks komt");
+        }
+        return photoCommands.promote(id, request.photoKey(), request.scope());
     }
 
     public record PhotoLeadRequest(be.enrosed.catalog.domain.PhotoRole role, boolean lead) {}

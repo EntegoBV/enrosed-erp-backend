@@ -26,6 +26,23 @@ class FamilyPhotoPublicationPolicyTest {
     }
 
     @Test
+    void legacyNullStateWithoutAnExplicitAltKeepsItsInternalVisibility() {
+        for (String alts : new String[] {"[]", null, "[{\"language\":\"EN\",\"alt\":\" \"}]", "{not-json"}) {
+            ProductFamilyPhotoEntity image = readyImage();
+            image.altTextsJson = alts;
+
+            assertEquals(List.of(), policy.publishedChannels(image), String.valueOf(alts));
+            assertFalse(policy.isPublicAnywhere(image, List.of()), String.valueOf(alts));
+        }
+
+        ProductFamilyPhotoEntity chosen = readyImage();
+        chosen.altTextsJson = "[]";
+        chosen.publishedChannelsJson = "[\"WEBSITE\"]";
+        assertTrue(policy.isPublic(chosen, List.of(), CatalogChannel.WEBSITE),
+                "an explicit channel choice uses the generated alt");
+    }
+
+    @Test
     void explicitEmptyStateIsInternalEvenWhenTheAssetIsTechnicallyReady() {
         ProductFamilyPhotoEntity image = readyImage();
         image.publishedChannelsJson = "[]";
@@ -54,6 +71,24 @@ class FamilyPhotoPublicationPolicyTest {
 
         assertTrue(policy.publishedChannels(image).isEmpty());
         assertFalse(policy.isPublicAnywhere(image, List.of()));
+    }
+
+    @Test
+    void explicitAltTextIsNoLongerRequiredButUnreadableAltsStillFailClosed() {
+        ProductFamilyPhotoEntity image = readyImage();
+        image.altTextsJson = "[]";
+        assertTrue(policy.isEligible(image, List.of()), "the projection generates the alt");
+        image.altTextsJson = null;
+        assertTrue(policy.isEligible(image, List.of()));
+
+        image.altTextsJson = "{not-json";
+        assertFalse(policy.isEligible(image, List.of()));
+        image.altTextsJson = "{\"language\":\"EN\"}";
+        assertFalse(policy.isEligible(image, List.of()));
+
+        image.altTextsJson = "[]";
+        image.largeWidthPx = null;
+        assertFalse(policy.isEligible(image, List.of()), "dimensions stay required");
     }
 
     private static ProductFamilyPhotoEntity readyImage() {

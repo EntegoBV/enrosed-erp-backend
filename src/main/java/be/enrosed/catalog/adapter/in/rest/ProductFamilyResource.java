@@ -13,7 +13,7 @@ import be.enrosed.catalog.application.FamilyMemberCacheService;
 import be.enrosed.catalog.application.FamilyCollectionAlignmentService;
 import be.enrosed.catalog.application.FeaturedProductSelectionService;
 import be.enrosed.catalog.application.PhotoReferenceService;
-import be.enrosed.catalog.application.PhotoRenditionService;
+import be.enrosed.catalog.application.FamilyPhotoUploadService;
 import be.enrosed.catalog.application.PhotoUploadPolicy;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.PublicationState;
@@ -44,7 +44,6 @@ import org.jboss.resteasy.reactive.multipart.FileUpload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 
@@ -63,7 +62,7 @@ public class ProductFamilyResource {
     private final CatalogDaos.Products products;
     private final CatalogDaos.Categories categories;
     private final PhotoStorage photoStorage;
-    private final PhotoRenditionService photoRenditions;
+    private final FamilyPhotoUploadService familyPhotoUploads;
     private final PhotoReferenceService photoReferences;
     private final FamilyPhotoCompatibilityService familyPhotoCompatibility;
     private final FamilyPhotoPublicationPolicy photoPublication;
@@ -99,7 +98,7 @@ public class ProductFamilyResource {
             CatalogDaos.Products products,
             CatalogDaos.Categories categories,
             PhotoStorage photoStorage,
-            PhotoRenditionService photoRenditions,
+            FamilyPhotoUploadService familyPhotoUploads,
             PhotoReferenceService photoReferences,
             FamilyPhotoCompatibilityService familyPhotoCompatibility,
             FamilyPhotoPublicationPolicy photoPublication,
@@ -117,7 +116,7 @@ public class ProductFamilyResource {
         this.products = products;
         this.categories = categories;
         this.photoStorage = photoStorage;
-        this.photoRenditions = photoRenditions;
+        this.familyPhotoUploads = familyPhotoUploads;
         this.photoReferences = photoReferences;
         this.familyPhotoCompatibility = familyPhotoCompatibility;
         this.photoPublication = photoPublication;
@@ -548,53 +547,10 @@ public class ProductFamilyResource {
         try (InputStream input = Files.newInputStream(file.uploadedFile())) {
             upload = PhotoUploadPolicy.validate(file.fileName(), input);
         }
-        String checksum = sha256(upload.bytes());
-        String sourceKey = "admin-" + checksum;
-        Optional<ProductFamilyPhotoEntity> existing = family.photos.stream()
-                .filter(photo -> sourceKey.equals(photo.sourceKey)).findFirst();
-        if (existing.isPresent()) return dto(family);
-
-        /* Decode and render before storing either blob: corrupt images cannot leave a half upload. */
-        PhotoRenditionService.Rendition small = photoRenditions.small(upload);
-        String largeStorageKey = "sha256-" + checksum + extension(upload.contentType());
-        PhotoStorage.Stored largeStored = photoStorage.storeKnown(
-                largeStorageKey, upload.originalFilename(), upload.contentType(), upload.bytes());
-        String smallStorageKey = "sha256-" + small.sha256() + small.extension();
-        PhotoStorage.Stored smallStored = Objects.equals(smallStorageKey, largeStorageKey)
-                ? largeStored
-                : photoStorage.storeKnown(
-                        smallStorageKey, small.filename(), small.contentType(), small.bytes());
-        ProductFamilyPhotoEntity photo = new ProductFamilyPhotoEntity();
-        photo.family = family;
-        photo.sourceKey = sourceKey;
-        photo.originalFilename = upload.originalFilename();
-        photo.originalWidthPx = largeStored.widthPx();
-        photo.originalHeightPx = largeStored.heightPx();
-        photo.smallStorageKey = smallStorageKey;
-        photo.smallContentType = small.contentType();
-        photo.smallSha256 = small.sha256();
-        photo.smallSizeBytes = smallStored.sizeBytes();
-        photo.smallWidthPx = smallStored.widthPx();
-        photo.smallHeightPx = smallStored.heightPx();
-        photo.smallRenditionVersion = PhotoRenditionService.POLICY_VERSION;
-        photo.largeStorageKey = largeStorageKey;
-        photo.largeContentType = upload.contentType();
-        photo.largeSha256 = checksum;
-        photo.largeSizeBytes = largeStored.sizeBytes();
-        photo.largeWidthPx = largeStored.widthPx();
-        photo.largeHeightPx = largeStored.heightPx();
-        photo.position = family.photos.size();
-        if (variant == null) {
-            photo.variantExternalId = optional(variantExternalId);
-            photo.variantColor = optional(variantColor);
-        } else {
-            familyImageVariants.assign(photo, variant);
-        }
-        photo.altTextSource = "ADMIN";
-        photo.altTextsJson = "[]";
-        /* Uploading is an internal asset action. Publication is a separate, visible command. */
-        photo.publishedChannelsJson = "[]";
-        family.photos.add(photo);
+        FamilyPhotoUploadService.Stored stored = familyPhotoUploads.store(
+                family, upload, variant, variantExternalId, variantColor);
+        if (!stored.created()) return dto(family);
+        ProductFamilyPhotoEntity photo = stored.photo();
         families.flush();
         familyPhotoCompatibility.sync(family);
         recordPhotoUploaded(family, photo);
@@ -692,11 +648,7 @@ public class ProductFamilyResource {
         if (!wantedChannels.contains(CatalogChannel.CATALOGUE)) requireNotCatalogueChoice(family, imageId);
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, id", family.id);
-        if (!wantedChannels.isEmpty() && !photoPublication.isEligible(photo, members)) {
-            throw new BusinessRuleException(
-                    "Foto kan nog niet gepubliceerd worden: voeg geldige afmetingen en minstens "
-                            + "één alt-tekst toe en koppel ze aan een actieve variant of de hele familie");
-        }
+        if (!wantedChannels.isEmpty()) photoPublication.requireEligible(photo, members);
         photoPublication.replacePublishedChannels(photo, wantedChannels);
         galleryGuard.validate(family);
         families.flush();
@@ -766,6 +718,8 @@ public class ProductFamilyResource {
         String large = photo.largeStorageKey;
         family.photos.remove(photo);
         for (int index = 0; index < family.photos.size(); index++) family.photos.get(index).position = index;
+        /* The quote page falls back to its automatic photo; do not keep a reference to nothing. */
+        if (Objects.equals(family.websiteQuotePhotoId, imageId)) family.websiteQuotePhotoId = null;
         galleryGuard.validate(family);
         families.flush();
         familyPhotoCompatibility.sync(family);
@@ -1462,23 +1416,6 @@ public class ProductFamilyResource {
             result.add(normalized);
         }
         return List.copyOf(result);
-    }
-
-    private static String sha256(byte[] bytes) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (Exception exception) {
-            throw new IllegalStateException("SHA-256 is niet beschikbaar", exception);
-        }
-    }
-
-    private static String extension(String contentType) {
-        return switch (contentType) {
-            case "image/png" -> ".png";
-            case "image/gif" -> ".gif";
-            case "image/webp" -> ".webp";
-            default -> ".jpg";
-        };
     }
 
     private static PublicationState state(PublicationState state) {

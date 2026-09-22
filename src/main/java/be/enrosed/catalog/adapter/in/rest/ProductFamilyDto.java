@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.FamilyVariantRules;
+import be.enrosed.catalog.application.WebsiteQuotePhotoChoice;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.Language;
@@ -57,8 +58,56 @@ public record ProductFamilyDto(
         Long catalogueOverviewPhotoId,
         Long catalogueDetailPhotoId,
         List<CataloguePhotoOptionDto> cataloguePhotoOptions,
-        String catalogueDetailSize
+        String catalogueDetailSize,
+        /** Stored quote-page choice (signed photo id); null means automatic. */
+        Long websiteQuotePhotoId,
+        /** What the quote page shows now: the stored choice while public, else the automatic pick. */
+        Long effectiveWebsiteQuotePhotoId
 ) {
+    /** Compatibility for clients written before the website quote photo choice. */
+    public ProductFamilyDto(
+        Long id,
+        String familyKey,
+        String publicHandle,
+        Long categoryId,
+        String categoryKey,
+        String categoryName,
+        int categoryPosition,
+        String collectionKey,
+        List<CollectionDto> collections,
+        int productPosition,
+        Long cardFeaturedProductId,
+        List<String> tags,
+        PublicationState websiteStatus,
+        PublicationState orderAppStatus,
+        PublicationState catalogueStatus,
+        boolean active,
+        String name,
+        String summary,
+        String description,
+        String format,
+        List<String> highlights,
+        String seoTitle,
+        String seoDescription,
+        DimensionsDto dimensions,
+        List<TextDto> texts,
+        List<PackageDto> packages,
+        List<ImageDto> images,
+        List<ExternalIdentifierDto> externalIdentifiers,
+        List<PriceObservationDto> priceObservations,
+        List<ProvenanceDto> provenance,
+        List<ConflictDto> conflicts,
+        List<MemberDto> members,
+        List<String> publicationIssues,
+        long variantCount,
+        Long catalogueOverviewPhotoId,
+        Long catalogueDetailPhotoId,
+        List<CataloguePhotoOptionDto> cataloguePhotoOptions,
+        String catalogueDetailSize
+    ) {
+        this(id, familyKey, publicHandle, categoryId, categoryKey, categoryName, categoryPosition, collectionKey, collections, productPosition, cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus, active, name, summary, description, format, highlights, seoTitle, seoDescription, dimensions, texts, packages, images, externalIdentifiers, priceObservations, provenance, conflicts, members, publicationIssues, variantCount, catalogueOverviewPhotoId, catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize, null, null);
+    }
+
     /** Compatibility for existing clients and resource fixtures. */
     public ProductFamilyDto(
         Long id,
@@ -96,7 +145,7 @@ public record ProductFamilyDto(
         List<String> publicationIssues,
         long variantCount
     ) {
-        this(id, familyKey, publicHandle, categoryId, categoryKey, categoryName, categoryPosition, collectionKey, collections, productPosition, cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus, active, name, summary, description, format, highlights, seoTitle, seoDescription, dimensions, texts, packages, images, externalIdentifiers, priceObservations, provenance, conflicts, members, publicationIssues, variantCount, null, null, List.of(), "STANDARD");
+        this(id, familyKey, publicHandle, categoryId, categoryKey, categoryName, categoryPosition, collectionKey, collections, productPosition, cardFeaturedProductId, tags, websiteStatus, orderAppStatus, catalogueStatus, active, name, summary, description, format, highlights, seoTitle, seoDescription, dimensions, texts, packages, images, externalIdentifiers, priceObservations, provenance, conflicts, members, publicationIssues, variantCount, null, null, List.of(), "STANDARD", null, null);
     }
 
     public record CataloguePhotoOptionDto(Long id, Long productId, String originalFilename,
@@ -161,7 +210,8 @@ public record ProductFamilyDto(
                 active, name, summary, description, format, highlights, seoTitle,
                 seoDescription, dimensions, texts, packages, images, externalIdentifiers,
                 priceObservations, provenance, conflicts, members, List.copyOf(combined),
-                variantCount, catalogueOverviewPhotoId, catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize);
+                variantCount, catalogueOverviewPhotoId, catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize,
+                websiteQuotePhotoId, effectiveWebsiteQuotePhotoId);
     }
 
     /** Request-copy helper used by clients that edit the revisioned family text snapshot. */
@@ -175,7 +225,8 @@ public record ProductFamilyDto(
                 replacementTexts == null ? List.of() : List.copyOf(replacementTexts),
                 packages, images, externalIdentifiers, priceObservations, provenance, conflicts,
                 members, publicationIssues, variantCount, catalogueOverviewPhotoId,
-                catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize);
+                catalogueDetailPhotoId, cataloguePhotoOptions, catalogueDetailSize,
+                websiteQuotePhotoId, effectiveWebsiteQuotePhotoId);
     }
 
     public static ProductFamilyDto from(
@@ -267,7 +318,9 @@ public record ProductFamilyDto(
                 be.enrosed.catalog.application.CataloguePhotoChoices.available(family, orderedMembers, json)
                         .stream().map(choice -> new CataloguePhotoOptionDto(choice.id(), choice.productId(),
                                 choice.originalFilename(), choice.source(), choice.smallUrl(), choice.largeUrl()))
-                        .toList(), "LARGE".equals(family.catalogueDetailSize) ? "LARGE" : "STANDARD");
+                        .toList(), "LARGE".equals(family.catalogueDetailSize) ? "LARGE" : "STANDARD",
+                family.websiteQuotePhotoId,
+                WebsiteQuotePhotoChoice.resolve(family, orderedMembers, publicPhotos));
     }
 
     /** Compatibility projection for callers that only need readiness counts. */
@@ -290,7 +343,8 @@ public record ProductFamilyDto(
                 dto.texts, dto.packages, dto.images, dto.externalIdentifiers,
                 dto.priceObservations, dto.provenance, dto.conflicts, List.of(),
                 publicationIssues(family, variantCount, json), variantCount,
-                dto.catalogueOverviewPhotoId, dto.catalogueDetailPhotoId, dto.cataloguePhotoOptions, dto.catalogueDetailSize);
+                dto.catalogueOverviewPhotoId, dto.catalogueDetailPhotoId, dto.cataloguePhotoOptions, dto.catalogueDetailSize,
+                dto.websiteQuotePhotoId, dto.effectiveWebsiteQuotePhotoId);
     }
 
     public static List<String> publicationIssues(
@@ -321,7 +375,7 @@ public record ProductFamilyDto(
         boolean hasPhoto = java.util.Arrays.stream(CatalogChannel.values())
                 .anyMatch(channel -> !publicPhotos.images(family, members, channel).isEmpty());
         if (!hasPhoto) {
-            issues.add("Minstens één publiceerbare foto met afmetingen, alt-tekst "
+            issues.add("Minstens één publiceerbare foto met afmetingen "
                     + "en actieve variantkoppeling is verplicht");
         }
         channelPhotoIssue(issues, family, members, publicPhotos, CatalogChannel.WEBSITE,

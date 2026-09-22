@@ -82,7 +82,8 @@ public class CatalogWorkbook {
             text("website_status", "Website status", 18),
             text("order_app_status", "Orderapp status", 18),
             text("variant_size", "Variantmaat", 18),
-            text("colour_hex", "Kleurstaal (#RRGGBB)", 22));
+            text("colour_hex", "Kleurstaal (#RRGGBB)", 22),
+            text("eenheid", "Eenheid", 14));
 
     private static final List<Column> TRANSLATION_COLUMNS = List.of(
             text("sku", "SKU", 18),
@@ -120,7 +121,8 @@ public class CatalogWorkbook {
                             16, new String[]{"USD", "CNY", "EUR"},
                             19, new String[]{"ja", "nee"},
                             22, new String[]{"DRAFT", "READY", "PUBLISHED"},
-                            23, new String[]{"DRAFT", "READY", "PUBLISHED"}));
+                            23, new String[]{"DRAFT", "READY", "PUBLISHED"},
+                            26, be.enrosed.shared.UnitNames.KEYS.toArray(String[]::new)));
             createDataSheet(workbook, TRANSLATIONS_SHEET, TRANSLATION_COLUMNS,
                     translations.exportRows(), styles, Map.of(
                             1, new String[]{"nl", "fr", "en", "de", "es", "pl", "pt", "tr"}));
@@ -288,10 +290,13 @@ public class CatalogWorkbook {
                 new String[]{"SKU", "Niet wijzigen: de SKU koppelt elke rij veilig aan het bestaande product."},
                 new String[]{"Lege productcel", "Laat het bestaande productveld ongemoeid."},
                 new String[]{"Lege vertaling", "Verwijdert de vertaling voor dat veld; de basistekst wordt dan gebruikt."},
-                new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal en publicatiestatus."},
+                new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal, publicatiestatus en eenheid."},
                 new String[]{"Maatvolgorde", "Alle product- en doosmaten staan als Breedte × Diepte × Hoogte (B × D × H)."},
                 new String[]{"Variantmaat", "Een verkoopoptie zoals S, XL of 25 cm; dit is iets anders dan de fysieke B × D × H."},
                 new String[]{"Kleurstaal", "Gebruik exact #RRGGBB in hoofdletters, bijvoorbeeld #A91F32. Leeg laat de bestaande waarde staan."},
+                new String[]{"Eenheid", "Hoe één stuk op offertes, facturen, catalogus en website heet: "
+                        + String.join(", ", be.enrosed.shared.UnitNames.KEYS)
+                        + ". Leeg laat de bestaande eenheid staan."},
                 new String[]{"Niet opgenomen", "Categorie, leverancier, voorraad, extra eenheidskosten "
                         + "en actuele landed cost blijven in het ERP en veranderen niet door deze import."});
 

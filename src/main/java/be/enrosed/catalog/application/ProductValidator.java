@@ -76,6 +76,12 @@ public class ProductValidator {
         Barcodes codes = product.barcodes() == null ? Barcodes.none() : product.barcodes();
         checkBarcode(codes.inner(), "Binnenbarcode");
         checkBarcode(codes.outer(), "Omdoosbarcode");
+        /* Any kind, NONE included: the unit names the piece, not its packaging. */
+        String unit = product.packaging().requestedUnitKey();
+        if (unit != null && !be.enrosed.shared.UnitNames.isKnown(unit)) {
+            throw new BusinessRuleException(
+                    "Onbekende eenheid '%s'. Kies een eenheid uit de lijst.".formatted(unit));
+        }
         if (product.packaging().isPresent()) {
             checkBarcode(product.packaging().barcode(),
                     "Barcode " + product.packaging().kind().dutchLabel().toLowerCase());

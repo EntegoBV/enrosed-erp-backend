@@ -159,6 +159,9 @@ public class QuoteService {
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         SalesOrder order = salesOrders.get(orderId);
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+        /* The renderer's own rule: the slip leaves in the customer's language. */
+        be.enrosed.shared.Language language = customer == null
+                ? be.enrosed.shared.Language.NL : customer.language();
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
         Set<Long> unavailable = order.lines().stream().filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
@@ -172,7 +175,7 @@ public class QuoteService {
                 var product = products.get(item.productId());
                 int per = product.carton() == null ? 1
                         : Math.max(1, product.carton().piecesPerCarton());
-                items.add(packingItem(product, item.cartons(), item.cartons() * per, options));
+                items.add(packingItem(product, item.cartons(), item.cartons() * per, options, language));
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
             String label = pallet.label() == null || pallet.label().isBlank()
@@ -186,6 +189,10 @@ public class QuoteService {
         java.util.List<QuoteDocumentRenderer.PackingItem> loose = new java.util.ArrayList<>();
         int totalCartons = 0;
         int totalPieces = 0;
+        /* A total only adds up while every line counts the same thing: 40 bowls
+           and 3 displays are not "43" of anything. */
+        Set<String> countedUnits = new HashSet<>();
+        be.enrosed.catalog.domain.Packaging countedPackaging = null;
         for (var line : order.lines()) {
             if (line.isUnavailable()) continue;
             var product = products.get(line.productId());
@@ -196,19 +203,26 @@ public class QuoteService {
             /* Sales ships full outer cartons; the footer must match the row
                (13 requested at 12/doos is 24 picked pieces, not 13). */
             totalPieces += cartons * per;
+            countedUnits.add(Objects.toString(SalesUnitText.comparisonKey(product.packaging()), "?"));
+            countedPackaging = product.packaging();
             int left = cartons - assigned.getOrDefault(line.productId(), 0);
             if (left > 0) {
-                loose.add(packingItem(product, left, left * per, options));
+                loose.add(packingItem(product, left, left * per, options, language));
             }
         }
+        String totalQuantity = countedUnits.isEmpty()
+                ? SalesUnitText.quantity(null, 0, language)
+                : countedUnits.size() == 1 && !countedUnits.contains("?")
+                        ? SalesUnitText.quantity(countedPackaging, totalPieces, language) : null;
 
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
                 order, customer, pallets, loose, totalCartons, totalPieces,
-                order.loadMode() == LoadMode.LOOSE_CARTONS), options);
+                order.loadMode() == LoadMode.LOOSE_CARTONS, totalQuantity), options);
     }
 
     private static QuoteDocumentRenderer.PackingItem packingItem(
-            Product product, int cartons, int pieces, SalesPdfOptions options) {
+            Product product, int cartons, int pieces, SalesPdfOptions options,
+            be.enrosed.shared.Language language) {
         boolean includeCarton = options.showOuterCarton() && product.carton() != null;
         String productBarcode = options.showBarcode()
                 ? firstNonBlank(product.canonicalBarcode(),
@@ -223,7 +237,10 @@ public class QuoteService {
                 includeCarton ? Math.max(1, product.carton().piecesPerCarton()) : null,
                 productBarcode, outerBarcode,
                 includeCarton ? be.enrosed.shared.DocumentFormat.cbm(product.carton().cbm()) : null,
-                includeCarton ? be.enrosed.shared.DocumentFormat.kg(product.carton().weightKg()) : null);
+                includeCarton ? be.enrosed.shared.DocumentFormat.kg(product.carton().weightKg()) : null,
+                SalesUnitText.quantity(product.packaging(), pieces, language),
+                includeCarton ? SalesUnitText.cartonContents(product.packaging(),
+                        product.carton().piecesPerCarton(), language) : null);
     }
 
     private static String printableDimensions(Dimensions dimensions) {
@@ -289,7 +306,7 @@ public class QuoteService {
                         line.description(),
                         line.unavailable() ? null : deliveryTermOf(line, customer.language()),
                         line.unavailable() || line.inStock() || (line.deliveryWeek() != null && !line.deliveryWeek().isBlank()),
-                        line.unavailable(), line.requestedQuantity()))
+                        line.unavailable(), line.requestedQuantity(), packagingOf(line.productId())))
                 .toList();
 
         /* Track where the delivery terms stand. When a quote leaves with a
@@ -352,7 +369,18 @@ public class QuoteService {
                 agreement == null ? priced.totals().total() : null,
                 priced.lines().stream().map(line -> new QuoteMailer.SummaryLine(
                         line.description(), line.quantity(), agreement == null ? line.net() : null,
-                        line.unavailable(), line.requestedQuantity())).toList(), agreement);
+                        line.unavailable(), line.requestedQuantity(), packagingOf(line.productId()))).toList(),
+                agreement);
+    }
+
+    /** What a line's quantity counts; a product that is gone reads as plain pieces. */
+    private be.enrosed.catalog.domain.Packaging packagingOf(Long productId) {
+        if (productId == null || products == null) return null;
+        try {
+            return products.get(productId).packaging();
+        } catch (RuntimeException missing) {
+            return null;
+        }
     }
 
     /** Rebuild the PDF, for instance to review or download it ourselves. */

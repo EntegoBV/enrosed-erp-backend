@@ -80,6 +80,7 @@ class ProductSharedFieldsTest {
         assertEquals(source.packaging().kind(), updated.packaging().kind());
         assertEquals(source.packaging().dimensions(), updated.packaging().dimensions());
         assertEquals(source.packaging().piecesPerUnit(), updated.packaging().piecesPerUnit());
+        assertEquals("hart", updated.packaging().unitKey(), "the unit travels with the packaging bundle");
         assertEquals(target.packaging().barcode(), updated.packaging().barcode(),
                 "a colour variant keeps its own packaging EAN");
         assertEquals(target.carton(), updated.carton(), "CARTON was not selected");
@@ -303,7 +304,7 @@ class ProductSharedFieldsTest {
                         PackagingKind.GIFT_BOX,
                         dimensions("12", "22", "32", "0.55"),
                         "5410000000033",
-                        2),
+                        2).withUnitKey("hart"),
                 "Red",
                 "Small",
                 "#AA1122",

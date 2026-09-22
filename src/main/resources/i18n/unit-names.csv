@@ -1,0 +1,43 @@
+﻿key;nl;fr;en;de;es;pl;pt;tr;el
+stuk.one;stuk;pièce;piece;Stück;unidad;sztuka;unidade;adet;τεμάχιο
+stuk.few;stuks;pièces;pieces;Stück;unidades;sztuki;unidades;adet;τεμάχια
+stuk.many;stuks;pièces;pieces;Stück;unidades;sztuk;unidades;adet;τεμάχια
+stuk.other;stuks;pièces;pieces;Stück;unidades;sztuk;unidades;adet;τεμάχια
+stuk.short;st.;pcs;pcs;Stk.;uds.;szt.;un.;adet;τεμ.
+stuk.per;per stuk;par pièce;per piece;pro Stück;por unidad;za sztukę;por unidade;adet başına;ανά τεμάχιο
+bowl.one;bowl;bol;bowl;Schale;cuenco;miseczka;taça;kase;γυάλα
+bowl.few;bowls;bols;bowls;Schalen;cuencos;miseczki;taças;kase;γυάλες
+bowl.many;bowls;bols;bowls;Schalen;cuencos;miseczek;taças;kase;γυάλες
+bowl.other;bowls;bols;bowls;Schalen;cuencos;miseczek;taças;kase;γυάλες
+bowl.short;bowls;bols;bowls;Schalen;cuencos;miseczek;taças;kase;γυάλες
+bowl.per;per bowl;par bol;per bowl;pro Schale;por cuenco;za miseczkę;por taça;kase başına;ανά γυάλα
+stolp.one;stolp;cloche;dome;Glasglocke;cúpula;klosz;cúpula;fanus;καμπάνα
+stolp.few;stolpen;cloches;domes;Glasglocken;cúpulas;klosze;cúpulas;fanus;καμπάνες
+stolp.many;stolpen;cloches;domes;Glasglocken;cúpulas;kloszy;cúpulas;fanus;καμπάνες
+stolp.other;stolpen;cloches;domes;Glasglocken;cúpulas;kloszy;cúpulas;fanus;καμπάνες
+stolp.short;stolpen;cloches;domes;Glasglocken;cúpulas;kloszy;cúpulas;fanus;καμπάνες
+stolp.per;per stolp;par cloche;per dome;pro Glasglocke;por cúpula;za klosz;por cúpula;fanus başına;ανά καμπάνα
+box.one;box;boîte;box;Box;estuche;pudełko;estojo;kutu;κουτί
+box.few;boxen;boîtes;boxes;Boxen;estuches;pudełka;estojos;kutu;κουτιά
+box.many;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
+box.other;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
+box.short;boxen;boîtes;boxes;Boxen;estuches;pudełek;estojos;kutu;κουτιά
+box.per;per box;par boîte;per box;pro Box;por estuche;za pudełko;por estojo;kutu başına;ανά κουτί
+roos.one;roos;rose;rose;Rose;rosa;róża;rosa;gül;τριαντάφυλλο
+roos.few;rozen;roses;roses;Rosen;rosas;róże;rosas;gül;τριαντάφυλλα
+roos.many;rozen;roses;roses;Rosen;rosas;róż;rosas;gül;τριαντάφυλλα
+roos.other;rozen;roses;roses;Rosen;rosas;róż;rosas;gül;τριαντάφυλλα
+roos.short;rozen;roses;roses;Rosen;rosas;róż;rosas;gül;τριαντάφυλλα
+roos.per;per roos;par rose;per rose;pro Rose;por rosa;za różę;por rosa;gül başına;ανά τριαντάφυλλο
+hart.one;hart;cœur;heart;Herz;corazón;serce;coração;kalp;καρδιά
+hart.few;harten;cœurs;hearts;Herzen;corazones;serca;corações;kalp;καρδιές
+hart.many;harten;cœurs;hearts;Herzen;corazones;serc;corações;kalp;καρδιές
+hart.other;harten;cœurs;hearts;Herzen;corazones;serc;corações;kalp;καρδιές
+hart.short;harten;cœurs;hearts;Herzen;corazones;serc;corações;kalp;καρδιές
+hart.per;per hart;par cœur;per heart;pro Herz;por corazón;za serce;por coração;kalp başına;ανά καρδιά
+beer.one;beer;ours;bear;Bär;oso;miś;urso;ayıcık;αρκουδάκι
+beer.few;beren;ours;bears;Bären;osos;misie;ursos;ayıcık;αρκουδάκια
+beer.many;beren;ours;bears;Bären;osos;misiów;ursos;ayıcık;αρκουδάκια
+beer.other;beren;ours;bears;Bären;osos;misiów;ursos;ayıcık;αρκουδάκια
+beer.short;beren;ours;bears;Bären;osos;misiów;ursos;ayıcık;αρκουδάκια
+beer.per;per beer;par ours;per bear;pro Bär;por oso;za misia;por urso;ayıcık başına;ανά αρκουδάκι

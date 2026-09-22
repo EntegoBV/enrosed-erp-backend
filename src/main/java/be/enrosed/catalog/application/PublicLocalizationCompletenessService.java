@@ -149,13 +149,18 @@ public class PublicLocalizationCompletenessService {
             publicPhotos.selected(family, members, channel).stream()
                     .sorted(Comparator.comparingInt(image -> image.position))
                     .forEach(image -> {
-                        List<ProductFamilyDto.AltTextDto> alts = read(
-                                image.altTextsJson,
-                                new TypeReference<List<ProductFamilyDto.AltTextDto>>() {});
-                        String alt = alts.stream().filter(item -> item.language() == language)
-                                .map(ProductFamilyDto.AltTextDto::alt).findFirst().orElse(null);
-                        required(missing, prefix + ".images." + image.sourceKey + "."
-                                + locale + ".alt", alt);
+                        List<ProductFamilyDto.AltTextDto> alts = blank(image.altTextsJson)
+                                ? List.of()
+                                : read(image.altTextsJson,
+                                        new TypeReference<List<ProductFamilyDto.AltTextDto>>() {});
+                        /* Same rule as the public DTO: an explicit alt or one generated from
+                           the exact family name. Only a genuine gap is reported. */
+                        LanguageFallback.Resolved<String> alt = FamilyPhotoAltText.resolve(
+                                family, image, members, alts, language);
+                        if (blank(alt.value()) || alt.sourceLanguage() != language) {
+                            missing.add(prefix + ".images." + image.sourceKey + "."
+                                    + locale + ".alt");
+                        }
                     });
 
             content.missingRequired(scope, language).forEach(key ->

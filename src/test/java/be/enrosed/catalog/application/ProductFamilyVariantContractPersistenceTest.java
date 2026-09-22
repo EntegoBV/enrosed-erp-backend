@@ -83,6 +83,8 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject PublicLocalizationCompletenessService localization;
     @Inject FamilyMemberCacheService familyMemberCache;
     @Inject FamilyCollectionAlignmentService familyCollections;
+    @Inject FamilyPhotoPublicationPolicy photoPublication;
+    @Inject PublicFamilyPhotoProjection publicPhotos;
     @Inject ObjectMapper json;
 
     private WebsiteRebuildService websiteRebuildTarget() {
@@ -559,7 +561,7 @@ class ProductFamilyVariantContractPersistenceTest {
                 family, List.of(), List.of(), List.of(), List.of(),
                 List.of(publicVariant, inactiveVariant), json);
         assertTrue(admin.publicationIssues().contains(
-                "Minstens één publiceerbare foto met afmetingen, alt-tekst "
+                "Minstens één publiceerbare foto met afmetingen "
                         + "en actieve variantkoppeling is verplicht"));
 
         Response response = publicFamilies.catalog(CatalogChannel.WEBSITE, "EN", null);
@@ -570,7 +572,7 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void incompleteAdminImageStaysPrivateUntilANonblankAltTextActivatesIt() {
+    void adminImageWithoutAltTextIsPublicWithAGeneratedAltAndAnExplicitAltWins() {
         ProductFamilyEntity family = family("admin-image-readiness");
         entityManager.persist(family);
         entityManager.flush();
@@ -578,23 +580,37 @@ class ProductFamilyVariantContractPersistenceTest {
                 family, "SKU-IMAGE-READY", "image-ready", "Red", null, "#A91F32", 0);
         entityManager.persist(member);
         ProductFamilyPhotoEntity ready = photo(family, "ready-image", 0);
+        /* Admin uploads carry an explicit channel list once the publication command ran. */
         ProductFamilyPhotoEntity pending = photo(family, "pending-image", 1);
         pending.altTextsJson = "[]";
+        pending.publishedChannelsJson = "[\"WEBSITE\"]";
+        ProductFamilyPhotoEntity colour = photo(family, "colour-image", 2);
+        colour.altTextsJson = "[]";
+        colour.publishedChannelsJson = "[\"WEBSITE\"]";
+        colour.variantProduct = member;
         entityManager.persist(ready);
         entityManager.persist(pending);
+        entityManager.persist(colour);
         entityManager.flush();
 
-        PublicFamilyCatalogDto.FamilyDto before = publicFamily("EN", family.publicHandle);
-        assertEquals(List.of(ready.id), before.images().stream().map(
+        PublicFamilyCatalogDto.FamilyDto before = publicFamily("DE", family.publicHandle);
+        assertEquals(List.of(ready.id, pending.id, colour.id), before.images().stream().map(
                 PublicFamilyCatalogDto.ImageDto::id).toList());
+        PublicFamilyCatalogDto.ImageDto generated = before.images().get(1);
+        assertEquals("Family de", generated.alt());
+        assertEquals(Language.DE, generated.textSources().get("alt"),
+                "a generated alt from exact German copy satisfies the strict build");
+        assertEquals("Family de — Red de", before.images().get(2).alt());
+        assertEquals(Language.DE, before.images().get(2).textSources().get("alt"));
 
-        pending.altTextsJson = "[{\"language\":\"EN\",\"alt\":\"Pending rose image\"}]";
+        pending.altTextsJson = "[{\"language\":\"DE\",\"alt\":\"Rose in Nahaufnahme\"}]";
         galleryGuard.validate(family);
         entityManager.flush();
 
-        PublicFamilyCatalogDto.FamilyDto after = publicFamily("EN", family.publicHandle);
-        assertEquals(Set.of(ready.id, pending.id), after.images().stream().map(
-                PublicFamilyCatalogDto.ImageDto::id).collect(Collectors.toSet()));
+        PublicFamilyCatalogDto.FamilyDto after = publicFamily("DE", family.publicHandle);
+        assertEquals("Rose in Nahaufnahme", after.images().get(1).alt());
+        assertEquals("Family en", publicFamily("EN", family.publicHandle).images().get(1).alt(),
+                "an explicit alt in one language never replaces another language's generated alt");
     }
 
     @Test
@@ -644,9 +660,18 @@ class ProductFamilyVariantContractPersistenceTest {
         internal.publishedChannelsJson = "[\"WEBSITE\"]";
         List<String> afterPublication = localization.missing(
                 context.family, List.of(), CatalogChannel.WEBSITE);
-        assertEquals(Language.values().length, afterPublication.stream()
+        assertTrue(afterPublication.stream().noneMatch(path -> path.endsWith(".alt")),
+                "the exact family name generates every alt: " + afterPublication);
+
+        context.family.texts.stream().filter(text -> text.language == Language.DE)
+                .forEach(text -> text.name = null);
+        List<String> withoutGermanName = localization.missing(
+                context.family, List.of(), CatalogChannel.WEBSITE);
+        assertEquals(List.of(Language.DE.code()), withoutGermanName.stream()
                 .filter(path -> path.contains("internal-study") && path.endsWith(".alt"))
-                .count());
+                .map(path -> path.substring(0, path.length() - ".alt".length()))
+                .map(path -> path.substring(path.lastIndexOf('.') + 1))
+                .toList());
     }
 
     @Test
@@ -726,20 +751,68 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void clearingTheLastPublicAltTextOfAPublishedFamilyIsRejected() {
+    void legacyPhotoWithoutChannelChoiceOrAltStaysInternalUntilItIsPublished() {
+        ProductFamilyEntity family = family("legacy-no-alt");
+        family.orderAppStatus = PublicationState.PUBLISHED;
+        family.catalogueStatus = PublicationState.PUBLISHED;
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity member = product(
+                family, "SKU-LEGACY-NO-ALT", "legacy-no-alt", "Red", null, "#A91F32", 0);
+        entityManager.persist(member);
+        ProductFamilyPhotoEntity ready = photo(family, "legacy-ready", 0);
+        /* Uploaded before the channel choice existed: channels null, alts never filled. */
+        ProductFamilyPhotoEntity legacy = photo(family, "legacy-no-alt", 1);
+        legacy.altTextsJson = "[]";
+        legacy.variantProduct = member;
+        entityManager.persist(ready);
+        entityManager.persist(legacy);
+        entityManager.flush();
+
+        assertEquals(List.of(), photoPublication.publishedChannels(legacy),
+                "a legacy row needs an explicit alt before its all-channel default applies");
+        assertEquals(List.of(CatalogChannel.values()), photoPublication.publishedChannels(ready));
+        for (CatalogChannel channel : CatalogChannel.values()) {
+            assertEquals(List.of(ready.id), publicPhotos.images(family, List.of(member), channel)
+                    .stream().map(image -> image.id).toList(), channel.name());
+            assertEquals(ready.id, publicPhotos.primary(family, member, List.of(member), channel).id,
+                    channel.name());
+        }
+        assertEquals(List.of(ready.id), publicFamily("NL", family.publicHandle).images().stream()
+                .map(PublicFamilyCatalogDto.ImageDto::id).toList());
+        assertEquals(ready.id, publicFamily("NL", family.publicHandle).quoteImageId());
+
+        familyResource.setImagePublication(family.id, legacy.id,
+                new ProductFamilyResource.ImagePublicationRequest(List.of(CatalogChannel.WEBSITE)));
+        entityManager.flush();
+
+        assertEquals("[\"WEBSITE\"]", legacy.publishedChannelsJson);
+        PublicFamilyCatalogDto.FamilyDto published = publicFamily("NL", family.publicHandle);
+        assertEquals(List.of(ready.id, legacy.id), published.images().stream()
+                .map(PublicFamilyCatalogDto.ImageDto::id).toList());
+        assertEquals("Family nl — Red nl", published.images().get(1).alt());
+        assertEquals(List.of(ready.id), publicPhotos.images(family, List.of(member), CatalogChannel.CATALOGUE)
+                .stream().map(image -> image.id).toList(), "only the chosen channel was opened");
+    }
+
+    @Test
+    @TestTransaction
+    void clearingTheLastExplicitAltTextKeepsThePhotoPublicWithTheGeneratedAlt() {
         ProductFamilyEntity family = family("last-alt-guard");
         entityManager.persist(family);
         entityManager.flush();
         entityManager.persist(product(
                 family, "SKU-LAST-ALT", "last-alt", "Red", null, "#A91F32", 0));
         ProductFamilyPhotoEntity ready = photo(family, "last-alt-image", 0);
+        ready.publishedChannelsJson = "[\"WEBSITE\"]";
         entityManager.persist(ready);
         entityManager.flush();
 
         ready.altTextsJson = "[]";
-        BusinessRuleException error = assertThrows(BusinessRuleException.class,
-                () -> galleryGuard.validate(family));
-        assertTrue(error.getMessage().contains("publiceerbare foto"), error.getMessage());
+        galleryGuard.validate(family);
+        entityManager.flush();
+
+        assertEquals("Family nl", publicFamily("NL", family.publicHandle).images().getFirst().alt());
     }
 
     @Test
@@ -1510,6 +1583,75 @@ class ProductFamilyVariantContractPersistenceTest {
         assertNull(unlinked.familyId());
         assertNull(unlinked.familyKey());
         assertTrue(unlinked.photos().isEmpty());
+    }
+
+    @Test
+    @TestTransaction
+    void productPutKeepsTheStoredUnitUnlessTheEditorChoosesAnother() throws Exception {
+        FamilyContext context = completeFamilyContext("unit-put-family");
+        ProductEntity bowl = product(
+                context.family, "SKU-UNIT-PUT", "unit-put", "Red", null, "#A91F32", 0);
+        bowl.categoryId = context.category.id;
+        bowl.packagingUnitKey = "bowl";
+        entityManager.persist(bowl);
+        entityManager.flush();
+
+        ProductDto current = ProductDto.from(products.findById(bowl.id).orElseThrow());
+        assertEquals("bowl", current.packaging().unitKey());
+        com.fasterxml.jackson.databind.node.ObjectNode legacyJson = json.valueToTree(current);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyJson.path("packaging")).remove("unitKey");
+        Product kept = productService.update(bowl.id, json.treeToValue(legacyJson, ProductDto.class)
+                .toDomainForUpdate(products.findById(bowl.id).orElseThrow()));
+        assertEquals("bowl", kept.packaging().unitKey(), "an older full-PUT client cannot reset the unit");
+
+        legacyJson.putNull("packaging");
+        kept = productService.update(bowl.id, json.treeToValue(legacyJson, ProductDto.class)
+                .toDomainForUpdate(products.findById(bowl.id).orElseThrow()));
+        assertEquals("bowl", kept.packaging().unitKey(), "no packaging still names the piece");
+
+        com.fasterxml.jackson.databind.node.ObjectNode chosen = json.valueToTree(ProductDto.from(kept));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).put("unitKey", "stolp");
+        Product changed = productService.update(bowl.id, json.treeToValue(chosen, ProductDto.class)
+                .toDomainForUpdate(products.findById(bowl.id).orElseThrow()));
+        assertEquals("stolp", changed.packaging().unitKey());
+        entityManager.flush();
+        entityManager.clear();
+        assertEquals("stolp", entityManager.find(ProductEntity.class, bowl.id).packagingUnitKey);
+
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).put("unitKey", "vaas");
+        BusinessRuleException unknown = assertThrows(BusinessRuleException.class, () -> productService.update(
+                bowl.id, json.treeToValue(chosen, ProductDto.class)
+                        .toDomainForUpdate(products.findById(bowl.id).orElseThrow())));
+        assertEquals("Onbekende eenheid 'vaas'. Kies een eenheid uit de lijst.", unknown.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void publicVariantsNameTheirUnitInTheRequestedLanguageWithAnExactSource() {
+        ProductFamilyEntity family = family("unit-public");
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity bowl = product(family, "SKU-UNIT-BOWL", "unit-bowl", "Red", null, "#A91F32", 0);
+        bowl.packagingUnitKey = "bowl";
+        ProductEntity plain = product(family, "SKU-UNIT-PLAIN", "unit-plain", "White", null, "#F0E9DF", 1);
+        entityManager.persist(bowl);
+        entityManager.persist(plain);
+        entityManager.persist(photo(family, "unit-public-image", 0));
+        entityManager.flush();
+
+        PublicFamilyCatalogDto.FamilyDto polish = publicFamily("PL", family.publicHandle);
+        PublicFamilyCatalogDto.VariantDto bowlVariant = variant(polish, bowl.id);
+        assertEquals("bowl", bowlVariant.unit().key());
+        assertEquals("za miseczkę", bowlVariant.unit().per());
+        assertEquals("miseczki", bowlVariant.unit().few());
+        assertEquals("miseczek", bowlVariant.unit().many());
+        assertEquals(Language.PL, bowlVariant.textSources().get("unit"));
+        PublicFamilyCatalogDto.VariantDto plainVariant = variant(polish, plain.id);
+        assertEquals("stuk", plainVariant.unit().key());
+        assertEquals("za sztukę", plainVariant.unit().per());
+        assertEquals(Language.PL, plainVariant.textSources().get("unit"));
+
+        assertEquals("per bowl", variant(publicFamily("EN", family.publicHandle), bowl.id).unit().per());
     }
 
     @Test

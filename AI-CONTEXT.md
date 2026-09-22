@@ -23,7 +23,8 @@ hidden at a double-tap.
 - Commits are grouped per topic ("aparte commits" per feature batch).
 - **Translations never live in code.** They are CSV resources under
   `src/main/resources/i18n/` (document-text.csv, colour-names.csv,
-  payment-terms.csv), 8 languages: NL FR EN DE ES PL PT TR. A parity test
+  payment-terms.csv, unit-names.csv), 9 languages: NL FR EN DE ES PL PT TR
+  EL. A parity test
   fails when any language misses a key. The document-text bundle is an API
   contract: the customer portal (frontend) consumes it via
   `PortalResource`, so keys that look unused in this repo are not dead.
@@ -120,6 +121,59 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   It is a purpose-built safe DTO: no supplier, cost, margin, HS code, internal
   source or exact stock. Public photo bytes have a separate PermitAll route and
   remain inaccessible unless the SKU is published on at least one channel.
+
+### Photo roles (2026-09-22)
+- Photos are keyed `F<familyPhotoId>` (series photo, "reeksfoto") and
+  `P<productPhotoId>` (own photo, "losse productfoto"); the signed ids of the
+  website/catalogue choices map onto them (positive F, negative P).
+- `GET /api/products/{id}/photo-overview` is the one read model for the ERP
+  photo section; `PUT /{id}/photo-roles` (MAIN, QUOTE, CATALOGUE_VARIANT,
+  CATALOGUE_OVERVIEW, CATALOGUE_DETAIL) and `POST /{id}/photos/promote`
+  ("Zet in de reeks") answer with it. Picking an unpublished series photo for
+  a role publishes it for that channel first.
+- `ProductFamilyEntity.websiteQuotePhotoId` is the quote-page photo
+  (`WebsiteQuotePhotoChoice`): a stored choice counts only while it is in the
+  WEBSITE gallery, else the first colour's primary. Public `quoteImageId` and
+  the revision digest carry the resolved id; the general family PUT never
+  writes it.
+- Explicit alt texts are optional: `FamilyPhotoAltText` generates
+  "family name — colour" in the requested language, so publishing a series
+  photo no longer waits for nine hand-written alts. Explicit alts still win.
+  Exception: a legacy row with `published_channels_json` null keeps its old
+  rule (all channels only with a non-blank explicit alt, else internal), so
+  the deploy publishes nothing new; the publication command stores explicit
+  channels and then the generated alt applies.
+- The overview's automatic Hoofdfoto (`main`, explicit false) is what quotes,
+  invoices, portal and ERP lists print (`Product.photoForSalesDocument`: first
+  series projection). Series photos carry `publishedChannels` (stored choice)
+  next to the effective `visibility`; channel switches start from the former.
+
+### Sales units: what one piece is called (2026-09-22)
+- `Packaging.salesUnit` stays the commercial basis (PIECE or DISPLAY);
+  `Packaging.unitKey` (`product.packagingunitkey`, nullable = "stuk") names
+  the piece: stuk, bowl, stolp, box, roos, hart, beer. Translations and plural
+  forms (Polish few/many, the whole "per" phrase) live in
+  `i18n/unit-names.csv`, read through `shared/UnitNames`; the "stuk" rows
+  reproduce the old wording exactly. Unknown keys are rejected on write and
+  read as "stuk".
+- A null `packaging.unitKey` on the product PUT keeps the stored unit (also
+  when `packaging` is null); PACKAGING shared fields and duplicates copy it;
+  the Excel/CSV exchange has it as the last column `eenheid`.
+- Documents (owner decision, a65c3f4): a product packed in a display leads
+  with the price of one full display, like the website, portal and
+  catalogue: "€ 31,60 per display van 8 bowls" (priced per bowl) or
+  "€ 60,00 per display" (priced per display), then the piece price
+  ("€ 3,95 per bowl" / "≈ € 5,00 per bowl") and the display/loose counts.
+  Plain pieces print "per bowl". A display carton reads "5 displays per doos
+  (40 bowls)", one carton noun per line. `sales/application/SalesUnitText`
+  holds the shared quantity phrases (PDF, packing slip, mail).
+- Clients get `UnitDto {key, one, few, many, other, short, per}` in their
+  language: portal lines/catalogue, public `VariantDto.unit` (source always
+  exact, `textSources.unit`) and `PublicQuoteDtos.ProductPrice.unit` (kept when
+  prices are hidden). `GET /api/products/unit-names` is the Dutch ERP pick-list.
+- Reworded seed copy never reaches production (the loader only inserts
+  missing keys): unit-aware catalogue wording uses new keys
+  (`catalog.quantity.displayunits`, `catalog.price.settotalunits`, ...).
 
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,

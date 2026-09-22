@@ -51,6 +51,9 @@ public class ProductEntity {
     public Integer packagingPiecesPerUnit;
     @Enumerated(EnumType.STRING)
     public SalesUnit packagingSalesUnit;
+    /** What one piece is called on customer documents (UnitNames key); null reads as "stuk". */
+    @Column(length = 40)
+    public String packagingUnitKey;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;

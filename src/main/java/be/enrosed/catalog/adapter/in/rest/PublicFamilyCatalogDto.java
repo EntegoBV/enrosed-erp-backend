@@ -40,8 +40,21 @@ public record PublicFamilyCatalogDto(
             List<PackageDto> packages,
             List<ImageDto> images,
             List<VariantDto> variants,
-            Map<String, Language> textSources
-    ) {}
+            Map<String, Language> textSources,
+            /** WEBSITE only: the quote page photo, always one of {@code images}; null otherwise. */
+            Long quoteImageId
+    ) {
+        public FamilyDto(Long id, String familyKey, String publicHandle, String name, String summary,
+                         String description, String format, List<String> highlights,
+                         CategoryDto category, int productPosition, Long cardFeaturedProductId,
+                         List<String> tags, String status, SeoDto seo, DimensionsDto dimensions,
+                         List<PackageDto> packages, List<ImageDto> images, List<VariantDto> variants,
+                         Map<String, Language> textSources) {
+            this(id, familyKey, publicHandle, name, summary, description, format, highlights,
+                    category, productPosition, cardFeaturedProductId, tags, status, seo, dimensions,
+                    packages, images, variants, textSources, null);
+        }
+    }
 
     public record CategoryDto(
             String key,
@@ -111,8 +124,18 @@ public record PublicFamilyCatalogDto(
             PublicPriceDto publicPrice,
             Map<String, Language> textSources,
             String salesUnit,
-            Integer piecesPerDisplay
+            Integer piecesPerDisplay,
+            /** What one piece is called in the requested language; {@code textSources.unit} is always exact. */
+            UnitDto unit
     ) {
+        public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
+                          String name, int position, String availability, Long primaryImageId,
+                          PublicPriceDto publicPrice, Map<String, Language> textSources,
+                          String salesUnit, Integer piecesPerDisplay) {
+            this(id, sku, barcode, color, size, colorHex, name, position, availability,
+                    primaryImageId, publicPrice, textSources, salesUnit, piecesPerDisplay, null);
+        }
+
         public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
                           String name, int position, String availability, Long primaryImageId,
                           PublicPriceDto publicPrice, Map<String, Language> textSources) {

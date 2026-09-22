@@ -108,6 +108,39 @@ class RailwayPreDeployMigrationContractTest {
                 .contains("--file=/app/migrations/" + migration.getFileName()));
     }
 
+    @Test
+    void websiteQuotePhotoMigrationAddsOnlyTheNullableFamilyChoiceBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-22/family-website-quote-photo-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains(
+                "alter table product_family add column if not exists websitequotephotoid bigint"));
+        assertFalse(sql.contains("not null"), "null keeps the automatic quote photo");
+        assertFalse(sql.contains("update "), "existing families keep the automatic choice");
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
+                .contains("--file=/app/migrations/" + migration.getFileName()));
+    }
+
+    @Test
+    void productUnitKeyMigrationAddsOnlyTheNullableUnitColumnBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-22/product-unit-key-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains(
+                "alter table product add column if not exists packagingunitkey varchar(40)"));
+        assertFalse(sql.contains("not null"), "null keeps the default unit stuk in code");
+        assertFalse(sql.contains("default "), "the default lives in code, not in the column");
+        assertFalse(sql.contains("update "), "existing products keep reading per stuk");
+        assertNonDestructive(sql);
+        String dockerfile = Files.readString(Path.of("Dockerfile"));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(dockerfile.contains(migration.toString()));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("product-sales-unit-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the unit name follows the sales-unit column it complements");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

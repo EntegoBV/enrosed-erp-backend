@@ -152,7 +152,12 @@ public class WebsiteCatalogRevisionService {
                 });
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, canonicalVariantKey, sku", family.id);
-        publicPhotos.images(family, members, CatalogChannel.WEBSITE).stream()
+        List<ProductFamilyPhotoEntity> websiteImages =
+                publicPhotos.images(family, members, CatalogChannel.WEBSITE);
+        /* Both values: a new choice and an automatic pick that moved each change the quote page. */
+        add(out, "quoteImage"); add(out, family.websiteQuotePhotoId);
+        add(out, WebsiteQuotePhotoChoice.resolve(family, members, publicPhotos, websiteImages));
+        websiteImages.stream()
                 .forEach(image -> {
                     add(out, image.id); add(out, image.sourceKey);
                     add(out, image.position);
@@ -177,6 +182,8 @@ public class WebsiteCatalogRevisionService {
         add(out, product.sku);
         add(out, product.packagingKind); add(out, product.packagingSalesUnit);
         add(out, product.packagingPiecesPerUnit);
+        /* Normalized: an old null and an explicit "stuk" print the same words. */
+        add(out, be.enrosed.shared.UnitNames.normalize(product.packagingUnitKey));
         add(out, product.canonicalBarcode); add(out, product.active);
         add(out, product.inventoryKnown); add(out, product.stockQuantity); add(out, product.variantPosition);
         for (Language language : Language.values()) {

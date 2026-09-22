@@ -216,3 +216,10 @@ salesRequestedUnits;Oorspronkelijk aangevraagd: %s;Quantité initialement demand
 salesDisplaysPerCarton;displays per karton;présentoirs par carton;displays per carton;Displays pro Karton;expositores por caja;ekspozytorów w kartonie;expositores por caixa;koli başına stand;σταντ ανά κιβώτιο
 salesQuantityUnits;Verkoopeenheden;Unités de vente;Sales units;Verkaufseinheiten;Unidades de venta;Jednostki sprzedaży;Unidades de venda;Satış birimleri;Μονάδες πώλησης
 salesUnitsPerCarton;verkoopeenheden per karton;unités de vente par carton;sales units per carton;Verkaufseinheiten pro Karton;unidades de venta por caja;jednostek sprzedaży w kartonie;unidades de venda por caixa;koli başına satış birimi;μονάδες πώλησης ανά κιβώτιο
+unitsPerCarton;%s per doos;%s par carton;%s per carton;%s pro Karton;%s por caja;%s w kartonie;%s por caixa;koli başına %s;%s ανά κιβώτιο
+salesUnitsPerDisplay;%s per display;%s par présentoir;%s per display;%s pro Display;%s por expositor;%s w ekspozytorze;%s por expositor;stand başına %s;%s ανά σταντ
+salesTotalUnits;Totaal: %s;Total : %s;Total: %s;Gesamt: %s;Total: %s;Łącznie: %s;Total: %s;Toplam: %s;Σύνολο: %s
+salesLooseUnits;Buiten display: %s;Hors présentoir : %s;Not in a display: %s;Ohne Display: %s;Fuera de expositor: %s;Poza ekspozytorem: %s;Fora de expositor: %s;Stand dışında: %s;Εκτός σταντ: %s
+salesPricePerDisplayOf;per display van %s;par présentoir de %s;per display of %s;pro Display mit %s;por expositor de %s;za ekspozytor (%s);por expositor de %s;%s içeren stand başına;ανά σταντ με %s
+salesDisplaysPerCartonCount;%s displays per doos;%s présentoirs par carton;%s displays per carton;%s Displays pro Karton;%s expositores por caja;%s ekspozytorów w kartonie;%s expositores por caixa;koli başına %s stand;%s σταντ ανά κιβώτιο
+salesDisplaysPerCartonUnits;%s displays per doos (%s);%s présentoirs par carton (%s);%s displays per carton (%s);%s Displays pro Karton (%s);%s expositores por caja (%s);%s ekspozytorów w kartonie (%s);%s expositores por caixa (%s);koli başına %s stand (%s);%s σταντ ανά κιβώτιο (%s)

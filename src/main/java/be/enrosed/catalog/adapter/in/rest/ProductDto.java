@@ -75,7 +75,14 @@ public record ProductDto(
     }
 
     public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode,
-                               Integer piecesPerUnit, SalesUnit salesUnit) {
+                               Integer piecesPerUnit, SalesUnit salesUnit,
+                               /** UnitNames key ("stuk", "bowl", ...); null on a write keeps the stored unit. */
+                               String unitKey) {
+        public PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit,
+                            SalesUnit salesUnit) {
+            this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null);
+        }
+
         public PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {
             this(kind, dimensions, barcode, piecesPerUnit, null);
         }
@@ -232,7 +239,7 @@ public record ProductDto(
                         product.packaging().dimensions().weightKg()),
                         product.packaging().barcode(),
                         product.packaging().isPresent() ? product.packaging().unitPieces() : null,
-                        product.packaging().salesUnit()),
+                        product.packaging().salesUnit(), product.packaging().unitKey()),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
                 product.demo(),
@@ -255,10 +262,11 @@ public record ProductDto(
     }
 
     public Product toDomain(Long id) {
-        return toDomain(id, null, null);
+        return toDomain(id, null, null, null);
     }
 
-    private Product toDomain(Long id, Integer preservedPiecesPer20Ft, SalesUnit preservedSalesUnit) {
+    private Product toDomain(Long id, Integer preservedPiecesPer20Ft, SalesUnit preservedSalesUnit,
+                             String preservedUnitKey) {
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
@@ -267,12 +275,16 @@ public record ProductDto(
         DimensionsDto wrap = packaging == null || packaging.dimensions() == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
                 : packaging.dimensions();
+        /* The unit names the piece, not the box around it: "no packaging" keeps it too. */
+        String unitKey = packaging == null || packaging.unitKey() == null
+                ? preservedUnitKey : packaging.unitKey();
         Packaging presentation = packaging == null || packaging.kind() == null
-                ? Packaging.none()
+                ? Packaging.none().withUnitKey(unitKey)
                 : new Packaging(packaging.kind(),
                         new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm(), wrap.weightKg()),
                         packaging.barcode(), packaging.piecesPerUnit(),
-                        packaging.salesUnit() == null ? preservedSalesUnit : packaging.salesUnit());
+                        packaging.salesUnit() == null ? preservedSalesUnit : packaging.salesUnit(),
+                        unitKey);
 
         return new Product(
                 id, sku, name,
@@ -305,7 +317,8 @@ public record ProductDto(
     /** Preserves fields that older full-PUT clients could not send yet. */
     public Product toDomainForUpdate(Product current) {
         Product changes = toDomain(current.id(), current.carton() == null
-                ? null : current.carton().piecesPer20Ft(), current.packaging().salesUnit());
+                ? null : current.carton().piecesPer20Ft(), current.packaging().salesUnit(),
+                current.packaging().unitKey());
         if (inventoryKnown == null) {
             changes = changes.withCanonicalIdentity(
                     changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),

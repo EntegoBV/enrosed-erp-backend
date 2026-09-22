@@ -121,4 +121,6 @@ exec psql \
     --file=/app/migrations/product-shopify-identities-postgresql.sql \
     --file=/app/migrations/product-short-skus-postgresql.sql \
     --file=/app/migrations/product-localized-tags-seed-postgresql.sql \
-    --file=/app/migrations/product-sales-unit-postgresql.sql
+    --file=/app/migrations/product-sales-unit-postgresql.sql \
+    --file=/app/migrations/family-website-quote-photo-postgresql.sql \
+    --file=/app/migrations/product-unit-key-postgresql.sql

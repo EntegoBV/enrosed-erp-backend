@@ -388,7 +388,7 @@ class PdfQuoteRendererRenderTest {
                 try (PDDocument pdf = Loader.loadPDF(document.content())) {
                     String text = textOf(pdf);
                     assertEquals(carton, text.contains("40 × 30 × 20 cm"), text);
-                    assertEquals(carton, text.contains("24 " + labels.get("piecesPerCarton").toLowerCase()), text);
+                    assertEquals(carton, text.contains(labels.get("unitsPerCarton").formatted("24 stuks").toLowerCase()), text);
                     assertEquals(barcode, text.contains("ean 8712345678920"), text);
                     assertEquals(carton && barcode, text.contains("ean 8712345678937"), text);
                     assertFalse(text.contains("10 × 10 × 8 cm"), "Productdetails remains independently disabled");
@@ -590,6 +590,67 @@ class PdfQuoteRendererRenderTest {
                 assertTrue(text.contains("12 stuks"));
                 assertTrue(text.contains("stukprijs"), "commercial columns stay mandatory");
             }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void bowlProductsReadInBowlsOnQuotesAndInvoicesWithTheDisplaySetPriceFirst() throws Exception {
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        renderer.products = productInstance;
+        var details = new SalesPdfOptions(false, true, false, false, true, false);
+
+        /* Priced per bowl, packed eight to a display: 24 bowls × 12,50 = 300,00. */
+        when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
+                new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                        new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
+                        be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl"), 40));
+        for (DocumentType type : List.of(DocumentType.OFFERTE, DocumentType.FACTUUR)) {
+            var document = renderer.render(order(type, "BOWL-" + type, 1), priced(1), customer(), null,
+                    Language.NL, details);
+            if (type == DocumentType.OFFERTE) writePreview("bowl-piece-in-display-nl.pdf", document.content());
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                String row = text.substring(text.indexOf("counter display premium"));
+                assertTrue(row.contains("24 bowls"), row);
+                assertTrue(row.contains("displays: 3") && row.contains("8 bowls per display"), row);
+                assertTrue(row.contains("100,00 eur per display van 8 bowls"), row);
+                assertTrue(row.contains("12,50 eur per bowl"), row);
+                assertTrue(row.indexOf("100,00 eur") < row.indexOf("12,50 eur"), "the set price leads: " + row);
+                assertTrue(row.contains("40 bowls per doos"), row);
+                assertFalse(row.contains("per stuk") || row.contains("stuks per karton"), row);
+                assertPortraitAndEmbedded(pdf);
+            }
+        }
+
+        /* Priced per complete display in French and Polish: the set price leads. */
+        when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
+                new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                        new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
+                        be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl"), 5));
+        var french = renderer.render(order(DocumentType.FACTUUR, "BOWL-FR", 1), priced(1), customer(Language.FR),
+                null, Language.FR, details);
+        writePreview("bowl-display-set-fr.pdf", french.content());
+        try (PDDocument pdf = Loader.loadPDF(french.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("total : 192 bols"), text);
+            assertTrue(text.contains("8 bols par présentoir"), text);
+            assertTrue(text.contains("12,50 eur par présentoir"), text);
+            assertTrue(text.contains("≈ 1,563 eur par bol"), text);
+            assertTrue(text.contains("5 présentoirs par carton (40 bols)"), text);
+            assertPortraitAndEmbedded(pdf);
+        }
+        var polish = renderer.render(order(DocumentType.OFFERTE, "BOWL-PL", 1), priced(1), customer(Language.PL),
+                null, Language.PL, details);
+        try (PDDocument pdf = Loader.loadPDF(polish.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("łącznie: 192 miseczki"), text);
+            assertTrue(text.contains("8 miseczek w ekspozytorze"), text);
+            assertTrue(text.contains("za miseczkę"), text);
+            assertTrue(text.contains("5 ekspozytorów w kartonie (40 miseczek)"), text);
         }
     }
 
@@ -1144,6 +1205,20 @@ class PdfQuoteRendererRenderTest {
                 bd("4.00"), Currency.USD, BigDecimal.ZERO,
                 bd("6.00"), "PO-1", bd("45"), bd("12.50"), 480,
                 List.of(), List.of());
+    }
+
+    private static Product withPackaging(Product product, be.enrosed.catalog.domain.Packaging packaging,
+                                         int unitsPerCarton) {
+        return new Product(product.id(), product.sku(), product.name(), product.dimensions(), packaging,
+                product.colour(), product.variantSize(), product.colourHex(), product.description(),
+                product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
+                product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
+                product.variantPosition(), product.inventoryKnown(), product.familyKey(), product.publicHandle(),
+                product.websiteStatus(), product.orderAppStatus(), product.barcodes(), product.hsCode(),
+                new Carton(product.carton().dimensions(), unitsPerCarton, product.carton().weightKg()),
+                product.exwPrice(), product.exwCurrency(), product.extraUnitCost(), product.landedCostEur(),
+                product.landedCostSource(), product.markupPct(), product.fixedSalesPriceEur(),
+                product.stockQuantity(), product.photos(), product.texts(), product.demo());
     }
 
     private static BigDecimal bd(String value) {

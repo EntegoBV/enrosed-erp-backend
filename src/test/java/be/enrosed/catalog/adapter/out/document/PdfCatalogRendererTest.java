@@ -137,6 +137,85 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void bowlProductsPriceAndCountInBowlsWhileDefaultProductsKeepPerPiece() {
+        be.enrosed.catalog.domain.Packaging bowl = new be.enrosed.catalog.domain.Packaging(
+                be.enrosed.catalog.domain.PackagingKind.NONE, Dimensions.empty(), null, null,
+                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl");
+        List<Product> bowls = List.of(
+                withPackaging(product(1L, "BOWL-RD", 100L, 1L, 0), bowl),
+                withPackaging(product(2L, "BOWL-WT", 100L, 1L, 1), bowl));
+
+        String simple = normalizeWhitespace(renderer.renderHtml(
+                unitModel(bowls, CatalogExportService.Layout.SIMPLE, "nl")));
+        assertTrue(simple.contains("<small>per bowl</small>"), simple);
+        assertTrue(simple.contains("<strong>6 bowls</strong>"), "carton contents in the unit: " + simple);
+        assertFalse(simple.contains("per stuk"), simple);
+
+        String brochure = normalizeWhitespace(renderer.renderHtml(
+                unitModel(bowls, CatalogExportService.Layout.BROCHURE, "nl")));
+        assertTrue(brochure.contains("<small>per bowl</small>"), "variant rows name the unit");
+        assertTrue(brochure.contains("<span class=\"display-price\">per bowl</span>"),
+                "the family shares the unit, so its reference price names it");
+        assertTrue(brochure.contains("6 bowls"), "carton contents in the unit");
+        assertTrue(brochure.contains("Inhoud per omdoos"), "the label no longer says pieces");
+        assertTrue(brochure.contains("per vermelde eenheid"), "the footnote no longer promises per-piece prices");
+        assertFalse(brochure.contains("per stuk"), brochure);
+
+        /* One colour sold per bowl, one per piece: no family-wide unit to claim. */
+        List<Product> mixed = List.of(bowls.getFirst(), product(3L, "BOWL-PK", 100L, 1L, 2));
+        String mixedHtml = normalizeWhitespace(renderer.renderHtml(
+                unitModel(mixed, CatalogExportService.Layout.BROCHURE, "nl")));
+        assertFalse(mixedHtml.contains("<span class=\"display-price\">per bowl</span>"), mixedHtml);
+        assertTrue(mixedHtml.contains("<small>per bowl</small>") && mixedHtml.contains("<small>per stuk</small>"));
+
+        /* Sold per display of eight bowls: the set leads and counts its bowls. */
+        be.enrosed.catalog.domain.Packaging bowlSet = new be.enrosed.catalog.domain.Packaging(
+                be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 8,
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl");
+        String sets = normalizeWhitespace(renderer.renderHtml(unitModel(List.of(
+                withPackaging(product(6L, "BOWL-SET", 100L, 1L, 0), bowlSet)),
+                CatalogExportService.Layout.SIMPLE, "en")));
+        assertTrue(sets.contains("Set (8 bowls): "), sets);
+        assertTrue(sets.contains("6 displays (48 bowls)"), sets);
+        assertTrue(sets.contains("· per bowl</small>"), sets);
+
+        String plain = normalizeWhitespace(renderer.renderHtml(unitModel(
+                List.of(product(4L, "ROSE-RD", 100L, 1L, 0), product(5L, "ROSE-WT", 100L, 1L, 1)),
+                CatalogExportService.Layout.BROCHURE, "nl")));
+        assertTrue(plain.contains("<span class=\"display-price\">per stuk</span>"), plain);
+        assertTrue(plain.contains("Prijs / st.") && plain.contains("Referentieprijzen per stuk"), plain);
+        assertFalse(plain.contains("per vermelde eenheid"), plain);
+    }
+
+    private static CatalogExportService.Model unitModel(
+            List<Product> variants, CatalogExportService.Layout layout, String language) {
+        Category category = new Category(1L, "counter", "Counter Displays", "Retail-ready products", 0);
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                100L, "bowl-family", "bowl-family", 1L, "counter", "Counter Displays", 0, 0,
+                "Bowl roses", "A lasting collection for gift-ready retail.",
+                "A refined presentation with selected colour variants.",
+                "Counter display", List.of("No daily water"), null, List.of(), List.of(), List.of());
+        CatalogExportService.Request request = new CatalogExportService.Request(
+                null, true, false, 0, "ENROSED Wholesale", null, language, layout,
+                new CatalogExportService.BrochureOptions(true, false, false, false, false,
+                        "A lasting collection", "Ready for retail."));
+        return new CatalogExportService.Model(variants, Map.of(category.id(), category),
+                List.of(new CatalogExportService.FamilyGroup(family, variants, category, false)), request);
+    }
+
+    private static Product withPackaging(Product base, be.enrosed.catalog.domain.Packaging packaging) {
+        return new Product(base.id(), base.sku(), base.name(), base.dimensions(), packaging,
+                base.colour(), base.variantSize(), base.colourHex(), base.description(),
+                base.categoryId(), base.supplierId(), base.supplierNote(), base.active(), base.familyId(),
+                base.canonicalVariantKey(), base.canonicalBarcode(), base.variantPosition(),
+                base.inventoryKnown(), base.familyKey(), base.publicHandle(),
+                base.websiteStatus(), base.orderAppStatus(), base.barcodes(), base.hsCode(),
+                base.carton(), base.exwPrice(), base.exwCurrency(), base.extraUnitCost(),
+                base.landedCostEur(), base.landedCostSource(), base.markupPct(), base.fixedSalesPriceEur(),
+                base.stockQuantity(), base.photos(), base.texts(), base.demo());
+    }
+
+    @Test
     void overviewListsEverySelectedFamilyAsARowOfTheRangeTable() {
         String html = renderer.renderHtml(model(57, CatalogExportService.Layout.BROCHURE));
         assertEquals(19, occurrences(html, "class=\"range-row range-row--"), "one line per family");

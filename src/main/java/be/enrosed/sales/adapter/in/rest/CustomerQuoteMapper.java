@@ -50,7 +50,7 @@ public class CustomerQuoteMapper {
         boolean arrangementOnly = agreement != null;
 
         List<CustomerQuoteView.CustomerLine> lines = priced.lines().stream()
-                .map(line -> customerLine(line, order, arrangementOnly))
+                .map(line -> customerLine(line, order, arrangementOnly, language))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();
@@ -104,7 +104,7 @@ public class CustomerQuoteMapper {
     }
 
     private CustomerQuoteView.CustomerLine customerLine(
-            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly) {
+            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly, Language language) {
         be.enrosed.catalog.domain.Product product = null;
         try {
             if (line.productId() != null) product = products.get(line.productId());
@@ -127,7 +127,8 @@ public class CustomerQuoteMapper {
                 arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(),
                 arrangementOnly ? null : line.net(), line.inventoryKnown(), line.inStock(),
                 line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity(),
-                basis, perDisplay);
+                basis, perDisplay,
+                be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language));
     }
 
     private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {

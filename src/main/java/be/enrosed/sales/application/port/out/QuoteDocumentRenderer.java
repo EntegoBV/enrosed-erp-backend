@@ -25,14 +25,28 @@ public interface QuoteDocumentRenderer {
 
     /* ---- packing slip ------------------------------------------------ */
 
-    /** One product on a pallet (or in the loose rest), enriched without prices. */
+    /**
+     * One product on a pallet (or in the loose rest), enriched without prices.
+     * {@code pieces} counts stored sales units; the texts say what they are
+     * ("40 bowls", "5 Displays") in the slip's language.
+     */
     record PackingItem(String description, int cartons, int pieces,
                        String outerCartonDimensions, Integer piecesPerOuterCarton,
                        String barcode, String outerCartonBarcode,
-                       String outerCartonVolume, String outerCartonWeight) {
+                       String outerCartonVolume, String outerCartonWeight,
+                       String quantityText, String cartonContentsText) {
         /** Compatibility for callers that only need the operational quantities. */
         public PackingItem(String description, int cartons, int pieces) {
             this(description, cartons, pieces, null, null, null, null, null, null);
+        }
+
+        /** Compatibility for callers written before the quantities carried their unit. */
+        public PackingItem(String description, int cartons, int pieces,
+                           String outerCartonDimensions, Integer piecesPerOuterCarton,
+                           String barcode, String outerCartonBarcode,
+                           String outerCartonVolume, String outerCartonWeight) {
+            this(description, cartons, pieces, outerCartonDimensions, piecesPerOuterCarton,
+                    barcode, outerCartonBarcode, outerCartonVolume, outerCartonWeight, null, null);
         }
 
         /** Compatibility for callers written before volume and weight travelled along. */
@@ -54,7 +68,16 @@ public interface QuoteDocumentRenderer {
     record PackingSlip(SalesOrder order, Customer customer,
                        List<PackingPallet> pallets, List<PackingItem> loose,
                        int totalCartons, int totalPieces,
-                       boolean looseCartons) {}
+                       boolean looseCartons,
+                       /* "48 bowls"; null when the lines count different units and a sum would lie. */
+                       String totalQuantityText) {
+        /** Compatibility for callers written before the quantities carried their unit. */
+        public PackingSlip(SalesOrder order, Customer customer,
+                           List<PackingPallet> pallets, List<PackingItem> loose,
+                           int totalCartons, int totalPieces, boolean looseCartons) {
+            this(order, customer, pallets, loose, totalCartons, totalPieces, looseCartons, null);
+        }
+    }
 
     Document packingSlip(PackingSlip slip);
 

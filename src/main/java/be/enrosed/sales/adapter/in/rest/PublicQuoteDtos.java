@@ -128,8 +128,15 @@ public final class PublicQuoteDtos {
             boolean priceAvailable,
             int piecesPerCarton,
             String salesUnit,
-            Integer piecesPerDisplay
+            Integer piecesPerDisplay,
+            /* What one piece is called in the requested language; not a price, so never hidden. */
+            be.enrosed.catalog.adapter.in.rest.UnitDto unit
     ) {
+        public ProductPrice(Long productId, BigDecimal unitPriceNet, boolean priceAvailable, int piecesPerCarton,
+                            String salesUnit, Integer piecesPerDisplay) {
+            this(productId, unitPriceNet, priceAvailable, piecesPerCarton, salesUnit, piecesPerDisplay, null);
+        }
+
         public ProductPrice(Long productId, BigDecimal unitPriceNet, boolean priceAvailable, int piecesPerCarton) {
             this(productId, unitPriceNet, priceAvailable, piecesPerCarton, "PIECE", null);
         }

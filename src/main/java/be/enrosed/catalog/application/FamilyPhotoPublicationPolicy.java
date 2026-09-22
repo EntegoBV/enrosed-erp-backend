@@ -24,9 +24,9 @@ public class FamilyPhotoPublicationPolicy {
     }
 
     /**
-     * An image is public only when both renditions and a usable alt text exist and its
-     * optional variant selector resolves to an active family member. Incomplete uploads
-     * remain editable in the administrator API without breaking the live catalogue.
+     * An image is public only when both renditions exist and its optional variant selector
+     * resolves to an active family member. Incomplete uploads remain editable in the
+     * administrator API without breaking the live catalogue.
      */
     public boolean isPublic(
             ProductFamilyPhotoEntity image, List<ProductEntity> familyMembers) {
@@ -91,10 +91,18 @@ public class FamilyPhotoPublicationPolicy {
         }
     }
 
+    /**
+     * The channels a photo is selected for. Null is the legacy value of rows that predate the
+     * channel choice: they were public on every channel, but only once they carried an explicit
+     * alt text. They keep exactly that visibility, so a legacy row without an alt stays
+     * internal until the publication command stores an explicit channel list.
+     */
     public static List<CatalogChannel> selectedChannels(
             ProductFamilyPhotoEntity image, ObjectMapper json) {
         if (image == null) return List.of();
-        if (image.publishedChannelsJson == null) return List.of(CatalogChannel.values());
+        if (image.publishedChannelsJson == null) {
+            return hasExplicitAlt(image, json) ? List.of(CatalogChannel.values()) : List.of();
+        }
         if (image.publishedChannelsJson.isBlank()) return List.of();
         try {
             JsonNode values = json.readTree(image.publishedChannelsJson);
@@ -118,15 +126,31 @@ public class FamilyPhotoPublicationPolicy {
         return channel != null && selectedChannels(image, json).contains(channel);
     }
 
+    /**
+     * Renditions and dimensions make an image publishable. Explicit alt texts are optional:
+     * the public projection generates one from the family name and variant colour
+     * ({@link FamilyPhotoAltText}). Unreadable stored alt texts still fail closed.
+     */
     public static boolean hasPublicMetadata(
             ProductFamilyPhotoEntity image, ObjectMapper json) {
         if (image == null || blank(image.sourceKey)
                 || blank(image.smallStorageKey) || blank(image.largeStorageKey)
                 || !positive(image.smallWidthPx) || !positive(image.smallHeightPx)
-                || !positive(image.largeWidthPx) || !positive(image.largeHeightPx)
-                || blank(image.altTextsJson)) {
+                || !positive(image.largeWidthPx) || !positive(image.largeHeightPx)) {
             return false;
         }
+        if (blank(image.altTextsJson)) return true;
+        try {
+            JsonNode values = json.readTree(image.altTextsJson);
+            return values != null && values.isArray();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** The pre-channel publication rule: at least one non-blank explicit alt text. */
+    private static boolean hasExplicitAlt(ProductFamilyPhotoEntity image, ObjectMapper json) {
+        if (blank(image.altTextsJson)) return false;
         try {
             JsonNode values = json.readTree(image.altTextsJson);
             if (values == null || !values.isArray()) return false;
@@ -136,6 +160,15 @@ public class FamilyPhotoPublicationPolicy {
             return false;
         } catch (Exception ignored) {
             return false;
+        }
+    }
+
+    /** The publication command's precondition, with the reason the administrator can fix. */
+    public void requireEligible(ProductFamilyPhotoEntity image, List<ProductEntity> familyMembers) {
+        if (!isEligible(image, familyMembers)) {
+            throw new BusinessRuleException(
+                    "Foto kan nog niet gepubliceerd worden: controleer de afmetingen en koppel "
+                            + "ze aan een actieve variant of de hele familie");
         }
     }
 

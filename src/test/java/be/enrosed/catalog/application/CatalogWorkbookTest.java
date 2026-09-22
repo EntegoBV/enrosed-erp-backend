@@ -121,6 +121,50 @@ class CatalogWorkbookTest {
     }
 
     @Test
+    void unitIsTheLastProductColumnAndABlankCellKeepsIt() throws Exception {
+        FakeProducts unitRepository = new FakeProducts();
+        unitRepository.add(product());
+        CatalogWorkbook unitWorkbook = workbookFor(unitRepository);
+
+        byte[] exported = unitWorkbook.export();
+        byte[] edited;
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(exported));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            var products = excel.getSheet("Producten");
+            assertEquals("Eenheid", products.getRow(0).getCell(26).getStringCellValue());
+            assertEquals(27, products.getRow(0).getLastCellNum(), "appended, never inserted");
+            assertEquals("stuk", products.getRow(1).getCell(26).getStringCellValue());
+            products.getRow(1).getCell(26).setCellValue("Bowl");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        CatalogWorkbook.ImportResult result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey());
+
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(unitWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            excel.getSheet("Producten").getRow(1).getCell(26).setBlank();
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey(), "blank keeps the unit");
+
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(unitWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            excel.getSheet("Producten").getRow(1).getCell(26).setCellValue("vaas");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("Onbekende eenheid 'vaas'")),
+                result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey());
+    }
+
+    @Test
     void oneWorkbookUpdatesMasterDataAndTranslationsWithoutFreezingOldFallbackText()
             throws Exception {
         byte[] exported = workbook.export();

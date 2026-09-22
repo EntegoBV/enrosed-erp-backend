@@ -138,9 +138,28 @@ class ProductServicePublicationTest {
         assertEquals(PackagingKind.GIFT_BOX, copy.packaging().kind(), "the box itself comes along");
         assertEquals(boxed.packaging().dimensions(), copy.packaging().dimensions());
         assertNull(copy.packaging().barcode(), "the box's EAN is unique and stays behind");
+        assertEquals("box", copy.packaging().unitKey(), "a new colour is sold per the same unit");
         assertNull(copy.barcodes().inner());
         assertNull(copy.barcodes().outer());
         assertEquals("Altijd per zes verpakken", copy.supplierNote());
+    }
+
+    @Test
+    void refusesAUnitOutsideTheListOnEveryPackagingKind() {
+        Product plain = product(null, "ENR-P04", "Beschrijving", "witte-roos", null, null, true);
+        Product teddy = new Product(plain.id(), plain.sku(), plain.name(), plain.dimensions(),
+                Packaging.none().withUnitKey("teddy"), plain.colour(), plain.variantSize(), plain.colourHex(),
+                plain.description(), plain.categoryId(), plain.supplierId(), plain.active(), plain.familyId(),
+                plain.canonicalVariantKey(), plain.canonicalBarcode(), plain.variantPosition(),
+                plain.inventoryKnown(), plain.familyKey(), plain.publicHandle(), plain.websiteStatus(),
+                plain.orderAppStatus(), plain.barcodes(), plain.hsCode(), plain.carton(), plain.exwPrice(),
+                plain.exwCurrency(), plain.extraUnitCost(), plain.landedCostEur(), plain.landedCostSource(),
+                plain.markupPct(), plain.fixedSalesPriceEur(), plain.stockQuantity(), plain.photos(),
+                plain.texts());
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class, () -> service.create(teddy));
+
+        assertEquals("Onbekende eenheid 'teddy'. Kies een eenheid uit de lijst.", error.getMessage());
     }
 
     @Test
@@ -157,7 +176,8 @@ class ProductServicePublicationTest {
 
     private static Product withCodes(Product base, Barcodes codes, String giftBoxCode) {
         Packaging packaging = giftBoxCode == null ? Packaging.none()
-                : new Packaging(PackagingKind.GIFT_BOX, new Dimensions(one(), one(), one()), giftBoxCode);
+                : new Packaging(PackagingKind.GIFT_BOX, new Dimensions(one(), one(), one()), giftBoxCode)
+                        .withUnitKey("box");
         return new Product(base.id(), base.sku(), base.name(), base.dimensions(), packaging,
                 base.colour(), base.variantSize(), base.colourHex(), base.description(),
                 base.categoryId(), base.supplierId(), base.active(), base.familyId(),
@@ -447,8 +467,8 @@ class ProductServicePublicationTest {
         byte[] exported = csv.export();
         String text = new String(exported, StandardCharsets.UTF_8);
         assertTrue(text.lines().findFirst().orElseThrow().endsWith(
-                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex"), text);
-        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32"), text);
+                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex;eenheid"), text);
+        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32;stuk"), text);
 
         ProductCsv.ImportResult result = csv.importFrom(new ByteArrayInputStream(exported));
         assertEquals(1, result.updatedProducts());

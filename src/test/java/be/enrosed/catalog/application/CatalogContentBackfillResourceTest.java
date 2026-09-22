@@ -91,7 +91,7 @@ class CatalogContentBackfillResourceTest {
     @Test
     void publicCopyResourcesKeepTheReviewedNineLocaleContract() throws Exception {
         List<List<String>> website = csv("/i18n/website-content.csv");
-        assertEquals(632, website.size(), "one header plus 631 website keys including Greek and consent");
+        assertEquals(650, website.size(), "one header plus 649 website keys including Greek and consent");
         assertTrue(website.stream().skip(1).allMatch(row -> row.size() == 12
                 && row.subList(3, 12).stream().noneMatch(String::isBlank)));
         List<String> stemRoses = row(website, "home.counter.item3.title", 0);
@@ -114,7 +114,7 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(165, catalog.size(), "one header plus 164 catalogue keys");
+        assertEquals(178, catalog.size(), "one header plus 177 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
                 && row.subList(4, 13).stream().noneMatch(String::isBlank)));
         List<List<String>> editorialCopy = catalog.stream().skip(1)

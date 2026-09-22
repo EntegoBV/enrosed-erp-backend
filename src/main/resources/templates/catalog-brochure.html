@@ -322,7 +322,7 @@
         <th class="range-colours"><div>{copy['catalog.spec.colours']}</div></th>
         <th class="range-size"><div>{copy['catalog.brochure.range.sizepack']}</div></th>
         <th class="range-logistics"><div>{copy['catalog.brochure.range.logistics']}</div></th>
-        <th class="range-price"><div>{#if includePrices}{copy['catalog.brochure.range.price']}{/if}</div></th>
+        <th class="range-price"><div>{#if includePrices}{#if namedUnits}{copy['catalog.brochure.range.priceneutral']}{#else}{copy['catalog.brochure.range.price']}{/if}{/if}</div></th>
       </tr></thead>
       <tbody>
       {#for row in overview.rows}
@@ -336,16 +336,16 @@
           <td class="range-price"><div>{#if includePrices}{#if row.priceLabel}
             {#if row.displayPriceLabel}
               <b class="display-price display-price--primary">{row.displayPriceLabel}</b>
-              {#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{row.priceLabel} · {copy['catalog.simple.perpiece']}</small>{/if}
+              {#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{row.priceLabel}{#if row.perUnitLabel} · {row.perUnitLabel}{/if}</small>{/if}
             {#else}
-              <b>{row.priceLabel}</b>{#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{copy['catalog.simple.perpiece']}</small>{/if}
+              <b>{row.priceLabel}</b>{#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}{#if row.perUnitLabel}<small>{row.perUnitLabel}</small>{/if}{/if}
             {/if}
           {#else}<small>{copy['catalog.brochure.overview.priceonrequest']}</small>{/if}{/if}</div></td>
         </tr>{/if}
       {/for}
       </tbody>
     </table>
-    <div class="overview-footnote">{copy['catalog.brochure.range.legend']}{#if includePrices} {copy['catalog.brochure.overview.pricebasis']}{/if}<span>{overview.number} / {overview.total}</span></div>
+    <div class="overview-footnote">{copy['catalog.brochure.range.legend']}{#if includePrices} {#if namedUnits}{copy['catalog.brochure.overview.pricebasisunits']}{#else}{copy['catalog.brochure.overview.pricebasis']}{/if}{/if}<span>{overview.number} / {overview.total}</span></div>
   </section>
   {/for}
 {/if}
@@ -370,7 +370,7 @@
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>
       <td><div class="family-category">{family.categoryName}</div><h2>{family.name}</h2><div class="family-format">{#if family.format}{family.format}{/if}</div>{#if family.facts.colours.size > 0}<div class="family-colours">{#for colour in family.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{#if colour.name}<span class="name">{colour.name}</span>{/if}{/for}</div>{/if}</td>
-      {#if family.referencePriceLabel}<td class="family-price"><small>{copy['catalog.brochure.overview.referenceprice']}</small>{#if family.displayPriceLabel}<strong class="display-price display-price--primary">{family.displayPriceLabel}</strong>{#if family.referencePriceLabel != copy['catalog.brochure.overview.priceonrequest']}<span class="display-price">{family.referencePriceLabel} · {copy['catalog.simple.perpiece']}</span>{/if}{#else}<strong>{family.referencePriceLabel}</strong>{#if family.referencePriceLabel != copy['catalog.brochure.overview.priceonrequest']}<span class="display-price">{copy['catalog.simple.perpiece']}</span>{/if}{/if}</td>{/if}
+      {#if family.referencePriceLabel}<td class="family-price"><small>{copy['catalog.brochure.overview.referenceprice']}</small>{#if family.displayPriceLabel}<strong class="display-price display-price--primary">{family.displayPriceLabel}</strong>{#if family.referencePriceLabel != copy['catalog.brochure.overview.priceonrequest']}<span class="display-price">{family.referencePriceLabel}{#if family.perUnitLabel} · {family.perUnitLabel}{/if}</span>{/if}{#else}<strong>{family.referencePriceLabel}</strong>{#if family.referencePriceLabel != copy['catalog.brochure.overview.priceonrequest']}{#if family.perUnitLabel}<span class="display-price">{family.perUnitLabel}</span>{/if}{/if}{/if}</td>{/if}
     </tr></table>
     <div class="gold-rule"></div>
     {#if family.photos.present}<table class="family-media family-media--{family.photos.kind}">{#for row in family.photos.rows}<tr>{#for tile in row.tiles}<td class="tile--{tile.cssClass}" rowspan="{tile.rowSpan}"><img src="{tile.image}" alt="{family.name}"/></td>{/for}</tr>{/for}</table>{#else}<table class="family-media family-media--empty"><tr><td><span class="image-placeholder">{copy['catalog.common.imageunavailable']}</span></td></tr></table>{/if}
@@ -394,7 +394,7 @@
         {#if family.showVariantTable}<table class="variants{#if !family.showVariantEan} variants--no-ean{/if}">
           <thead><tr><th class="sku">SKU</th><th class="option">{copy['catalog.common.colorsize']}</th><th class="size">{copy['catalog.common.productdimensions']}</th><th class="carton">{copy['catalog.common.outercartonpack']}</th>{#if family.showVariantEan}<th class="ean">EAN</th>{/if}</tr></thead>
           <tbody>{#for variant in family.variants}<tr>
-            <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.displayPriceLabel}<span class="variant-display-price variant-display-price--primary">{variant.displayPriceLabel}</span>{#if variant.priceLabel}<span class="variant-display-price">{variant.priceLabel} · {copy['catalog.simple.perpiece']}</span>{/if}{#else}{#if variant.priceLabel}{variant.priceLabel} <small>{copy['catalog.simple.perpiece']}</small>{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}{/if}</span>{/if}</td>
+            <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.displayPriceLabel}<span class="variant-display-price variant-display-price--primary">{variant.displayPriceLabel}</span>{#if variant.priceLabel}<span class="variant-display-price">{variant.priceLabel} · {variant.perUnitLabel}</span>{/if}{#else}{#if variant.priceLabel}{variant.priceLabel} <small>{variant.perUnitLabel}</small>{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}{/if}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
             <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{#if variant.cartonQuantityLabel}{variant.cartonQuantityLabel}{#else}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{/if}{#if family.showVariant20Ft}<br/>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity}{/if}</td>

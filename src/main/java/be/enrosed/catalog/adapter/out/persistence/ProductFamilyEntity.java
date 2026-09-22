@@ -39,6 +39,12 @@ public class ProductFamilyEntity {
     public Long catalogueOverviewPhotoId;
     public Long catalogueDetailPhotoId;
     @Column(length = 16) public String catalogueDetailSize;
+    /**
+     * Photo on the website's quote page, as the same signed id as the catalogue choices:
+     * positive family photo, negative own product photo projected into the public gallery.
+     * Null (or a choice that left the gallery) keeps the automatic pick.
+     */
+    public Long websiteQuotePhotoId;
     @Column(length = 10000) public String tagsJson;
 
     @Enumerated(EnumType.STRING)

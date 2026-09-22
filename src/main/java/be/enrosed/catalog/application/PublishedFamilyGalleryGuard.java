@@ -75,6 +75,6 @@ public class PublishedFamilyGalleryGuard {
         throw new BusinessRuleException(
                 "Een op " + channel.name()
                         + " gepubliceerde productfamilie moet minstens één publiceerbare foto "
-                        + "voor dat kanaal met afmetingen en alt-tekst houden");
+                        + "voor dat kanaal met afmetingen houden");
     }
 }
