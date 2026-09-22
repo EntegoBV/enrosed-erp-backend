@@ -194,10 +194,30 @@ public class CatalogFoamPhotoBackfillService {
     private List<Target> resolveTargets() {
         List<Target> result = new ArrayList<>();
         for (FamilySpec spec : SPECS) {
-            ProductEntity red = products.find("sku", spec.redSku()).firstResult();
+            ProductFamilyEntity existingFamily = families.find("familyKey", spec.familyKey())
+                    .firstResult();
+            ProductEntity red = products.find("canonicalVariantKey", spec.familyKey() + "-red")
+                    .firstResult();
+            if (red != null && (existingFamily == null
+                    || !Objects.equals(red.familyId, existingFamily.id))) {
+                LOG.warnf("Foam-catalogusbackfill overgeslagen voor %s: vaste variant hoort bij een andere familie",
+                        spec.familyKey());
+                continue;
+            }
             if (red == null) {
-                LOG.warnf("Foam-catalogusbackfill overgeslagen voor %s: rode bron-SKU %s ontbreekt",
-                        spec.familyKey(), spec.redSku());
+                /* Only an unlinked legacy row may bootstrap a missing family. Once canonical
+                   membership exists, mutable SKUs can no longer identify or reparent a product. */
+                ProductEntity legacy = existingFamily == null
+                        ? products.find("sku", spec.redSku()).firstResult() : null;
+                if (legacy != null && legacy.familyId == null
+                        && (legacy.canonicalVariantKey == null || legacy.canonicalVariantKey.isBlank())
+                        && "red".equals(canonicalColour(legacy.colour))) {
+                    red = legacy;
+                }
+            }
+            if (red == null) {
+                LOG.warnf("Foam-catalogusbackfill overgeslagen voor %s: vaste rode variant ontbreekt",
+                        spec.familyKey());
                 continue;
             }
             result.add(new Target(spec, red.id, red.familyId, red.categoryId));

@@ -298,7 +298,8 @@ public class PublicProductTranslationsService {
                 .sorted(Comparator.comparing(text -> text.language))
                 .map(text -> new ProductFamilyDto.TextDto(
                         text.language, text.name, text.summary, text.description, text.format,
-                        readStrings(text.highlightsJson), text.seoTitle, text.seoDescription))
+                        readStrings(text.highlightsJson), text.seoTitle, text.seoDescription,
+                        readStrings(text.tagsJson)))
                 .toList();
         List<ProductDto.TextDto> productTexts = product.texts.stream()
                 .filter(PublicProductTranslationsService::hasDocumentText)
@@ -340,12 +341,14 @@ public class PublicProductTranslationsService {
             /* Normalize and validate before mutating managed rows. */
             List<String> highlights = validHighlights(input.highlights());
             writeBounded(highlights, MAX_JSON, "Familie-highlights");
+            List<String> tags = ProductFamilyTags.normalize(input.tags());
+            if (tags != null) writeBounded(tags, MAX_JSON, "Familietags");
             replacements.put(input.language(), new ProductFamilyDto.TextDto(
                     input.language(), optional(input.name(), MAX_DB_SHORT),
                     optional(input.summary(), MAX_SUMMARY), optional(input.description(), MAX_LONG),
                     optional(input.format(), MAX_DB_SHORT), highlights,
                     optional(input.seoTitle(), MAX_DB_SHORT),
-                    optional(input.seoDescription(), MAX_SUMMARY)));
+                    optional(input.seoDescription(), MAX_SUMMARY), tags));
         }
         family.texts.removeIf(existing -> !replacements.containsKey(existing.language));
         for (ProductFamilyTextEntity existing : family.texts) {
@@ -456,6 +459,9 @@ public class PublicProductTranslationsService {
         target.description = input.description();
         target.format = input.format();
         target.highlightsJson = writeBounded(input.highlights(), MAX_JSON, "Familie-highlights");
+        if (input.tags() != null) {
+            target.tagsJson = writeBounded(input.tags(), MAX_JSON, "Familietags");
+        }
         target.seoTitle = input.seoTitle();
         target.seoDescription = input.seoDescription();
     }
@@ -533,6 +539,7 @@ public class PublicProductTranslationsService {
                 append(canonical, text.description);
                 append(canonical, text.format);
                 append(canonical, normalizedJson(text.highlightsJson));
+                append(canonical, normalizedJson(text.tagsJson));
                 append(canonical, text.seoTitle);
                 append(canonical, text.seoDescription);
             });

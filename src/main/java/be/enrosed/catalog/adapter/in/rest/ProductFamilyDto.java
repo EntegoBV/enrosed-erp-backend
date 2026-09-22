@@ -110,7 +110,13 @@ public record ProductFamilyDto(
                                 String mobileName, Long featuredProductId) {}
     public record TextDto(Language language, String name, String summary, String description,
                           String format, List<String> highlights,
-                          String seoTitle, String seoDescription) {}
+                          String seoTitle, String seoDescription, List<String> tags) {
+        /** Older clients omit tags; saves preserve the existing translated list. */
+        public TextDto(Language language, String name, String summary, String description,
+                       String format, List<String> highlights, String seoTitle, String seoDescription) {
+            this(language, name, summary, description, format, highlights, seoTitle, seoDescription, null);
+        }
+    }
     /** Package length/width/height keep their wire names and display as B × D × H. */
     public record PackageDto(Long id, String sourceKey, String packageType, int position,
                              BigDecimal length, BigDecimal width, BigDecimal height,
@@ -196,7 +202,8 @@ public record ProductFamilyDto(
                 photo.largeSizeBytes, photo.smallSizeBytes)).toList();
         List<TextDto> texts = family.texts.stream().map(text -> new TextDto(
                 text.language, text.name, text.summary, text.description, text.format,
-                readStrings(json, text.highlightsJson), text.seoTitle, text.seoDescription)).toList();
+                readStrings(json, text.highlightsJson), text.seoTitle, text.seoDescription,
+                readStrings(json, text.tagsJson))).toList();
         List<PackageDto> packages = family.packages.stream().map(item -> new PackageDto(
                 item.id, item.sourceKey, item.packageType, item.position,
                 item.lengthValue, item.widthValue, item.heightValue, item.dimensionUnit,

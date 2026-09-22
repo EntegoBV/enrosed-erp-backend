@@ -38,6 +38,7 @@ public class ProductValidator {
         bounded(product.supplierNote(), 4_000, "Leveranciersnotitie");
         bounded(product.colour(), 255, "Kleur");
         bounded(product.variantSize(), 255, "Variantmaat");
+        validateCanonicalVariantKey(product.canonicalVariantKey());
         EnumSet<be.enrosed.shared.Language> languages =
                 EnumSet.noneOf(be.enrosed.shared.Language.class);
         for (ProductText text : product.texts() == null
@@ -101,6 +102,14 @@ public class ProductValidator {
         nonNegative(dimensions.widthCm(), label + " diepte (D)");
         nonNegative(dimensions.heightCm(), label + " hoogte (H)");
         nonNegative(dimensions.weightKg(), label + " gewicht");
+    }
+
+    public static void validateCanonicalVariantKey(String value) {
+        if (value != null && value.strip().toLowerCase(java.util.Locale.ROOT).startsWith("shopify-")) {
+            throw new BusinessRuleException(
+                    "De oude Shopify-variantcode is vervangen door een ERP-code. "
+                            + "Herlaad het product voordat u opnieuw opslaat.");
+        }
     }
 
     private static void nonNegative(BigDecimal value, String label) {

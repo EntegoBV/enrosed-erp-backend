@@ -18,6 +18,7 @@ public class ProductFamilyTextEntity {
     @Column(length = 10000) public String description;
     public String format;
     @Column(length = 10000) public String highlightsJson;
+    @Column(length = 10000) public String tagsJson;
     public String seoTitle;
     @Column(length = 2000) public String seoDescription;
 }

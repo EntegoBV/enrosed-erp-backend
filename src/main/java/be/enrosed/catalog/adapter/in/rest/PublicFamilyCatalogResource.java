@@ -213,6 +213,11 @@ public class PublicFamilyCatalogResource {
                 family, language, item -> item.format, family.format);
         LanguageFallback.Resolved<List<String>> highlights = optionalFamilyList(
                 family, language, family.highlightsJson);
+        LanguageFallback.Resolved<List<String>> tags = LanguageFallback.resolve(
+                family.texts, language, item -> item.language,
+                item -> ProductFamilyDto.readStrings(json, item.tagsJson),
+                values -> values != null && !values.isEmpty(),
+                ProductFamilyDto.readStrings(json, family.tagsJson));
         LanguageFallback.Resolved<String> fallbackSeoTitle = familyText(
                 family, language, item -> item.seoTitle, family.seoTitle);
         LanguageFallback.Resolved<String> fallbackSeoDescription = familyText(
@@ -265,6 +270,7 @@ public class PublicFamilyCatalogResource {
                 family, language, item -> item.format, format));
         source(textSources, "highlights", optionalFamilyListSource(
                 family, language, highlights));
+        source(textSources, "tags", tags.sourceLanguage());
         source(textSources, "seoTitle", seoTitle.sourceLanguage());
         source(textSources, "seoDescription", seoDescription.sourceLanguage());
 
@@ -272,7 +278,7 @@ public class PublicFamilyCatalogResource {
                 family.id, family.familyKey, family.publicHandle, name.value(), summary.value(),
                 description.value(), format.value(), highlights.value(), category, family.productPosition,
                 publicFeaturedProductId(family.cardFeaturedProductId, family.id, null, channel),
-                ProductFamilyDto.readStrings(json, family.tagsJson), status(family, channel).name(),
+                tags.value(), status(family, channel).name(),
                 new PublicFamilyCatalogDto.SeoDto(seoTitle.value(), seoDescription.value()), dimensions,
                 packages, images, publicVariants, Collections.unmodifiableMap(textSources));
     }

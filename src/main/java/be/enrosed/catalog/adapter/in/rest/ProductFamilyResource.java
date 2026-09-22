@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
 import be.enrosed.catalog.application.FamilyImageVariantService;
 import be.enrosed.catalog.application.FamilyVariantRules;
 import be.enrosed.catalog.application.ProductFamilyWriteGuard;
+import be.enrosed.catalog.application.ProductFamilyTags;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.application.PublishedFamilyGalleryGuard;
 import be.enrosed.catalog.application.FamilyMemberCacheService;
@@ -317,6 +318,7 @@ public class ProductFamilyResource {
             }
             String variantKey = technicalKey(
                     variant.canonicalVariantKey(), "Canonieke variantcode");
+            be.enrosed.catalog.application.ProductValidator.validateCanonicalVariantKey(variantKey);
             if (requestedBySku.put(sku, variantKey) != null) {
                 throw new BusinessRuleException("SKU " + sku + " komt meer dan één keer voor");
             }
@@ -936,6 +938,10 @@ public class ProductFamilyResource {
             text.format = bounded(input.format(), MAX_SHORT, "Vertaald formaat");
             text.highlightsJson = writeBounded(
                     validHighlights(input.highlights()), MAX_LONG, "Vertaalde highlights");
+            if (input.tags() != null) {
+                text.tagsJson = writeBounded(
+                        ProductFamilyTags.normalize(input.tags()), MAX_LONG, "Vertaalde tags");
+            }
             text.seoTitle = bounded(input.seoTitle(), MAX_SHORT, "Vertaalde SEO-titel");
             text.seoDescription = bounded(
                     input.seoDescription(), MAX_SUMMARY, "Vertaalde SEO-beschrijving");
@@ -1250,6 +1256,7 @@ public class ProductFamilyResource {
                             safe(item.description),
                             safe(item.format),
                             safe(item.highlightsJson),
+                            safe(item.tagsJson),
                             safe(item.seoTitle),
                             safe(item.seoDescription)))
                     .collect(java.util.stream.Collectors.joining("\u001e"));

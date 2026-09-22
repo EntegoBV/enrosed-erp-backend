@@ -116,6 +116,7 @@ public class WebsiteCatalogRevisionService {
         family.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
             add(out, text.language); add(out, text.name); add(out, text.summary);
             add(out, text.description); add(out, text.format); add(out, normalized(text.highlightsJson));
+            add(out, normalized(text.tagsJson));
             add(out, text.seoTitle); add(out, text.seoDescription);
         });
         family.collections.stream().sorted(Comparator
