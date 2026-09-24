@@ -667,7 +667,10 @@ class PdfCatalogRendererTest {
         assertEquals(1, occurrences(cover, "<img "), "the brand logo is the only cover image");
         assertFalse(back.contains(backLead));
         assertFalse(back.contains("editorial-grid"));
-        assertEquals(1, occurrences(back, "<img "), "the back cover only displays the brand logo");
+        assertEquals(2, occurrences(back, "<img "), "the back cover displays the brand logo and quote QR");
+        assertTrue(back.contains("class=\"back-quote\""));
+        assertTrue(back.contains("Start your quote request"));
+        assertTrue(back.contains("href=\"https://enrosed.com/quote/\""));
         assertFalse(cover.contains(backLead));
         assertFalse(cover.contains("class=\"cover-toc\""));
         assertTrue(html.indexOf("class=\"page cover\"")
