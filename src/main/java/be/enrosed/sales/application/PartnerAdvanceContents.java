@@ -113,7 +113,9 @@ public class PartnerAdvanceContents {
         }
         entities.persist(entity);
         entities.flush();
-        return Optional.of(snapshot);
+        // Return the stored form, as every later call does: JSON writes the defaults that
+        // Packaging's accessors fill in (sales unit, unit key), so the first result must too.
+        return find(invoice.id());
     }
 
     private Item item(Long productId, int quantity) {
