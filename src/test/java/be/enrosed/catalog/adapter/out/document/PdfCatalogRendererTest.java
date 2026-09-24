@@ -71,7 +71,7 @@ class PdfCatalogRendererTest {
         String simpleHtml = renderer.renderHtml(simple);
         String brochureHtml = renderer.renderHtml(brochure);
 
-        assertTrue(simpleHtml.contains("#552137"));
+        assertTrue(simpleHtml.contains("#4b1024"), "the compact list keeps its bordeaux masthead");
         assertTrue(simpleHtml.contains("SKU-1"));
         assertTrue(simpleHtml.contains("data:image/jpeg;base64,"));
         assertFalse(simpleHtml.contains("Beschrijving"));
@@ -619,9 +619,12 @@ class PdfCatalogRendererTest {
         assertFalse(cover.contains("editorial-grid"));
         String familyMedia = familyMediaFragment(html);
         String chosenDetail = imageEncoder.encodeContainedTrimmed(
-                photoBytes(chosen), 7, 6, 1_900, Color.WHITE);
+                photoBytes(chosen), 16, 9, 2_400, Color.WHITE);
+        // A usable catalogue lead is the whole selection: a larger budget adds no unchosen photos.
+        assertTrue(familyMedia.startsWith("<table class=\"family-media family-media--one\""));
+        assertEquals(1, occurrences(familyMedia, "<img "));
         assertTrue(familyMedia.substring(familyMedia.indexOf("src=\"") + 5).startsWith(chosenDetail),
-                "an explicit print lead stays in the large tile even when another photo is larger");
+                "an explicit print lead fills the large tile even when another photo is larger");
 
         String simple = renderer.renderHtml(withPhotoBudget(withPhotos(
                 model(1, CatalogExportService.Layout.SIMPLE), List.of(large, other, chosen)), true, 1));
@@ -741,8 +744,8 @@ class PdfCatalogRendererTest {
 
     @Test
     void utilityPagesUseDedicatedEditorialAssetsWhileRespectingThePhotoSetting() throws Exception {
-        String atelierImage = editorialAssets.image("private-label-editorial-v2.png");
-        String orderingImage = editorialAssets.image("ordering-editorial-v2.png");
+        String atelierImage = editorialAssets.image("private-label-editorial-transparent-v1.png");
+        String orderingImage = editorialAssets.image("ordering-editorial-transparent-v1.png");
         assertFalse(atelierImage.isBlank(), "the private-label editorial asset must be bundled");
         assertFalse(orderingImage.isBlank(), "the ordering editorial asset must be bundled");
         assertFalse(atelierImage.equals(orderingImage), "each utility page has its own editorial image");
@@ -794,7 +797,7 @@ class PdfCatalogRendererTest {
     @Test
     void roseHeadPaletteKeepsTwentyNamedColoursAndMaterialCopyOnOnePageInEveryLocale()
             throws Exception {
-        String plate = editorialAssets.image("rose-head-colour-palette-v1.png");
+        String plate = editorialAssets.image("rose-head-colour-palette-transparent-v1.png");
         assertFalse(plate.isBlank(), "the reviewed palette plate must be bundled");
         Photo fixture = storedPhoto(989L, "/images/soap-roos-in-box-480.webp",
                 "palette-selection.webp", "image/webp");
@@ -815,6 +818,7 @@ class PdfCatalogRendererTest {
             assertTrue(html.contains("<body data-page-count=\"8\" class=\"lang-"
                     + language.code() + "\">"));
             assertEquals(20, occurrences(palette, "class=\"palette-plate\""));
+            assertTrue(palette.contains("class=\"palette-plate\" src=\"" + plate + "\""));
             assertEquals(20, occurrences(palette, "class=\"palette-label\""));
             assertTrue(html.indexOf(palette) > html.indexOf("id=\"family-01\""));
             assertTrue(html.indexOf(palette) < html.indexOf("<section class=\"page ivory utility\">"));
@@ -920,8 +924,10 @@ class PdfCatalogRendererTest {
                 assertEquals(2, occurrences(other, "data-sku="),
                         "both colour photos remain in addition to the single main photo");
             } else {
-                assertEquals(1, occurrences(html, "class=\"media media--three\""));
-                assertEquals(2, occurrences(html, "class=\"media media--one\""),
+                assertEquals(1, occurrences(html, "<table class=\"photo-grid multiple\">"));
+                String grid = html.substring(html.indexOf("<table class=\"photo-grid multiple\">"));
+                assertEquals(3, occurrences(grid.substring(0, grid.indexOf("</table>")), "<img "));
+                assertEquals(2, occurrences(html, "<table class=\"photo-grid\">"),
                         "both variants of the other family keep the global one-photo budget");
             }
 

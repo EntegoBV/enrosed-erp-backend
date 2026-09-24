@@ -111,7 +111,7 @@ class GreekCatalogBackfillPersistenceTest {
 
     @Test
     @TestTransaction
-    void knownDutchImportedSeoIsCorrectedUsingCurrentLocalName() {
+    void existingSeoTitlesWinOverOldImportLiteralsWhileMissingLocalesAreFilled() {
         ProductFamilyEntity family = family("preserved-single-rose-in-display");
         family.seoTitle = "12 Steelrozen met display | Enrosed Wholesale";
         text(family, Language.EN, "12 Preserved Stem Roses with Display", family.seoTitle);
@@ -119,10 +119,14 @@ class GreekCatalogBackfillPersistenceTest {
         entities.flush();
         backfill.apply();
         entities.flush();
-        assertEquals("12 Preserved Stem Roses with Display | Enrosed Wholesale",
-                family.texts.stream().filter(t -> t.language == Language.EN).findFirst().orElseThrow().seoTitle);
+        assertEquals("12 Steelrozen met display | Enrosed Wholesale",
+                family.texts.stream().filter(t -> t.language == Language.EN).findFirst().orElseThrow().seoTitle,
+                "the import is retired: existing ERP copy stays, even when it equals an old import literal");
         assertEquals("Eigener Titel für den Fachhandel",
                 family.texts.stream().filter(t -> t.language == Language.DE).findFirst().orElseThrow().seoTitle);
+        assertEquals("12 roses stabilisées sur tige avec présentoir | Enrosed Wholesale",
+                family.texts.stream().filter(t -> t.language == Language.FR).findFirst().orElseThrow().seoTitle,
+                "a missing locale is still initialized from the seed");
     }
 
     @Test

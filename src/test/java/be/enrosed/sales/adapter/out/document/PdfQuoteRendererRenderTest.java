@@ -255,7 +255,7 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("counter display premium kleur 1"));
-            assertTrue(text.contains("stukprijs"));
+            assertTrue(text.contains("prijs per eenheid"));
             assertTrue(text.contains("totaal"));
             assertFalse(text.contains("er-glass-001"), "SKU is optionele productinformatie");
             assertFalse(text.contains("week 37"), "leverinformatie valt onder logistiek");
@@ -346,7 +346,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("voorschotfactuur") && text.contains("frozen glass rose 1"), text);
             assertTrue(text.contains("73.933,75 eur"), text);
             assertFalse(text.contains("pallets") || text.contains("dozen: 0") || text.contains("volume: -") || text.contains("0 kg"), text);
-            assertFalse(text.contains("stukprijs"), text);
+            assertFalse(text.contains("prijs per eenheid"), text);
             assertTextFitsPage(pdf);
         }
     }
@@ -588,7 +588,7 @@ class PdfQuoteRendererRenderTest {
                 assertTrue(text.contains("8712345678913"));
                 assertTrue(text.contains("40 × 30 × 20 cm"));
                 assertTrue(text.contains("12 stuks"));
-                assertTrue(text.contains("stukprijs"), "commercial columns stay mandatory");
+                assertTrue(text.contains("prijs per eenheid"), "commercial columns stay mandatory");
             }
         }
     }
@@ -757,7 +757,7 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, priced(1), customer(), null).content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("voorschotfactuur f-2026-0452"), text);
-            assertFalse(text.contains("stukprijs"), text);
+            assertFalse(text.contains("prijs per eenheid"), text);
             assertTrue(text.contains("totaal incl. btw"), text);
             assertFalse(text.contains("voorschotafspraken"), text);
         }
@@ -932,7 +932,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("8712345678906"));
             assertTrue(text.contains("8712345678913"));
             assertTrue(text.contains("40 × 30 × 20 cm"));
-            assertFalse(text.contains("stukprijs"));
+            assertFalse(text.contains("prijs per eenheid"));
             assertFalse(text.contains("eur"));
         }
     }
@@ -973,7 +973,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("ontvangen door / datum"));
             assertFalse(text.contains("12,50 eur"));
             assertFalse(text.contains("6.032,80 eur"));
-            assertFalse(text.contains("stukprijs"));
+            assertFalse(text.contains("prijs per eenheid"));
             assertFalse(text.contains("algemene voorwaarden"));
             assertFalse(text.contains("artikel 1"));
         }

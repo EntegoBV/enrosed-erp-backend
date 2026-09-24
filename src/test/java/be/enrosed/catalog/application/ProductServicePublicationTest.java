@@ -505,7 +505,8 @@ class ProductServicePublicationTest {
         byte[] bytes = "GIF89a-new-photo".getBytes(StandardCharsets.US_ASCII);
         when(blobStore.store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class)))
                 .thenReturn(new PhotoStorage.Stored("upload-key", bytes.length, null, null));
-        when(failingRepository.save(any(Product.class)))
+        // Photo changes persist through savePhotos so master data stays untouched.
+        when(failingRepository.savePhotos(any(Product.class)))
                 .thenThrow(new IllegalStateException("database write failed"));
         ProductService failingService = new ProductService(
                 failingRepository, blobStore, mock(ProductValidator.class));
@@ -519,7 +520,7 @@ class ProductServicePublicationTest {
         InOrder sequence = inOrder(blobStore, cleanup, failingRepository);
         sequence.verify(blobStore).store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class));
         sequence.verify(cleanup).fire(new ProductPhotoCleanup.UploadReady(1L, "upload-key"));
-        sequence.verify(failingRepository).save(any(Product.class));
+        sequence.verify(failingRepository).savePhotos(any(Product.class));
     }
 
     @Test
