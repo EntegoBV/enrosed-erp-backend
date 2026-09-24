@@ -19,6 +19,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
 import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -669,8 +670,13 @@ class PdfCatalogRendererTest {
         assertFalse(back.contains("editorial-grid"));
         assertEquals(2, occurrences(back, "<img "), "the back cover displays the brand logo and quote QR");
         assertTrue(back.contains("class=\"back-quote\""));
+        assertTrue(back.contains("class=\"back-quote-frame\""), "the quote card carries a gold frame");
         assertTrue(back.contains("Start your quote request"));
-        assertTrue(back.contains("href=\"https://enrosed.com/quote/\""));
+        assertTrue(back.contains(">enrosed.com/quote</a>"), "readers who cannot scan see the address");
+        assertEquals(3, occurrences(back, "href=\"https://enrosed.com/quote/\""),
+                "the card title, QR and printed address all open the quote page");
+        assertTrue(back.indexOf("class=\"back-quote\"") < back.indexOf("class=\"back-contact\""),
+                "the company contact details close the page below the quote card");
         assertFalse(cover.contains(backLead));
         assertFalse(cover.contains("class=\"cover-toc\""));
         assertTrue(html.indexOf("class=\"page cover\"")
@@ -943,6 +949,8 @@ class PdfCatalogRendererTest {
                     ? "https://enrosed.com/nl/quote/" : "https://enrosed.com/quote/";
             String qr = editorialAssets.image("quote-qr-" + language + ".png");
             assertFalse(qr.isBlank(), "the " + language + " quote QR asset must be bundled");
+            assertTrue(qr.startsWith("data:image/png;"),
+                    "the branded QR keeps its alpha channel, so it is embedded without JPEG artefacts");
             CatalogExportService.Model catalogue = withIntroAndLanguage(
                     model(1, CatalogExportService.Layout.BROCHURE), null, language);
             String ordering = sectionFragment(renderer.renderHtml(catalogue),
@@ -962,15 +970,14 @@ class PdfCatalogRendererTest {
                 stripper.setStartPage(7);
                 stripper.setEndPage(7);
                 assertTrue(normalizeWhitespace(stripper.getText(pdf)).contains(orderingTitle));
-                long quoteLinks = pdf.getPage(6).getAnnotations().stream()
-                        .filter(PDAnnotationLink.class::isInstance)
-                        .map(PDAnnotationLink.class::cast)
-                        .map(PDAnnotationLink::getAction)
-                        .filter(PDActionURI.class::isInstance)
-                        .map(PDActionURI.class::cast)
-                        .filter(action -> quoteUrl.equals(action.getURI()))
-                        .count();
-                assertTrue(quoteLinks >= 2, "both quote actions remain clickable on the ordering PDF page");
+                assertTrue(quoteLinks(pdf.getPage(6), quoteUrl) >= 2,
+                        "both quote actions remain clickable on the ordering PDF page");
+                stripper.setStartPage(8);
+                stripper.setEndPage(8);
+                assertTrue(normalizeWhitespace(stripper.getText(pdf))
+                        .contains(quoteUrl.substring("https://".length(), quoteUrl.length() - 1)));
+                assertTrue(quoteLinks(pdf.getPage(7), quoteUrl) >= 3,
+                        "the back cover card links its title, QR and printed address");
             }
         }
     }
@@ -1658,6 +1665,17 @@ class PdfCatalogRendererTest {
         if (from < 0) return "";
         int to = html.indexOf("</section>", from);
         return html.substring(from, to < 0 ? html.length() : to);
+    }
+
+    private static long quoteLinks(PDPage page, String url) throws Exception {
+        return page.getAnnotations().stream()
+                .filter(PDAnnotationLink.class::isInstance)
+                .map(PDAnnotationLink.class::cast)
+                .map(PDAnnotationLink::getAction)
+                .filter(PDActionURI.class::isInstance)
+                .map(PDActionURI.class::cast)
+                .filter(action -> url.equals(action.getURI()))
+                .count();
     }
 
     private static String normalizeWhitespace(String value) {

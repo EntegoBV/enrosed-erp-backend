@@ -637,13 +637,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? editorial.image("private-label-editorial-transparent-v1.png") : "")
                 .data("orderingImage", options.includeOrdering() && request.resolvedPhotosPerProduct() > 0
                         ? editorial.image("ordering-editorial-transparent-v1.png") : "")
-                .data("quoteUrl", "https://enrosed.com/"
-                        + (language == Language.EN ? "" : language.code() + "/") + "quote/")
+                .data("quoteUrl", "https://" + quotePage(language) + "/")
+                .data("quoteLabel", quotePage(language))
                 .data("quoteQr", options.includeOrdering()
                         ? editorial.image("quote-qr-" + language.code() + ".png") : "")
                 .data("year", LocalDate.now().getYear())
                 .data("languageCode", language.code())
                 .render();
+    }
+
+    /** The localized website quote page, also encoded in the bundled quote-qr-{language}.png. */
+    private static String quotePage(Language language) {
+        return "enrosed.com/" + (language == Language.EN ? "" : language.code() + "/") + "quote";
     }
 
     private static List<List<PaletteColour>> paletteRows(Map<String, String> copy) {
