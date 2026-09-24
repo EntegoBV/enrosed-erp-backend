@@ -225,6 +225,11 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   carry `@RolesAllowed`, so direct calls need `@TestSecurity`
   (quarkus-test-security); the rebuild singleton row survives test
   classes (scheduler commits) - clean it in a committed transaction.
+  Qute's test-mode `RenderedResults` recorder is switched off in
+  `src/test/resources/application.properties`: it kept every rendered
+  template for the whole run, and brochure HTML inlines its images (~77
+  million characters), which exhausted the heap. `mvn test` needs no
+  heap flags.
 
 ### Mail
 - Production sends via **Brevo HTTPS API** (`BREVO_API_KEY`); Railway
