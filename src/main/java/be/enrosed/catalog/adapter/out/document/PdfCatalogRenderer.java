@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Premium compact catalogue and family-based ENROSED wholesale brochure. */
@@ -226,6 +227,14 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     perUnitLabel);
         }
 
+        /** The same sheet in the compact design, for content the spacious sheet cannot hold. */
+        public BrochureFamily compact() {
+            return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
+                    categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
+                    referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
+                    displayPriceLabel, perUnitLabel);
+        }
+
         /** The one line the overview says about this family. */
         public String overviewSummary() {
             String source = present(summary) ? summary : present(format) ? format : description;
@@ -388,25 +397,60 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     @Override
     public Document render(CatalogExportService.Model catalog) {
-        boolean brochure = catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE;
-        String html = renderHtml(catalog);
-        return new Document(
-                brochure ? "enrosed-wholesale-brochure.pdf" : "enrosed-catalogus.pdf",
-                fonts.render(html), "application/pdf");
+        if (catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE) {
+            return new Document("enrosed-wholesale-brochure.pdf", brochurePdf(catalog), "application/pdf");
+        }
+        return new Document("enrosed-catalogus.pdf", fonts.render(renderHtml(catalog)), "application/pdf");
     }
 
-    /** Package-visible for focused template tests without extracting text from compressed PDFs. */
+    /**
+     * Package-visible for focused template tests without extracting text from compressed PDFs.
+     * Family sheets appear as first laid out; {@link #render} still makes overlong ones compact.
+     */
     String renderHtml(CatalogExportService.Model catalog) {
-        Language language = catalogLanguage(catalog.request().language());
-        if (catalog.request().resolvedStrictLanguage()) {
-            List<String> missing = missingTranslations(catalog);
-            if (!missing.isEmpty()) {
-                throw new LocalizationIncompleteException(
-                        "Cataloguscopy voor " + language.code() + " is onvolledig", missing);
-            }
-        }
+        requireCompleteCopy(catalog);
         return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
-                ? brochureHtml(catalog) : simpleHtml(catalog);
+                ? brochureHtml(catalog, new PhotoResolver(), Set.of()) : simpleHtml(catalog);
+    }
+
+    /**
+     * A family sheet is one fixed A4 page, so rows that do not fit would be clipped. The layout
+     * is checked before the PDF is written; sheets that run into the footer are laid out again
+     * in the compact design, reusing the photos already prepared for the first layout.
+     */
+    private byte[] brochurePdf(CatalogExportService.Model catalog) {
+        requireCompleteCopy(catalog);
+        PhotoResolver photos = new PhotoResolver();
+        List<FamilySheetFit.Overflow> overflows = new ArrayList<>();
+        Optional<byte[]> pdf = fonts.render(brochureHtml(catalog, photos, Set.of()), laidOut -> {
+            overflows.addAll(FamilySheetFit.overflowing(laidOut));
+            return overflows.stream().allMatch(FamilySheetFit.Overflow::compact);
+        });
+        if (pdf.isEmpty()) {
+            Set<String> compactSheets = overflows.stream().filter(overflow -> !overflow.compact())
+                    .map(FamilySheetFit.Overflow::anchor)
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            LOG.infof("Catalogusfiches %s passen niet ruim op hun pagina; compacte opmaak gebruikt",
+                    compactSheets);
+            overflows.clear();
+            pdf = fonts.render(brochureHtml(catalog, photos, compactSheets), laidOut -> {
+                overflows.addAll(FamilySheetFit.overflowing(laidOut));
+                return true;
+            });
+        }
+        overflows.forEach(overflow -> LOG.warnf(
+                "Catalogusfiche %s is ook compact %.1f mm te lang voor één A4-pagina; kort de teksten in",
+                overflow.anchor(), overflow.millimetres()));
+        return pdf.orElseThrow();
+    }
+
+    private void requireCompleteCopy(CatalogExportService.Model catalog) {
+        if (!catalog.request().resolvedStrictLanguage()) return;
+        List<String> missing = missingTranslations(catalog);
+        if (!missing.isEmpty()) {
+            throw new LocalizationIncompleteException("Cataloguscopy voor "
+                    + catalogLanguage(catalog.request().language()).code() + " is onvolledig", missing);
+        }
     }
 
     @Override
@@ -509,7 +553,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 category == null ? null : category.descriptionIn(language), chunk(items));
     }
 
-    private String brochureHtml(CatalogExportService.Model catalog) {
+    private String brochureHtml(CatalogExportService.Model catalog, PhotoResolver photos,
+                                Set<String> compactSheets) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = catalogCopy(language);
@@ -522,7 +567,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         copy(copy, "catalog.brochure.defaulttitle")),
                 defaultText(requestedOptions.coverSubtitle(),
                         copy(copy, "catalog.brochure.defaultsubtitle")));
-        PhotoResolver photos = new PhotoResolver();
         List<BrochureFamily> allFamilies = new ArrayList<>();
         List<FamilyRenderData> renderedFamilies = new ArrayList<>();
         Map<String, List<FamilyRenderData>> byChapter = new LinkedHashMap<>();
@@ -582,7 +626,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String tone = "tone-" + ((sectionIndex - 1) % TONE_COUNT + 1);
             List<BrochureFamily> chapter = new ArrayList<>();
             for (FamilyRenderData rendered : entry.getValue()) {
-                chapter.add(rendered.family().placed(twoDigits(familyNumber++), page++, tone));
+                BrochureFamily placed = rendered.family().placed(twoDigits(familyNumber++), page++, tone);
+                chapter.add(compactSheets.contains(placed.anchor()) ? placed.compact() : placed);
             }
             pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,

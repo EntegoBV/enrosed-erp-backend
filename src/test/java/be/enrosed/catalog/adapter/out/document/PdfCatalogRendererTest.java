@@ -54,6 +54,7 @@ class PdfCatalogRendererTest {
     @Inject PhotoStorage photoStorage;
     @Inject CatalogEditorialAssets editorialAssets;
     @Inject PdfImageEncoder imageEncoder;
+    @Inject CatalogPdfFonts fonts;
 
     @Test
     void simpleAndBrochureUseDistinctBrandedTemplatesWithoutInternalAuditCopy() throws Exception {
@@ -1166,6 +1167,79 @@ class PdfCatalogRendererTest {
                 "four-variant-price-layout.webp", "image/webp");
         assertPricedFamilyRowsStayAboveFooter(
                 pricedPicturedFamily(source, family, variants, fixture), skus, "Prijs op aanvraag");
+    }
+
+    @Test
+    void aSpaciousSheetThatWouldLoseItsSkuTableIsLaidOutCompactly() throws Exception {
+        Photo fixture = storedPhoto(994L, "/images/soap-roos-in-box-480.webp",
+                "full-logistics-layout.webp", "image/webp");
+        assertTrue(overflowingSheets(renderer.renderHtml(
+                        withPhoto(model(2, CatalogExportService.Layout.BROCHURE), fixture))).isEmpty(),
+                "a sheet with room to spare keeps the spacious design");
+
+        // Two pictured colours, no prices and a full specification list: in the spacious design
+        // the SKU table no longer fits on the fixed A4 sheet and was clipped off entirely.
+        CatalogExportService.Model source = model(2, CatalogExportService.Layout.BROCHURE);
+        CatalogFamilyReader.Family original = source.families().getFirst().content();
+        String copy = "Een verkoopklaar cadeauarrangement met decoratieve foamrozen.";
+        CatalogFamilyReader.Family family = new CatalogFamilyReader.Family(
+                original.id(), original.familyKey(), original.publicHandle(), original.categoryId(),
+                original.categoryKey(), original.categoryName(), 0, 0, "Halve hartvorm 25 cm", copy, copy,
+                "Verkoopklaar foamrozen-arrangement", List.of("Lang houdbare decoratieve foamrozen"),
+                null, List.of(), List.of(), List.of());
+        List<String> skus = List.of("FHH-25-PK", "FHH-25-RD");
+        List<Product> variants = new ArrayList<>();
+        for (int index = 0; index < skus.size(); index++) {
+            Product variant = source.products().get(index).withSku(skus.get(index))
+                    .withVariantAttributes(index == 0 ? "Roze" : "Rood", "25 cm",
+                            index == 0 ? "#D889A2" : "#A91F32");
+            variants.add(withPackaging(withPriceLayoutDetails(variant,
+                            new Dimensions(new BigDecimal("24.5"), new BigDecimal("24.5"),
+                                    new BigDecimal("12"), new BigDecimal("0.45")),
+                            new Carton(new Dimensions(new BigDecimal("55"), new BigDecimal("28"),
+                                    new BigDecimal("63.5")), 10, new BigDecimal("6.2")),
+                            "6702 10 00 00", new BigDecimal("4.95")),
+                    new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.GIFT_BOX,
+                            new Dimensions(new BigDecimal("12"), new BigDecimal("12"), new BigDecimal("26"))))
+                    .withPhotos(List.of(fixture)));
+        }
+        CatalogExportService.Request old = source.request();
+        CatalogExportService.Model crowded = new CatalogExportService.Model(variants, source.categoriesById(),
+                List.of(new CatalogExportService.FamilyGroup(
+                        family, variants, source.families().getFirst().category(), false)),
+                new CatalogExportService.Request(old.productIds(), false, true, 1, old.title(), null,
+                        "nl", old.layout(), old.brochure()));
+
+        String firstLayout = renderer.renderHtml(crowded);
+        assertFalse(sectionFragment(firstLayout, "<section id=\"family-01\"").contains("family-page--compact"),
+                "the copy alone does not ask for the compact design");
+        List<FamilySheetFit.Overflow> overflows = overflowingSheets(firstLayout);
+        assertEquals(List.of("family-01"), overflows.stream().map(FamilySheetFit.Overflow::anchor).toList());
+        assertFalse(overflows.getFirst().compact());
+
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(crowded).content())) {
+            assertEquals(8, pdf.getNumberOfPages());
+            MatchingTextBoundsStripper detail = new MatchingTextBoundsStripper();
+            detail.setStartPage(4);
+            detail.setEndPage(4);
+            detail.getText(pdf);
+            for (String sku : skus) {
+                double bottom = detail.bottomOf(sku);
+                assertTrue(bottom > 0, "the SKU table stays on the family sheet: " + sku);
+                assertTrue(bottom < 795, () -> sku + " reaches " + bottom
+                        + " pt and must stay clear of the footer rule near 802 pt");
+            }
+        }
+    }
+
+    /** The family sheets that run into their footer when this HTML is laid out unchanged. */
+    private List<FamilySheetFit.Overflow> overflowingSheets(String html) {
+        List<FamilySheetFit.Overflow> overflows = new ArrayList<>();
+        fonts.render(html, laidOut -> {
+            overflows.addAll(FamilySheetFit.overflowing(laidOut));
+            return false;
+        });
+        return overflows;
     }
 
     private void assertPricedFamilyRowsStayAboveFooter(

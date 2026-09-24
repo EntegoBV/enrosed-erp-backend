@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.out.document;
 
 import be.enrosed.shared.PdfFonts;
+import com.openhtmltopdf.pdfboxout.PdfBoxRenderer;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -13,6 +14,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Predicate;
 
 /** Embedded ENROSED display and UI typefaces for deterministic catalogue output. */
 @ApplicationScoped
@@ -26,6 +29,14 @@ public class CatalogPdfFonts {
     }
 
     public byte[] render(String html) {
+        return render(html, laidOut -> true).orElseThrow();
+    }
+
+    /**
+     * Lays the document out and writes the PDF only when {@code accept} approves that layout,
+     * so a caller can inspect the boxes first and ask for a different document instead.
+     */
+    public Optional<byte[]> render(String html, Predicate<PdfBoxRenderer> accept) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
@@ -44,8 +55,12 @@ public class CatalogPdfFonts {
                     "Cormorant Garamond", 400, PdfRendererBuilder.FontStyle.ITALIC);
             builder.withHtmlContent(html, null);
             builder.toStream(out);
-            builder.run();
-            return out.toByteArray();
+            try (PdfBoxRenderer renderer = builder.buildPdfRenderer()) {
+                renderer.layout();
+                if (!accept.test(renderer)) return Optional.empty();
+                renderer.createPDF();
+            }
+            return Optional.of(out.toByteArray());
         } catch (IOException e) {
             throw new UncheckedIOException("Could not build the catalogue PDF", e);
         }

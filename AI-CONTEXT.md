@@ -112,6 +112,12 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (8 languages); the older CSV endpoints remain available for compatibility.
 - Catalogue PDF: language choice, chapters per category with
   descriptions, two full photos per product card.
+- Brochure family sheets are fixed A4 pages that clip whatever does not
+  fit. `PdfCatalogRenderer.render` lays the brochure out first;
+  `FamilySheetFit` compares each sheet's content bottom with its footer
+  (2 mm clearance, the same line as the tests' 795 pt check), and sheets
+  that run into it are laid out again in the compact design. `renderHtml`
+  shows the first layout only.
 - **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
   `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
   15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
