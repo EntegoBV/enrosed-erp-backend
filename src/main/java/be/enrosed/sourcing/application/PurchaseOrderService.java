@@ -474,26 +474,26 @@ public class PurchaseOrderService {
      * What the line's ordered-quantity snapshot should be after this update.
      *
      * The moment the order leaves concept it has been placed with the
-     * supplier; from then on the quantity as ordered is a fact worth keeping.
-     * Containers regularly arrive short, and "ordered 96, received 90" is the
-     * difference between an explainable order and a mystery. Lines added
-     * after ordering never get a snapshot: nothing was agreed for them.
+     * supplier, and until the container is received the ordered quantity is
+     * whatever the order says now: a count changed while ordered or under
+     * way is a new agreement with the supplier, not a short delivery. Only
+     * the receipt may make the received count differ from the ordered one
+     * ("besteld 96, ontvangen 90"), so from then on the stored snapshot is
+     * kept and a recount never moves it. The client's own value is never
+     * trusted.
      */
     private Integer orderedQuantityFor(PurchaseOrder current, PurchaseOrder changes,
                                        PurchaseOrderLine line, int requested) {
-        boolean placingNow = current.status() == PurchaseOrderStatus.CONCEPT
-                && changes.status() != PurchaseOrderStatus.CONCEPT;
-        if (placingNow) {
-            /* This save confirms the order: these are the agreed quantities. */
-            return requested;
-        }
-        if (current.status() == PurchaseOrderStatus.CONCEPT) {
-            /* Not ordered yet: nothing has been agreed, so nothing to keep. */
+        if (changes.status() == PurchaseOrderStatus.CONCEPT) {
+            /* Not ordered: nothing has been agreed, so nothing to keep. */
             return null;
         }
-        /* Past ordering: preserve the value from storage, never the value the
-           client echoed back. Lines added after ordering stay without one -
-           nothing was agreed for them. */
+        if (current.status() != PurchaseOrderStatus.ONTVANGEN && changes.status() != PurchaseOrderStatus.ONTVANGEN) {
+            /* Placed but not received: the order is the agreement. */
+            return requested;
+        }
+        /* Received: preserve the value from storage. Lines added after the
+           receipt stay without one - nothing was ordered for them. */
         if (line.id() == null) return null;
         return current.lines().stream()
                 .filter(stored -> line.id().equals(stored.id()))
@@ -1020,7 +1020,9 @@ public class PurchaseOrderService {
             }
             BigDecimal receiptUnitValue = explicitUnitValue == null
                     ? automaticUnitValues.get(line.productId()) : Money.unit(explicitUnitValue);
-            int ordered = line.orderedQuantity() != null ? line.orderedQuantity() : line.quantity();
+            /* Until now the order's own count was the agreement; an older order may still carry
+               a first snapshot from before counts followed later changes, so that is not trusted. */
+            int ordered = line.quantity();
             String issueNote = cleanIssueNote(count == null ? null : count.issueNote());
             if (received != ordered || damaged > 0) {
                 StringBuilder remark = new StringBuilder(describe(byId, line.productId()))
