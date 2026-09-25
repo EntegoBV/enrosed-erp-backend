@@ -55,6 +55,9 @@ public class PartnerFinanceResource {
                 incoming.summary(invoice, priced), partner.accounting(invoice, priced), null, null,
                 contents.find(invoice).orElse(null));
     }
+    /** How much the advances over-financed a container that arrived short; read-only. */
+    @GET @Path("/purchase-orders/{id}/partner-credit-proposal")
+    public PartnerFinancingService.PartnerCreditProposal creditProposal(@PathParam("id") long id) { return partner.creditProposal(id); }
     @GET @Path("/purchase-orders/{id}/partner-settlement-availability")
     public be.enrosed.sales.application.PartnerSettlementLedger.Availability settlementAvailability(@PathParam("id") long id) {
         return sales.partnerSettlementAvailability(id);

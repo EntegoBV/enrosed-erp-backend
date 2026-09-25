@@ -69,6 +69,10 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
     String websiteBaseUrl;
 
+    /** The documents, to name the invoice a credit note corrects; optional so direct construction in tests keeps working. */
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
+
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
 
@@ -132,13 +136,21 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("freightPending", false)
                 .data("freightAdded", false)
                 .data("t", text)
-                .data("intro", text.get("mailIntroInvoice").formatted(order.number()))
+                .data("intro", order.isCreditNote()
+                        ? text.get("mailIntroCreditNote").formatted(order.number(), creditedNumber(order))
+                        : text.get("mailIntroInvoice").formatted(order.number()))
                 .data("paymentSentence", paymentSentence)
                 .data("validUntilSentence", "")
                 .render();
 
-        String subject = text.get("mailSubjectInvoice").formatted(order.number());
+        String subject = text.get(order.isCreditNote() ? "mailSubjectCreditNote" : "mailSubjectInvoice").formatted(order.number());
         deliver(customer, subject, body, document, order.number());
+    }
+
+    /** The number of the invoice a credit note corrects, for the mail intro. */
+    private String creditedNumber(SalesOrder order) {
+        if (order.creditedInvoiceId() == null || orders == null || !orders.isResolvable()) return "-";
+        return orders.get().findById(order.creditedInvoiceId()).map(SalesOrder::number).orElse("-");
     }
 
     /** One door out for both document sorts: mock, Brevo or plain SMTP. */

@@ -817,6 +817,26 @@ public class ProductService {
         queueWebsite();
     }
 
+    /**
+     * Books credited goods back into the warehouse, at the main location.
+     * Only ever called after an explicit confirmation on the credit note;
+     * damaged returns are written off by hand afterwards.
+     */
+    @Transactional
+    public void returnStock(long productId, int quantity, String reference) {
+        if (quantity <= 0) return;
+        if (stock != null && stock.isResolvable()) {
+            StockService service = stock.get();
+            service.add(productId, service.mainLocation().id(), quantity, StockMovement.Kind.SALE_RETURN, reference);
+            return;
+        }
+        if (!products.adjustStock(productId, quantity)) {
+            throw new NotFoundException("Product", productId);
+        }
+        book(productId, quantity, StockMovement.Kind.SALE_RETURN, reference);
+        queueWebsite();
+    }
+
     public List<StockMovement> stockMovements(long productId) {
         get(productId);
         return stockLedger().forProduct(productId);

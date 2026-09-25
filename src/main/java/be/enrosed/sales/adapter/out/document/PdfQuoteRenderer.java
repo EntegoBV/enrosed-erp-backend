@@ -74,6 +74,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
     @Inject
     Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
+    /** The documents, to name and date the invoice a credit note corrects. */
+    @Inject
+    Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
 
     /** Base URL of the portal; the public terms page lives under it. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "enrosed.portal.base-url")
@@ -113,12 +116,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         Map<String, String> text = DocumentText.of(language);
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.defaults() : requestedOptions;
-        boolean invoice = order.isInvoice();
+        boolean invoice = order.isClaimDocument();
+        boolean creditNote = order.isCreditNote();
         var advanceAgreement = !invoice && order.isPartnerAdvance() && order.id() != null
                 && advanceQuotes != null && advanceQuotes.isResolvable()
                 ? advanceQuotes.get().find(order.id()) : null;
         boolean agreementQuote = advanceAgreement != null;
-        boolean advanceInvoice = invoice && order.isPartnerAdvance();
+        /* A credit note on an advance prints as a credit note, never as the advance itself. */
+        boolean advanceInvoice = invoice && !creditNote && order.isPartnerAdvance();
         var cargo = advanceInvoice && advanceContents != null && advanceContents.isResolvable()
                 ? advanceContents.get().find(order).orElse(null) : null;
         boolean priceFreeProducts = agreementQuote || advanceInvoice;
@@ -127,14 +132,44 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 ? partnerSettlements.get().find(order.id()) : null;
         boolean partialSettlement = settlement != null && !settlement.finalSettlement();
         /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
-        String docLabel = order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
+        String docLabel = creditNote ? text.get("creditNote")
+                : order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
                 : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "quote")
                 : text.get(invoice ? "invoice" : "quote");
-        String partnerNote = order.isPartnerDeal()
+        String partnerNote = creditNote ? (order.isPartnerDeal() ? partnerNote(text.get("partnerCreditNote"), partnerContainerNumber(order)) : null)
+                : order.isPartnerDeal()
                 ? partnerNote(text.get(order.partnerSettlement()
                         ? partialSettlement ? "partnerPartialSettlementNote" : "partnerSettlementNote" : "partnerAdvanceNote"),
                         partnerContainerNumber(order))
                 : null;
+        /* The credit note names the invoice it corrects and why; the settlement panel says how it stands. */
+        SalesOrder credited = creditNote && order.creditedInvoiceId() != null && orders != null && orders.isResolvable()
+                ? orders.get().findById(order.creditedInvoiceId()).orElse(null) : null;
+        String creditedNumber = credited == null ? "-" : credited.number();
+        String creditNoteFor = creditNote ? text.get("creditNoteFor").formatted(creditedNumber,
+                credited == null ? "-" : DocumentText.date(credited.orderDate(), language)) : null;
+        String creditReasonText = creditNote && order.creditReason() != null
+                ? text.get("creditNoteReason").formatted(text.get(order.creditReason().documentTextKey())) : null;
+        String creditAmountText = null;
+        List<String> creditSentences = new ArrayList<>();
+        if (creditNote) {
+            var receipts = incomingPayments != null && incomingPayments.isResolvable()
+                    ? incomingPayments.get().summary(order, priced) : null;
+            java.math.BigDecimal refunded = java.math.BigDecimal.ZERO;
+            if (receipts != null) for (var row : receipts.payments()) {
+                if (row.amountEur().signum() >= 0) continue;
+                if (row.isOffset()) {
+                    String number = orders != null && orders.isResolvable() && row.offsetOrderId() != null
+                            ? orders.get().findById(row.offsetOrderId()).map(SalesOrder::number).orElse("-") : "-";
+                    creditSentences.add(text.get("creditNoteOffset").formatted(number, DocumentFormat.eur(row.amountEur().negate())));
+                } else refunded = refunded.add(row.amountEur().negate());
+            }
+            if (refunded.signum() > 0) creditSentences.add(text.get("creditNoteRefunded").formatted(DocumentFormat.eur(refunded)));
+            java.math.BigDecimal open = receipts == null ? priced.totals().totalInclVat() : receipts.creditEur();
+            creditSentences.add(open.signum() > 0 ? text.get("creditNoteOpen").formatted(DocumentFormat.eur(open))
+                    : text.get("creditNoteSettled"));
+            creditAmountText = DocumentFormat.eur(open.max(java.math.BigDecimal.ZERO));
+        }
         List<LineView> lines = cargo == null ? lineViews(order, priced, language, text, options)
                 : advanceLineViews(cargo, language, text, options);
         Integer displayCartons = null;
@@ -172,7 +207,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             paymentSchedule.add(text.get("productionStartPayment").formatted(DocumentFormat.eur(first)));
             paymentSchedule.add(text.get("productionCompletePayment").formatted(DocumentFormat.eur(priced.totals().totalInclVat().subtract(first))));
         }
-        if (invoice) {
+        if (invoice && !creditNote) {
             iban = company.get().iban() == null || company.get().iban().isBlank()
                     ? "-" : company.get().iban();
             /* The claim is what must actually arrive: including VAT when charged. */
@@ -217,6 +252,17 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("validUntilSentence", invoice ? "" : text.get("validUntilSentence")
                         .formatted(DocumentText.date(order.validUntil(), language)))
                 .data("isInvoice", invoice)
+                .data("creditNote", creditNote)
+                .data("creditNoteFor", creditNoteFor)
+                .data("creditReasonText", creditReasonText)
+                .data("creditedNumber", creditedNumber)
+                .data("creditAmountText", creditAmountText)
+                .data("creditSentences", creditSentences)
+                .data("grandTotalLabel", text.get(creditNote ? "creditNoteTotal" : advanceInvoice ? "advanceAmount" : "total"))
+                /* Belgian law asks a credit note to say the VAT goes back to the State, when VAT was charged at all. */
+                .data("creditNoteVatMention", creditNote && priced.totals().vatRatePct() != null
+                        && priced.totals().vatRatePct().signum() > 0 ? text.get("creditNoteVatMention") : null)
+                .data("peppolNoticeText", text.get(creditNote ? "peppolNoticeCreditNote" : "peppolNotice"))
                 .data("docLabel", docLabel)
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())

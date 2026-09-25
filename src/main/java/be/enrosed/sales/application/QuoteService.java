@@ -113,10 +113,35 @@ public class QuoteService {
         PricedOrder priced = salesOrders.price(order);
         QuoteDocumentRenderer.Document document = renderer.render(order, priced, customer, null);
 
-        mailer.sendInvoice(order, customer, document, personalMessage, invoicePaymentSentence(order, priced, customer));
+        mailer.sendInvoice(order, customer, document, personalMessage, order.isCreditNote()
+                ? creditNoteSentence(order, priced, customer) : invoicePaymentSentence(order, priced, customer));
         /* SalesOrderService owns the single SENT audit + after-commit push for both
            this mail flow and the dashboard's manual 'mark sent' action. */
         return salesOrders.markInvoiceSent(order.id());
+    }
+
+    /** How the credit note stands: offset against which invoices, refunded, still open or fully settled. */
+    public String creditNoteSentence(SalesOrder order, PricedOrder priced, Customer customer) {
+        var text = be.enrosed.shared.DocumentText.of(customer == null ? be.enrosed.shared.Language.NL : customer.language());
+        SalesPaymentSummary summary = incomingPayments != null && incomingPayments.isResolvable()
+                ? incomingPayments.get().summary(order, priced) : null;
+        List<String> sentences = new java.util.ArrayList<>();
+        BigDecimal refunded = BigDecimal.ZERO;
+        if (summary != null) {
+            for (SalesPayment row : summary.payments()) {
+                if (row.amountEur().signum() >= 0) continue;
+                if (row.isOffset()) {
+                    String number = orders.findById(row.offsetOrderId()).map(SalesOrder::number).orElse("-");
+                    sentences.add(text.get("creditNoteOffset").formatted(number,
+                            be.enrosed.shared.DocumentFormat.eur(row.amountEur().negate())));
+                } else refunded = refunded.add(row.amountEur().negate());
+            }
+        }
+        if (refunded.signum() > 0) sentences.add(text.get("creditNoteRefunded").formatted(be.enrosed.shared.DocumentFormat.eur(refunded)));
+        BigDecimal open = summary == null ? priced.totals().totalInclVat() : summary.creditEur();
+        sentences.add(open.signum() > 0 ? text.get("creditNoteOpen").formatted(be.enrosed.shared.DocumentFormat.eur(open))
+                : text.get("creditNoteSettled"));
+        return String.join(" ", sentences);
     }
 
     String invoicePaymentSentence(SalesOrder order, PricedOrder priced, Customer customer) {
@@ -158,6 +183,7 @@ public class QuoteService {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         SalesOrder order = salesOrders.get(orderId);
+        if (order.isCreditNote()) throw new BusinessRuleException("Een creditnota heeft geen pakbon");
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
@@ -247,9 +273,9 @@ public class QuoteService {
     @Transactional
     public SalesOrder send(long orderId, String personalMessage) {
         SalesOrder order = salesOrders.get(orderId);
-        /* Same door, different letter: an invoice mails the PDF with its
-           payment line and skips the portal entirely. */
-        if (order.isInvoice()) {
+        /* Same door, different letter: an invoice or credit note mails the PDF
+           with its payment line and skips the portal entirely. */
+        if (order.isClaimDocument()) {
             return sendInvoiceByMail(order, personalMessage);
         }
         SalesLifecycle.requireSendable(order);
@@ -340,7 +366,7 @@ public class QuoteService {
     }
 
     private QuoteMailer.Summary mailSummary(SalesOrder order, PricedOrder priced) {
-        var snapshot = !order.isInvoice() && order.isPartnerAdvance() && order.id() != null
+        var snapshot = !order.isClaimDocument() && order.isPartnerAdvance() && order.id() != null
                 && advanceQuotes != null && advanceQuotes.isResolvable()
                 ? advanceQuotes.get().find(order.id()) : null;
         var agreement = snapshot == null ? null : new QuoteMailer.AdvanceAgreement(snapshot.sharePct(),
@@ -690,7 +716,7 @@ public class QuoteService {
         List<SalesOrder> documents = orders.findAll();
         Set<Long> closedQuoteIds = OpenQuoteWork.closedQuoteIds(documents);
         Set<Long> openQuoteIds = documents.stream()
-                .filter(order -> !order.isInvoice() && !order.isArchived())
+                .filter(order -> !order.isClaimDocument() && !order.isArchived())
                 .map(SalesOrder::id)
                 .filter(java.util.Objects::nonNull)
                 .filter(id -> !closedQuoteIds.contains(id))
@@ -842,7 +868,9 @@ public class QuoteService {
         salesOrders.requireReopenable(order);
 
         record(order, QuoteEvent.Type.HEROPEND, false, null,
-                (order.isInvoice() ? "Factuur" : "Offerte") + " heropend naar concept zonder e-mail", null);
+                (order.isCreditNote() ? "Creditnota" : order.isInvoice() ? "Factuur" : "Offerte")
+                        + " heropend naar concept zonder e-mail", null);
+        if (order.isCreditNote()) salesOrders.recordCreditedEvent(order, "Creditnota " + order.number() + " terug naar concept");
 
         /* A fresh validity date: the old one is usually the very reason the
            quote expired, and a quote leaving today with last month's date
@@ -850,7 +878,7 @@ public class QuoteService {
         SalesOrder reopened = withStatus(order, QuoteStatus.CONCEPT, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(),
                 null, null, null);
-        return orders.save(order.isInvoice() ? reopened : withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
+        return orders.save(order.isClaimDocument() ? reopened : withValidity(reopened, BusinessDays.add(LocalDate.now(), 30)));
     }
 
     /**
@@ -862,6 +890,7 @@ public class QuoteService {
     @Transactional
     public SalesOrder cancel(long orderId, String reason, boolean notifyCustomer) {
         SalesOrder order = salesOrders.get(orderId);
+        if (order.isCreditNote()) return cancelCreditNote(orderId, reason);
         if (order.isInvoice()) {
             throw new BusinessRuleException("Een factuur annuleer je niet; maak een creditnota.");
         }
@@ -895,6 +924,35 @@ public class QuoteService {
                 order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
                 order.customerMessage()));
         recordActivity("CANCELLED", order, "Offerte geannuleerd");
+        return cancelled;
+    }
+
+    /**
+     * Withdraws an issued credit note that nothing happened to yet: no offset,
+     * no refund, no return. The number stays reserved; the invoice counts in
+     * full again. The customer is not mailed: a credit note leaves by PDF.
+     */
+    private SalesOrder cancelCreditNote(long orderId, String reason) {
+        salesOrders.lockDocumentForMutation(orderId);
+        SalesOrder order = salesOrders.get(orderId);
+        if (order.status() == QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("Een conceptcreditnota verwijder je in plaats van ze te annuleren");
+        if (order.status() != QuoteStatus.UITGEREIKT && order.status() != QuoteStatus.VERZONDEN && order.status() != QuoteStatus.BEKEKEN)
+            throw new BusinessRuleException("Creditnota " + order.number() + " staat op "
+                    + order.status().name().toLowerCase(java.util.Locale.ROOT) + " en kan niet meer geannuleerd worden.");
+        if (order.isArchived()) throw new BusinessRuleException("Haal het document eerst uit het archief");
+        if (order.goodsReturnedAt() != null)
+            throw new BusinessRuleException("De retour staat al in de voorraad; deze creditnota kan niet meer geannuleerd worden");
+        if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(orderId))
+            throw new BusinessRuleException("Een creditnota met verrekeningen of terugbetalingen annuleer je niet; trek die eerst in");
+        String message = reason == null || reason.isBlank() ? null : reason.strip();
+        requireMessageLength(message);
+        ActorRef actor = staffActor();
+        record(order, QuoteEvent.Type.GEANNULEERD, false, actor.displayName(), "Creditnota geannuleerd", message);
+        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null, order.customerMessage()));
+        salesOrders.recordCreditedEvent(order, "Creditnota " + order.number() + " geannuleerd");
+        recordActivity("CANCELLED", order, "Creditnota geannuleerd");
         return cancelled;
     }
 

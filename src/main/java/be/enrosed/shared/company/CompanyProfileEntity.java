@@ -70,4 +70,8 @@ public class CompanyProfileEntity {
     public Integer partnerQuoteNextNumber;
     @Column(name = "partner_invoice_next_number")
     public Integer partnerInvoiceNextNumber;
+
+    /** The letters in front of credit note numbers: CN-2026-0001. */
+    @Column(name = "credit_note_number_prefix", length = 12)
+    public String creditNoteNumberPrefix;
 }

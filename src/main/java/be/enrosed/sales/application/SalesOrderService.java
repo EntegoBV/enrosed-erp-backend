@@ -35,6 +35,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import be.enrosed.shared.Money;
 
 /**
  * Drafting and pricing sales orders.
@@ -80,6 +81,8 @@ public class SalesOrderService {
     Instance<ActivityLogService> activity;
     @Inject
     Instance<PartnerInvoiceDeclarations> invoiceDeclarations;
+    @Inject
+    Instance<PartnerFinancingService> partnerFinancing;
 
     /** The container side, for a quote made straight from a purchase order. */
     @Inject
@@ -242,6 +245,7 @@ public class SalesOrderService {
     public SalesOrder createInvoiceFrom(long quoteId) {
         lockDocumentForMutation(quoteId);
         SalesOrder source = get(quoteId);
+        if (source.isCreditNote()) throw new BusinessRuleException("Van een creditnota maak je geen factuur");
         if (source.isInvoice()) {
             throw new BusinessRuleException("Dit is al een factuur; maak facturen vanuit een offerte");
         }
@@ -912,6 +916,7 @@ public class SalesOrderService {
     public SalesOrder setPartnerDeal(long id, PartnerDealRequest request) {
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
+        if (order.isCreditNote()) throw new BusinessRuleException("De partnerkoppeling van een creditnota volgt de factuur");
         if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(order) != null)
             throw new BusinessRuleException("Een gesplitste verkoopbestelling kan niet naar partnerfinanciering worden omgezet");
         if (hasAdvanceAgreement(order))
@@ -985,6 +990,7 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder shipGoods(long id) {
         lockDocumentForMutation(id);
+        if (get(id).isCreditNote()) throw new BusinessRuleException("Een creditnota verzendt geen goederen; boek een retour");
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireShippable(get(id));
         SalesOrder invoice = requireInvoice(get(id));
         if (invoice.isPartnerAdvance()) throw new BusinessRuleException("Een voorschotfactuur boekt geen voorraad af; gebruik de slotfactuur voor de levering");
@@ -1066,17 +1072,25 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder issueInvoice(long id) {
         lockDocumentForMutation(id);
-        SalesOrder invoice = requireInvoice(get(id));
+        SalesOrder invoice = requireClaimDocument(get(id));
         if (invoice.status() == QuoteStatus.UITGEREIKT || invoice.status() == QuoteStatus.BETAALD) return invoice;
         if (invoice.status() != QuoteStatus.CONCEPT)
-            throw new BusinessRuleException("Alleen een conceptfactuur kan uitgereikt worden");
-        requireAdvanceBeforeSettlement(invoice);
-        validatePartnerAdvanceReservation(invoice, null);
+            throw new BusinessRuleException(invoice.isCreditNote() ? "Alleen een conceptcreditnota kan uitgereikt worden"
+                    : "Alleen een conceptfactuur kan uitgereikt worden");
+        if (invoice.isCreditNote()) {
+            requireCreditNoteIssuable(invoice);
+        } else {
+            requireAdvanceBeforeSettlement(invoice);
+            validatePartnerAdvanceReservation(invoice, null);
+        }
         validateInvoiceForSend(invoice);
         SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
+        String label = invoice.isCreditNote() ? "Creditnota uitgereikt zonder verzending" : "Factuur uitgereikt zonder verzending";
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, Instant.now(),
-                currentActor().displayName(), false, "Factuur uitgereikt zonder verzending", null));
-        recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Factuur uitgereikt zonder verzending");
+                currentActor().displayName(), false, label, null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, label);
+        if (saved.isCreditNote()) recordCreditedEvent(saved, "Creditnota " + saved.number() + " uitgereikt · € "
+                + money(price(saved).totals().totalInclVat()) + " incl. btw");
         return saved;
     }
 
@@ -1084,18 +1098,28 @@ public class SalesOrderService {
     @Transactional
     public SalesOrder markInvoiceSent(long id) {
         lockDocumentForMutation(id);
-        SalesOrder invoice = requireInvoice(get(id));
+        SalesOrder invoice = requireClaimDocument(get(id));
         if ((invoice.status() == QuoteStatus.VERZONDEN || invoice.status() == QuoteStatus.BETAALD)
                 && invoice.sentAt() != null) return invoice;
         validateInvoiceDispatch(invoice);
+        boolean fromConcept = invoice.status() == QuoteStatus.CONCEPT;
         SalesOrder sent = withStatus(invoice, invoice.status() == QuoteStatus.BETAALD ? QuoteStatus.BETAALD : QuoteStatus.VERZONDEN,
                 java.time.Instant.now(), invoice.paidAt());
         SalesOrder saved = orders.save(sent);
         ActorRef actor = currentActor();
+        /* A credit note that leaves straight from concept is issued by that act: its own
+           history and the invoice's say so, as they do when it is issued without mail. */
+        if (fromConcept && saved.isCreditNote()) {
+            events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, java.time.Instant.now(), actor.displayName(), false,
+                    "Creditnota uitgereikt", null));
+            recordCreditedEvent(saved, "Creditnota " + saved.number() + " uitgereikt · € "
+                    + money(price(saved).totals().totalInclVat()) + " incl. btw");
+        }
+        String label = invoice.isCreditNote() ? "Creditnota gemarkeerd als verstuurd" : "Factuur verstuurd";
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.VERSTUURD,
                 java.time.Instant.now(), actor.displayName(), false,
-                "Factuur verstuurd", null));
-        recordActivity(SALES_ACTION_SENT, saved, "Factuur verstuurd");
+                label, null));
+        recordActivity(SALES_ACTION_SENT, saved, label);
         fireActivityPush(SalesActivityPushNotifier.Ready.staffInvoiceSent(
                 saved.id(), saved.number(), actor));
         return saved;
@@ -1131,7 +1155,8 @@ public class SalesOrderService {
             throw new BusinessRuleException("Vul een positief productaantal in of markeer het product uitdrukkelijk als tijdelijk niet bestelbaar");
         /* A settlement invoice carries only its own line; that is a full document too. */
         if (invoice.lines().isEmpty() && invoice.extraLines().isEmpty()) {
-            throw new BusinessRuleException("Een factuur zonder regels kan niet verstuurd worden");
+            throw new BusinessRuleException(invoice.isCreditNote() ? "Een creditnota zonder regels kan niet uitgereikt worden"
+                    : "Een factuur zonder regels kan niet verstuurd worden");
         }
         if (invoice.customerId() == null) {
             throw new BusinessRuleException("Koppel eerst een klant aan de factuur");
@@ -1143,7 +1168,14 @@ public class SalesOrderService {
         if (invoice.invoiceDueDate() == null) {
             throw new BusinessRuleException("Vul de vervaldatum van de factuur in");
         }
-        if (!invoice.isPartnerDeal()) {
+        if (invoice.isCreditNote()) {
+            /* The original must still stand, and every live credit note together may not exceed it. */
+            SalesOrder original = creditedOriginal(invoice);
+            if (!PartnerFinancingService.live(original))
+                throw new BusinessRuleException("Factuur " + original.number() + " is intussen niet meer actief");
+            requireWithinCreditCap(original, invoice);
+        }
+        if (!invoice.isPartnerDeal() && !invoice.isCreditNote()) {
             PricedOrder priced = price(invoice);
             if (priced != null && !priced.validation().meetsMinimum())
                 throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
@@ -1170,8 +1202,11 @@ public class SalesOrderService {
                 && invoice.status() != QuoteStatus.BETAALD)
             throw new BusinessRuleException("Alleen een actieve conceptfactuur of uitgereikte factuur kan verstuurd worden");
         if (invoice.status() == QuoteStatus.CONCEPT) {
-            requireAdvanceBeforeSettlement(invoice);
-            validatePartnerAdvanceReservation(invoice, null);
+            if (invoice.isCreditNote()) requireCreditNoteIssuable(invoice);
+            else {
+                requireAdvanceBeforeSettlement(invoice);
+                validatePartnerAdvanceReservation(invoice, null);
+            }
         }
         validateInvoiceForSend(invoice);
     }
@@ -1211,6 +1246,14 @@ public class SalesOrderService {
 
     private static SalesOrder requireInvoice(SalesOrder order) {
         if (!order.isInvoice()) {
+            throw new BusinessRuleException("Dit document is geen factuur");
+        }
+        return order;
+    }
+
+    /** An invoice or a credit note: the flows that issue and dispatch money documents. */
+    private static SalesOrder requireClaimDocument(SalesOrder order) {
+        if (!order.isClaimDocument()) {
             throw new BusinessRuleException("Dit document is geen factuur");
         }
         return order;
@@ -1322,8 +1365,10 @@ public class SalesOrderService {
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
-                /* A partner deal keeps the container's exact pieces; other documents ship full cartons. */
-                withCostSnapshots(current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
+                /* A partner deal keeps the container's exact pieces; other documents ship full cartons.
+                   A credit note's line costs are the invoice's, never the client's or today's. */
+                current.isCreditNote() ? storedCreditCosts(changes.lines(), current.lines())
+                        : withCostSnapshots(current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
                         || (changes.markupMode() == null ? current.markupMode() : changes.markupMode()) == MarkupMode.CONTAINER_COST
                         || splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(current) != null
                         ? changes.lines() : roundLinesToCartons(changes.lines()), current.lines()),
@@ -1339,12 +1384,13 @@ public class SalesOrderService {
                 .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
                         changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
+        if (current.isCreditNote()) updated = withCreditCosts(asStoredCreditNote(updated, current));
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
         if (!saved.equals(current)) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved,
-                    saved.isInvoice() ? "Factuur bijgewerkt" : "Offerte bijgewerkt",
+                    saved.isCreditNote() ? "Creditnota bijgewerkt" : saved.isInvoice() ? "Factuur bijgewerkt" : "Offerte bijgewerkt",
                     salesChanges(current, saved));
         }
         return saved;
@@ -1453,6 +1499,7 @@ public class SalesOrderService {
     }
 
     private void requireFreightEditable(SalesOrder current) {
+        if (current.isCreditNote()) throw new BusinessRuleException("Een creditnota heeft geen vracht of levering");
         SalesLifecycle.requireTermsEditable(current);
         if (current.isInvoice() && current.status() != QuoteStatus.CONCEPT)
             throw new BusinessRuleException("De bedragen van een uitgereikte factuur kunnen niet meer worden gewijzigd");
@@ -1676,19 +1723,21 @@ public class SalesOrderService {
         requireDeletable(order);
         deletedItems.trashSales(order);
         recordActivity(ActivityLogService.ACTION_DELETED, order,
-                order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
+                order.isCreditNote() ? "Creditnota verwijderd" : order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
     }
 
     /** Read-only preview uses the same guards; deletion rechecks them under the document lock. */
     void requireDeletable(SalesOrder order) {
         long id = order.id();
+        requireNoLiveCreditNotes(order);
         if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(id))
             throw new BusinessRuleException("Een factuur met een betaalhistoriek kan niet worden verwijderd, ook niet na intrekking van betalingen");
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
         SalesLifecycle.requireDeletable(order, hasRevisions);
-        if (order.isInvoice() && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT))
-            throw new BusinessRuleException("Een eerder uitgereikte factuur blijft bewaard, ook nadat ze heropend is");
-        boolean hasDerivedInvoice = !order.isInvoice() && orders.existsBySourceQuoteId(id);
+        if (order.isClaimDocument() && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT))
+            throw new BusinessRuleException(order.isCreditNote() ? "Een eerder uitgereikte creditnota blijft bewaard, ook nadat ze heropend is"
+                    : "Een eerder uitgereikte factuur blijft bewaard, ook nadat ze heropend is");
+        boolean hasDerivedInvoice = !order.isClaimDocument() && orders.existsBySourceQuoteId(id);
         if (hasDerivedInvoice) {
             throw new BusinessRuleException(
                     "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
@@ -1698,6 +1747,9 @@ public class SalesOrderService {
     /** Reopening changes financial participation; check it under the parent and document locks. */
     void requireReopenable(SalesOrder order) {
         if (order.isArchived()) throw new BusinessRuleException("Haal het document eerst uit het archief");
+        if (order.goodsReturnedAt() != null)
+            throw new BusinessRuleException("De retour van deze creditnota staat al in de voorraad; ze kan niet terug naar concept");
+        requireNoLiveCreditNotes(order);
         if (order.goodsShippedAt() != null)
             throw new BusinessRuleException("De goederen zijn al verzonden; deze factuur kan niet terug naar concept");
         if (order.paidAt() != null || incomingPayments != null && incomingPayments.isResolvable()
@@ -1705,7 +1757,7 @@ public class SalesOrderService {
             throw new BusinessRuleException("Een factuur met betaalhistoriek kan niet terug naar concept");
         if (order.signedByName() != null && !order.signedByName().isBlank())
             throw new BusinessRuleException("Een ondertekend document kan niet terug naar concept");
-        if (!order.isInvoice() && orders.existsBySourceQuoteId(order.id()))
+        if (!order.isClaimDocument() && orders.existsBySourceQuoteId(order.id()))
             throw new BusinessRuleException("Er bestaat al een factuur uit deze offerte; open de gekoppelde factuur");
         if (revisions.findByOrder(order.id()).stream().anyMatch(revision -> revision.status() == RevisionStatus.IN_AFWACHTING))
             throw new BusinessRuleException("Behandel eerst het open wijzigingsvoorstel van de klant");
@@ -1727,7 +1779,7 @@ public class SalesOrderService {
         orders.setArchivedAt(id, Instant.now());
         SalesOrder archived = get(id);
         recordActivity(ActivityLogService.ACTION_UPDATED, archived,
-                archived.isInvoice() ? "Factuur gearchiveerd" : "Offerte gearchiveerd");
+                archived.isCreditNote() ? "Creditnota gearchiveerd" : archived.isInvoice() ? "Factuur gearchiveerd" : "Offerte gearchiveerd");
         return archived;
     }
 
@@ -1739,13 +1791,15 @@ public class SalesOrderService {
         orders.setArchivedAt(id, null);
         SalesOrder restored = get(id);
         recordActivity(ActivityLogService.ACTION_UPDATED, restored,
-                restored.isInvoice() ? "Factuur uit het archief gehaald" : "Offerte uit het archief gehaald");
+                restored.isCreditNote() ? "Creditnota uit het archief gehaald"
+                        : restored.isInvoice() ? "Factuur uit het archief gehaald" : "Offerte uit het archief gehaald");
         return restored;
     }
 
     @Transactional
     public SalesOrder duplicate(long id) {
         SalesOrder source = get(id);
+        if (source.isCreditNote()) throw new BusinessRuleException("Maak een nieuwe creditnota vanuit de factuur");
         if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(source) != null)
             throw new BusinessRuleException("Een gesplitste levering kan niet worden gekopieerd; maak een nieuwe bestelling om dubbele aantallen te voorkomen");
         if (source.isPartnerAdvance())
@@ -1799,6 +1853,461 @@ public class SalesOrderService {
                 : SalesCreationPushNotifier.Ready.quoteDuplicated(
                         created.id(), created.number(), source.number(), actor));
         return created;
+    }
+
+
+    /* ============================================================ credit notes */
+
+    /** One product line to credit; a null price means the invoiced net unit price. */
+    public record CreditLine(Long productId, int quantity, BigDecimal unitPriceEur) {}
+    /** A free amount to credit, quantity one. */
+    public record CreditAmount(String description, BigDecimal amountEur) {}
+    public record CreditNoteRequest(CreditReason reason, List<CreditLine> lines, List<CreditAmount> amounts,
+                                    boolean creditFreight, String note) {}
+
+    /** What the sheet prefills: the invoice's lines, what was already credited and the receipt shortage. */
+    public record CreditNoteProposal(long invoiceId, String invoiceNumber, LocalDate invoiceDate, Long customerId,
+                                     SalesPurpose purpose, BigDecimal invoiceTotalInclVatEur,
+                                     BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur,
+                                     BigDecimal remainingEur, BigDecimal vatRatePct, boolean vatExempt,
+                                     CreditReason suggestedReason, List<ProposalLine> lines, BigDecimal freightEur,
+                                     boolean freightAlreadyCredited, List<ProposalExtraLine> extraLines,
+                                     ProposalContainer container,
+                                     PartnerFinancingService.PartnerCreditProposal partnerShortfall) {
+        public record ProposalLine(Long productId, String productName, String sku, String photoUrl, String unitLabel,
+                                   int invoicedQuantity, int alreadyCreditedQuantity, int suggestedQuantity,
+                                   BigDecimal netUnitPriceEur, BigDecimal unitCostEur) {}
+        public record ProposalExtraLine(String description, BigDecimal quantity, BigDecimal unitPriceEur, BigDecimal totalEur) {}
+        public record ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces) {}
+    }
+
+    /** The extra line a credit note carries when the invoice's freight and handling are credited. */
+    static final String FREIGHT_CREDIT_PREFIX = "Vracht en handling · ";
+    private static final BigDecimal CENT = new BigDecimal("0.01");
+
+    /** Every credit note on that invoice that still counts: not cancelled, concepts included. */
+    public List<SalesOrder> liveCreditNotesOf(long invoiceId) {
+        return orders.findAll().stream().filter(order -> order.isCreditNote()
+                && Long.valueOf(invoiceId).equals(order.creditedInvoiceId()) && PartnerFinancingService.live(order))
+                .sorted(java.util.Comparator.comparing(SalesOrder::id)).toList();
+    }
+
+    /** Read-only: what a credit note on this invoice could contain, prefilled from the container receipt. */
+    public CreditNoteProposal proposeCreditNote(long invoiceId) {
+        SalesOrder original = requireCreditable(get(invoiceId));
+        PricedOrder priced = price(original);
+        List<SalesOrder> existing = liveCreditNotesOf(invoiceId);
+        Map<Long, Integer> credited = creditedQuantities(existing);
+        Map<Long, SalesOrderLine> stored = original.lines().stream().filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(), (left, right) -> left));
+        ProposalContainerFacts container = containerFacts(original);
+        boolean anyMissing = false, anyDamaged = false;
+        List<CreditNoteProposal.ProposalLine> lines = new java.util.ArrayList<>();
+        for (PricedOrder.Line line : priced.lines()) {
+            if (line.productId() == null || line.unavailable() || line.quantity() <= 0) continue;
+            int already = credited.getOrDefault(line.productId(), 0);
+            int remaining = Math.max(0, line.quantity() - already);
+            int missing = container == null || !container.received ? 0 : container.missing.getOrDefault(line.productId(), 0);
+            int damaged = container == null || !container.received ? 0 : container.damaged.getOrDefault(line.productId(), 0);
+            int suggested = Math.min(remaining, missing + damaged);
+            if (suggested > 0 && missing > 0) anyMissing = true;
+            if (suggested > 0 && damaged > 0) anyDamaged = true;
+            SalesOrderLine source = stored.get(line.productId());
+            lines.add(new CreditNoteProposal.ProposalLine(line.productId(), line.description(), line.sku(), line.photoUrl(), "st",
+                    line.quantity(), already, suggested, netUnit(priced, line),
+                    source == null || source.unitCostEur() == null ? line.landedUnitCost() : source.unitCostEur()));
+        }
+        BigDecimal total = Money.money(priced.totals().totalInclVat());
+        BigDecimal alreadyCredited = existing.stream().map(note -> Money.money(price(note).totals().totalInclVat()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal freight = Money.money(Money.nz(priced.totals().freight()).add(Money.nz(priced.totals().handling())));
+        boolean freightCredited = existing.stream().anyMatch(note -> hasFreightCredit(note, original.number()));
+        BigDecimal remaining = incomingPayments != null && incomingPayments.isResolvable()
+                ? incomingPayments.get().summary(original, priced).remainingEur() : total;
+        CreditReason suggestedReason = original.purpose() == SalesPurpose.PARTNER_ADVANCE ? CreditReason.PARTNER_SHORTFALL
+                : anyMissing ? CreditReason.SHORT_DELIVERY : anyDamaged ? CreditReason.DAMAGED
+                : lines.isEmpty() ? CreditReason.PRICE_CORRECTION : CreditReason.RETURN;
+        PartnerFinancingService.PartnerCreditProposal partnerShortfall = original.purpose() == SalesPurpose.PARTNER_ADVANCE
+                && original.linkedPurchaseOrderId() != null && partnerFinancing != null && partnerFinancing.isResolvable()
+                ? partnerFinancing.get().creditProposal(original.linkedPurchaseOrderId()) : null;
+        return new CreditNoteProposal(original.id(), original.number(), original.orderDate(), original.customerId(),
+                original.purpose(), total, Money.money(alreadyCredited), total.subtract(alreadyCredited).max(BigDecimal.ZERO),
+                Money.money(remaining), Money.nz(priced.totals().vatRatePct()),
+                priced.totals().vatTreatment() != null && priced.totals().vatTreatment().isExempt(),
+                suggestedReason, List.copyOf(lines), freight, freightCredited,
+                priced.extraLines().stream().map(extra -> new CreditNoteProposal.ProposalExtraLine(
+                        extra.description(), extra.quantity(), extra.unitPrice(), extra.total())).toList(),
+                container == null ? null : new CreditNoteProposal.ProposalContainer(container.id, container.number,
+                        container.received, container.missing.values().stream().mapToInt(Integer::intValue).sum(),
+                        container.damaged.values().stream().mapToInt(Integer::intValue).sum()),
+                partnerShortfall);
+    }
+
+    /**
+     * A credit note on an issued invoice: positive lines and amounts, capped
+     * per product and in total by what the invoice claimed. The container of a
+     * partner document is locked first, as every partner money flow does.
+     */
+    @Transactional
+    public SalesOrder createCreditNote(long invoiceId, CreditNoteRequest request) {
+        if (request == null) throw new BusinessRuleException("Geen creditnotagegevens meegestuurd");
+        SalesOrder beforeLock = requireCreditable(get(invoiceId));
+        if (beforeLock.isPartnerDeal() && purchaseOrders != null && purchaseOrders.isResolvable())
+            purchaseOrders.get().lockForPartnerSettlement(beforeLock.linkedPurchaseOrderId());
+        lockDocumentForMutation(invoiceId);
+        SalesOrder original = requireCreditable(get(invoiceId));
+        if (request.reason() == null) throw new BusinessRuleException("Kies een reden voor de creditnota");
+        CreditReason reason = request.reason();
+        List<CreditLine> requestedLines = request.lines() == null ? List.of()
+                : request.lines().stream().filter(Objects::nonNull).toList();
+        List<CreditAmount> requestedAmounts = request.amounts() == null ? List.of()
+                : request.amounts().stream().filter(Objects::nonNull).toList();
+        if (requestedLines.isEmpty() && requestedAmounts.isEmpty() && !request.creditFreight())
+            throw new BusinessRuleException("Kies minstens één regel of bedrag om te crediteren");
+        if (original.purpose() == SalesPurpose.PARTNER_ADVANCE) {
+            requireNoLiveSettlementFor(original);
+            if (!requestedLines.isEmpty())
+                throw new BusinessRuleException("Een creditnota op een voorschot bevat alleen een bedrag, geen producten");
+        }
+        PricedOrder priced = price(original);
+        List<SalesOrder> existing = liveCreditNotesOf(invoiceId);
+        Map<Long, Integer> credited = creditedQuantities(existing);
+        Map<Long, PricedOrder.Line> invoiced = priced.lines().stream()
+                .filter(line -> line.productId() != null && !line.unavailable() && line.quantity() > 0)
+                .collect(Collectors.toMap(PricedOrder.Line::productId, Function.identity(), (left, right) -> left));
+        Map<Long, SalesOrderLine> stored = original.lines().stream().filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(), (left, right) -> left));
+        List<SalesOrderLine> lines = new java.util.ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (CreditLine line : requestedLines) {
+            String product = productLabel(line.productId(), invoiced.get(line.productId()));
+            if (line.productId() == null || !invoiced.containsKey(line.productId()))
+                throw new BusinessRuleException(product + " staat niet op factuur " + original.number());
+            if (!seen.add(line.productId()))
+                throw new BusinessRuleException(product + " staat dubbel op de creditnota");
+            if (line.quantity() < 1) throw new BusinessRuleException("Vul een aantal van minstens 1 in");
+            PricedOrder.Line invoicedLine = invoiced.get(line.productId());
+            int remaining = Math.max(0, invoicedLine.quantity() - credited.getOrDefault(line.productId(), 0));
+            if (line.quantity() > remaining)
+                throw new BusinessRuleException("Van " + product + " zijn nog " + remaining + " stuks te crediteren op " + original.number());
+            BigDecimal invoicedUnit = netUnit(priced, invoicedLine);
+            BigDecimal unitPrice = line.unitPriceEur() == null ? invoicedUnit : Money.unit(line.unitPriceEur());
+            if (unitPrice.signum() <= 0 || unitPrice.compareTo(invoicedUnit) > 0)
+                throw new BusinessRuleException("De creditprijs per stuk kan niet hoger zijn dan de gefactureerde prijs (€ "
+                        + unitText(invoicedUnit) + ")");
+            SalesOrderLine source = stored.get(line.productId());
+            BigDecimal unitCost = reason == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
+                    : source != null && source.unitCostEur() != null ? source.unitCostEur() : Money.unit(invoicedLine.landedUnitCost());
+            lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unitPrice, BigDecimal.ZERO, null,
+                    unitCost, false, null));
+        }
+        List<SalesExtraLine> extras = new java.util.ArrayList<>();
+        for (CreditAmount amount : requestedAmounts) {
+            if (amount.amountEur() == null || Money.money(amount.amountEur()).signum() <= 0)
+                throw new BusinessRuleException("Een creditbedrag is groter dan nul");
+            extras.add(new SalesExtraLine(amount.description() == null ? "" : amount.description().strip(),
+                    BigDecimal.ONE, Money.money(amount.amountEur())));
+        }
+        if (request.creditFreight()) {
+            if (existing.stream().anyMatch(note -> hasFreightCredit(note, original.number())))
+                throw new BusinessRuleException("De vracht van " + original.number() + " is al gecrediteerd");
+            BigDecimal freight = Money.money(Money.nz(priced.totals().freight()).add(Money.nz(priced.totals().handling())));
+            if (freight.signum() > 0) extras.add(new SalesExtraLine(FREIGHT_CREDIT_PREFIX + original.number(), BigDecimal.ONE, freight));
+        }
+        if (lines.isEmpty() && extras.isEmpty())
+            throw new BusinessRuleException("Kies minstens één regel of bedrag om te crediteren");
+        ActorRef creator = currentActor();
+        LocalDate today = LocalDate.now();
+        SalesOrder creditNote = new SalesOrder(
+                null, nextCreditNoteNumber(), original.customerId(), original.countryCode(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, original.incoterm(),
+                original.paymentTerms(), request.note() == null || request.note().isBlank() ? null : request.note().strip(),
+                MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
+                null, null, null, 0, null, null, null, original.internalNotes(),
+                DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
+                original.loadMode(), original.palletProfile(), original.maxPalletHeightCm(),
+                FreightPricingStrategy.FIXED, null, original.freightCarrierId(), null,
+                DocumentType.CREDITNOTA, today, null, null, null,
+                lines, List.of(), null, null, extras,
+                original.partnerPurchaseOrderId(), original.partnerSharePct(), false, original.rawSalesChannel(),
+                original.purpose(), original.linkedPurchaseOrderId(), SalesPaymentPlan.FULL,
+                original.id(), reason, null);
+        validateForSave(creditNote);
+        requireWithinCreditCap(original, creditNote);
+        SalesOrder created = orders.save(creditNote);
+        if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
+            invoiceDeclarations.get().copy(original.id(), created.id());
+        BigDecimal creditTotal = Money.money(price(created).totals().totalInclVat());
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), creator.displayName(), false,
+                "Creditnota opgemaakt op " + original.number() + " · " + reason.dutchLabel(), null));
+        events.add(new QuoteEvent(null, original.id(), QuoteEvent.Type.GECREDITEERD, Instant.now(), creator.displayName(), false,
+                "Creditnota " + created.number() + " in concept · € " + money(creditTotal) + " incl. btw", null));
+        recordActivity(created, "Creditnota aangemaakt op " + original.number());
+        recordActivity(ActivityLogService.ACTION_CREDITED, original, "Creditnota " + created.number() + " aangemaakt · "
+                + reason.dutchLabel());
+        if (created.isPartnerDeal())
+            recordPurchaseActivity(created.linkedPurchaseOrderId(), null,
+                    created.number() + " aangemaakt als creditnota op " + original.number());
+        return created;
+    }
+
+    /**
+     * Books the credited goods back into the warehouse, once, explicitly.
+     * Damaged pieces are written off by hand afterwards: the stock book
+     * first records what came back, then what it was worth.
+     */
+    @Transactional
+    public SalesOrder returnGoods(long id) {
+        lockDocumentForMutation(id);
+        SalesOrder creditNote = get(id);
+        if (!creditNote.isCreditNote() || creditNote.status() == QuoteStatus.CONCEPT
+                || !PartnerFinancingService.live(creditNote)
+                || creditNote.lines().stream().noneMatch(line -> !line.isUnavailable() && line.quantity() > 0))
+            throw new BusinessRuleException("Alleen een uitgereikte creditnota met productregels neemt goederen terug");
+        if (creditNote.purpose() != SalesPurpose.STANDARD || creditNote.isPartnerDeal())
+            throw new BusinessRuleException("Een partnercreditnota boekt geen voorraad");
+        SalesOrder original = creditedOriginal(creditNote);
+        if (original.goodsShippedAt() == null)
+            throw new BusinessRuleException("De goederen van " + original.number()
+                    + " zijn nog niet als verzonden geboekt; er valt niets terug te nemen");
+        if (creditNote.goodsReturnedAt() != null)
+            throw new BusinessRuleException("De goederen van " + creditNote.number() + " staan al terug in voorraad");
+        int pieces = 0;
+        for (SalesOrderLine line : creditNote.lines()) {
+            if (line.isUnavailable() || line.quantity() <= 0) continue;
+            products.returnStock(line.productId(), line.quantity(), creditNote.number());
+            pieces += line.quantity();
+        }
+        SalesOrder saved = orders.save(creditNote.withGoodsReturnedAt(Instant.now()));
+        events.add(new QuoteEvent(null, id, QuoteEvent.Type.GOEDEREN_RETOUR, Instant.now(), currentActor().displayName(), false,
+                "Goederen terug in voorraad · " + pieces + " st", null));
+        recordActivity(ActivityLogService.ACTION_STOCK_RETURNED, saved, "Goederen terug in voorraad · " + pieces + " st");
+        return saved;
+    }
+
+    /** The invoice a credit note was made on; a credit note without one is corrupt data, not a rule. */
+    SalesOrder creditedOriginal(SalesOrder creditNote) {
+        if (creditNote.creditedInvoiceId() == null)
+            throw new BusinessRuleException("Creditnota " + creditNote.number() + " is niet aan een factuur gekoppeld");
+        return orders.findById(creditNote.creditedInvoiceId())
+                .orElseThrow(() -> new BusinessRuleException("De factuur van creditnota " + creditNote.number() + " bestaat niet meer"));
+    }
+
+    /** The original must be an issued, live invoice; a concept is simply edited instead. */
+    private static SalesOrder requireCreditable(SalesOrder original) {
+        if (!original.isInvoice()) throw new BusinessRuleException("Een creditnota maak je op een factuur");
+        if (original.status() == QuoteStatus.CONCEPT)
+            throw new BusinessRuleException("Reik factuur " + original.number()
+                    + " eerst uit. Een concept pas je gewoon aan, daar hoort geen creditnota bij");
+        if (!PartnerFinancingService.live(original))
+            throw new BusinessRuleException("Factuur " + original.number() + " is niet actief");
+        return original;
+    }
+
+    /** Once a settlement has netted the advance, the correction belongs on that settlement. */
+    private void requireNoLiveSettlementFor(SalesOrder advance) {
+        Long purchaseId = advance.linkedPurchaseOrderId();
+        SalesOrder settlement = orders.findAll().stream().filter(order -> order.isInvoice()
+                && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT
+                && Objects.equals(purchaseId, order.linkedPurchaseOrderId())
+                && PartnerFinancingService.live(order)).findFirst().orElse(null);
+        if (settlement != null)
+            throw new BusinessRuleException("Afrekening " + settlement.number()
+                    + " heeft het voorschot al verrekend; maak de creditnota op die afrekening");
+    }
+
+    /** Issuing a credit note re-checks what creation checked, under the same container lock. */
+    private void requireCreditNoteIssuable(SalesOrder creditNote) {
+        if (creditNote.purpose() == SalesPurpose.PARTNER_ADVANCE && creditNote.linkedPurchaseOrderId() != null) {
+            if (purchaseOrders != null && purchaseOrders.isResolvable())
+                purchaseOrders.get().lockForPartnerSettlement(creditNote.linkedPurchaseOrderId());
+            requireNoLiveSettlementFor(creditNote);
+        }
+    }
+
+    /** An invoice with a live credit note, concept included, keeps its shape: cancel or delete that first. */
+    private void requireNoLiveCreditNotes(SalesOrder order) {
+        if (!order.isInvoice() || order.id() == null) return;
+        List<SalesOrder> live = liveCreditNotesOf(order.id());
+        if (!live.isEmpty())
+            throw new BusinessRuleException("Factuur " + order.number() + " heeft creditnota " + live.getFirst().number()
+                    + "; annuleer of verwijder die eerst");
+    }
+
+    /** Together, the live credit notes on an invoice never credit more than it claimed, a cent per line of rounding aside. */
+    private void requireWithinCreditCap(SalesOrder original, SalesOrder candidate) {
+        BigDecimal cap = Money.money(price(original).totals().totalInclVat())
+                .add(CENT.multiply(BigDecimal.valueOf(candidate.lines().size())));
+        List<SalesOrder> others = liveCreditNotesOf(original.id()).stream()
+                .filter(note -> !Objects.equals(note.id(), candidate.id())).toList();
+        BigDecimal credited = others.stream().map(note -> Money.money(price(note).totals().totalInclVat()))
+                .reduce(Money.money(price(candidate).totals().totalInclVat()), BigDecimal::add);
+        if (credited.compareTo(cap) > 0) {
+            String names = others.stream().map(SalesOrder::number).collect(Collectors.joining(", "));
+            throw new BusinessRuleException("Samen met " + (names.isEmpty() ? "deze creditnota" : names)
+                    + " zou meer gecrediteerd worden dan factuur " + original.number()
+                    + " (€ " + money(price(original).totals().totalInclVat()) + " incl. btw)");
+        }
+    }
+
+    /**
+     * The stored row decides what a credit note is; an edit only changes its
+     * lines, amounts, notes and number. The customer, country and terms follow
+     * the invoice it credits: priced in another regime it would no longer be
+     * a credit on that invoice, and the offset would refuse it.
+     */
+    private static SalesOrder asStoredCreditNote(SalesOrder updated, SalesOrder stored) {
+        List<SalesOrderLine> lines = updated.lines().stream().map(line -> new SalesOrderLine(line.id(), line.productId(),
+                line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null)).toList();
+        return new SalesOrder(updated.id(), updated.number(), stored.customerId(), stored.countryCode(),
+                updated.orderDate(), updated.validUntil(), updated.status(), stored.incoterm(),
+                stored.paymentTerms(), updated.notes(), MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
+                updated.portalToken(), updated.sentAt(), updated.viewedAt(), updated.viewCount(), updated.decidedAt(),
+                updated.signedByName(), updated.customerMessage(), updated.internalNotes(),
+                DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
+                updated.loadMode(), updated.palletProfile(), updated.maxPalletHeightCm(),
+                FreightPricingStrategy.FIXED, null, updated.freightCarrierId(), null,
+                DocumentType.CREDITNOTA, updated.invoiceDueDate(), updated.paidAt(), null, updated.goodsShippedAt(),
+                lines, List.of(), null, updated.archivedAt(), updated.extraLines(),
+                stored.partnerPurchaseOrderId(), stored.partnerSharePct(), false, updated.rawSalesChannel(),
+                stored.purpose(), stored.linkedPurchaseOrderId(), SalesPaymentPlan.FULL,
+                stored.creditedInvoiceId(), stored.creditReason(), stored.goodsReturnedAt());
+    }
+
+    /**
+     * On an edit a stored credit line keeps the cost it was written with, an
+     * explicit zero included; a line the client adds arrives without one, so
+     * withCreditCosts gives it the invoice's snapshot. Whatever cost the
+     * client sent is dropped: it was never the client's to decide.
+     */
+    private static List<SalesOrderLine> storedCreditCosts(List<SalesOrderLine> lines, List<SalesOrderLine> stored) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        return lines.stream().map(line -> {
+            if (line == null) return null;
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            return line.withUnitCost(known == null ? null : known.unitCostEur());
+        }).toList();
+    }
+
+    /** A line added to a concept credit note takes the cost the invoice wrote, zero on a price correction. */
+    private SalesOrder withCreditCosts(SalesOrder creditNote) {
+        if (creditNote.lines().stream().allMatch(line -> line == null || line.unitCostEur() != null)) return creditNote;
+        Map<Long, SalesOrderLine> original = creditedOriginal(creditNote).lines().stream().filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(), (left, right) -> left));
+        List<SalesOrderLine> lines = creditNote.lines().stream().map(line -> {
+            if (line == null || line.unitCostEur() != null) return line;
+            SalesOrderLine source = original.get(line.productId());
+            BigDecimal cost = creditNote.creditReason() == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
+                    : source == null ? null : source.unitCostEur();
+            return cost == null ? line : line.withUnitCost(cost);
+        }).toList();
+        return creditNote.withLinesAndPallets(lines, List.of());
+    }
+
+    /** Runs at creation and on every edit of a concept: caps against the original, positive amounts only. */
+    private void validateCreditNoteForSave(SalesOrder creditNote) {
+        if (creditNote.creditedInvoiceId() == null)
+            throw new BusinessRuleException("Een creditnota hoort bij een factuur");
+        if (creditNote.creditReason() == null) throw new BusinessRuleException("Kies een reden voor de creditnota");
+        for (SalesExtraLine extra : creditNote.extraLines()) {
+            if (extra.total().signum() < 0 || Money.nz(extra.unitPriceEur()).signum() < 0)
+                throw new BusinessRuleException("Op een creditnota staan alleen positieve bedragen");
+        }
+        SalesOrder original = creditedOriginal(creditNote);
+        PricedOrder priced = price(original);
+        Map<Long, PricedOrder.Line> invoiced = priced.lines().stream()
+                .filter(line -> line.productId() != null && !line.unavailable() && line.quantity() > 0)
+                .collect(Collectors.toMap(PricedOrder.Line::productId, Function.identity(), (left, right) -> left));
+        Map<Long, Integer> credited = creditedQuantities(liveCreditNotesOf(original.id()).stream()
+                .filter(note -> !Objects.equals(note.id(), creditNote.id())).toList());
+        for (SalesOrderLine line : creditNote.lines()) {
+            if (line == null || line.productId() == null) continue;
+            PricedOrder.Line invoicedLine = invoiced.get(line.productId());
+            String product = productLabel(line.productId(), invoicedLine);
+            if (invoicedLine == null) throw new BusinessRuleException(product + " staat niet op factuur " + original.number());
+            if (line.quantity() < 1) throw new BusinessRuleException("Vul een aantal van minstens 1 in");
+            int remaining = Math.max(0, invoicedLine.quantity() - credited.getOrDefault(line.productId(), 0));
+            if (line.quantity() > remaining)
+                throw new BusinessRuleException("Van " + product + " zijn nog " + remaining + " stuks te crediteren op " + original.number());
+            BigDecimal invoicedUnit = netUnit(priced, invoicedLine);
+            if (line.unitPriceEur() == null || line.unitPriceEur().signum() <= 0 || Money.unit(line.unitPriceEur()).compareTo(invoicedUnit) > 0)
+                throw new BusinessRuleException("De creditprijs per stuk kan niet hoger zijn dan de gefactureerde prijs (€ "
+                        + unitText(invoicedUnit) + ")");
+        }
+        if (creditNote.id() != null) requireWithinCreditCap(original, creditNote);
+    }
+
+    /** GECREDITEERD on the original, so its history tells the whole story of its credit notes. */
+    void recordCreditedEvent(SalesOrder creditNote, String summary) {
+        if (creditNote.creditedInvoiceId() == null) return;
+        events.add(new QuoteEvent(null, creditNote.creditedInvoiceId(), QuoteEvent.Type.GECREDITEERD, Instant.now(),
+                currentActor().displayName(), false, summary, null));
+    }
+
+    private static Map<Long, Integer> creditedQuantities(List<SalesOrder> creditNotes) {
+        Map<Long, Integer> credited = new HashMap<>();
+        for (SalesOrder note : creditNotes)
+            for (SalesOrderLine line : note.lines())
+                if (line.productId() != null && !line.isUnavailable()) credited.merge(line.productId(), line.quantity(), Integer::sum);
+        return credited;
+    }
+
+    static boolean hasFreightCredit(SalesOrder creditNote, String originalNumber) {
+        return creditNote.extraLines().stream().anyMatch(line -> line.description() != null
+                && line.description().equals(FREIGHT_CREDIT_PREFIX + originalNumber));
+    }
+
+    /**
+     * The invoiced net unit price: what one piece actually cost the customer
+     * after every discount. The line carries its own tier and manual discount;
+     * the order tier and the extra discount come off the subtotal, so they are
+     * folded in here or a partial credit hands back more than was charged.
+     */
+    private static BigDecimal netUnit(PricedOrder priced, PricedOrder.Line line) {
+        BigDecimal lineUnit = line.netUnitPrice() != null && line.netUnitPrice().signum() > 0 ? Money.unit(line.netUnitPrice())
+                : line.quantity() > 0 ? Money.nz(line.net()).divide(BigDecimal.valueOf(line.quantity()), 4, java.math.RoundingMode.HALF_UP)
+                : Money.unit(line.unitPrice());
+        BigDecimal factor = orderLevelFactor(priced.totals());
+        return factor.compareTo(BigDecimal.ONE) == 0 ? lineUnit : Money.unit(lineUnit.multiply(factor));
+    }
+
+    /** The share of a line's net that survives the order tier and the extra discount, in the calculator's order. */
+    private static BigDecimal orderLevelFactor(PricedOrder.Totals totals) {
+        BigDecimal afterTier = BigDecimal.ONE.subtract(Money.nz(totals.orderDiscountPercent()).divide(Money.HUNDRED, 6, java.math.RoundingMode.HALF_UP));
+        BigDecimal afterExtra = BigDecimal.ONE.subtract(Money.nz(totals.extraDiscountPercent()).divide(Money.HUNDRED, 6, java.math.RoundingMode.HALF_UP));
+        return afterTier.multiply(afterExtra);
+    }
+
+    private String productLabel(Long productId, PricedOrder.Line invoicedLine) {
+        if (invoicedLine != null && invoicedLine.description() != null) return invoicedLine.description();
+        if (productId == null) return "Het product";
+        try { return products.get(productId).describe(); } catch (RuntimeException missing) { return "Product " + productId; }
+    }
+
+    private static String unitText(BigDecimal amount) {
+        return String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.4f", Money.unit(amount));
+    }
+
+    private record ProposalContainerFacts(long id, String number, boolean received, Map<Long, Integer> missing, Map<Long, Integer> damaged) {}
+
+    /** The container the invoice came from, with its receipt shortage per product once it has arrived. */
+    private ProposalContainerFacts containerFacts(SalesOrder original) {
+        Long purchaseId = original.linkedPurchaseOrderId();
+        if (purchaseId == null || purchaseOrders == null || !purchaseOrders.isResolvable()) return null;
+        PurchaseOrder container;
+        try { container = purchaseOrders.get().get(purchaseId); } catch (NotFoundException gone) { return null; }
+        boolean received = container.status() == be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN || container.receivedOn() != null;
+        Map<Long, Integer> missing = new HashMap<>();
+        Map<Long, Integer> damaged = new HashMap<>();
+        if (received) for (PurchaseOrderLine line : container.lines()) {
+            if (line.productId() == null) continue;
+            if (line.missing() > 0) missing.merge(line.productId(), line.missing(), Integer::sum);
+            if (line.damaged() > 0) damaged.merge(line.productId(), line.damaged(), Integer::sum);
+        }
+        return new ProposalContainerFacts(container.id(), container.number(), received, missing, damaged);
     }
 
     /** Rechecks an existing draft/open quotation before a document leaves. */
@@ -1885,6 +2394,7 @@ public class SalesOrderService {
             throw new BusinessRuleException("Incoterm is verplicht");
         }
         requireValidExtraLines(order.extraLines());
+        if (order.isCreditNote()) validateCreditNoteForSave(order);
         if (order.markupMode() == null) {
             throw new BusinessRuleException("Kies hoe de opslag wordt berekend");
         }
@@ -2333,22 +2843,27 @@ public class SalesOrderService {
     }
 
     private String nextNumber() {
-        return nextNumber(profile().quotePrefix() + "-{jaar}-{nr}", false, null);
+        return nextNumber(profile().quotePrefix() + "-{jaar}-{nr}", DocumentType.OFFERTE, null);
     }
 
     /** Invoices number their own gapless-enough series: F-2026-0001. */
     private String nextInvoiceNumber() {
-        return nextNumber(profile().invoicePrefix() + "-{jaar}-{nr}", true, null);
+        return nextNumber(profile().invoicePrefix() + "-{jaar}-{nr}", DocumentType.FACTUUR, null);
     }
 
     /** Container quotes carry their own series, retaining sequence continuity with legacy numbers. */
     private String nextPartnerQuoteNumber() {
-        return nextNumber(profile().partnerQuotePattern(), false, profile().partnerQuoteNextNumber());
+        return nextNumber(profile().partnerQuotePattern(), DocumentType.OFFERTE, profile().partnerQuoteNextNumber());
     }
 
     /** Advance and final invoices share a neutral container series. */
     private String nextPartnerInvoiceNumber() {
-        return nextNumber(profile().partnerInvoicePattern(), true, profile().partnerInvoiceNextNumber());
+        return nextNumber(profile().partnerInvoicePattern(), DocumentType.FACTUUR, profile().partnerInvoiceNextNumber());
+    }
+
+    /** Standard and partner credit notes share one journal: CN-2026-0001. */
+    private String nextCreditNoteNumber() {
+        return nextNumber(profile().creditNotePrefix() + "-{jaar}-{nr}", DocumentType.CREDITNOTA, null);
     }
 
     private be.enrosed.shared.company.CompanyProfile profile() {
@@ -2361,20 +2876,21 @@ public class SalesOrderService {
      * series counts on whatever the letters in front were: change the prefix
      * in settings and the numbering simply carries on under the new one.
      */
-    private String nextNumber(String pattern, boolean invoices, Integer floor) {
+    private String nextNumber(String pattern, DocumentType series, Integer floor) {
         int year = LocalDate.now().getYear();
         /* The plain series accept any letters in front, so a changed prefix carries on; a partner
-           pattern is matched as written. */
-        java.util.regex.Pattern series = pattern.matches("^[A-Z0-9]+-\\{jaar\\}-\\{nr\\}$")
+           pattern is matched as written. The document type keeps the series apart: a credit note
+           never consumes an invoice number and vice versa. */
+        java.util.regex.Pattern matcher = pattern.matches("^[A-Z0-9]+-\\{jaar\\}-\\{nr\\}$")
                 ? java.util.regex.Pattern.compile("^[A-Za-z0-9]+-" + year + "-(\\d+)$")
                 : NumberSeries.continuingContainerSeries(pattern, year);
         int highest = orders.numbersIncludingDeleted().stream()
-                .filter(order -> order.invoice() == invoices)
+                .filter(order -> order.docType() == series)
                 .map(SalesRepositories.Orders.ReservedNumber::number)
                 .filter(java.util.Objects::nonNull)
-                .map(series::matcher)
+                .map(matcher::matcher)
                 .filter(java.util.regex.Matcher::matches)
-                .mapToInt(matcher -> Integer.parseInt(matcher.group(1)))
+                .mapToInt(hit -> Integer.parseInt(hit.group(1)))
                 .max()
                 .orElse(0);
         int next = Math.max(highest + 1, floor == null ? 1 : floor);

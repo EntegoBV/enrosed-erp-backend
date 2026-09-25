@@ -19,4 +19,7 @@ public class SalesPaymentEntity {
     @Column(nullable = false) public boolean legacy;
     @Column(name = "voided_at") public Instant voidedAt;
     @Column(name = "legacy_key", unique = true, length = 80) public String legacyKey;
+    /** Offset pairs: the other document and the other row; null on bank movements. */
+    @Column(name = "offset_sales_order_id") public Long offsetOrderId;
+    @Column(name = "offset_payment_id") public Long offsetPaymentId;
 }

@@ -540,6 +540,101 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void creditNoteReadsAsACreditNoteWithItsInvoiceReasonVatMentionAndSettlement() throws Exception {
+        var creditNote = order(DocumentType.FACTUUR, "CN-2026-0001", 2)
+                .asCreditNoteOn(147L, be.enrosed.sales.domain.CreditReason.SHORT_DELIVERY);
+        var original = order(DocumentType.FACTUUR, "F-2026-0012", 2);
+        var offsetInvoice = order(DocumentType.FACTUUR, "F-2026-0010", 1);
+        var orders = mock(be.enrosed.sales.application.port.out.SalesRepositories.Orders.class);
+        Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orderInstance = mock(Instance.class);
+        when(orderInstance.isResolvable()).thenReturn(true);
+        when(orderInstance.get()).thenReturn(orders);
+        when(orders.findById(147L)).thenReturn(java.util.Optional.of(original));
+        when(orders.findById(150L)).thenReturn(java.util.Optional.of(offsetInvoice));
+        renderer.orders = orderInstance;
+        var incoming = mock(be.enrosed.sales.application.IncomingPaymentService.class);
+        Instance<be.enrosed.sales.application.IncomingPaymentService> receiptInstance = mock(Instance.class);
+        when(receiptInstance.isResolvable()).thenReturn(true);
+        when(receiptInstance.get()).thenReturn(incoming);
+        renderer.incomingPayments = receiptInstance;
+        var price = priced(2);
+        var at = java.time.Instant.parse("2026-09-20T10:00:00Z");
+        var offset = new be.enrosed.sales.domain.SalesPayment(1L, 148L, bd("-200"), at, "Europe/Brussels", "Verrekening", at, "Emre", false, null, 150L, 2L);
+        var refund = new be.enrosed.sales.domain.SalesPayment(3L, 148L, bd("-100"), at, "Europe/Brussels", "Terugbetaling", at, "Emre", false, null);
+        var open = price.totals().totalInclVat().subtract(bd("300"));
+        when(incoming.summary(creditNote, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                price.totals().totalInclVat().negate(), bd("-300"), bd("0"), bd("0"), open,
+                be.enrosed.sales.domain.SalesPaymentSummary.Status.CREDIT, List.of(offset, refund), List.of(), false,
+                bd("0"), bd("300"), open));
+
+        var dutch = renderer.render(creditNote, price, customer(), null, Language.NL, SalesPdfOptions.defaults());
+        writePreview("enrosed-credit-note-nl.pdf", dutch.content());
+        assertEquals("CN-2026-0001.pdf", dutch.filename());
+        try (PDDocument pdf = Loader.loadPDF(dutch.content())) {
+            assertPortraitAndEmbedded(pdf);
+            String text = textOf(pdf);
+            assertTrue(text.contains("creditnota"), text);
+            assertTrue(text.contains("creditnota op factuur f-2026-0012 van 27/08/2026"), text);
+            assertTrue(text.contains("reden: te weinig geleverd"), text);
+            assertTrue(text.contains("totaal creditnota"), text);
+            assertTrue(text.contains("btw terug te storten aan de staat"), text);
+            assertTrue(text.contains("geen geldige creditnota"), text);
+            assertTrue(text.contains("peppol"), text);
+            assertTrue(text.contains("afhandeling"), text);
+            assertTrue(text.contains("tegoed"), text);
+            assertTrue(text.contains("verrekend met factuur f-2026-0010: " + be.enrosed.shared.DocumentFormat.eur(bd("200")).toLowerCase()), text);
+            assertTrue(text.contains("terugbetaald: " + be.enrosed.shared.DocumentFormat.eur(bd("100")).toLowerCase()), text);
+            assertTrue(text.contains("openstaand tegoed: " + be.enrosed.shared.DocumentFormat.eur(open).toLowerCase()), text);
+            assertFalse(text.contains("te betalen"), text);
+            assertFalse(text.contains("be68 5390"), text);
+            assertFalse(text.contains("mededeling"), text);
+            assertFalse(text.contains("vervaldatum"), text);
+            assertFalse(text.contains("geen geldige factuur"), text);
+            assertFalse(text.contains("vracht "), "the freight row has no place on a credit note: " + text);
+        }
+
+        var french = renderer.render(creditNote, price, customer(Language.FR), null, Language.FR, SalesPdfOptions.defaults());
+        writePreview("enrosed-credit-note-fr.pdf", french.content());
+        try (PDDocument pdf = Loader.loadPDF(french.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("note de crédit"), text);
+            assertTrue(text.contains("note de crédit sur la facture f-2026-0012 du 27/08/2026"), text);
+            assertTrue(text.contains("motif : livraison incomplète"), text);
+            assertTrue(text.contains("total note de crédit"), text);
+            assertTrue(text.contains("tva à reverser"), text);
+            assertTrue(text.contains("compensé avec la facture f-2026-0010"), text);
+            assertFalse(text.contains("à payer"), text);
+        }
+
+        /* Without receipts the whole amount is open; an exempt regime prints its own mention, not the Belgian one. */
+        var exempt = withVat(price, VatTreatment.INTRACOMMUNAUTAIR);
+        when(incoming.summary(creditNote, exempt)).thenReturn(null);
+        renderer.incomingPayments = null;
+        var german = order(DocumentType.FACTUUR, "CN-2026-0002", 2).asCreditNoteOn(147L, be.enrosed.sales.domain.CreditReason.RETURN);
+        var intra = renderer.render(german, exempt, customer(), null, Language.NL, SalesPdfOptions.defaults());
+        try (PDDocument pdf = Loader.loadPDF(intra.content())) {
+            String text = textOf(pdf);
+            assertFalse(text.contains("terug te storten"), text);
+            assertTrue(text.contains(VatTreatment.INTRACOMMUNAUTAIR.legalMentionIn(Language.NL).toLowerCase().substring(0, 24)), text);
+            assertTrue(text.contains("reden: retour van goederen"), text);
+            assertTrue(text.contains("openstaand tegoed: " + be.enrosed.shared.DocumentFormat.eur(exempt.totals().totalInclVat()).toLowerCase()), text);
+        }
+    }
+
+    private static PricedOrder withVat(PricedOrder priced, VatTreatment treatment) {
+        var t = priced.totals();
+        var zero = BigDecimal.ZERO;
+        return new PricedOrder(priced.lines(), new PricedOrder.Totals(t.pieces(), t.cartons(), t.palletsStrict(), t.palletsOptimised(),
+                t.palletsManual(), t.unassignedCartons(), t.palletBaseHeightCm(), t.palletMaxHeightCm(), t.cbm(), t.weightKg(),
+                t.gross(), t.lineDiscountTotal(), t.subtotal(), t.orderDiscountPercent(), t.orderDiscountAmount(),
+                t.extraDiscountPercent(), t.extraDiscountLabel(), t.extraDiscountAmount(), t.goodsTotal(), t.freight(),
+                t.freightIsMinimum(), t.handling(), t.shippingTotal(), t.total(), zero, zero, t.total(), treatment,
+                null, null, t.costTotal(), t.marginEur(), t.marginPct(), t.marginAfterFreightEur(), t.extraLinesTotal()),
+                priced.validation(), priced.extraLines());
+    }
+
+    @Test
     void salesPdfDefaultsAndCleanTitleAreStable() {
         SalesPdfOptions defaults = SalesPdfOptions.defaults();
         assertTrue(defaults.includePhotos());

@@ -242,6 +242,13 @@ public final class SalesEntities {
         @Enumerated(EnumType.STRING) @Column(name = "payment_plan", length = 40)
         public be.enrosed.sales.domain.SalesPaymentPlan paymentPlan;
 
+        /** Credit notes only: the invoice it corrects. */
+        @Column(name = "credited_invoice_id") public Long creditedInvoiceId;
+        /** Credit notes only: the reason, stored as plain text so an unknown value never breaks a read. */
+        @Column(name = "credit_reason", length = 40) public String creditReason;
+        /** Credit notes only: when the credited goods came back into the warehouse. */
+        @Column(name = "goods_returned_at") public Instant goodsReturnedAt;
+
         /** Immutable public collection snapshot for website requests. */
         @Column(name = "pickup_location_id")
         public Long pickupLocationId;

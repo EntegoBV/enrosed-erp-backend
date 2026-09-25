@@ -73,7 +73,7 @@ public class SalesLineAvailability {
                 || order.archivedAt() != null || order.sentAt() != null || order.viewedAt() != null || order.viewCount() != 0
                 || order.decidedAt() != null || order.goodsShippedAt() != null || order.paidAt() != null
                 || incoming.hasHistory(order.id()) || !revisions.findByOrder(order.id()).isEmpty()
-                || !order.isInvoice() && orders.existsBySourceQuoteId(order.id())
+                || !order.isClaimDocument() && orders.existsBySourceQuoteId(order.id())
                 || events.findByOrder(order.id()).stream().anyMatch(event -> switch (event.type()) {
                     case VERSTUURD, UITGEREIKT, BEKEKEN, GETEKEND, BESTELLING_VERZONDEN, BETAALD -> true;
                     default -> false;

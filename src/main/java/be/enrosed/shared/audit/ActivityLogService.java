@@ -40,6 +40,10 @@ public class ActivityLogService {
     public static final String ACTION_COSTS_APPLIED = "COSTS_APPLIED";
     public static final String ACTION_DUPLICATED = "DUPLICATED";
     public static final String ACTION_IDENTITY_FINALIZED = "IDENTITY_FINALIZED";
+    /** On an invoice: a credit note was made against it. */
+    public static final String ACTION_CREDITED = "CREDITED";
+    /** On a credit note: the credited goods came back into stock. */
+    public static final String ACTION_STOCK_RETURNED = "STOCK_RETURNED";
 
     public static final String ENTITY_PURCHASE_ORDER = "PURCHASE_ORDER";
     public static final String ENTITY_PRODUCT_FAMILY = "PRODUCT_FAMILY";

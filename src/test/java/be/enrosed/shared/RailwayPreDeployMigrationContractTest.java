@@ -108,6 +108,28 @@ class RailwayPreDeployMigrationContractTest {
                 .contains("--file=/app/migrations/" + migration.getFileName()));
     }
 
+    @Test
+    void creditNoteMigrationIsAdditiveAndRegisteredBeforeAppStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-25/credit-notes-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("alter table sales_order add column if not exists credited_invoice_id bigint"));
+        assertTrue(sql.contains("alter table sales_order add column if not exists credit_reason varchar(40)"));
+        assertTrue(sql.contains("alter table sales_order add column if not exists goods_returned_at timestamp(6) with time zone"));
+        assertTrue(sql.contains("alter table sales_payment add column if not exists offset_sales_order_id bigint"));
+        assertTrue(sql.contains("alter table sales_payment add column if not exists offset_payment_id bigint"));
+        assertTrue(sql.contains("alter table company_profile add column if not exists credit_note_number_prefix varchar(12)"));
+        assertTrue(sql.contains("'creditnota'"), "the generated doctype check must learn the new value");
+        assertTrue(sql.contains("'credit_note'"), "the generated deleted_item type check must learn the new value");
+        assertTrue(sql.contains("drop constraint if exists quote_event_type_check"));
+        assertFalse(sql.contains("stock_movement"), "the movement kind column is a plain varchar and needs nothing");
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("catalog-export-order-postgresql.sql") < runner.indexOf(migration.getFileName().toString()),
+                "the credit note columns land after every earlier script");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

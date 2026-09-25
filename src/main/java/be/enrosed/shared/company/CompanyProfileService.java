@@ -63,6 +63,7 @@ public class CompanyProfileService {
         entity.partnerInvoiceNumberPattern = profile.partnerInvoicePattern();
         entity.partnerQuoteNextNumber = profile.partnerQuoteNextNumber();
         entity.partnerInvoiceNextNumber = profile.partnerInvoiceNextNumber();
+        entity.creditNoteNumberPrefix = profile.creditNotePrefix();
         store.flush();
         return toDomain(entity);
     }
@@ -78,6 +79,6 @@ public class CompanyProfileService {
                 entity.fiscalRepresentativeName, entity.fiscalRepresentativeVat,
                 entity.quoteNumberPrefix, entity.invoiceNumberPrefix,
                 entity.partnerQuoteNumberPattern, entity.partnerInvoiceNumberPattern,
-                entity.partnerQuoteNextNumber, entity.partnerInvoiceNextNumber);
+                entity.partnerQuoteNextNumber, entity.partnerInvoiceNextNumber, entity.creditNoteNumberPrefix);
     }
 }

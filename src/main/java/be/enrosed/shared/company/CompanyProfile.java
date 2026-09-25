@@ -59,8 +59,34 @@ public record CompanyProfile(
         /** The sequence the partner quotes carry on from when the books already count further; null means from what exists. */
         Integer partnerQuoteNextNumber,
         /** The same for partner invoices. */
-        Integer partnerInvoiceNextNumber
+        Integer partnerInvoiceNextNumber,
+        /** The letters in front of credit note numbers: CN gives CN-2026-0001; one series for standard and partner credit notes. */
+        String creditNoteNumberPrefix
 ) {
+    /** Compatibility for callers written before the credit note series existed. */
+    public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
+                          String addressLine, String postalCode, String city, String countryCode,
+                          String email, String phone, String website, String iban, String bic,
+                          String documentFooter, String documentFooterEn, String termsAndConditions,
+                          String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn,
+                          String fiscalRepresentativeName, String fiscalRepresentativeVat,
+                          String quoteNumberPrefix, String invoiceNumberPrefix,
+                          String partnerQuoteNumberPattern, String partnerInvoiceNumberPattern,
+                          Integer partnerQuoteNextNumber, Integer partnerInvoiceNextNumber) {
+        this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
+                email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, fiscalRepresentativeName, fiscalRepresentativeVat,
+                quoteNumberPrefix, invoiceNumberPrefix, partnerQuoteNumberPattern, partnerInvoiceNumberPattern,
+                partnerQuoteNextNumber, partnerInvoiceNextNumber, null);
+    }
+
+    public static final String DEFAULT_CREDIT_NOTE_PREFIX = "CN";
+
+    /** The credit note prefix, letters and digits only; CN until settings say otherwise. */
+    public String creditNotePrefix() {
+        return cleanPrefix(creditNoteNumberPrefix, DEFAULT_CREDIT_NOTE_PREFIX);
+    }
+
     /** Compatibility for callers written before the partner series existed. */
     public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
                           String addressLine, String postalCode, String city, String countryCode,

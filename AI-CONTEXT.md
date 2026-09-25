@@ -80,6 +80,52 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - Quote PDF renders in the customer's language (8 languages, DejaVu fonts
   embedded for PL/TR glyphs); a download may pick a different language
   without changing the customer.
+- **Credit notes** (2026-09-25): `DocumentType.CREDITNOTA` on `sales_order`
+  with positive lines; the sign is carried by the type (`DocumentSign`
+  negates at every ledger boundary: payment summary, partner financing,
+  accounting). A credit note is made only from an issued, live invoice
+  (`SalesOrderService.createCreditNote`, `proposeCreditNote` prefills the
+  container receipt shortage) or, for a partner container that arrived
+  short, from the over-financed advance (`PartnerFinancingService
+  .creditProposal`, reason PARTNER_SHORTFALL, amount only). It links through
+  `credited_invoice_id` (never `sourceQuoteId`), copies customer/purpose/
+  partner container/declaration row, is priced with `CONTAINER_COST`,
+  markup 0 and explicit 4-dp unit prices (no carton rounding, no tiers of
+  its own): the invoiced net unit after the line tier AND the order tier
+  and extra discount (`netUnit`, which folds in the subtotal-level
+  percentages), a PRICE_CORRECTION line carries cost 0. A PUT on a concept
+  keeps customer/country/terms from the stored row and takes every line
+  cost from the invoice, never from the client. Caps: per product the invoiced
+  quantity, in total the invoice incl. VAT + € 0,01 per line, over LIVE
+  credit notes, concepts included. One numbering series `CN-{jaar}-{nr}`
+  (`CompanyProfile.creditNotePrefix()`, `ReservedNumber.docType` keeps
+  CN out of the F and container series). Lifecycle: issue / mark sent /
+  mail (`mailSubjectCreditNote`; from concept either one issues it, with
+  the UITGEREIKT and GECREDITEERD events) / reopen / cancel without money
+  history / trash type CREDIT_NOTE (restore waits while the invoice is a
+  concept); an invoice with a live credit note cannot be reopened or
+  deleted; `isInvoice()` stays FACTUUR-only, money flows use
+  `isClaimDocument()`. Money: the summary reads a negative total, so
+  CREDIT / refund / bank OUTGOING allocation work unchanged; receipts are
+  refused; "verrekenen" = `IncomingPaymentService.applyCredit` writes an
+  atomic offset pair (−X on the credit note, +X on an invoice of the same
+  customer, `offset_sales_order_id`/`offset_payment_id` cross-linked,
+  ascending-id locks, container first) that counts as history, is never
+  bank-linkable and is voided as a pair. Partner ledgers subtract issued
+  PARTNER_ADVANCE credit notes (`invoicedAdvanceEur`, settlement
+  availability) so the final settlement credits only the net advance; a
+  concept partner credit note blocks a settlement; settlement credit notes
+  correct money, never quantities. `returnGoods` books
+  `StockMovement.Kind.SALE_RETURN` once, explicitly. PDF: label
+  Creditnota, reference + reason line, `Totaal creditnota`, KB nr. 4 VAT
+  mention for taxed regimes, own Peppol banner, settlement panel; 23
+  document-text keys. Migration `docs/migrations/2026-09-25/credit-notes-
+  postgresql.sql` (three `sales_order` columns, two `sales_payment`
+  columns, `company_profile.credit_note_number_prefix`, doctype and
+  deleted_item CHECK widening; `stock_movement.kind` is a plain varchar).
+  The dev H2 file holds `docType`, `markupMode` and `deleted_item.type` as
+  native ENUM columns; `InvoiceStatusMigration` widens them to varchar at
+  start-up (H2 branch), as it did for status and freight strategy.
 
 ### Purchasing / landed cost
 - Purchase order = one container from a Chinese supplier. Lines hold an
@@ -100,6 +146,15 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (asks confirmation - every sales margin recalculates from it).
 - Purchase PDF has an internal variant (extra revenue as its own line)
   and a customer-safe variant (folded into the piece price).
+- Container payments carry an optional **bank euro amount** (2026-09-25):
+  `PaymentRequest.amountEur` on POST/PUT `/purchase-orders/{id}/payments`.
+  Absent, the order's frozen rates convert as before (and a PUT that
+  leaves amount and currency unchanged keeps the stored euro value);
+  given, it is stored as the euro value (`purchase_payment.amount_eur`,
+  no schema change) and audited as `payment.amountEur` "In euro". Rules:
+  > 0, and equal to the amount for a EUR payment. The reconciliation, the
+  payments PDF register, supplier allocation and `attention()` all keep
+  reading the stored `amountEur`.
 
 ### Catalog / products
 - Product: SKU, name, colour (translated via dictionary), sizes, carton

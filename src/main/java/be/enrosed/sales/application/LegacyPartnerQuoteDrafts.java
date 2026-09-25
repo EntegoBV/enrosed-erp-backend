@@ -39,7 +39,7 @@ public class LegacyPartnerQuoteDrafts {
 
     /** Cheap startup candidate check; the locked conversion repeats the complete assessment. */
     static boolean untouchedDraft(SalesOrder quote) {
-        return quote != null && !quote.isInvoice() && quote.isPartnerAdvance()
+        return quote != null && !quote.isClaimDocument() && quote.isPartnerAdvance()
                 && quote.status() == QuoteStatus.CONCEPT && quote.sentAt() == null
                 && quote.viewedAt() == null && quote.viewCount() == 0 && quote.decidedAt() == null
                 && quote.signedByName() == null && quote.paidAt() == null

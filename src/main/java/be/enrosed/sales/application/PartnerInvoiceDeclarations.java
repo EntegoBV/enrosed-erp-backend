@@ -51,6 +51,7 @@ public class PartnerInvoiceDeclarations {
         requirePartnerInvoice(order);
         if (order.status() != QuoteStatus.CONCEPT || order.archivedAt() != null)
             throw new BusinessRuleException("De factuurvermelding kan alleen op een actieve conceptfactuur worden gewijzigd");
+
         Declaration clean = clean(request);
         validate(clean, order, sales.price(order), customers.get(order.customerId()));
         var stored = entities.find(PartnerInvoiceDeclarationEntity.class, id);
@@ -77,6 +78,20 @@ public class PartnerInvoiceDeclarations {
                         new ActivityChangeDto("invoiceDeclaration.mode", "Factuurvermelding", before.mode().name(), clean.mode().name()),
                         new ActivityChangeDto("invoiceDeclaration.reference", "Dossierreferentie", before.reference(), clean.reference())));
         return clean;
+    }
+
+    /** A credit note prints the wording of the invoice it corrects; copied once at creation, under the same lock. */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public void copy(long sourceId, long targetId) {
+        var stored = entities.find(PartnerInvoiceDeclarationEntity.class, sourceId);
+        if (stored == null || stored.mode == Mode.DEFAULT || entities.find(PartnerInvoiceDeclarationEntity.class, targetId) != null) return;
+        var copy = new PartnerInvoiceDeclarationEntity();
+        copy.salesOrderId = targetId;
+        copy.order = entities.getReference(SalesOrderEntity.class, targetId);
+        copy.mode = stored.mode; copy.reference = stored.reference; copy.textVersion = stored.textVersion;
+        copy.updatedAt = Instant.now();
+        entities.persist(copy);
+        entities.flush();
     }
 
     /** Explicit issuance and dispatch also check the current tax context, without repricing or changing it. */
@@ -133,7 +148,7 @@ public class PartnerInvoiceDeclarations {
     }
 
     private static void requirePartnerInvoice(SalesOrder order) {
-        if (order == null || !order.isInvoice() || order.purpose() != SalesPurpose.PARTNER_ADVANCE
+        if (order == null || !order.isClaimDocument() || order.purpose() != SalesPurpose.PARTNER_ADVANCE
                 && order.purpose() != SalesPurpose.PARTNER_SETTLEMENT)
             throw new BusinessRuleException("Deze factuurvermelding is alleen beschikbaar voor partnerfacturen");
     }

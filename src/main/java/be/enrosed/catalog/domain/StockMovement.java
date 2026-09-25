@@ -31,7 +31,7 @@ public record StockMovement(
         Long purchaseOrderId
 ) {
     public enum Kind {
-        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO, SHORTAGE;
+        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO, SHORTAGE, SALE_RETURN;
 
         public String dutchLabel() {
             return switch (this) {
@@ -44,6 +44,7 @@ public record StockMovement(
                 case DAMAGED -> "Beschadigd";
                 case DEMO -> "Demo weggegeven";
                 case SHORTAGE -> "Te weinig geleverd";
+                case SALE_RETURN -> "Retour van klant";
             };
         }
 

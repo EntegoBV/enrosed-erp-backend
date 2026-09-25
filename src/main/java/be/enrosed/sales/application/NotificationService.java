@@ -142,7 +142,7 @@ public class NotificationService {
         /* Proposals awaiting review: those live apart from the order status. */
         revisions.findPending().forEach(revision -> {
             SalesOrder order = orders.findById(revision.salesOrderId()).orElse(null);
-            if (order == null || order.isInvoice() || order.isArchived()
+            if (order == null || order.isClaimDocument() || order.isArchived()
                     || closedQuoteIds.contains(order.id())) return;
             items.add(new Notification(Kind.VOORSTEL, order.id(), order.number(),
                     customerName(order),
@@ -163,7 +163,7 @@ public class NotificationService {
     }
 
     private static boolean isWebsiteRequestAwaitingReview(SalesOrder order) {
-        return order != null && !order.isInvoice()
+        return order != null && !order.isClaimDocument()
                 && order.status() == QuoteStatus.CONCEPT
                 && order.internalNotes() != null
                 && order.internalNotes().stripLeading()

@@ -67,7 +67,24 @@ public class SalesOrderResource {
                             be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
                             be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
                             be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
-                            boolean customerRequestMessageReadonly, String customerRequestMessage) {
+                            boolean customerRequestMessageReadonly, String customerRequestMessage,
+                            /** Credit notes: the invoice they correct. */
+                            Long creditedInvoiceId, String creditedInvoiceNumber,
+                            be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                            /** Invoices: their live credit notes, concepts included, and what the issued ones credit incl. VAT. */
+                            List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                         be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                         boolean customerRequestMessageReadonly, String customerRequestMessage) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage, null, null, null, null, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
@@ -76,6 +93,15 @@ public class SalesOrderResource {
                          be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents) {
             this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, null, false, null);
+        }
+        /** The same view with the credit-note links filled in. */
+        OrderView withCreditLinks(Long creditedInvoiceId, String creditedInvoiceNumber,
+                                  be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                                  List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur);
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -106,31 +132,64 @@ public class SalesOrderResource {
         }
     }
 
-    /** The links between quotes and the invoices made from them, both ways. */
-    private record Links(java.util.Map<Long, SalesOrder> invoiceByQuote, java.util.Map<Long, String> quoteNumberById) {
+    /** One credit note as seen from its invoice. */
+    public record CreditNoteLink(long id, String number, be.enrosed.sales.domain.QuoteStatus status,
+                                 BigDecimal totalInclVatEur, be.enrosed.sales.domain.CreditReason creditReason) {}
+
+    /** The links between quotes and the invoices made from them, both ways, and between invoices and their credit notes. */
+    private record Links(java.util.Map<Long, SalesOrder> invoiceByQuote, java.util.Map<Long, String> quoteNumberById,
+                         java.util.Map<Long, SalesOrder> invoiceById, java.util.Map<Long, List<SalesOrder>> creditNotesByInvoice) {
         static Links of(List<SalesOrder> all) {
             java.util.Map<Long, SalesOrder> invoiceByQuote = new java.util.HashMap<>();
             java.util.Map<Long, String> quoteNumberById = new java.util.HashMap<>();
+            java.util.Map<Long, SalesOrder> invoiceById = new java.util.HashMap<>();
+            java.util.Map<Long, List<SalesOrder>> creditNotesByInvoice = new java.util.HashMap<>();
             for (SalesOrder order : all) {
                 if (order.id() == null) continue;
                 if (order.isInvoice()) {
+                    invoiceById.put(order.id(), order);
                     if (order.sourceQuoteId() != null
                             && order.status() != be.enrosed.sales.domain.QuoteStatus.GEANNULEERD) {
                         invoiceByQuote.putIfAbsent(order.sourceQuoteId(), order);
                     }
+                } else if (order.isCreditNote()) {
+                    if (order.creditedInvoiceId() != null && be.enrosed.sales.application.PartnerFinancingService.live(order))
+                        creditNotesByInvoice.computeIfAbsent(order.creditedInvoiceId(), key -> new java.util.ArrayList<>()).add(order);
                 } else {
                     quoteNumberById.put(order.id(), order.number());
                 }
             }
-            return new Links(invoiceByQuote, quoteNumberById);
+            creditNotesByInvoice.values().forEach(notes -> notes.sort(java.util.Comparator.comparing(SalesOrder::id)));
+            return new Links(invoiceByQuote, quoteNumberById, invoiceById, creditNotesByInvoice);
         }
 
         OrderView view(SalesOrder order, PricedOrder priced, boolean awaitingResend) {
-            SalesOrder invoice = order.isInvoice() || order.id() == null ? null : invoiceByQuote.get(order.id());
+            SalesOrder invoice = order.isClaimDocument() || order.id() == null ? null : invoiceByQuote.get(order.id());
             String sourceQuote = order.isInvoice() && order.sourceQuoteId() != null ? quoteNumberById.get(order.sourceQuoteId()) : null;
             return new OrderView(order, priced, awaitingResend,
                     invoice == null ? null : invoice.number(), invoice == null ? null : invoice.id(),
                     invoice == null ? null : invoice.status(), sourceQuote);
+        }
+
+        /** Both directions of the credit link; pricing each credit note once, only where one exists. */
+        OrderView withCreditLinks(OrderView view, java.util.function.Function<SalesOrder, PricedOrder> pricing) {
+            SalesOrder order = view.order();
+            if (order.isCreditNote()) {
+                SalesOrder credited = order.creditedInvoiceId() == null ? null : invoiceById.get(order.creditedInvoiceId());
+                return view.withCreditLinks(order.creditedInvoiceId(), credited == null ? null : credited.number(),
+                        credited == null ? null : credited.status(), null, null);
+            }
+            if (!order.isInvoice() || order.id() == null) return view;
+            List<SalesOrder> notes = creditNotesByInvoice.getOrDefault(order.id(), List.of());
+            if (notes.isEmpty()) return view.withCreditLinks(null, null, null, List.of(), be.enrosed.shared.Money.money(BigDecimal.ZERO));
+            List<CreditNoteLink> links = new java.util.ArrayList<>();
+            BigDecimal credited = BigDecimal.ZERO;
+            for (SalesOrder note : notes) {
+                BigDecimal total = be.enrosed.shared.Money.money(pricing.apply(note).totals().totalInclVat());
+                links.add(new CreditNoteLink(note.id(), note.number(), note.status(), total, note.creditReason()));
+                if (be.enrosed.sales.application.PartnerFinancingService.issued(note)) credited = credited.add(total);
+            }
+            return view.withCreditLinks(null, null, null, List.copyOf(links), be.enrosed.shared.Money.money(credited));
         }
     }
     public record PortalLink(boolean available, String status, String url) {}
@@ -141,14 +200,42 @@ public class SalesOrderResource {
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
         Links links = Links.of(all);
         return all.stream()
-                .map(order -> enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))))
+                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
-        boolean linked = order.isInvoice() ? order.sourceQuoteId() != null : order.id() != null;
-        Links links = linked ? Links.of(salesOrders.list()) : Links.of(List.of());
-        return enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order)));
+        /* Every persisted document may be linked: a quote to its invoice, an invoice to its credit notes. */
+        Links links = order.id() == null ? Links.of(List.of()) : Links.of(salesOrders.list());
+        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price);
+    }
+
+    /* ------------------------------------------------------------ credit notes */
+
+    /** What a credit note on this invoice could contain; read-only. */
+    @GET @Path("/{id}/credit-note-proposal")
+    public SalesOrderService.CreditNoteProposal creditNoteProposal(@PathParam("id") long id) {
+        return salesOrders.proposeCreditNote(id);
+    }
+
+    /** A concept credit note on an issued invoice. */
+    @POST @Path("/{id}/credit-note")
+    public Response createCreditNote(@PathParam("id") long id, SalesOrderService.CreditNoteRequest request) {
+        return Response.status(Response.Status.CREATED).entity(view(salesOrders.createCreditNote(id, request))).build();
+    }
+
+    public record ApplyCreditRequest(BigDecimal amountEur) {}
+
+    /** Offsets the credit note against an open invoice; returns the credit note, the client refetches the invoice. */
+    @POST @Path("/{creditId}/apply-to/{invoiceId}")
+    public OrderView applyCredit(@PathParam("creditId") long creditId, @PathParam("invoiceId") long invoiceId, ApplyCreditRequest request) {
+        return view(incoming.applyCredit(creditId, invoiceId, request == null ? null : request.amountEur()));
+    }
+
+    /** Books the credited goods back into stock. Explicit, never automatic. */
+    @POST @Path("/{id}/return-goods")
+    public OrderView returnGoods(@PathParam("id") long id) {
+        return view(salesOrders.returnGoods(id));
     }
 
 

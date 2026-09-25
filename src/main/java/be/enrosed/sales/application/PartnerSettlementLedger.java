@@ -28,7 +28,15 @@ public final class PartnerSettlementLedger {
         List<Document> documents = new ArrayList<>();
         BigDecimal issued = ZERO, credited = ZERO;
         for (var order : orders) {
-            if (!order.isInvoice() || !PartnerFinancingService.live(order)) continue;
+            if (!PartnerFinancingService.live(order)) continue;
+            if (order.isCreditNote()) {
+                /* An issued credit note on an advance shrinks what was financed; a credit note on a
+                   settlement corrects money, never the quantities this ledger reserves. */
+                if (order.purpose() == SalesPurpose.PARTNER_ADVANCE && PartnerFinancingService.issued(order))
+                    issued = issued.subtract(pricing.apply(order).totals().total());
+                continue;
+            }
+            if (!order.isInvoice()) continue;
             if (order.isPartnerAdvance() && PartnerFinancingService.issued(order))
                 issued = issued.add(pricing.apply(order).totals().total());
             if (order.purpose() != SalesPurpose.PARTNER_SETTLEMENT) continue;

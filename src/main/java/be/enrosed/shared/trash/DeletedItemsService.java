@@ -58,7 +58,7 @@ public class DeletedItemsService {
     public void trashSales(SalesOrder order) {
         Snapshot snapshot = salesSnapshot(order);
         PartnerContext context = order.isPartnerDeal() ? partnerContext(order) : null;
-        var entry = entry("SALES", order.id(), order.isInvoice() ? Type.INVOICE : Type.QUOTE,
+        var entry = entry("SALES", order.id(), order.isCreditNote() ? Type.CREDIT_NOTE : order.isInvoice() ? Type.INVOICE : Type.QUOTE,
                 order.number(), customerName(order.customerId()), order.status().name(), snapshot, order);
         entry.partnerContextJson = context == null ? null : write(context);
         entities.persist(entry);
@@ -164,7 +164,7 @@ public class DeletedItemsService {
         }
         entities.remove(entities.find(DeletedItemEntity.class, id));
         activities.record("RESTORED", sale == null ? "PURCHASE_ORDER" : "SALES_ORDER", Long.toString(sourceId), number,
-                (sale == null ? "Inkooporder" : sale.isInvoice() ? "Factuur" : "Offerte") + " hersteld uit verwijderde items");
+                (sale == null ? "Inkooporder" : sale.isCreditNote() ? "Creditnota" : sale.isInvoice() ? "Factuur" : "Offerte") + " hersteld uit verwijderde items");
         return new Restored(sourceId, (sale == null ? "/purchasing/" : "/sales/") + sourceId);
     }
 
@@ -179,6 +179,25 @@ public class DeletedItemsService {
         if (order.sourceQuoteId() != null && !order.isPartnerAdvance() && orders.findAll().stream().anyMatch(o -> o.isInvoice()
                 && Objects.equals(o.sourceQuoteId(), order.sourceQuoteId()) && o.status() != QuoteStatus.GEANNULEERD))
             return "Er bestaat inmiddels een andere factuur voor deze offerte.";
+        if (order.isCreditNote()) {
+            /* The credited invoice must stand, be live, and still have room for this credit note. */
+            SalesOrder credited = order.creditedInvoiceId() == null ? null : orders.findById(order.creditedInvoiceId()).orElse(null);
+            if (credited == null) return "Herstel eerst de oorspronkelijke factuur.";
+            if (!PartnerFinancingService.live(credited)) return "Factuur " + credited.number() + " is niet meer actief.";
+            /* A trashed credit note does not hold its invoice, so that may have gone back to concept meanwhile. */
+            if (credited.status() == QuoteStatus.CONCEPT) return "Reik factuur " + credited.number() + " eerst uit.";
+            try {
+                BigDecimal cap = sales.price(credited).totals().totalInclVat()
+                        .add(new BigDecimal("0.01").multiply(BigDecimal.valueOf(order.lines() == null ? 0 : order.lines().size())));
+                BigDecimal credit = sales.liveCreditNotesOf(credited.id()).stream()
+                        .map(note -> sales.price(note).totals().totalInclVat())
+                        .reduce(sales.price(order).totals().totalInclVat(), BigDecimal::add);
+                if (credit.compareTo(cap) > 0)
+                    return "Het tegoed op " + credited.number() + " is inmiddels al gecrediteerd. Maak een nieuwe creditnota.";
+            } catch (BusinessRuleException | NotFoundException incomplete) {
+                return "De creditnota kan niet meer tegen de factuur gecontroleerd worden. Maak een nieuwe creditnota.";
+            }
+        }
         if (order.linkedPurchaseOrderId() != null) {
             try { purchases.get(order.linkedPurchaseOrderId()); }
             catch (NotFoundException unavailable) { return "Herstel eerst de bijbehorende inkooporder."; }
@@ -203,7 +222,7 @@ public class DeletedItemsService {
             if (!before.settlements().equals(now.settlements())) return "Er is inmiddels een andere slotfactuur gemaakt of gewijzigd. Controleer de partnerafrekening.";
             if ((order.purpose() == SalesPurpose.PARTNER_SETTLEMENT) && !before.advances().equals(now.advances()))
                 return "De voorschotfacturen zijn gewijzigd. Maak een nieuwe slotfactuur zodat ze correct verrekend worden.";
-            if (!order.isInvoice() && orders.findAll().stream().anyMatch(o -> o.isPartnerAdvance() && Objects.equals(o.linkedPurchaseOrderId(), order.linkedPurchaseOrderId())))
+            if (!order.isClaimDocument() && orders.findAll().stream().anyMatch(o -> o.isPartnerAdvance() && Objects.equals(o.linkedPurchaseOrderId(), order.linkedPurchaseOrderId())))
                 return "Er bestaat inmiddels een nieuwe voorschotafspraak voor deze container.";
         }
         return null;

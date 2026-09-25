@@ -200,7 +200,7 @@ public class SalesSplits {
         if (part == null) throw new BusinessRuleException("Deze bestelling heeft geen uitgestelde levering");
         if (order.archivedAt() != null || order.goodsShippedAt() != null || order.status() == QuoteStatus.GEANNULEERD
                 || order.status() == QuoteStatus.AFGEWEZEN || order.status() == QuoteStatus.VERLOPEN
-                || !order.isInvoice() && orders.existsBySourceQuoteId(order.id()))
+                || !order.isClaimDocument() && orders.existsBySourceQuoteId(order.id()))
             throw new BusinessRuleException("Deze levering kan niet meer worden vrijgegeven");
         Map<Long, Integer> needed = new HashMap<>();
         order.lines().stream().filter(line -> !line.isUnavailable() && line.quantity() > 0)
@@ -354,6 +354,7 @@ public class SalesSplits {
     }
 
     private void requireEligible(SalesOrder source) {
+        if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");
         if (source.archivedAt() != null) throw new BusinessRuleException("Haal het concept eerst uit het archief");
@@ -368,7 +369,7 @@ public class SalesSplits {
             case VERSTUURD, UITGEREIKT, BEKEKEN, GETEKEND, BESTELLING_VERZONDEN, BETAALD -> true;
             default -> false;
         })) throw new BusinessRuleException("Dit document is eerder gebruikt; splits alleen een ongebruikte conceptfactuur");
-        if (!source.isInvoice() && orders.existsBySourceQuoteId(source.id())) throw new BusinessRuleException("Er bestaat al een factuur bij deze offerte; verdeel de ongebruikte conceptfactuur");
+        if (!source.isClaimDocument() && orders.existsBySourceQuoteId(source.id())) throw new BusinessRuleException("Er bestaat al een factuur bij deze offerte; verdeel de ongebruikte conceptfactuur");
         if (source.lines().isEmpty()) throw new BusinessRuleException("Voeg eerst producten toe om de bestelling te verdelen");
         if (source.lines().stream().map(SalesOrderLine::productId).distinct().count() != source.lines().size())
             throw new BusinessRuleException("Voeg dubbele productregels eerst samen; een standaardbestelling bevat één regel per product");

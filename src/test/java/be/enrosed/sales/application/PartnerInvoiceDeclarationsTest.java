@@ -280,6 +280,33 @@ class PartnerInvoiceDeclarationsTest {
         assertNull(entities.find(PartnerInvoiceDeclarationEntity.class, order.id()));
     }
 
+    @Test @TestTransaction
+    void aCreditNoteInheritsTheWordingOfItsInvoiceAndKeepsTheModeRuleOfItsPurpose() throws Exception {
+        var advance = partnerInvoice(SalesPurpose.PARTNER_ADVANCE);
+        resource.saveInvoiceDeclaration(advance.id(), customsDeclaration());
+        sales.issueInvoice(advance.id());
+        var credit = sales.createCreditNote(advance.id(), new SalesOrderService.CreditNoteRequest(CreditReason.PARTNER_SHORTFALL, List.of(),
+                List.of(new SalesOrderService.CreditAmount("Te veel gefinancierd", new BigDecimal("100"))), false, null));
+        assertEquals(customsDeclaration(), declarations.get(credit.id()), "copied once at creation");
+        var customer = customers.get(credit.customerId());
+        var presented = PartnerInvoiceDeclarations.presentation(customsDeclaration(), credit, sales.price(credit), customer, Language.NL);
+        assertEquals(PartnerInvoiceDeclarations.CUSTOMS_TEXT_V1, presented.additionalText());
+        assertThrows(BusinessRuleException.class, () -> PartnerInvoiceDeclarations.presentation(reverseDeclaration(), credit,
+                sales.price(credit), customer, Language.NL), "reverse charge belongs to a settlement, also on its credit note");
+        assertDoesNotThrow(() -> sales.issueInvoice(credit.id()));
+
+        var settlement = partnerInvoice(SalesPurpose.PARTNER_SETTLEMENT);
+        resource.saveInvoiceDeclaration(settlement.id(), reverseDeclaration());
+        sales.issueInvoice(settlement.id());
+        var settlementCredit = sales.createCreditNote(settlement.id(), new SalesOrderService.CreditNoteRequest(CreditReason.PRICE_CORRECTION, List.of(),
+                List.of(new SalesOrderService.CreditAmount("Correctie", new BigDecimal("10"))), false, null));
+        assertEquals(reverseDeclaration(), declarations.get(settlementCredit.id()));
+        assertThrows(BusinessRuleException.class, () -> PartnerInvoiceDeclarations.presentation(customsDeclaration(), settlementCredit,
+                sales.price(settlementCredit), customer, Language.NL));
+        assertTrue(pdfText(quotes.document(settlementCredit.id(), Language.NL, SalesPdfOptions.defaults()).content())
+                .contains(PartnerInvoiceDeclarations.REVERSE_CHARGE_TEXT_V1.replace("“", "").replace("”", "").substring(0, 14)));
+    }
+
     private SalesOrder partnerInvoice(SalesPurpose purpose) {
         var partner = customers.create(new Customer(null, "Declaration partner", "Finance", "invoice@example.test", null,
                 "NL858617262B02", "NL", Language.NL, "Kade 1", "5911 AB", "Venlo", "DAP", null, null,

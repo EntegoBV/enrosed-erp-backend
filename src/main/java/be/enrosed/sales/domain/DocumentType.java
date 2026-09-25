@@ -9,5 +9,7 @@ package be.enrosed.sales.domain;
  */
 public enum DocumentType {
     OFFERTE,
-    FACTUUR
+    FACTUUR,
+    /** A credit note: positive lines whose sign the document type carries; it reverses part of an invoice. */
+    CREDITNOTA
 }

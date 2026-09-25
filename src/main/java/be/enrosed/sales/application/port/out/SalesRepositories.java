@@ -31,9 +31,12 @@ public interface SalesRepositories {
 
     interface Orders {
         List<SalesOrder> findAll();
-        record ReservedNumber(long id, String number, boolean invoice) {}
+        /** A number a document holds, deleted rows included; the type says which series it belongs to. */
+        record ReservedNumber(long id, String number, DocumentType docType) {
+            public boolean invoice() { return docType == DocumentType.FACTUUR; }
+        }
         default List<ReservedNumber> numbersIncludingDeleted() {
-            return findAll().stream().map(o -> new ReservedNumber(o.id(), o.number(), o.isInvoice())).toList();
+            return findAll().stream().map(o -> new ReservedNumber(o.id(), o.number(), o.docType())).toList();
         }
         Optional<SalesOrder> findById(long id);
         /** Serialises workflows that may create a derived invoice or delete its source quote. */

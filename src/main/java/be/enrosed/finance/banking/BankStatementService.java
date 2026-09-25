@@ -71,7 +71,8 @@ public class BankStatementService {
         return row;
     }
 
-    public List<Match> suggestions(long id) {var row=get(id,false);return suggestions(orders.findAll().stream().filter(SalesOrder::isInvoice).toList(),row.amountEur,row.reference,row.account);}
+    /** Invoices and credit notes alike; an open credit note only ever matches an outgoing line, through its refundable balance. */
+    public List<Match> suggestions(long id) {var row=get(id,false);return suggestions(orders.findAll().stream().filter(SalesOrder::isClaimDocument).toList(),row.amountEur,row.reference,row.account);}
 
     private List<Match> suggestions(List<SalesOrder> invoices,BigDecimal amount,String reference,String account) {
         List<Match> matches=new ArrayList<>();String text=PaymentReference.normalized(reference).toUpperCase(Locale.ROOT);
@@ -80,9 +81,10 @@ public class BankStatementService {
             var summary=incoming.summary(invoice,sales.price(invoice));
             BigDecimal open=amount.signum()>0?summary.remainingEur():summary.refundableEur();
             int score=(invoice.number()!=null&&text.contains(PaymentReference.normalized(invoice.number()).toUpperCase(Locale.ROOT))?100:0)+(open.compareTo(amount.abs())==0?20:0);
-            for(var payment:summary.payments())if(payment.amountEur().compareTo(amount)==0&&(payment.bankAccount()==null||account.equals(payment.bankAccount()))&&!paymentLinked(payment.id()))
+            for(var payment:summary.payments())if(!payment.isOffset()&&payment.amountEur().compareTo(amount)==0&&(payment.bankAccount()==null||account.equals(payment.bankAccount()))&&!paymentLinked(payment.id()))
                 matches.add(new Match(invoice.id(),invoice.number(),open,score+40,payment.id(),"Bestaande betaling koppelen: geen nieuwe boeking",payment.receivedAt(),payment.reference()));
-            if(open.signum()>0&&score>0)matches.add(new Match(invoice.id(),invoice.number(),open,score,null,"Nieuwe "+(amount.signum()>0?"ontvangst":"terugbetaling")+" registreren",null,null));
+            String fresh=invoice.isCreditNote()?"Nieuwe terugbetaling op creditnota "+invoice.number():"Nieuwe "+(amount.signum()>0?"ontvangst":"terugbetaling")+" registreren";
+            if(open.signum()>0&&score>0)matches.add(new Match(invoice.id(),invoice.number(),open,score,null,fresh,null,null));
         }
         return matches.stream().sorted(Comparator.comparingInt(Match::score).reversed()).limit(8).toList();
     }
@@ -97,6 +99,7 @@ public class BankStatementService {
         var order=sales.get(request.salesOrderId());
         if(request.existingPaymentId()!=null) {
             var payment=incoming.forOrder(order.id()).stream().filter(p->p.id().equals(request.existingPaymentId())).findFirst().orElseThrow(()->new BusinessRuleException("De gekozen betaling hoort niet bij deze factuur"));
+            if(payment.isOffset())throw new BusinessRuleException("Een verrekening is geen bankbeweging");
             if(payment.amountEur().compareTo(row.amountEur)!=0||payment.bankAccount()!=null&&!row.account.equals(payment.bankAccount()))throw new BusinessRuleException("Bedrag, richting of bankrekening komen niet overeen");
             if(paymentLinked(payment.id()))throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
             row.salesPaymentId=payment.id();row.allocationCreatedPayment=false;

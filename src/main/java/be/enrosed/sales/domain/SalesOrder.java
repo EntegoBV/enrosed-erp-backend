@@ -148,11 +148,50 @@ public record SalesOrder(
         String salesChannel,
         SalesPurpose purpose,
         Long sourcePurchaseOrderId,
-        SalesPaymentPlan paymentPlan
+        SalesPaymentPlan paymentPlan,
+        /** Credit notes only: the invoice this credit note corrects. Never {@link #sourceQuoteId}. */
+        Long creditedInvoiceId,
+        /** Credit notes only: why it exists. */
+        CreditReason creditReason,
+        /** Credit notes only: when the credited goods came back into the warehouse. */
+        Instant goodsReturnedAt
 ) {
     public SalesOrder {
         extraLines = extraLines == null ? List.of()
                 : extraLines.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before credit notes existed. */
+    public SalesOrder(Long id, String number, Long customerId, String countryCode,
+                      LocalDate orderDate, LocalDate validUntil, QuoteStatus status,
+                      String incoterm, String paymentTerms, String notes,
+                      MarkupMode markupMode, BigDecimal orderMarkupPct,
+                      BigDecimal extraDiscountPct, String extraDiscountLabel,
+                      String portalToken, Instant sentAt, Instant viewedAt, int viewCount,
+                      Instant decidedAt, String signedByName, String customerMessage,
+                      String internalNotes, DeliveryTermsState deliveryTerms,
+                      FreightState freight, BigDecimal manualFreightEur,
+                      LoadMode loadMode, PalletProfile palletProfile,
+                      BigDecimal maxPalletHeightCm,
+                      FreightPricingStrategy freightPricingStrategy,
+                      BigDecimal freightRatePerCbmEur, Long freightCarrierId,
+                      BigDecimal freightCarrierExtraEur, DocumentType docType,
+                      LocalDate invoiceDueDate, Instant paidAt, Long sourceQuoteId,
+                      Instant goodsShippedAt, List<SalesOrderLine> lines,
+                      List<OrderPallet> pallets, PickupLocationSnapshot pickupLocation,
+                      Instant archivedAt, List<SalesExtraLine> extraLines,
+                      Long partnerPurchaseOrderId, BigDecimal partnerSharePct, boolean partnerSettlement,
+                      String salesChannel, SalesPurpose purpose, Long sourcePurchaseOrderId, SalesPaymentPlan paymentPlan) {
+        this(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose,
+                sourcePurchaseOrderId, paymentPlan, null, null, null);
     }
 
     /** Compatibility for callers written before invoice purposes and incoming instalments existed. */
@@ -241,7 +280,8 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement,
-                value == null || value.isBlank() ? null : value.strip().toUpperCase(), purpose, sourcePurchaseOrderId, paymentPlan);
+                value == null || value.isBlank() ? null : value.strip().toUpperCase(), purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     /** Compatibility for callers written before the auction settlement flag existed. */
@@ -285,7 +325,8 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, true, salesChannel, SalesPurpose.PARTNER_SETTLEMENT, sourcePurchaseOrderId, paymentPlan);
+                partnerPurchaseOrderId, partnerSharePct, true, salesChannel, SalesPurpose.PARTNER_SETTLEMENT, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     /** Compatibility for callers written before partner deals existed. */
@@ -329,7 +370,8 @@ public record SalesOrder(
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 purchaseOrderId, sharePct, partnerSettlement, salesChannel,
                 purchaseOrderId == null ? SalesPurpose.STANDARD : partnerSettlement ? SalesPurpose.PARTNER_SETTLEMENT : SalesPurpose.PARTNER_ADVANCE,
-                purchaseOrderId == null ? sourcePurchaseOrderId : purchaseOrderId, paymentPlan);
+                purchaseOrderId == null ? sourcePurchaseOrderId : purchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     public boolean isPartnerDeal() {
@@ -368,7 +410,10 @@ public record SalesOrder(
                 salesChannel != null ? salesChannel : source.salesChannel,
                 purpose != null ? purpose : source.purpose,
                 sourcePurchaseOrderId != null ? sourcePurchaseOrderId : source.sourcePurchaseOrderId,
-                paymentPlan != null ? paymentPlan : source.paymentPlan);
+                paymentPlan != null ? paymentPlan : source.paymentPlan,
+                creditedInvoiceId != null ? creditedInvoiceId : source.creditedInvoiceId,
+                creditReason != null ? creditReason : source.creditReason,
+                goodsReturnedAt != null ? goodsReturnedAt : source.goodsReturnedAt);
     }
 
     /** Compatibility for callers written before the free lines existed. */
@@ -410,7 +455,8 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, value, layout, pickupLocation, archivedAt, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     public SalesOrder withExtraLines(List<SalesExtraLine> value) {
@@ -422,7 +468,8 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -463,7 +510,8 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, value, extraLines,
-                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan);
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     public boolean isArchived() {
@@ -510,7 +558,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, at, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel,
-                purpose, sourcePurchaseOrderId, paymentPlan);
+                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     public SalesPurpose purpose() {
@@ -538,7 +586,8 @@ public record SalesOrder(
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 value == SalesPurpose.STANDARD ? null : partnerPurchaseOrderId,
                 value == SalesPurpose.STANDARD ? null : partnerSharePct,
-                value == SalesPurpose.PARTNER_SETTLEMENT, salesChannel, value, purchaseOrderId, plan);
+                value == SalesPurpose.PARTNER_SETTLEMENT, salesChannel, value, purchaseOrderId, plan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
     /** Every order that predates invoices is a quote. */
@@ -546,8 +595,46 @@ public record SalesOrder(
         return docType == null ? DocumentType.OFFERTE : docType;
     }
 
+    /** The positive invoice only; a credit note is a claim document but never "the invoice". */
     public boolean isInvoice() {
         return docType() == DocumentType.FACTUUR;
+    }
+
+    public boolean isCreditNote() {
+        return docType() == DocumentType.CREDITNOTA;
+    }
+
+    /** An invoice or a credit note: a document that moves money, as opposed to a quote. */
+    public boolean isClaimDocument() {
+        return isInvoice() || isCreditNote();
+    }
+
+    /** The same credit note with its goods booked back into stock at that moment. */
+    public SalesOrder withGoodsReturnedAt(Instant value) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, value);
+    }
+
+    /** The same document as a credit note on that invoice, for that reason. */
+    public SalesOrder asCreditNoteOn(Long invoiceId, CreditReason reason) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, DocumentType.CREDITNOTA, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                invoiceId, reason, goodsReturnedAt);
     }
 
     public List<SalesOrderLine> lines() {
