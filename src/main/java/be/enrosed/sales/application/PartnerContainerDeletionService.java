@@ -69,6 +69,10 @@ public class PartnerContainerDeletionService {
         if (!purchase.isPartnerContainer())
             throw new BusinessRuleException("Deze inkooporder is geen partnercontainer.");
         purchases.requireDeletableHistory(purchase);
+        /* A credit note is named before anything else: it is the document the owner has to deal with first. */
+        linked.stream().filter(SalesOrder::isCreditNote).findFirst().ifPresent(note -> {
+            throw new BusinessRuleException("Er bestaat een creditnota " + note.number() + " op deze container; annuleer of verwijder die eerst.");
+        });
         for (var order : linked) {
             if (!order.isInvoice() || !order.isPartnerAdvance())
                 throw new BusinessRuleException("Deze container heeft een gekoppelde offerte of slotfactuur. Verwijder die eerst afzonderlijk of archiveer de container.");

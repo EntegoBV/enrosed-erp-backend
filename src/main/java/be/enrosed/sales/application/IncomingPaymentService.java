@@ -34,7 +34,9 @@ public class IncomingPaymentService {
     @Inject Instance<CurrentActor> actor;
     @Inject Instance<ActivityLogService> activity;
     @Inject Instance<be.enrosed.finance.banking.BankStatementService> banking;
+    @Inject Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchases;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
+    private static final String BRUSSELS = "Europe/Brussels";
 
     public enum Direction { RECEIPT, REFUND }
     public record Request(BigDecimal amountEur, Instant receivedAt, String timeZone, String reference, Direction direction, String bankAccount) {
@@ -44,7 +46,16 @@ public class IncomingPaymentService {
     }
     public record IncomingPayment(Long id, long salesOrderId, BigDecimal amountEur, Instant receivedAt,
                                   String timeZone, String reference, Instant recordedAt, String actor, boolean legacy,
-                                  String orderNumber, Long customerId, Long purchaseOrderId, SalesPurpose purpose, String bankAccount) {}
+                                  String orderNumber, Long customerId, Long purchaseOrderId, SalesPurpose purpose, String bankAccount,
+                                  /** Offset rows: the other document of the pair and its row; null on bank movements. */
+                                  Long offsetOrderId, String offsetOrderNumber, Long offsetPaymentId, DocumentType docType) {
+        public IncomingPayment(Long id, long salesOrderId, BigDecimal amountEur, Instant receivedAt, String timeZone,
+                               String reference, Instant recordedAt, String actor, boolean legacy, String orderNumber,
+                               Long customerId, Long purchaseOrderId, SalesPurpose purpose, String bankAccount) {
+            this(id, salesOrderId, amountEur, receivedAt, timeZone, reference, recordedAt, actor, legacy, orderNumber,
+                    customerId, purchaseOrderId, purpose, bankAccount, null, null, null, null);
+        }
+    }
 
     public List<SalesPayment> forOrder(long id) { sales.get(id); return payments.forOrder(id); }
 
@@ -55,19 +66,27 @@ public class IncomingPaymentService {
         Map<Long, SalesOrder> byId = orders.findAll().stream().collect(Collectors.toMap(SalesOrder::id, Function.identity()));
         return payments.all().stream().filter(p -> from == null
                         || !p.receivedAt().atZone(ZoneId.of(p.timeZone())).toLocalDate().isBefore(from))
-                .map(p -> enrich(p, byId.get(p.salesOrderId()))).toList();
+                .map(p -> enrich(p, byId.get(p.salesOrderId()), p.offsetOrderId() == null ? null : byId.get(p.offsetOrderId()))).toList();
     }
 
     public IncomingPayment enrich(SalesPayment p, SalesOrder order) {
+        SalesOrder other = p.offsetOrderId() == null ? null : orders.findById(p.offsetOrderId()).orElse(null);
+        return enrich(p, order, other);
+    }
+
+    private static IncomingPayment enrich(SalesPayment p, SalesOrder order, SalesOrder offsetOrder) {
         return new IncomingPayment(p.id(), p.salesOrderId(), p.amountEur(), p.receivedAt(), p.timeZone(), p.reference(),
                 p.recordedAt(), p.actor(), p.legacy(), order == null ? null : order.number(),
                 order == null ? null : order.customerId(), order == null ? null : order.linkedPurchaseOrderId(),
-                order == null ? SalesPurpose.STANDARD : order.purpose(), p.bankAccount());
+                order == null ? SalesPurpose.STANDARD : order.purpose(), p.bankAccount(),
+                p.offsetOrderId(), offsetOrder == null ? null : offsetOrder.number(), p.offsetPaymentId(),
+                order == null ? null : order.docType());
     }
 
+    /** A credit note reads as a negative claim: the existing credit, refund and settled logic then applies unchanged. */
     public SalesPaymentSummary summary(SalesOrder order, PricedOrder priced) {
         List<SalesPayment> rows = order.id() == null ? List.of() : payments.forOrder(order.id());
-        BigDecimal total = Money.money(priced.totals().totalInclVat());
+        BigDecimal total = DocumentSign.claim(order, priced);
         BigDecimal received = Money.money(rows.stream().map(SalesPayment::amountEur).reduce(ZERO, BigDecimal::add));
         BigDecimal remaining = total.signum() > 0 ? total.subtract(received).max(ZERO) : ZERO;
         BigDecimal gross = rows.stream().map(SalesPayment::amountEur).filter(a -> a.signum() > 0).reduce(ZERO, BigDecimal::add);
@@ -118,6 +137,8 @@ public class IncomingPaymentService {
         orders.lockById(id);
         SalesOrder order = requireActiveInvoice(sales.get(id));
         SalesPayment before = find(id, paymentId);
+        if (before.isOffset())
+            throw new BusinessRuleException("Een verrekening corrigeer je door ze in te trekken en opnieuw te maken");
         requireBankUnlinked(paymentId);
         Request clean = validate(request);
         boolean refund = before.amountEur().signum() < 0;
@@ -134,6 +155,8 @@ public class IncomingPaymentService {
 
     @Transactional
     public void delete(long id, long paymentId) {
+        SalesPayment peek = find(id, paymentId);
+        if (peek.isOffset()) { retractOffset(id, peek); return; }
         orders.lockById(id);
         SalesOrder order = sales.get(id);
         SalesPayment before = find(id, paymentId);
@@ -142,6 +165,103 @@ public class IncomingPaymentService {
         payments.voidPayment(paymentId);
         audit(order, before.amountEur().signum() < 0 ? "Terugbetaling ingetrokken" : "Inkomende betaling ingetrokken", before, null);
         reconcile(order);
+    }
+
+    /**
+     * Offsets a credit note's open balance against an open invoice of the
+     * same customer: a negative row on the credit note, a positive row on the
+     * invoice, cross-linked, no bank money. Both documents are locked in
+     * ascending id order, their container first for partner documents.
+     */
+    @Transactional
+    public SalesOrder applyCredit(long creditId, long invoiceId, BigDecimal amountEur) {
+        if (creditId == invoiceId) throw new BusinessRuleException("Verrekenen kan alleen met een andere factuur");
+        SalesOrder creditPeek = sales.get(creditId);
+        SalesOrder invoicePeek = sales.get(invoiceId);
+        requireSameDeal(creditPeek, invoicePeek);
+        lockPair(creditPeek, invoicePeek);
+        SalesOrder credit = sales.get(creditId);
+        SalesOrder invoice = sales.get(invoiceId);
+        requireSameDeal(credit, invoice);
+        if (!credit.isCreditNote() || credit.status() == QuoteStatus.CONCEPT || !PartnerFinancingService.live(credit))
+            throw new BusinessRuleException("Reik de creditnota eerst uit");
+        if (!invoice.isInvoice() || invoice.status() == QuoteStatus.CONCEPT || !PartnerFinancingService.live(invoice))
+            throw new BusinessRuleException("Factuur " + invoice.number() + " is niet actief of nog een concept");
+        if (!Objects.equals(credit.customerId(), invoice.customerId()))
+            throw new BusinessRuleException("Verrekenen kan alleen met een factuur van dezelfde klant");
+        BigDecimal open = summary(credit, sales.price(credit)).creditEur()
+                .min(summary(invoice, sales.price(invoice)).remainingEur());
+        if (open.signum() <= 0)
+            throw new BusinessRuleException("Er valt niets te verrekenen: de creditnota is afgehandeld of de factuur is al betaald");
+        BigDecimal amount = amountEur == null ? open : Money.money(amountEur);
+        if (amount.signum() <= 0) throw new BusinessRuleException("Geef een te verrekenen bedrag groter dan nul op");
+        if (amount.compareTo(open) > 0) throw new BusinessRuleException("Je kunt hoogstens " + eur(open) + " verrekenen");
+        validateNet(credit, null, amount.negate());
+        validateNet(invoice, null, amount);
+        Instant now = Instant.now();
+        String actor = actorName();
+        String reference = "Verrekening " + credit.number() + " met " + invoice.number();
+        var rows = payments.saveOffsetPair(
+                new SalesPayment(null, creditId, amount.negate(), now, BRUSSELS, reference, now, actor, false, null),
+                new SalesPayment(null, invoiceId, amount, now, BRUSSELS, reference, now, actor, false, null));
+        String creditSummary = "Verrekend " + eur(amount) + " met " + invoice.number();
+        String invoiceSummary = "Verrekend " + eur(amount) + " met " + credit.number();
+        events.add(new QuoteEvent(null, creditId, QuoteEvent.Type.VERREKEND, now, actor, false, creditSummary, rows.get(0).toString()));
+        events.add(new QuoteEvent(null, invoiceId, QuoteEvent.Type.VERREKEND, now, actor, false, invoiceSummary, rows.get(1).toString()));
+        recordActivity(credit, creditSummary);
+        recordActivity(invoice, invoiceSummary);
+        SalesOrder settled = reconcile(credit);
+        reconcile(invoice);
+        return settled;
+    }
+
+    /** Voids both halves of an offset under both locks; the history keeps the rows. */
+    private void retractOffset(long id, SalesPayment row) {
+        SalesOrder here = sales.get(id);
+        SalesOrder there = sales.get(row.offsetOrderId());
+        lockPair(here, there);
+        here = sales.get(id);
+        there = sales.get(row.offsetOrderId());
+        SalesPayment mine = find(id, row.id());
+        SalesPayment counterpart = payments.forOrder(there.id()).stream()
+                .filter(p -> Objects.equals(p.id(), row.offsetPaymentId())).findFirst().orElse(null);
+        validateNet(here, mine.id(), ZERO);
+        if (counterpart != null) validateNet(there, counterpart.id(), ZERO);
+        payments.voidPayment(mine.id());
+        audit(here, "Verrekening ingetrokken", mine, null);
+        if (counterpart != null) {
+            payments.voidPayment(counterpart.id());
+            audit(there, "Verrekening ingetrokken", counterpart, null);
+        }
+        reconcile(here);
+        reconcile(there);
+    }
+
+    /** Partner documents only offset within their own container; ordinary documents only among themselves. */
+    private static void requireSameDeal(SalesOrder credit, SalesOrder invoice) {
+        if (!credit.isPartnerDeal() && !invoice.isPartnerDeal()) return;
+        if (!credit.isPartnerDeal() || !invoice.isPartnerDeal()
+                || !Objects.equals(credit.linkedPurchaseOrderId(), invoice.linkedPurchaseOrderId()))
+            throw new BusinessRuleException("Verrekenen tussen een partnerdocument en een gewoon document is niet mogelijk");
+    }
+
+    /** The container first, then both documents by ascending id, so two offsets can never wait on each other. */
+    private void lockPair(SalesOrder left, SalesOrder right) {
+        if (left.isPartnerDeal() && left.linkedPurchaseOrderId() != null && purchases != null && purchases.isResolvable())
+            purchases.get().lockForPartnerSettlement(left.linkedPurchaseOrderId());
+        long first = Math.min(left.id(), right.id());
+        long second = Math.max(left.id(), right.id());
+        orders.lockById(first);
+        if (second != first) orders.lockById(second);
+    }
+
+    private void recordActivity(SalesOrder order, String summary) {
+        if (activity != null && activity.isResolvable()) activity.get().record(ActivityLogService.ACTION_UPDATED,
+                "SALES_ORDER", order.id().toString(), order.number(), summary);
+    }
+
+    static String eur(BigDecimal amount) {
+        return "€ " + String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f", Money.money(amount));
     }
 
     @Transactional
@@ -177,21 +297,25 @@ public class IncomingPaymentService {
 
     private SalesOrder requireReceivable(SalesOrder order) {
         requireActiveInvoice(order);
+        if (order.isCreditNote())
+            throw new BusinessRuleException("Op een creditnota registreer je geen ontvangst; verreken ze met een factuur of noteer een terugbetaling");
         if (sales.price(order).totals().totalInclVat().signum() <= 0)
             throw new BusinessRuleException("Deze afrekening is een tegoed of nulbedrag; registreer hiervoor geen inkomende betaling");
         return order;
     }
 
     private SalesOrder requireActiveInvoice(SalesOrder order) {
-        if (!order.isInvoice() || order.status() == QuoteStatus.CONCEPT)
-            throw new BusinessRuleException("Reik eerst de factuur uit voordat je een ontvangst registreert; verzending is niet verplicht");
+        if (!order.isClaimDocument() || order.status() == QuoteStatus.CONCEPT)
+            throw new BusinessRuleException(order.isCreditNote()
+                    ? "Reik eerst de creditnota uit voordat je een terugbetaling of verrekening registreert"
+                    : "Reik eerst de factuur uit voordat je een ontvangst registreert; verzending is niet verplicht");
         if (order.status() == QuoteStatus.GEANNULEERD || order.status() == QuoteStatus.AFGEWEZEN || order.status() == QuoteStatus.VERLOPEN)
             throw new BusinessRuleException("Deze factuur is niet actief; heropen eerst het document voor een nieuwe ontvangst");
         return order;
     }
 
     private void validateNet(SalesOrder order, Long replacingId, BigDecimal replacement) {
-        BigDecimal total = Money.money(sales.price(order).totals().totalInclVat());
+        BigDecimal total = DocumentSign.claim(order, sales.price(order));
         var retained = payments.forOrder(order.id()).stream().filter(p -> !Objects.equals(p.id(), replacingId)).toList();
         BigDecimal net = retained.stream().map(SalesPayment::amountEur).reduce(replacement, BigDecimal::add);
         boolean hasRefund = replacement.signum() < 0 || retained.stream().anyMatch(p -> p.amountEur().signum() < 0);

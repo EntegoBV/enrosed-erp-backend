@@ -16,7 +16,7 @@ final class OpenQuoteWork {
         for (SalesOrder order : orders) {
             if (order.isArchived() && order.id() != null) closed.add(order.id());
             // A term invoice is only part of an advance agreement; it does not close that quote.
-            if (order.isInvoice() && order.status() != QuoteStatus.GEANNULEERD
+            if (order.isClaimDocument() && order.status() != QuoteStatus.GEANNULEERD
                     && !order.isPartnerAdvance() && order.sourceQuoteId() != null) {
                 closed.add(order.sourceQuoteId());
             }

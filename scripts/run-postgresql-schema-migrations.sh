@@ -124,4 +124,5 @@ exec psql \
     --file=/app/migrations/product-sales-unit-postgresql.sql \
     --file=/app/migrations/family-website-quote-photo-postgresql.sql \
     --file=/app/migrations/product-unit-key-postgresql.sql \
-    --file=/app/migrations/catalog-export-order-postgresql.sql
+    --file=/app/migrations/catalog-export-order-postgresql.sql \
+    --file=/app/migrations/credit-notes-postgresql.sql

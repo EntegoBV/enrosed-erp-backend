@@ -19,9 +19,15 @@ final class SalesLifecycle {
     /** Full order edits are only safe while the document is a draft. */
     static void requireEditable(SalesOrder order) {
         if (order.status() == null) {
-            throw new BusinessRuleException("Kies een geldige status voor de " + (order.isInvoice() ? "factuur" : "offerte"));
+            throw new BusinessRuleException("Kies een geldige status voor de "
+                    + (order.isCreditNote() ? "creditnota" : order.isInvoice() ? "factuur" : "offerte"));
         }
         if (order.status() != QuoteStatus.CONCEPT) {
+            if (order.isCreditNote()) {
+                throw new BusinessRuleException("Creditnota " + order.number() + " staat op "
+                        + order.status().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ')
+                        + "; alleen conceptcreditnota's kunnen gewijzigd worden");
+            }
             if (order.isInvoice()) {
                 throw new BusinessRuleException("Factuur " + order.number() + " staat op "
                         + order.status().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ')
@@ -76,7 +82,7 @@ final class SalesLifecycle {
      * service so the invoice keeps its source relationship.
      */
     static void requireDeletable(SalesOrder order, boolean hasRevisions) {
-        if (!order.isInvoice()) return;
+        if (!order.isClaimDocument()) return;
 
         boolean unusedDraft = order.status() == QuoteStatus.CONCEPT
                 && order.sentAt() == null
@@ -85,8 +91,9 @@ final class SalesLifecycle {
                 && order.decidedAt() == null
                 && !hasRevisions;
         if (!unusedDraft) {
-            throw new BusinessRuleException(
-                    "Alleen een conceptfactuur die nog nooit verstuurd of gebruikt is "
+            throw new BusinessRuleException(order.isCreditNote()
+                    ? "Alleen een conceptcreditnota die nog nooit verstuurd of gebruikt is kan verwijderd worden"
+                    : "Alleen een conceptfactuur die nog nooit verstuurd of gebruikt is "
                             + "kan verwijderd worden");
         }
     }

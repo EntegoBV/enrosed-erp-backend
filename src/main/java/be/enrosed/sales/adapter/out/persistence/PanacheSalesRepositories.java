@@ -157,7 +157,14 @@ public final class PanacheSalesRepositories {
             @SuppressWarnings("unchecked")
             java.util.List<Object[]> rows = dao.getEntityManager().createNativeQuery("select id, number, docType from sales_order").getResultList();
             return rows.stream().map(r -> new SalesRepositories.Orders.ReservedNumber(((Number) r[0]).longValue(),
-                    (String) r[1], "FACTUUR".equals(r[2]))).toList();
+                    (String) r[1], reservedType(r[2]))).toList();
+        }
+
+        /** A stored type read leniently: rows from before invoices, or an unknown value, count as quotes. */
+        private static be.enrosed.sales.domain.DocumentType reservedType(Object raw) {
+            if (raw == null) return be.enrosed.sales.domain.DocumentType.OFFERTE;
+            try { return be.enrosed.sales.domain.DocumentType.valueOf(String.valueOf(raw)); }
+            catch (IllegalArgumentException unknown) { return be.enrosed.sales.domain.DocumentType.OFFERTE; }
         }
 
         @Override

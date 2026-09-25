@@ -34,10 +34,30 @@ public class IncomingPayments {
         entity.receivedAt = payment.receivedAt(); entity.timeZone = payment.timeZone(); entity.reference = payment.reference();
         entity.recordedAt = payment.recordedAt(); entity.actor = payment.actor(); entity.legacy = payment.legacy();
         entity.bankAccount = payment.bankAccount();
+        entity.offsetOrderId = payment.offsetOrderId(); entity.offsetPaymentId = payment.offsetPaymentId();
         if (payment.legacy()) entity.legacyKey = "paid-at:" + payment.salesOrderId();
         if (entity.id == null) entities.persist(entity);
         entities.flush();
         return domain(entity);
+    }
+
+    /** Persists both halves of an offset and cross-links them; the pair is one atomic fact. */
+    public List<SalesPayment> saveOffsetPair(SalesPayment creditRow, SalesPayment invoiceRow) {
+        SalesPaymentEntity credit = new SalesPaymentEntity();
+        SalesPaymentEntity invoice = new SalesPaymentEntity();
+        fill(credit, creditRow); fill(invoice, invoiceRow);
+        credit.offsetOrderId = invoiceRow.salesOrderId(); invoice.offsetOrderId = creditRow.salesOrderId();
+        entities.persist(credit); entities.persist(invoice); entities.flush();
+        credit.offsetPaymentId = invoice.id; invoice.offsetPaymentId = credit.id;
+        entities.flush();
+        return List.of(domain(credit), domain(invoice));
+    }
+
+    private static void fill(SalesPaymentEntity entity, SalesPayment payment) {
+        entity.salesOrderId = payment.salesOrderId(); entity.amountEur = payment.amountEur();
+        entity.receivedAt = payment.receivedAt(); entity.timeZone = payment.timeZone(); entity.reference = payment.reference();
+        entity.recordedAt = payment.recordedAt(); entity.actor = payment.actor(); entity.legacy = payment.legacy();
+        entity.bankAccount = payment.bankAccount();
     }
 
     public void voidPayment(long id) {
@@ -46,6 +66,7 @@ public class IncomingPayments {
     }
 
     private static SalesPayment domain(SalesPaymentEntity e) {
-        return new SalesPayment(e.id, e.salesOrderId, e.amountEur, e.receivedAt, e.timeZone, e.reference, e.recordedAt, e.actor, e.legacy, e.bankAccount);
+        return new SalesPayment(e.id, e.salesOrderId, e.amountEur, e.receivedAt, e.timeZone, e.reference, e.recordedAt, e.actor, e.legacy, e.bankAccount,
+                e.offsetOrderId, e.offsetPaymentId);
     }
 }

@@ -444,6 +444,8 @@ public class SourcingResource {
         public String label;
         public PurchasePayment.Payee payee;
         public Boolean settles;
+        /** The euro value the bank actually charged; empty means the order rate converts. */
+        public java.math.BigDecimal amountEur;
         private be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
         private boolean instalmentDueProvided;
 
@@ -459,6 +461,7 @@ public class SourcingResource {
         public String label() { return label; }
         public PurchasePayment.Payee payee() { return payee; }
         public Boolean settles() { return settles; }
+        public java.math.BigDecimal amountEur() { return amountEur; }
         public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue() { return instalmentDue; }
         public boolean instalmentDueProvided() { return instalmentDueProvided; }
     }
@@ -475,7 +478,7 @@ public class SourcingResource {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
-                request.instalmentDue());
+                request.instalmentDue(), request.amountEur());
         return Response.status(Response.Status.CREATED).entity(saved).build();
     }
 
@@ -486,7 +489,7 @@ public class SourcingResource {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
-                request.instalmentDue(), request.instalmentDueProvided());
+                request.instalmentDue(), request.instalmentDueProvided(), request.amountEur());
     }
 
     @DELETE

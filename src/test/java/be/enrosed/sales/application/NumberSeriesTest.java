@@ -19,6 +19,20 @@ class NumberSeriesTest {
     }
 
     @Test
+    void aReservedNumberBelongsToOneSeriesAndOnlyInvoicesReadAsInvoices() {
+        var invoice = new be.enrosed.sales.application.port.out.SalesRepositories.Orders.ReservedNumber(1, "F-2026-0001",
+                be.enrosed.sales.domain.DocumentType.FACTUUR);
+        var credit = new be.enrosed.sales.application.port.out.SalesRepositories.Orders.ReservedNumber(2, "CN-2026-0001",
+                be.enrosed.sales.domain.DocumentType.CREDITNOTA);
+        var quote = new be.enrosed.sales.application.port.out.SalesRepositories.Orders.ReservedNumber(3, "ENR-2026-0001",
+                be.enrosed.sales.domain.DocumentType.OFFERTE);
+        assertTrue(invoice.invoice());
+        assertFalse(credit.invoice(), "a credit note never counts in the invoice series");
+        assertFalse(quote.invoice());
+        assertEquals(be.enrosed.sales.domain.DocumentType.CREDITNOTA, credit.docType());
+    }
+
+    @Test
     void readsItsOwnNumbersBackAndNothingElse() {
         Matcher hit = NumberSeries.series("partner/{jaar}/{nr:3}", 2026).matcher("partner/2026/047");
         assertTrue(hit.matches());

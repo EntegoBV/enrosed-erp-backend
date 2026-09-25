@@ -39,6 +39,11 @@ public class InvoiceStatusMigration {
         } else {
             widen("alter table sales_order alter column status varchar(32)");
             widen("alter table sales_order alter column freightPricingStrategy varchar(24)");
+            /* The developer's H2 file created these as native ENUM columns before credit
+               notes existed; CREDITNOTA, CONTAINER_COST and CREDIT_NOTE do not fit in them. */
+            widen("alter table sales_order alter column docType varchar(16)");
+            widen("alter table sales_order alter column markupMode varchar(40)");
+            widen("alter table deleted_item alter column type varchar(20)");
         }
         /* The generated check constraints, under every name Hibernate used. */
         widen("alter table sales_order drop constraint if exists sales_order_status_check");

@@ -332,6 +332,10 @@ public class PartnerAdvanceScheduleService {
             throw new BusinessRuleException("Maak en reik eerst de geplande voorschotfacturen uit, of verwijder de ongebruikte termijnen, voordat je een afrekening maakt");
         if (advanceInvoices(purchaseId).stream().anyMatch(order -> order.status() == QuoteStatus.CONCEPT))
             throw new BusinessRuleException("Reik eerst de voorschotconcepten uit, of verwijder ongebruikte conceptfacturen en termijnen, voordat je een afrekening maakt");
+        if (orders.findAll().stream().anyMatch(order -> order.isCreditNote() && order.purpose() == SalesPurpose.PARTNER_ADVANCE
+                && Objects.equals(order.linkedPurchaseOrderId(), purchaseId) && order.status() == QuoteStatus.CONCEPT
+                && PartnerFinancingService.live(order)))
+            throw new BusinessRuleException("Reik eerst de conceptcreditnota uit of verwijder ze voordat je een afrekening maakt");
     }
     public BigDecimal agreedAmount(long purchaseId) {
         var saved = schedules.find(purchaseId);

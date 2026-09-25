@@ -588,15 +588,33 @@ public class PurchaseOrderService {
     public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                                       String label, PurchasePayment.Payee payee, boolean settles,
                                       PaymentTerms.Moment instalmentDue) {
+        return addPayment(orderId, paidOn, amount, currency, label, payee, settles, instalmentDue, null);
+    }
+
+    /**
+     * Records money that left, optionally with the euro value the bank
+     * actually charged for a foreign-currency transfer. Without that bank
+     * amount the order's frozen rates convert, as they always did; with it
+     * the ledger keeps the bank's figure and the reconciliation reads it.
+     */
+    @Transactional
+    public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                                      String label, PurchasePayment.Payee payee, boolean settles,
+                                      PaymentTerms.Moment instalmentDue, BigDecimal amountEur) {
         PurchaseOrder order = getForUpdate(orderId);
         requireInstalmentDue(order, payee, instalmentDue);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? Currency.EUR : currency;
-        BigDecimal eur = switch (money) {
-            case EUR -> amount;
-            case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
-            case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
-        };
+        BigDecimal eur;
+        if (amountEur == null) {
+            eur = switch (money) {
+                case EUR -> amount;
+                case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
+                case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
+            };
+        } else {
+            eur = requireBankAmount(amountEur, money, amount);
+        }
         LocalDate day = paidOn != null ? paidOn : LocalDate.now();
         PurchasePayment.Payee to = payee == null ? PurchasePayment.Payee.SUPPLIER : payee;
         BigDecimal eurRounded = eur.setScale(2, java.math.RoundingMode.HALF_UP);
@@ -607,18 +625,28 @@ public class PurchaseOrderService {
 
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", null, payment.amount())
+                .add("payment.currency", "Valuta", null, payment.currency())
+                .add("payment.date", "Betaald op", null, payment.paidOn())
+                .add("payment.payee", "Begunstigde", null, payment.payee().dutchLabel())
+                .add("payment.settles", "Slotbetaling", null, payment.settles() ? "ja" : null)
+                .add("payment.instalmentDue", "Betaaltermijn", null, payment.instalmentDue());
+        if (amountEur != null) changes.add("payment.amountEur", "In euro", null, eurRounded);
         recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
                 "Betaling aan " + to.dutchLabel().toLowerCase(java.util.Locale.ROOT) + " toegevoegd",
-                ActivityChangeSet.create()
-                        .add("payment.amount", "Bedrag", null, payment.amount())
-                        .add("payment.currency", "Valuta", null, payment.currency())
-                        .add("payment.date", "Betaald op", null, payment.paidOn())
-                        .add("payment.payee", "Begunstigde", null, payment.payee().dutchLabel())
-                        .add("payment.settles", "Slotbetaling", null, payment.settles() ? "ja" : null)
-                        .add("payment.instalmentDue", "Betaaltermijn", null, payment.instalmentDue())
-                        .privateValue("payment.label", "Omschrijving", null, payment.label())
+                changes.privateValue("payment.label", "Omschrijving", null, payment.label())
                         .build());
         return payment;
+    }
+
+    /** The bank's euro figure must be a real amount, and for a euro transfer it is the amount itself. */
+    private static BigDecimal requireBankAmount(BigDecimal amountEur, Currency money, BigDecimal amount) {
+        if (amountEur.signum() <= 0) throw new BusinessRuleException("Geef een eurobedrag groter dan nul op");
+        if (money == Currency.EUR && amountEur.compareTo(amount) != 0) {
+            throw new BusinessRuleException("Voor een betaling in euro is het eurobedrag gelijk aan het bedrag");
+        }
+        return amountEur;
     }
 
     /** A plan of one's own adds up to the whole goods value, and every share stays between 0 and 100. */
@@ -861,6 +889,19 @@ public class PurchaseOrderService {
     public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
                                          Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
                                          PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided) {
+        return updatePayment(orderId, paymentId, paidOn, amount, currency, label, payee, settles, instalmentDue,
+                instalmentDueProvided, null);
+    }
+
+    /**
+     * Corrects a payment; a bank euro amount, when given, replaces the stored
+     * euro value even when the foreign amount itself did not change.
+     */
+    @Transactional
+    public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                         Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
+                                         PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided,
+                                         BigDecimal amountEur) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchasePayment before = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
@@ -875,7 +916,8 @@ public class PurchaseOrderService {
         // existing bank movement at an exchange rate edited since registration.
         boolean unchangedMoney = money == before.currency() && before.amount() != null
                 && recordedAmount.compareTo(before.amount()) == 0 && before.amountEur() != null;
-        BigDecimal eur = unchangedMoney ? before.amountEur() : switch (money) {
+        BigDecimal eur = amountEur != null ? requireBankAmount(amountEur, money, recordedAmount)
+                : unchangedMoney ? before.amountEur() : switch (money) {
             case EUR -> recordedAmount;
             case USD -> recordedAmount.multiply(Money.nz(order.usdToEurGoods()));
             case CNY -> recordedAmount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
@@ -888,15 +930,16 @@ public class PurchaseOrderService {
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", before.amount(), after.amount())
+                .add("payment.currency", "Valuta", before.currency(), after.currency())
+                .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
+                .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
+                .add("payment.settles", "Slotbetaling", before.settles() ? "ja" : "nee", after.settles() ? "ja" : "nee")
+                .add("payment.instalmentDue", "Betaaltermijn", before.instalmentDue(), after.instalmentDue());
+        if (amountEur != null) changes.add("payment.amountEur", "In euro", before.amountEur(), after.amountEur());
         recordActivity(ActivityLogService.ACTION_UPDATED, order, "Betaling gewijzigd",
-                ActivityChangeSet.create()
-                        .add("payment.amount", "Bedrag", before.amount(), after.amount())
-                        .add("payment.currency", "Valuta", before.currency(), after.currency())
-                        .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
-                        .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
-                        .add("payment.settles", "Slotbetaling", before.settles() ? "ja" : "nee", after.settles() ? "ja" : "nee")
-                        .add("payment.instalmentDue", "Betaaltermijn", before.instalmentDue(), after.instalmentDue())
-                        .privateValue("payment.label", "Omschrijving", before.label(), after.label())
+                changes.privateValue("payment.label", "Omschrijving", before.label(), after.label())
                         .build());
         return after;
     }

@@ -7,7 +7,7 @@ import java.util.List;
 /** Deliberately excludes portal tokens, storage keys and mutable operational payloads. */
 public final class DeletedItemDtos {
     private DeletedItemDtos() {}
-    public enum Type { INVOICE, QUOTE, PURCHASE_ORDER }
+    public enum Type { INVOICE, QUOTE, PURCHASE_ORDER, CREDIT_NOTE }
     public record Field(String label, String value) {}
     public record Line(String description, String sku, BigDecimal quantity, String unit,
                        BigDecimal unitPriceEur, BigDecimal totalEur) {}

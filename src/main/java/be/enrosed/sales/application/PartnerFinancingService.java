@@ -24,7 +24,9 @@ public class PartnerFinancingService {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     public record Document(Long id, String number, SalesPurpose purpose, DocumentType docType, QuoteStatus status,
-                           BigDecimal invoiceTotalEur, BigDecimal receivedEur, BigDecimal remainingEur, BigDecimal creditEur) {}
+                           BigDecimal invoiceTotalEur, BigDecimal receivedEur, BigDecimal remainingEur, BigDecimal creditEur,
+                           /** Credit notes only: the invoice they correct. */
+                           Long creditedInvoiceId) {}
     public record Summary(long purchaseOrderId, Long partnerCustomerId, String partnerName,
                           BigDecimal costPct, BigDecimal profitSharePct, SalesPaymentPlan paymentPlan,
                           BigDecimal plannedExternalEur, BigDecimal forecastExternalEur, boolean costFinalized,
@@ -38,7 +40,21 @@ public class PartnerFinancingService {
                           boolean settlementComplete, int settledQuantity, int remainingQuantity,
                           BigDecimal unbilledAdvanceEur, int unbilledAdvanceCount,
                           BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate,
-                          BigDecimal financingBasisEur, PartnerAdvanceBasis.Kind financingBasis) {}
+                          BigDecimal financingBasisEur, PartnerAdvanceBasis.Kind financingBasis,
+                          /** Issued live credit notes on this container's documents, incl. VAT, as a positive figure. */
+                          BigDecimal creditNotesEur) {}
+
+    /** What a partner is owed back when the container arrived short of what the advance financed. */
+    public record PartnerCreditProposal(long purchaseOrderId, boolean received, boolean settlementExists,
+                                        int missingPieces, int damagedPieces, BigDecimal issuedAdvanceEur,
+                                        BigDecimal creditedAdvanceEur, BigDecimal actualBasisEur,
+                                        BigDecimal forecastExternalEur, BigDecimal financingPct,
+                                        BigDecimal agreedShareEur, BigDecimal overFinancingEur,
+                                        BigDecimal overFinancingInclVatEur, Long suggestedAdvanceInvoiceId,
+                                        List<AdvanceOption> advances) {
+        public record AdvanceOption(long invoiceId, String number, BigDecimal totalInclVatEur,
+                                    BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur) {}
+    }
 
     public PartnerSettlements.Snapshot settlement(SalesOrder order) {
         return order.id() != null && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? settlements.find(order.id()) : null;
@@ -46,6 +62,15 @@ public class PartnerFinancingService {
 
     public SalesAccounting accounting(SalesOrder order, PricedOrder priced) {
         if (!issued(order) || order.isPartnerAdvance()) return new SalesAccounting(ZERO, ZERO, ZERO, 0);
+        if (order.isCreditNote()) {
+            /* A credit note reverses what its invoice recognised: a standard one revenue, cost and
+               pieces; one on a settlement only the money, the auctioned pieces stay settled. */
+            BigDecimal reversedRevenue = DocumentSign.signedTotal(order, priced);
+            if (order.purpose() == SalesPurpose.PARTNER_SETTLEMENT) return new SalesAccounting(reversedRevenue, ZERO, reversedRevenue, 0);
+            BigDecimal reversedCost = DocumentSign.signedCost(order, priced);
+            return new SalesAccounting(reversedRevenue, reversedCost, Money.money(reversedRevenue.subtract(reversedCost)),
+                    DocumentSign.signedPieces(order, priced));
+        }
         BigDecimal revenue = Money.money(priced.totals().total());
         BigDecimal cost = Money.money(priced.totals().costTotal());
         if (order.purpose() == SalesPurpose.PARTNER_SETTLEMENT) {
@@ -75,18 +100,26 @@ public class PartnerFinancingService {
         List<Document> documents = docs.stream().map(order -> {
             var summary = incoming.summary(order, sales.price(order));
             return new Document(order.id(), order.number(), order.purpose(), order.docType(), order.status(),
-                    summary.invoiceTotalEur(), summary.receivedEur(), summary.remainingEur(), summary.creditEur());
+                    summary.invoiceTotalEur(), summary.receivedEur(), summary.remainingEur(), summary.creditEur(),
+                    order.creditedInvoiceId());
         }).toList();
-        var advances = docs.stream().filter(order -> order.isPartnerAdvance() && issued(order)).toList();
+        var advances = docs.stream().filter(order -> order.isInvoice() && order.isPartnerAdvance() && issued(order)).toList();
         var finals = docs.stream().filter(order -> order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && order.isInvoice() && live(order)).toList();
+        /* Issued credit notes net the financed and settled amounts; their cash shows in the signed receipts. */
+        var advanceCredits = docs.stream().filter(order -> order.isCreditNote() && order.purpose() == SalesPurpose.PARTNER_ADVANCE && issued(order)).toList();
+        var settlementCredits = docs.stream().filter(order -> order.isCreditNote() && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && issued(order)).toList();
+        var creditNotes = docs.stream().filter(order -> order.isCreditNote() && issued(order)).toList();
         var finalInvoice = finals.stream().filter(order -> {
             var snapshot = settlements.find(order.id());
             return snapshot == null || snapshot.finalSettlement();
         }).findFirst().orElse(null);
-        BigDecimal invoiced = sum(advances, order -> sales.price(order).totals().total());
+        BigDecimal invoiced = sum(advances, order -> sales.price(order).totals().total())
+                .subtract(sum(advanceCredits, order -> sales.price(order).totals().total()));
         BigDecimal receivedAdvance = sum(docs.stream().filter(SalesOrder::isPartnerAdvance).toList(), order -> incoming.summary(order, sales.price(order)).receivedEur());
         BigDecimal openAdvance = sum(advances, order -> incoming.summary(order, sales.price(order)).remainingEur());
-        BigDecimal finalAmount = sum(finals, order -> sales.price(order).totals().total());
+        BigDecimal finalAmount = sum(finals, order -> sales.price(order).totals().total())
+                .subtract(sum(settlementCredits, order -> sales.price(order).totals().total()));
+        BigDecimal creditNotesEur = sum(creditNotes, order -> sales.price(order).totals().totalInclVat());
         BigDecimal receivedFinal = sum(docs.stream().filter(order -> order.purpose() == SalesPurpose.PARTNER_SETTLEMENT).toList(), order -> incoming.summary(order, sales.price(order)).receivedEur());
         BigDecimal openFinal = sum(finals.stream().filter(PartnerFinancingService::issued).toList(),
                 order -> incoming.summary(order, sales.price(order)).remainingEur());
@@ -113,7 +146,7 @@ public class PartnerFinancingService {
                 .min(LocalDate::compareTo).orElse(null);
         var agreement = purchase.partnerCustomerId() == null ? null : schedules.get(id);
         return new Summary(id, purchase.partnerCustomerId(), name, purchase.partnerCostPctOrDefault(),
-                purchase.partnerSharePctOrDefault(), docs.stream().filter(SalesOrder::isPartnerAdvance).findFirst()
+                purchase.partnerSharePctOrDefault(), docs.stream().filter(order -> order.isInvoice() && order.isPartnerAdvance()).findFirst()
                 .map(SalesOrder::paymentPlan).orElse(SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION),
                 reconciliation.totals().plannedExternalEur(), reconciliation.totals().forecastExternalEur(), reconciliation.totals().finalized(),
                 purchase.partnerCustomerId() == null ? ZERO : schedules.agreedAmount(id),
@@ -123,10 +156,63 @@ public class PartnerFinancingService {
                 revenue, cost, revenue.subtract(cost), documents, payments, settlementComplete, settledQuantity, remainingQuantity,
                 unbilled, pending.size(), overdue, nextDue,
                 agreement == null ? PartnerAdvanceBasis.total(purchases.calculate(purchase)) : agreement.financingBasisEur(),
-                agreement == null ? PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS : agreement.financingBasis());
+                agreement == null ? PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS : agreement.financingBasis(),
+                creditNotesEur);
     }
 
-    public static boolean issued(SalesOrder order) { return order.isInvoice() && order.status() != QuoteStatus.CONCEPT && live(order); }
+    /**
+     * Read-only: how much of the issued advances financed goods that never
+     * arrived. The basis is the landed total on the received quantities,
+     * the same figure "Afgesproken bedrag opnieuw berekenen" uses; a supplier
+     * that later settles lower is a separate correction the owner enters.
+     */
+    public PartnerCreditProposal creditProposal(long purchaseId) {
+        var purchase = purchases.get(purchaseId);
+        var reconciliation = purchases.reconciliation(purchaseId);
+        boolean received = purchase.status() == be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN || purchase.receivedOn() != null;
+        var docs = sales.list().stream().filter(order -> order.isPartnerDeal()
+                && Long.valueOf(purchaseId).equals(order.linkedPurchaseOrderId())).toList();
+        boolean settlementExists = docs.stream().anyMatch(order -> order.isInvoice()
+                && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && live(order));
+        int missing = purchase.lines().stream().mapToInt(be.enrosed.sourcing.domain.PurchaseOrderLine::missing).sum();
+        int damaged = purchase.lines().stream().mapToInt(be.enrosed.sourcing.domain.PurchaseOrderLine::damaged).sum();
+        var advances = docs.stream().filter(order -> order.isInvoice() && order.isPartnerAdvance() && issued(order))
+                .sorted(java.util.Comparator.comparing(SalesOrder::id)).toList();
+        var advanceCredits = docs.stream().filter(order -> order.isCreditNote()
+                && order.purpose() == SalesPurpose.PARTNER_ADVANCE && issued(order)).toList();
+        BigDecimal issuedAdvance = sum(advances, order -> sales.price(order).totals().total());
+        BigDecimal creditedAdvance = sum(advanceCredits, order -> sales.price(order).totals().total());
+        BigDecimal basis;
+        try { basis = PartnerAdvanceBasis.total(purchases.calculate(purchase)); }
+        catch (be.enrosed.shared.BusinessRuleException incomplete) { basis = null; }
+        BigDecimal pct = purchase.partnerCostPctOrDefault();
+        BigDecimal agreedShare = basis == null ? null : PartnerAdvanceBasis.amount(basis, pct);
+        BigDecimal over = !received || settlementExists || agreedShare == null ? ZERO
+                : Money.money(issuedAdvance.subtract(creditedAdvance).subtract(agreedShare).max(ZERO));
+        List<PartnerCreditProposal.AdvanceOption> options = new java.util.ArrayList<>();
+        Long suggested = null;
+        BigDecimal suggestedRoom = ZERO;
+        BigDecimal vatRate = ZERO;
+        for (var advance : advances) {
+            var priced = sales.price(advance);
+            BigDecimal total = Money.money(priced.totals().totalInclVat());
+            BigDecimal already = sum(sales.liveCreditNotesOf(advance.id()), note -> sales.price(note).totals().totalInclVat());
+            BigDecimal room = total.subtract(already).max(ZERO);
+            options.add(new PartnerCreditProposal.AdvanceOption(advance.id(), advance.number(), total, already, room));
+            if (suggested == null || room.compareTo(suggestedRoom) > 0) {
+                suggested = advance.id(); suggestedRoom = room; vatRate = Money.nz(priced.totals().vatRatePct());
+            }
+        }
+        BigDecimal overInclVat = Money.money(over.add(Money.percentOf(over, vatRate)));
+        /* Both figures are plain numbers to the client; a container whose costing is not
+           complete yet has no basis to over-finance against, which reads as zero. */
+        return new PartnerCreditProposal(purchaseId, received, settlementExists, missing, damaged, issuedAdvance,
+                creditedAdvance, basis == null ? Money.money(ZERO) : basis, reconciliation.totals().forecastExternalEur(), pct,
+                agreedShare == null ? Money.money(ZERO) : agreedShare, over, overInclVat,
+                suggested, List.copyOf(options));
+    }
+
+    public static boolean issued(SalesOrder order) { return order.isClaimDocument() && order.status() != QuoteStatus.CONCEPT && live(order); }
     public static boolean live(SalesOrder order) {
         return order.status() != QuoteStatus.GEANNULEERD && order.status() != QuoteStatus.AFGEWEZEN && order.status() != QuoteStatus.VERLOPEN;
     }

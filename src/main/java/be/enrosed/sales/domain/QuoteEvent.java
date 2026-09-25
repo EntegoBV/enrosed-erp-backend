@@ -49,6 +49,12 @@ public record QuoteEvent(
         BESTELLING_VERZONDEN,
         BETAALD,
         /** Tied to, or cut loose from, the container a partner co-finances. */
-        PARTNER_GEKOPPELD
+        PARTNER_GEKOPPELD,
+        /** On an invoice: a credit note was made, issued, reopened or cancelled against it. */
+        GECREDITEERD,
+        /** A credit note's balance was offset against an invoice, on both documents. */
+        VERREKEND,
+        /** The credited goods came back into the warehouse. */
+        GOEDEREN_RETOUR
     }
 }

@@ -148,8 +148,12 @@ public class SalesPricingCalculator {
 
             /* The cost the line was written with; a line without one (older
                documents, a product that had no cost yet) reads today's cost. */
-            BigDecimal landedUnit = allocated != null ? allocated.landedUnitCost() : line.hasUnitCost() ? line.unitCostEur() : Money.nz(product.landedCostEur());
-            if (landedUnit.signum() == 0 && !line.isUnavailable()) withoutCost.add(product.sku());
+            /* A credit note keeps the cost its line was written with, an explicit zero included: a
+               price correction reverses revenue, not cost. */
+            BigDecimal landedUnit = allocated != null ? allocated.landedUnitCost()
+                    : line.hasUnitCost() || order.isCreditNote() && line.unitCostEur() != null ? Money.nz(line.unitCostEur())
+                    : Money.nz(product.landedCostEur());
+            if (landedUnit.signum() == 0 && !line.isUnavailable() && !order.isCreditNote()) withoutCost.add(product.sku());
             BigDecimal lineCost = allocated == null ? landedUnit.multiply(BigDecimal.valueOf(quantity)) : allocated.costTotal();
 
             DiscountTier next = automaticDiscountsExcluded(order) ? null : nextTier(productLineTiers, quantity);
@@ -338,9 +342,9 @@ public class SalesPricingCalculator {
         // Internal margin reconciles the same rounded goods and cost amounts shown to the operator.
         BigDecimal margin = Money.money(goodsTotal).subtract(Money.money(costTotal));
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
-        if (order.isPartnerDeal()) minOrderValue = BigDecimal.ZERO;
+        if (order.isPartnerDeal() || order.isCreditNote()) minOrderValue = BigDecimal.ZERO;
         if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
-        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal();
+        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),

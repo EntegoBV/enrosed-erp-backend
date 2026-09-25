@@ -59,6 +59,12 @@
       line-height: 1.4; page-break-inside: avoid; text-align: center;
     }
 
+    /* -- credit note reference ------------------------------------------ */
+    .credit-note-line {
+      margin-top: 10px; padding: 7px 12px; color: #4b2e33; background: #f7eef0;
+      border-left: 3px solid #8c2f3f; font-size: 9pt; line-height: 1.4; page-break-inside: avoid;
+    }
+
     /* -- facts --------------------------------------------------------- */
     table.fact-band {
       width: 100%; margin-top: 12px; border-collapse: separate; border-spacing: 3px 0;
@@ -269,20 +275,26 @@
 </table>
 
 {#if belgianInvoice}
-  <div class="peppol-banner">{t.peppolNotice}</div>
+  <div class="peppol-banner">{peppolNoticeText}</div>
+{/if}
+
+{#if creditNote}
+  <div class="credit-note-line">{creditNoteFor}{#if creditReasonText} · {creditReasonText}{/if}</div>
 {/if}
 
 <table class="fact-band">
   <tr>
     <td><span class="label">{t.date}</span><div class="fact-value">{orderDateText}</div></td>
-    {#if isInvoice}
+    {#if creditNote}
+      <td><span class="label">{t.creditNoteInvoiceLabel}</span><div class="fact-value">{creditedNumber}</div></td>
+    {#else if isInvoice}
       <td><span class="label">{t.dueDate}</span><div class="fact-value">{dueDateText}</div></td>
     {#else}
       <td><span class="label">{t.validUntil}</span><div class="fact-value">{validUntilText}</div></td>
     {/if}
     {#if !partnerDeal}
     <td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>
-    {#if includePaymentDetails}<td><span class="label">{t.payment}</span>
+    {#if includePaymentDetails && !creditNote}<td><span class="label">{t.payment}</span>
       <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>{/if}
     {/if}
   </tr>
@@ -482,6 +494,7 @@
   {#for extra in priced.extraLines}
     <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
   {/for}
+  {#if !creditNote}
   <tr><td>{t.freight}
       {#if freightPending}
       {#else if freightPickup}<span class="muted">({t.pickup})</span>
@@ -490,12 +503,13 @@
       {#else}<span class="muted">({effectivePallets} {t.pallets})</span>{/if}</td>
       <td class="r">{#if freightPending}<span class="muted">{t.freightToBeDetermined}</span>{#else}{priced.totals.freight.eur}{/if}</td></tr>
   <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
+  {/if}
   {#else}
   {#for extra in priced.extraLines}
     <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
   {/for}
   {/if}
-  <tr class="grand"><td>{#if advanceInvoice}{t.advanceAmount}{#else}{t.total}{/if}</td><td class="r">{priced.totals.total.eur}</td></tr>
+  <tr class="grand"><td>{grandTotalLabel}</td><td class="r">{priced.totals.total.eur}</td></tr>
   {#if priced.totals.vatTreatment.isExempt()}
     <tr class="aftertax"><td>{t.vat}</td><td class="r">0,00 EUR</td></tr>
   {#else}
@@ -511,7 +525,21 @@
 </div>
 {/if}
 
-{#if isInvoice}
+{#if creditNote}
+  <div class="panel panel--accent">
+    <div class="panel-title">{t.creditNoteSettlementTitle}</div>
+    <table class="pay-grid">
+      <tr>
+        <td><span class="label">{t.creditAmount}</span><b class="accent">{creditAmountText}</b></td>
+        <td><span class="label">{t.creditNoteInvoiceLabel}</span><b>{creditedNumber}</b></td>
+        <td><span class="label">{t.date}</span><b>{orderDateText}</b></td>
+      </tr>
+    </table>
+    {#if includePaymentDetails}
+    {#for sentence in creditSentences}<p class="panel-sentence">{sentence}</p>{/for}
+    {/if}
+  </div>
+{#else if isInvoice}
   <div class="panel panel--accent">
     <div class="panel-title">{t.paymentTitle}</div>
     <table class="pay-grid">
@@ -539,10 +567,11 @@
   </div>
 {/if}
 
-{#if vatMention || customsLine || invoiceDeclarationText || invoiceDeclarationReference}
+{#if vatMention || customsLine || invoiceDeclarationText || invoiceDeclarationReference || creditNoteVatMention}
   <div class="vat-note">
     {#if invoiceDeclarationText}{invoiceDeclarationText}<br/>{/if}
     {#if vatMention}{#if !explicitInvoiceDeclaration}<b>{vatLabel}</b><br/>{/if}{vatMention}{/if}
+    {#if creditNoteVatMention}{#if vatMention}<br/>{/if}{creditNoteVatMention}{/if}
     {#if customsLine}{#if vatMention}<br/>{/if}{customsLine}{/if}
     {#if invoiceDeclarationReference}<br/>{invoiceDeclarationReference}{/if}
     {#if customer && customer.vatNumber}<br/>{t.buyerVatNumber}: {customer.vatNumber}{/if}
