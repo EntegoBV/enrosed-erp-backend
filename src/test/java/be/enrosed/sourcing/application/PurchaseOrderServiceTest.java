@@ -260,15 +260,34 @@ class PurchaseOrderServiceTest {
     }
 
     @Test
-    void storedOrderedQuantityWinsOverClientValueAfterPlacement() {
+    void aReceiptComparesWithTheCountAsOrderedNowNotAnOlderSnapshot() {
+        /* Placed at 7 200, changed to 6 920 with the supplier before the rule followed such changes. */
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.ONDERWEG, 6920, 7200));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(new PurchaseOrderService.ReceivedLine(1L, 6920, 0)), false, null, java.time.LocalDate.of(2026, 9, 25), null));
+
+        assertEquals(6920, received.lines().getFirst().quantity());
+        assertEquals(6920, received.lines().getFirst().orderedQuantity(), "all that was agreed arrived");
+        assertFalse(received.notes() != null && received.notes().contains("besteld 7200"), "no phantom shortage in the receipt note");
+    }
+
+    @Test
+    void aCountChangedBeforeTheReceiptIsTheNewOrderedQuantity() {
         InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
         PurchaseOrderService service = service(orders, new RecordingProducts());
 
+        /* Changed with the supplier while ordered: the order is the agreement, never the client's value. */
         PurchaseOrder saved = service.update(10L,
                 order(PurchaseOrderStatus.BESTELD, 9, 999)).order();
-
         assertEquals(9, saved.lines().getFirst().quantity());
-        assertEquals(6, saved.lines().getFirst().orderedQuantity());
+        assertEquals(9, saved.lines().getFirst().orderedQuantity());
+
+        /* Under way it is still an agreement, not a short delivery. */
+        orders.current = order(PurchaseOrderStatus.ONDERWEG, 9, 9);
+        PurchaseOrder underWay = service.update(10L, order(PurchaseOrderStatus.ONDERWEG, 8, 9)).order();
+        assertEquals(8, underWay.lines().getFirst().orderedQuantity());
     }
 
     @Test
