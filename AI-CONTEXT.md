@@ -221,6 +221,44 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   series projection). Series photos carry `publishedChannels` (stored choice)
   next to the effective `visibility`; channel switches start from the former.
 
+### Variant size and colour copies follow the base (2026-09-27)
+- Every catalogue output (public families API, PDF catalogue, quotes, photo
+  export) resolves a variant's size and colour through `LanguageFallback`:
+  the `product_text` row of the requested language first, the base
+  `product.variantSize`/`colour` last. The startup backfill copies a base
+  size verbatim into all nine languages (strict localization wants an
+  explicit row per language), so an edit of the base in the ERP used to
+  stay invisible: the website kept printing 4.5*4.5cm after the owner
+  typed 4.8*4.8cm.
+- `Product.textsFollowingBaseChange`, applied by `ProductService.mergeUpdate`
+  (product PUT and the CSV/Excel master-data import, which calls `update`):
+  when the base size or colour changes, per-language values that merely
+  repeated the old base (equal ignoring case and surrounding whitespace)
+  take the new base; a differing value is a real translation (Small ->
+  Klein) and stays. Copies are rewritten, not dropped: an empty row is a
+  strict-localization hole that turns `websiteBuildReady()` off and makes
+  the strict endpoint refuse the family until the next restart. Shared
+  fields never touch colour or size, and the revisioned translation
+  endpoint keeps its own rules.
+- `duplicate` with a new size fills each language through
+  `VariantSizes.localize` (the backfill's rule, moved there): measurements
+  and size codes such as 4.8*4.8cm, 25 cm or XL are copied as they are,
+  Small/Medium/Large are translated, a row that repeated the source base
+  takes the new base, and a translation of the old size is left empty for
+  the publish-fix dialog. A new colour still clears the colour rows.
+- `docs/migrations/2026-09-27/product-text-variant-size-postgresql.sql` is a
+  one-time repair guarded by the `catalog_data_patch` marker
+  `product-text-variant-size-2026-09-27` (advisory lock, early return,
+  `before_state` holds every replaced value), so later deploys never reset a
+  size an editor saves. It is narrower than the in-app rule: only a
+  measurement-shaped per-language size (a number with an optional unit, or
+  up to three dimensions) that differs from the current base, and only when
+  every measurement row of that product carries that same value. Words,
+  labels and measurements localized per language (5,5*6cm next to 5.5*6cm)
+  stay. The startup backfill only fills blank rows from
+  `product.variantSize` and never rewrites a filled one, so it can neither
+  re-seed nor repair a stale copy.
+
 ### Sales units: what one piece is called (2026-09-22)
 - `Packaging.salesUnit` stays the commercial basis (PIECE or DISPLAY);
   `Packaging.unitKey` (`product.packagingunitkey`, nullable = "stuk") names

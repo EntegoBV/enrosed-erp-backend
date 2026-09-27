@@ -933,11 +933,7 @@ public class CatalogContentBackfillService {
     static String localizedSize(String raw, Language language) {
         // Measurements are language-neutral. They must still have an explicit source entry
         // for the strict locale projection, while arbitrary labels need a real translation.
-        if (raw != null && raw.strip().matches(
-                "(?i)[0-9]+(?:[.,][0-9]+)?(?:\\s*[x×*]\\s*[0-9]+(?:[.,][0-9]+)?){1,2}\\s*(?:mm|cm|m)?")) {
-            return raw.strip();
-        }
-        return VariantSizes.translate(raw, language);
+        return VariantSizes.localize(raw, language);
     }
 
     private static String known(String base, Language language) {

@@ -1372,6 +1372,68 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
+    void editingTheBaseSizeReachesTheStrictPublicCatalogInEveryLanguage() {
+        FamilyContext context = completeFamilyContext("size-follows-base");
+        ProductEntity variant = product(
+                context.family, "SKU-SIZE-FOLLOWS", "size-follows",
+                "Red", "4.5*4.5cm", "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        /* What the startup backfill left behind: the dimension copied verbatim into every
+           language, next to one size label an editor really translated. */
+        variant.texts.forEach(text -> text.variantSize =
+                text.language == Language.DE ? "Sondermaß" : "4.5*4.5cm");
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        Product current = products.findById(variant.id).orElseThrow();
+        productService.update(variant.id,
+                current.withVariantAttributes("Red", "4.8*4.8cm", "#A91F32"));
+        entityManager.flush();
+
+        for (Language language : Language.values()) {
+            Response response = publicFamilies.catalog(
+                    CatalogChannel.WEBSITE, language.code(), true, null);
+            assertEquals(200, response.getStatus(), language.code());
+            PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
+            PublicFamilyCatalogDto.VariantDto projected = catalog.families().stream()
+                    .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
+                    .findFirst().orElseThrow().variants().getFirst();
+            assertEquals(language == Language.DE ? "Sondermaß" : "4.8*4.8cm",
+                    projected.size(), language.code());
+            assertEquals(language, projected.textSources().get("size"),
+                    "the size keeps an explicit row in " + language.code());
+        }
+        assertTrue(familyWrites.websiteBuildReady(),
+                "a size edit must not open a localization hole that blocks the deploy hook");
+    }
+
+    @Test
+    @TestTransaction
+    void duplicatingADimensionSizedVariantKeepsTheStrictCatalogComplete() {
+        FamilyContext context = completeFamilyContext("size-duplicate");
+        ProductEntity variant = product(
+                context.family, "SKU-SIZE-DUPLICATE", "size-duplicate",
+                "Red", "4.5*4.5cm", "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        variant.texts.forEach(text -> text.variantSize = "4.5*4.5cm");
+        entityManager.persist(variant);
+        entityManager.flush();
+        assertTrue(familyWrites.websiteBuildReady(), "the published family starts complete");
+
+        Product copy = productService.duplicate(variant.id, null, null, "4.8*4.8cm");
+        entityManager.flush();
+
+        for (Language language : Language.values()) {
+            assertEquals("4.8*4.8cm", copy.textIn(language).variantSize(), language.code());
+        }
+        assertTrue(familyWrites.websiteBuildReady(),
+                "a dimension-sized copy must not open a localization hole that blocks the deploy hook");
+        Response response = publicFamilies.catalog(CatalogChannel.WEBSITE, "fr", true, null);
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    @TestTransaction
     void productEditCannotInactivateTheLastLiveMember() {
         FamilyContext context = completeFamilyContext("last-live-member-guard");
         ProductEntity source = product(

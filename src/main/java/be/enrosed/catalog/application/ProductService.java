@@ -541,17 +541,19 @@ public class ProductService {
     /** The photo series and purchasing-owned fields are never overwritten by a full product PUT. */
     private static Product mergeUpdate(
             Product current, Product changes, boolean familyExplicit) {
+        String colour = changes.colour();
+        /* Backward compatible partial PUT: null means omitted/preserve for older clients;
+           an explicit blank string is the wire-level clear operation. */
+        String variantSize = changes.variantSize() == null
+                ? current.variantSize() : normalizeOptional(changes.variantSize());
         return new Product(
                 current.id(),
                 changes.sku() == null || changes.sku().isBlank() ? current.sku() : changes.sku(),
                 changes.name(),
                 changes.dimensions(),
                 changes.packaging(),
-                changes.colour(),
-                /* Backward compatible partial PUT: null means omitted/preserve for older clients;
-                   an explicit blank string is the wire-level clear operation. */
-                changes.variantSize() == null
-                        ? current.variantSize() : normalizeOptional(changes.variantSize()),
+                colour,
+                variantSize,
                 changes.colourHex() == null
                         ? current.colourHex() : normalizeOptional(changes.colourHex()),
                 changes.description(),
@@ -592,8 +594,10 @@ public class ProductService {
                 current.stockQuantity(),
                 current.photos(),
                 /* Public translations have their own revisioned, atomic endpoint. A stale
-                   general product PUT must never overwrite that independently saved snapshot. */
-                current.texts(),
+                   general product PUT must never overwrite that independently saved snapshot.
+                   Only per-language copies of a replaced base colour or size follow the new
+                   base, so an edited size reaches every catalogue. */
+                current.textsFollowingBaseChange(colour, variantSize),
                 changes.demo());
     }
 
@@ -674,11 +678,26 @@ public class ProductService {
                 source.texts().stream()
                         .map(text -> new ProductText(text.language(), text.name(),
                                 text.description(), colourChanged ? null : text.colour(),
-                                sizeChanged ? VariantSizes.translate(size, text.language())
+                                sizeChanged ? duplicatedSize(text, source.variantSize(), size)
                                         : text.variantSize()))
                         .filter(text -> !text.isEmpty())
                         .toList(),
                 source.demo()));
+    }
+
+    /**
+     * The per-language size of a new size variant. Measurements and size codes (4.8*4.8cm,
+     * 25 cm, XL) are copied into every language like the startup backfill does, and
+     * Small/Medium/Large are translated; a row that merely repeated the source base takes
+     * the new base, as on a product edit. A translation of the old size says nothing about
+     * the new one and stays empty for the publish-fix dialog.
+     */
+    private static String duplicatedSize(ProductText text, String sourceSize, String newSize) {
+        String localized = VariantSizes.localize(newSize, text.language());
+        if (localized != null) return localized;
+        String copied = normalizeOptional(text.variantSize());
+        String base = normalizeOptional(sourceSize);
+        return copied != null && copied.equalsIgnoreCase(base) ? newSize : null;
     }
 
     @Transactional

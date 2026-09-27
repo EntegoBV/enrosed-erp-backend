@@ -92,6 +92,7 @@ COPY docs/migrations/2026-09-22/family-website-quote-photo-postgresql.sql ./migr
 COPY docs/migrations/2026-09-22/product-unit-key-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-24/catalog-export-order-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-25/credit-notes-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-27/product-text-variant-size-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

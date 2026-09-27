@@ -111,6 +111,45 @@ class GreekCatalogBackfillPersistenceTest {
 
     @Test
     @TestTransaction
+    void startupBackfillFillsMissingSizesFromTheCurrentBaseAndNeverRewritesARow() {
+        ProductFamilyEntity family = family("size-follows-base-backfill");
+        ProductEntity product = new ProductEntity();
+        product.sku = "SIZE-FOLLOWS-BASE";
+        product.name = "Diamond rose";
+        product.familyId = family.id;
+        product.colour = "Red";
+        product.variantSize = "4.8*4.8cm"; // The base as edited in the ERP.
+        ProductTextEntity english = new ProductTextEntity();
+        english.product = product;
+        english.language = Language.EN;
+        english.variantSize = "4.5*4.5cm"; // A copy of the old base the migration repairs.
+        product.texts.add(english);
+        ProductTextEntity french = new ProductTextEntity();
+        french.product = product;
+        french.language = Language.FR;
+        french.name = "Rose diamant";
+        product.texts.add(french);
+        entities.persist(product);
+        entities.flush();
+        long productId = product.id;
+
+        backfill.apply();
+        entities.flush();
+        entities.clear();
+
+        ProductEntity after = entities.find(ProductEntity.class, productId);
+        assertEquals(java.util.Set.of(Language.values()), after.texts.stream()
+                .map(text -> text.language).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(after.texts.stream().filter(text -> text.language != Language.EN)
+                        .allMatch(text -> "4.8*4.8cm".equals(text.variantSize)),
+                "blank rows take the base as it is now, never another language's row");
+        assertEquals("4.5*4.5cm", after.texts.stream()
+                        .filter(text -> text.language == Language.EN).findFirst().orElseThrow().variantSize,
+                "startup never rewrites a filled row; stale copies are repaired by the migration");
+    }
+
+    @Test
+    @TestTransaction
     void existingSeoTitlesWinOverOldImportLiteralsWhileMissingLocalesAreFilled() {
         ProductFamilyEntity family = family("preserved-single-rose-in-display");
         family.seoTitle = "12 Steelrozen met display | Enrosed Wholesale";

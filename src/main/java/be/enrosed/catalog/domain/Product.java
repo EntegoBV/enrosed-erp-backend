@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Article in the catalogue.
@@ -365,6 +366,44 @@ public record Product(
     public LanguageFallback.Resolved<String> descriptionResolved(Language language) {
         return LanguageFallback.text(texts(), language, ProductText::language,
                 ProductText::description, description);
+    }
+
+    /**
+     * The texts to carry over when the base colour or size is replaced.
+     *
+     * Colours and sizes are mostly codes and dimensions (XL, 4.8*4.8cm). The
+     * startup backfill copies such a base value into every language, because
+     * the strict public projection wants an explicit row per language, and
+     * every catalogue prints that row before the base. Left alone, the copies
+     * keep showing the old value after an edit in the ERP. A per-language
+     * value that merely repeated the old base (same text ignoring case and
+     * surrounding whitespace) therefore follows the new base; a value that
+     * differs is a real translation (Small - Klein) and stays. Copies are
+     * rewritten rather than dropped: an empty row counts as a localization
+     * hole, which stops the website deploy hook until the next restart.
+     */
+    public List<ProductText> textsFollowingBaseChange(String newColour, String newVariantSize) {
+        boolean colourChanged = !Objects.equals(trimToNull(colour), trimToNull(newColour));
+        boolean sizeChanged = !Objects.equals(trimToNull(variantSize), trimToNull(newVariantSize));
+        if (!colourChanged && !sizeChanged) return texts();
+        return texts().stream()
+                .map(text -> new ProductText(
+                        text.language(), text.name(), text.description(),
+                        colourChanged && copies(text.colour(), colour)
+                                ? trimToNull(newColour) : text.colour(),
+                        sizeChanged && copies(text.variantSize(), variantSize)
+                                ? trimToNull(newVariantSize) : text.variantSize()))
+                .filter(text -> !text.isEmpty())
+                .toList();
+    }
+
+    /** The same label as the base; only case and surrounding whitespace may differ. */
+    private static boolean copies(String value, String base) {
+        return !isBlank(value) && !isBlank(base) && value.strip().equalsIgnoreCase(base.strip());
+    }
+
+    private static String trimToNull(String value) {
+        return isBlank(value) ? null : value.strip();
     }
 
     private static boolean isBlank(String value) {
