@@ -130,6 +130,21 @@ class RailwayPreDeployMigrationContractTest {
                 "the credit note columns land after every earlier script");
     }
 
+    @Test
+    void privateProspectSchemaIsAdditiveAndRegisteredBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-28/prospects-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists prospect ("));
+        assertTrue(sql.contains("create table if not exists prospect_activity ("));
+        assertTrue(sql.contains("create table if not exists prospect_outreach_lock ("));
+        assertTrue(sql.contains("constraint uq_prospect_activity_external unique(external_id)"));
+        assertTrue(sql.contains("insert into prospect_outreach_lock(id) values (1) on conflict (id) do nothing"));
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
+                .strip().endsWith("--file=/app/migrations/" + migration.getFileName()));
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }
