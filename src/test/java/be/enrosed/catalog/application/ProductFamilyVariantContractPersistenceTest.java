@@ -104,7 +104,7 @@ class ProductFamilyVariantContractPersistenceTest {
         french.language = Language.FR;
         french.name = "Variante manuelle";
         french.colour = "Aubergine personnalisée";
-        french.variantSize = "Sur mesure";
+        french.variantSize = "Sur mesure"; // A legacy per-language copy the backfill must ignore.
         manual.texts.add(french);
         entityManager.persist(manual);
         ProductFamilyPhotoEntity image = photo(family, "manual-new-image", 99);
@@ -121,7 +121,7 @@ class ProductFamilyVariantContractPersistenceTest {
         assertEquals(0, result.matchedImages());
         assertNull(manual.colourHex);
         assertEquals("Aubergine personnalisée", french.colour);
-        assertEquals("Sur mesure", french.variantSize);
+        assertEquals("Sur mesure", french.variantSize, "the backfill never touches the retired column");
         var alts = json.readTree(image.altTextsJson);
         assertEquals(2, alts.size());
         assertEquals("Photo manuelle", alts.get(0).path("alt").asText());
@@ -130,7 +130,7 @@ class ProductFamilyVariantContractPersistenceTest {
         assertTrue(alts.get(1).path("alt").asText().contains("Τριαντάφυλλο"));
         var greek = manual.texts.stream().filter(text -> text.language == Language.EL).findFirst().orElseThrow();
         assertNull(greek.colour, "an unknown administrator colour is not falsely labelled Greek");
-        assertNull(greek.variantSize, "a bespoke label still needs a real translation");
+        assertNull(greek.variantSize, "the backfill never seeds a size: the Maat is language-neutral");
     }
 
     @Test
@@ -232,8 +232,9 @@ class ProductFamilyVariantContractPersistenceTest {
                 publicFamily("NL", family.publicHandle), small.id);
         assertEquals("Rood vertaald", dutch.color());
         assertEquals("Nederlandse kleine roos", dutch.name());
-        assertEquals("Klein", dutch.size());
-        assertEquals(Language.NL, dutch.textSources().get("size"));
+        assertEquals("Small", dutch.size(), "the Maat is not translated");
+        assertEquals(Language.NL, dutch.textSources().get("size"),
+                "a language-neutral value is exact in every language");
 
         PublicFamilyCatalogDto.VariantDto frenchFallback = variant(
                 publicFamily("FR", family.publicHandle), small.id);
@@ -1372,24 +1373,37 @@ class ProductFamilyVariantContractPersistenceTest {
 
     @Test
     @TestTransaction
-    void editingTheBaseSizeReachesTheStrictPublicCatalogInEveryLanguage() {
+    void theStrictPublicCatalogPrintsTheBaseMaatInEveryLanguageOverStaleCopies() {
         FamilyContext context = completeFamilyContext("size-follows-base");
         ProductEntity variant = product(
                 context.family, "SKU-SIZE-FOLLOWS", "size-follows",
-                "Red", "4.5*4.5cm", "#A91F32", 0);
+                "Red", "4.8*4.8cm", "#A91F32", 0);
         variant.categoryId = context.category.id;
-        /* What the startup backfill left behind: the dimension copied verbatim into every
-           language, next to one size label an editor really translated. */
+        /* What the startup backfill and older editors left behind: an old copy of the
+           base in every language, next to one size label someone translated. */
         variant.texts.forEach(text -> text.variantSize =
                 text.language == Language.DE ? "Sondermaß" : "4.5*4.5cm");
         entityManager.persist(variant);
         entityManager.flush();
+        assertTrue(familyWrites.websiteBuildReady(), "the published family starts complete");
+
+        assertEveryLanguagePrints(context, "4.8*4.8cm");
 
         Product current = products.findById(variant.id).orElseThrow();
         productService.update(variant.id,
-                current.withVariantAttributes("Red", "4.8*4.8cm", "#A91F32"));
+                current.withVariantAttributes("Red", "5*5cm", "#A91F32"));
         entityManager.flush();
 
+        assertEveryLanguagePrints(context, "5*5cm");
+        assertTrue(variant.texts.stream().allMatch(text -> text.variantSize == null),
+                "a save clears the retired per-language copies");
+        assertEquals(Language.values().length, variant.texts.size(),
+                "the names and colours of every language stay");
+        assertTrue(familyWrites.websiteBuildReady(),
+                "a size edit must not open a localization hole that blocks the deploy hook");
+    }
+
+    private void assertEveryLanguagePrints(FamilyContext context, String maat) {
         for (Language language : Language.values()) {
             Response response = publicFamilies.catalog(
                     CatalogChannel.WEBSITE, language.code(), true, null);
@@ -1398,24 +1412,89 @@ class ProductFamilyVariantContractPersistenceTest {
             PublicFamilyCatalogDto.VariantDto projected = catalog.families().stream()
                     .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
                     .findFirst().orElseThrow().variants().getFirst();
-            assertEquals(language == Language.DE ? "Sondermaß" : "4.8*4.8cm",
-                    projected.size(), language.code());
+            assertEquals(maat, projected.size(), language.code());
             assertEquals(language, projected.textSources().get("size"),
-                    "the size keeps an explicit row in " + language.code());
+                    "the language-neutral Maat is exact in " + language.code());
         }
-        assertTrue(familyWrites.websiteBuildReady(),
-                "a size edit must not open a localization hole that blocks the deploy hook");
     }
 
     @Test
     @TestTransaction
-    void duplicatingADimensionSizedVariantKeepsTheStrictCatalogComplete() {
+    void theStrictCatalogServesAFamilyWhoseSizesHaveNoTranslationAtAll() {
+        FamilyContext context = completeFamilyContext("size-without-translation");
+        ProductEntity variant = product(
+                context.family, "SKU-SIZE-NEUTRAL", "size-neutral",
+                "Red", "Set van 3", "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        assertTrue(variant.texts.stream().allMatch(text -> text.variantSize == null));
+        assertTrue(localization.missing(context.family, List.of(variant), CatalogChannel.WEBSITE)
+                        .stream().noneMatch(path -> path.endsWith(".size")),
+                "no language ever misses a size");
+        assertTrue(familyWrites.websiteBuildReady());
+        for (Language language : Language.values()) {
+            Response response = publicFamilies.catalog(
+                    CatalogChannel.WEBSITE, language.code(), true, null);
+            assertEquals(200, response.getStatus(), language.code());
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void aBaseMaatEditChangesTheWebsiteRevisionAndQueuesARebuild() {
+        FamilyContext context = completeFamilyContext("size-revision");
+        ProductEntity variant = product(
+                context.family, "SKU-SIZE-REVISION", "size-revision",
+                "Red", "4.5*4.5cm", "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+        String initial = catalogRevisions.currentRevision();
+
+        variant.texts.forEach(text -> text.variantSize = "9*9cm");
+        entityManager.flush();
+        assertEquals(initial, catalogRevisions.currentRevision(),
+                "a retired per-language size prints nowhere, so it is no public change");
+        variant.texts.forEach(text -> text.variantSize = null);
+        entityManager.flush();
+
+        WebsiteRebuildEntity rebuildState = entityManager.find(WebsiteRebuildEntity.class, 1L);
+        if (rebuildState == null) {
+            rebuildState = new WebsiteRebuildEntity();
+            entityManager.persist(rebuildState);
+        }
+        rebuildState.status = WebsiteRebuildStatus.LIVE;
+        rebuildState.liveRevision = initial;
+        rebuildState.currentRevision = initial;
+        rebuildState.attemptCount = 0;
+        Optional<String> previousHook = websiteRebuildTarget().deployHookUrl;
+        try {
+            websiteRebuildTarget().deployHookUrl = Optional.of(
+                    "https://example.invalid/deploy-hook");
+            Product current = products.findById(variant.id).orElseThrow();
+            productService.update(variant.id,
+                    current.withVariantAttributes("Red", "4.8*4.8cm", "#A91F32"));
+            entityManager.flush();
+
+            assertNotEquals(initial, catalogRevisions.currentRevision(),
+                    "the base Maat is what the website prints, so it is in the revision");
+            assertEquals(WebsiteRebuildStatus.QUEUED, rebuildState.status,
+                    "a base-size edit queues a website rebuild");
+        } finally {
+            websiteRebuildTarget().deployHookUrl = previousHook;
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void duplicatingWithANewMaatKeepsTheStrictCatalogComplete() {
         FamilyContext context = completeFamilyContext("size-duplicate");
         ProductEntity variant = product(
                 context.family, "SKU-SIZE-DUPLICATE", "size-duplicate",
                 "Red", "4.5*4.5cm", "#A91F32", 0);
         variant.categoryId = context.category.id;
-        variant.texts.forEach(text -> text.variantSize = "4.5*4.5cm");
         entityManager.persist(variant);
         entityManager.flush();
         assertTrue(familyWrites.websiteBuildReady(), "the published family starts complete");
@@ -1423,11 +1502,11 @@ class ProductFamilyVariantContractPersistenceTest {
         Product copy = productService.duplicate(variant.id, null, null, "4.8*4.8cm");
         entityManager.flush();
 
-        for (Language language : Language.values()) {
-            assertEquals("4.8*4.8cm", copy.textIn(language).variantSize(), language.code());
-        }
+        assertEquals("4.8*4.8cm", copy.variantSize());
+        assertEquals(Language.values().length, copy.texts().size(),
+                "the names and colours of every language come along");
         assertTrue(familyWrites.websiteBuildReady(),
-                "a dimension-sized copy must not open a localization hole that blocks the deploy hook");
+                "a new size variant must not open a localization hole that blocks the deploy hook");
         Response response = publicFamilies.catalog(CatalogChannel.WEBSITE, "fr", true, null);
         assertEquals(200, response.getStatus());
     }
@@ -2121,8 +2200,6 @@ class ProductFamilyVariantContractPersistenceTest {
         }
         text.name = name;
         text.colour = colour;
-        text.variantSize = be.enrosed.shared.VariantSizes.translate(
-                product.variantSize, language);
     }
 
     private static ProductFamilyPhotoEntity photo(

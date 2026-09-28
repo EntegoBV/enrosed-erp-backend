@@ -303,21 +303,21 @@ public class PublicFamilyCatalogResource {
                 : "UNKNOWN";
         LanguageFallback.Resolved<String> color = productText(
                 product, language, item -> item.colour, product.colour);
-        LanguageFallback.Resolved<String> size = productText(
-                product, language, item -> item.variantSize, product.variantSize);
+        /* The Maat is one language-neutral value: the base prints in every language and is
+           therefore exact in each of them, like the unit. */
+        String size = blank(product.variantSize) ? null : product.variantSize.strip();
         LanguageFallback.Resolved<String> name = publicProductNames.resolve(product, language);
         Map<String, Language> sources = new LinkedHashMap<>();
         source(sources, "color", optionalProductSource(
                 product, language, item -> item.colour, color));
-        source(sources, "size", optionalProductSource(
-                product, language, item -> item.variantSize, size));
+        source(sources, "size", size == null ? null : language);
         source(sources, "name", name.sourceLanguage());
         /* The unit dictionary is complete in every language, so the source is always exact. */
         source(sources, "unit", language);
         return new PublicFamilyCatalogDto.VariantDto(
                 product.id, product.sku, product.canonicalBarcode,
                 color.value(),
-                size.value(), product.colourHex,
+                size, product.colourHex,
                 name.value(), product.variantPosition, availability,
                 primary == null ? null : primary.id, publicPrice,
                 Collections.unmodifiableMap(sources),
@@ -670,10 +670,7 @@ public class PublicFamilyCatalogResource {
                     requireSource(missing, prefix + ".variants." + variant.id() + ".color",
                             variant.color(), variant.textSources().get("color"), requested);
                 }
-                if (!blank(variant.size()) || variant.textSources().containsKey("size")) {
-                    requireSource(missing, prefix + ".variants." + variant.id() + ".size",
-                            variant.size(), variant.textSources().get("size"), requested);
-                }
+                /* No size check: the Maat is language-neutral and exact in every language. */
             }
             for (PublicFamilyCatalogDto.ImageDto image : family.images()) {
                 requireSource(missing, prefix + ".images." + image.id() + ".alt",

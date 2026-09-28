@@ -36,7 +36,11 @@ public record Product(
          * does not have to be picked apart.
         */
         String colour,
-        /** Optional merchandising size option; distinct from physical dimensions. */
+        /**
+         * Optional merchandising size option (the Maat); distinct from physical dimensions.
+         * One language-neutral value: every document, catalogue and the website print it as
+         * typed in every language, and translations never carry a size of their own.
+         */
         String variantSize,
         /** Optional editable swatch colour; exactly #RRGGBB when present. */
         String colourHex,
@@ -348,16 +352,6 @@ public record Product(
                 be.enrosed.shared.ColourNames.translate(colour, language), null);
     }
 
-    /** Merchandising size in this language (for example Small / Petit / Klein). */
-    public String variantSizeIn(Language language) {
-        return variantSizeResolved(language).value();
-    }
-
-    public LanguageFallback.Resolved<String> variantSizeResolved(Language language) {
-        return LanguageFallback.text(texts(), language, ProductText::language,
-                ProductText::variantSize, variantSize);
-    }
-
     /** Description in this language, falling back to the base description. */
     public String descriptionIn(Language language) {
         return descriptionResolved(language).value();
@@ -369,30 +363,26 @@ public record Product(
     }
 
     /**
-     * The texts to carry over when the base colour or size is replaced.
+     * The texts to carry over when the base colour is replaced.
      *
-     * Colours and sizes are mostly codes and dimensions (XL, 4.8*4.8cm). The
-     * startup backfill copies such a base value into every language, because
-     * the strict public projection wants an explicit row per language, and
-     * every catalogue prints that row before the base. Left alone, the copies
-     * keep showing the old value after an edit in the ERP. A per-language
-     * value that merely repeated the old base (same text ignoring case and
-     * surrounding whitespace) therefore follows the new base; a value that
-     * differs is a real translation (Small - Klein) and stays. Copies are
-     * rewritten rather than dropped: an empty row counts as a localization
-     * hole, which stops the website deploy hook until the next restart.
+     * Colours are often codes (Panda, Mixed). The startup backfill copies such
+     * a base value into every language, because the strict public projection
+     * wants an explicit row per language, and every catalogue prints that row
+     * before the base. Left alone, the copies keep showing the old value after
+     * an edit in the ERP. A per-language value that merely repeated the old
+     * base (same text ignoring case and surrounding whitespace) therefore
+     * follows the new base; a value that differs is a real translation
+     * (Red - Rood) and stays. Copies are rewritten rather than dropped: an
+     * empty row counts as a localization hole, which stops the website deploy
+     * hook until the next restart. The Maat needs no such rule: it is one
+     * language-neutral value that every document prints as it is.
      */
-    public List<ProductText> textsFollowingBaseChange(String newColour, String newVariantSize) {
-        boolean colourChanged = !Objects.equals(trimToNull(colour), trimToNull(newColour));
-        boolean sizeChanged = !Objects.equals(trimToNull(variantSize), trimToNull(newVariantSize));
-        if (!colourChanged && !sizeChanged) return texts();
+    public List<ProductText> textsFollowingColourChange(String newColour) {
+        if (Objects.equals(trimToNull(colour), trimToNull(newColour))) return texts();
         return texts().stream()
                 .map(text -> new ProductText(
                         text.language(), text.name(), text.description(),
-                        colourChanged && copies(text.colour(), colour)
-                                ? trimToNull(newColour) : text.colour(),
-                        sizeChanged && copies(text.variantSize(), variantSize)
-                                ? trimToNull(newVariantSize) : text.variantSize()))
+                        copies(text.colour(), colour) ? trimToNull(newColour) : text.colour()))
                 .filter(text -> !text.isEmpty())
                 .toList();
     }
@@ -468,8 +458,8 @@ public record Product(
     /**
      * Full description in the customer's language.
      *
-     * The dimensions stay numeric; they are identical in every language and
-     * do not belong in a translation file.
+     * The dimensions and the Maat stay as typed; they are identical in every
+     * language and do not belong in a translation file.
      */
     public String describeIn(Language language) {
         String naam = nameIn(language);
@@ -478,10 +468,8 @@ public record Product(
         if (!physicalSize.isBlank()) text.append(" - ").append(physicalSize);
         String kleur = colourIn(language);
         if (kleur != null && !kleur.isBlank()) text.append(" - ").append(kleur);
-        String localizedSize = variantSizeIn(language);
-        if (localizedSize != null && !localizedSize.isBlank()) {
-            text.append(" - ").append(localizedSize);
-        }
+        /* The Maat is one value for every language (4.8*4.8cm, XL, Set van 3). */
+        if (!isBlank(variantSize)) text.append(" - ").append(variantSize.strip());
         return text.toString();
     }
 

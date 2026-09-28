@@ -140,10 +140,7 @@ public class PublicLocalizationCompletenessService {
                     required(missing, prefix + ".variants." + variantKey + "." + locale + ".color",
                             value(text, item -> item.colour));
                 }
-                if (productUses(product, product.variantSize, item -> item.variantSize)) {
-                    required(missing, prefix + ".variants." + variantKey + "." + locale + ".size",
-                            value(text, item -> item.variantSize));
-                }
+                /* No size: the Maat is one language-neutral value, never translated. */
             }
 
             publicPhotos.selected(family, members, channel).stream()

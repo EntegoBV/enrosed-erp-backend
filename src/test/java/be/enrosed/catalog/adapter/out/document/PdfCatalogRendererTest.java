@@ -1370,6 +1370,24 @@ class PdfCatalogRendererTest {
     }
 
     @Test
+    void everyLayoutPrintsTheOneBaseMaatInEveryLanguage() {
+        Photo photo = new Photo(94L, "unused.jpg", "unused.jpg", "image/jpeg",
+                1L, 1, 1, 0);
+        for (Language language : Language.values()) {
+            for (CatalogExportService.Layout layout : CatalogExportService.Layout.values()) {
+                String html = renderer.renderHtml(localizedQaModel(
+                        language, layout, photo, "4.8*4.8cm"));
+                assertTrue(html.contains("4.8*4.8cm"),
+                        "the base Maat prints untranslated: " + layout + " " + language.code());
+            }
+        }
+        String dutch = renderer.renderHtml(localizedQaModel(
+                Language.NL, CatalogExportService.Layout.SIMPLE, photo, "Medium"));
+        assertTrue(dutch.contains("Medium"), "a size word is no longer translated");
+        assertFalse(dutch.contains("Middelgroot"));
+    }
+
+    @Test
     void overviewNamesStayLocalizedWithoutRenderingTheViewProductCta() {
         Photo photo = new Photo(93L, "unused.jpg", "unused.jpg", "image/jpeg",
                 1L, 1, 1, 0);
@@ -1488,7 +1506,7 @@ class PdfCatalogRendererTest {
         Product originalProduct = complete.products().getFirst();
         List<ProductText> productTexts = originalProduct.texts().stream()
                 .map(text -> text.language() == Language.PT
-                        ? new ProductText(Language.PT, text.name(), text.description(), "", "") : text)
+                        ? new ProductText(Language.PT, text.name(), text.description(), "") : text)
                 .toList();
         Product product = new Product(
                 originalProduct.id(), originalProduct.sku(), originalProduct.name(),
@@ -1529,8 +1547,8 @@ class PdfCatalogRendererTest {
                 "categories.counter.name",
                 "families.qa-family.format",
                 "families.qa-family.highlights",
-                "products.1.color",
-                "products.1.size"), failure.missingPaths());
+                "products.1.color"), failure.missingPaths(),
+                "the Maat is language-neutral and never missing in a language");
     }
 
     @Test
@@ -1854,6 +1872,11 @@ class PdfCatalogRendererTest {
 
     static CatalogExportService.Model localizedQaModel(
             Language requested, CatalogExportService.Layout layout, Photo photo) {
+        return localizedQaModel(requested, layout, photo, "Medium");
+    }
+
+    static CatalogExportService.Model localizedQaModel(
+            Language requested, CatalogExportService.Layout layout, Photo photo, String maat) {
         List<CategoryText> categoryTexts = java.util.Arrays.stream(Language.values())
                 .map(language -> new CategoryText(language, localizedCategoryName(language),
                         localizedCategoryDescription(language), null, null, null, null))
@@ -1863,11 +1886,10 @@ class PdfCatalogRendererTest {
                 null, null, null, null, categoryTexts);
 
         Product base = product(1L, "SKU-QA-01", 100L, 1L, 0)
-                .withVariantAttributes("Red", "Medium", "#9D263A");
+                .withVariantAttributes("Red", maat, "#9D263A");
         List<ProductText> productTexts = java.util.Arrays.stream(Language.values())
                 .map(language -> new ProductText(language, localizedFamilyName(language),
-                        localizedDescription(language), localizedColour(language),
-                        localizedSize(language)))
+                        localizedDescription(language), localizedColour(language)))
                 .toList();
         Product item = new Product(
                 base.id(), base.sku(), base.name(), base.dimensions(), base.colour(),
@@ -1960,10 +1982,6 @@ class PdfCatalogRendererTest {
             case TR -> "Kırmızı";
             case EL -> "Κόκκινο";
         };
-    }
-
-    private static String localizedSize(Language language) {
-        return be.enrosed.shared.VariantSizes.translate("Medium", language);
     }
 
     private static String localizedHighlight(Language language) {

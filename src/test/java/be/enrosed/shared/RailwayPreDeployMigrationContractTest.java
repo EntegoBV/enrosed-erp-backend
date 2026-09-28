@@ -218,6 +218,98 @@ class RailwayPreDeployMigrationContractTest {
                 "the repair runs after every schema migration it may depend on");
     }
 
+    @Test
+    void languageNeutralMaatMigrationClearsEveryPerLanguageSizeOnceBeforeStartup()
+            throws IOException {
+        Path migration = Path.of(
+                "docs/migrations/2026-09-28/product-text-variant-size-neutral-postgresql.sql");
+        String sql = normalizedSql(migration);
+        String marker = "'product-text-variant-size-neutral-2026-09-28'";
+        assertTrue(sql.contains("create table if not exists catalog_data_patch"));
+        assertTrue(sql.contains("perform pg_advisory_xact_lock(hashtextextended("
+                + "'enrosed:product-text-variant-size-neutral-2026-09-28', 0))"));
+        String guard = "if exists (select 1 from catalog_data_patch where patch_key = "
+                + marker + ") then return; end if;";
+        assertTrue(sql.contains(guard), "later deploys skip the one-shot retirement");
+        String lock = "lock table product, product_text in share row exclusive mode";
+        assertTrue(sql.indexOf(guard) < sql.indexOf(lock), "a skipped run takes no table lock");
+
+        String promote = "update product p set variantsize = s.size from promotable s";
+        assertTrue(sql.contains(promote), "a size that only lived in a translation survives");
+        assertTrue(sql.contains("where nullif(btrim(p.variantsize), '') is null "
+                        + "and nullif(btrim(t.variantsize), '') is not null"),
+                "only a product without a base Maat takes one, a filled base is never rewritten");
+        assertTrue(sql.contains("case t.language when 'en' then 0 when 'nl' then 1 else 2 end"),
+                "the promoted size is the one the website showed first: English, then Dutch");
+        String edited = "if to_regclass('activity_log') is not null then execute $edited$ "
+                + "select coalesce(array_agg(distinct a.entity_id::text), '{}'::text[]) "
+                + "from activity_log a where a.entity_type = 'product' "
+                + "and a.entity_id is not null "
+                + "and a.changes_json like '%\"variantsize\"%' $edited$ into maat_edited; end if;";
+        assertTrue(sql.contains(edited),
+                "a Maat an editor emptied stays empty: its translations are copies left behind");
+        assertTrue(sql.indexOf(lock) < sql.indexOf(edited),
+                "the edit history is read after the lock, so no edit commits in between");
+        String productService = Files.readString(Path.of(
+                "src/main/java/be/enrosed/catalog/application/ProductService.java"));
+        assertTrue(productService.contains("ACTIVITY_ENTITY = \"PRODUCT\"")
+                        && productService.contains(".add(\"variantSize\", "),
+                "the migration finds Maat edits by the entity type and field the ERP logs");
+        String rawSql = Files.readString(migration);
+        assertTrue(rawSql.contains("a.entity_type = 'PRODUCT'")
+                        && rawSql.contains("a.changes_json like '%\"variantSize\"%'"),
+                "string comparison and LIKE are case-sensitive in PostgreSQL");
+        assertTrue(sql.contains("where not (p.id::text = any(maat_edited))"),
+                "no promotion for a product whose Maat was edited in the ERP");
+        assertTrue(sql.contains("and not exists ( select 1 from product o "
+                        + "where o.familyid = p.familyid and o.id <> p.id and o.active "
+                        + "and nullif(btrim(lower(regexp_replace(o.colour, '\\s+', ' ', 'g'))), '') "
+                        + "is not distinct from "
+                        + "nullif(btrim(lower(regexp_replace(p.colour, '\\s+', ' ', 'g'))), '') "
+                        + "and nullif(btrim(lower(regexp_replace(o.variantsize, '\\s+', ' ', 'g'))), '') "
+                        + "= btrim(lower(regexp_replace(s.size, '\\s+', ' ', 'g'))))"),
+                "a promoted Maat never gives a family two identical colour and size options");
+
+        String clear = "update product_text t set variantsize = null from product_text b "
+                + "where b.id = t.id and b.variantsize is not null "
+                + "returning t.id, t.product_id, t.language, b.variantsize as before_size";
+        assertTrue(sql.contains(clear), "every per-language size goes, its old value is kept");
+        String delete = "delete from product_text t "
+                + "where nullif(btrim(t.name), '') is null "
+                + "and nullif(btrim(t.public_name), '') is null "
+                + "and nullif(btrim(t.description), '') is null "
+                + "and nullif(btrim(t.colour), '') is null "
+                + "and nullif(btrim(t.variantsize), '') is null";
+        assertTrue(sql.contains(delete),
+                "only rows the mapper would drop go: nothing in any column a row can hold");
+        assertTrue(sql.indexOf(lock) < sql.indexOf(promote)
+                        && sql.indexOf(promote) < sql.indexOf(clear)
+                        && sql.indexOf(clear) < sql.indexOf(delete),
+                "promote before clearing, clear before deleting the rows left empty");
+        assertEquals(1, sql.split("delete from", -1).length - 1, "one delete, of empty rows only");
+
+        assertTrue(sql.contains("insert into catalog_data_patch(patch_key, affected_rows, before_state) "
+                + "values (" + marker), "the marker is written, also when nothing changed");
+        assertTrue(sql.contains("'promotedbasesizes', promoted")
+                        && sql.contains("'clearedsizes', cleared")
+                        && sql.contains("'deletedemptyrows', deleted"),
+                "every promoted base, cleared size and deleted row is kept for a rollback");
+        assertTrue(sql.contains("'[]'::jsonb"), "before_state lists are never null");
+        assertTrue(sql.contains("set local lock_timeout"));
+        assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|alter\\s+table).*"),
+                "the column stays: the schema remains compatible with validation, H2 and a rollback");
+
+        String dockerfile = Files.readString(Path.of("Dockerfile"));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(dockerfile.contains(migration.toString()));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/product-text-variant-size-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the retirement runs after the 2026-09-27 repair of stale copies");
+        assertTrue(runner.strip().endsWith(migration.getFileName().toString()),
+                "listed last in the pre-deploy runner");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

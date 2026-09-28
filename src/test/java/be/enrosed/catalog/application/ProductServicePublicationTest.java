@@ -38,6 +38,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -238,52 +239,48 @@ class ProductServicePublicationTest {
     }
 
     @Test
-    void duplicateCopiesADimensionSizeIntoEveryLanguageLikeTheStartupBackfill() {
+    void duplicateWithANewMaatPrintsItInEveryLanguageAndKeepsTheTranslationRows() {
         Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
                 .withTexts(java.util.Arrays.stream(Language.values())
                         .map(language -> new ProductText(
-                                language, "Rose " + language.code(), null, "Red", "4.5*4.5cm"))
+                                language, "Rose " + language.code(), null, "Red"))
                         .toList());
         repository.add(source);
 
         Product duplicate = service.duplicate(1L, null, null, " 4.8*4.8cm ");
 
         assertEquals("4.8*4.8cm", duplicate.variantSize());
+        assertEquals(source.texts(), duplicate.texts(),
+                "names and colours come along; there is no size to translate");
         for (Language language : Language.values()) {
-            assertEquals("4.8*4.8cm", duplicate.textIn(language).variantSize(),
-                    "a measurement is language-neutral and keeps an explicit row: "
-                            + language.code());
-            assertEquals("Red", duplicate.textIn(language).colour(),
-                    "a size-only variant keeps its colour rows");
+            assertTrue(duplicate.describeIn(language).endsWith(" - Red - 4.8*4.8cm"),
+                    "the one Maat prints in " + language.code() + ": "
+                            + duplicate.describeIn(language));
         }
     }
 
     @Test
-    void duplicateCarriesSizeCopiesAlongButNotTranslationsOfTheOldSize() {
+    void duplicateNoLongerTranslatesSizeWords() {
         Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "Jumbo", "#A91F32")
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "Rose", null, "Red", " jumbo "),
-                        new ProductText(Language.FR, "Rose", null, "Rouge", "Géant"),
-                        new ProductText(Language.NL, "Roos", null, "Rood", "Jumbo")));
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge"),
+                        new ProductText(Language.NL, "Roos", null, "Rood")));
         repository.add(source);
 
-        Product mega = service.duplicate(1L, null, null, "Mega");
-
-        assertEquals("Mega", mega.textIn(Language.EN).variantSize(),
-                "a copy of the source base takes the new base, like a product edit");
-        assertEquals("Mega", mega.textIn(Language.NL).variantSize());
-        assertNull(mega.textIn(Language.FR).variantSize(),
-                "a translation of the old size says nothing about the new one");
-        assertEquals("Rose", mega.textIn(Language.FR).name(), "the row itself stays");
-
         Product large = service.duplicate(1L, null, null, "Large");
-        assertEquals("Groot", large.textIn(Language.NL).variantSize(),
-                "known size words are still translated per language");
-        assertEquals("Grand", large.textIn(Language.FR).variantSize());
+
+        assertEquals("Large", large.variantSize());
+        String dutch = large.describeIn(Language.NL);
+        assertTrue(dutch.startsWith("Roos - ") && dutch.endsWith(" - Rood - Large"),
+                "Large stays Large, no Groot: the Maat is not translated: " + dutch);
+        String french = large.describeIn(Language.FR);
+        assertTrue(french.startsWith("Rose - ") && french.endsWith(" - Rouge - Large"), french);
+        assertEquals("Rose", large.textIn(Language.FR).name(), "the rows themselves stay");
     }
 
     @Test
@@ -377,11 +374,11 @@ class ProductServicePublicationTest {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
-                        Language.FR, "Texte approuvé", "Description approuvée", "Rouge", "Petit")));
+                        Language.FR, "Texte approuvé", "Description approuvée", "Rouge")));
         repository.add(current);
 
         Product staleRequest = current.withTexts(List.of(new ProductText(
-                Language.FR, "Ancien brouillon", "Ancienne description", "Rouge", "Petit")));
+                Language.FR, "Ancien brouillon", "Ancienne description", "Rouge")));
         Product updated = service.update(1L, staleRequest);
 
         assertEquals("Texte approuvé", updated.textIn(Language.FR).name());
@@ -389,32 +386,26 @@ class ProductServicePublicationTest {
     }
 
     @Test
-    void changingTheBaseSizeCarriesItsPerLanguageCopiesAlongAndKeepsRealTranslations() {
+    void changingTheBaseSizeReachesEveryLanguageAndLeavesTheTranslationRowsAlone() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "Rose", null, "Red", "4.5*4.5cm"),
-                        new ProductText(Language.NL, "Roos", null, "Rood", " 4.5*4.5CM "),
-                        new ProductText(Language.FR, "Rose", null, "Rouge", "Petit format")));
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.NL, "Roos", null, "Rood"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
         repository.add(current);
 
         Product updated = service.update(
                 1L, current.withVariantAttributes("Red", "4.8*4.8cm", "#A91F32"));
 
         assertEquals("4.8*4.8cm", updated.variantSize());
-        assertEquals("4.8*4.8cm", updated.textIn(Language.EN).variantSize(),
-                "a verbatim copy of the old base follows the new base");
-        assertEquals("4.8*4.8cm", updated.textIn(Language.NL).variantSize(),
-                "case and surrounding whitespace do not turn a copy into a translation");
-        assertEquals("Petit format", updated.textIn(Language.FR).variantSize(),
-                "a value that differs from the old base is a real translation and stays");
-        assertEquals("Rood", updated.textIn(Language.NL).colour(),
-                "a size edit leaves the colour rows alone");
+        assertEquals(current.texts(), updated.texts(),
+                "a size edit touches no translation: there is no per-language size");
         for (Language language : Language.values()) {
-            if (language == Language.FR) continue;
-            assertEquals("4.8*4.8cm", updated.variantSizeIn(language),
-                    "every catalogue language prints the edited size: " + language.code());
+            String described = updated.describeIn(language);
+            assertTrue(described.endsWith(" - 4.8*4.8cm") && !described.contains("4.5"),
+                    "every language prints the edited size: " + language.code() + " " + described);
         }
     }
 
@@ -424,9 +415,9 @@ class ProductServicePublicationTest {
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "Rose", null, "Red", "4.5*4.5cm"),
-                        new ProductText(Language.NL, "Roos", null, "Rood", "4.5*4.5CM"),
-                        new ProductText(Language.FR, "Rose", null, "Rouge", "Petit format")));
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.NL, "Roos", null, "Rood"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
         repository.add(current);
 
         Product sameSize = service.update(
@@ -446,9 +437,9 @@ class ProductServicePublicationTest {
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "XL", "#A91F32")
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "Rose", null, "Red", "XL"),
-                        new ProductText(Language.FR, "Rose", null, " red ", "XL"),
-                        new ProductText(Language.NL, "Roos", null, "Rood", "XL")));
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.FR, "Rose", null, " red "),
+                        new ProductText(Language.NL, "Roos", null, "Rood")));
         repository.add(current);
 
         Product updated = service.update(
@@ -459,30 +450,28 @@ class ProductServicePublicationTest {
                 "a copy that differs only in case and whitespace follows the base");
         assertEquals("Rood", updated.textIn(Language.NL).colour(),
                 "a translated colour is not a copy and stays");
-        assertTrue(updated.texts().stream().allMatch(text -> "XL".equals(text.variantSize())),
-                "a colour edit leaves the size rows alone");
+        assertEquals("XL", updated.variantSize(), "a colour edit leaves the Maat alone");
     }
 
     @Test
-    void clearingTheBaseSizeClearsItsCopiesButKeepsTranslationsAndNames() {
+    void clearingTheBaseSizeLeavesNoSizeInAnyLanguageButKeepsTheTranslations() {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "Rose", null, null, "4.5*4.5cm"),
-                        new ProductText(Language.DE, null, null, null, "4.5*4.5cm"),
-                        new ProductText(Language.FR, null, null, null, "Petit format")));
+                        new ProductText(Language.EN, "Rose", null, null),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
         repository.add(current);
 
         Product updated = service.update(
                 1L, current.withVariantAttributes("Red", " ", "#A91F32"));
 
         assertNull(updated.variantSize());
-        assertNull(updated.textIn(Language.EN).variantSize());
-        assertEquals("Rose", updated.textIn(Language.EN).name(), "the English name survives");
-        assertNull(updated.textIn(Language.DE), "a row that only held the copy disappears");
-        assertEquals("Petit format", updated.textIn(Language.FR).variantSize());
-        assertNull(updated.variantSizeIn(Language.EN), "nothing falls back to a stale copy");
+        assertEquals(current.texts(), updated.texts(), "names and colours survive");
+        for (Language language : Language.values()) {
+            assertFalse(updated.describeIn(language).contains("4.5*4.5cm"),
+                    "nothing prints a stale size: " + language.code());
+        }
     }
 
     @Test
@@ -579,13 +568,13 @@ class ProductServicePublicationTest {
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
                         Language.EN, "x".repeat(255), "d".repeat(2_000),
-                        "c".repeat(255), "s".repeat(255))));
+                        "c".repeat(255))));
         assertEquals(255, service.create(boundary).textIn(Language.EN).name().length());
 
         Product overlong = product(null, "ENR-P256", "Beschrijving", null,
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
-                        Language.EN, "x".repeat(256), null, null, null)));
+                        Language.EN, "x".repeat(256), null, null)));
         BusinessRuleException length = assertThrows(
                 BusinessRuleException.class, () -> service.create(overlong));
         assertTrue(length.getMessage().contains("255"), length.getMessage());
@@ -594,8 +583,8 @@ class ProductServicePublicationTest {
         Product duplicate = product(null, "ENR-P-DUP-TEXT", "Beschrijving", null,
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "One", null, null, null),
-                        new ProductText(Language.EN, "Two", null, null, null)));
+                        new ProductText(Language.EN, "One", null, null),
+                        new ProductText(Language.EN, "Two", null, null)));
         assertThrows(BusinessRuleException.class, () -> service.create(duplicate));
         assertTrue(repository.findBySku("ENR-P-DUP-TEXT").isEmpty());
     }

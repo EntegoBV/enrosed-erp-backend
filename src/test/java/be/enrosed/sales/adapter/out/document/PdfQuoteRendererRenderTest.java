@@ -652,6 +652,34 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    void quotationsPrintTheOneBaseMaatInEveryLanguage() throws Exception {
+        @SuppressWarnings("unchecked")
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData()
+                .withVariantAttributes("Red", "4.8*4.8cm", null)
+                .withTexts(List.of(new be.enrosed.catalog.domain.ProductText(
+                        Language.FR, "Présentoir premium", null, "Rouge"))));
+        renderer.products = productInstance;
+
+        for (Language language : List.of(Language.NL, Language.FR, Language.DE)) {
+            PdfQuoteRenderer.Document document = renderer.render(
+                    order(DocumentType.OFFERTE, "ENR-2026-0192", 1), priced(1), customer(), null,
+                    language, new SalesPdfOptions(false, true, false, false));
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("4.8*4.8cm"),
+                        "the Maat prints as typed in " + language.code() + ": " + text);
+                if (language == Language.FR) {
+                    assertTrue(text.contains("rouge · 4.8*4.8cm"), text);
+                }
+            }
+        }
+    }
+
+    @Test
     void quotationAndInvoiceOnlyShowBarcodeAndOuterCartonWhenRequested() throws Exception {
         @SuppressWarnings("unchecked")
         Instance<ProductService> productInstance = mock(Instance.class);
@@ -758,7 +786,7 @@ class PdfQuoteRendererRenderTest {
         when(productInstance.get()).thenReturn(productService);
         /* The shop knows the product as "glazen sierschaal"; the container and the partner know "counter display premium". */
         when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData().withTexts(List.of(
-                new be.enrosed.catalog.domain.ProductText(Language.NL, "glazen sierschaal premium", null, null, null))));
+                new be.enrosed.catalog.domain.ProductText(Language.NL, "glazen sierschaal premium", null, null))));
         renderer.products = productInstance;
 
         PdfQuoteRenderer.Document plain = renderer.render(order(DocumentType.OFFERTE, "ENR-2026-0300", 1), priced(1, false), customer(), null);

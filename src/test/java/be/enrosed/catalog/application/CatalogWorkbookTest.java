@@ -230,6 +230,34 @@ class CatalogWorkbookTest {
     }
 
     @Test
+    void theTranslationSheetHasNoMaatAndAnOlderWorkbookWithOneImportsWithoutIt()
+            throws Exception {
+        repository.add(productWithFrenchTranslation().withVariantAttributes("Rood", "4.8*4.8cm", null));
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(workbook.export()))) {
+            var header = excel.getSheet("Vertalingen").getRow(0);
+            assertEquals(5, header.getLastCellNum(), "sku, taal, naam, beschrijving, kleur");
+            assertEquals("Kleur", header.getCell(4).getStringCellValue());
+        }
+
+        byte[] older = editedWorkbook(excel -> {
+            var translations = excel.getSheet("Vertalingen");
+            translations.getRow(0).createCell(5).setCellValue("Variantmaat");
+            for (int rowIndex = 1; rowIndex <= translations.getLastRowNum(); rowIndex++) {
+                translations.getRow(rowIndex).createCell(5).setCellValue(
+                        "fr".equals(translations.getRow(rowIndex).getCell(1).getStringCellValue())
+                                ? "Petit" : "4.5*4.5cm");
+            }
+        });
+        CatalogWorkbook.ImportResult result = workbook.importFrom(new ByteArrayInputStream(older));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Product saved = repository.get("ENR-P01");
+        assertEquals(productWithFrenchTranslation().texts(), saved.texts(),
+                "the old Variantmaat column is ignored");
+        assertEquals("4.8*4.8cm", saved.variantSize(), "the one Maat stays the product's");
+    }
+
+    @Test
     void missingTranslationColumnIsRejectedBeforeAnyWrite() throws Exception {
         repository.add(productWithFrenchTranslation());
         byte[] edited = editedWorkbook(excel -> {

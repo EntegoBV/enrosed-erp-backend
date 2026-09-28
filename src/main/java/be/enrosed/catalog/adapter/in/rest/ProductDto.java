@@ -187,9 +187,16 @@ public record ProductDto(
         }
     }
 
+    /**
+     * A product's texts in one language.
+     *
+     * {@code variantSize} is retired: the Maat is one language-neutral value (the product's
+     * own {@code variantSize}). The field stays in the JSON for older ERP clients; it is
+     * always null in a response and ignored in a request.
+     */
     public record TextDto(
             Language language, String name, String description, String colour, String variantSize) {
-        /** Backward-compatible request/source shape. */
+        /** The only shape the server writes: no per-language size. */
         public TextDto(Language language, String name, String description, String colour) {
             this(language, name, description, colour, null);
         }
@@ -226,7 +233,7 @@ public record ProductDto(
 
         List<TextDto> texts = product.texts().stream()
                 .map(text -> new TextDto(text.language(), text.name(), text.description(),
-                        text.colour(), text.variantSize()))
+                        text.colour()))
                 .toList();
 
         return new ProductDto(
@@ -308,8 +315,9 @@ public record ProductDto(
                 List.of(),
                 texts == null ? List.of() : texts.stream()
                         .filter(text -> text != null && text.language() != null)
+                        /* A per-language size an older client still sends is ignored. */
                         .map(text -> new ProductText(text.language(), text.name(),
-                                text.description(), text.colour(), text.variantSize()))
+                                text.description(), text.colour()))
                         .toList(),
                 demo != null && demo);
     }

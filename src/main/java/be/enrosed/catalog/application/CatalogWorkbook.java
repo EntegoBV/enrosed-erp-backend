@@ -90,8 +90,7 @@ public class CatalogWorkbook {
             text("taal", "Taal", 12),
             text("naam", "Productnaam", 30),
             wrapped("beschrijving", "Beschrijving", 48),
-            text("kleur", "Kleur", 20),
-            text("maat", "Variantmaat", 18));
+            text("kleur", "Kleur", 20));
 
     static {
         requireCanonicalColumns(ProductCsv.HEADERS, PRODUCT_COLUMNS);
@@ -292,7 +291,8 @@ public class CatalogWorkbook {
                 new String[]{"Lege vertaling", "Verwijdert de vertaling voor dat veld; de basistekst wordt dan gebruikt."},
                 new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal, publicatiestatus en eenheid."},
                 new String[]{"Maatvolgorde", "Alle product- en doosmaten staan als Breedte × Diepte × Hoogte (B × D × H)."},
-                new String[]{"Variantmaat", "Een verkoopoptie zoals S, XL of 25 cm; dit is iets anders dan de fysieke B × D × H."},
+                new String[]{"Variantmaat", "Een verkoopoptie zoals S, XL of 25 cm; dit is iets anders dan de fysieke B × D × H. "
+                        + "Eén waarde voor alle talen: ze wordt niet vertaald."},
                 new String[]{"Kleurstaal", "Gebruik exact #RRGGBB in hoofdletters, bijvoorbeeld #A91F32. Leeg laat de bestaande waarde staan."},
                 new String[]{"Eenheid", "Hoe één stuk op offertes, facturen, catalogus en website heet: "
                         + String.join(", ", be.enrosed.shared.UnitNames.KEYS)

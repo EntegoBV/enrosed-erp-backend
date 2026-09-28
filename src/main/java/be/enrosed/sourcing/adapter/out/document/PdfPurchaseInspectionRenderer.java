@@ -143,7 +143,7 @@ public class PdfPurchaseInspectionRenderer {
                     value(product == null ? null : product.sku()),
                     product == null ? t.get("missingProduct") + " #" + line.productId() : value(product.nameIn(options.language())),
                     value(product == null ? null : product.colourIn(options.language())),
-                    value(product == null ? null : product.variantSizeIn(options.language())), ordered,
+                    value(product == null ? null : product.variantSize()), ordered,
                     packing == null ? "-" : packing.toString(), cartons,
                     options.includePhotos() ? photo(product, photoCache) : null, List.copyOf(facts), reference));
         }

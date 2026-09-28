@@ -49,7 +49,6 @@ public class ProductValidator {
             bounded(text.name(), 255, "Vertaalde productnaam");
             bounded(text.description(), 2_000, "Vertaalde productbeschrijving");
             bounded(text.colour(), 255, "Vertaalde kleur");
-            bounded(text.variantSize(), 255, "Vertaalde variantmaat");
         }
 
         Carton carton = product.carton();

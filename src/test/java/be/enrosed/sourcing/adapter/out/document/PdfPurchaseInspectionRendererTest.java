@@ -246,9 +246,9 @@ class PdfPurchaseInspectionRendererTest {
                 new Carton(new Dimensions(bd("40"), bd("40"), bd("30")), 12, bd("6.2")),
                 bd("9876.54"), Currency.USD, bd("9876.54"), bd("9876.54"), "PRIVATE COST SOURCE", bd("25"), bd("9876.54"), 0,
                 List.of(new Photo(1L, "authentic-reference.jpg", "P05.jpg", "image/jpeg", 1000, 800, 800, 0)),
-                List.of(new ProductText(Language.EN, "Preserved rose in glass bowl", null, colour, "Large"),
+                List.of(new ProductText(Language.EN, "Preserved rose in glass bowl", null, colour),
                         new ProductText(Language.NL, "Gepreserveerde roos in glazen bowl", null,
-                        colour.equals("Red") ? "Rood" : "Wit", "Groot")), false);
+                        colour.equals("Red") ? "Rood" : "Wit")), false);
     }
 
     private static PurchaseOrder order(List<PurchaseOrderLine> lines) throws Exception {

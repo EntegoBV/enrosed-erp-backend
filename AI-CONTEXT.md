@@ -221,43 +221,73 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   series projection). Series photos carry `publishedChannels` (stored choice)
   next to the effective `visibility`; channel switches start from the former.
 
-### Variant size and colour copies follow the base (2026-09-27)
-- Every catalogue output (public families API, PDF catalogue, quotes, photo
-  export) resolves a variant's size and colour through `LanguageFallback`:
-  the `product_text` row of the requested language first, the base
-  `product.variantSize`/`colour` last. The startup backfill copies a base
-  size verbatim into all nine languages (strict localization wants an
-  explicit row per language), so an edit of the base in the ERP used to
-  stay invisible: the website kept printing 4.5*4.5cm after the owner
-  typed 4.8*4.8cm.
-- `Product.textsFollowingBaseChange`, applied by `ProductService.mergeUpdate`
-  (product PUT and the CSV/Excel master-data import, which calls `update`):
-  when the base size or colour changes, per-language values that merely
-  repeated the old base (equal ignoring case and surrounding whitespace)
-  take the new base; a differing value is a real translation (Small ->
-  Klein) and stays. Copies are rewritten, not dropped: an empty row is a
-  strict-localization hole that turns `websiteBuildReady()` off and makes
-  the strict endpoint refuse the family until the next restart. Shared
-  fields never touch colour or size, and the revisioned translation
-  endpoint keeps its own rules.
-- `duplicate` with a new size fills each language through
-  `VariantSizes.localize` (the backfill's rule, moved there): measurements
-  and size codes such as 4.8*4.8cm, 25 cm or XL are copied as they are,
-  Small/Medium/Large are translated, a row that repeated the source base
-  takes the new base, and a translation of the old size is left empty for
-  the publish-fix dialog. A new colour still clears the colour rows.
-- `docs/migrations/2026-09-27/product-text-variant-size-postgresql.sql` is a
-  one-time repair guarded by the `catalog_data_patch` marker
-  `product-text-variant-size-2026-09-27` (advisory lock, early return,
-  `before_state` holds every replaced value), so later deploys never reset a
-  size an editor saves. It is narrower than the in-app rule: only a
-  measurement-shaped per-language size (a number with an optional unit, or
-  up to three dimensions) that differs from the current base, and only when
-  every measurement row of that product carries that same value. Words,
-  labels and measurements localized per language (5,5*6cm next to 5.5*6cm)
-  stay. The startup backfill only fills blank rows from
-  `product.variantSize` and never rewrites a filled one, so it can neither
-  re-seed nor repair a stale copy.
+### The Maat is one language-neutral value (2026-09-28)
+- Owner decision after the diamond displays printed 4.5*4.5cm in every
+  language while their Maat said 4.8*4.8cm (stale per-language copies left
+  by the startup backfill): the Maat (`product.variantSize`) is not
+  translated at all. Every output prints the base as typed in every
+  language: quote/invoice PDF, PDF catalogue (brochure, compact, simple),
+  purchase PDF (supplier-facing too), inspection brief, photo-export folder
+  names, `Product.describeIn` and public `VariantDto.size`.
+  `textSources.size` is the requested language whenever there is a size
+  (exact in every language, like `unit`), so the strict endpoint, the
+  strict PDF check and `PublicLocalizationCompletenessService` never miss
+  a size and `websiteBuildReady()` never waits for one.
+- `ProductText` has no size. `product_text.variantsize` stays in the schema
+  (Hibernate validation, H2 dev files, rollback) but is retired: never read,
+  and every save through `CatalogMapper` or the translation endpoint writes
+  null; a row left with nothing but a size is empty and is dropped.
+  `ProductDto.TextDto.variantSize` stays in the JSON for older ERP clients:
+  always null in responses, ignored in requests (also not length-checked).
+  The translation CSV has no `maat` column any more (`sku;taal;naam;
+  beschrijving;kleur`); an older file with a sixth `maat` column, or an
+  older workbook with `Variantmaat` on Vertalingen, imports without it.
+- The startup backfill seeds colours only. Shared fields and duplicate copy
+  names, descriptions and colours; a new Maat on a duplicate is just the
+  new base (`VariantSizes`, Small -> Klein, is gone).
+  `Product.textsFollowingColourChange` keeps only the colour rule: copies of
+  the old base colour follow a new base, real translations stay.
+- The website revision hashes `product.variantSize` and no per-language
+  size, so a base-size edit changes it and queues a rebuild; a leftover
+  per-language value does not. Dropping that term changes the revision once,
+  so the first start of this release queues one rebuild.
+- The translation endpoint's revision keeps a constant empty placeholder
+  where it hashed the per-language size: a row without a size keeps its
+  revision over the deploy, so an ERP translation tab or an AI translation
+  batch copied before it still saves. Only products whose rows held a size
+  (cleared or deleted by the migration below) get a new revision, once.
+- `docs/migrations/2026-09-28/product-text-variant-size-neutral-postgresql.sql`
+  (marker `product-text-variant-size-neutral-2026-09-28`, advisory lock,
+  early return, listed after the 2026-09-27 repair) runs once: a product
+  without a base Maat whose translations carried one takes the English (then
+  Dutch, then any) value as its base, except when the activity log records a
+  Maat edit of that product (an editor emptied it; before 17ff7ff a base edit
+  left the copies behind) or an active product of the same family already
+  has that colour and size (`FamilyVariantRules`: a duplicate option blocks
+  the family's website build and every further edit). Then every
+  `product_text.variantsize` is cleared and rows left with no name, public
+  name, description or colour are deleted. `before_state` holds
+  `promotedBaseSizes`, `clearedSizes` (skipped promotions included) and
+  `deletedEmptyRows`. No DROP: the column stays. H2 dev is not migrated;
+  its leftover copies are never read and disappear on the next save.
+- Before the production deploy, list the candidates read-only and show Emre
+  which Maat is promoted and which stays empty:
+  `select p.id, p.sku, p.familyid, p.colour, p.active, t.language,
+  t.variantsize, exists(select 1 from activity_log a where
+  a.entity_type='PRODUCT' and a.entity_id=p.id::text and a.changes_json
+  like '%"variantSize"%') as maat_edited from product p join product_text t
+  on t.product_id=p.id where nullif(btrim(p.variantsize),'') is null and
+  nullif(btrim(t.variantsize),'') is not null order by p.id, t.language;`
+- The schema stays compatible, the rendering of an older image does not: an
+  image before this release wants an explicit per-language size in its
+  strict projection and `PublicLocalizationCompletenessService`, so on the
+  cleared data it reports every Maat missing (strict builds refused,
+  `websiteBuildReady()` off). A website build that starts between the
+  pre-deploy migration and the switch fails; the new release queues a fresh
+  one on startup. Do not start or retry a build by hand during the deploy.
+  Rollback: before or right after starting the older image, run the two
+  restore statements in the migration header (re-insert `deletedEmptyRows`,
+  then write `clearedSizes` back by product and language).
 
 ### Sales units: what one piece is called (2026-09-22)
 - `Packaging.salesUnit` stays the commercial basis (PIECE or DISPLAY);
@@ -313,7 +343,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   WEBSITE&language=XX&strictLanguage=true`, product translations and
   content endpoints. Variant `textSources` carry a source language per
   field; `color`/`size` appear only when the variant has a value - the
-  website treats them as optional.
+  website treats them as optional. `size` is the language-neutral Maat, so
+  its source is always the requested language.
 - **Migration log**: `docs/migrations/2026-08-21/category-revision-
   postgresql.sql` was executed on the Railway Postgres on 2026-08-21 via
   the TCP proxy (3 categories backfilled to revision 0, description

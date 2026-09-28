@@ -801,7 +801,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
         return new Item(
                 product.sku(), product.nameIn(language), dimensionLabel(product.dimensions()),
-                product.colourIn(language), product.variantSizeIn(language),
+                product.colourIn(language), product.variantSize(),
                 product.barcodes() == null ? null : product.barcodes().inner(),
                 product.barcodes() == null ? null : product.barcodes().outer(),
                 product.carton() == null ? 0 : product.carton().piecesPerCarton(),
@@ -918,7 +918,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         List<BrochureVariant> variants = variantOrder.stream()
                 .map(product -> new BrochureVariant(
                         product.sku(), product.nameIn(language), product.colourIn(language),
-                        product.variantSizeIn(language),
+                        product.variantSize(),
                         ColourSwatches.orDefault(product.colourHex(), product.colour()),
                         compactDimensions(product.dimensions()),
                         product.carton() == null ? "" : compactDimensions(product.carton().dimensions()),
@@ -985,7 +985,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return new RangeFacts(
                 skuLabel(variants), List.copyOf(colours),
                 distinctJoined(variants, product -> product.colourIn(language)),
-                distinctJoined(variants, product -> product.variantSizeIn(language)),
+                distinctJoined(variants, Product::variantSize),
                 sharedOrFirst(variants, product -> compactDimensions(product.dimensions())),
                 packaging,
                 sharedOrFirst(variants, product -> product.carton() == null ? "" : compactDimensions(product.carton().dimensions())),
@@ -1170,7 +1170,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         if (!single) {
             String colours = distinctJoined(variants, product -> product.colourIn(language));
             if (present(colours)) rows.add(new SpecRow(copy(copy, "catalog.spec.colours"), colours));
-            String sizes = distinctJoined(variants, product -> product.variantSizeIn(language));
+            String sizes = distinctJoined(variants, Product::variantSize);
             if (present(sizes)) rows.add(new SpecRow(copy(copy, "catalog.spec.sizes"), sizes));
         } else {
             if (present(first.canonicalBarcode())) rows.add(new SpecRow("EAN", first.canonicalBarcode()));
@@ -1610,10 +1610,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     requireSource(missing, prefix + ".color",
                             product.colourResolved(language), language);
                 }
-                if (productUsesSize(product)) {
-                    requireSource(missing, prefix + ".size",
-                            product.variantSizeResolved(language), language);
-                }
+                /* No size: the Maat is one language-neutral value, exact in every language. */
             }
         }
         return List.copyOf(new LinkedHashSet<>(missing));
@@ -1638,11 +1635,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private static boolean productUsesColour(Product product) {
         return present(product.colour()) || product.texts().stream()
                 .anyMatch(text -> present(text.colour()));
-    }
-
-    private static boolean productUsesSize(Product product) {
-        return present(product.variantSize()) || product.texts().stream()
-                .anyMatch(text -> present(text.variantSize()));
     }
 
     private static Language catalogLanguage(String code) {

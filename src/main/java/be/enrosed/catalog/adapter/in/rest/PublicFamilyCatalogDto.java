@@ -115,6 +115,7 @@ public record PublicFamilyCatalogDto(
             String sku,
             String barcode,
             String color,
+            /** The Maat as typed on the product, the same in every language; {@code textSources.size} is always exact. */
             String size,
             String colorHex,
             String name,

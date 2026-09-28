@@ -170,7 +170,7 @@ public class ProductPhotoExportService {
 
             String name = product.nameIn(language);
             String colour = product.colourIn(language);
-            String size = product.variantSizeIn(language);
+            String size = product.variantSize(); // The Maat is the same in every language.
             String folder = files.isEmpty() ? null
                     : folders.claim(PhotoExportNames.folder(product.sku(), name, colour, size));
             Category category = product.categoryId() == null ? null : categoryById.get(product.categoryId());

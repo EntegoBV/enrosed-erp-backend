@@ -126,4 +126,5 @@ exec psql \
     --file=/app/migrations/product-unit-key-postgresql.sql \
     --file=/app/migrations/catalog-export-order-postgresql.sql \
     --file=/app/migrations/credit-notes-postgresql.sql \
-    --file=/app/migrations/product-text-variant-size-postgresql.sql
+    --file=/app/migrations/product-text-variant-size-postgresql.sql \
+    --file=/app/migrations/product-text-variant-size-neutral-postgresql.sql

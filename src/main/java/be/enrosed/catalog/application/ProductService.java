@@ -18,7 +18,6 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.UnitNames;
-import be.enrosed.shared.VariantSizes;
 import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
@@ -421,9 +420,10 @@ public class ProductService {
     }
 
     /**
-     * Name and description may be shared; colour and size translations always remain attached to
-     * their target variant. Only filled source cells are applied, so an incomplete master never
-     * erases a translation that was already present on another colour.
+     * Name and description may be shared; colour translations always remain attached to their
+     * target variant (the Maat has none: it is language-neutral). Only filled source cells are
+     * applied, so an incomplete master never erases a translation that was already present on
+     * another colour.
      */
     private static List<ProductText> copySharedTexts(
             Product source, Product target, boolean copyName, boolean copyDescription) {
@@ -459,8 +459,7 @@ public class ProductService {
                             ? filledSourceOrTarget(
                                     textDescription(sourceText), textDescription(targetText))
                             : textDescription(targetText),
-                    targetText == null ? null : targetText.colour(),
-                    targetText == null ? null : targetText.variantSize());
+                    targetText == null ? null : targetText.colour());
             if (!merged.isEmpty()) result.add(merged);
         }
         return List.copyOf(result);
@@ -595,9 +594,9 @@ public class ProductService {
                 current.photos(),
                 /* Public translations have their own revisioned, atomic endpoint. A stale
                    general product PUT must never overwrite that independently saved snapshot.
-                   Only per-language copies of a replaced base colour or size follow the new
-                   base, so an edited size reaches every catalogue. */
-                current.textsFollowingBaseChange(colour, variantSize),
+                   Only per-language copies of a replaced base colour follow the new base; the
+                   Maat is language-neutral, so an edited size reaches every catalogue as is. */
+                current.textsFollowingColourChange(colour),
                 changes.demo());
     }
 
@@ -644,7 +643,6 @@ public class ProductService {
         String colour = newColour == null ? source.colour() : requestedColour;
         String size = newVariantSize == null ? source.variantSize() : requestedSize;
         boolean colourChanged = !java.util.Objects.equals(colour, source.colour());
-        boolean sizeChanged = !java.util.Objects.equals(size, source.variantSize());
         String colourHex = newColourHex != null
                 ? requestedHex : colourChanged ? null : source.colourHex();
         if (java.util.Objects.equals(colour, source.colour())
@@ -674,30 +672,14 @@ public class ProductService {
                 0, List.of(),
                 /* Translated names and descriptions come along; the per-language
                    colour comes along for size/swatch-only variants, but is cleared
-                   when the actual colour label changed. */
+                   when the actual colour label changed. The new Maat needs no
+                   translation: it is one language-neutral value. */
                 source.texts().stream()
                         .map(text -> new ProductText(text.language(), text.name(),
-                                text.description(), colourChanged ? null : text.colour(),
-                                sizeChanged ? duplicatedSize(text, source.variantSize(), size)
-                                        : text.variantSize()))
+                                text.description(), colourChanged ? null : text.colour()))
                         .filter(text -> !text.isEmpty())
                         .toList(),
                 source.demo()));
-    }
-
-    /**
-     * The per-language size of a new size variant. Measurements and size codes (4.8*4.8cm,
-     * 25 cm, XL) are copied into every language like the startup backfill does, and
-     * Small/Medium/Large are translated; a row that merely repeated the source base takes
-     * the new base, as on a product edit. A translation of the old size says nothing about
-     * the new one and stays empty for the publish-fix dialog.
-     */
-    private static String duplicatedSize(ProductText text, String sourceSize, String newSize) {
-        String localized = VariantSizes.localize(newSize, text.language());
-        if (localized != null) return localized;
-        String copied = normalizeOptional(text.variantSize());
-        String base = normalizeOptional(sourceSize);
-        return copied != null && copied.equalsIgnoreCase(base) ? newSize : null;
     }
 
     @Transactional

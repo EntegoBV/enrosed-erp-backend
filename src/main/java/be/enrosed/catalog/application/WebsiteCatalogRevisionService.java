@@ -193,13 +193,14 @@ public class WebsiteCatalogRevisionService {
         }
         add(out, product.description); add(out, product.colour);
         add(out, product.productLengthCm); add(out, product.productWidthCm); add(out, product.productHeightCm);
+        /* The Maat is language-neutral: the base value is the only size the website prints. */
         add(out, product.colourHex); add(out, product.variantSize);
         add(out, Product.calculateSalesPriceEur(
                 product.fixedSalesPriceEur, product.landedCostEur, product.markupPct));
         product.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
             add(out, text.language);
             add(out, text.description);
-            add(out, text.colour); add(out, text.variantSize);
+            add(out, text.colour);
         });
     }
 

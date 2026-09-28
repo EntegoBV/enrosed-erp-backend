@@ -42,7 +42,7 @@ class GreekCatalogBackfillPersistenceTest {
         source.language = Language.EN;
         source.publicName = "Blue";
         source.colour = "Blue"; // The public colour was deliberately corrected after the import.
-        source.variantSize = "4.5*4.5cm"; // Existing public measurement, no operational size value.
+        source.variantSize = "4.5*4.5cm"; // A retired per-language copy the backfill must ignore.
         product.texts.add(source);
         ProductTextEntity authoredGerman = new ProductTextEntity();
         authoredGerman.product = product;
@@ -85,10 +85,11 @@ class GreekCatalogBackfillPersistenceTest {
                 .findFirst().orElseThrow().name.contains("Τριαντάφυλλο"),
                 "a missing Greek document name follows the reviewed family name");
         assertEquals("Μπλε", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().colour);
-        assertEquals("4.5*4.5cm", after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().variantSize);
+        assertNull(after.texts.stream().filter(t -> t.language == Language.EL).findFirst().orElseThrow().variantSize,
+                "the Maat is language-neutral: no size is seeded, not even from another language");
         assertEquals(java.util.Set.of(Language.values()), after.texts.stream()
                 .map(text -> text.language).collect(java.util.stream.Collectors.toSet()),
-                "every document language receives an explicit colour and dimensional size");
+                "every document language receives an explicit colour");
         assertEquals("Bleu", after.texts.stream().filter(t -> t.language == Language.FR)
                 .findFirst().orElseThrow().colour,
                 "missing locales follow the administrator-corrected public English colour");
@@ -100,9 +101,10 @@ class GreekCatalogBackfillPersistenceTest {
         assertEquals("Eigene Farbe", storedGerman.colour,
                 "administrator-authored translations always win");
         assertEquals("Sondermaß", storedGerman.variantSize,
-                "administrator-authored sizes always win");
-        assertTrue(after.texts.stream().filter(t -> t.language != Language.DE)
-                .allMatch(t -> "4.5*4.5cm".equals(t.variantSize)));
+                "the backfill never touches the retired column; the migration clears it");
+        assertTrue(after.texts.stream()
+                .filter(t -> t.language != Language.DE && t.language != Language.EN)
+                .allMatch(t -> t.variantSize == null), "no size is seeded into any language");
         backfill.apply();
         entities.flush();
         assertEquals(Language.values().length, after.texts.size(),
@@ -111,7 +113,7 @@ class GreekCatalogBackfillPersistenceTest {
 
     @Test
     @TestTransaction
-    void startupBackfillFillsMissingSizesFromTheCurrentBaseAndNeverRewritesARow() {
+    void startupBackfillLeavesSizesOutOfTheTranslations() {
         ProductFamilyEntity family = family("size-follows-base-backfill");
         ProductEntity product = new ProductEntity();
         product.sku = "SIZE-FOLLOWS-BASE";
@@ -122,7 +124,7 @@ class GreekCatalogBackfillPersistenceTest {
         ProductTextEntity english = new ProductTextEntity();
         english.product = product;
         english.language = Language.EN;
-        english.variantSize = "4.5*4.5cm"; // A copy of the old base the migration repairs.
+        english.variantSize = "4.5*4.5cm"; // A retired copy of the old base the migration clears.
         product.texts.add(english);
         ProductTextEntity french = new ProductTextEntity();
         french.product = product;
@@ -139,13 +141,15 @@ class GreekCatalogBackfillPersistenceTest {
 
         ProductEntity after = entities.find(ProductEntity.class, productId);
         assertEquals(java.util.Set.of(Language.values()), after.texts.stream()
-                .map(text -> text.language).collect(java.util.stream.Collectors.toSet()));
+                .map(text -> text.language).collect(java.util.stream.Collectors.toSet()),
+                "the colour still gets an explicit row per language");
         assertTrue(after.texts.stream().filter(text -> text.language != Language.EN)
-                        .allMatch(text -> "4.8*4.8cm".equals(text.variantSize)),
-                "blank rows take the base as it is now, never another language's row");
+                        .allMatch(text -> text.variantSize == null),
+                "the Maat is language-neutral: the backfill seeds no size");
         assertEquals("4.5*4.5cm", after.texts.stream()
                         .filter(text -> text.language == Language.EN).findFirst().orElseThrow().variantSize,
-                "startup never rewrites a filled row; stale copies are repaired by the migration");
+                "startup never touches the retired column; the migration clears it");
+        assertEquals("4.8*4.8cm", after.variantSize, "the one Maat stays on the product");
     }
 
     @Test

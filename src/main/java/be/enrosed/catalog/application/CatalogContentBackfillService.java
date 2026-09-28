@@ -13,7 +13,6 @@ import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
-import be.enrosed.shared.VariantSizes;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -273,13 +272,6 @@ public class CatalogContentBackfillService {
                     if (!originalVariant && language != Language.EL) continue;
                     String color = localizedColor(bundle, language == Language.EL
                             ? publicEnglishColour(product) : product.colour, language);
-                    String sizeSource = product.variantSize;
-                    if (language == Language.EL && (sizeSource == null || sizeSource.isBlank())) {
-                        sizeSource = product.texts.stream().filter(text -> text.language == Language.EN)
-                                .map(text -> text.variantSize).filter(value -> value != null && !value.isBlank())
-                                .findFirst().orElse(null);
-                    }
-                    String size = localizedSize(sizeSource, language);
                     Map<Language, String> namedVariant = product.canonicalVariantKey == null ? null
                             : bundle.variantNames().get(product.canonicalVariantKey);
                     String name = namedVariant != null ? namedVariant.get(language)
@@ -302,10 +294,7 @@ public class CatalogContentBackfillService {
                         text.colour = merge(text.colour, color, known(product.colour, language),
                                 correctKnownStale, counter);
                     }
-                    if (size != null) {
-                        text.variantSize = merge(text.variantSize, size,
-                                known(product.variantSize, language), correctKnownStale, counter);
-                    }
+                    // No size: the Maat is language-neutral and prints from product.variantSize.
                 }
             }
 
@@ -352,9 +341,10 @@ public class CatalogContentBackfillService {
         completeLocalizedProductNames(counter);
 
         /* A product may be linked to the catalogue after the original import bundle was
-           created. Its family copy is administrator-owned, but its colour and dimensional
-           size still need an explicit source row in every document language. Fill only
-           missing attributes; existing names, descriptions and translated values win. */
+           created. Its family copy is administrator-owned, but its colour still needs an
+           explicit source row in every document language (the Maat does not: it is one
+           language-neutral value). Fill only missing colours; existing names, descriptions
+           and translated values win. */
         for (ProductEntity product : products.listAll()) {
             if (product.familyId != null) completeLocalizedProductAttributes(bundle, product, counter);
         }
@@ -868,19 +858,13 @@ public class CatalogContentBackfillService {
         return value == null || value.isBlank() ? wanted : value;
     }
 
+    /** Seeds the colour per language; the Maat is language-neutral and never seeded. */
     private static void completeLocalizedProductAttributes(
             Bundle bundle, ProductEntity product, Counter counter) {
         String colourSource = publicEnglishColour(product);
-        String sizeSource = product.variantSize;
-        if (sizeSource == null || sizeSource.isBlank()) {
-            sizeSource = product.texts.stream().filter(text -> text.language == Language.EN)
-                    .map(text -> text.variantSize).filter(value -> value != null && !value.isBlank())
-                    .findFirst().orElse(null);
-        }
         for (Language language : Language.values()) {
             String colour = localizedColor(bundle, colourSource, language);
-            String size = localizedSize(sizeSource, language);
-            if ((colour == null || colour.isBlank()) && (size == null || size.isBlank())) continue;
+            if (colour == null || colour.isBlank()) continue;
             ProductTextEntity text = product.texts.stream()
                     .filter(item -> item.language == language).findFirst().orElse(null);
             if (text == null) {
@@ -891,7 +875,6 @@ public class CatalogContentBackfillService {
                 counter.inserted++;
             }
             text.colour = merge(text.colour, colour, null, false, counter);
-            text.variantSize = merge(text.variantSize, size, null, false, counter);
         }
     }
 
@@ -928,12 +911,6 @@ public class CatalogContentBackfillService {
         return product.texts.stream().filter(text -> text.language == Language.EN)
                 .map(text -> text.colour).filter(value -> value != null && !value.isBlank())
                 .findFirst().orElse(product.colour);
-    }
-
-    static String localizedSize(String raw, Language language) {
-        // Measurements are language-neutral. They must still have an explicit source entry
-        // for the strict locale projection, while arbitrary labels need a real translation.
-        return VariantSizes.localize(raw, language);
     }
 
     private static String known(String base, Language language) {

@@ -4,7 +4,7 @@ import be.enrosed.shared.Language;
 import jakarta.persistence.*;
 
 /**
- * Name, description, colour and merchandising size of a product in one language.
+ * Name, public name, description and colour of a product in one language.
  *
  * One row per product and language. The unique key on that is not for
  * tidiness: without it a second import of the same translation file
@@ -45,5 +45,11 @@ public class ProductTextEntity {
 
     public String colour;
 
+    /**
+     * Retired: the Maat is one language-neutral value, {@code product.variantSize}.
+     * The column stays so the schema (Railway validation, H2 dev files, a rollback)
+     * remains compatible; the application writes null here and never reads it.
+     * Migration 2026-09-28/product-text-variant-size-neutral-postgresql.sql cleared it.
+     */
     public String variantSize;
 }

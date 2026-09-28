@@ -485,8 +485,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                             ? nonBlank(product.name(), nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription())))
                             : nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription()));
             String variant = product == null || !options.includeProductDetails() ? null : internalNames
-                    ? joinDetails(product.colourIn(Language.NL), product.variantSizeIn(Language.NL))
-                    : joinDetails(product.colourIn(language), product.variantSizeIn(language));
+                    ? joinDetails(product.colourIn(Language.NL), product.variantSize())
+                    : joinDetails(product.colourIn(language), product.variantSize());
             String description = product == null || !options.includeProductDetails() || internalNames
                     ? null : distinctDescription(product.descriptionIn(language), title);
             List<ProductSpec> details = product == null

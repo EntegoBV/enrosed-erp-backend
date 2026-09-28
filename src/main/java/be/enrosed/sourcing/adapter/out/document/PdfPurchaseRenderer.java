@@ -888,7 +888,7 @@ public class PdfPurchaseRenderer {
                                                   boolean showBarcode) {
         if (product == null) return List.of();
         List<ProductSpec> details = new ArrayList<>();
-        String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
+        String variant = product.variantSize(); // One language-neutral Maat for supplier and us.
         if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
         /* One row per thing you can hold - product, packaging, carton - each
