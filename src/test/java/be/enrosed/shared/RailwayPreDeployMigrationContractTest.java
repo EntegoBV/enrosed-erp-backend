@@ -306,8 +306,24 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(runner.indexOf("--file=/app/migrations/product-text-variant-size-postgresql.sql")
                         < runner.indexOf(migration.getFileName().toString()),
                 "the retirement runs after the 2026-09-27 repair of stale copies");
-        assertTrue(runner.strip().endsWith(migration.getFileName().toString()),
-                "listed last in the pre-deploy runner");
+        assertTrue(runner.indexOf(migration.getFileName().toString())
+                        < runner.indexOf("--file=/app/migrations/prospects-postgresql.sql"),
+                "the existing catalogue repair remains before the new prospect schema");
+    }
+
+    @Test
+    void privateProspectSchemaIsAdditiveAndRegisteredBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-28/prospects-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists prospect ("));
+        assertTrue(sql.contains("create table if not exists prospect_activity ("));
+        assertTrue(sql.contains("create table if not exists prospect_outreach_lock ("));
+        assertTrue(sql.contains("constraint uq_prospect_activity_external unique(external_id)"));
+        assertTrue(sql.contains("insert into prospect_outreach_lock(id) values (1) on conflict (id) do nothing"));
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
+                .strip().endsWith("--file=/app/migrations/" + migration.getFileName()));
     }
 
     private static void assertNonDestructive(String sql) {
