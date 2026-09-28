@@ -179,7 +179,8 @@ public class ProspectService {
             if (existing.status != ActivityStatus.RESERVED || dayOf(existing.occurredAt).isBefore(dayOf(now))) {
                 throw conflict("Deze reservering is al afgesloten of hoort bij een eerdere dag");
             }
-            if (!Objects.equals(existing.recipientEmail, prospect.email) || !Objects.equals(existing.groupKey, prospect.groupKey)) {
+            if (!Objects.equals(existing.recipientEmail, prospect.email)
+                    || (existing.groupKey != null && !Objects.equals(existing.groupKey, prospect.groupKey))) {
                 throw conflict("De ontvanger of bedrijfsgroep is gewijzigd; annuleer deze reservering en reserveer opnieuw");
             }
             rejectSuppressed(prospect);
@@ -194,7 +195,9 @@ public class ProspectService {
         parameters.put("email", prospect.email);
         String duplicate = "channel = :channel and status in :statuses and (prospect.id = :id or recipientEmail = :email";
         if (prospect.groupKey != null) {
-            duplicate += " or groupKey = :groupKey";
+            // A group discovered after the original reservation still suppresses
+            // sibling prospects. Known historical snapshots remain authoritative.
+            duplicate += " or groupKey = :groupKey or (groupKey is null and prospect.groupKey = :groupKey)";
             parameters.put("groupKey", prospect.groupKey);
         }
         if (ProspectActivityEntity.count(duplicate + ")", parameters) > 0) {

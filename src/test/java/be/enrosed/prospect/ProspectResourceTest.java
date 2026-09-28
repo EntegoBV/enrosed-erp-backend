@@ -210,6 +210,23 @@ class ProspectResourceTest {
     }
 
     @Test
+    void aGroupEnrichedAfterReservationProtectsSiblingsWithoutRewritingItsSnapshot() {
+        long id = create("Group initially unknown", "original@example.com", null);
+        long sibling = create("Known sibling", "sibling@example.com", "verified-group");
+        reserve(id, "enriched-group").then().statusCode(200).body("groupKey", nullValue());
+        admin().body(prospect("Group identified", "original@example.com", "verified-group"))
+                .put(ROOT + "/" + id).then().statusCode(200);
+        reserve(id, "enriched-group").then().statusCode(200).body("groupKey", nullValue());
+        reserve(sibling, "sibling-reservation").then().statusCode(409);
+        finish(id, "enriched-group", "SCHEDULED").then().statusCode(200)
+                .body("status", equalTo("SCHEDULED")).body("groupKey", nullValue());
+        reserve(sibling, "sibling-reservation").then().statusCode(409);
+        finish(id, "enriched-group", "SENT").then().statusCode(200)
+                .body("status", equalTo("SENT")).body("groupKey", nullValue());
+        reserve(sibling, "sibling-reservation").then().statusCode(409);
+    }
+
+    @Test
     void concurrentReservationsCannotExceedTen() throws Exception {
         List<Long> ids = IntStream.range(0, 13).mapToObj(i -> create("Parallel " + i, "parallel" + i + "@example.com", null)).toList();
         List<Integer> statuses = parallel(ids.size(), index -> reserve(ids.get(index), "parallel-" + index).statusCode());
