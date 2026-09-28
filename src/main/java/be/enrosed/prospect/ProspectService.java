@@ -24,7 +24,7 @@ import static be.enrosed.prospect.ProspectDtos.*;
 @ApplicationScoped
 public class ProspectService {
     public static final ZoneId OUTREACH_ZONE = ZoneId.of("Europe/Brussels");
-    public static final int DAILY_EMAIL_LIMIT = 7;
+    public static final int DAILY_EMAIL_LIMIT = 10;
     private static final Set<String> COUNTRIES = Set.of(Locale.getISOCountries());
     private static final Set<ProspectStatus> NO_NEW_OUTREACH = EnumSet.of(
             ProspectStatus.DO_NOT_CONTACT, ProspectStatus.NOT_INTERESTED, ProspectStatus.CUSTOMER);
@@ -201,7 +201,7 @@ public class ProspectService {
             throw conflict("Prospect of bedrijfsgroep heeft al een verstuurde of gereserveerde e-mail");
         }
         EmailSummary summary = emailSummary(dayOf(scheduledFor));
-        if (summary.remaining() == 0) throw conflict("De daglimiet van zeven e-mails is bereikt");
+        if (summary.remaining() == 0) throw conflict("De daglimiet van " + DAILY_EMAIL_LIMIT + " e-mails is bereikt");
         candidate.persistAndFlush();
         updateTimeline(prospect, candidate);
         return candidate.dto();

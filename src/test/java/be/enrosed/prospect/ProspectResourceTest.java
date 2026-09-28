@@ -144,24 +144,24 @@ class ProspectResourceTest {
         }
         admin().queryParam("date", "2025-10-26").get(ROOT + "/email-summary").then().statusCode(200)
                 .body("timezone", equalTo("Europe/Brussels")).body("sent", equalTo(2))
-                .body("reserved", equalTo(0)).body("remaining", equalTo(5)).body("activities.size()", equalTo(2));
+                .body("reserved", equalTo(0)).body("remaining", equalTo(8)).body("activities.size()", equalTo(2));
     }
 
     @Test
     void reservationsEnforceDailyCapacityReleaseAndCompletionWithoutSending() {
-        List<Long> ids = IntStream.range(0, 8).mapToObj(i -> create("Capacity " + i, "capacity" + i + "@example.com", null)).toList();
-        for (int i = 0; i < 7; i++) reserve(ids.get(i), "capacity-" + i).then().statusCode(200).body("status", equalTo("RESERVED"));
+        List<Long> ids = IntStream.range(0, 11).mapToObj(i -> create("Capacity " + i, "capacity" + i + "@example.com", null)).toList();
+        for (int i = 0; i < 10; i++) reserve(ids.get(i), "capacity-" + i).then().statusCode(200).body("status", equalTo("RESERVED"));
         reserve(ids.getFirst(), "capacity-0").then().statusCode(200);
         admin().get(ROOT + "/email-summary").then().statusCode(200).body("sent", equalTo(0))
-                .body("reserved", equalTo(7)).body("remaining", equalTo(0));
-        reserve(ids.get(7), "capacity-7").then().statusCode(409);
+                .body("limit", equalTo(10)).body("reserved", equalTo(10)).body("remaining", equalTo(0));
+        reserve(ids.get(10), "capacity-10").then().statusCode(409);
         finish(ids.getFirst(), "capacity-0", "CANCELLED").then().statusCode(200);
-        reserve(ids.get(7), "capacity-7").then().statusCode(200);
+        reserve(ids.get(10), "capacity-10").then().statusCode(200);
         finish(ids.get(1), "capacity-1", "SENT").then().statusCode(200);
         finish(ids.get(1), "capacity-1", "SENT").then().statusCode(200);
         reserve(ids.get(1), "capacity-1").then().statusCode(409);
         admin().get(ROOT + "/email-summary").then().statusCode(200).body("sent", equalTo(1))
-                .body("reserved", equalTo(6)).body("remaining", equalTo(0));
+                .body("reserved", equalTo(9)).body("remaining", equalTo(0));
         Map<String, Object> directReserved = activity("EMAIL", "OUTREACH", "RESERVED", "bypass");
         admin().body(directReserved).post(ROOT + "/" + ids.getFirst() + "/activities").then().statusCode(400);
     }
@@ -210,22 +210,22 @@ class ProspectResourceTest {
     }
 
     @Test
-    void concurrentReservationsCannotExceedSeven() throws Exception {
-        List<Long> ids = IntStream.range(0, 10).mapToObj(i -> create("Parallel " + i, "parallel" + i + "@example.com", null)).toList();
+    void concurrentReservationsCannotExceedTen() throws Exception {
+        List<Long> ids = IntStream.range(0, 13).mapToObj(i -> create("Parallel " + i, "parallel" + i + "@example.com", null)).toList();
         List<Integer> statuses = parallel(ids.size(), index -> reserve(ids.get(index), "parallel-" + index).statusCode());
-        assertEquals(7, statuses.stream().filter(code -> code == 200).count(), statuses.toString());
+        assertEquals(10, statuses.stream().filter(code -> code == 200).count(), statuses.toString());
         assertEquals(3, statuses.stream().filter(code -> code == 409).count(), statuses.toString());
-        admin().get(ROOT + "/email-summary").then().statusCode(200).body("reserved", equalTo(7)).body("remaining", equalTo(0));
+        admin().get(ROOT + "/email-summary").then().statusCode(200).body("reserved", equalTo(10)).body("remaining", equalTo(0));
     }
 
     @Test
     void futureReservationsUseTheSendDayAndScheduledTransitionsPreserveIt() {
         LocalDate tomorrow = LocalDate.now(ProspectService.OUTREACH_ZONE).plusDays(1);
         String scheduledFor = tomorrow.atTime(9, 0).atZone(ProspectService.OUTREACH_ZONE).toInstant().toString();
-        List<Long> ids = IntStream.range(0, 8).mapToObj(i -> create("Future " + i, "future" + i + "@example.com", null)).toList();
+        List<Long> ids = IntStream.range(0, 11).mapToObj(i -> create("Future " + i, "future" + i + "@example.com", null)).toList();
         Map<String, Object> reservation = new HashMap<>(Map.of("subject", "Planned collection", "body", "Reviewed scheduled message",
                 "scheduledFor", scheduledFor));
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 10; i++) {
             reservation.put("externalId", "future-" + i);
             admin().body(reservation).post(ROOT + "/" + ids.get(i) + "/email-reservations").then().statusCode(200)
                     .body("occurredAt", equalTo(scheduledFor));
@@ -236,20 +236,20 @@ class ProspectResourceTest {
         }
         finish(ids.getFirst(), "future-0", "SCHEDULED").then().statusCode(200).body("occurredAt", equalTo(scheduledFor));
         admin().queryParam("date", tomorrow.toString()).get(ROOT + "/email-summary").then().statusCode(200)
-                .body("sent", equalTo(0)).body("reserved", equalTo(4)).body("scheduled", equalTo(3))
+                .body("sent", equalTo(0)).body("reserved", equalTo(7)).body("scheduled", equalTo(3))
                 .body("remaining", equalTo(0));
-        admin().get(ROOT + "/email-summary").then().statusCode(200).body("remaining", equalTo(7));
-        reservation.put("externalId", "future-7");
-        admin().body(reservation).post(ROOT + "/" + ids.get(7) + "/email-reservations").then().statusCode(409);
+        admin().get(ROOT + "/email-summary").then().statusCode(200).body("remaining", equalTo(10));
+        reservation.put("externalId", "future-10");
+        admin().body(reservation).post(ROOT + "/" + ids.get(10) + "/email-reservations").then().statusCode(409);
         Map<String, Object> changedTime = new HashMap<>(Map.of("channel", "EMAIL", "type", "OUTREACH", "status", "SCHEDULED",
                 "externalId", "future-3", "occurredAt", tomorrow.plusDays(1).atStartOfDay(ProspectService.OUTREACH_ZONE).toInstant().toString()));
         admin().body(changedTime).post(ROOT + "/" + ids.get(3) + "/activities").then().statusCode(409);
         finish(ids.getFirst(), "future-0", "CANCELLED").then().statusCode(200);
-        admin().body(reservation).post(ROOT + "/" + ids.get(7) + "/email-reservations").then().statusCode(200);
+        admin().body(reservation).post(ROOT + "/" + ids.get(10) + "/email-reservations").then().statusCode(200);
         // If externally sent early, record the actual event truthfully on today's summary.
         finish(ids.get(1), "future-1", "SENT").then().statusCode(200);
         finish(ids.get(1), "future-1", "SENT").then().statusCode(200);
-        admin().get(ROOT + "/email-summary").then().statusCode(200).body("sent", equalTo(1)).body("remaining", equalTo(6));
+        admin().get(ROOT + "/email-summary").then().statusCode(200).body("sent", equalTo(1)).body("remaining", equalTo(9));
         admin().queryParam("date", tomorrow.toString()).get(ROOT + "/email-summary").then().statusCode(200)
                 .body("scheduled", equalTo(1)).body("remaining", equalTo(1));
         reservation.put("externalId", "past-reservation");
