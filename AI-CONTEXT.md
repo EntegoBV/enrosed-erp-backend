@@ -166,6 +166,39 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   status, keeps the stored day (payment writes PUT merged payloads). The
   "Ontvangst dd/mm/jjjj" diary line stays as written; the audit diff
   "Ontvangen op" records the correction.
+- **Supplier credit, "Tegoed leverancier"** (2026-09-29): money the
+  supplier owes after a short delivery, damage or a wrong price. Own table
+  `purchase_supplier_credit` (migration
+  `docs/migrations/2026-09-29/purchase-supplier-credit-postgresql.sql`),
+  domain `PurchaseSupplierCredit` (reason SHORTAGE/DAMAGE/PRICE/OTHER =
+  Tekort/Schade/Prijsverschil/Andere; status OPEN/OFFSET/REFUNDED = Tegoed
+  open/Verrekend/Terugbetaald), `PurchaseSupplierCreditService`. Never a
+  negative payment: every reader of `purchase_payment` counts money out.
+  Endpoints POST/PUT/DELETE `/purchase-orders/{id}/supplier-credits[/{creditId}]`
+  and POST `.../{creditId}/offset` all answer the updated `PurchaseOrderView`,
+  which lists `supplierCredits` (always an array) and, on a container that
+  took an offset, `creditOffsets`. Euro at the order rate unless an
+  `amountEur` is sent; all credits of an order together stay within the
+  supplier Afspraak (checked when a credit is noted or its amount,
+  currency or euro changes; a PUT to REFUNDED that keeps amount and
+  currency only records the bank euro and is never capped, because the
+  rate may have moved). Only an OPEN credit changes or is deleted;
+  REFUNDED needs `settledOn` and may carry the bank euro; back to OPEN
+  undoes the refund. OFFSET only through `/offset`: an ordinary SUPPLIER payment
+  "Verrekend tegoed PO-A" on another, non-concept container of the same
+  supplier, in the credit's amount and currency at that container's rate
+  (its terms close exactly). Deleting that payment reopens the credit;
+  `updatePayment` refuses amount, currency and payee changes on it and a
+  new date moves the credit's `settledOn`. Reconciliation: the SUPPLIER
+  stream carries `creditEur` (every credit, whatever its status) and
+  `forecastEur = paid + open - credit` (paid and open stay bank truth,
+  status words unchanged, `finalized` untouched); lines get `creditEur` by
+  missing value (SHORTAGE), damaged value (DAMAGE), goods otherwise;
+  totals add `supplierCreditEur` and `supplierCreditOpenEur`. Partner
+  settlements follow the lower line cost. Diary lines ("Tegoed leverancier
+  genoteerd/terugbetaald/verrekend met ...") are rebuilt from the credit so
+  a change rewrites its own line. A container with a credit is archived,
+  never deleted.
 
 ### Catalog / products
 - Product: SKU, name, colour (translated via dictionary), sizes, carton

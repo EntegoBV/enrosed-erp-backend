@@ -60,6 +60,9 @@ public class PurchaseOrderService {
     /* Payments and who records them; pure unit tests run without. */
     @Inject
     Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Payments> payments;
+    /* Credits the supplier owes ("Tegoed leverancier"); pure unit tests run without. */
+    @Inject
+    Instance<SourcingRepositories.SupplierCredits> supplierCredits;
     @Inject
     Instance<CurrentActor> actor;
     @Inject
@@ -111,7 +114,7 @@ public class PurchaseOrderService {
     }
 
     /** Serialises lifecycle changes so receipt can book stock only once. */
-    private PurchaseOrder getForUpdate(long id) {
+    PurchaseOrder getForUpdate(long id) {
         return orders.findByIdForUpdate(id)
                 .orElseThrow(() -> new NotFoundException("Inkooporder", id));
     }
@@ -140,7 +143,20 @@ public class PurchaseOrderService {
         PurchaseOrder budgetOrder = sameQuantities ? order : order.withReceipt(order.status(), order.receivedOn(),
                 order.paidTotalEur(), order.stockBooked(), order.notes(), budgetLines);
         LandedCost budget = sameQuantities ? currentCosting : calculate(budgetOrder);
-        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded);
+        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded,
+                supplierCredits(order.id()));
+    }
+
+    /** The credits noted on this order; none for a draft that was never saved. */
+    public List<PurchaseSupplierCredit> supplierCredits(Long orderId) {
+        return orderId == null || supplierCredits == null || !supplierCredits.isResolvable()
+                ? List.of() : supplierCredits.get().forOrder(orderId);
+    }
+
+    /** The credit an offset payment settles, when the payment is one. */
+    private java.util.Optional<PurchaseSupplierCredit> offsetCreditFor(long paymentId) {
+        return supplierCredits == null || !supplierCredits.isResolvable()
+                ? java.util.Optional.empty() : supplierCredits.get().forOffsetPayment(paymentId);
     }
 
     public PurchaseReconciliation reconciliation(long orderId) {
@@ -533,7 +549,7 @@ public class PurchaseOrderService {
         return wanted;
     }
 
-    private static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     /** The business runs in Belgium; the server clock (UTC on Railway) must not pick yesterday after midnight. */
     static final java.time.ZoneId BRUSSELS = java.time.ZoneId.of("Europe/Brussels");
@@ -671,8 +687,17 @@ public class PurchaseOrderService {
         return payment;
     }
 
+    /** The euro value of an amount at the order's frozen goods rates, unrounded. */
+    static BigDecimal euroAtOrderRate(PurchaseOrder order, BigDecimal amount, Currency money) {
+        return switch (money) {
+            case EUR -> amount;
+            case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
+            case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
+        };
+    }
+
     /** The bank's euro figure must be a real amount, and for a euro transfer it is the amount itself. */
-    private static BigDecimal requireBankAmount(BigDecimal amountEur, Currency money, BigDecimal amount) {
+    static BigDecimal requireBankAmount(BigDecimal amountEur, Currency money, BigDecimal amount) {
         if (amountEur.signum() <= 0) throw new BusinessRuleException("Geef een eurobedrag groter dan nul op");
         if (money == Currency.EUR && amountEur.compareTo(amount) != 0) {
             throw new BusinessRuleException("Voor een betaling in euro is het eurobedrag gelijk aan het bedrag");
@@ -743,14 +768,14 @@ public class PurchaseOrderService {
                     ? " · slotbetaling, hiermee vereffend" : " · slotbetaling, deze termijn vereffend") : "") + ".";
     }
 
-    private static String describeMoney(BigDecimal amount, Currency currency) {
+    static String describeMoney(BigDecimal amount, Currency currency) {
         String symbol = switch (currency) { case EUR -> "€ "; case USD -> "US$ "; case CNY -> "CN¥ "; };
         /* Belgian figures: a point every three digits, a comma before the cents. */
         return symbol + String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f",
                 amount.setScale(2, java.math.RoundingMode.HALF_UP));
     }
 
-    private static String appendNote(String notes, String line) {
+    static String appendNote(String notes, String line) {
         return notes == null || notes.isBlank() ? line : notes.stripTrailing() + "\n" + line;
     }
 
@@ -943,6 +968,13 @@ public class PurchaseOrderService {
         BigDecimal recordedAmount = amount.setScale(2, RoundingMode.HALF_UP);
         if (recordedAmount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? before.currency() : currency;
+        /* A credit offset onto this order carries the credit's amount; only the other container can undo it. */
+        PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
+        if (offsetCredit != null && (recordedAmount.compareTo(before.amount()) != 0 || money != before.currency()
+                || payee != null && payee != before.payee())) {
+            throw new BusinessRuleException("Deze betaling is een verrekend tegoed van "
+                    + orderNumber(offsetCredit.orderId()) + "; maak de verrekening daar ongedaan");
+        }
         // Date, label, recipient and settlement corrections never revalue an
         // existing bank movement at an exchange rate edited since registration.
         boolean unchangedMoney = money == before.currency() && before.amount() != null
@@ -961,6 +993,12 @@ public class PurchaseOrderService {
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
+        if (offsetCredit != null && !Objects.equals(offsetCredit.settledOn(), after.paidOn())) {
+            /* The credit was settled the day its offset payment says. */
+            supplierCredits.get().save(offsetCredit.with(offsetCredit.amount(), offsetCredit.currency(),
+                    offsetCredit.amountEur(), offsetCredit.reason(), offsetCredit.note(), offsetCredit.status(),
+                    after.paidOn(), offsetCredit.offsetOrderId(), offsetCredit.offsetPaymentId()));
+        }
         ActivityChangeSet changes = ActivityChangeSet.create()
                 .add("payment.amount", "Bedrag", before.amount(), after.amount())
                 .add("payment.currency", "Valuta", before.currency(), after.currency())
@@ -981,6 +1019,7 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
         /* The diary line the payment wrote goes with it. */
         String cleaned = removeNoteLine(order.notes(), paymentNoteLine(payment));
@@ -988,6 +1027,7 @@ public class PurchaseOrderService {
             orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), cleaned, order.lines()));
         }
+        if (offsetCredit != null) reopenOffsetCredit(offsetCredit, order);
         recordActivity(ActivityLogService.ACTION_PAYMENT_DELETED, order, "Betaling verwijderd",
                 ActivityChangeSet.create()
                         .add("payment.amount", "Bedrag", payment.amount(), null)
@@ -997,26 +1037,70 @@ public class PurchaseOrderService {
                         .build());
     }
 
+    /**
+     * The payment that took a credit is gone: the credit is to receive again,
+     * and the diary of the order it belongs to loses its offset line.
+     */
+    private void reopenOffsetCredit(PurchaseSupplierCredit credit, PurchaseOrder target) {
+        supplierCredits.get().save(credit.reopened());
+        PurchaseOrder source = orders.findByIdForUpdate(credit.orderId()).orElse(null);
+        if (source == null) return;
+        String cleaned = removeNoteLine(source.notes(),
+                PurchaseSupplierCreditService.offsetNoteLine(credit, target.number()));
+        if (!Objects.equals(cleaned, source.notes())) {
+            orders.save(source.withReceipt(source.status(), source.receivedOn(), source.paidTotalEur(),
+                    source.stockBooked(), cleaned, source.lines()));
+        }
+        recordActivity(ActivityLogService.ACTION_UPDATED, source,
+                "Verrekening van het tegoed ongedaan gemaakt: de betaling op " + target.number() + " is verwijderd",
+                ActivityChangeSet.create()
+                        .add("credit.status", "Tegoed leverancier", credit.status().dutchLabel(),
+                                PurchaseSupplierCredit.Status.OPEN.dutchLabel())
+                        .build());
+    }
+
+    /** The number of an order for a message; the id when it is no longer on the list. */
+    String orderNumber(long orderId) {
+        return orders.findById(orderId).map(PurchaseOrder::number).orElse("inkooporder " + orderId);
+    }
+
     /** Removes one complete exact entry, including a multi-line description; never matches on amount alone. */
-    private static String removeNoteLine(String notes, String line) {
+    static String removeNoteLine(String notes, String line) {
         if (notes == null || notes.isBlank()) return notes;
         List<String> kept = new ArrayList<>(java.util.Arrays.asList(notes.split("\\R", -1)));
         String[] expected = line.split("\\R", -1);
-        int found = -1;
-        for (int start = 0; start <= kept.size() - expected.length; start++) {
-            boolean matches = true;
-            for (int offset = 0; offset < expected.length; offset++) {
-                if (!kept.get(start + offset).strip().equals(expected[offset].strip())) {
-                    matches = false;
-                    break;
-                }
-            }
-            if (matches) { found = start; break; }
-        }
+        int found = indexOfEntry(kept, expected);
         if (found < 0) return notes;
         kept.subList(found, found + expected.length).clear();
         String joined = String.join("\n", kept).replaceAll("\n{3,}", "\n\n").strip();
         return joined.isBlank() ? null : joined;
+    }
+
+    /** Rewrites one exact entry where it stands; appends the new one when the old one is no longer there. */
+    static String replaceNoteLine(String notes, String before, String after) {
+        if (before.equals(after)) return notes;
+        if (notes == null || notes.isBlank()) return appendNote(notes, after);
+        List<String> kept = new ArrayList<>(java.util.Arrays.asList(notes.split("\\R", -1)));
+        String[] expected = before.split("\\R", -1);
+        int found = indexOfEntry(kept, expected);
+        if (found < 0) return appendNote(notes, after);
+        kept.subList(found, found + expected.length).clear();
+        kept.addAll(found, java.util.Arrays.asList(after.split("\\R", -1)));
+        return String.join("\n", kept);
+    }
+
+    private static int indexOfEntry(List<String> lines, String[] expected) {
+        for (int start = 0; start <= lines.size() - expected.length; start++) {
+            boolean matches = true;
+            for (int offset = 0; offset < expected.length; offset++) {
+                if (!lines.get(start + offset).strip().equals(expected[offset].strip())) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return start;
+        }
+        return -1;
     }
 
     /** One line of a receipt: what arrived, what broke, and an optional explicit euro value per piece. */
@@ -1486,6 +1570,8 @@ public class PurchaseOrderService {
         if (Money.nz(order.paidTotalEur()).signum() != 0
                 || payments != null && payments.isResolvable() && !payments.get().forOrder(order.id()).isEmpty())
             throw new BusinessRuleException("Deze inkooporder heeft geregistreerde betalingen; archiveer de container zodat de betaalhistorie behouden blijft");
+        if (!supplierCredits(order.id()).isEmpty())
+            throw new BusinessRuleException("Deze inkooporder heeft een tegoed van de leverancier; archiveer de container zodat het tegoed behouden blijft");
     }
 
     /** Forward-only lifecycle; same-state saves remain possible for details. */

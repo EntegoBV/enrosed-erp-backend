@@ -128,4 +128,5 @@ exec psql \
     --file=/app/migrations/credit-notes-postgresql.sql \
     --file=/app/migrations/product-text-variant-size-postgresql.sql \
     --file=/app/migrations/product-text-variant-size-neutral-postgresql.sql \
-    --file=/app/migrations/prospects-postgresql.sql
+    --file=/app/migrations/prospects-postgresql.sql \
+    --file=/app/migrations/purchase-supplier-credit-postgresql.sql

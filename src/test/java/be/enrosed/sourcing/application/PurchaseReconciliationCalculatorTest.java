@@ -10,6 +10,7 @@ import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseReconciliation;
+import be.enrosed.sourcing.domain.PurchaseSupplierCredit;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -593,6 +594,72 @@ class PurchaseReconciliationCalculatorTest {
                 List.of(cost(1, 10, amount, "0", "0", "100")));
     }
 
+    @Test
+    void supplierCreditsLowerTheFinalCostOfTheProductsTheyConcernWithoutTouchingPaidOrOpen() {
+        List<PurchaseOrderLine> lines = List.of(
+                new PurchaseOrderLine(1L, 1L, 8, bd("10"), Currency.EUR, null, 10, PriceBasis.EXW, 1, bd("10.0000")),
+                new PurchaseOrderLine(2L, 2L, 10, bd("10"), Currency.EUR, null, 10, PriceBasis.EXW, 0, bd("10.0000")),
+                new PurchaseOrderLine(3L, 3L, 10, bd("10"), Currency.EUR, null, 10, PriceBasis.EXW, 2, bd("10.0000")));
+        var received = order(lines).withReceipt(PurchaseOrderStatus.ONTVANGEN, LocalDate.of(2026, 1, 10),
+                null, true, null, lines);
+        var budget = fixture(received, "300", "30", "0", "0", false, List.of(
+                cost(1, 10, "100", "10", "0", "0"), cost(2, 10, "100", "10", "0", "0"),
+                cost(3, 10, "100", "10", "0", "0")));
+        var result = calculator.calculate(budget.order, budget.costing, budget.payable,
+                List.of(payment(SUPPLIER, "300", false), payment(LOGISTICS, "30", false)),
+                List.of(credit(PurchaseSupplierCredit.Reason.SHORTAGE, "20", PurchaseSupplierCredit.Status.OPEN),
+                        credit(PurchaseSupplierCredit.Reason.DAMAGE, "30", PurchaseSupplierCredit.Status.REFUNDED),
+                        credit(PurchaseSupplierCredit.Reason.PRICE, "15", PurchaseSupplierCredit.Status.OFFSET)));
+
+        var supplier = stream(result, SUPPLIER);
+        eq("300.00", supplier.paidEur());
+        eq("0.00", supplier.remainingEur());
+        eq("65.00", supplier.creditEur());
+        eq("235.00", supplier.forecastEur());
+        eq("-65.00", supplier.varianceEur());
+        assertEquals(PAID, supplier.status(), "the status words stay about the payments");
+        eq("0.00", stream(result, LOGISTICS).creditEur());
+        eq("330.00", result.totals().paidEur());
+        eq("0.00", result.totals().remainingEur());
+        eq("265.00", result.totals().forecastExternalEur());
+        eq("-65.00", result.totals().varianceEur());
+        eq("65.00", result.totals().supplierCreditEur());
+        eq("20.00", result.totals().supplierCreditOpenEur());
+        assertTrue(result.totals().finalized(), "an open credit does not reopen a paid container");
+        assertTrue(result.notes().contains(
+                "Tegoed van de leverancier € 65,00 verlaagt de eindkost; € 20,00 is nog te ontvangen."));
+
+        // Shortage 20 to the missing pieces of product 1; damage 30 as 10/20 to the broken
+        // pieces of products 1 and 3; the price difference 15 by goods value, 5 each.
+        eq("35.00", result.lines().get(0).creditEur());
+        eq("5.00", result.lines().get(1).creditEur());
+        eq("25.00", result.lines().get(2).creditEur());
+        eq("75.00", result.lines().get(0).forecastExternalEur());
+        eq("105.00", result.lines().get(1).forecastExternalEur());
+        eq("85.00", result.lines().get(2).forecastExternalEur());
+        eq("10.7143", result.lines().get(0).forecastExternalUnitEur(), "75 over the 7 usable pieces");
+        eq("110.00", result.lines().get(0).paidEur(), "the payments stay allocated as they were");
+        assertConserved(result);
+    }
+
+    @Test
+    void aCreditBeforeAnyReceiptFallsBackToTheGoodsValue() {
+        var budget = budget("100", "0", "0", "0");
+        var result = calculator.calculate(budget.order, budget.costing, budget.payable, List.of(),
+                List.of(credit(PurchaseSupplierCredit.Reason.SHORTAGE, "10", PurchaseSupplierCredit.Status.OPEN)));
+        eq("100.00", stream(result, SUPPLIER).remainingEur(), "still to pay: the credit is no payment");
+        eq("90.00", stream(result, SUPPLIER).forecastEur());
+        eq("10.00", result.lines().getFirst().creditEur());
+        eq("90.00", result.totals().forecastExternalEur());
+        assertConserved(result);
+    }
+
+    private PurchaseSupplierCredit credit(PurchaseSupplierCredit.Reason reason, String eur,
+                                          PurchaseSupplierCredit.Status status) {
+        return new PurchaseSupplierCredit(null, 1L, LocalDate.of(2026, 1, 12), bd(eur), Currency.EUR, bd(eur),
+                reason, null, status, null, null, null, null, null);
+    }
+
     private PurchasePayment milestonePayment(long id, String amount, boolean settles,
                                              be.enrosed.sourcing.domain.PaymentTerms.Moment due) {
         return new PurchasePayment(id, 1L, LocalDate.of(2026, 1, (int) id + 1), bd(amount), Currency.EUR,
@@ -672,5 +739,6 @@ class PurchaseReconciliationCalculatorTest {
     private String amount(Random random) { return BigDecimal.valueOf(random.nextInt(100001), 2).toPlainString(); }
     private static BigDecimal bd(String value) { return new BigDecimal(value); }
     private void eq(String expected, BigDecimal actual) { assertEquals(new BigDecimal(expected), actual); }
+    private void eq(String expected, BigDecimal actual, String message) { assertEquals(new BigDecimal(expected), actual, message); }
     private record Fixture(PurchaseOrder order, LandedCost costing, PurchaseOrderService.Payable payable) {}
 }

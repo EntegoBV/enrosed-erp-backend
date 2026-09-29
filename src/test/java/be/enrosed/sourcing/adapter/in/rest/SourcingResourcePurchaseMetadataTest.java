@@ -18,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SourcingResourcePurchaseMetadataTest {
 
@@ -46,5 +47,7 @@ class SourcingResourcePurchaseMetadataTest {
         assertEquals(createdAt.toString(), json.path("createdAt").asText());
         assertFalse(json.path("order").has("createdBy"));
         assertFalse(json.path("order").has("createdAt"));
+        assertTrue(json.path("supplierCredits").isArray(), "always an array, also on a view built the old way");
+        assertTrue(json.path("creditOffsets").isArray());
     }
 }

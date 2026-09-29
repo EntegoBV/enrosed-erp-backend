@@ -29,6 +29,75 @@ public final class PanacheSourcingRepositories {
     public static class PurchaseDocumentDao implements PanacheRepository<SourcingEntities.PurchaseDocumentEntity> {}
 
     @ApplicationScoped
+    public static class PurchaseSupplierCreditDao implements PanacheRepository<SourcingEntities.PurchaseSupplierCreditEntity> {}
+
+    @ApplicationScoped
+    public static class SupplierCreditAdapter implements SourcingRepositories.SupplierCredits {
+        private final PurchaseSupplierCreditDao dao;
+
+        public SupplierCreditAdapter(PurchaseSupplierCreditDao dao) {
+            this.dao = dao;
+        }
+
+        @Override
+        public List<PurchaseSupplierCredit> forOrder(long orderId) {
+            return dao.list("orderId = ?1 order by notedOn, id", orderId).stream()
+                    .map(SupplierCreditAdapter::toDomain).toList();
+        }
+
+        @Override
+        public List<PurchaseSupplierCredit> offsetOnto(long orderId) {
+            return dao.list("offsetOrderId = ?1 order by settledOn, id", orderId).stream()
+                    .map(SupplierCreditAdapter::toDomain).toList();
+        }
+
+        @Override
+        public Optional<PurchaseSupplierCredit> find(long orderId, long creditId) {
+            return dao.find("id = ?1 and orderId = ?2", creditId, orderId).firstResultOptional()
+                    .map(SupplierCreditAdapter::toDomain);
+        }
+
+        @Override
+        public Optional<PurchaseSupplierCredit> forOffsetPayment(long paymentId) {
+            return dao.find("offsetPaymentId = ?1", paymentId).firstResultOptional()
+                    .map(SupplierCreditAdapter::toDomain);
+        }
+
+        @Override
+        public PurchaseSupplierCredit save(PurchaseSupplierCredit credit) {
+            /* A credit with an id is the same credit changed, never a second one. */
+            SourcingEntities.PurchaseSupplierCreditEntity entity = credit.id() == null ? null : dao.findById(credit.id());
+            if (entity == null) entity = new SourcingEntities.PurchaseSupplierCreditEntity();
+            entity.orderId = credit.orderId();
+            entity.notedOn = credit.notedOn();
+            entity.amount = credit.amount();
+            entity.currency = credit.currency();
+            entity.amountEur = credit.amountEur();
+            entity.reason = credit.reason();
+            entity.note = credit.note();
+            entity.status = credit.status();
+            entity.settledOn = credit.settledOn();
+            entity.offsetOrderId = credit.offsetOrderId();
+            entity.offsetPaymentId = credit.offsetPaymentId();
+            entity.actor = credit.actor();
+            entity.recordedAt = credit.recordedAt();
+            if (entity.id == null) dao.persist(entity);
+            dao.flush();
+            return toDomain(entity);
+        }
+
+        @Override
+        public boolean delete(long orderId, long creditId) {
+            return dao.delete("id = ?1 and orderId = ?2", creditId, orderId) == 1;
+        }
+
+        private static PurchaseSupplierCredit toDomain(SourcingEntities.PurchaseSupplierCreditEntity e) {
+            return new PurchaseSupplierCredit(e.id, e.orderId, e.notedOn, e.amount, e.currency, e.amountEur,
+                    e.reason, e.note, e.status, e.settledOn, e.offsetOrderId, e.offsetPaymentId, e.actor, e.recordedAt);
+        }
+    }
+
+    @ApplicationScoped
     public static class DocumentAdapter implements SourcingRepositories.Documents {
         private final PurchaseDocumentDao dao;
 

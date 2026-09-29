@@ -30,6 +30,19 @@ public interface SourcingRepositories {
         }
     }
 
+    /** Credits the supplier owes on a container ("Tegoed leverancier"). */
+    interface SupplierCredits {
+        /** The credits noted on this order, oldest first. */
+        List<be.enrosed.sourcing.domain.PurchaseSupplierCredit> forOrder(long orderId);
+        /** The credits of other orders that were offset as a payment on this one. */
+        List<be.enrosed.sourcing.domain.PurchaseSupplierCredit> offsetOnto(long orderId);
+        Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> find(long orderId, long creditId);
+        /** The credit an offset payment settles, if any. */
+        Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> forOffsetPayment(long paymentId);
+        be.enrosed.sourcing.domain.PurchaseSupplierCredit save(be.enrosed.sourcing.domain.PurchaseSupplierCredit credit);
+        boolean delete(long orderId, long creditId);
+    }
+
     interface Documents {
         List<be.enrosed.sourcing.domain.PurchaseDocument> forOrder(long orderId);
         java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> find(long orderId, long documentId);

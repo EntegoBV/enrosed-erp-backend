@@ -95,6 +95,7 @@ COPY docs/migrations/2026-09-25/credit-notes-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-27/product-text-variant-size-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-28/product-text-variant-size-neutral-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-28/prospects-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-29/purchase-supplier-credit-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink
