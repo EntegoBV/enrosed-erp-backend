@@ -156,6 +156,16 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   > 0, and equal to the amount for a EUR payment. The reconciliation, the
   payments PDF register, supplier allocation and `attention()` all keep
   reading the stored `amountEur`.
+- **Receipt day** (2026-09-29): `receive()` stores the `receivedOn` the
+  sheet sends, or today in **Europe/Brussels** (the Railway clock is UTC,
+  so `LocalDate.now()` gave yesterday after midnight). A sent day may not
+  lie in the future (Brussels) nor before the order date (409 "Ontvangen op
+  kan niet in de toekomst liggen" / "... vóór de orderdatum liggen"). A
+  plain PUT on an ONTVANGEN order applies a non-null, different
+  `receivedOn` as a correction with the same checks; null, or any other
+  status, keeps the stored day (payment writes PUT merged payloads). The
+  "Ontvangst dd/mm/jjjj" diary line stays as written; the audit diff
+  "Ontvangen op" records the correction.
 
 ### Catalog / products
 - Product: SKU, name, colour (translated via dictionary), sizes, carton

@@ -370,7 +370,7 @@ public class PurchaseOrderService {
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
                 changes.allocExtra(), changes.departurePort(), changes.destinationPort(),
                 changes.receivingLocationId(), changes.groupVariants(),
-                changes.expectedArrival(), current.receivedOn(), current.paidTotalEur(), current.stockBooked(),
+                changes.expectedArrival(), receivedOnAfter(current, changes), current.paidTotalEur(), current.stockBooked(),
                 changes.paymentTerms(),
                 /* The sailing date is set the moment the status says so, and kept. */
                 current.shippedOn() != null ? current.shippedOn()
@@ -534,6 +534,37 @@ public class PurchaseOrderService {
     }
 
     private static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+    /** The business runs in Belgium; the server clock (UTC on Railway) must not pick yesterday after midnight. */
+    static final java.time.ZoneId BRUSSELS = java.time.ZoneId.of("Europe/Brussels");
+
+    /**
+     * The receipt day as it should be after a save. Only a received order can
+     * have its day corrected, and only by an explicit other day: a null from
+     * any client keeps the stored one, so a partial payload never clears it,
+     * and before the receipt the day is not the form's to set. The automatic
+     * "Ontvangst dd/mm/jjjj" diary line stays as written; the audit log keeps
+     * the correction.
+     */
+    private static LocalDate receivedOnAfter(PurchaseOrder current, PurchaseOrder changes) {
+        LocalDate wanted = changes.receivedOn();
+        if (current.status() != PurchaseOrderStatus.ONTVANGEN || wanted == null
+                || wanted.equals(current.receivedOn())) {
+            return current.receivedOn();
+        }
+        return requireReceiptDay(wanted, changes.orderDate());
+    }
+
+    /** A receipt day lies between the order date and today (Brussels). */
+    static LocalDate requireReceiptDay(LocalDate day, LocalDate orderDate) {
+        if (day.isAfter(LocalDate.now(BRUSSELS))) {
+            throw new BusinessRuleException("Ontvangen op kan niet in de toekomst liggen");
+        }
+        if (orderDate != null && day.isBefore(orderDate)) {
+            throw new BusinessRuleException("Ontvangen op kan niet vóór de orderdatum liggen");
+        }
+        return day;
+    }
 
     /* ---- payments ---------------------------------------------------------- */
 
@@ -1018,7 +1049,9 @@ public class PurchaseOrderService {
         }
         requireForwardTransition(order.status(), PurchaseOrderStatus.ONTVANGEN);
         if (receipt == null) receipt = new Receipt(List.of(), true, null, null, null);
-        LocalDate day = receipt.receivedOn() != null ? receipt.receivedOn() : LocalDate.now();
+        /* The day it actually came in when the sheet says so, else today in Belgium. */
+        LocalDate day = receipt.receivedOn() != null
+                ? requireReceiptDay(receipt.receivedOn(), order.orderDate()) : LocalDate.now(BRUSSELS);
 
         Map<Long, ReceivedLine> counted = new HashMap<>();
         Set<Long> orderedProducts = order.lines().stream()
