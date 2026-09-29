@@ -17,7 +17,15 @@ public enum PaymentTerms {
 
     public record Instalment(String label, BigDecimal share, Moment due) {}
 
-    public enum Moment { ORDERED, SHIPPED, ARRIVED }
+    /**
+     * When a supplier term falls due. FREIGHT is not a share of the goods:
+     * it is the sea freight a CIF container owes the supplier, due like
+     * SHIPPED (at departure), placed before any ARRIVED term.
+     */
+    public enum Moment { ORDERED, SHIPPED, FREIGHT, ARRIVED }
+
+    /** The supplier term of a CIF container's sea freight. */
+    public static final String FREIGHT_LABEL = "Zeevracht (CIF)";
 
     public List<Instalment> instalments() {
         return switch (this) {

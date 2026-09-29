@@ -94,6 +94,24 @@ class PdfPurchaseRendererRenderTest {
     }
 
     @Test
+    void aCifDossierOwesTheSupplierGoodsPlusFreightAsItsOwnTerm() throws Exception {
+        PurchaseOrder order = order(1).withFreightViaSupplier(true);
+        LandedCost costing = costing(1);
+        var payable = new PurchaseOrderService.Payable(new BigDecimal("1300.00"), new BigDecimal("160.00"),
+                new BigDecimal("100.00"), true, false, new BigDecimal("300.00"));
+        var document = renderer.render(order, costing, supplier(), true, List.of(), payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE);
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertTrue(text.contains("goederen + zeevracht"), text);
+            assertTrue(text.contains("CIF: zeevracht via de leverancier; invoerrechten en lokale kosten aankomst "
+                    + "via Douane & transport."), text);
+            assertTrue(text.contains("Zeevracht (CIF)"), "the freight is a term of the payment plan: " + text);
+            assertFalse(text.contains("Zeevracht zit in de inkoopprijs"), text);
+        }
+    }
+
+    @Test
     void internalDossierSurvivesManyLinesAcrossPages() throws Exception {
         int lineCount = 28;
         PurchaseOrder order = order(lineCount);

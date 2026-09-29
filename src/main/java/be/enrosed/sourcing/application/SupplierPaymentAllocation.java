@@ -19,16 +19,37 @@ public final class SupplierPaymentAllocation {
 
     public static List<SupplierInstalment> calculate(PurchaseOrder order, BigDecimal planned,
                                                     List<PurchasePayment> payments) {
+        return calculate(order, planned, BigDecimal.ZERO, payments);
+    }
+
+    /**
+     * @param goodsPlanned   the supplier Afspraak for the goods: the plan's
+     *                       percentages split this, and only this
+     * @param freightPlanned the CIF transport owed to the supplier; above
+     *                       zero it is one extra term "Zeevracht (CIF)",
+     *                       placed before any arrival term
+     */
+    public static List<SupplierInstalment> calculate(PurchaseOrder order, BigDecimal goodsPlanned,
+                                                    BigDecimal freightPlanned, List<PurchasePayment> payments) {
         List<PaymentTerms.Instalment> plan = order.paymentInstalments();
         if (plan.isEmpty()) return List.of();
         List<Bucket> buckets = new ArrayList<>();
-        BigDecimal unallocated = Money.money(planned);
+        BigDecimal planned = Money.money(goodsPlanned);
+        BigDecimal unallocated = planned;
         for (int i = 0; i < plan.size(); i++) {
             var step = plan.get(i);
             BigDecimal amount = i == plan.size() - 1 ? unallocated
                     : Money.money(planned.multiply(step.share())).min(unallocated);
             buckets.add(new Bucket(step, amount));
             unallocated = unallocated.subtract(amount);
+        }
+        BigDecimal freight = freightPlanned == null ? ZERO : Money.money(freightPlanned);
+        if (freight.signum() > 0) {
+            int beforeArrival = 0;
+            while (beforeArrival < buckets.size()
+                    && buckets.get(beforeArrival).step.due() != PaymentTerms.Moment.ARRIVED) beforeArrival++;
+            buckets.add(beforeArrival, new Bucket(new PaymentTerms.Instalment(PaymentTerms.FREIGHT_LABEL,
+                    BigDecimal.ZERO, PaymentTerms.Moment.FREIGHT), freight));
         }
         List<PurchasePayment> ledger = payments == null ? List.of() : payments.stream()
                 .filter(p -> p != null && p.payee() == PurchasePayment.Payee.SUPPLIER)

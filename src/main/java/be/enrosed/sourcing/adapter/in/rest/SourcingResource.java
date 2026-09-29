@@ -52,8 +52,16 @@ public class SourcingResource {
         return purchaseOrders.paymentsSince(from == null || from.isBlank() ? null : java.time.LocalDate.parse(from.strip()));
     }
 
+    /** freightViaSupplier: CIF or not; absent, a supplier quoting CIF or CFR starts the container as CIF. */
     public record CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
-                                      BigDecimal defaultDutyRatePct, ContainerType containerType) {}
+                                      BigDecimal defaultDutyRatePct, ContainerType containerType,
+                                      Boolean freightViaSupplier) {
+        /** Compatibility for callers written before a container could be CIF. */
+        public CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
+                                   BigDecimal defaultDutyRatePct, ContainerType containerType) {
+            this(supplierId, cnyToUsd, usdToEur, defaultDutyRatePct, containerType, null);
+        }
+    }
 
     public record PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                     List<PurchaseOrderService.CartonAdjustment> adjustments,
@@ -205,7 +213,8 @@ public class SourcingResource {
     @Path("/purchase-orders")
     public Response createPurchaseOrder(CreatePurchaseOrder request) {
         PurchaseOrder created = purchaseOrders.create(request.supplierId(), request.cnyToUsd(),
-                request.usdToEur(), request.defaultDutyRatePct(), request.containerType());
+                request.usdToEur(), request.defaultDutyRatePct(), request.containerType(),
+                request.freightViaSupplier());
         return Response.status(Response.Status.CREATED)
                 .entity(view(created, purchaseOrders.calculate(created), List.of()))
                 .build();
@@ -253,7 +262,8 @@ public class SourcingResource {
                 /* The screen's draft keeps what it was given: the partner and the key for the separate costs. */
                 .withPartner(o.partnerCustomerId(), o.partnerCostPct(), o.partnerSharePct())
                 .withSeparateAllocation(o.allocSeparate())
-                .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived());
+                .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived())
+                .withFreightViaSupplier(o.freightViaSupplier());
     }
 
     @DELETE

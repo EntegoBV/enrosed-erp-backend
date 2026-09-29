@@ -119,6 +119,8 @@ public final class SourcingEntities {
         @Column(name = "pay_pct_ordered", precision = 5, scale = 2) public BigDecimal payPctOrdered;
         @Column(name = "pay_pct_shipped", precision = 5, scale = 2) public BigDecimal payPctShipped;
         @Column(name = "pay_pct_arrived", precision = 5, scale = 2) public BigDecimal payPctArrived;
+        /** CIF: the supplier is paid the sea freight; null reads as no. */
+        @Column(name = "freight_via_supplier") public Boolean freightViaSupplier;
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
 

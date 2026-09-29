@@ -178,6 +178,18 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                 BigDecimal defaultDutyRatePct, ContainerType containerType) {
+        return create(supplierId, cnyToUsd, usdToEur, defaultDutyRatePct, containerType, null);
+    }
+
+    /**
+     * As above, CIF or not as the client says; without a choice a supplier
+     * that quotes CIF (or CFR) starts the container as CIF, once. The
+     * container keeps its own choice from then on.
+     */
+    @Transactional
+    public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
+                                BigDecimal defaultDutyRatePct, ContainerType containerType,
+                                Boolean freightViaSupplier) {
         requireSupplier(supplierId);
         requirePositive(cnyToUsd, "CNY/USD-koers");
         requirePositive(usdToEur, "USD/EUR-koers");
@@ -196,7 +208,9 @@ public class PurchaseOrderService {
                 defaultDutyRatePct, new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
                 "Ningbo", "Rotterdam", "", List.of())
-                .withCreationMetadata(creator, Instant.now());
+                .withCreationMetadata(creator, Instant.now())
+                .withFreightViaSupplier(freightViaSupplier != null ? freightViaSupplier
+                        : supplierQuotesCif(supplierId) ? Boolean.TRUE : null);
         PurchaseOrder created = orders.save(draft);
         recordActivity(ActivityLogService.ACTION_CREATED, created, "Inkooporder aangemaakt");
         firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.CREATED,
@@ -259,6 +273,7 @@ public class PurchaseOrderService {
                                 line.priceBasis()).withExtraShare(line.extraShareEur()))
                         .toList()).withInspectionCost(source.inspectionCostEur()).withSeparateAllocation(source.allocSeparate())
                 .withOtherCosts(source.otherCosts())
+                .withFreightViaSupplier(source.freightViaSupplier())
                 .withCreationMetadata(creator, Instant.now()));
         recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
                 "Inkooporder gedupliceerd vanuit " + source.number());
@@ -372,6 +387,7 @@ public class PurchaseOrderService {
         }
         requireValidPaymentSplit(changes);
         requirePreservedPaidInstalments(current, changes);
+        requireCifChangeAllowed(current, changes);
         if (changes.allocSeparate() == Allocation.MANUAL) {
             throw new BusinessRuleException("Inspectie en andere kosten: kies achteraf, volume, waarde of stuks");
         }
@@ -399,7 +415,8 @@ public class PurchaseOrderService {
                 /* Who co-orders the container is decided in the partner flow, not by a form save. */
                 .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct())
                 .withSeparateAllocation(changes.allocSeparate())
-                .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived()));
+                .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived())
+                .withFreightViaSupplier(changes.freightViaSupplier()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -721,9 +738,20 @@ public class PurchaseOrderService {
         }
     }
 
-    private static void requireInstalmentDue(PurchaseOrder order, PurchasePayment.Payee payee,
-                                            PaymentTerms.Moment due) {
+    private void requireInstalmentDue(PurchaseOrder order, PurchasePayment.Payee payee,
+                                      PaymentTerms.Moment due) {
         if (due == null) return;
+        if (due == PaymentTerms.Moment.FREIGHT) {
+            /* The CIF freight is a supplier term only where the container says so. */
+            if (payee != null && payee != PurchasePayment.Payee.SUPPLIER || !order.cif()) {
+                throw new BusinessRuleException("Zeevracht (CIF) hoort alleen bij een betaling aan de leverancier van een CIF-container");
+            }
+            if (order.paymentInstalments().isEmpty()
+                    || payable(order, calculate(order), null).supplierFreightEur().signum() <= 0) {
+                throw new BusinessRuleException("Deze betaaltermijn komt niet voor in de betaalafspraak van de inkooporder");
+            }
+            return;
+        }
         if (payee != null && payee != PurchasePayment.Payee.SUPPLIER) {
             throw new BusinessRuleException("Een betaaltermijn kan alleen aan een leveranciersbetaling worden gekoppeld");
         }
@@ -735,7 +763,8 @@ public class PurchaseOrderService {
     private void requirePreservedPaidInstalments(PurchaseOrder current, PurchaseOrder changes) {
         if (payments == null || !payments.isResolvable()) return;
         for (PurchasePayment payment : payments.get().forOrder(current.id())) {
-            if (payment.instalmentDue() == null) continue;
+            /* The CIF freight term follows the container's CIF choice, guarded by requireCifChangeAllowed. */
+            if (payment.instalmentDue() == null || payment.instalmentDue() == PaymentTerms.Moment.FREIGHT) continue;
             var after = changes.paymentInstalments().stream()
                     .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
             // A transfer belongs to a stable milestone, not to the percentage
@@ -745,6 +774,24 @@ public class PurchaseOrderService {
             if (after == null) {
                 throw new BusinessRuleException("Er zijn betalingen aan deze termijn gekoppeld. Behoud het betaalmoment of pas eerst de termijnkoppeling van die betalingen aan");
             }
+        }
+    }
+
+    /**
+     * Turning CIF on or off moves the transport between Leverancier and
+     * Douane & transport. A settle marker on either would then close a term
+     * that did not exist when it was set (a fake saving of the whole freight),
+     * and payments tied to the freight term would lose it.
+     */
+    private void requireCifChangeAllowed(PurchaseOrder current, PurchaseOrder changes) {
+        if (current.cif() == changes.cif() || payments == null || !payments.isResolvable()) return;
+        List<PurchasePayment> recorded = payments.get().forOrder(current.id());
+        if (recorded.stream().anyMatch(payment -> payment.settles()
+                && (payment.payee() == PurchasePayment.Payee.SUPPLIER || payment.payee() == PurchasePayment.Payee.LOGISTICS))) {
+            throw new BusinessRuleException("Leverancier of Douane & transport is al afgerekend. Maak die afrekening eerst ongedaan voordat je CIF aan- of uitzet.");
+        }
+        if (!changes.cif() && recorded.stream().anyMatch(payment -> payment.instalmentDue() == PaymentTerms.Moment.FREIGHT)) {
+            throw new BusinessRuleException("Er zijn betalingen voor Zeevracht (CIF); zet ze eerst op een andere termijn.");
         }
     }
 
@@ -762,6 +809,7 @@ public class PurchaseOrderService {
                 + (payment.instalmentDue() == null ? "" : " · termijn " + switch (payment.instalmentDue()) {
                     case ORDERED -> "bij bestelling";
                     case SHIPPED -> "bij vertrek";
+                    case FREIGHT -> "zeevracht";
                     case ARRIVED -> "bij aankomst";
                 })
                 + (payment.settles() ? (payment.instalmentDue() == null
@@ -860,26 +908,42 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Who is owed what, in euro: the supplier gets the goods (and the sea
-     * freight when the price is CIF/CFR); the forwarder and customs get the
-     * road; the Enrosed kost is ours and nobody's invoice.
+     * Who is owed what, in euro: the supplier gets the goods; the forwarder
+     * and customs get the road; the Enrosed kost is ours and nobody's invoice.
+     * A CIF container (chosen on the container, never read from the incoterm
+     * on paper) owes the supplier the transport before the border too: the
+     * local costs in China and the sea freight, as a term of its own. Duty
+     * and the local costs at arrival stay with Douane & transport. Only DDP
+     * folds everything into the piece price. Customs value, duty and cost
+     * prices never move: only who is paid does.
      */
     public Payable payable(PurchaseOrder order, LandedCost costing, String supplierIncoterm) {
-        boolean ddp = order.lines().stream().allMatch(PurchaseOrderLine::deliveredDutyPaid) && !order.lines().isEmpty();
-        /* The factory is owed its goods price, nothing more: the freight on
-           the order is our own quote, whatever the incoterm on paper says.
-           Only DDP folds everything into the piece price. */
-        BigDecimal supplier = costing.totals().goodsEur();
+        boolean ddp = order.deliveredDutyPaid();
+        boolean cif = !ddp && order.cif();
+        BigDecimal goods = Money.nz(costing.totals().goodsEur()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal transport = Money.nz(costing.totals().originEur()).add(Money.nz(costing.totals().freightEur()));
+        BigDecimal supplierFreight = (cif ? transport : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         BigDecimal logistics = ddp ? BigDecimal.ZERO
-                : costing.totals().originEur().add(costing.totals().dutyEur()).add(costing.totals().destinationEur())
-                        .add(costing.totals().freightEur());
-        return new Payable(supplier.setScale(2, java.math.RoundingMode.HALF_UP),
-                logistics.setScale(2, java.math.RoundingMode.HALF_UP),
-                costing.totals().extraRevenueEur(), ddp, ddp);
+                : Money.nz(costing.totals().dutyEur()).add(Money.nz(costing.totals().destinationEur()))
+                        .add(cif ? BigDecimal.ZERO : transport);
+        return new Payable(goods.add(supplierFreight),
+                logistics.setScale(2, RoundingMode.HALF_UP),
+                costing.totals().extraRevenueEur(), ddp || cif, ddp, supplierFreight);
     }
 
+    /**
+     * @param supplierFreightEur the part of supplierEur that is the CIF
+     *                           transport (local costs China and sea freight),
+     *                           owed as the "Zeevracht (CIF)" term; zero otherwise.
+     */
     public record Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
-                          boolean freightInSupplierPrice, boolean ddp) {}
+                          boolean freightInSupplierPrice, boolean ddp, BigDecimal supplierFreightEur) {
+        /** Compatibility for callers written before CIF containers: no freight owed to the supplier. */
+        public Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
+                       boolean freightInSupplierPrice, boolean ddp) {
+            this(supplierEur, logisticsEur, enrosedEur, freightInSupplierPrice, ddp, BigDecimal.ZERO.setScale(2));
+        }
+    }
 
     /**
      * What the order is waiting on from us: a box on the water without a
@@ -905,7 +969,8 @@ public class PurchaseOrderService {
                 && supplierPayments.stream().noneMatch(payment -> payment.amountEur() == null)) return items;
         BigDecimal paid = supplierPayments.stream().map(PurchasePayment::amountEur)
                 .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
-        var instalments = SupplierPaymentAllocation.calculate(order, owed, supplierPayments);
+        BigDecimal freight = Money.nz(payable.supplierFreightEur());
+        var instalments = SupplierPaymentAllocation.calculate(order, owed.subtract(freight), freight, supplierPayments);
         if (instalments.isEmpty()) {
             if (paid.signum() == 0) items.add("Nog geen betaling genoteerd");
             return items;
@@ -914,7 +979,7 @@ public class PurchaseOrderService {
             if (step.finalized() || step.remainingEur().signum() <= 0) continue;
             boolean due = switch (step.due()) {
                 case ORDERED -> true;
-                case SHIPPED -> order.status() == PurchaseOrderStatus.ONDERWEG
+                case SHIPPED, FREIGHT -> order.status() == PurchaseOrderStatus.ONDERWEG
                         || order.status() == PurchaseOrderStatus.ONTVANGEN;
                 case ARRIVED -> order.status() == PurchaseOrderStatus.ONTVANGEN;
             };
@@ -1627,6 +1692,13 @@ public class PurchaseOrderService {
         }
     }
 
+    private boolean supplierQuotesCif(long supplierId) {
+        return suppliers.findById(supplierId).map(Supplier::incoterm)
+                .map(incoterm -> incoterm.strip().toUpperCase(java.util.Locale.ROOT))
+                .filter(incoterm -> incoterm.equals("CIF") || incoterm.equals("CFR"))
+                .isPresent();
+    }
+
     private void requireSupplier(long supplierId) {
         if (supplierId <= 0 || suppliers.findById(supplierId).isEmpty()) {
             throw new BusinessRuleException("De gekozen leverancier bestaat niet meer");
@@ -2043,6 +2115,8 @@ public class PurchaseOrderService {
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
                 .add("allocSeparate", "Inspectie en andere kosten", before.separateAllocation(), after.separateAllocation())
+                .add("freightViaSupplier", "Zeevracht via de leverancier (CIF)",
+                        Boolean.TRUE.equals(before.freightViaSupplier()), Boolean.TRUE.equals(after.freightViaSupplier()))
                 .add("partnerCustomerId", "Partner", before.partnerCustomerId(), after.partnerCustomerId())
                 .add("partnerCostPct", "Partner betaalt vooraf (%)", before.partnerCostPct(), after.partnerCostPct())
                 .add("partnerSharePct", "Ons deel van de winst (%)", before.partnerSharePct(), after.partnerSharePct())

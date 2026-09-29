@@ -70,8 +70,11 @@ public class PurchaseReconciliationCalculator {
         boolean received = order.receivedOn() != null || order.status() == PurchaseOrderStatus.ONTVANGEN;
         UnitCostBasis unitBasis = received ? UnitCostBasis.USABLE_RECEIVED : UnitCostBasis.ORDERED;
 
-        List<PurchaseReconciliation.SupplierInstalment> supplierInstalments =
-                SupplierPaymentAllocation.calculate(order, Money.money(payable.supplierEur()), recorded);
+        BigDecimal supplierFreight = Money.money(Money.nz(payable.supplierFreightEur()));
+        // CIF: the transport before the border is owed to the supplier as a term of its own.
+        boolean cif = supplierFreight.signum() > 0;
+        List<PurchaseReconciliation.SupplierInstalment> supplierInstalments = SupplierPaymentAllocation.calculate(
+                order, Money.money(payable.supplierEur()).subtract(supplierFreight), supplierFreight, recorded);
         List<Stream> streams = new ArrayList<>();
         for (PurchasePayment.Payee payee : PurchasePayment.Payee.values()) {
             BigDecimal planned = switch (payee) {
@@ -101,7 +104,7 @@ public class PurchaseReconciliationCalculator {
         int unitQuantity = received ? usableQuantity : orderedQuantity;
 
         for (Stream stream : streams) {
-            List<BigDecimal> weights = weights(stream.payee(), rows, order);
+            List<BigDecimal> weights = weights(stream.payee(), rows, order, cif);
             List<BigDecimal> plannedShares = allocate(stream.plannedEur(), weights);
             // Paid plus open, before any supplier credit: the credit follows its own key below.
             List<BigDecimal> forecastShares = allocate(stream.paidEur().add(stream.remainingEur()), weights);
@@ -124,7 +127,9 @@ public class PurchaseReconciliationCalculator {
             for (int i = 0; i < rows.size(); i++) rows.get(i).credit = rows.get(i).credit.add(shares.get(i));
         }
         List<BigDecimal> markupShares = markupShares(markup, rows, order.allocExtra() == Allocation.MANUAL);
-        String allocationBasis = "Leverancier naar goederenwaarde; douane en transport naar berekende kosten; "
+        String allocationBasis = (cif
+                ? "Leverancier naar goederenwaarde en zeevracht (CIF) naar berekende kosten; "
+                : "Leverancier naar goederenwaarde; ") + "douane en transport naar berekende kosten; "
                 + (costing.totals().separateCostsInPiecePrice()
                         ? "inspectie en andere kosten volgens de bestaande verdeling; "
                         : "apart geboekte inspectie en andere kosten naar goederenwaarde; ")
@@ -232,8 +237,10 @@ public class PurchaseReconciliationCalculator {
                 row.name = cost.productName();
                 row.calculated = true;
                 row.goodsWeight = row.goodsWeight.add(positive(cost.goodsEur()));
-                row.logisticsWeight = row.logisticsWeight.add(positive(cost.originEur()))
-                        .add(positive(cost.freightEur())).add(positive(cost.dutyEur())).add(positive(cost.destinationEur()));
+                // Transport before the border (origin + sea freight) apart from duty and arrival costs:
+                // under CIF the supplier is paid for it, and it keeps the same product key there.
+                row.transportWeight = row.transportWeight.add(positive(cost.originEur())).add(positive(cost.freightEur()));
+                row.logisticsWeight = row.logisticsWeight.add(positive(cost.dutyEur())).add(positive(cost.destinationEur()));
                 row.separateWeight = row.separateWeight.add(positive(cost.separateEur()));
                 row.markupAmount = row.markupAmount.add(Money.nz(cost.extraRevenueEur()));
                 row.cbmWeight = row.cbmWeight.add(positive(cost.cbm()));
@@ -262,10 +269,16 @@ public class PurchaseReconciliationCalculator {
         return new ArrayList<>(byProduct.values());
     }
 
-    private List<BigDecimal> weights(PurchasePayment.Payee payee, List<Row> rows, PurchaseOrder order) {
+    /**
+     * Every stream follows the cost it pays for. Under CIF the supplier pays
+     * goods plus transport and Douane & transport the rest, so each product
+     * ends at the same cost as with the transport paid to the forwarder.
+     */
+    private List<BigDecimal> weights(PurchasePayment.Payee payee, List<Row> rows, PurchaseOrder order, boolean cif) {
         List<BigDecimal> preferred = rows.stream().map(row -> switch (payee) {
-            case SUPPLIER, OTHER -> row.goodsWeight;
-            case LOGISTICS -> row.logisticsWeight;
+            case SUPPLIER -> cif ? row.goodsWeight.add(row.transportWeight) : row.goodsWeight;
+            case OTHER -> row.goodsWeight;
+            case LOGISTICS -> cif ? row.logisticsWeight : row.logisticsWeight.add(row.transportWeight);
             case SEPARATE -> row.separateWeight;
         }).toList();
         if (payee == PurchasePayment.Payee.SEPARATE && order.separateInPiecePrice()
@@ -368,7 +381,10 @@ public class PurchaseReconciliationCalculator {
         private boolean nonDdp;
         private boolean calculated;
         private BigDecimal goodsWeight = ZERO;
+        /** Duty and costs after arrival; the transport before the border is apart. */
         private BigDecimal logisticsWeight = ZERO;
+        /** Local costs in China and sea freight: to Douane & transport, or to the supplier under CIF. */
+        private BigDecimal transportWeight = ZERO;
         private BigDecimal separateWeight = ZERO;
         private BigDecimal markupAmount = ZERO;
         private BigDecimal cbmWeight = ZERO;

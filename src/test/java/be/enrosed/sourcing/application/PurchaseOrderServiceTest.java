@@ -172,6 +172,57 @@ class PurchaseOrderServiceTest {
         assertNull(stillOrdered.receivedOn(), "before the receipt the form cannot set the day");
     }
 
+    @Test
+    void aCifContainerOwesTheSupplierTheTransportBeforeTheBorderAndNothingElseMoves() {
+        PurchaseOrderService service = service(new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6)),
+                new RecordingProducts());
+        LandedCost costing = new LandedCost(List.of(), new LandedCost.Totals(6, 1, BigDecimal.ONE,
+                new BigDecimal("1111"), new BigDecimal("1000"), new BigDecimal("50"), new BigDecimal("150"),
+                new BigDecimal("1200"), new BigDecimal("60"), new BigDecimal("40"), new BigDecimal("20"),
+                new BigDecimal("1320"), new BigDecimal("220"), new BigDecimal("5")), null);
+        PurchaseOrder exw = order(PurchaseOrderStatus.BESTELD, 6, 6);
+
+        PurchaseOrderService.Payable plain = service.payable(exw, costing, "CIF");
+        assertEquals(new BigDecimal("1000.00"), plain.supplierEur(), "the incoterm on paper moves no money");
+        assertEquals(new BigDecimal("300.00"), plain.logisticsEur());
+        assertEquals(new BigDecimal("0.00"), plain.supplierFreightEur());
+        assertFalse(plain.freightInSupplierPrice());
+
+        PurchaseOrderService.Payable cif = service.payable(exw.withFreightViaSupplier(true), costing, null);
+        assertEquals(new BigDecimal("1200.00"), cif.supplierEur(), "goods plus local costs China plus sea freight");
+        assertEquals(new BigDecimal("200.00"), cif.supplierFreightEur());
+        assertEquals(new BigDecimal("100.00"), cif.logisticsEur(), "duty and arrival costs stay with Douane & transport");
+        assertTrue(cif.freightInSupplierPrice());
+        assertFalse(cif.ddp());
+        assertEquals(plain.supplierEur().add(plain.logisticsEur()), cif.supplierEur().add(cif.logisticsEur()),
+                "the Afspraken together are the same landed cost");
+
+        PurchaseOrderLine line = exw.lines().getFirst();
+        PurchaseOrder ddp = exw.withReceipt(exw.status(), null, null, false, null, List.of(new PurchaseOrderLine(
+                line.id(), line.productId(), 6, line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), 6,
+                be.enrosed.sourcing.domain.PriceBasis.DDP))).withFreightViaSupplier(true);
+        assertFalse(ddp.cif(), "DDP already folds every cost into the supplier's price");
+        PurchaseOrderService.Payable delivered = service.payable(ddp, costing, null);
+        assertEquals(new BigDecimal("1000.00"), delivered.supplierEur());
+        assertEquals(new BigDecimal("0.00"), delivered.supplierFreightEur());
+        assertEquals(0, delivered.logisticsEur().signum());
+        assertTrue(delivered.ddp());
+    }
+
+    @Test
+    void theCifChoiceTravelsWithEverySaveAndCopy() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        PurchaseOrder saved = service.update(10L, order(PurchaseOrderStatus.BESTELD, 6, 6).withFreightViaSupplier(true)).order();
+        assertEquals(Boolean.TRUE, saved.freightViaSupplier());
+        assertTrue(saved.cif());
+        assertEquals(Boolean.TRUE, saved.withReceipt(saved.status(), null, null, false, "x", saved.lines())
+                .withArchivedAt(null).withPartner(null, null, null).freightViaSupplier(), "every copy keeps the choice");
+        assertEquals(Boolean.TRUE, service.duplicate(10L).freightViaSupplier(), "a copy of a CIF calculation is CIF");
+        assertNull(service.update(10L, order(PurchaseOrderStatus.BESTELD, 6, 6)).order().freightViaSupplier(),
+                "a payload without the choice reads as no");
+    }
+
     private static PurchaseOrder withReceivedOn(PurchaseOrder source, LocalDate day) {
         return source.withReceipt(source.status(), day, source.paidTotalEur(), source.stockBooked(),
                 source.notes(), source.lines());
@@ -889,7 +940,8 @@ class PurchaseOrderServiceTest {
                     order.departurePort(), order.destinationPort(), order.receivingLocationId(),
                     order.groupVariants(), order.expectedArrival(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), order.paymentTerms(), order.shippedOn(), order.trackingReference(),
-                    order.createdBy(), order.createdAt(), order.notes(), order.lines());
+                    order.createdBy(), order.createdAt(), order.notes(), order.lines())
+                    .withFreightViaSupplier(order.freightViaSupplier());
         }
     }
 }

@@ -199,6 +199,39 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   genoteerd/terugbetaald/verrekend met ...") are rebuilt from the credit so
   a change rewrites its own line. A container with a credit is archived,
   never deleted.
+- **CIF per container** (2026-09-29): `PurchaseOrder.freightViaSupplier`
+  (column `freight_via_supplier`, migration
+  `docs/migrations/2026-09-29/purchase-order-freight-via-supplier-postgresql.sql`,
+  which also widens any generated CHECK on `purchase_payment.instalment_due`
+  for FREIGHT; dev H2 via `AllocationDevSchemaFix`). Null reads as no and is
+  ignored when every line is DDP (`order.cif()`). Chosen on the container,
+  never read from the supplier's incoterm (ac669c3 removed exactly that);
+  `create()` only presets it once when the client sends nothing and the
+  supplier quotes CIF or CFR. `payable()`: CIF moves origin + sea freight
+  (`supplierFreightEur`) from Douane & transport to Leverancier; duty and
+  arrival costs stay; `freightInSupplierPrice = ddp || cif`; customs value,
+  duty and cost prices never move. The payment plan's percentages split
+  the goods only; the freight is one extra supplier term
+  `PaymentTerms.Moment.FREIGHT` "Zeevracht (CIF)", due like SHIPPED, placed
+  before any ARRIVED term (`SupplierPaymentAllocation.calculate(order,
+  goods, freight, payments)`). FREIGHT is refused on anything but a
+  supplier payment of a CIF container. Turning CIF on or off is refused
+  while a Leverancier or Douane & transport payment carries a settle
+  marker, and turning it off while payments are tied to FREIGHT.
+  Reconciliation weights keep every product at its EXW cost: SUPPLIER =
+  goods (+ transport under CIF), LOGISTICS = duty + arrival (+ transport
+  otherwise). The landscape PDF says "goederen + zeevracht" with a CIF
+  note and lists the freight term; the portrait "Prijsbasis" prints the
+  container's own EXW/CIF/DDP. **Revert or image rollback**: code from
+  before this change has no `Moment.FREIGHT`, and Hibernate then fails on
+  every payment row tagged with it (one such row makes the whole Inkoop
+  list answer 500). Before reverting it or rolling Railway back past it,
+  run `UPDATE purchase_payment SET instalment_due = NULL WHERE
+  instalment_due = 'FREIGHT';` and check those payments by hand: they then
+  fill the earliest open supplier term, and a CIF container's freight goes
+  back under Douane & transport, so its Leverancier looks overpaid. The
+  `freight_via_supplier` column and the widened check can stay; older code
+  ignores them.
 
 ### Catalog / products
 - Product: SKU, name, colour (translated via dictionary), sizes, carton

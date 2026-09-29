@@ -372,6 +372,39 @@ class RailwayPreDeployMigrationContractTest {
                 "the new table lands after every earlier script");
     }
 
+    @Test
+    void cifFlagIsANullableColumnAndTheTermCheckLearnsFreightBeforeStartup() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-29/purchase-order-freight-via-supplier-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("alter table purchase_order add column if not exists freight_via_supplier boolean;"));
+        assertFalse(sql.contains("freight_via_supplier boolean not null"), "null reads as no");
+        assertFalse(sql.contains("default"), "no default: existing containers stay as they are");
+        assertFalse(sql.contains("update "), "nothing is backfilled");
+        assertTrue(sql.contains("to_regclass('purchase_payment')"));
+        assertTrue(sql.contains("a.attname in ('instalment_due', 'instalmentdue')"));
+        assertTrue(sql.contains("position('''freight''' in pg_get_expr(c.conbin, c.conrelid)) = 0"),
+                "only a check that does not know the new term yet is widened, so a rerun changes nothing");
+        assertTrue(sql.contains("check ((%s) or %i = %l) not valid"), "the old expression is kept and extended");
+        assertTrue(sql.contains("'freight'"));
+        assertTrue(sql.contains("set local lock_timeout"));
+        assertNonDestructive(sql);
+        String entities = Files.readString(Path.of(
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/SourcingEntities.java"));
+        assertTrue(entities.contains("@Column(name = \"freight_via_supplier\") public Boolean freightViaSupplier;"));
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/AllocationDevSchemaFix.java"))
+                .contains("\"instalment_due\""), "the developer's H2 enum column learns FREIGHT too");
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.strip().endsWith("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/purchase-payment-instalment-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the term column exists before its check is widened");
+        assertTrue(runner.indexOf("--file=/app/migrations/purchase-supplier-credit-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the container round lands in its commit order");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

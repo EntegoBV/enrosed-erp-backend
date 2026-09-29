@@ -363,6 +363,7 @@ public final class PanacheSourcingRepositories {
             entity.payPctOrdered = order.payPctOrdered();
             entity.payPctShipped = order.payPctShipped();
             entity.payPctArrived = order.payPctArrived();
+            entity.freightViaSupplier = order.freightViaSupplier();
             entity.allocFreight = order.allocFreight();
             entity.allocOrigin = order.allocOrigin();
             entity.allocDestination = order.allocDestination();
@@ -454,7 +455,8 @@ public final class PanacheSourcingRepositories {
                     .withArchivedAt(entity.archivedAt)
                     .withPartner(entity.partnerCustomerId, entity.partnerCostPct, entity.partnerSharePct)
                     .withSeparateAllocation(entity.allocSeparate)
-                    .withPaymentSplit(entity.payPctOrdered, entity.payPctShipped, entity.payPctArrived);
+                    .withPaymentSplit(entity.payPctOrdered, entity.payPctShipped, entity.payPctArrived)
+                    .withFreightViaSupplier(entity.freightViaSupplier);
         }
     }
 }
