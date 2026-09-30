@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-13-greek-catalog-v9",
+  "version": "2026-09-30-glass-box-twelve-roses-test-v10",
   "expectedCounts": {
     "categories": 7,
     "families": 27,
@@ -1048,15 +1048,15 @@
     },
     "hearth-glass-flowerbox": {
       "profile": "PRESERVED_GIFT",
-      "NL": "16 rozen in hartvormige spiegeldoos",
-      "FR": "16 roses dans une boîte cœur miroir",
-      "EN": "16 Roses in Heart-Shaped Mirror Box",
-      "DE": "16 Rosen in herzförmiger Spiegelbox",
-      "ES": "16 rosas en caja de espejo con forma de corazón",
-      "PL": "16 róż w lustrzanym pudełku w kształcie serca",
-      "PT": "16 rosas em caixa espelhada em forma de coração",
-      "TR": "Kalp Şeklinde Aynalı Kutuda 16 Gül",
-      "EL": "16 τριαντάφυλλα σε κουτί καρδιά με καθρέφτη"
+      "NL": "12 rozen in hartvormige spiegeldoos",
+      "FR": "12 roses dans une boîte cœur miroir",
+      "EN": "12 Roses in Heart-Shaped Mirror Box",
+      "DE": "12 Rosen in herzförmiger Spiegelbox",
+      "ES": "12 rosas en caja de espejo con forma de corazón",
+      "PL": "12 róż w lustrzanym pudełku w kształcie serca",
+      "PT": "12 rosas em caixa espelhada em forma de coração",
+      "TR": "Kalp Şeklinde Aynalı Kutuda 12 Gül",
+      "EL": "12 τριαντάφυλλα σε κουτί καρδιά με καθρέφτη"
     },
     "roses-in-box-16pcs": {
       "profile": "PRESERVED_GIFT",
@@ -1120,15 +1120,15 @@
     },
     "glass-flowerbox": {
       "profile": "PRESERVED_GIFT",
-      "NL": "16 rozen in hartvormige flowerbox",
-      "FR": "16 roses dans une flowerbox en forme de cœur",
-      "EN": "16 Roses in Heart-Shaped Flowerbox",
-      "DE": "16 Rosen in herzförmiger Flowerbox",
-      "ES": "16 rosas en flowerbox con forma de corazón",
-      "PL": "16 róż w flowerboxie w kształcie serca",
-      "PT": "16 rosas em flowerbox em forma de coração",
-      "TR": "Kalp Şeklinde Flowerbox'ta 16 Gül",
-      "EL": "16 τριαντάφυλλα σε κουτί λουλουδιών σε σχήμα καρδιάς"
+      "NL": "12 rozen in hartvormige flowerbox",
+      "FR": "12 roses dans une flowerbox en forme de cœur",
+      "EN": "12 Roses in Heart-Shaped Flowerbox",
+      "DE": "12 Rosen in herzförmiger Flowerbox",
+      "ES": "12 rosas en flowerbox con forma de corazón",
+      "PL": "12 róż w flowerboxie w kształcie serca",
+      "PT": "12 rosas em flowerbox em forma de coração",
+      "TR": "Kalp Şeklinde Flowerbox'ta 12 Gül",
+      "EL": "12 τριαντάφυλλα σε κουτί λουλουδιών σε σχήμα καρδιάς"
     },
     "rose-in-dome-xl": {
       "profile": "PRESERVED_GIFT",

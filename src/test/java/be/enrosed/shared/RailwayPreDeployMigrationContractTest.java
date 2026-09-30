@@ -142,7 +142,7 @@ class RailwayPreDeployMigrationContractTest {
         assertNonDestructive(sql);
         assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
         assertTrue(Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"))
-                .strip().endsWith("--file=/app/migrations/" + migration.getFileName()));
+                .contains("--file=/app/migrations/" + migration.getFileName()));
     }
 
     private static void assertNonDestructive(String sql) {

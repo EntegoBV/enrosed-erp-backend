@@ -32,7 +32,7 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-09-13-greek-catalog-v9", backfill.path("version").asText());
+        assertEquals("2026-09-30-glass-box-twelve-roses-test-v10", backfill.path("version").asText());
         assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
         assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
@@ -114,7 +114,7 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(165, catalog.size(), "one header plus 164 catalogue keys");
+        assertEquals(174, catalog.size(), "one header plus 173 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
                 && row.subList(4, 13).stream().noneMatch(String::isBlank)));
         List<List<String>> editorialCopy = catalog.stream().skip(1)

@@ -24,7 +24,7 @@ Sinds 22 september 2026 hebben bestaande artikelen een korte SKU: **model-formaa
 | DOM | Rozenstolp; maat is diameter × hoogte in cm |
 | STEM-SLV / STEM-BOX | Steelroos in hoes / transparante box, met display |
 | MIR / ACR / CUBE | Enkele roos op spiegelbasis / acrylbox / Elegance Flower Cube |
-| HRT16 / FRAME16 | Hartvormige spiegeldoos met 16 rozen / vierkant frame met rozenhart |
+| HRT12 / FRAME12 | Hartvormige spiegeldoos met 12 rozen / vierkant frame met een hart van 12 rozen |
 | BOX9 / BOX16 | Flowerbox met 9 / 16 rozen |
 | SOAP-WIN / SOAP-LED / SOAP-BOX | Zeeproos in vensterdoos / met LED / in box |
 | FHH-25 / FHH-40 | Half hart van foamrozen, 25 / 40 cm |
