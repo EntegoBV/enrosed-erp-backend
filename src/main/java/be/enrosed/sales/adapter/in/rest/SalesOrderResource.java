@@ -72,7 +72,30 @@ public class SalesOrderResource {
                             Long creditedInvoiceId, String creditedInvoiceNumber,
                             be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
                             /** Invoices: their live credit notes, concepts included, and what the issued ones credit incl. VAT. */
-                            List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+                            List<CreditNoteLink> creditNotes, BigDecimal creditedEur,
+                            /**
+                             * The container this document comes from ({@code order.linkedPurchaseOrderId()}), partner or
+                             * regular container sale: its name as sales shows it ("Herkenbare naam", else the number) and
+                             * its purchase order number. Null when the document has no container or it is gone.
+                             */
+                            String partnerContainerName, String partnerContainerNumber) {
+        /** The view as it stood before the container name was added. */
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                         be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                         boolean customerRequestMessageReadonly, String customerRequestMessage,
+                         Long creditedInvoiceId, String creditedInvoiceNumber,
+                         be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                         List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur, null, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
@@ -101,7 +124,16 @@ public class SalesOrderResource {
             return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
                     customerRequestMessageReadonly, customerRequestMessage,
-                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur);
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber);
+        }
+        /** The same view naming the container the document comes from; null leaves it unnamed. */
+        OrderView withContainer(be.enrosed.sourcing.domain.PurchaseOrderName container) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    container == null ? null : container.displayName(), container == null ? null : container.number());
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -199,15 +231,22 @@ public class SalesOrderResource {
         List<SalesOrder> all = salesOrders.list();
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
         Links links = Links.of(all);
+        /* One read names every container on the list; no purchase order is loaded with its lines. */
+        var containers = salesOrders.containerNames(all.stream().map(SalesOrder::linkedPurchaseOrderId)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()));
         return all.stream()
-                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price))
+                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price)
+                        .withContainer(order.linkedPurchaseOrderId() == null ? null : containers.get(order.linkedPurchaseOrderId())))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
         /* Every persisted document may be linked: a quote to its invoice, an invoice to its credit notes. */
         Links links = order.id() == null ? Links.of(List.of()) : Links.of(salesOrders.list());
-        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price);
+        Long containerId = order.linkedPurchaseOrderId();
+        var container = containerId == null ? null : salesOrders.containerNames(List.of(containerId)).get(containerId);
+        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
+                .withContainer(container);
     }
 
     /* ------------------------------------------------------------ credit notes */

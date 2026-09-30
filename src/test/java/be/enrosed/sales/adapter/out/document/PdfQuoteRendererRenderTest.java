@@ -622,6 +622,52 @@ class PdfQuoteRendererRenderTest {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void partnerCreditNoteNamesTheContainerByOurOwnNameAndSaysContainerOnce() throws Exception {
+        var creditNote = order(DocumentType.FACTUUR, "CN-2026-0003", 0).withPartnerDeal(13L, bd("50"))
+                .asCreditNoteOn(147L, be.enrosed.sales.domain.CreditReason.PARTNER_SHORTFALL);
+        var sourcing = mock(be.enrosed.sourcing.application.PurchaseOrderService.class);
+        Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
+        when(sourcingInstance.isResolvable()).thenReturn(true);
+        when(sourcingInstance.get()).thenReturn(sourcing);
+        renderer.purchaseOrders = sourcingInstance;
+        var price = advancePrice("29.15", "Voorschot te veel gefinancierd");
+
+        when(sourcing.get(13L)).thenReturn(container("container/2026/002"));
+        for (Language language : List.of(Language.NL, Language.FR)) {
+            try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(language), null, language,
+                    SalesPdfOptions.defaults()).content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("container/2026/002"), text);
+                assertFalse(text.contains("container container"), text);
+                assertFalse(text.contains("conteneur container"), text);
+                if (language == Language.NL) assertTrue(text.contains("creditnota op de partnerfinanciering van container/2026/002."), text);
+            }
+        }
+
+        when(sourcing.get(13L)).thenReturn(container(null));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(), null, Language.NL,
+                SalesPdfOptions.defaults()).content())) {
+            assertTrue(textOf(pdf).contains("creditnota op de partnerfinanciering van container po-2026-011."), textOf(pdf));
+        }
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(Language.FR), null, Language.FR,
+                SalesPdfOptions.defaults()).content())) {
+            assertTrue(textOf(pdf).contains("(conteneur po-2026-011)"), textOf(pdf));
+        }
+        assertEquals("container", PdfQuoteRenderer.containerPhrase("container %s", " "));
+        assertEquals("Container/2026/9", PdfQuoteRenderer.containerPhrase("Container %s", "Container/2026/9"));
+    }
+
+    /** Container PO-2026-011, with our own name when one is given. */
+    private static be.enrosed.sourcing.domain.PurchaseOrder container(String alias) {
+        return new be.enrosed.sourcing.domain.PurchaseOrder(13L, "PO-2026-011", alias, 1L, LocalDate.of(2026, 8, 19),
+                be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN, be.enrosed.sourcing.domain.ContainerType.FORTY_HQ,
+                bd("0.14"), bd("0.89"), bd("0.89"), BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.CBM,
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.PIECES, "Ningbo", "Rotterdam", "", List.of());
+    }
+
     private static PricedOrder withVat(PricedOrder priced, VatTreatment treatment) {
         var t = priced.totals();
         var zero = BigDecimal.ZERO;

@@ -128,6 +128,26 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   native ENUM columns; `InvoiceStatusMigration` widens them to varchar at
   start-up (H2 branch), as it did for status and freight strategy.
 
+- **Container name on sales documents** (2026-09-30): one rule names a
+  container everywhere in sales, `PurchaseOrder.displayName()` /
+  `PurchaseOrderName.display`: the "Herkenbare naam" (`alias`, trimmed),
+  else the number, else "Inkoop #id" (a plain method, never in the order
+  JSON). `SourcingRepositories.PurchaseOrders.names(ids)` reads id, number
+  and alias as a criteria projection (no lines), so `GET /api/sales-orders`
+  names every container once; `OrderView` appends `partnerContainerName`
+  and `partnerContainerNumber` for `linkedPurchaseOrderId()` (partner and
+  regular container sales, live, null without a container).
+  `CreditNoteProposal.container.containerName` and
+  `PartnerCreditProposal.containerName` carry it too. The partner credit
+  note PDF sentence (`partnerCreditNote`, 9 languages) takes a phrase from
+  `partnerContainer` ("container %s") unless our name already starts with
+  "container", so it never prints "container container/2026/002". New
+  documents print the name in the generated "Voorschot · <naam>" line, the
+  inspection/other-cost suffix and the settlement note; internal notes,
+  events and the link summary keep the PO number for the audit trail as
+  "PO-2026-011 (container/2026/002)" (`containerReference`). Stored lines
+  of existing documents are never rewritten.
+
 ### Purchasing / landed cost
 - Purchase order = one container from a Chinese supplier. Lines hold an
   EXW price **in the currency it was agreed in** (CNY/USD/EUR) with rates

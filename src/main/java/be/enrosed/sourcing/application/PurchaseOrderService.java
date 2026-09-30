@@ -113,6 +113,11 @@ public class PurchaseOrderService {
         return orders.findById(id).orElseThrow(() -> new NotFoundException("Inkooporder", id));
     }
 
+    /** Number and "Herkenbare naam" of many containers in one read; unknown ids are absent. */
+    public Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names(java.util.Collection<Long> ids) {
+        return orders.names(ids);
+    }
+
     /** Serialises lifecycle changes so receipt can book stock only once. */
     PurchaseOrder getForUpdate(long id) {
         return orders.findByIdForUpdate(id)

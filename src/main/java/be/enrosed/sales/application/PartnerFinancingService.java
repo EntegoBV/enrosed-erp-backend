@@ -51,7 +51,9 @@ public class PartnerFinancingService {
                                         BigDecimal forecastExternalEur, BigDecimal financingPct,
                                         BigDecimal agreedShareEur, BigDecimal overFinancingEur,
                                         BigDecimal overFinancingInclVatEur, Long suggestedAdvanceInvoiceId,
-                                        List<AdvanceOption> advances) {
+                                        List<AdvanceOption> advances,
+                                        /** The container as sales names it ({@link be.enrosed.sourcing.domain.PurchaseOrder#displayName()}). */
+                                        String containerName) {
         public record AdvanceOption(long invoiceId, String number, BigDecimal totalInclVatEur,
                                     BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur) {}
     }
@@ -209,7 +211,7 @@ public class PartnerFinancingService {
         return new PartnerCreditProposal(purchaseId, received, settlementExists, missing, damaged, issuedAdvance,
                 creditedAdvance, basis == null ? Money.money(ZERO) : basis, reconciliation.totals().forecastExternalEur(), pct,
                 agreedShare == null ? Money.money(ZERO) : agreedShare, over, overInclVat,
-                suggested, List.copyOf(options));
+                suggested, List.copyOf(options), purchase.displayName());
     }
 
     public static boolean issued(SalesOrder order) { return order.isClaimDocument() && order.status() != QuoteStatus.CONCEPT && live(order); }

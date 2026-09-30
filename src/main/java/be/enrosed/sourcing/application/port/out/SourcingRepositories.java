@@ -72,6 +72,21 @@ public interface SourcingRepositories {
         }
         Optional<PurchaseOrder> findById(long id);
         /**
+         * Number and "Herkenbare naam" of many orders at once, without their
+         * lines; unknown or deleted ids are simply absent. Persistent adapters
+         * read a projection; this fallback serves the in-memory ones.
+         */
+        default java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names(java.util.Collection<Long> ids) {
+            java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names = new java.util.HashMap<>();
+            if (ids == null) return names;
+            for (Long id : ids) {
+                if (id == null || names.containsKey(id)) continue;
+                findById(id).ifPresent(order -> names.put(id,
+                        new be.enrosed.sourcing.domain.PurchaseOrderName(id, order.number(), order.alias())));
+            }
+            return names;
+        }
+        /**
          * Locks one order for a lifecycle-changing transaction.
          *
          * The fallback keeps in-memory adapters simple; persistent adapters

@@ -138,11 +138,12 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 : order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
                 : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "quote")
                 : text.get(invoice ? "invoice" : "quote");
-        String partnerNote = creditNote ? (order.isPartnerDeal() ? partnerNote(text.get("partnerCreditNote"), partnerContainerNumber(order)) : null)
+        String partnerNote = creditNote ? (order.isPartnerDeal() ? partnerNote(text.get("partnerCreditNote"),
+                        containerPhrase(text.get("partnerContainer"), partnerContainerName(order))) : null)
                 : order.isPartnerDeal()
                 ? partnerNote(text.get(order.partnerSettlement()
                         ? partialSettlement ? "partnerPartialSettlementNote" : "partnerSettlementNote" : "partnerAdvanceNote"),
-                        partnerContainerNumber(order))
+                        containerPhrase(text.get("partnerContainer"), partnerContainerName(order)))
                 : null;
         /* The credit note names the invoice it corrects and why; the settlement panel says how it stands. */
         SalesOrder credited = creditNote && order.creditedInvoiceId() != null && orders != null && orders.isResolvable()
@@ -539,12 +540,24 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         return pattern.formatted(number);
     }
 
-    /** The container's number for the partner note; the plain word when purchasing cannot be asked. */
-    private String partnerContainerNumber(SalesOrder order) {
+    /**
+     * "container PO-2026-011" in the document language, or just the name when
+     * our own name already says container ("container/2026/002"), so the
+     * sentence never reads "container container/2026/002". Without a name the
+     * translated word stands alone.
+     */
+    static String containerPhrase(String pattern, String name) {
+        String clean = name == null ? "" : name.strip();
+        if (clean.regionMatches(true, 0, "container", 0, "container".length())) return clean;
+        if (pattern == null || pattern.isBlank()) return clean;
+        return pattern.formatted(clean).strip();
+    }
+
+    /** The container's name for the partner note (alias, else number); empty when purchasing cannot be asked. */
+    private String partnerContainerName(SalesOrder order) {
         if (order.partnerPurchaseOrderId() != null && purchaseOrders != null && purchaseOrders.isResolvable()) {
             try {
-                String number = purchaseOrders.get().get(order.partnerPurchaseOrderId()).number();
-                if (number != null && !number.isBlank()) return number;
+                return purchaseOrders.get().get(order.partnerPurchaseOrderId()).displayName();
             } catch (Exception ignored) {
                 /* A container that is gone still leaves a readable sentence. */
             }

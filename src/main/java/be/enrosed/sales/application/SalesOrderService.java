@@ -463,7 +463,7 @@ public class SalesOrderService {
         /* Apart from the piece price, the inspection and other named costs travel as lines of their own;
            spread by a key they are inside every piece price already and must not travel twice. */
         if (atCost && !partner && !container.separateInPiecePrice()) {
-            String suffix = " · " + container.number();
+            String suffix = " · " + container.displayName();
             if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
                 extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
             }
@@ -478,14 +478,14 @@ public class SalesOrderService {
         if (partner) {
             BigDecimal commitment = PartnerAdvanceBasis.amount(costing, costPct);
             if (commitment.signum() <= 0) throw new BusinessRuleException("Bereken eerst een positief voorschotbedrag voor deze inkooporder");
-            extras.add(new SalesExtraLine("Voorschot · " + container.number(), BigDecimal.ONE, commitment));
+            extras.add(new SalesExtraLine("Voorschot · " + container.displayName(), BigDecimal.ONE, commitment));
         }
         String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
         String internalNotes = partner
-                ? "Partnercontainer " + container.number() + ": voorschot van " + pct(costPct)
+                ? "Partnercontainer " + containerReference(container) + ": voorschot van " + pct(costPct)
                         + " % van het inkooptotaal inclusief Enrosed-kosten en aparte kosten. Na de veiling volgt een afzonderlijke resultaatverrekening met "
                         + pct(share) + " % winstdeling."
-                : "Offerte gemaakt vanuit inkooporder " + container.number() + (atCost ? " aan kostprijs." : ".");
+                : "Offerte gemaakt vanuit inkooporder " + containerReference(container) + (atCost ? " aan kostprijs." : ".");
         Long defaultCarrierId = shippingCarriers.findAll().stream()
                 .filter(be.enrosed.shipping.domain.Carrier::active)
                 .map(be.enrosed.shipping.domain.Carrier::id)
@@ -541,8 +541,8 @@ public class SalesOrderService {
         captureAdvanceContents(created, deliveryWeek);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
-                (partner ? "Conceptfactuur" : "Offerte") + " opgemaakt vanuit inkooporder " + container.number() + how, null));
-        recordActivity(created, (partner ? "Conceptfactuur" : "Offerte") + " aangemaakt vanuit inkooporder " + container.number() + how);
+                (partner ? "Conceptfactuur" : "Offerte") + " opgemaakt vanuit inkooporder " + containerReference(container) + how, null));
+        recordActivity(created, (partner ? "Conceptfactuur" : "Offerte") + " aangemaakt vanuit inkooporder " + containerReference(container) + how);
         if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share);
         recordPurchaseActivity(container.id(), container.number(),
                 (partner ? "Conceptfactuur " : "Verkoopofferte ") + created.number() + " gemaakt voor " + customer.company() + how);
@@ -638,6 +638,36 @@ public class SalesOrderService {
         } catch (NotFoundException gone) {
             return HUNDRED;
         }
+    }
+
+    /**
+     * The container for internal notes and events: the purchase order number
+     * for the audit trail, with our own name behind it when that differs,
+     * "PO-2026-011 (container/2026/002)".
+     */
+    static String containerReference(PurchaseOrder container) {
+        String number = container.number() == null || container.number().isBlank() ? "#" + container.id() : container.number().strip();
+        String name = container.displayName();
+        return name.equals(number) ? number : number + " (" + name + ")";
+    }
+
+    /** The same reference by id; the bare id when purchasing cannot be asked or the order is gone. */
+    private String linkedContainerReference(Long purchaseOrderId) {
+        if (purchaseOrderId == null) return "";
+        if (purchaseOrders != null && purchaseOrders.isResolvable()) {
+            try {
+                PurchaseOrder container = purchaseOrders.get().get(purchaseOrderId);
+                if (container != null) return containerReference(container);
+            } catch (RuntimeException gone) { /* the plain id still identifies it */ }
+        }
+        return purchaseOrderId.toString();
+    }
+
+    /** Number and name of the containers these documents come from, in one read. */
+    public Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> containerNames(java.util.Collection<Long> purchaseOrderIds) {
+        if (purchaseOrderIds == null || purchaseOrderIds.isEmpty() || purchaseOrders == null || !purchaseOrders.isResolvable())
+            return Map.of();
+        return purchaseOrders.get().names(purchaseOrderIds);
     }
 
     private void recordPurchaseActivity(Long purchaseOrderId, String number, String summary) {
@@ -854,8 +884,9 @@ public class SalesOrderService {
         if (advance.signum() > 0) extras.add(new SalesExtraLine("Voorschot verrekend · uitgereikte voorschotfacturen", BigDecimal.ONE, advance.negate()));
         Customer partner = customers.get(customerId);
         String reference = container.number();
+        String audited = containerReference(container);
         String documentName = finalSettlement ? "Slotfactuur" : "Deelfactuur";
-        String notes = documentName + " partnercontainer " + reference + " · " + pct(profitShare)
+        String notes = documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
                 + " % van netto veilingresultaat (ook verlies).\n" + detail
                 + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
                 + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
@@ -882,10 +913,10 @@ public class SalesOrderService {
         adoptPartnerContainer(purchaseId, partner.id(), request.costSharePct() == null ? container.partnerCostPctOrDefault()
                 : HUNDRED.subtract(percentage(request.costSharePct(), "Eigen aandeel in de kost")), profitShare);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
-                documentName + " partnercontainer " + reference, null));
+                documentName + " partnercontainer " + audited, null));
         if (source != null) events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD, Instant.now(),
                 currentActor().displayName(), false, documentName + " " + created.number() + " aangemaakt", null));
-        recordActivity(created, documentName + " partnercontainer " + reference + " aangemaakt");
+        recordActivity(created, documentName + " partnercontainer " + audited + " aangemaakt");
         recordPurchaseActivity(purchaseId, reference, documentName + " " + created.number() + ": € " + money(fullTotal.subtract(advance)));
         return created;
     }
@@ -960,7 +991,7 @@ public class SalesOrderService {
         SalesOrder saved = orders.save(changed);
         captureAdvanceContents(saved);
         String reference = request != null && !isBlank(request.reference())
-                ? request.reference().strip() : "inkooporder " + purchaseOrderId;
+                ? request.reference().strip() : "inkooporder " + linkedContainerReference(purchaseOrderId);
         String summary = purchaseOrderId == null
                 ? "Losgekoppeld van de partnercontainer"
                 : "Gekoppeld aan partnercontainer " + reference + " · "
@@ -1878,7 +1909,13 @@ public class SalesOrderService {
                                    int invoicedQuantity, int alreadyCreditedQuantity, int suggestedQuantity,
                                    BigDecimal netUnitPriceEur, BigDecimal unitCostEur) {}
         public record ProposalExtraLine(String description, BigDecimal quantity, BigDecimal unitPriceEur, BigDecimal totalEur) {}
-        public record ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces) {}
+        /** {@code containerName}: the container as sales names it ({@link PurchaseOrder#displayName()}). */
+        public record ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces,
+                                        String containerName) {
+            public ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces) {
+                this(purchaseOrderId, number, received, missingPieces, damagedPieces, null);
+            }
+        }
     }
 
     /** The extra line a credit note carries when the invoice's freight and handling are credited. */
@@ -1939,7 +1976,7 @@ public class SalesOrderService {
                         extra.description(), extra.quantity(), extra.unitPrice(), extra.total())).toList(),
                 container == null ? null : new CreditNoteProposal.ProposalContainer(container.id, container.number,
                         container.received, container.missing.values().stream().mapToInt(Integer::intValue).sum(),
-                        container.damaged.values().stream().mapToInt(Integer::intValue).sum()),
+                        container.damaged.values().stream().mapToInt(Integer::intValue).sum(), container.name),
                 partnerShortfall);
     }
 
@@ -2291,7 +2328,7 @@ public class SalesOrderService {
         return String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.4f", Money.unit(amount));
     }
 
-    private record ProposalContainerFacts(long id, String number, boolean received, Map<Long, Integer> missing, Map<Long, Integer> damaged) {}
+    private record ProposalContainerFacts(long id, String number, String name, boolean received, Map<Long, Integer> missing, Map<Long, Integer> damaged) {}
 
     /** The container the invoice came from, with its receipt shortage per product once it has arrived. */
     private ProposalContainerFacts containerFacts(SalesOrder original) {
@@ -2307,7 +2344,7 @@ public class SalesOrderService {
             if (line.missing() > 0) missing.merge(line.productId(), line.missing(), Integer::sum);
             if (line.damaged() > 0) damaged.merge(line.productId(), line.damaged(), Integer::sum);
         }
-        return new ProposalContainerFacts(container.id(), container.number(), received, missing, damaged);
+        return new ProposalContainerFacts(container.id(), container.number(), container.displayName(), received, missing, damaged);
     }
 
     /** Rechecks an existing draft/open quotation before a document leaves. */

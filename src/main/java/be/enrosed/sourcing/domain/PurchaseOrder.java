@@ -334,6 +334,15 @@ public record PurchaseOrder(
                 customerId, customerId == null ? null : costPct, customerId == null ? null : sharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
     }
 
+    /**
+     * The container's name on sales screens and documents: the "Herkenbare
+     * naam" when given, else the number, else "Inkoop #id". Deliberately not a
+     * bean getter, so it never enters the order JSON.
+     */
+    public String displayName() {
+        return PurchaseOrderName.display(id, number, alias);
+    }
+
     /** True when a partner co-orders this container. */
     public boolean isPartnerContainer() {
         return partnerCustomerId != null;

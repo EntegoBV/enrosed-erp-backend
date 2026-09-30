@@ -53,7 +53,7 @@ public class PartnerFinanceResource {
         var priced = sales.price(invoice);
         return new SalesOrderResource.OrderView(invoice, priced, false, null, null, null, null,
                 incoming.summary(invoice, priced), partner.accounting(invoice, priced), null, null,
-                contents.find(invoice).orElse(null));
+                contents.find(invoice).orElse(null)).withContainer(sales.containerNames(List.of(id)).get(id));
     }
     /** How much the advances over-financed a container that arrived short; read-only. */
     @GET @Path("/purchase-orders/{id}/partner-credit-proposal")

@@ -62,6 +62,12 @@ class PartnerCreditNoteTest {
         assertEquals(amount("6000"), before.agreedShareEur());
         assertEquals(advance.id(), before.suggestedAdvanceInvoiceId());
         assertEquals(amount("7260"), before.advances().getFirst().maxCreditInclVatEur());
+        assertEquals(f.purchase.number(), before.containerName(), "without a Herkenbare naam the container is its number");
+        em.find(PurchaseOrderEntity.class, f.purchase.id()).alias = "container/2026/010";
+        em.flush(); em.clear();
+        assertEquals("container/2026/010", financing.creditProposal(f.purchase.id()).containerName());
+        assertEquals("container/2026/010", sales.proposeCreditNote(advance.id()).container().containerName());
+        assertEquals(f.purchase.number(), sales.proposeCreditNote(advance.id()).container().number());
 
         receive(f, 10);
         var after = financing.creditProposal(f.purchase.id());

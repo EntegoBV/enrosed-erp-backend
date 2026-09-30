@@ -313,6 +313,23 @@ public final class PanacheSourcingRepositories {
             return dao.find("id = ?1", id).firstResultOptional().filter(entity -> entity.deletedAt == null).map(PurchaseOrderAdapter::toDomain);
         }
 
+        /** Three columns per order: a sales list names its containers without loading their lines. */
+        @Override
+        public java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names(java.util.Collection<Long> ids) {
+            java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names = new java.util.HashMap<>();
+            List<Long> wanted = ids == null ? List.of() : ids.stream().filter(java.util.Objects::nonNull).distinct().toList();
+            if (wanted.isEmpty()) return names;
+            var builder = dao.getEntityManager().getCriteriaBuilder();
+            var query = builder.createQuery(Object[].class);
+            var order = query.from(PurchaseOrderEntity.class);
+            query.select(builder.array(order.get("id"), order.get("number"), order.get("alias")))
+                    .where(order.get("id").in(wanted));
+            dao.getEntityManager().createQuery(query).getResultList()
+                    .forEach(row -> names.put((Long) row[0], new be.enrosed.sourcing.domain.PurchaseOrderName(
+                            (Long) row[0], (String) row[1], (String) row[2])));
+            return names;
+        }
+
         @Override
         public Optional<PurchaseOrder> findByIdForUpdate(long id) {
             // A cached entity must not outlive a concurrent receipt/deletion while this transaction waits.
