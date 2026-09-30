@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-13-public-family-copy-greek-v4",
+  "version": "2026-09-30-glass-box-twelve-roses-v5",
   "families": {
     "rose-diamonds-within-display": {
       "NL": {
@@ -647,95 +647,95 @@
     },
     "hearth-glass-flowerbox": {
       "NL": {
-        "summary": "Zestien gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling.",
+        "summary": "Twaalf gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling.",
         "knownStaleDescription": "De Heart Blossom Box, met afmetingen van 20x20 cm, bevat 13 prachtige rozen die zorgvuldig zijn gerangschikt in een luxe, hartvormige glazen box. Ideaal voor romantische momenten zoals Valentijnsdag of een jubileum, maar ook als een blijvend cadeau om liefde te tonen. Het heldere glas laat elke roos in volle glorie zien, terwijl de hartvormige presentatie een vleugje elegantie en toewijding toevoegt. Een uniek geschenk dat een blijvende indruk maakt en elke ruimte vult met romantiek en stijl.",
-        "format": "16 gepreserveerde rozen in een hartvormige spiegeldoos",
+        "format": "12 gepreserveerde rozen in een hartvormige spiegeldoos",
         "highlights": [
           "Hartvormige compositie",
           "Presentatie met spiegel",
           "Opvallend cadeauformaat"
         ],
-        "description": "Zestien gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling. De symmetrische hartcompositie en reflecterende basis versterken de diepte van de rozen en maken de box direct geschikt als statementcadeau."
+        "description": "Twaalf gepreserveerde rozen in hartvorm in een spiegeldoos, als opvallend cadeau met een sterke luxueuze uitstraling. De symmetrische hartcompositie en reflecterende basis versterken de diepte van de rozen en maken de box direct geschikt als statementcadeau."
       },
       "FR": {
-        "summary": "Seize roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse.",
-        "format": "16 roses stabilisées dans une boîte miroir en forme de cœur",
+        "summary": "Douze roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse.",
+        "format": "12 roses stabilisées dans une boîte miroir en forme de cœur",
         "highlights": [
           "Composition en forme de cœur",
           "Présentation miroir",
           "Format cadeau remarquable"
         ],
-        "description": "Seize roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse. La composition symétrique en cœur et la base réfléchissante renforcent la profondeur des roses et rendent la boîte idéale comme cadeau remarquable."
+        "description": "Douze roses stabilisées disposées en cœur dans une boîte miroir, pour un cadeau remarquable à la silhouette résolument luxueuse. La composition symétrique en cœur et la base réfléchissante renforcent la profondeur des roses et rendent la boîte idéale comme cadeau remarquable."
       },
       "EN": {
-        "summary": "Sixteen preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette.",
-        "format": "16 preserved roses in a heart-shaped mirror box",
+        "summary": "Twelve preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette.",
+        "format": "12 preserved roses in a heart-shaped mirror box",
         "highlights": [
           "Heart-shaped composition",
           "Mirrored presentation",
           "Statement gifting format"
         ],
-        "description": "Sixteen preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette. The symmetrical heart composition and reflective base enhance the depth of the roses and make the box immediately suitable as a statement gift."
+        "description": "Twelve preserved roses arranged as a heart in a mirrored presentation box, creating a statement gift with a strong luxury silhouette. The symmetrical heart composition and reflective base enhance the depth of the roses and make the box immediately suitable as a statement gift."
       },
       "DE": {
-        "summary": "Sechzehn konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette.",
-        "format": "16 konservierte Rosen in einer herzförmigen Spiegelbox",
+        "summary": "Zwölf konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette.",
+        "format": "12 konservierte Rosen in einer herzförmigen Spiegelbox",
         "highlights": [
           "Herzförmige Komposition",
           "Spiegelnde Präsentation",
           "Ausdrucksstarkes Geschenkformat"
         ],
-        "description": "Sechzehn konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette. Die symmetrische Herzkomposition und der reflektierende Sockel verstärken die Tiefe der Rosen und machen die Box zum ausdrucksstarken Geschenk."
+        "description": "Zwölf konservierte Rosen in Herzform in einer Spiegelbox ergeben ein ausdrucksstarkes Geschenk mit luxuriöser Silhouette. Die symmetrische Herzkomposition und der reflektierende Sockel verstärken die Tiefe der Rosen und machen die Box zum ausdrucksstarken Geschenk."
       },
       "ES": {
-        "summary": "Dieciséis rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa.",
-        "format": "16 rosas preservadas en una caja de espejo con forma de corazón",
+        "summary": "Doce rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa.",
+        "format": "12 rosas preservadas en una caja de espejo con forma de corazón",
         "highlights": [
           "Composición en forma de corazón",
           "Presentación con espejo",
           "Formato de regalo llamativo"
         ],
-        "description": "Dieciséis rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa. La composición simétrica en corazón y la base reflectante realzan la profundidad de las rosas y convierten la caja en un regalo destacado."
+        "description": "Doce rosas preservadas dispuestas en forma de corazón en una caja con espejo, creando un regalo llamativo de marcada silueta lujosa. La composición simétrica en corazón y la base reflectante realzan la profundidad de las rosas y convierten la caja en un regalo destacado."
       },
       "PL": {
-        "summary": "Szesnaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce.",
-        "format": "16 róż stabilizowanych w lustrzanym pudełku w kształcie serca",
+        "summary": "Dwanaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce.",
+        "format": "12 róż stabilizowanych w lustrzanym pudełku w kształcie serca",
         "highlights": [
           "Kompozycja w kształcie serca",
           "Lustrzana prezentacja",
           "Wyrazisty format prezentowy"
         ],
-        "description": "Szesnaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce. Symetryczna kompozycja serca i odbijająca podstawa wzmacniają głębię róż i czynią pudełko wyrazistym prezentem."
+        "description": "Dwanaście róż stabilizowanych ułożonych w serce w lustrzanym pudełku tworzy wyrazisty prezent o luksusowej sylwetce. Symetryczna kompozycja serca i odbijająca podstawa wzmacniają głębię róż i czynią pudełko wyrazistym prezentem."
       },
       "PT": {
-        "summary": "Dezasseis rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa.",
-        "format": "16 rosas preservadas numa caixa espelhada em forma de coração",
+        "summary": "Doze rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa.",
+        "format": "12 rosas preservadas numa caixa espelhada em forma de coração",
         "highlights": [
           "Composição em forma de coração",
           "Apresentação espelhada",
           "Formato de presente marcante"
         ],
-        "description": "Dezasseis rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa. A composição simétrica em coração e a base refletora realçam a profundidade das rosas e tornam a caixa num presente marcante."
+        "description": "Doze rosas preservadas dispostas em coração numa caixa espelhada, criando um presente marcante com uma forte silhueta luxuosa. A composição simétrica em coração e a base refletora realçam a profundidade das rosas e tornam a caixa num presente marcante."
       },
       "TR": {
-        "summary": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on altı korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur.",
-        "format": "Kalp şeklinde aynalı kutuda 16 korunmuş gül",
+        "summary": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on iki korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur.",
+        "format": "Kalp şeklinde aynalı kutuda 12 korunmuş gül",
         "highlights": [
           "Kalp şeklinde kompozisyon",
           "Aynalı sunum",
           "İddialı hediye formatı"
         ],
-        "description": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on altı korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur. Simetrik kalp kompozisyonu ve yansıtıcı taban güllerin derinliğini artırır ve kutuyu iddialı bir hediyeye dönüştürür."
+        "description": "Aynalı sunum kutusunda kalp şeklinde düzenlenen on iki korunmuş gül, güçlü ve lüks görünümlü iddialı bir hediye oluşturur. Simetrik kalp kompozisyonu ve yansıtıcı taban güllerin derinliğini artırır ve kutuyu iddialı bir hediyeye dönüştürür."
       },
       "EL": {
-        "summary": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα.",
-        "format": "16 διατηρημένα τριαντάφυλλα σε κουτί καρδιά με καθρέφτη",
+        "summary": "Δώδεκα διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα.",
+        "format": "12 διατηρημένα τριαντάφυλλα σε κουτί καρδιά με καθρέφτη",
         "highlights": [
           "Σύνθεση σε σχήμα καρδιάς",
           "Παρουσίαση με καθρέφτη",
           "Εντυπωσιακό μέγεθος δώρου"
         ],
-        "description": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα. Η συμμετρική καρδιά και η ανακλαστική βάση ενισχύουν το βάθος των τριαντάφυλλων και κάνουν το κουτί έτοιμο για ένα ξεχωριστό δώρο."
+        "description": "Δώδεκα διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε κουτί με καθρέφτη, δημιουργώντας ένα εντυπωσιακό δώρο με πολυτελή σιλουέτα. Η συμμετρική καρδιά και η ανακλαστική βάση ενισχύουν το βάθος των τριαντάφυλλων και κάνουν το κουτί έτοιμο για ένα ξεχωριστό δώρο."
       }
     },
     "roses-in-box-16pcs": {
@@ -1201,95 +1201,95 @@
     },
     "glass-flowerbox": {
       "NL": {
-        "summary": "Zestien gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails.",
+        "summary": "Twaalf gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails.",
         "knownStaleDescription": "De Glass Blossom Box, met afmetingen van 28x28x14 cm, is een verfijnd bloemenarrangement met 13 prachtige rozen, zorgvuldig geplaatst in een luxe, doorzichtige glazen box. Dit exclusieve ontwerp laat elke roos op elegante wijze stralen en creëert een indrukwekkende uitstraling in elke ruimte. Met zijn moderne en stijlvolle vormgeving is de Glass Blossom Box het perfecte cadeau voor bijzondere gelegenheden of een tijdloze toevoeging aan je interieur. Verras met 13 rozen in een unieke presentatie die blijvende indruk maakt.",
-        "format": "16 gepreserveerde rozen in een transparante flowerbox",
+        "format": "12 gepreserveerde rozen in een transparante flowerbox",
         "highlights": [
           "Hartvormig rozenarrangement",
           "Transparante box van 28 × 28 × 14 cm",
           "Afwerking met Enrosed-lint"
         ],
-        "description": "Zestien gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails. De transparante wanden houden de hartvorm vanuit meerdere hoeken zichtbaar en de zwarte randen en lintafwerking geven de presentatie een herkenbare premium signatuur."
+        "description": "Twaalf gepreserveerde rozen in hartvorm in een transparante flowerbox met zwarte randen en Enrosed-lintdetails. De transparante wanden houden de hartvorm vanuit meerdere hoeken zichtbaar en de zwarte randen en lintafwerking geven de presentatie een herkenbare premium signatuur."
       },
       "FR": {
-        "summary": "Seize roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed.",
-        "format": "16 roses stabilisées dans une flowerbox transparente",
+        "summary": "Douze roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed.",
+        "format": "12 roses stabilisées dans une flowerbox transparente",
         "highlights": [
           "Arrangement de roses en forme de cœur",
           "Écrin transparent de 28 × 28 × 14 cm",
           "Finition avec ruban Enrosed"
         ],
-        "description": "Seize roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed. Les parois transparentes gardent le cœur visible sous plusieurs angles, tandis que les bords noirs et le ruban donnent une signature premium reconnaissable."
+        "description": "Douze roses stabilisées disposées en cœur dans une flowerbox transparente bordée de noir et ornée d’un ruban Enrosed. Les parois transparentes gardent le cœur visible sous plusieurs angles, tandis que les bords noirs et le ruban donnent une signature premium reconnaissable."
       },
       "EN": {
-        "summary": "Sixteen preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing.",
-        "format": "16 preserved roses in a clear flowerbox",
+        "summary": "Twelve preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing.",
+        "format": "12 preserved roses in a clear flowerbox",
         "highlights": [
           "Heart-shaped rose arrangement",
           "Clear 28 × 28 × 14 cm case",
           "Enrosed ribbon finish"
         ],
-        "description": "Sixteen preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing. The transparent walls keep the heart visible from several angles, while the black edging and ribbon finish give the presentation a recognisable premium signature."
+        "description": "Twelve preserved roses arranged as a heart inside a clear, black-edged flowerbox with Enrosed ribbon detailing. The transparent walls keep the heart visible from several angles, while the black edging and ribbon finish give the presentation a recognisable premium signature."
       },
       "DE": {
-        "summary": "Sechzehn konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail.",
-        "format": "16 konservierte Rosen in einer transparenten Flowerbox",
+        "summary": "Zwölf konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail.",
+        "format": "12 konservierte Rosen in einer transparenten Flowerbox",
         "highlights": [
           "Herzförmiges Rosenarrangement",
           "Transparente Box mit 28 × 28 × 14 cm",
           "Veredelung mit Enrosed-Schleife"
         ],
-        "description": "Sechzehn konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail. Die transparenten Wände halten das Herz aus mehreren Blickwinkeln sichtbar, während schwarze Kanten und Schleifenfinish eine erkennbare Premiumsignatur schaffen."
+        "description": "Zwölf konservierte Rosen in Herzform in einer transparenten Flowerbox mit schwarzer Einfassung und Enrosed-Schleifendetail. Die transparenten Wände halten das Herz aus mehreren Blickwinkeln sichtbar, während schwarze Kanten und Schleifenfinish eine erkennbare Premiumsignatur schaffen."
       },
       "ES": {
-        "summary": "Dieciséis rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed.",
-        "format": "16 rosas preservadas en una flowerbox transparente",
+        "summary": "Doce rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed.",
+        "format": "12 rosas preservadas en una flowerbox transparente",
         "highlights": [
           "Arreglo de rosas en forma de corazón",
           "Estuche transparente de 28 × 28 × 14 cm",
           "Acabado con cinta Enrosed"
         ],
-        "description": "Dieciséis rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed. Las paredes transparentes mantienen el corazón visible desde varios ángulos, mientras los bordes negros y la cinta aportan una firma premium reconocible."
+        "description": "Doce rosas preservadas dispuestas en forma de corazón dentro de una flowerbox transparente con bordes negros y detalle de cinta Enrosed. Las paredes transparentes mantienen el corazón visible desde varios ángulos, mientras los bordes negros y la cinta aportan una firma premium reconocible."
       },
       "PL": {
-        "summary": "Szesnaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed.",
-        "format": "16 róż stabilizowanych w przezroczystym flowerboxie",
+        "summary": "Dwanaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed.",
+        "format": "12 róż stabilizowanych w przezroczystym flowerboxie",
         "highlights": [
           "Różana kompozycja w kształcie serca",
           "Przezroczyste pudełko 28 × 28 × 14 cm",
           "Wykończenie wstążką Enrosed"
         ],
-        "description": "Szesnaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed. Przezroczyste ściany pokazują serce z kilku stron, a czarne obramowanie i wstążka nadają prezentacji rozpoznawalny charakter premium."
+        "description": "Dwanaście róż stabilizowanych ułożonych w serce w przezroczystym flowerboxie z czarnym obramowaniem i wstążką Enrosed. Przezroczyste ściany pokazują serce z kilku stron, a czarne obramowanie i wstążka nadają prezentacji rozpoznawalny charakter premium."
       },
       "PT": {
-        "summary": "Dezasseis rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed.",
-        "format": "16 rosas preservadas numa flowerbox transparente",
+        "summary": "Doze rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed.",
+        "format": "12 rosas preservadas numa flowerbox transparente",
         "highlights": [
           "Arranjo de rosas em forma de coração",
           "Estojo transparente de 28 × 28 × 14 cm",
           "Acabamento com fita Enrosed"
         ],
-        "description": "Dezasseis rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed. As paredes transparentes mantêm o coração visível de vários ângulos, enquanto o rebordo preto e a fita dão uma assinatura premium reconhecível."
+        "description": "Doze rosas preservadas dispostas em coração numa flowerbox transparente com rebordo preto e detalhe de fita Enrosed. As paredes transparentes mantêm o coração visível de vários ângulos, enquanto o rebordo preto e a fita dão uma assinatura premium reconhecível."
       },
       "TR": {
-        "summary": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on altı korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır.",
-        "format": "Şeffaf flowerbox içinde 16 korunmuş gül",
+        "summary": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on iki korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır.",
+        "format": "Şeffaf flowerbox içinde 12 korunmuş gül",
         "highlights": [
           "Kalp şeklinde gül aranjmanı",
           "Şeffaf 28 × 28 × 14 cm kutu",
           "Enrosed kurdele bitişi"
         ],
-        "description": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on altı korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır. Şeffaf duvarlar kalbi farklı açılardan görünür tutar, siyah kenarlar ve kurdele bitişi sunuma tanınabilir premium bir imza kazandırır."
+        "description": "Siyah kenarlı şeffaf flowerbox içinde kalp şeklinde düzenlenen on iki korunmuş gül, Enrosed kurdele ayrıntısıyla tamamlanır. Şeffaf duvarlar kalbi farklı açılardan görünür tutar, siyah kenarlar ve kurdele bitişi sunuma tanınabilir premium bir imza kazandırır."
       },
       "EL": {
-        "summary": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed.",
-        "format": "16 διατηρημένα τριαντάφυλλα σε διάφανο κουτί λουλουδιών",
+        "summary": "Δώδεκα διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed.",
+        "format": "12 διατηρημένα τριαντάφυλλα σε διάφανο κουτί λουλουδιών",
         "highlights": [
           "Τριαντάφυλλα σε σχήμα καρδιάς",
           "Διάφανη θήκη 28 × 28 × 14 cm",
           "Φινίρισμα με κορδέλα Enrosed"
         ],
-        "description": "Δεκαέξι διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed. Τα διάφανα τοιχώματα αφήνουν την καρδιά ορατή από πολλές γωνίες, ενώ το μαύρο πλαίσιο και η κορδέλα χαρίζουν αναγνωρίσιμη, προσεγμένη ταυτότητα."
+        "description": "Δώδεκα διατηρημένα τριαντάφυλλα σχηματίζουν καρδιά μέσα σε διάφανο κουτί λουλουδιών με μαύρο πλαίσιο και κορδέλα Enrosed. Τα διάφανα τοιχώματα αφήνουν την καρδιά ορατή από πολλές γωνίες, ενώ το μαύρο πλαίσιο και η κορδέλα χαρίζουν αναγνωρίσιμη, προσεγμένη ταυτότητα."
       }
     },
     "rose-in-dome-xl": {

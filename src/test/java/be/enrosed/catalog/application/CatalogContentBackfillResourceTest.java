@@ -32,7 +32,7 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-09-23-erp-variant-keys-v10", backfill.path("version").asText());
+        assertEquals("2026-09-30-glass-box-twelve-roses-v11", backfill.path("version").asText());
         assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
         assertEquals(61, backfill.path("expectedCounts").path("variants").asInt());

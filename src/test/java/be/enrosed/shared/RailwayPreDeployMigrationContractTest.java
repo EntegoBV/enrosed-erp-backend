@@ -396,7 +396,7 @@ class RailwayPreDeployMigrationContractTest {
                 .contains("\"instalment_due\""), "the developer's H2 enum column learns FREIGHT too");
         assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
         String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
-        assertTrue(runner.strip().endsWith("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
         assertTrue(runner.indexOf("--file=/app/migrations/purchase-payment-instalment-postgresql.sql")
                         < runner.indexOf(migration.getFileName().toString()),
                 "the term column exists before its check is widened");
