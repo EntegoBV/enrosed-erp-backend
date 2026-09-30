@@ -405,6 +405,42 @@ class RailwayPreDeployMigrationContractTest {
                 "the container round lands in its commit order");
     }
 
+    @Test
+    void salesAdvanceBillingIsOneAdditiveSideTableRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-09-30/sales-advance-billing-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists sales_advance_billing ("));
+        assertTrue(sql.contains("sales_order_id bigint primary key"));
+        assertTrue(sql.contains("quote_id bigint not null"));
+        assertTrue(sql.contains("stage varchar(16) not null"));
+        assertTrue(sql.contains("percentage numeric(9,4),"));
+        assertTrue(sql.contains("amount_excl_eur numeric(19,2) not null"));
+        assertTrue(sql.contains("deductions_json text,"));
+        assertTrue(sql.contains("vat_treatment varchar(64),"));
+        assertTrue(sql.contains("vat_rate_pct numeric(9,4),"));
+        assertTrue(sql.contains("created_at timestamptz not null"));
+        assertTrue(sql.contains("create index if not exists sales_advance_billing_quote_idx on sales_advance_billing (quote_id)"));
+        assertFalse(sql.contains("check"), "the stage is a plain string, never an enum check");
+        assertFalse(sql.contains("alter table"), "sales_order stays as it is");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertNonDestructive(sql);
+        String entity = Files.readString(Path.of(
+                "src/main/java/be/enrosed/sales/adapter/out/persistence/SalesAdvanceBillingEntity.java"));
+        for (String column : new String[] {"sales_order_id", "quote_id", "stage", "percentage", "amount_excl_eur",
+                "deductions_json", "vat_treatment", "vat_rate_pct", "created_at"}) {
+            assertTrue(entity.contains("@Column(name = \"" + column + "\""),
+                    "the entity names " + column + " explicitly, so validation finds the migrated column");
+        }
+        assertTrue(entity.contains("@Table(name = \"sales_advance_billing\""));
+        assertFalse(entity.contains("@Enumerated"), "no enum column that Hibernate would guard with a check");
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/glass-box-twelve-roses-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the new table lands after every earlier script");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

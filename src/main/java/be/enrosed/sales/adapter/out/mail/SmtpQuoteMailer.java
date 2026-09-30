@@ -74,6 +74,9 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     /** The documents, to name the invoice a credit note corrects; optional so direct construction in tests keeps working. */
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
+    /** Advance invoices and slotfacturen of regular quotes, for their own mail subject; optional like the documents. */
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.sales.application.SalesAdvanceBilling> advanceBilling;
 
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
@@ -145,8 +148,17 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("validUntilSentence", "")
                 .render();
 
-        String subject = text.get(order.isCreditNote() ? "mailSubjectCreditNote" : "mailSubjectInvoice").formatted(order.number());
+        String subject = text.get(order.isCreditNote() ? "mailSubjectCreditNote" : invoiceSubjectKey(order)).formatted(order.number());
         deliver(customer, subject, body, document, order.number());
+    }
+
+    /** An advance invoice or slotfactuur of a regular quote says so in the subject. */
+    private String invoiceSubjectKey(SalesOrder order) {
+        if (order.id() == null || advanceBilling == null || !advanceBilling.isResolvable()) return "mailSubjectInvoice";
+        var row = advanceBilling.get().find(order.id());
+        if (row == null) return "mailSubjectInvoice";
+        return row.stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.ADVANCE
+                ? "mailSubjectAdvanceInvoice" : "mailSubjectSettlementInvoice";
     }
 
     /** The number of the invoice a credit note corrects, for the mail intro. */

@@ -65,6 +65,7 @@ public class SalesSplits {
     @Inject ObjectMapper json;
     @Inject CatalogMutationLock catalogLock;
     @Inject ActivityLogService activity;
+    @Inject jakarta.enterprise.inject.Instance<SalesAdvanceBillingService> advanceBilling;
 
     public Eligibility eligibility(long id) {
         SalesOrder source = sales.get(id);
@@ -357,6 +358,9 @@ public class SalesSplits {
         if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");
+        if (advanceBilling != null && advanceBilling.isResolvable()
+                && (advanceBilling.get().hasBilling(source) || advanceBilling.get().hasLiveAdvances(source)))
+            throw new BusinessRuleException("Een offerte met voorschotfacturen, een voorschotfactuur of een slotfactuur splits je niet");
         if (source.archivedAt() != null) throw new BusinessRuleException("Haal het concept eerst uit het archief");
         if (source.status() != QuoteStatus.CONCEPT || source.sentAt() != null || source.viewedAt() != null
                 || source.viewCount() != 0 || source.decidedAt() != null

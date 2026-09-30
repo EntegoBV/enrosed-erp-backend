@@ -186,6 +186,72 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   fits on it, `remainingCreditEur` what does not; `shortValueEur` (ordered
   basis minus received basis, `PurchaseOrderService
   .calculateForOrderedQuantities`) is informative only.
+- **Voorschotfacturen and slotfactuur on a regular quote** (2026-09-30,
+  `SalesAdvanceBillingService`, a whole container sold to e.g. a French
+  customer and paid in parts). Side table `sales_advance_billing`
+  (`SalesAdvanceBilling`, migration
+  `docs/migrations/2026-09-30/sales-advance-billing-postgresql.sql`:
+  sales_order_id PK, quote_id, stage varchar ADVANCE|FINAL without a
+  CHECK, percentage, amount_excl_eur, deductions_json, vat_treatment,
+  vat_rate_pct, created_at); nothing
+  on sales_order, purpose stays STANDARD (`!== 'STANDARD'` means partner in
+  many places). `POST /api/sales-orders/{quoteId}/advance-invoice`
+  `{percentage | amountEur, dueDate?}` makes a CONCEPT F-series FACTUUR
+  without product lines, freight FIXED 0, one line "Voorschot 30 % · offerte
+  OF-…" (or "Voorschot · offerte OF-…"), the quote's customer, country,
+  incoterm, terms and container link, `sourceQuoteId` null (the quote's one
+  invoice stays its slotfactuur); base = the quote total excl. VAT, live
+  advances (concepts included, each net of its issued credit notes) never
+  exceed it; a percentage that overshoots the rest by its rounding only
+  (half a cent per live percentage advance, this one included) takes the
+  rest, so 50 % + 50 % of € 6.468,01 is 3.234,01 + 3.234,00. Refused for invoices,
+  partner/agreement quotes, archived or split quotes, rejected/expired/
+  cancelled quotes, a quote with an invoice, freight TE_BEPALEN. The server
+  owns an advance's line and freight (update keeps them, freight endpoints
+  refuse); no minimum order value on it. While a live advance exists the
+  quote cannot be deleted, reopened or cancelled and its customer/country
+  are frozen; lines may still change. An issued advance its issued credit
+  notes took back in full (no concept credit waiting) no longer counts
+  there, as the slotfactuur skips it too. The slotfactuur is the ordinary
+  `createInvoiceFrom`: every live advance must be issued, without a concept
+  credit note, in the quote's VAT treatment and rate (an issued advance
+  stores the regime it was issued in, `SalesAdvanceBillingService
+  .afterIssue` on issue and on mark-sent from concept; the slotfactuur is
+  refused at creation and at issue when that differs, since both documents
+  otherwise re-price live from the same customer); each is deducted on a
+  server-owned line "Voorschotfactuur F-… van dd/mm/jjjj" at -(total excl.
+  VAT minus issued credit notes), so VAT falls on the balance; the FINAL row
+  freezes the deductions and `update()` re-applies them. Issuing refuses a
+  negative balance ("maak een creditnota op een voorschotfactuur") and a
+  deduction that no longer matches its advance (recreate the concept).
+  Deleting a concept slotfactuur deletes its FINAL row; ADVANCE rows stay
+  and are read through live documents only. An advance on an issued
+  slotfactuur cannot be deleted, reopened or credited: the credit note goes
+  on the slotfactuur, whose cap (and `CreditNoteProposal
+  .maxCreditInclVatEur`) is its own total plus the deducted advances incl.
+  VAT, so a short delivery after a full prepayment is still creditable. A
+  slotfactuur of € 0 (the advances covered everything) is BETAALD on issue
+  (paidAt = that moment, event "Slotfactuur volledig verrekend met de
+  voorschotfacturen"): a receipt on zero is refused and it must never read
+  overdue. Turnover: an advance
+  recognises its own total and no cost, the slotfactuur its net total with
+  the full cost, so all documents together are the sale once (no accounting
+  code needed). `OrderView` appends `advanceBilling`, `advanceInvoices`
+  (quotes; [] when none; `creditedExclEur` = the issued live credit notes
+  on it, excl. VAT) and `advanceDeductions` (slotfactuur, with `paidOn` =
+  the day the payments first covered the deducted `inclEur`, i.e. the
+  advance net of its issued credit notes, and `receipts`). `receipts` leave
+  out offsets from the advance's own credit notes: those are the credit,
+  never a payment. PDF: "Voorschot-
+  factuur"/"Facture d'acompte" with the line printed as `advanceOnQuote`
+  ("Acompte sur le devis OF-… · 30 %") in the document language;
+  "Slotfactuur"/"Facture finale" with a "Verrekende voorschotfacturen"
+  block (number, date, excl., VAT, incl., "betaald op"/"nog open") and
+  totals Totaal, - voorschotten, `advanceBalance`, VAT on the balance,
+  `advanceStillToPay`; the deduction lines print once (`documentExtras`).
+  Mail subjects `mailSubjectAdvanceInvoice` / `mailSubjectSettlementInvoice`.
+  Trash: a slotfactuur of a quote with advances is recreated, not restored;
+  an advance is restored only while its quote has no invoice and room left.
 
 ### Purchasing / landed cost
 - Purchase order = one container from a Chinese supplier. Lines hold an

@@ -76,6 +76,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
     @Inject
     Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
+    /** Advance invoices and the slotfactuur of regular quotes. */
+    @Inject
+    Instance<be.enrosed.sales.application.SalesAdvanceBillingService> advanceBilling;
     /** The documents, to name and date the invoice a credit note corrects. */
     @Inject
     Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
@@ -128,13 +131,22 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         boolean advanceInvoice = invoice && !creditNote && order.isPartnerAdvance();
         var cargo = advanceInvoice && advanceContents != null && advanceContents.isResolvable()
                 ? advanceContents.get().find(order).orElse(null) : null;
-        boolean priceFreeProducts = agreementQuote || advanceInvoice;
+        /* A regular quote's advance invoice and its slotfactuur, in the document language. */
+        var billing = invoice && !creditNote && !order.isPartnerDeal() && advanceBilling != null && advanceBilling.isResolvable()
+                ? advanceBilling.get().presentation(order) : null;
+        boolean regularAdvance = billing != null && billing.billing() != null
+                && billing.billing().stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.ADVANCE;
+        boolean finalInvoice = billing != null && billing.billing() != null
+                && billing.billing().stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.FINAL;
+        boolean advanceDocument = advanceInvoice || regularAdvance;
+        boolean priceFreeProducts = agreementQuote || advanceDocument;
         var settlement = order.partnerSettlement() && order.id() != null
                 && partnerSettlements != null && partnerSettlements.isResolvable()
                 ? partnerSettlements.get().find(order.id()) : null;
         boolean partialSettlement = settlement != null && !settlement.finalSettlement();
         /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
         String docLabel = creditNote ? text.get("creditNote")
+                : regularAdvance ? text.get("advanceInvoice") : finalInvoice ? text.get("settlementInvoice")
                 : order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
                 : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "quote")
                 : text.get(invoice ? "invoice" : "quote");
@@ -181,9 +193,40 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             displayCartons = cargo.totals().cartons();
             displayPallets = cargo.totals().pallets();
         } else {
-            if (!advanceInvoice || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
+            if (!advanceDocument || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
             if (priced.totals().palletsManual() > 0) displayPallets = priced.totals().palletsManual();
-            else if (!advanceInvoice) displayPallets = priced.totals().palletsStrict();
+            else if (!advanceDocument) displayPallets = priced.totals().palletsStrict();
+        }
+        /* The free lines as this document prints them: an advance names its quote in the document
+           language, a slotfactuur shows its deductions once, in their own block. */
+        List<PricedOrder.ExtraLine> documentExtras = priced.extraLines();
+        List<AdvanceDeductionView> advanceDeductions = List.of();
+        String finalGrossText = null;
+        String finalDeductedText = null;
+        if (regularAdvance) {
+            var own = billing.billing();
+            String label = text.get("advanceOnQuote").formatted(own.quoteNumber() == null ? "-" : own.quoteNumber())
+                    + (own.percentage() == null ? "" : " · " + own.percentage().stripTrailingZeros().toPlainString() + " %");
+            documentExtras = priced.extraLines().stream().map(extra -> new PricedOrder.ExtraLine(label, extra.quantity(),
+                    extra.unitPrice(), extra.total())).toList();
+        } else if (finalInvoice) {
+            var deducted = billing.deductions() == null ? List.<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction>of()
+                    : billing.deductions();
+            java.util.Set<String> owned = new java.util.HashSet<>();
+            java.math.BigDecimal deductedTotal = java.math.BigDecimal.ZERO;
+            List<AdvanceDeductionView> rows = new ArrayList<>();
+            for (var advance : deducted) {
+                owned.add("Voorschotfactuur " + advance.number() + " van ");
+                deductedTotal = deductedTotal.add(advance.exclEur());
+                rows.add(new AdvanceDeductionView(advance.number(), DocumentText.date(advance.invoiceDate(), language),
+                        deducted(advance.exclEur()), deducted(advance.vatEur()), deducted(advance.inclEur()),
+                        advancePaymentText(advance, language, text)));
+            }
+            documentExtras = priced.extraLines().stream().filter(extra -> extra.description() == null
+                    || owned.stream().noneMatch(prefix -> extra.description().startsWith(prefix))).toList();
+            advanceDeductions = List.copyOf(rows);
+            finalGrossText = DocumentFormat.eur(priced.totals().total().add(deductedTotal));
+            finalDeductedText = DocumentFormat.eur(deductedTotal);
         }
         String totalVolume = DocumentFormat.cbm(cargo == null ? priced.totals().cbm() : cargo.totals().cbm());
         String totalWeight = DocumentFormat.kg(cargo == null ? priced.totals().weightKg() : cargo.totals().weightKg());
@@ -261,7 +304,13 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("creditedNumber", creditedNumber)
                 .data("creditAmountText", creditAmountText)
                 .data("creditSentences", creditSentences)
-                .data("grandTotalLabel", text.get(creditNote ? "creditNoteTotal" : advanceInvoice ? "advanceAmount" : "total"))
+                .data("grandTotalLabel", text.get(creditNote ? "creditNoteTotal" : advanceDocument ? "advanceAmount"
+                        : finalInvoice ? "advanceBalance" : "total"))
+                .data("documentExtras", documentExtras)
+                .data("finalInvoice", finalInvoice)
+                .data("advanceDeductions", advanceDeductions)
+                .data("finalGrossText", finalGrossText)
+                .data("finalDeductedText", finalDeductedText)
                 /* Belgian law asks a credit note to say the VAT goes back to the State, when VAT was charged at all. */
                 .data("creditNoteVatMention", creditNote && priced.totals().vatRatePct() != null
                         && priced.totals().vatRatePct().signum() > 0 ? text.get("creditNoteVatMention") : null)
@@ -270,7 +319,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())
                 .data("agreementQuote", agreementQuote)
-                .data("advanceInvoice", advanceInvoice)
+                .data("advanceInvoice", advanceDocument)
                 .data("priceFreeProducts", priceFreeProducts)
                 .data("displayDestination", cargo == null || cargo.delivery() == null
                         ? order.countryCode() : cargo.delivery().destinationCountry())
@@ -322,7 +371,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("showBarcode", options.showBarcode())
                 .data("hasDiscounts", hasLineDiscounts(priced))
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
-                .data("showProductVolume", advanceInvoice || order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
+                .data("showProductVolume", advanceDocument || order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("looseCartons", order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("freightPerCbm", order.freightPricingStrategy()
                         == be.enrosed.sales.domain.FreightPricingStrategy.PER_CBM)
@@ -375,6 +424,26 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             if (code == null) return joined;
             return joined.isEmpty() ? code : joined + " · " + code;
         }
+    }
+
+    /** One advance invoice a slotfactuur deducted, as printed: amounts and how it was paid. */
+    public record AdvanceDeductionView(String number, String date, String excl, String vat, String incl, String status) {}
+
+    /** A deducted amount reads negative; a zero (no VAT on an intra-EU advance) stays a plain zero. */
+    static String deducted(java.math.BigDecimal amount) {
+        return amount == null || amount.signum() == 0 ? DocumentFormat.eur(java.math.BigDecimal.ZERO) : "- " + DocumentFormat.eur(amount);
+    }
+
+    /** "betaald op 03/04/2026", the receipts so far with "nog open", or just "nog open". */
+    static String advancePaymentText(be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction advance,
+                                     Language language, Map<String, String> text) {
+        if (advance.paidOn() != null) return text.get("advancePaidOn").formatted(DocumentText.date(advance.paidOn(), language));
+        List<String> received = advance.receipts() == null ? List.of() : advance.receipts().stream()
+                .filter(receipt -> receipt.amountEur() != null && receipt.amountEur().signum() > 0)
+                .map(receipt -> DocumentText.date(receipt.receivedOn(), language) + " (" + DocumentFormat.eur(receipt.amountEur()) + ")")
+                .toList();
+        if (received.isEmpty()) return text.get("advanceOpen");
+        return text.get("advancePaidOn").formatted(String.join(", ", received)) + " · " + text.get("advanceOpen");
     }
 
     /** Frozen quotation milestones; never projected from a later container schedule. */

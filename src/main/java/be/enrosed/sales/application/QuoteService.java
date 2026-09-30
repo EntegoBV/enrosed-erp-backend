@@ -922,6 +922,7 @@ public class QuoteService {
         if (order.isInvoice()) {
             throw new BusinessRuleException("Een factuur annuleer je niet; maak een creditnota.");
         }
+        salesOrders.requireNoAdvanceInvoices(order);
         QuoteStatus status = order.status();
         if (status != QuoteStatus.CONCEPT && !status.isOpenForCustomer()) {
             throw new BusinessRuleException("Offerte " + order.number() + " staat op "
