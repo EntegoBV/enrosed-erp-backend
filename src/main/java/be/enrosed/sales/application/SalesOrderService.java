@@ -711,6 +711,47 @@ public class SalesOrderService {
         return saved;
     }
 
+    /**
+     * A never-issued concept follows its re-split term in place: the same
+     * number, its single "Voorschot · <label>" line at the new amount and the
+     * term's due date. Called by the schedule save, in its transaction, after
+     * the term itself was saved, so the reservation check sees the new amount.
+     */
+    SalesOrder reviseScheduledPartnerAdvance(PurchaseOrder purchase, long invoiceId, String label, BigDecimal amount, LocalDate dueDate) {
+        lockDocumentForMutation(invoiceId);
+        SalesOrder current = get(invoiceId);
+        if (!current.isInvoice() || !current.isPartnerAdvance() || current.status() != QuoteStatus.CONCEPT
+                || !Objects.equals(current.linkedPurchaseOrderId(), purchase.id()))
+            throw new BusinessRuleException("Alleen een conceptvoorschotfactuur van deze container volgt de nieuwe verdeling");
+        BigDecimal before = Money.money(price(current).totals().total());
+        SalesOrder revised = withInvoiceDueDate(current, dueDate == null ? current.invoiceDueDate() : dueDate)
+                .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, Money.money(amount))));
+        requireAdvanceBeforeSettlement(revised);
+        validateForSave(revised);
+        validatePartnerAdvanceReservation(revised, null);
+        SalesOrder saved = orders.save(revised);
+        String summary = "Voorschottermijn aangepast: € " + money(before) + " → € " + money(amount);
+        events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
+                summary, null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, summary + " (" + label + ")");
+        return saved;
+    }
+
+    private static SalesOrder withInvoiceDueDate(SalesOrder order, LocalDate dueDate) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), dueDate, order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(), order.lines(), order.pallets()).carrying(order);
+    }
+
     private void validatePartnerAdvanceReservation(SalesOrder invoice, Long scheduleRowId) {
         if (advanceSchedules != null && advanceSchedules.isResolvable()) advanceSchedules.get().validateReservation(invoice, scheduleRowId);
     }

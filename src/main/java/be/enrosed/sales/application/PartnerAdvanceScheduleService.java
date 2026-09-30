@@ -29,13 +29,25 @@ public class PartnerAdvanceScheduleService {
     @Inject IncomingPaymentService incoming;
     @Inject PartnerAdvanceQuotes advanceQuotes;
     @Inject Instance<ActivityLogService> activity;
+    @Inject SalesRepositories.Events events;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     public record RowRequest(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate) {}
     public record Request(List<RowRequest> rows, boolean recalculateAgreement) {}
+    /**
+     * {@code invoiceFixed}: the term's invoice was issued, sent, paid or credited and stays exactly as it is;
+     * a term whose invoice is a never-issued concept follows a new split instead.
+     */
     public record Row(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate,
                       Long invoiceId, String invoiceNumber, QuoteStatus invoiceStatus, BigDecimal receivedEur,
-                      BigDecimal remainingEur) {}
+                      BigDecimal remainingEur, boolean invoiceFixed) {
+        public Row(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate,
+                   Long invoiceId, String invoiceNumber, QuoteStatus invoiceStatus, BigDecimal receivedEur,
+                   BigDecimal remainingEur) {
+            this(id, label, percentage, amountEur, dueDate, invoiceId, invoiceNumber, invoiceStatus, receivedEur,
+                    remainingEur, invoiceId != null);
+        }
+    }
     public record Schedule(long purchaseOrderId, long partnerCustomerId, BigDecimal agreedAmountEur,
                            BigDecimal financingPct, BigDecimal externalCostEur, BigDecimal allocatedEur,
                            BigDecimal unallocatedEur, BigDecimal reservedOutsideScheduleEur, List<Row> rows,
@@ -56,7 +68,8 @@ public class PartnerAdvanceScheduleService {
                     SalesPaymentSummary paid = invoice == null ? null : incoming.summary(invoice, sales.price(invoice));
                     return new Row(row.id(), row.label(), row.percentage(), row.amountEur(), row.dueDate(), row.invoiceId(),
                             invoice == null ? null : invoice.number(), invoice == null ? null : invoice.status(),
-                            paid == null ? ZERO : paid.receivedEur(), paid == null ? ZERO : paid.remainingEur());
+                            paid == null ? ZERO : paid.receivedEur(), paid == null ? ZERO : paid.remainingEur(),
+                            invoice != null && invoiceFixed(invoice));
                 }).toList(), hasSettlement(purchaseId), hasSettlement(purchaseId)
                     ? "Er bestaat al een afrekening; nieuwe voorschotfacturen zijn niet meer mogelijk." : null,
                 agreement.financingBasis(), agreement.financingBasisEur());
@@ -203,8 +216,15 @@ public class PartnerAdvanceScheduleService {
             replacement.add(new PartnerAdvanceSchedules.Row(input.id(), purchaseId, position++, label, pct, amount,
                     input.dueDate(), previous == null ? null : previous.invoiceId()));
         }
-        for (var row : current) if (row.invoiceId() != null && !seen.contains(row.id()))
-            throw new BusinessRuleException("Een termijn met een factuur moet in het betalingsplan behouden blijven");
+        /* Only an issued, sent, paid or credited invoice freezes its term; a never-issued concept follows the split. */
+        Set<Long> fixedRows = current.stream().filter(row -> row.invoiceId() != null && invoiceFixed(row.invoiceId()))
+                .map(PartnerAdvanceSchedules.Row::id).collect(Collectors.toSet());
+        for (var row : current) if (row.invoiceId() != null && !seen.contains(row.id())) {
+            if (fixedRows.contains(row.id()))
+                throw new BusinessRuleException("Een termijn met een factuur moet in het betalingsplan behouden blijven");
+            throw new BusinessRuleException("Termijn met conceptfactuur " + invoiceNumber(row.invoiceId())
+                    + " kan niet weg; verdeel het bedrag over de bestaande termijnen of verwijder eerst het concept.");
+        }
         if (!replacement.isEmpty() && replacement.stream().allMatch(row -> row.percentage() != null)
                 && replacement.stream().map(PartnerAdvanceSchedules.Row::percentage).reduce(BigDecimal.ZERO, BigDecimal::add)
                 .compareTo(BigDecimal.valueOf(100)) == 0) {
@@ -212,6 +232,9 @@ public class PartnerAdvanceScheduleService {
             if (residual.signum() != 0) {
                 int lastEditable = -1;
                 for (int i = 0; i < replacement.size(); i++) if (replacement.get(i).invoiceId() == null) lastEditable = i;
+                /* Without an open term the residual cent goes to the last term whose invoice is still a concept. */
+                if (lastEditable < 0) for (int i = 0; i < replacement.size(); i++)
+                    if (replacement.get(i).id() == null || !fixedRows.contains(replacement.get(i).id())) lastEditable = i;
                 if (lastEditable < 0) throw new BusinessRuleException("De gefactureerde termijnen sluiten niet aan op de afgesproken partnerbijdrage");
                 var row = replacement.get(lastEditable);
                 BigDecimal adjusted = row.amountEur().add(residual);
@@ -220,14 +243,23 @@ public class PartnerAdvanceScheduleService {
                         row.label(), row.percentage(), adjusted, row.dueDate(), row.invoiceId()));
             }
         }
+        List<PartnerAdvanceSchedules.Row> revisedConcepts = new ArrayList<>();
+        boolean resplit = false;
         for (var row : replacement) {
             var previous = row.id() == null ? null : existing.get(row.id());
-            if (previous != null && previous.invoiceId() != null && (!previous.label().equals(row.label())
+            boolean changed = previous == null || !previous.label().equals(row.label())
                     || !same(previous.percentage(), row.percentage()) || previous.amountEur().compareTo(row.amountEur()) != 0
-                    || !Objects.equals(previous.dueDate(), row.dueDate())))
-                throw new BusinessRuleException("Een termijn met een factuur staat vast; verwijder eerst de ongebruikte conceptfactuur om de termijn te wijzigen");
+                    || !Objects.equals(previous.dueDate(), row.dueDate());
+            if (changed) resplit = true;
+            if (previous != null && previous.invoiceId() != null && changed) {
+                if (fixedRows.contains(previous.id()))
+                    throw new BusinessRuleException("Een termijn met een factuur staat vast; verwijder eerst de ongebruikte conceptfactuur om de termijn te wijzigen");
+                revisedConcepts.add(row);
+            }
         }
         if (hasSettlement(purchaseId)) {
+            if (!revisedConcepts.isEmpty())
+                throw new BusinessRuleException("Na de eerste afrekening kunnen geen nieuwe voorschottermijnen meer worden toegevoegd of gewijzigd; ongebruikte termijnen kunnen wel worden verwijderd");
             for (var row : replacement) if (row.invoiceId() == null) {
                 var previous = row.id() == null ? null : existing.get(row.id());
                 if (previous == null || !previous.label().equals(row.label()) || !same(previous.percentage(), row.percentage())
@@ -237,9 +269,21 @@ public class PartnerAdvanceScheduleService {
         }
         BigDecimal outside = outsideReservations(purchaseId, replacement, null);
         requireWithin(agreement.agreedAmountEur(), sumRows(replacement).add(outside));
+        /* Once a term is fixed, a new split of the rest covers the whole agreed advance; only dropping
+           unused open terms (before a settlement) may leave part of it unplanned. */
+        BigDecimal unplanned = agreement.agreedAmountEur().subtract(sumRows(replacement).add(outside));
+        if (!fixedRows.isEmpty() && resplit && unplanned.signum() > 0)
+            throw new BusinessRuleException("Verdeel het resterende voorschot volledig: nog € " + euro(unplanned) + " te verdelen.");
         schedules.save(agreement);
         for (var row : current) if (!seen.contains(row.id())) schedules.delete(row.id());
         for (var row : replacement) schedules.save(row);
+        /* The concept of a changed term follows it in place: same number, new amount, label and due date. */
+        for (var row : revisedConcepts) {
+            var previous = existing.get(row.id());
+            SalesOrder revised = sales.reviseScheduledPartnerAdvance(purchase, previous.invoiceId(), row.label(), row.amountEur(), row.dueDate());
+            audit(purchase, "Conceptfactuur " + revised.number() + " aangepast: € " + euro(previous.amountEur())
+                    + " → € " + euro(row.amountEur()) + " (" + row.label() + ")");
+        }
         audit(purchase, "Voorschotplan vastgelegd: € " + sumRows(replacement) + " van partnerbijdrage € " + agreement.agreedAmountEur());
         return get(purchaseId);
     }
@@ -371,6 +415,32 @@ public class PartnerAdvanceScheduleService {
                     + ", meer dan de afgesproken partnerbijdrage van € " + agreement);
     }
     private static boolean same(BigDecimal a, BigDecimal b) { return a == null ? b == null : b != null && a.compareTo(b) == 0; }
+
+    /**
+     * A term's invoice is fixed once it was issued or sent, has payment history or a live credit note:
+     * the same facts that keep an invoice from being deleted. A never-issued concept is not fixed.
+     */
+    boolean invoiceFixed(long invoiceId) {
+        SalesOrder invoice = orders.findById(invoiceId).orElse(null);
+        return invoice != null && invoiceFixed(invoice);
+    }
+
+    private boolean invoiceFixed(SalesOrder invoice) {
+        if (invoice.status() != QuoteStatus.CONCEPT) return true;
+        if (invoice.sentAt() != null || invoice.viewedAt() != null || invoice.viewCount() > 0 || invoice.decidedAt() != null) return true;
+        if (events.findByOrder(invoice.id()).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT
+                || event.type() == QuoteEvent.Type.VERSTUURD)) return true;
+        if (incoming.hasHistory(invoice.id())) return true;
+        return !sales.liveCreditNotesOf(invoice.id()).isEmpty();
+    }
+
+    private String invoiceNumber(long invoiceId) {
+        return orders.findById(invoiceId).map(SalesOrder::number).orElse("#" + invoiceId);
+    }
+
+    private static String euro(BigDecimal amount) {
+        return String.format(Locale.forLanguageTag("nl-BE"), "%,.2f", amount.setScale(2, RoundingMode.HALF_UP));
+    }
     private static String plain(BigDecimal amount) { return amount.stripTrailingZeros().toPlainString(); }
     private void audit(PurchaseOrder purchase, String message) {
         if (activity != null && activity.isResolvable()) activity.get().record(ActivityLogService.ACTION_UPDATED,

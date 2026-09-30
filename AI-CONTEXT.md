@@ -147,6 +147,26 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   events and the link summary keep the PO number for the audit trail as
   "PO-2026-011 (container/2026/002)" (`containerReference`). Stored lines
   of existing documents are never rewritten.
+- **Re-splitting a partner advance plan** (2026-09-30): a schedule row is
+  FIXED when its invoice is not CONCEPT, was ever issued or sent
+  (UITGEREIKT/VERSTUURD event, sentAt/viewed), has payment history or a
+  live credit note: the facts that keep an invoice from being deleted, so
+  an issued-then-reopened invoice stays fixed.
+  `PartnerAdvanceScheduleService.Row.invoiceFixed` says so in the JSON.
+  `save()` freezes FIXED rows only; a row linked to a never-issued concept
+  may change label, amount and due date and the concept follows in place in
+  the same transaction (`SalesOrderService.reviseScheduledPartnerAdvance`:
+  same number, its one "Voorschot · <label>" line at the new amount, the
+  row's due date or the old one, OPGEMAAKT event "Voorschottermijn
+  aangepast: € A → € B", a purchase-order diary line). A concept row cannot
+  be dropped (409 "Termijn met conceptfactuur {nr} kan niet weg; ..."); new
+  rows get no invoice until "Conceptfactuur maken". While any row is fixed,
+  a plan that adds or changes rows must cover the whole agreed advance (409
+  "Verdeel het resterende voorschot volledig: nog € X te verdelen."); merely
+  dropping unused open rows before a settlement may still leave part
+  unplanned (`unusedScheduleRemainderCanBeRemovedBeforeSettlement...`). The
+  residual cent of an all-percentage plan goes to the last open row, else to
+  the last concept row.
 
 ### Purchasing / landed cost
 - Purchase order = one container from a Chinese supplier. Lines hold an
