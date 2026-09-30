@@ -130,6 +130,13 @@ public class PurchaseOrderService {
         return calculator.calculate(order, byId);
     }
 
+    /** The same calculation on the quantities agreed with the supplier, whatever arrived. */
+    public LandedCost calculateForOrderedQuantities(PurchaseOrder order) {
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        return calculator.calculateForOrderedQuantities(order, byId);
+    }
+
     /** A receipt shortage changes usable unit cost, never the agreed quantity budget. */
     public PurchaseReconciliation reconciliation(PurchaseOrder order, LandedCost currentCosting) {
         List<PurchasePayment> recorded = payments == null || !payments.isResolvable()

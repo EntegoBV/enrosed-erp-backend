@@ -167,6 +167,25 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   unplanned (`unusedScheduleRemainderCanBeRemovedBeforeSettlement...`). The
   residual cent of an all-percentage plan goes to the last open row, else to
   the last concept row.
+- **Partner advance credit proposal** (2026-09-30,
+  `PartnerFinancingService.creditProposal`): the percentage is the saved
+  agreement's `financingPct` (fallback `partnerCostPctOrDefault()`), and a
+  suggestion is made only when the agreement basis is
+  PURCHASE_TOTAL_WITH_SEPARATE_COSTS (a legacy EXTERNAL_FORECAST suggests 0).
+  Two meanings live side by side on purpose: `overFinancingEur` stays
+  issued-only (the partner-payments card relies on it), while
+  `wanted = max(0, over - pendingCreditEur)` subtracts live CONCEPT
+  PARTNER_ADVANCE credit notes (`pendingCreditNumbers`), so the same
+  shortfall is never proposed twice. Each `AdvanceOption` appends
+  `vatRatePct`, `maxCreditEur` (room excl. VAT, rounded down),
+  `openEur` (still to be paid, incl. VAT like the payment summary) and
+  `suggestedCreditEur = min(wanted, room)`.
+  The target (`suggestedAdvanceInvoiceId`) is the latest unpaid advance that
+  can absorb the credit: advances with room first, then open >= wanted incl.
+  that advance's VAT, room >= wanted (both excl.), highest id. `suggestedCreditEur`/`...InclVatEur` is what
+  fits on it, `remainingCreditEur` what does not; `shortValueEur` (ordered
+  basis minus received basis, `PurchaseOrderService
+  .calculateForOrderedQuantities`) is informative only.
 
 ### Purchasing / landed cost
 - Purchase order = one container from a Chinese supplier. Lines hold an
