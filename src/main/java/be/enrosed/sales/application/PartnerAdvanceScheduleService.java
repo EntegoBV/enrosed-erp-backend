@@ -35,17 +35,19 @@ public class PartnerAdvanceScheduleService {
     public record RowRequest(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate) {}
     public record Request(List<RowRequest> rows, boolean recalculateAgreement) {}
     /**
-     * {@code invoiceFixed}: the term's invoice was issued, sent, paid or credited and stays exactly as it is;
-     * a term whose invoice is a never-issued concept follows a new split instead.
+     * {@code invoiceFixed}: the term's invoice is no longer a concept, has payment history or a live credit
+     * note, and stays exactly as it is; a term whose invoice is a concept follows a new split instead, also
+     * when that concept was issued and reopened. {@code invoiceReopened}: the concept was issued or sent
+     * before (it keeps its number and cannot be deleted).
      */
     public record Row(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate,
                       Long invoiceId, String invoiceNumber, QuoteStatus invoiceStatus, BigDecimal receivedEur,
-                      BigDecimal remainingEur, boolean invoiceFixed) {
+                      BigDecimal remainingEur, boolean invoiceFixed, boolean invoiceReopened) {
         public Row(Long id, String label, BigDecimal percentage, BigDecimal amountEur, LocalDate dueDate,
                    Long invoiceId, String invoiceNumber, QuoteStatus invoiceStatus, BigDecimal receivedEur,
                    BigDecimal remainingEur) {
             this(id, label, percentage, amountEur, dueDate, invoiceId, invoiceNumber, invoiceStatus, receivedEur,
-                    remainingEur, invoiceId != null);
+                    remainingEur, invoiceId != null, false);
         }
     }
     public record Schedule(long purchaseOrderId, long partnerCustomerId, BigDecimal agreedAmountEur,
@@ -69,7 +71,7 @@ public class PartnerAdvanceScheduleService {
                     return new Row(row.id(), row.label(), row.percentage(), row.amountEur(), row.dueDate(), row.invoiceId(),
                             invoice == null ? null : invoice.number(), invoice == null ? null : invoice.status(),
                             paid == null ? ZERO : paid.receivedEur(), paid == null ? ZERO : paid.remainingEur(),
-                            invoice != null && invoiceFixed(invoice));
+                            invoice != null && invoiceFixed(invoice), invoice != null && reopenedConcept(invoice));
                 }).toList(), hasSettlement(purchaseId), hasSettlement(purchaseId)
                     ? "Er bestaat al een afrekening; nieuwe voorschotfacturen zijn niet meer mogelijk." : null,
                 agreement.financingBasis(), agreement.financingBasisEur());
@@ -216,7 +218,8 @@ public class PartnerAdvanceScheduleService {
             replacement.add(new PartnerAdvanceSchedules.Row(input.id(), purchaseId, position++, label, pct, amount,
                     input.dueDate(), previous == null ? null : previous.invoiceId()));
         }
-        /* Only an issued, sent, paid or credited invoice freezes its term; a never-issued concept follows the split. */
+        /* Only an invoice that is no longer a concept, has payment history or a live credit note freezes its
+           term; a concept follows the split, also one that was issued and reopened. */
         Set<Long> fixedRows = current.stream().filter(row -> row.invoiceId() != null && invoiceFixed(row.invoiceId()))
                 .map(PartnerAdvanceSchedules.Row::id).collect(Collectors.toSet());
         for (var row : current) if (row.invoiceId() != null && !seen.contains(row.id())) {
@@ -417,22 +420,27 @@ public class PartnerAdvanceScheduleService {
     private static boolean same(BigDecimal a, BigDecimal b) { return a == null ? b == null : b != null && a.compareTo(b) == 0; }
 
     /**
-     * A term's invoice is fixed once it was issued or sent, has payment history or a live credit note:
-     * the same facts that keep an invoice from being deleted. A never-issued concept is not fixed.
+     * A term's invoice is fixed once it is no longer a concept, has payment history or a live credit note
+     * ({@link SalesOrderService#scheduledAdvanceFixed}, also checked again when the concept is revised).
+     * A concept is not fixed, also one that was issued and reopened: it keeps its number and follows the split.
      */
     boolean invoiceFixed(long invoiceId) {
         SalesOrder invoice = orders.findById(invoiceId).orElse(null);
         return invoice != null && invoiceFixed(invoice);
     }
 
-    private boolean invoiceFixed(SalesOrder invoice) {
-        if (invoice.status() != QuoteStatus.CONCEPT) return true;
-        if (invoice.sentAt() != null || invoice.viewedAt() != null || invoice.viewCount() > 0 || invoice.decidedAt() != null) return true;
-        if (events.findByOrder(invoice.id()).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT
-                || event.type() == QuoteEvent.Type.VERSTUURD)) return true;
-        if (incoming.hasHistory(invoice.id())) return true;
-        return !sales.liveCreditNotesOf(invoice.id()).isEmpty();
+    private boolean invoiceFixed(SalesOrder invoice) { return sales.scheduledAdvanceFixed(invoice); }
+
+    /** A concept that was issued or sent before: the plan says 'heropend', and it can no longer be deleted. */
+    private boolean reopenedConcept(SalesOrder invoice) {
+        if (invoice.status() != QuoteStatus.CONCEPT) return false;
+        if (invoice.sentAt() != null) return true;
+        return events.findByOrder(invoice.id()).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT
+                || event.type() == QuoteEvent.Type.VERSTUURD);
     }
+
+    /** Whether this invoice is a term of a partner advance plan. */
+    public boolean isScheduledTerm(long invoiceId) { return schedules.forInvoice(invoiceId) != null; }
 
     private String invoiceNumber(long invoiceId) {
         return orders.findById(invoiceId).map(SalesOrder::number).orElse("#" + invoiceId);

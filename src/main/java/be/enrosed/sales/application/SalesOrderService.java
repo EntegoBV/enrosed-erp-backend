@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import be.enrosed.shared.Money;
 
@@ -734,10 +735,27 @@ public class SalesOrderService {
     }
 
     /**
-     * A never-issued concept follows its re-split term in place: the same
-     * number, its single "Voorschot · <label>" line at the new amount and the
-     * term's due date. Called by the schedule save, in its transaction, after
-     * the term itself was saved, so the reservation check sees the new amount.
+     * The one rule for a partner advance term: its invoice is FIXED once it is
+     * no longer a concept, has payment history (voided receipts and the legacy
+     * paid marker included) or a live credit note. A concept, also one that was
+     * issued and reopened, follows a new split of the plan. Deleting a reopened
+     * concept stays refused: its number must not leave the series.
+     */
+    boolean scheduledAdvanceFixed(SalesOrder invoice) {
+        if (invoice.status() != QuoteStatus.CONCEPT || invoice.paidAt() != null) return true;
+        if (invoice.id() != null && incomingPayments != null && incomingPayments.isResolvable()
+                && incomingPayments.get().hasHistory(invoice.id())) return true;
+        return invoice.id() != null && !liveCreditNotesOf(invoice.id()).isEmpty();
+    }
+
+    /**
+     * A concept, also an issued-then-reopened one, follows its re-split term in
+     * place: the same number, its single "Voorschot · <label>" line at the new
+     * amount and the term's due date. Called by the schedule save, in its
+     * transaction, after the term itself was saved, so the reservation check
+     * sees the new amount. The fixed rule is checked again under the lock.
+     * A term sentence that older invoices stored in their notes names the old
+     * label and share; it is dropped, the buyer's own note stays.
      */
     SalesOrder reviseScheduledPartnerAdvance(PurchaseOrder purchase, long invoiceId, String label, BigDecimal amount, LocalDate dueDate) {
         lockDocumentForMutation(invoiceId);
@@ -745,8 +763,12 @@ public class SalesOrderService {
         if (!current.isInvoice() || !current.isPartnerAdvance() || current.status() != QuoteStatus.CONCEPT
                 || !Objects.equals(current.linkedPurchaseOrderId(), purchase.id()))
             throw new BusinessRuleException("Alleen een conceptvoorschotfactuur van deze container volgt de nieuwe verdeling");
+        if (scheduledAdvanceFixed(current))
+            throw new BusinessRuleException("Factuur " + current.number()
+                    + " heeft een betaalhistoriek of creditnota en staat vast; de termijn blijft ongewijzigd");
         BigDecimal before = Money.money(price(current).totals().total());
-        SalesOrder revised = withInvoiceDueDate(current, dueDate == null ? current.invoiceDueDate() : dueDate)
+        SalesOrder revised = withTermDueDateAndNotes(current, dueDate == null ? current.invoiceDueDate() : dueDate,
+                        withoutGeneratedTermNote(current.notes()))
                 .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, Money.money(amount))));
         requireAdvanceBeforeSettlement(revised);
         validateForSave(revised);
@@ -759,10 +781,32 @@ public class SalesOrderService {
         return saved;
     }
 
-    private static SalesOrder withInvoiceDueDate(SalesOrder order, LocalDate dueDate) {
+    /**
+     * The term sentence a scheduled advance stored in its notes between
+     * 2026-09-08 and 2026-09-10 ("Voorschot · 2/3 na productie. Vast bedrag van
+     * het afgesproken voorschot. Deze factuur betreft ..." and its older
+     * "Partnervoorschot · ..." form), whatever label or share it named.
+     */
+    private static final Pattern GENERATED_TERM_NOTE = Pattern.compile(
+            "^(?:Voorschot · .+?\\. (?:Vast bedrag|[0-9.]+%) van het afgesproken voorschot\\. "
+                    + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk\\."
+                    + "|Partnervoorschot · .+?\\. (?:Vast bedrag|[0-9.]+%) van de afgesproken partnerbijdrage € [0-9.]+ "
+                    + "\\([0-9.]+% van kostbasis € [0-9.]+\\)\\. Deze factuur betreft uitsluitend deze termijn\\.)(?=\\s|$)");
+
+    /** The notes without a leading generated term sentence; the buyer's own note after it stays. */
+    static String withoutGeneratedTermNote(String notes) {
+        if (notes == null) return null;
+        String stripped = notes.strip();
+        var matcher = GENERATED_TERM_NOTE.matcher(stripped);
+        if (!matcher.lookingAt()) return notes;
+        String rest = stripped.substring(matcher.end()).strip();
+        return rest.isEmpty() ? null : rest;
+    }
+
+    private static SalesOrder withTermDueDateAndNotes(SalesOrder order, LocalDate dueDate, String notes) {
         return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
-                order.paymentTerms(), order.notes(), order.markupMode(), order.orderMarkupPct(),
+                order.paymentTerms(), notes, order.markupMode(), order.orderMarkupPct(),
                 order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
                 order.signedByName(), order.customerMessage(), order.internalNotes(),
@@ -1847,8 +1891,16 @@ public class SalesOrderService {
         if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(id))
             throw new BusinessRuleException("Een factuur met een betaalhistoriek kan niet worden verwijderd, ook niet na intrekking van betalingen");
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
+        boolean issuedBefore = order.isClaimDocument()
+                && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT);
+        /* A reopened concept of a partner advance plan points to the way that does work: it follows a new split.
+           An issued or sent term is fixed and keeps the general text. */
+        if (order.status() == QuoteStatus.CONCEPT && (issuedBefore || !SalesLifecycle.unusedDraft(order, hasRevisions))
+                && scheduledPartnerAdvanceTerm(order))
+            throw new BusinessRuleException("Factuur " + order.number() + " was al uitgereikt; het nummer blijft bestaan. "
+                    + "Pas de verdeling aan via Termijnen aanpassen op de inkooporder.");
         SalesLifecycle.requireDeletable(order, hasRevisions);
-        if (order.isClaimDocument() && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT))
+        if (issuedBefore)
             throw new BusinessRuleException(order.isCreditNote() ? "Een eerder uitgereikte creditnota blijft bewaard, ook nadat ze heropend is"
                     : "Een eerder uitgereikte factuur blijft bewaard, ook nadat ze heropend is");
         boolean hasDerivedInvoice = !order.isClaimDocument() && orders.existsBySourceQuoteId(id);
@@ -1856,6 +1908,12 @@ public class SalesOrderService {
             throw new BusinessRuleException(
                     "Deze offerte kan niet verwijderd worden omdat er een factuur uit is aangemaakt");
         }
+    }
+
+    /** A partner advance invoice that is a term of its container's advance plan. */
+    private boolean scheduledPartnerAdvanceTerm(SalesOrder order) {
+        return order.isInvoice() && order.isPartnerAdvance() && order.id() != null
+                && advanceSchedules != null && advanceSchedules.isResolvable() && advanceSchedules.get().isScheduledTerm(order.id());
     }
 
     /** Reopening changes financial participation; check it under the parent and document locks. */

@@ -147,13 +147,22 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   events and the link summary keep the PO number for the audit trail as
   "PO-2026-011 (container/2026/002)" (`containerReference`). Stored lines
   of existing documents are never rewritten.
-- **Re-splitting a partner advance plan** (2026-09-30): a schedule row is
-  FIXED when its invoice is not CONCEPT, was ever issued or sent
-  (UITGEREIKT/VERSTUURD event, sentAt/viewed), has payment history or a
-  live credit note: the facts that keep an invoice from being deleted, so
-  an issued-then-reopened invoice stays fixed.
-  `PartnerAdvanceScheduleService.Row.invoiceFixed` says so in the JSON.
-  `save()` freezes FIXED rows only; a row linked to a never-issued concept
+- **Re-splitting a partner advance plan** (2026-09-30, reopened concepts
+  2026-10-01): a schedule row is FIXED only when its invoice is not CONCEPT,
+  has payment history (`hasHistory`, voided receipts and `paidAt` included)
+  or a live credit note (`SalesOrderService.scheduledAdvanceFixed`, the one
+  rule for the JSON, `save()` and the revise re-check under the lock). A
+  CONCEPT is revisable, also one that was issued and reopened (Verhoeven BV,
+  container/2026/009): it keeps its number; deleting it stays refused, for a
+  scheduled PARTNER_ADVANCE term in CONCEPT with 409 "Factuur {nr} was al
+  uitgereikt; het nummer blijft bestaan. Pas de verdeling aan via Termijnen
+  aanpassen op de inkooporder." (an issued term and other documents keep
+  their text). The revise drops a leading term sentence that invoices of
+  2026-09-08..10 stored in `notes` ("Voorschot · <old label>. ... van het
+  afgesproken voorschot. ..."), keeping the buyer's note after it.
+  `PartnerAdvanceScheduleService.Row.invoiceFixed` says so in the JSON, and
+  `invoiceReopened` marks a concept that was issued or sent before.
+  `save()` freezes FIXED rows only; a row linked to a concept
   may change label, amount and due date and the concept follows in place in
   the same transaction (`SalesOrderService.reviseScheduledPartnerAdvance`:
   same number, its one "Voorschot · <label>" line at the new amount, the
