@@ -32,7 +32,7 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-09-30-glass-box-twelve-roses-test-v10", backfill.path("version").asText());
+        assertEquals("2026-10-01-glass-box-thirteen-roses-test-v11", backfill.path("version").asText());
         assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
         assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
@@ -141,8 +141,8 @@ class CatalogContentBackfillResourceTest {
         String heart = localizedDescription(copy, "hearth-glass-flowerbox", "NL");
         String glass = localizedDescription(copy, "glass-flowerbox", "NL");
         String dome = localizedDescription(copy, "rose-in-dome-m", "NL");
-        assertFalse(heart.contains("13"));
-        assertFalse(glass.contains("13"));
+        assertTrue(heart.startsWith("Dertien gepreserveerde rozen"));
+        assertTrue(glass.startsWith("Dertien gepreserveerde rozen"));
         assertFalse(dome.toLowerCase().contains("vier kleuren"));
         assertFalse(dome.toLowerCase().contains("kersenroze"));
         assertTrue(copy.path("families").path("hearth-glass-flowerbox").path("NL")
