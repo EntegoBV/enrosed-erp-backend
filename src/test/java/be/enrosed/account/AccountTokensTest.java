@@ -58,6 +58,24 @@ class AccountTokensTest {
     }
 
     @Test
+    void aTextForStaffLosesEveryLinkAndEveryTokenShapedPart() {
+        String token = AccountTokens.newInvitationToken();
+
+        assertEquals(null, AccountTokens.withoutLinks(null));
+        assertEquals("De mailserver weigert", AccountTokens.withoutLinks("De mailserver weigert"));
+        for (String text : new String[]{
+                "status 400 - {\"htmlContent\":\"<a href=\\\"https://enrosed.com/nl/account/#activate=" + token + "\\\">\"}",
+                "token " + token + " geweigerd", token, "#activate=" + token.substring(0, 20),
+                "half " + token.substring(0, 30)}) {
+            String cleaned = AccountTokens.withoutLinks(text);
+            assertFalse(cleaned.contains("eci1_"), cleaned);
+            assertFalse(cleaned.contains(token.substring(5, 15)), cleaned);
+        }
+        assertEquals("zie https://enrosed.com/account/#activate=[...] en verder",
+                AccountTokens.withoutLinks("zie https://enrosed.com/account/#activate=" + token + " en verder"));
+    }
+
+    @Test
     void hashIsSixtyFourLowerCaseHexAndNeverTheToken() {
         String invitation = AccountTokens.newInvitationToken();
         String session = AccountTokens.newSessionToken();

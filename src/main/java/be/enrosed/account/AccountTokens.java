@@ -18,6 +18,8 @@ public final class AccountTokens {
     private static final String SESSION_PREFIX = "ecs1_";
     private static final Pattern INVITATION = Pattern.compile("^eci1_[A-Za-z0-9_-]{43}$");
     private static final Pattern SESSION = Pattern.compile("^ecs1_[A-Za-z0-9_-]{43}$");
+    private static final Pattern INVITATION_ANYWHERE = Pattern.compile("eci1_[A-Za-z0-9_-]*");
+    private static final Pattern LINK_FRAGMENT = Pattern.compile("#activate=\\S*");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private AccountTokens() {}
@@ -48,6 +50,16 @@ public final class AccountTokens {
 
     public static boolean isSessionToken(String token) {
         return token != null && SESSION.matcher(token).matches();
+    }
+
+    /**
+     * A text that staff will read or that is stored, without anything that could be a one-time
+     * link: whatever follows "#activate=" and every token-shaped part are blanked.
+     */
+    public static String withoutLinks(String text) {
+        if (text == null) return null;
+        return LINK_FRAGMENT.matcher(INVITATION_ANYWHERE.matcher(text).replaceAll("[...]"))
+                .replaceAll("#activate=[...]");
     }
 
     private static String randomPart() {

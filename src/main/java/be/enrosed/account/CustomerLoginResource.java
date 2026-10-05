@@ -1,5 +1,6 @@
 package be.enrosed.account;
 
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.BadRequestException;
@@ -40,7 +41,16 @@ public class CustomerLoginResource {
         if (request == null || request.customerId() == null) {
             throw new BadRequestException("customerId is verplicht");
         }
-        CustomerAccountService.Grant grant = accounts.grantByStaff(request.customerId(), request.email());
+        CustomerAccountService.Grant grant;
+        try {
+            grant = accounts.grantByStaff(request.customerId(), request.email());
+        } catch (RuntimeException failure) {
+            /* A double click or a simultaneous approval for the same address. */
+            if (CustomerAccountService.isDuplicateLogin(failure)) {
+                throw new BusinessRuleException(CustomerAccountService.DUPLICATE_LOGIN);
+            }
+            throw failure;
+        }
         return noStore(Response.status(Response.Status.CREATED).entity(delivered(grant)));
     }
 

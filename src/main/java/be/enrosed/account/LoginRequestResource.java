@@ -1,5 +1,6 @@
 package be.enrosed.account;
 
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.Consumes;
@@ -56,7 +57,16 @@ public class LoginRequestResource {
     @Path("/{id}/approve")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response approve(@PathParam("id") long id, LoginRequestDtos.ApproveRequest body) {
-        LoginRequestService.Approved approved = requests.approve(id, body);
+        LoginRequestService.Approved approved;
+        try {
+            approved = requests.approve(id, body);
+        } catch (RuntimeException failure) {
+            /* Someone gave this address a login at the same moment; the approval rolled back. */
+            if (CustomerAccountService.isDuplicateLogin(failure)) {
+                throw new BusinessRuleException(CustomerAccountService.DUPLICATE_LOGIN);
+            }
+            throw failure;
+        }
         /* After the commit: send the link, then read the login as it now stands. */
         AccountDtos.Invitation invitation = accounts.deliver(approved.grant());
         LoginRequestDtos.ApproveResponse response = new LoginRequestDtos.ApproveResponse(

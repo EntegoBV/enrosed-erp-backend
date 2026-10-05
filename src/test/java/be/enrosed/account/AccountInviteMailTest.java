@@ -164,6 +164,36 @@ class AccountInviteMailTest {
                 .contains("href=\"https://enrosed.com/account/#activate=" + TOKEN + "\""));
     }
 
+    /** Staff read the reason and it is stored: the provider's own words, which may echo the mail, never travel. */
+    @Test
+    void aRefusalByTheMailProviderIsReportedWithItsStatusAndNeverWithItsOwnText() throws Exception {
+        for (boolean unreachable : new boolean[]{false, true}) {
+            SmtpQuoteMailer brevo = new SmtpQuoteMailer(null, null, null, null, null) {
+                @Override
+                protected BrevoAnswer postToBrevo(Map<String, Object> payload) throws Exception {
+                    String echo = "{\"code\":\"invalid_parameter\",\"message\":\"bad htmlContent: "
+                            + payload.get("htmlContent") + "\"}";
+                    if (unreachable) throw new java.io.IOException("connection reset while sending " + echo);
+                    return new BrevoAnswer(400, "#activate=" + TOKEN + " " + echo);
+                }
+            };
+            set(brevo, "accountInviteTemplate", engine.getTemplate("account-invite-mail.html"));
+            set(brevo, "brevoApiKey", Optional.of("test-key"));
+            set(brevo, "customerCc", Optional.empty());
+            set(brevo, "internalRecipient", "verkoop@enrosed.be");
+            set(brevo, "websiteBaseUrl", "https://enrosed.com/");
+            set(brevo, "from", "Enrosed <offertes@enrosed.be>");
+
+            BusinessRuleException refused = assertThrows(BusinessRuleException.class, () -> brevo.sendInvitation(
+                    new Invitation(TO, Language.EN, "Alex", "Royal Garden", TOKEN, 7, Kind.FIRST)));
+
+            assertEquals(unreachable
+                    ? "De mail kon niet verzonden worden via de maildienst: de dienst is onbereikbaar"
+                    : "De mail kon niet verzonden worden via de maildienst (status 400)", refused.getMessage());
+            assertFalse(refused.getMessage().contains("eci1_"));
+        }
+    }
+
     @Test
     void aDeployedEnvironmentInMockModeRefusesInsteadOfLoggingTheLink() {
         LaunchMode before = LaunchMode.current();

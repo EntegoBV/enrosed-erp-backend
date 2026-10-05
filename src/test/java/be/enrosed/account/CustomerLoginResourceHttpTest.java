@@ -72,7 +72,7 @@ class CustomerLoginResourceHttpTest {
         String email = email();
         long customerId = customer("Bloemen Peeters BV", " " + email.toUpperCase() + " ");
 
-        given().when().get(BASE).then().statusCode(400);
+        given().when().get(BASE).then().statusCode(400).header("Cache-Control", "no-store");
         given().queryParam("customerId", customerId).when().get(BASE)
                 .then().statusCode(200)
                 .header("Cache-Control", "no-store")
@@ -120,7 +120,7 @@ class CustomerLoginResourceHttpTest {
         assertNoSecret(again);
         String secondLink = onlyLinkMailedTo(email);
         assertFalse(firstLink.equals(secondLink), "a new link is a new token");
-        given().when().post(BASE + "/987654321/invitation").then().statusCode(404);
+        given().when().post(BASE + "/987654321/invitation").then().statusCode(404).header("Cache-Control", "no-store");
 
         String token = secondLink.substring(secondLink.indexOf("#activate=") + "#activate=".length());
         accounts.activate(token, "roses-in-a-dome");
@@ -137,8 +137,9 @@ class CustomerLoginResourceHttpTest {
         assertNoSecret(withdrawn);
         given().when().post(BASE + "/" + accountId + "/withdraw")
                 .then().statusCode(409)
+                .header("Cache-Control", "no-store")
                 .body("message", equalTo("Deze login is al ingetrokken"));
-        given().when().post(BASE + "/987654321/withdraw").then().statusCode(404);
+        given().when().post(BASE + "/987654321/withdraw").then().statusCode(404).header("Cache-Control", "no-store");
     }
 
     @Test
@@ -147,12 +148,13 @@ class CustomerLoginResourceHttpTest {
         long without = customer("Zonder Mail BV", null);
 
         given().contentType("application/json").body("{}")
-                .when().post(BASE).then().statusCode(400);
+                .when().post(BASE).then().statusCode(400).header("Cache-Control", "no-store");
         given().contentType("application/json").body(Map.of("customerId", 987654321))
-                .when().post(BASE).then().statusCode(404);
+                .when().post(BASE).then().statusCode(404).header("Cache-Control", "no-store");
         given().contentType("application/json").body(Map.of("customerId", without))
                 .when().post(BASE)
                 .then().statusCode(409)
+                .header("Cache-Control", "no-store")
                 .body("message", equalTo("Deze klant heeft geen e-mailadres"));
         given().contentType("application/json").body(Map.of("customerId", without, "email", "geen adres"))
                 .when().post(BASE)

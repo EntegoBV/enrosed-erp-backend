@@ -107,6 +107,19 @@ public class PublicQuoteService {
         return toResponse(prepare(request));
     }
 
+    /**
+     * The estimate of a logged-in customer. The VAT number is the customer record's and is not
+     * judged, exactly as in submitForCustomer: the website shows that number read-only, so a
+     * placeholder staff once typed there must not close the estimate for this customer, and
+     * the estimate equals what the submission will store.
+     */
+    public EstimateResponse previewForCustomer(PreviewRequest request, long customerId) {
+        Customer customer = customers.get(customerId);
+        return toResponse(prepare(request == null ? null : new PreviewRequest(
+                request.language(), request.fulfillment(), customer.vatNumber(),
+                request.destination(), request.items(), request.pickupLocationId()), false));
+    }
+
     /** Read-only validation used before challenge verification and e-mail rate consumption. */
     public void validateSubmission(SubmitRequest request) {
         validateAndPrepareSubmission(request);

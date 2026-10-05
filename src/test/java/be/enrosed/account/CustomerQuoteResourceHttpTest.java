@@ -177,7 +177,7 @@ class CustomerQuoteResourceHttpTest {
             }
         });
         verify(quotes, never()).configuration(anyString());
-        verify(quotes, never()).preview(any());
+        verify(quotes, never()).previewForCustomer(any(), anyLong());
         verify(quotes, never()).submitForCustomer(any(), anyLong(), anyString());
         assertTrue(fixture.orders(salesOrders, login.customerId()).isEmpty());
         assertTrue(fixture.orders(salesOrders, withdrawn.customerId()).isEmpty());
@@ -282,7 +282,7 @@ class CustomerQuoteResourceHttpTest {
             assertFalse(body.contains("totalNet"), body);
         }
         verify(quotes, never()).configuration(anyString());
-        verify(quotes, never()).preview(any());
+        verify(quotes, never()).previewForCustomer(any(), anyLong());
         verify(quotes, never()).submitForCustomer(any(), anyLong(), anyString());
     }
 
@@ -326,6 +326,48 @@ class CustomerQuoteResourceHttpTest {
                 .body("code", equalTo("QUOTE_REVIEW_REQUIRED"))
                 .body("message", equalTo("The quote request could not be completed automatically"));
         assertTrue(fixture.orders(salesOrders, login.customerId()).isEmpty());
+    }
+
+    /**
+     * The website sends the customer record's VAT number from a read-only field. A placeholder
+     * staff typed there must not close the estimate: the number is the record's and is not
+     * judged, in the estimate as in the submission.
+     */
+    @Test
+    void aPlaceholderVatNumberOnTheCustomerRecordNeverClosesTheEstimate() {
+        for (String recorded : new String[]{"-", "n/a", "nvt"}) {
+            Customer customer = customers.create(new Customer(null, "Placeholder BV", "An Peeters",
+                    QuoteFixture.email(), null, recorded, "BE", Language.NL, null, null, null, null,
+                    null, null, null));
+            fixture.adopt(customer.id());
+            String email = QuoteFixture.email();
+            var grant = accounts.grant(customer.id(), email, "An Peeters", Language.NL);
+            String token = accounts.activate(grant.rawToken(), PASSWORD).sessionToken();
+            String profileVat = given().header("Authorization", "Bearer " + token)
+                    .when().get("/api/v1/public/account/session")
+                    .then().statusCode(200).extract().path("profile.vatNumber");
+
+            /* Exactly what the page posts: the profile's number, and once something else typed. */
+            for (String sent : new String[]{profileVat, "x"}) {
+                Map<String, Object> body = previewBody();
+                if (sent != null) body.put("vatNumber", sent);
+                given().header("Authorization", "Bearer " + token)
+                        .contentType("application/json").body(body)
+                        .when().post(BASE + "/preview")
+                        .then().statusCode(200)
+                        .header("Cache-Control", "no-store")
+                        .body("totals.goodsNet", equalTo(240.0f));
+            }
+            submit(token, null, submitBody(Map.of("vatNumber", "x")))
+                    .then().statusCode(201).body("estimate.totals.goodsNet", equalTo(240.0f));
+        }
+
+        /* The anonymous estimate still judges what a visitor types. */
+        Map<String, Object> anonymous = previewBody();
+        anonymous.put("vatNumber", "-");
+        given().contentType("application/json").body(anonymous)
+                .when().post(ANONYMOUS + "/preview")
+                .then().statusCode(422).body("fieldErrors.vatNumber", equalTo("INVALID"));
     }
 
     private record Login(long customerId, long accountId, String email, String token) {}

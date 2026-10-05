@@ -86,9 +86,9 @@ public class CustomerQuoteResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @PublicFormBodyLimited(maxBytes = MAX_BODY_BYTES, body = PublicQuoteDtos.PreviewRequest.class)
     public Response preview(PublicQuoteDtos.PreviewRequest request) {
-        guard.require(httpRequest);
+        CustomerSession session = guard.require(httpRequest);
         rateLimiter.checkIp(PublicFormAction.QUOTE_PREVIEW, identities.resolve(httpRequest));
-        return noStore(Response.ok(quotes.preview(request)));
+        return noStore(Response.ok(quotes.previewForCustomer(request, session.customerId())));
     }
 
     @POST

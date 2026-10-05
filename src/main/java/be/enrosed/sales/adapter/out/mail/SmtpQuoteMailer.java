@@ -480,8 +480,12 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
             try {
                 sendViaBrevo(invitation.to(), subject, body, null, null, false);
             } catch (Exception e) {
-                throw new BusinessRuleException(
-                        "De mail kon niet verzonden worden via de maildienst: " + e.getMessage());
+                /* Never the provider's own words for this mail: staff read this text and it is
+                   stored, and an answer that echoes the request would carry the one-time link. */
+                throw new BusinessRuleException(e instanceof BrevoRefusal refusal
+                        ? "De mail kon niet verzonden worden via de maildienst (status "
+                                + refusal.status + ")"
+                        : "De mail kon niet verzonden worden via de maildienst: de dienst is onbereikbaar");
             }
             return;
         }
@@ -614,6 +618,22 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
                               QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) throws Exception {
         Map<String, Object> payload = brevoPayload(to, subject, html, text, attachment, withOfficeCopy);
 
+        BrevoAnswer answer = postToBrevo(payload);
+        if (answer.status() >= 300) {
+            /* Brevo explains in the body what is wrong ("sender not valid",
+               quota exhausted); exactly what the administrator needs to read. */
+            String detail = answer.body() == null ? "" : answer.body();
+            throw new BrevoRefusal(answer.status(),
+                    "maildienst antwoordde " + answer.status()
+                    + (detail.isBlank() ? "" : " - " + detail.substring(0, Math.min(300, detail.length()))));
+        }
+    }
+
+    /** What the mail provider answered; the body is the provider's own text. */
+    public record BrevoAnswer(int status, String body) {}
+
+    /** The one call that leaves the building; tests answer in its place. */
+    protected BrevoAnswer postToBrevo(Map<String, Object> payload) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(BREVO_ENDPOINT)
                 .timeout(Duration.ofSeconds(25))
                 .header("api-key", brevoApiKey.orElse(""))
@@ -622,15 +642,17 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
                 .POST(HttpRequest.BodyPublishers.ofString(
                         JSON.writeValueAsString(payload), StandardCharsets.UTF_8))
                 .build();
-
         HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) {
-            /* Brevo explains in the body what is wrong ("sender not valid",
-               quota exhausted); exactly what the administrator needs to read. */
-            String detail = response.body() == null ? "" : response.body();
-            throw new IllegalStateException(
-                    "maildienst antwoordde " + response.statusCode()
-                    + (detail.isBlank() ? "" : " - " + detail.substring(0, Math.min(300, detail.length()))));
+        return new BrevoAnswer(response.statusCode(), response.body());
+    }
+
+    /** A refusal by the mail provider; the message holds the provider's text, the status does not. */
+    private static final class BrevoRefusal extends IllegalStateException {
+        private final int status;
+
+        private BrevoRefusal(int status, String message) {
+            super(message);
+            this.status = status;
         }
     }
 

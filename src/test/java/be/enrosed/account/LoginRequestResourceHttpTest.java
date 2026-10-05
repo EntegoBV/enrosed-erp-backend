@@ -38,8 +38,10 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -544,12 +546,21 @@ class LoginRequestResourceHttpTest {
 
         given().contentType("application/json").body("{}")
                 .when().post(BASE + "/" + id + "/reject")
-                .then().statusCode(409).body("message", equalTo("Deze aanvraag is al behandeld"));
+                .then().statusCode(409).header("Cache-Control", "no-store")
+                .body("message", equalTo("Deze aanvraag is al behandeld"));
         approve(id, Map.of("newCustomer", Map.of("company", "X", "vatNumber", "Y")))
-                .then().statusCode(409).body("message", equalTo("Deze aanvraag is al behandeld"));
+                .then().statusCode(409).header("Cache-Control", "no-store")
+                .body("message", equalTo("Deze aanvraag is al behandeld"));
         given().contentType("application/json").body("{}")
-                .when().post(BASE + "/987654321/reject").then().statusCode(404);
-        approve(987654321L, Map.of("customerId", 1)).then().statusCode(404);
+                .when().post(BASE + "/987654321/reject")
+                .then().statusCode(404).header("Cache-Control", "no-store");
+        approve(987654321L, Map.of("customerId", 1))
+                .then().statusCode(404).header("Cache-Control", "no-store");
+        given().when().get(BASE + "/987654321")
+                .then().statusCode(404).header("Cache-Control", "no-store");
+        /* Only these two staff resources: another staff error keeps its own headers. */
+        given().when().get("/api/customers/987654321")
+                .then().statusCode(404).header("Cache-Control", org.hamcrest.Matchers.not(equalTo("no-store")));
 
         long withoutNote = request(LoginRequestWriter.ORDER_SCREEN, email);
         given().contentType("application/json").body("{\"note\":null}")
@@ -604,6 +615,65 @@ class LoginRequestResourceHttpTest {
 
     private static Response approve(long id, Map<String, Object> body) {
         return given().contentType("application/json").body(body).when().post(BASE + "/" + id + "/approve");
+    }
+
+    /** Whatever a mailer puts in its reason, no link reaches the database or a staff answer. */
+    @Test
+    @TestSecurity(user = "emre", roles = AdminIdentityProvider.ADMIN_ROLE)
+    void aMailFailureThatEchoesTheLinkIsStoredAndAnsweredWithoutIt() {
+        String email = email();
+        long customerId = customer("Bloemen Peeters BV", email, "BE0123456789");
+        long id = request(LoginRequestWriter.ORDER_SCREEN, email);
+        doAnswer(call -> {
+            CustomerAccountMailer.Invitation invitation = call.getArgument(0);
+            throw new BusinessRuleException("maildienst antwoordde 400 - bad htmlContent: <a href=\"https://"
+                    + "enrosed.com/nl/account/#activate=" + invitation.token() + "\"> token "
+                    + invitation.token());
+        }).when(mailer).sendInvitation(any());
+
+        Response approved = approve(id, Map.of("customerId", customerId));
+
+        approved.then().statusCode(200)
+                .body("invitation.sent", equalTo(false))
+                .body("invitation.error", equalTo("maildienst antwoordde 400 - bad htmlContent: <a href=\"https://"
+                        + "enrosed.com/nl/account/#activate=[...] token [...]"))
+                .body("account.lastLinkError", equalTo(approved.<String>path("invitation.error")));
+        assertNoSecret(approved);
+        int accountId = approved.path("account.id");
+        String stored = QuarkusTransaction.requiringNew().call(() ->
+                CustomerAccountEntity.<CustomerAccountEntity>findById((long) accountId).lastLinkError);
+        assertFalse(stored.contains("eci1_"), stored);
+        assertNoSecret(given().queryParam("customerId", customerId).when().get("/api/customer-logins"));
+    }
+
+    /**
+     * Two grants for an address without a login can both find none; the loser's insert hits the
+     * unique e-mail constraint. That exact failure is what the staff resources answer as 409.
+     */
+    @Test
+    void theSecondInsertOfOneAddressIsRecognisedAsADuplicateLogin() {
+        String email = email();
+        long customerId = customer("Bloemen Peeters BV", email(), "BE0123456789");
+        RuntimeException failure = assertThrows(RuntimeException.class, () ->
+                QuarkusTransaction.requiringNew().run(() -> {
+                    for (int row = 0; row < 2; row++) {
+                        CustomerAccountEntity account = new CustomerAccountEntity();
+                        account.customerId = customerId;
+                        account.email = email;
+                        account.language = "NL";
+                        account.status = CustomerAccountService.INVITED;
+                        account.createdAt = java.time.Instant.now();
+                        account.updatedAt = account.createdAt;
+                        account.persistAndFlush();
+                    }
+                }));
+
+        assertTrue(CustomerAccountService.isDuplicateLogin(failure), String.valueOf(failure));
+        assertTrue(CustomerAccountService.isDuplicateLogin(new IllegalStateException("wrapped", failure)));
+        assertFalse(CustomerAccountService.isDuplicateLogin(new BusinessRuleException("iets anders")));
+        assertFalse(CustomerAccountService.isDuplicateLogin(new org.hibernate.exception.ConstraintViolationException(
+                "another constraint", new java.sql.SQLException("uq_customer_vat"), "uq_customer_vat")));
+        assertEquals(0, QuarkusTransaction.requiringNew().call(() -> CustomerAccountEntity.count("email", email)));
     }
 
     private long customer(String company, String email, String vatNumber) {

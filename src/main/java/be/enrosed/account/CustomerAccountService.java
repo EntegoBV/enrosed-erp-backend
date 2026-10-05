@@ -17,6 +17,7 @@ import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -138,7 +139,9 @@ public class CustomerAccountService {
         if (normalized == null) throw new BusinessRuleException("Vul een geldig e-mailadres in");
         Customer customer = customer(customerId);
         Instant now = clock.instant();
-        CustomerAccountEntity account = CustomerAccountEntity.find("email", normalized).firstResult();
+        /* Locked: two grants for one existing login make one live link, not two. */
+        CustomerAccountEntity account = CustomerAccountEntity.<CustomerAccountEntity>find("email", normalized)
+                .withLock(LockModeType.PESSIMISTIC_WRITE).list().stream().findFirst().orElse(null);
         CustomerAccountMailer.Kind kind;
         if (account == null) {
             account = new CustomerAccountEntity();
@@ -172,7 +175,7 @@ public class CustomerAccountService {
     /** A fresh link for an existing login; a withdrawn one becomes an invitation again. */
     @Transactional
     public Grant reissue(long accountId) {
-        CustomerAccountEntity account = account(accountId);
+        CustomerAccountEntity account = lockedAccount(accountId);
         Instant now = clock.instant();
         CustomerAccountMailer.Kind kind;
         if (DISABLED.equals(account.status)) {
@@ -258,6 +261,8 @@ public class CustomerAccountService {
             String reason = exception instanceof BusinessRuleException && exception.getMessage() != null
                     && !exception.getMessage().isBlank()
                     ? exception.getMessage().strip() : "De mail kon niet verzonden worden";
+            /* This text is stored and shown to staff: whatever the mailer put in it, no link. */
+            reason = AccountTokens.withoutLinks(reason);
             return reason.length() > 300 ? reason.substring(0, 300) : reason;
         }
     }
@@ -274,7 +279,7 @@ public class CustomerAccountService {
 
     @Transactional
     public AccountDtos.AccountView withdraw(long accountId) {
-        CustomerAccountEntity account = account(accountId);
+        CustomerAccountEntity account = lockedAccount(accountId);
         if (DISABLED.equals(account.status)) {
             throw new BusinessRuleException("Deze login is al ingetrokken");
         }
@@ -500,6 +505,14 @@ public class CustomerAccountService {
 
     /** Null when the link is no longer live; nothing is written in that case. */
     private AccountDtos.SessionResponse consume(String hash, String passwordHash) {
+        /* The login row is locked before its link and sessions are touched, exactly as a
+           withdrawal and a new link do: whoever comes second waits and then sees the outcome,
+           instead of each holding the rows the other needs. */
+        CustomerAccountTokenEntity link = CustomerAccountTokenEntity.find("tokenHash", hash).firstResult();
+        if (link == null
+                || CustomerAccountEntity.findById(link.accountId, LockModeType.PESSIMISTIC_WRITE) == null) {
+            return null;
+        }
         LiveToken live = liveToken(hash);
         if (live == null) return null;
         Instant now = clock.instant();
@@ -584,6 +597,31 @@ public class CustomerAccountService {
 
     private CustomerAccountEntity account(long accountId) {
         CustomerAccountEntity account = CustomerAccountEntity.findById(accountId);
+        if (account == null) throw new NotFoundException("Websitelogin", accountId);
+        return account;
+    }
+
+    static final String DUPLICATE_LOGIN = "Dit e-mailadres heeft net een login gekregen. Herlaad de pagina.";
+
+    /**
+     * Two grants for an address without a login can both find none; the second insert then
+     * hits the unique e-mail constraint. Staff resources answer that as a conflict.
+     */
+    static boolean isDuplicateLogin(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation) {
+                String where = violation.getConstraintName() + " " + violation.getMessage()
+                        + " " + (violation.getSQLException() == null ? "" : violation.getSQLException().getMessage());
+                if (where.toLowerCase(java.util.Locale.ROOT).contains("uq_customer_account_email")) return true;
+            }
+            if (cause.getCause() == cause) break;
+        }
+        return false;
+    }
+
+    /** The login row under a write lock: the first lock of every path that changes its link or sessions. */
+    private CustomerAccountEntity lockedAccount(long accountId) {
+        CustomerAccountEntity account = CustomerAccountEntity.findById(accountId, LockModeType.PESSIMISTIC_WRITE);
         if (account == null) throw new NotFoundException("Websitelogin", accountId);
         return account;
     }
