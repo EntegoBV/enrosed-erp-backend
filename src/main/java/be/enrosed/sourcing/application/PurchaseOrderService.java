@@ -60,6 +60,9 @@ public class PurchaseOrderService {
     /* Payments and who records them; pure unit tests run without. */
     @Inject
     Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.Payments> payments;
+    /* Credits the supplier owes ("Tegoed leverancier"); pure unit tests run without. */
+    @Inject
+    Instance<SourcingRepositories.SupplierCredits> supplierCredits;
     @Inject
     Instance<CurrentActor> actor;
     @Inject
@@ -110,8 +113,13 @@ public class PurchaseOrderService {
         return orders.findById(id).orElseThrow(() -> new NotFoundException("Inkooporder", id));
     }
 
+    /** Number and "Herkenbare naam" of many containers in one read; unknown ids are absent. */
+    public Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names(java.util.Collection<Long> ids) {
+        return orders.names(ids);
+    }
+
     /** Serialises lifecycle changes so receipt can book stock only once. */
-    private PurchaseOrder getForUpdate(long id) {
+    PurchaseOrder getForUpdate(long id) {
         return orders.findByIdForUpdate(id)
                 .orElseThrow(() -> new NotFoundException("Inkooporder", id));
     }
@@ -120,6 +128,13 @@ public class PurchaseOrderService {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
         return calculator.calculate(order, byId);
+    }
+
+    /** The same calculation on the quantities agreed with the supplier, whatever arrived. */
+    public LandedCost calculateForOrderedQuantities(PurchaseOrder order) {
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity()));
+        return calculator.calculateForOrderedQuantities(order, byId);
     }
 
     /** A receipt shortage changes usable unit cost, never the agreed quantity budget. */
@@ -140,7 +155,20 @@ public class PurchaseOrderService {
         PurchaseOrder budgetOrder = sameQuantities ? order : order.withReceipt(order.status(), order.receivedOn(),
                 order.paidTotalEur(), order.stockBooked(), order.notes(), budgetLines);
         LandedCost budget = sameQuantities ? currentCosting : calculate(budgetOrder);
-        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded);
+        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded,
+                supplierCredits(order.id()));
+    }
+
+    /** The credits noted on this order; none for a draft that was never saved. */
+    public List<PurchaseSupplierCredit> supplierCredits(Long orderId) {
+        return orderId == null || supplierCredits == null || !supplierCredits.isResolvable()
+                ? List.of() : supplierCredits.get().forOrder(orderId);
+    }
+
+    /** The credit an offset payment settles, when the payment is one. */
+    private java.util.Optional<PurchaseSupplierCredit> offsetCreditFor(long paymentId) {
+        return supplierCredits == null || !supplierCredits.isResolvable()
+                ? java.util.Optional.empty() : supplierCredits.get().forOffsetPayment(paymentId);
     }
 
     public PurchaseReconciliation reconciliation(long orderId) {
@@ -162,6 +190,18 @@ public class PurchaseOrderService {
     @Transactional
     public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
                                 BigDecimal defaultDutyRatePct, ContainerType containerType) {
+        return create(supplierId, cnyToUsd, usdToEur, defaultDutyRatePct, containerType, null);
+    }
+
+    /**
+     * As above, CIF or not as the client says; without a choice a supplier
+     * that quotes CIF (or CFR) starts the container as CIF, once. The
+     * container keeps its own choice from then on.
+     */
+    @Transactional
+    public PurchaseOrder create(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
+                                BigDecimal defaultDutyRatePct, ContainerType containerType,
+                                Boolean freightViaSupplier) {
         requireSupplier(supplierId);
         requirePositive(cnyToUsd, "CNY/USD-koers");
         requirePositive(usdToEur, "USD/EUR-koers");
@@ -180,7 +220,9 @@ public class PurchaseOrderService {
                 defaultDutyRatePct, new BigDecimal("2000"),
                 Allocation.CBM, Allocation.CBM, Allocation.CBM, Allocation.PIECES,
                 "Ningbo", "Rotterdam", "", List.of())
-                .withCreationMetadata(creator, Instant.now());
+                .withCreationMetadata(creator, Instant.now())
+                .withFreightViaSupplier(freightViaSupplier != null ? freightViaSupplier
+                        : supplierQuotesCif(supplierId) ? Boolean.TRUE : null);
         PurchaseOrder created = orders.save(draft);
         recordActivity(ActivityLogService.ACTION_CREATED, created, "Inkooporder aangemaakt");
         firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.CREATED,
@@ -243,6 +285,7 @@ public class PurchaseOrderService {
                                 line.priceBasis()).withExtraShare(line.extraShareEur()))
                         .toList()).withInspectionCost(source.inspectionCostEur()).withSeparateAllocation(source.allocSeparate())
                 .withOtherCosts(source.otherCosts())
+                .withFreightViaSupplier(source.freightViaSupplier())
                 .withCreationMetadata(creator, Instant.now()));
         recordActivity(ActivityLogService.ACTION_DUPLICATED, copy,
                 "Inkooporder gedupliceerd vanuit " + source.number());
@@ -356,6 +399,7 @@ public class PurchaseOrderService {
         }
         requireValidPaymentSplit(changes);
         requirePreservedPaidInstalments(current, changes);
+        requireCifChangeAllowed(current, changes);
         if (changes.allocSeparate() == Allocation.MANUAL) {
             throw new BusinessRuleException("Inspectie en andere kosten: kies achteraf, volume, waarde of stuks");
         }
@@ -370,7 +414,7 @@ public class PurchaseOrderService {
                 changes.allocFreight(), changes.allocOrigin(), changes.allocDestination(),
                 changes.allocExtra(), changes.departurePort(), changes.destinationPort(),
                 changes.receivingLocationId(), changes.groupVariants(),
-                changes.expectedArrival(), current.receivedOn(), current.paidTotalEur(), current.stockBooked(),
+                changes.expectedArrival(), receivedOnAfter(current, changes), current.paidTotalEur(), current.stockBooked(),
                 changes.paymentTerms(),
                 /* The sailing date is set the moment the status says so, and kept. */
                 current.shippedOn() != null ? current.shippedOn()
@@ -383,7 +427,8 @@ public class PurchaseOrderService {
                 /* Who co-orders the container is decided in the partner flow, not by a form save. */
                 .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct())
                 .withSeparateAllocation(changes.allocSeparate())
-                .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived()));
+                .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived())
+                .withFreightViaSupplier(changes.freightViaSupplier()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -533,7 +578,38 @@ public class PurchaseOrderService {
         return wanted;
     }
 
-    private static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+    /** The business runs in Belgium; the server clock (UTC on Railway) must not pick yesterday after midnight. */
+    static final java.time.ZoneId BRUSSELS = java.time.ZoneId.of("Europe/Brussels");
+
+    /**
+     * The receipt day as it should be after a save. Only a received order can
+     * have its day corrected, and only by an explicit other day: a null from
+     * any client keeps the stored one, so a partial payload never clears it,
+     * and before the receipt the day is not the form's to set. The automatic
+     * "Ontvangst dd/mm/jjjj" diary line stays as written; the audit log keeps
+     * the correction.
+     */
+    private static LocalDate receivedOnAfter(PurchaseOrder current, PurchaseOrder changes) {
+        LocalDate wanted = changes.receivedOn();
+        if (current.status() != PurchaseOrderStatus.ONTVANGEN || wanted == null
+                || wanted.equals(current.receivedOn())) {
+            return current.receivedOn();
+        }
+        return requireReceiptDay(wanted, changes.orderDate());
+    }
+
+    /** A receipt day lies between the order date and today (Brussels). */
+    static LocalDate requireReceiptDay(LocalDate day, LocalDate orderDate) {
+        if (day.isAfter(LocalDate.now(BRUSSELS))) {
+            throw new BusinessRuleException("Ontvangen op kan niet in de toekomst liggen");
+        }
+        if (orderDate != null && day.isBefore(orderDate)) {
+            throw new BusinessRuleException("Ontvangen op kan niet vóór de orderdatum liggen");
+        }
+        return day;
+    }
 
     /* ---- payments ---------------------------------------------------------- */
 
@@ -640,8 +716,17 @@ public class PurchaseOrderService {
         return payment;
     }
 
+    /** The euro value of an amount at the order's frozen goods rates, unrounded. */
+    static BigDecimal euroAtOrderRate(PurchaseOrder order, BigDecimal amount, Currency money) {
+        return switch (money) {
+            case EUR -> amount;
+            case USD -> amount.multiply(Money.nz(order.usdToEurGoods()));
+            case CNY -> amount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
+        };
+    }
+
     /** The bank's euro figure must be a real amount, and for a euro transfer it is the amount itself. */
-    private static BigDecimal requireBankAmount(BigDecimal amountEur, Currency money, BigDecimal amount) {
+    static BigDecimal requireBankAmount(BigDecimal amountEur, Currency money, BigDecimal amount) {
         if (amountEur.signum() <= 0) throw new BusinessRuleException("Geef een eurobedrag groter dan nul op");
         if (money == Currency.EUR && amountEur.compareTo(amount) != 0) {
             throw new BusinessRuleException("Voor een betaling in euro is het eurobedrag gelijk aan het bedrag");
@@ -665,9 +750,20 @@ public class PurchaseOrderService {
         }
     }
 
-    private static void requireInstalmentDue(PurchaseOrder order, PurchasePayment.Payee payee,
-                                            PaymentTerms.Moment due) {
+    private void requireInstalmentDue(PurchaseOrder order, PurchasePayment.Payee payee,
+                                      PaymentTerms.Moment due) {
         if (due == null) return;
+        if (due == PaymentTerms.Moment.FREIGHT) {
+            /* The CIF freight is a supplier term only where the container says so. */
+            if (payee != null && payee != PurchasePayment.Payee.SUPPLIER || !order.cif()) {
+                throw new BusinessRuleException("Zeevracht (CIF) hoort alleen bij een betaling aan de leverancier van een CIF-container");
+            }
+            if (order.paymentInstalments().isEmpty()
+                    || payable(order, calculate(order), null).supplierFreightEur().signum() <= 0) {
+                throw new BusinessRuleException("Deze betaaltermijn komt niet voor in de betaalafspraak van de inkooporder");
+            }
+            return;
+        }
         if (payee != null && payee != PurchasePayment.Payee.SUPPLIER) {
             throw new BusinessRuleException("Een betaaltermijn kan alleen aan een leveranciersbetaling worden gekoppeld");
         }
@@ -679,7 +775,8 @@ public class PurchaseOrderService {
     private void requirePreservedPaidInstalments(PurchaseOrder current, PurchaseOrder changes) {
         if (payments == null || !payments.isResolvable()) return;
         for (PurchasePayment payment : payments.get().forOrder(current.id())) {
-            if (payment.instalmentDue() == null) continue;
+            /* The CIF freight term follows the container's CIF choice, guarded by requireCifChangeAllowed. */
+            if (payment.instalmentDue() == null || payment.instalmentDue() == PaymentTerms.Moment.FREIGHT) continue;
             var after = changes.paymentInstalments().stream()
                     .filter(step -> step.due() == payment.instalmentDue()).findFirst().orElse(null);
             // A transfer belongs to a stable milestone, not to the percentage
@@ -689,6 +786,24 @@ public class PurchaseOrderService {
             if (after == null) {
                 throw new BusinessRuleException("Er zijn betalingen aan deze termijn gekoppeld. Behoud het betaalmoment of pas eerst de termijnkoppeling van die betalingen aan");
             }
+        }
+    }
+
+    /**
+     * Turning CIF on or off moves the transport between Leverancier and
+     * Douane & transport. A settle marker on either would then close a term
+     * that did not exist when it was set (a fake saving of the whole freight),
+     * and payments tied to the freight term would lose it.
+     */
+    private void requireCifChangeAllowed(PurchaseOrder current, PurchaseOrder changes) {
+        if (current.cif() == changes.cif() || payments == null || !payments.isResolvable()) return;
+        List<PurchasePayment> recorded = payments.get().forOrder(current.id());
+        if (recorded.stream().anyMatch(payment -> payment.settles()
+                && (payment.payee() == PurchasePayment.Payee.SUPPLIER || payment.payee() == PurchasePayment.Payee.LOGISTICS))) {
+            throw new BusinessRuleException("Leverancier of Douane & transport is al afgerekend. Maak die afrekening eerst ongedaan voordat je CIF aan- of uitzet.");
+        }
+        if (!changes.cif() && recorded.stream().anyMatch(payment -> payment.instalmentDue() == PaymentTerms.Moment.FREIGHT)) {
+            throw new BusinessRuleException("Er zijn betalingen voor Zeevracht (CIF); zet ze eerst op een andere termijn.");
         }
     }
 
@@ -706,20 +821,21 @@ public class PurchaseOrderService {
                 + (payment.instalmentDue() == null ? "" : " · termijn " + switch (payment.instalmentDue()) {
                     case ORDERED -> "bij bestelling";
                     case SHIPPED -> "bij vertrek";
+                    case FREIGHT -> "zeevracht";
                     case ARRIVED -> "bij aankomst";
                 })
                 + (payment.settles() ? (payment.instalmentDue() == null
                     ? " · slotbetaling, hiermee vereffend" : " · slotbetaling, deze termijn vereffend") : "") + ".";
     }
 
-    private static String describeMoney(BigDecimal amount, Currency currency) {
+    static String describeMoney(BigDecimal amount, Currency currency) {
         String symbol = switch (currency) { case EUR -> "€ "; case USD -> "US$ "; case CNY -> "CN¥ "; };
         /* Belgian figures: a point every three digits, a comma before the cents. */
         return symbol + String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.2f",
                 amount.setScale(2, java.math.RoundingMode.HALF_UP));
     }
 
-    private static String appendNote(String notes, String line) {
+    static String appendNote(String notes, String line) {
         return notes == null || notes.isBlank() ? line : notes.stripTrailing() + "\n" + line;
     }
 
@@ -804,26 +920,42 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Who is owed what, in euro: the supplier gets the goods (and the sea
-     * freight when the price is CIF/CFR); the forwarder and customs get the
-     * road; the Enrosed kost is ours and nobody's invoice.
+     * Who is owed what, in euro: the supplier gets the goods; the forwarder
+     * and customs get the road; the Enrosed kost is ours and nobody's invoice.
+     * A CIF container (chosen on the container, never read from the incoterm
+     * on paper) owes the supplier the transport before the border too: the
+     * local costs in China and the sea freight, as a term of its own. Duty
+     * and the local costs at arrival stay with Douane & transport. Only DDP
+     * folds everything into the piece price. Customs value, duty and cost
+     * prices never move: only who is paid does.
      */
     public Payable payable(PurchaseOrder order, LandedCost costing, String supplierIncoterm) {
-        boolean ddp = order.lines().stream().allMatch(PurchaseOrderLine::deliveredDutyPaid) && !order.lines().isEmpty();
-        /* The factory is owed its goods price, nothing more: the freight on
-           the order is our own quote, whatever the incoterm on paper says.
-           Only DDP folds everything into the piece price. */
-        BigDecimal supplier = costing.totals().goodsEur();
+        boolean ddp = order.deliveredDutyPaid();
+        boolean cif = !ddp && order.cif();
+        BigDecimal goods = Money.nz(costing.totals().goodsEur()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal transport = Money.nz(costing.totals().originEur()).add(Money.nz(costing.totals().freightEur()));
+        BigDecimal supplierFreight = (cif ? transport : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         BigDecimal logistics = ddp ? BigDecimal.ZERO
-                : costing.totals().originEur().add(costing.totals().dutyEur()).add(costing.totals().destinationEur())
-                        .add(costing.totals().freightEur());
-        return new Payable(supplier.setScale(2, java.math.RoundingMode.HALF_UP),
-                logistics.setScale(2, java.math.RoundingMode.HALF_UP),
-                costing.totals().extraRevenueEur(), ddp, ddp);
+                : Money.nz(costing.totals().dutyEur()).add(Money.nz(costing.totals().destinationEur()))
+                        .add(cif ? BigDecimal.ZERO : transport);
+        return new Payable(goods.add(supplierFreight),
+                logistics.setScale(2, RoundingMode.HALF_UP),
+                costing.totals().extraRevenueEur(), ddp || cif, ddp, supplierFreight);
     }
 
+    /**
+     * @param supplierFreightEur the part of supplierEur that is the CIF
+     *                           transport (local costs China and sea freight),
+     *                           owed as the "Zeevracht (CIF)" term; zero otherwise.
+     */
     public record Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
-                          boolean freightInSupplierPrice, boolean ddp) {}
+                          boolean freightInSupplierPrice, boolean ddp, BigDecimal supplierFreightEur) {
+        /** Compatibility for callers written before CIF containers: no freight owed to the supplier. */
+        public Payable(BigDecimal supplierEur, BigDecimal logisticsEur, BigDecimal enrosedEur,
+                       boolean freightInSupplierPrice, boolean ddp) {
+            this(supplierEur, logisticsEur, enrosedEur, freightInSupplierPrice, ddp, BigDecimal.ZERO.setScale(2));
+        }
+    }
 
     /**
      * What the order is waiting on from us: a box on the water without a
@@ -849,7 +981,8 @@ public class PurchaseOrderService {
                 && supplierPayments.stream().noneMatch(payment -> payment.amountEur() == null)) return items;
         BigDecimal paid = supplierPayments.stream().map(PurchasePayment::amountEur)
                 .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
-        var instalments = SupplierPaymentAllocation.calculate(order, owed, supplierPayments);
+        BigDecimal freight = Money.nz(payable.supplierFreightEur());
+        var instalments = SupplierPaymentAllocation.calculate(order, owed.subtract(freight), freight, supplierPayments);
         if (instalments.isEmpty()) {
             if (paid.signum() == 0) items.add("Nog geen betaling genoteerd");
             return items;
@@ -858,7 +991,7 @@ public class PurchaseOrderService {
             if (step.finalized() || step.remainingEur().signum() <= 0) continue;
             boolean due = switch (step.due()) {
                 case ORDERED -> true;
-                case SHIPPED -> order.status() == PurchaseOrderStatus.ONDERWEG
+                case SHIPPED, FREIGHT -> order.status() == PurchaseOrderStatus.ONDERWEG
                         || order.status() == PurchaseOrderStatus.ONTVANGEN;
                 case ARRIVED -> order.status() == PurchaseOrderStatus.ONTVANGEN;
             };
@@ -912,6 +1045,13 @@ public class PurchaseOrderService {
         BigDecimal recordedAmount = amount.setScale(2, RoundingMode.HALF_UP);
         if (recordedAmount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? before.currency() : currency;
+        /* A credit offset onto this order carries the credit's amount; only the other container can undo it. */
+        PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
+        if (offsetCredit != null && (recordedAmount.compareTo(before.amount()) != 0 || money != before.currency()
+                || payee != null && payee != before.payee())) {
+            throw new BusinessRuleException("Deze betaling is een verrekend tegoed van "
+                    + orderNumber(offsetCredit.orderId()) + "; maak de verrekening daar ongedaan");
+        }
         // Date, label, recipient and settlement corrections never revalue an
         // existing bank movement at an exchange rate edited since registration.
         boolean unchangedMoney = money == before.currency() && before.amount() != null
@@ -930,6 +1070,12 @@ public class PurchaseOrderService {
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
+        if (offsetCredit != null && !Objects.equals(offsetCredit.settledOn(), after.paidOn())) {
+            /* The credit was settled the day its offset payment says. */
+            supplierCredits.get().save(offsetCredit.with(offsetCredit.amount(), offsetCredit.currency(),
+                    offsetCredit.amountEur(), offsetCredit.reason(), offsetCredit.note(), offsetCredit.status(),
+                    after.paidOn(), offsetCredit.offsetOrderId(), offsetCredit.offsetPaymentId()));
+        }
         ActivityChangeSet changes = ActivityChangeSet.create()
                 .add("payment.amount", "Bedrag", before.amount(), after.amount())
                 .add("payment.currency", "Valuta", before.currency(), after.currency())
@@ -950,6 +1096,7 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
         /* The diary line the payment wrote goes with it. */
         String cleaned = removeNoteLine(order.notes(), paymentNoteLine(payment));
@@ -957,6 +1104,7 @@ public class PurchaseOrderService {
             orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), cleaned, order.lines()));
         }
+        if (offsetCredit != null) reopenOffsetCredit(offsetCredit, order);
         recordActivity(ActivityLogService.ACTION_PAYMENT_DELETED, order, "Betaling verwijderd",
                 ActivityChangeSet.create()
                         .add("payment.amount", "Bedrag", payment.amount(), null)
@@ -966,26 +1114,70 @@ public class PurchaseOrderService {
                         .build());
     }
 
+    /**
+     * The payment that took a credit is gone: the credit is to receive again,
+     * and the diary of the order it belongs to loses its offset line.
+     */
+    private void reopenOffsetCredit(PurchaseSupplierCredit credit, PurchaseOrder target) {
+        supplierCredits.get().save(credit.reopened());
+        PurchaseOrder source = orders.findByIdForUpdate(credit.orderId()).orElse(null);
+        if (source == null) return;
+        String cleaned = removeNoteLine(source.notes(),
+                PurchaseSupplierCreditService.offsetNoteLine(credit, target.number()));
+        if (!Objects.equals(cleaned, source.notes())) {
+            orders.save(source.withReceipt(source.status(), source.receivedOn(), source.paidTotalEur(),
+                    source.stockBooked(), cleaned, source.lines()));
+        }
+        recordActivity(ActivityLogService.ACTION_UPDATED, source,
+                "Verrekening van het tegoed ongedaan gemaakt: de betaling op " + target.number() + " is verwijderd",
+                ActivityChangeSet.create()
+                        .add("credit.status", "Tegoed leverancier", credit.status().dutchLabel(),
+                                PurchaseSupplierCredit.Status.OPEN.dutchLabel())
+                        .build());
+    }
+
+    /** The number of an order for a message; the id when it is no longer on the list. */
+    String orderNumber(long orderId) {
+        return orders.findById(orderId).map(PurchaseOrder::number).orElse("inkooporder " + orderId);
+    }
+
     /** Removes one complete exact entry, including a multi-line description; never matches on amount alone. */
-    private static String removeNoteLine(String notes, String line) {
+    static String removeNoteLine(String notes, String line) {
         if (notes == null || notes.isBlank()) return notes;
         List<String> kept = new ArrayList<>(java.util.Arrays.asList(notes.split("\\R", -1)));
         String[] expected = line.split("\\R", -1);
-        int found = -1;
-        for (int start = 0; start <= kept.size() - expected.length; start++) {
-            boolean matches = true;
-            for (int offset = 0; offset < expected.length; offset++) {
-                if (!kept.get(start + offset).strip().equals(expected[offset].strip())) {
-                    matches = false;
-                    break;
-                }
-            }
-            if (matches) { found = start; break; }
-        }
+        int found = indexOfEntry(kept, expected);
         if (found < 0) return notes;
         kept.subList(found, found + expected.length).clear();
         String joined = String.join("\n", kept).replaceAll("\n{3,}", "\n\n").strip();
         return joined.isBlank() ? null : joined;
+    }
+
+    /** Rewrites one exact entry where it stands; appends the new one when the old one is no longer there. */
+    static String replaceNoteLine(String notes, String before, String after) {
+        if (before.equals(after)) return notes;
+        if (notes == null || notes.isBlank()) return appendNote(notes, after);
+        List<String> kept = new ArrayList<>(java.util.Arrays.asList(notes.split("\\R", -1)));
+        String[] expected = before.split("\\R", -1);
+        int found = indexOfEntry(kept, expected);
+        if (found < 0) return appendNote(notes, after);
+        kept.subList(found, found + expected.length).clear();
+        kept.addAll(found, java.util.Arrays.asList(after.split("\\R", -1)));
+        return String.join("\n", kept);
+    }
+
+    private static int indexOfEntry(List<String> lines, String[] expected) {
+        for (int start = 0; start <= lines.size() - expected.length; start++) {
+            boolean matches = true;
+            for (int offset = 0; offset < expected.length; offset++) {
+                if (!lines.get(start + offset).strip().equals(expected[offset].strip())) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return start;
+        }
+        return -1;
     }
 
     /** One line of a receipt: what arrived, what broke, and an optional explicit euro value per piece. */
@@ -1018,7 +1210,9 @@ public class PurchaseOrderService {
         }
         requireForwardTransition(order.status(), PurchaseOrderStatus.ONTVANGEN);
         if (receipt == null) receipt = new Receipt(List.of(), true, null, null, null);
-        LocalDate day = receipt.receivedOn() != null ? receipt.receivedOn() : LocalDate.now();
+        /* The day it actually came in when the sheet says so, else today in Belgium. */
+        LocalDate day = receipt.receivedOn() != null
+                ? requireReceiptDay(receipt.receivedOn(), order.orderDate()) : LocalDate.now(BRUSSELS);
 
         Map<Long, ReceivedLine> counted = new HashMap<>();
         Set<Long> orderedProducts = order.lines().stream()
@@ -1453,6 +1647,8 @@ public class PurchaseOrderService {
         if (Money.nz(order.paidTotalEur()).signum() != 0
                 || payments != null && payments.isResolvable() && !payments.get().forOrder(order.id()).isEmpty())
             throw new BusinessRuleException("Deze inkooporder heeft geregistreerde betalingen; archiveer de container zodat de betaalhistorie behouden blijft");
+        if (!supplierCredits(order.id()).isEmpty())
+            throw new BusinessRuleException("Deze inkooporder heeft een tegoed van de leverancier; archiveer de container zodat het tegoed behouden blijft");
     }
 
     /** Forward-only lifecycle; same-state saves remain possible for details. */
@@ -1506,6 +1702,13 @@ public class PurchaseOrderService {
                 || order.allocDestination() == null || order.allocExtra() == null) {
             throw new BusinessRuleException("Kies voor elke gedeelde kost een verdeelsleutel");
         }
+    }
+
+    private boolean supplierQuotesCif(long supplierId) {
+        return suppliers.findById(supplierId).map(Supplier::incoterm)
+                .map(incoterm -> incoterm.strip().toUpperCase(java.util.Locale.ROOT))
+                .filter(incoterm -> incoterm.equals("CIF") || incoterm.equals("CFR"))
+                .isPresent();
     }
 
     private void requireSupplier(long supplierId) {
@@ -1924,6 +2127,8 @@ public class PurchaseOrderService {
                         before.defaultDutyRatePct(), after.defaultDutyRatePct())
                 .add("extraRevenueEur", "Extra opbrengst", before.extraRevenueEur(), after.extraRevenueEur())
                 .add("allocSeparate", "Inspectie en andere kosten", before.separateAllocation(), after.separateAllocation())
+                .add("freightViaSupplier", "Zeevracht via de leverancier (CIF)",
+                        Boolean.TRUE.equals(before.freightViaSupplier()), Boolean.TRUE.equals(after.freightViaSupplier()))
                 .add("partnerCustomerId", "Partner", before.partnerCustomerId(), after.partnerCustomerId())
                 .add("partnerCostPct", "Partner betaalt vooraf (%)", before.partnerCostPct(), after.partnerCostPct())
                 .add("partnerSharePct", "Ons deel van de winst (%)", before.partnerSharePct(), after.partnerSharePct())

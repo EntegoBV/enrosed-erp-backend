@@ -3,6 +3,7 @@ package be.enrosed.sourcing.adapter.in.rest;
 import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
 import be.enrosed.sourcing.adapter.out.document.PdfPurchasePaymentsRenderer;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.PurchaseSupplierCreditService;
 import be.enrosed.sourcing.application.ReceiptIssues;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.LandedCost;
@@ -35,6 +36,7 @@ public class SourcingResource {
     private final PdfPurchaseRenderer purchasePdf;
     @jakarta.inject.Inject PdfPurchasePaymentsRenderer paymentsPdf;
     @jakarta.inject.Inject be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer inspectionPdf;
+    @jakarta.inject.Inject PurchaseSupplierCreditService supplierCredits;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -50,8 +52,16 @@ public class SourcingResource {
         return purchaseOrders.paymentsSince(from == null || from.isBlank() ? null : java.time.LocalDate.parse(from.strip()));
     }
 
+    /** freightViaSupplier: CIF or not; absent, a supplier quoting CIF or CFR starts the container as CIF. */
     public record CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
-                                      BigDecimal defaultDutyRatePct, ContainerType containerType) {}
+                                      BigDecimal defaultDutyRatePct, ContainerType containerType,
+                                      Boolean freightViaSupplier) {
+        /** Compatibility for callers written before a container could be CIF. */
+        public CreatePurchaseOrder(long supplierId, BigDecimal cnyToUsd, BigDecimal usdToEur,
+                                   BigDecimal defaultDutyRatePct, ContainerType containerType) {
+            this(supplierId, cnyToUsd, usdToEur, defaultDutyRatePct, containerType, null);
+        }
+    }
 
     public record PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                     List<PurchaseOrderService.CartonAdjustment> adjustments,
@@ -67,7 +77,26 @@ public class SourcingResource {
                                     java.time.Instant createdAt,
                                     /** Damage and shortages on this container: at receipt and reported afterwards. */
                                     List<PurchaseOrderService.ReceiptReport> receiptReports,
-                                    PurchaseReconciliation reconciliation) {
+                                    PurchaseReconciliation reconciliation,
+                                    /** What the supplier owes on this container ("Tegoed leverancier"); never null. */
+                                    List<PurchaseSupplierCreditService.CreditView> supplierCredits,
+                                    /** Credits of other containers paid as a supplier payment on this one; never null. */
+                                    List<PurchaseSupplierCreditService.CreditOffsetView> creditOffsets) {
+        public PurchaseOrderView {
+            supplierCredits = supplierCredits == null ? List.of() : supplierCredits;
+            creditOffsets = creditOffsets == null ? List.of() : creditOffsets;
+        }
+        /** Compatibility for callers written before supplier credits. */
+        public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
+                                 List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                 PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
+                                 List<String> attention, PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
+                                 ActorRef createdBy, java.time.Instant createdAt,
+                                 List<PurchaseOrderService.ReceiptReport> receiptReports,
+                                 PurchaseReconciliation reconciliation) {
+            this(order, costing, adjustments, costLabels, payable, attention, receiptVariance,
+                    createdBy, createdAt, receiptReports, reconciliation, List.of(), List.of());
+        }
         public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
                                  List<PurchaseOrderService.CartonAdjustment> adjustments,
                                  PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
@@ -184,7 +213,8 @@ public class SourcingResource {
     @Path("/purchase-orders")
     public Response createPurchaseOrder(CreatePurchaseOrder request) {
         PurchaseOrder created = purchaseOrders.create(request.supplierId(), request.cnyToUsd(),
-                request.usdToEur(), request.defaultDutyRatePct(), request.containerType());
+                request.usdToEur(), request.defaultDutyRatePct(), request.containerType(),
+                request.freightViaSupplier());
         return Response.status(Response.Status.CREATED)
                 .entity(view(created, purchaseOrders.calculate(created), List.of()))
                 .build();
@@ -232,7 +262,8 @@ public class SourcingResource {
                 /* The screen's draft keeps what it was given: the partner and the key for the separate costs. */
                 .withPartner(o.partnerCustomerId(), o.partnerCostPct(), o.partnerSharePct())
                 .withSeparateAllocation(o.allocSeparate())
-                .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived());
+                .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived())
+                .withFreightViaSupplier(o.freightViaSupplier());
     }
 
     @DELETE
@@ -499,6 +530,42 @@ public class SourcingResource {
         return Response.noContent().build();
     }
 
+    /* ---- supplier credits ("Tegoed leverancier") ---- */
+
+    /** Notes what the supplier owes on this container; answers with the container as it now stands. */
+    @POST
+    @Path("/purchase-orders/{id}/supplier-credits")
+    public PurchaseOrderView addSupplierCredit(@PathParam("id") long id,
+                                               PurchaseSupplierCreditService.CreditRequest request) {
+        supplierCredits.add(id, request);
+        return currentView(id);
+    }
+
+    /** Changes an open credit, marks it refunded, or undoes the refund. */
+    @PUT
+    @Path("/purchase-orders/{id}/supplier-credits/{creditId}")
+    public PurchaseOrderView updateSupplierCredit(@PathParam("id") long id, @PathParam("creditId") long creditId,
+                                                  PurchaseSupplierCreditService.CreditChange change) {
+        supplierCredits.update(id, creditId, change);
+        return currentView(id);
+    }
+
+    @DELETE
+    @Path("/purchase-orders/{id}/supplier-credits/{creditId}")
+    public PurchaseOrderView deleteSupplierCredit(@PathParam("id") long id, @PathParam("creditId") long creditId) {
+        supplierCredits.delete(id, creditId);
+        return currentView(id);
+    }
+
+    /** Pays part of another container of the same supplier with this credit. */
+    @POST
+    @Path("/purchase-orders/{id}/supplier-credits/{creditId}/offset")
+    public PurchaseOrderView offsetSupplierCredit(@PathParam("id") long id, @PathParam("creditId") long creditId,
+                                                  PurchaseSupplierCreditService.OffsetRequest request) {
+        supplierCredits.offset(id, creditId, request);
+        return currentView(id);
+    }
+
     /* ---- documents ---- */
 
     public record DocumentDto(Long id, PurchaseDocument.Kind kind, String kindLabel, String label, String originalFilename,
@@ -588,11 +655,19 @@ public class SourcingResource {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
                 supplier == null ? null : supplier.incoterm());
+        boolean credits = supplierCredits != null && order.id() != null;
         return new PurchaseOrderView(order, costing, adjustments,
                 PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
                 purchaseOrders.receiptVarianceSummary(order),
                 order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order),
-                purchaseOrders.reconciliation(order, costing));
+                purchaseOrders.reconciliation(order, costing),
+                credits ? supplierCredits.views(order.id()) : List.of(),
+                credits ? supplierCredits.offsetsOnto(order.id()) : List.of());
+    }
+
+    private PurchaseOrderView currentView(long id) {
+        PurchaseOrder order = purchaseOrders.get(id);
+        return view(order, purchaseOrders.calculate(order), List.of());
     }
 
     /** Damage or a shortage found while unpacking: booked against this container. */

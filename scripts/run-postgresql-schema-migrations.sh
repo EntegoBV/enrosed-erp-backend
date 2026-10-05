@@ -122,8 +122,15 @@ exec psql \
     --file=/app/migrations/product-short-skus-postgresql.sql \
     --file=/app/migrations/product-localized-tags-seed-postgresql.sql \
     --file=/app/migrations/product-sales-unit-postgresql.sql \
+    --file=/app/migrations/family-website-quote-photo-postgresql.sql \
+    --file=/app/migrations/product-unit-key-postgresql.sql \
     --file=/app/migrations/catalog-export-order-postgresql.sql \
     --file=/app/migrations/credit-notes-postgresql.sql \
+    --file=/app/migrations/product-text-variant-size-postgresql.sql \
+    --file=/app/migrations/product-text-variant-size-neutral-postgresql.sql \
     --file=/app/migrations/prospects-postgresql.sql \
+    --file=/app/migrations/purchase-supplier-credit-postgresql.sql \
+    --file=/app/migrations/purchase-order-freight-via-supplier-postgresql.sql \
     --file=/app/migrations/glass-box-twelve-roses-postgresql.sql \
+    --file=/app/migrations/sales-advance-billing-postgresql.sql \
     --file=/app/migrations/glass-box-thirteen-roses-postgresql.sql

@@ -58,6 +58,36 @@ class QuoteMailTemplateRenderTest {
     }
 
     @Test
+    void requestedQuantityOfAnUnavailableLineSaysWhatItCounted() {
+        var bowl = new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                be.enrosed.catalog.domain.Dimensions.empty(), null, 8,
+                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl");
+        var displays = new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                be.enrosed.catalog.domain.Dimensions.empty(), null, 12,
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos");
+        var lines = List.of(
+                new be.enrosed.sales.application.port.out.QuoteMailer.DeliveryLine(
+                        "Bowl", "2026-W37", true, true, 48, bowl),
+                new be.enrosed.sales.application.port.out.QuoteMailer.DeliveryLine(
+                        "Stem roses", "2026-W37", true, true, 3, displays),
+                new be.enrosed.sales.application.port.out.QuoteMailer.DeliveryLine(
+                        "Plain rose", "2026-W37", true, true, 48, be.enrosed.catalog.domain.Packaging.none()));
+
+        var dutch = SmtpQuoteMailer.deliveryRows(lines, Language.NL);
+        assertTrue(dutch.get(0).requestedQuantityText().equals("Oorspronkelijk aangevraagd: 48 bowls"),
+                dutch.get(0).requestedQuantityText());
+        assertTrue(dutch.get(1).requestedQuantityText().equals("Oorspronkelijk aangevraagd: 3 Displays"),
+                dutch.get(1).requestedQuantityText());
+        for (var language : Language.values()) {
+            assertTrue(SmtpQuoteMailer.deliveryRows(lines, language).get(2).requestedQuantityText()
+                    .equals(DocumentText.of(language).get("lineRequestedQuantity").formatted(48)),
+                    "a plain piece keeps its long-standing sentence in " + language);
+        }
+        assertTrue(SmtpQuoteMailer.deliveryRows(lines, Language.PL).getFirst().requestedQuantityText()
+                .endsWith("48 miseczek"));
+    }
+
+    @Test
     void officeCopyShowsExcludedRequestWithoutZeroPriceOrShippingPromise() {
         var mailer = new SmtpQuoteMailer(null, engine.getTemplate("quote-mail.html"), null,
                 engine.getTemplate("quote-sent-internal.html"), null);

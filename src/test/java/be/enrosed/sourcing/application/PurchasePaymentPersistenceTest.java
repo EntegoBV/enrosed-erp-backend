@@ -315,7 +315,8 @@ class PurchasePaymentPersistenceTest {
         /* The container comes in with one broken piece; the usable 99 go on the shelf. */
         purchaseOrders.receive(order.id(), new PurchaseOrderService.Receipt(
                 List.of(new PurchaseOrderService.ReceivedLine(product.id, 100, 1)), true, null,
-                LocalDate.of(2026, 9, 20), null));
+                /* The order was created today, and a receipt cannot predate its order. */
+                LocalDate.now(), null));
         entityManager.flush(); entityManager.refresh(product);
         assertEquals(99, product.stockQuantity);
 

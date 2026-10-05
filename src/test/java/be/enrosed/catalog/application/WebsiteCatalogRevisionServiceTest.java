@@ -89,6 +89,41 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void withholdingPricesAltersTheRevisionAndShowingThemKeepsTheExistingOne() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        String withoutTheSetting = service(graph).currentRevision();
+        WebsiteCatalogRevisionService service = service(graph);
+        service.priceVisibility = mock(WebsitePriceVisibility.class);
+
+        when(service.priceVisibility.pricesVisible()).thenReturn(true);
+        String visible = service.currentRevision();
+        when(service.priceVisibility.pricesVisible()).thenReturn(false);
+        String hidden = service.currentRevision();
+
+        assertEquals(withoutTheSetting, visible,
+                "shown prices must not start a rebuild on a website that is already live");
+        assertNotEquals(visible, hidden, "the product pages only lose their prices after a rebuild");
+        assertEquals(hidden, service.currentRevision(), "the withheld state is one stable revision");
+    }
+
+    @Test
+    void choosingAnotherUnitAltersTheRevisionButSpellingTheDefaultDoesNot() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().packagingUnitKey = null;
+        String implicitPiece = service(graph).currentRevision();
+
+        graph.product().packagingUnitKey = "stuk";
+        String explicitPiece = service(graph).currentRevision();
+        graph.product().packagingUnitKey = "bowl";
+        String bowl = service(graph).currentRevision();
+
+        assertEquals(implicitPiece, explicitPiece, "null and stuk print the same public words");
+        assertNotEquals(explicitPiece, bowl, "the website reads 'per bowl' only after a rebuild");
+    }
+
+    @Test
     void internalDocumentNameDoesNotAlterRevisionAfterPublicCopyDiverged() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
@@ -130,6 +165,35 @@ class WebsiteCatalogRevisionServiceTest {
         String published = service(graph).currentRevision();
 
         assertNotEquals(internal, published);
+    }
+
+    @Test
+    void choosingTheWebsiteQuotePhotoAltersTheWebsiteRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        ProductFamilyPhotoEntity packshot = new ProductFamilyPhotoEntity();
+        packshot.id = 31L;
+        packshot.family = graph.family();
+        packshot.sourceKey = "packshot";
+        packshot.smallStorageKey = "packshot-small";
+        packshot.largeStorageKey = "packshot-large";
+        packshot.smallWidthPx = 480;
+        packshot.smallHeightPx = 240;
+        packshot.largeWidthPx = 2048;
+        packshot.largeHeightPx = 1024;
+        packshot.position = 1;
+        packshot.altTextsJson = "[]";
+        graph.family().photos.add(packshot);
+        String automatic = service(graph).currentRevision();
+
+        graph.family().websiteQuotePhotoId = packshot.id;
+        String chosen = service(graph).currentRevision();
+        assertNotEquals(automatic, chosen, "the quote page shows another photo after the choice");
+
+        graph.family().websiteQuotePhotoId = graph.family().photos.getFirst().id;
+        String explicitAutomatic = service(graph).currentRevision();
+        assertNotEquals(automatic, explicitAutomatic,
+                "the stored choice is covered even when it equals the automatic pick");
     }
 
     @Test

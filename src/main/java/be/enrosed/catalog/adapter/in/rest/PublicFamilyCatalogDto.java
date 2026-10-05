@@ -19,8 +19,18 @@ public record PublicFamilyCatalogDto(
         String catalogRevision,
         Map<String, LocalizedValueDto> siteCopy,
         List<CategoryDto> categories,
-        List<FamilyDto> families
+        List<FamilyDto> families,
+        /** False when staff withhold prices on the whole website: every {@code publicPrice} is then null on purpose. */
+        boolean pricesVisible
 ) {
+    public PublicFamilyCatalogDto(CatalogChannel channel, Language language, List<Language> fallbackChain,
+                                  long siteCopyRevision, String catalogRevision,
+                                  Map<String, LocalizedValueDto> siteCopy,
+                                  List<CategoryDto> categories, List<FamilyDto> families) {
+        this(channel, language, fallbackChain, siteCopyRevision, catalogRevision, siteCopy,
+                categories, families, true);
+    }
+
     public record FamilyDto(
             Long id,
             String familyKey,
@@ -40,8 +50,21 @@ public record PublicFamilyCatalogDto(
             List<PackageDto> packages,
             List<ImageDto> images,
             List<VariantDto> variants,
-            Map<String, Language> textSources
-    ) {}
+            Map<String, Language> textSources,
+            /** WEBSITE only: the quote page photo, always one of {@code images}; null otherwise. */
+            Long quoteImageId
+    ) {
+        public FamilyDto(Long id, String familyKey, String publicHandle, String name, String summary,
+                         String description, String format, List<String> highlights,
+                         CategoryDto category, int productPosition, Long cardFeaturedProductId,
+                         List<String> tags, String status, SeoDto seo, DimensionsDto dimensions,
+                         List<PackageDto> packages, List<ImageDto> images, List<VariantDto> variants,
+                         Map<String, Language> textSources) {
+            this(id, familyKey, publicHandle, name, summary, description, format, highlights,
+                    category, productPosition, cardFeaturedProductId, tags, status, seo, dimensions,
+                    packages, images, variants, textSources, null);
+        }
+    }
 
     public record CategoryDto(
             String key,
@@ -102,6 +125,7 @@ public record PublicFamilyCatalogDto(
             String sku,
             String barcode,
             String color,
+            /** The Maat as typed on the product, the same in every language; {@code textSources.size} is always exact. */
             String size,
             String colorHex,
             String name,
@@ -111,8 +135,18 @@ public record PublicFamilyCatalogDto(
             PublicPriceDto publicPrice,
             Map<String, Language> textSources,
             String salesUnit,
-            Integer piecesPerDisplay
+            Integer piecesPerDisplay,
+            /** What one piece is called in the requested language; {@code textSources.unit} is always exact. */
+            UnitDto unit
     ) {
+        public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
+                          String name, int position, String availability, Long primaryImageId,
+                          PublicPriceDto publicPrice, Map<String, Language> textSources,
+                          String salesUnit, Integer piecesPerDisplay) {
+            this(id, sku, barcode, color, size, colorHex, name, position, availability,
+                    primaryImageId, publicPrice, textSources, salesUnit, piecesPerDisplay, null);
+        }
+
         public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
                           String name, int position, String availability, Long primaryImageId,
                           PublicPriceDto publicPrice, Map<String, Language> textSources) {

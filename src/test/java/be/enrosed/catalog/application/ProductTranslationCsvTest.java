@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,10 +52,57 @@ class ProductTranslationCsvTest {
         String text = new String(csv.export(), StandardCharsets.UTF_8);
         List<String> lines = text.lines().toList();
 
-        assertEquals("sku;taal;naam;beschrijving;kleur;maat", stripBom(lines.get(0)));
+        assertEquals("sku;taal;naam;beschrijving;kleur", stripBom(lines.get(0)));
         assertEquals(1 + Language.values().length, lines.size(), "kop plus een rij per taal");
-        assertEquals("ENR-P01;nl;Glass flower;Handgemaakt;Rood;", lines.get(1));
-        assertEquals("ENR-P01;fr;Glass flower;Handgemaakt;Rood;", lines.get(2));
+        assertEquals("ENR-P01;nl;Glass flower;Handgemaakt;Rood", lines.get(1));
+        assertEquals("ENR-P01;fr;Glass flower;Handgemaakt;Rood", lines.get(2));
+    }
+
+    @Test
+    @DisplayName("de maat staat niet in het vertaalbestand: één waarde voor alle talen")
+    void roundTripsWithoutAMaatColumn() {
+        Product base = product(1L, "ENR-P01", "Diamond display", "Rood", "Handgemaakt")
+                .withVariantAttributes("Rood", "4.8*4.8cm", null)
+                .withTexts(List.of(new ProductText(Language.FR, "Présentoir", null, "Rouge")));
+        products.add(base);
+
+        byte[] exported = csv.export();
+        String text = new String(exported, StandardCharsets.UTF_8);
+        assertEquals("sku;taal;naam;beschrijving;kleur", stripBom(text.lines().findFirst().orElseThrow()));
+        assertFalse(text.contains("4.8*4.8cm"), "the Maat is no translation: " + text);
+        assertTrue(text.contains("ENR-P01;fr;Présentoir;Handgemaakt;Rouge\r\n"), text);
+
+        ProductTranslationCsv.ImportResult result =
+                csv.importFrom(new ByteArrayInputStream(exported));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Product saved = products.get("ENR-P01");
+        assertEquals(base.texts(), saved.texts(), "the round trip changes nothing");
+        assertEquals("4.8*4.8cm", saved.variantSize());
+    }
+
+    @Test
+    @DisplayName("een ouder bestand met een kolom maat importeert zonder fout en zonder maat")
+    void importsAnOlderFileWithAMaatColumnWithoutTheSize() {
+        products.add(product(1L, "ENR-P01", "Diamond display", "Rood", "Handgemaakt")
+                .withVariantAttributes("Rood", "4.8*4.8cm", null));
+
+        String file = """
+                sku;taal;naam;beschrijving;kleur;maat
+                ENR-P01;fr;Présentoir;Fait main;Rouge;4.5*4.5cm
+                ENR-P01;de;Display;;;Klein
+                ENR-P01;en;;;;4.5*4.5cm
+                """;
+        ProductTranslationCsv.ImportResult result =
+                csv.importFrom(new ByteArrayInputStream(file.getBytes(StandardCharsets.UTF_8)));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Product saved = products.get("ENR-P01");
+        assertEquals(List.of(
+                        new ProductText(Language.FR, "Présentoir", "Fait main", "Rouge"),
+                        new ProductText(Language.DE, "Display", null, null)),
+                saved.texts(), "the old maat column is ignored; a size-only row adds nothing");
+        assertEquals("4.8*4.8cm", saved.variantSize(), "the one Maat is untouched");
     }
 
     @Test
@@ -76,7 +124,7 @@ class ProductTranslationCsvTest {
         Product base = product(1L, "ENR-P01", "Glass flower", "Rood", "Handgemaakt");
         String translated = "Première ligne; détail\n\"Rose\"\r\nDernière ligne";
         products.add(base.withTexts(List.of(
-                new ProductText(Language.FR, "Fleur en verre", translated, "Rouge", null))));
+                new ProductText(Language.FR, "Fleur en verre", translated, "Rouge"))));
 
         byte[] exported = csv.export();
         products.add(base);
@@ -136,8 +184,8 @@ class ProductTranslationCsvTest {
     void partialImportPreservesAbsentLanguages() {
         Product existing = product(1L, "ENR-P01", "Glass flower", "Rood", "Handgemaakt")
                 .withTexts(List.of(
-                        new ProductText(Language.FR, "Fleur", "Fait main", "Rouge", null),
-                        new ProductText(Language.EN, "Flower", "Handmade", "Red", null)));
+                        new ProductText(Language.FR, "Fleur", "Fait main", "Rouge"),
+                        new ProductText(Language.EN, "Flower", "Handmade", "Red")));
         products.add(existing);
 
         ProductTranslationCsv.ImportResult result = csv.importRows(List.of(

@@ -60,7 +60,9 @@ class DocumentTextTest {
         Set<String> packingSlipKeys = Set.of(
                 "packingSlip", "deliveryAddress", "pieces", "looseCartons",
                 "notOnPallet", "contents", "loadCheck", "loadedByDate",
-                "receivedByDate", "height");
+                "receivedByDate", "height", "quantity", "unitsPerCarton",
+                "salesDisplayUnits", "salesDisplaysPerCarton", "salesDisplaysPerCartonCount",
+                "salesDisplaysPerCartonUnits");
 
         for (Language language : Language.values()) {
             Map<String, String> text = DocumentText.of(language);
@@ -78,10 +80,54 @@ class DocumentTextTest {
             Map<String, String> text = DocumentText.of(language);
             for (String key : new String[] {"validUntilSentence", "mailSubject",
                                             "mailSubjectTermsAdded", "mailIntro",
-                                            "mailIntroUpdated"}) {
+                                            "mailIntroUpdated", "unitsPerCarton",
+                                            "salesUnitsPerDisplay", "salesTotalUnits",
+                                            "salesLooseUnits", "salesPricePerDisplayOf",
+                                            "salesDisplaysPerCartonCount", "salesDisplaysPerCartonUnits"}) {
                 assertTrue(text.get(key).contains("%s"),
                         language + " mist de invulplek in " + key + ": " + text.get(key));
             }
+        }
+    }
+
+    @Test
+    @DisplayName("eenheidszinnen dragen precies één invulplek, zodat ze elke eenheid kunnen dragen")
+    void unitPhrasesTakeExactlyOneCount() {
+        for (Language language : Language.values()) {
+            Map<String, String> text = DocumentText.of(language);
+            for (String key : new String[] {"unitsPerCarton", "salesUnitsPerDisplay",
+                                            "salesTotalUnits", "salesLooseUnits",
+                                            "salesPricePerDisplayOf", "salesDisplaysPerCartonCount"}) {
+                String phrase = text.get(key);
+                assertEquals(1, phrase.split("%s", -1).length - 1, language + " " + key + ": " + phrase);
+                String filled = phrase.formatted(UnitNames.count("bowl", 8, language));
+                assertTrue(filled.contains(UnitNames.count("bowl", 8, language)), language + " " + key);
+            }
+        }
+        assertEquals("16 bowls per doos",
+                DocumentText.of(Language.NL).get("unitsPerCarton").formatted(UnitNames.count("bowl", 16, Language.NL)));
+        assertEquals("5 displays per doos (40 bowls)",
+                DocumentText.of(Language.NL).get("salesDisplaysPerCartonUnits")
+                        .formatted("5", UnitNames.count("bowl", 40, Language.NL)));
+        assertEquals("per display van 8 bowls",
+                DocumentText.of(Language.NL).get("salesPricePerDisplayOf").formatted(UnitNames.count("bowl", 8, Language.NL)));
+    }
+
+    @Test
+    @DisplayName("een doos met displays telt displays en stuks met hetzelfde doos-woord als de stuks")
+    void displayCartonPhraseCountsDisplaysThenUnitsWithTheCartonNounOfThePieces() {
+        for (Language language : Language.values()) {
+            Map<String, String> text = DocumentText.of(language);
+            String phrase = text.get("salesDisplaysPerCartonUnits");
+            assertEquals(2, phrase.split("%s", -1).length - 1, language + ": " + phrase);
+            String bowls = UnitNames.count("bowl", 40, language);
+            String filled = phrase.formatted("5", bowls);
+            assertTrue(filled.contains("5") && filled.contains(bowls), language + ": " + filled);
+            assertTrue(filled.startsWith(text.get("salesDisplaysPerCartonCount").formatted("5")),
+                    language + ": both display phrases read the same");
+            /* The carton noun of "40 bowls per doos" also carries the display count. */
+            String carton = text.get("unitsPerCarton").replace("%s", "").strip();
+            assertTrue(filled.contains(carton), language + ": " + filled + " / " + carton);
         }
     }
 

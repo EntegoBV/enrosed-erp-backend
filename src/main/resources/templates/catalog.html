@@ -131,9 +131,9 @@
           {#if it.priceLabel}<div class="price">
             {#if it.displayPriceLabel}
               <div class="display-price display-price--primary">{it.displayPriceLabel}</div>
-              {#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{it.priceLabel} · {copy['catalog.simple.perpiece']}</small>{/if}
+              {#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{it.priceLabel} · {it.perUnitLabel}</small>{/if}
             {#else}
-              {it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{copy['catalog.simple.perpiece']}</small>{/if}
+              {it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{it.perUnitLabel}</small>{/if}
             {/if}
           </div>{/if}
         </td>

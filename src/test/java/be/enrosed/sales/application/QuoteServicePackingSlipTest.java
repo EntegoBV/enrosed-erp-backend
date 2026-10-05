@@ -67,16 +67,77 @@ class QuoteServicePackingSlipTest {
         assertEquals("6153400586590", slip.getValue().loose().getFirst().barcode());
     }
 
+    @Test
+    void packingSlipCountsEachLineInItsOwnUnitAndOnlyAddsUpComparableLines() {
+        SalesOrderService salesOrders = mock(SalesOrderService.class);
+        ProductService products = mock(ProductService.class);
+        QuoteDocumentRenderer renderer = mock(QuoteDocumentRenderer.class);
+        Product bowl = productWithPackagingBarcode();
+        Product bowlNamed = new Product(bowl.id(), bowl.sku(), bowl.name(), bowl.dimensions(),
+                bowl.packaging().withUnitKey("bowl"), bowl.colour(), bowl.variantSize(), bowl.colourHex(),
+                bowl.description(), bowl.categoryId(), bowl.supplierId(), bowl.supplierNote(), bowl.active(),
+                bowl.familyId(), bowl.canonicalVariantKey(), bowl.canonicalBarcode(), bowl.variantPosition(),
+                bowl.inventoryKnown(), bowl.familyKey(), bowl.publicHandle(), bowl.websiteStatus(),
+                bowl.orderAppStatus(), bowl.barcodes(), bowl.hsCode(), bowl.carton(), bowl.exwPrice(),
+                bowl.exwCurrency(), bowl.extraUnitCost(), bowl.landedCostEur(), bowl.landedCostSource(),
+                bowl.markupPct(), bowl.fixedSalesPriceEur(), bowl.stockQuantity(), bowl.photos(), bowl.texts(),
+                bowl.demo());
+        when(salesOrders.get(42L)).thenReturn(order());
+        when(products.get(7L)).thenReturn(bowlNamed);
+        QuoteService service = service(salesOrders, products, renderer);
+
+        SalesPdfOptions options = SalesPdfOptions.forPackingSlip(true, false);
+        service.packingSlip(42L, options);
+
+        ArgumentCaptor<QuoteDocumentRenderer.PackingSlip> slip =
+                ArgumentCaptor.forClass(QuoteDocumentRenderer.PackingSlip.class);
+        verify(renderer).packingSlip(slip.capture(), eq(options));
+        QuoteDocumentRenderer.PackingItem item = slip.getValue().loose().getFirst();
+        assertEquals("40 bowls", item.quantityText());
+        assertEquals("40 bowls per doos", item.cartonContentsText());
+        assertEquals("40 bowls", slip.getValue().totalQuantityText());
+
+        /* A second line in plain pieces: 40 bowls and 40 pieces are not 80 of anything. */
+        when(salesOrders.get(43L)).thenReturn(order(43L, List.of(
+                new SalesOrderLine(1L, 7L, 40, BigDecimal.TEN, null, null),
+                new SalesOrderLine(2L, 8L, 40, BigDecimal.TEN, null, null))));
+        when(products.get(8L)).thenReturn(productWithPackagingBarcode());
+        service.packingSlip(43L, options);
+        verify(renderer, org.mockito.Mockito.times(2)).packingSlip(slip.capture(), eq(options));
+        assertEquals("40 stuks", slip.getValue().loose().getLast().quantityText());
+        assertEquals(null, slip.getValue().totalQuantityText());
+        assertEquals(2, slip.getValue().totalCartons());
+    }
+
+    private static QuoteService service(SalesOrderService salesOrders, ProductService products,
+                                        QuoteDocumentRenderer renderer) {
+        return new QuoteService(
+                mock(SalesRepositories.Orders.class),
+                mock(SalesRepositories.Revisions.class),
+                salesOrders,
+                mock(CustomerService.class),
+                renderer,
+                mock(QuoteMailer.class),
+                products,
+                mock(SalesRepositories.Events.class),
+                mock(be.enrosed.shared.company.CompanyProfileService.class),
+                mock(be.enrosed.push.WebPushNotifier.class));
+    }
+
     private static SalesOrder order() {
+        return order(42L, List.of(new SalesOrderLine(1L, 7L, 40, BigDecimal.TEN, null, null)));
+    }
+
+    private static SalesOrder order(long id, List<SalesOrderLine> lines) {
         LocalDate today = LocalDate.now();
-        return new SalesOrder(42L, "F-2026-0042", null, "BE", today, today.plusDays(30),
+        return new SalesOrder(id, "F-2026-00" + id, null, "BE", today, today.plusDays(30),
                 QuoteStatus.CONCEPT, "DDP", null, null, MarkupMode.PRODUCT, BigDecimal.ZERO,
                 null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.LOOSE_CARTONS, PalletProfile.EURO_120X80, null,
                 FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
                 DocumentType.FACTUUR, null, null, null, null,
-                List.of(new SalesOrderLine(1L, 7L, 40, BigDecimal.TEN, null, null)),
+                lines,
                 List.of());
     }
 

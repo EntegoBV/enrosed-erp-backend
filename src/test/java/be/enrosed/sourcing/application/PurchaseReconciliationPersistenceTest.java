@@ -60,7 +60,8 @@ class PurchaseReconciliationPersistenceTest {
 
         orders.receive(order.id(), new PurchaseOrderService.Receipt(
                 List.of(new PurchaseOrderService.ReceivedLine(product.id, 97, 2)), false,
-                new BigDecimal("945"), LocalDate.of(2026, 9, 8), null));
+                /* The order was created today, and a receipt cannot predate its order. */
+                new BigDecimal("945"), LocalDate.now(), null));
         entityManager.clear();
         var received = orders.reconciliation(order.id());
         assertEquals(new BigDecimal("950.00"), received.totals().plannedExternalEur(),

@@ -3,6 +3,7 @@ package be.enrosed.sales.adapter.out.document;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.application.PartnerAdvanceContents.ProductDetails;
+import be.enrosed.sales.application.SalesUnitText;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.PricedOrder;
@@ -12,6 +13,7 @@ import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PaymentReference;
 import be.enrosed.shared.PdfFonts;
+import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
@@ -74,6 +76,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
     @Inject
     Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
+    /** Advance invoices and the slotfactuur of regular quotes. */
+    @Inject
+    Instance<be.enrosed.sales.application.SalesAdvanceBillingService> advanceBilling;
     /** The documents, to name and date the invoice a credit note corrects. */
     @Inject
     Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
@@ -126,21 +131,31 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         boolean advanceInvoice = invoice && !creditNote && order.isPartnerAdvance();
         var cargo = advanceInvoice && advanceContents != null && advanceContents.isResolvable()
                 ? advanceContents.get().find(order).orElse(null) : null;
-        boolean priceFreeProducts = agreementQuote || advanceInvoice;
+        /* A regular quote's advance invoice and its slotfactuur, in the document language. */
+        var billing = invoice && !creditNote && !order.isPartnerDeal() && advanceBilling != null && advanceBilling.isResolvable()
+                ? advanceBilling.get().presentation(order) : null;
+        boolean regularAdvance = billing != null && billing.billing() != null
+                && billing.billing().stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.ADVANCE;
+        boolean finalInvoice = billing != null && billing.billing() != null
+                && billing.billing().stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.FINAL;
+        boolean advanceDocument = advanceInvoice || regularAdvance;
+        boolean priceFreeProducts = agreementQuote || advanceDocument;
         var settlement = order.partnerSettlement() && order.id() != null
                 && partnerSettlements != null && partnerSettlements.isResolvable()
                 ? partnerSettlements.get().find(order.id()) : null;
         boolean partialSettlement = settlement != null && !settlement.finalSettlement();
         /* A partner document says what it is: an advance on the container, or the final invoice after the auction. */
         String docLabel = creditNote ? text.get("creditNote")
+                : regularAdvance ? text.get("advanceInvoice") : finalInvoice ? text.get("settlementInvoice")
                 : order.partnerSettlement() ? text.get(partialSettlement ? "partialSettlementInvoice" : "settlementInvoice")
                 : order.isPartnerAdvance() ? text.get(invoice ? "advanceInvoice" : "quote")
                 : text.get(invoice ? "invoice" : "quote");
-        String partnerNote = creditNote ? (order.isPartnerDeal() ? partnerNote(text.get("partnerCreditNote"), partnerContainerNumber(order)) : null)
+        String partnerNote = creditNote ? (order.isPartnerDeal() ? partnerNote(text.get("partnerCreditNote"),
+                        containerPhrase(text.get("partnerContainer"), partnerContainerName(order))) : null)
                 : order.isPartnerDeal()
                 ? partnerNote(text.get(order.partnerSettlement()
                         ? partialSettlement ? "partnerPartialSettlementNote" : "partnerSettlementNote" : "partnerAdvanceNote"),
-                        partnerContainerNumber(order))
+                        containerPhrase(text.get("partnerContainer"), partnerContainerName(order)))
                 : null;
         /* The credit note names the invoice it corrects and why; the settlement panel says how it stands. */
         SalesOrder credited = creditNote && order.creditedInvoiceId() != null && orders != null && orders.isResolvable()
@@ -178,9 +193,40 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             displayCartons = cargo.totals().cartons();
             displayPallets = cargo.totals().pallets();
         } else {
-            if (!advanceInvoice || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
+            if (!advanceDocument || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
             if (priced.totals().palletsManual() > 0) displayPallets = priced.totals().palletsManual();
-            else if (!advanceInvoice) displayPallets = priced.totals().palletsStrict();
+            else if (!advanceDocument) displayPallets = priced.totals().palletsStrict();
+        }
+        /* The free lines as this document prints them: an advance names its quote in the document
+           language, a slotfactuur shows its deductions once, in their own block. */
+        List<PricedOrder.ExtraLine> documentExtras = priced.extraLines();
+        List<AdvanceDeductionView> advanceDeductions = List.of();
+        String finalGrossText = null;
+        String finalDeductedText = null;
+        if (regularAdvance) {
+            var own = billing.billing();
+            String label = text.get("advanceOnQuote").formatted(own.quoteNumber() == null ? "-" : own.quoteNumber())
+                    + (own.percentage() == null ? "" : " · " + own.percentage().stripTrailingZeros().toPlainString() + " %");
+            documentExtras = priced.extraLines().stream().map(extra -> new PricedOrder.ExtraLine(label, extra.quantity(),
+                    extra.unitPrice(), extra.total())).toList();
+        } else if (finalInvoice) {
+            var deducted = billing.deductions() == null ? List.<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction>of()
+                    : billing.deductions();
+            java.util.Set<String> owned = new java.util.HashSet<>();
+            java.math.BigDecimal deductedTotal = java.math.BigDecimal.ZERO;
+            List<AdvanceDeductionView> rows = new ArrayList<>();
+            for (var advance : deducted) {
+                owned.add("Voorschotfactuur " + advance.number() + " van ");
+                deductedTotal = deductedTotal.add(advance.exclEur());
+                rows.add(new AdvanceDeductionView(advance.number(), DocumentText.date(advance.invoiceDate(), language),
+                        deducted(advance.exclEur()), deducted(advance.vatEur()), deducted(advance.inclEur()),
+                        advancePaymentText(advance, language, text)));
+            }
+            documentExtras = priced.extraLines().stream().filter(extra -> extra.description() == null
+                    || owned.stream().noneMatch(prefix -> extra.description().startsWith(prefix))).toList();
+            advanceDeductions = List.copyOf(rows);
+            finalGrossText = DocumentFormat.eur(priced.totals().total().add(deductedTotal));
+            finalDeductedText = DocumentFormat.eur(deductedTotal);
         }
         String totalVolume = DocumentFormat.cbm(cargo == null ? priced.totals().cbm() : cargo.totals().cbm());
         String totalWeight = DocumentFormat.kg(cargo == null ? priced.totals().weightKg() : cargo.totals().weightKg());
@@ -258,7 +304,13 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("creditedNumber", creditedNumber)
                 .data("creditAmountText", creditAmountText)
                 .data("creditSentences", creditSentences)
-                .data("grandTotalLabel", text.get(creditNote ? "creditNoteTotal" : advanceInvoice ? "advanceAmount" : "total"))
+                .data("grandTotalLabel", text.get(creditNote ? "creditNoteTotal" : advanceDocument ? "advanceAmount"
+                        : finalInvoice ? "advanceBalance" : "total"))
+                .data("documentExtras", documentExtras)
+                .data("finalInvoice", finalInvoice)
+                .data("advanceDeductions", advanceDeductions)
+                .data("finalGrossText", finalGrossText)
+                .data("finalDeductedText", finalDeductedText)
                 /* Belgian law asks a credit note to say the VAT goes back to the State, when VAT was charged at all. */
                 .data("creditNoteVatMention", creditNote && priced.totals().vatRatePct() != null
                         && priced.totals().vatRatePct().signum() > 0 ? text.get("creditNoteVatMention") : null)
@@ -267,7 +319,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("partnerNote", partnerNote)
                 .data("partnerDeal", order.isPartnerDeal())
                 .data("agreementQuote", agreementQuote)
-                .data("advanceInvoice", advanceInvoice)
+                .data("advanceInvoice", advanceDocument)
                 .data("priceFreeProducts", priceFreeProducts)
                 .data("displayDestination", cargo == null || cargo.delivery() == null
                         ? order.countryCode() : cargo.delivery().destinationCountry())
@@ -319,7 +371,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("showBarcode", options.showBarcode())
                 .data("hasDiscounts", hasLineDiscounts(priced))
                 .data("freightPending", order.freight() == FreightState.TE_BEPALEN)
-                .data("showProductVolume", advanceInvoice || order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
+                .data("showProductVolume", advanceDocument || order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("looseCartons", order.loadMode() == be.enrosed.sales.domain.LoadMode.LOOSE_CARTONS)
                 .data("freightPerCbm", order.freightPricingStrategy()
                         == be.enrosed.sales.domain.FreightPricingStrategy.PER_CBM)
@@ -374,6 +426,26 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         }
     }
 
+    /** One advance invoice a slotfactuur deducted, as printed: amounts and how it was paid. */
+    public record AdvanceDeductionView(String number, String date, String excl, String vat, String incl, String status) {}
+
+    /** A deducted amount reads negative; a zero (no VAT on an intra-EU advance) stays a plain zero. */
+    static String deducted(java.math.BigDecimal amount) {
+        return amount == null || amount.signum() == 0 ? DocumentFormat.eur(java.math.BigDecimal.ZERO) : "- " + DocumentFormat.eur(amount);
+    }
+
+    /** "betaald op 03/04/2026", the receipts so far with "nog open", or just "nog open". */
+    static String advancePaymentText(be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction advance,
+                                     Language language, Map<String, String> text) {
+        if (advance.paidOn() != null) return text.get("advancePaidOn").formatted(DocumentText.date(advance.paidOn(), language));
+        List<String> received = advance.receipts() == null ? List.of() : advance.receipts().stream()
+                .filter(receipt -> receipt.amountEur() != null && receipt.amountEur().signum() > 0)
+                .map(receipt -> DocumentText.date(receipt.receivedOn(), language) + " (" + DocumentFormat.eur(receipt.amountEur()) + ")")
+                .toList();
+        if (received.isEmpty()) return text.get("advanceOpen");
+        return text.get("advancePaidOn").formatted(String.join(", ", received)) + " · " + text.get("advanceOpen");
+    }
+
     /** Frozen quotation milestones; never projected from a later container schedule. */
     public record AdvanceRowView(String label, String percentage, String amount, String dueDate) {}
 
@@ -397,26 +469,38 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     public record UnitView(String quantityLabel, List<String> quantityDetails, String priceLabel,
                            String primaryPrice, String secondaryPrice, String secondaryPriceLabel) {}
 
+    /**
+     * The quantity and price wording of one line. A product packed in a display
+     * leads with what one full display costs, as every other channel does:
+     * "€ 60,00 per display" when it is priced per display, "€ 31,60 per display
+     * van 8 bowls" when it is priced per bowl. The piece price follows as
+     * explanation ("€ 3,95 per bowl", "≈ € 5,00 per bowl"), and the quantity
+     * details (displays, bowls outside a display) keep Aantal × Prijs readable.
+     * Plain pieces print the line's own price "per bowl".
+     */
     static UnitView unitView(Packaging packaging, int quantity, java.math.BigDecimal unitPrice,
                              Language language, Map<String, String> text) {
-        if (packaging != null && packaging.kind() == PackagingKind.DISPLAY && !packaging.hasExplicitSalesUnit()) {
+        if (SalesUnitText.unknownBasis(packaging)) {
             return unknownUnits(text);
         }
-        boolean displayBasis = packaging != null && packaging.soldAsDisplay();
+        String unit = SalesUnitText.unitKey(packaging);
+        boolean displayBasis = SalesUnitText.displayBasis(packaging);
         Integer pieces = packaging != null && packaging.kind() == PackagingKind.DISPLAY
                 ? packaging.piecesPerUnit() : null;
-        String quantityLabel = text.get(displayBasis ? "salesDisplayUnits" : "pieces");
-        String priceLabel = text.get(pieces != null && pieces > 1
-                ? "salesPricePerSet" : displayBasis ? "salesPricePerDisplay" : "salesPricePerPiece");
+        boolean set = pieces != null && pieces > 1;
+        String quantityLabel = displayBasis
+                ? text.get("salesDisplayUnits") : UnitNames.noun(unit, quantity, language);
+        String priceLabel = displayBasis
+                ? text.get("salesPricePerDisplay") : UnitNames.per(unit, language);
         List<String> details = new ArrayList<>();
         String primaryPrice = null;
         String secondaryPrice = null;
         String secondaryPriceLabel = null;
-        if (pieces != null && pieces > 1 && quantity >= 0) {
+        if (set && quantity >= 0) {
             var numbers = java.text.NumberFormat.getIntegerInstance(language.locale());
             if (displayBasis) {
-                details.add(text.get("salesTotalInnerPieces").formatted(
-                        numbers.format((long) quantity * pieces)));
+                details.add(text.get("salesTotalUnits").formatted(
+                        UnitNames.count(unit, (long) quantity * pieces, language)));
             } else {
                 int displays = quantity / pieces;
                 int remainder = quantity % pieces;
@@ -424,23 +508,29 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     details.add(text.get("salesDisplayCount").formatted(numbers.format(displays)));
                 }
                 if (remainder > 0) {
-                    details.add(text.get("salesLoosePieces").formatted(numbers.format(remainder)));
+                    details.add(text.get("salesLooseUnits").formatted(
+                            UnitNames.count(unit, remainder, language)));
                 }
             }
-            details.add(text.get("salesPiecesPerDisplay").formatted(numbers.format(pieces)));
+            details.add(text.get("salesUnitsPerDisplay").formatted(UnitNames.count(unit, pieces, language)));
             if (unitPrice != null) {
                 var factor = java.math.BigDecimal.valueOf(pieces);
-                var setAmount = displayBasis ? unitPrice : unitPrice.multiply(factor);
-                var pieceAmount = displayBasis
-                        ? unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP)
-                        : unitPrice;
-                primaryPrice = DocumentFormat.unit(setAmount);
-                var shown = pieceAmount.setScale(3, java.math.RoundingMode.HALF_UP);
-                boolean approximate = displayBasis
-                        ? shown.multiply(factor).compareTo(unitPrice) != 0
-                        : shown.compareTo(pieceAmount) != 0;
-                secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
-                secondaryPriceLabel = text.get("salesPricePerPiece");
+                if (displayBasis) {
+                    primaryPrice = DocumentFormat.unit(unitPrice);
+                    var pieceAmount = unitPrice.divide(factor, 12, java.math.RoundingMode.HALF_UP);
+                    var shown = pieceAmount.setScale(3, java.math.RoundingMode.HALF_UP);
+                    boolean approximate = shown.multiply(factor).compareTo(unitPrice) != 0;
+                    secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
+                    secondaryPriceLabel = UnitNames.per(unit, language);
+                } else {
+                    primaryPrice = DocumentFormat.unit(unitPrice.multiply(factor));
+                    priceLabel = text.get("salesPricePerDisplayOf")
+                            .formatted(UnitNames.count(unit, pieces, language));
+                    var shown = unitPrice.setScale(3, java.math.RoundingMode.HALF_UP);
+                    boolean approximate = shown.compareTo(unitPrice) != 0;
+                    secondaryPrice = (approximate ? "≈ " : "") + DocumentFormat.unit(shown);
+                    secondaryPriceLabel = UnitNames.per(unit, language);
+                }
             }
         }
         return new UnitView(quantityLabel, List.copyOf(details), priceLabel, primaryPrice,
@@ -465,21 +555,21 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                             ? nonBlank(product.name(), nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription())))
                             : nonBlank(product.nameIn(language), cleanFallbackTitle(line.customerDescription()));
             String variant = product == null || !options.includeProductDetails() ? null : internalNames
-                    ? joinDetails(product.colourIn(Language.NL), product.variantSizeIn(Language.NL))
-                    : joinDetails(product.colourIn(language), product.variantSizeIn(language));
+                    ? joinDetails(product.colourIn(Language.NL), product.variantSize())
+                    : joinDetails(product.colourIn(language), product.variantSize());
             String description = product == null || !options.includeProductDetails() || internalNames
                     ? null : distinctDescription(product.descriptionIn(language), title);
             List<ProductSpec> details = product == null
-                    ? List.of() : productSpecs(product, text, options);
+                    ? List.of() : productSpecs(product, language, text, options);
             String photo = options.includePhotos() ? productImage(product, imageCache) : null;
             String sku = options.includeProductDetails() || internalNames ? nonBlank(line.sku(), null) : null;
             String delivery = !line.unavailable() && options.includeLogistics() ? deliveryTextOf(line, language, text) : null;
             UnitView units = unitView(product == null ? null : product.packaging(), line.quantity(),
                     line.unitPrice(), language, text);
             String requested = line.unavailable() && line.requestedQuantity() != null && line.requestedQuantity() > 0
-                    ? text.get("salesRequestedUnits").formatted(
-                            java.text.NumberFormat.getIntegerInstance(language.locale()).format(line.requestedQuantity())
-                                    + " " + units.quantityLabel()) : null;
+                    ? text.get("salesRequestedUnits").formatted(SalesUnitText.quantity(
+                            product == null ? null : product.packaging(), line.requestedQuantity(), language))
+                    : null;
             result.add(new LineView(line, title, variant, description, details, photo,
                     order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
                     line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested,
@@ -496,8 +586,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             Product product = product(item.productId());
             // New snapshots freeze printable specifications with the cargo. Older snapshots only have
             // names/quantities: their optional specifications come from the available product fiche.
-            var specs = item.productDetails() != null ? productSpecs(item.productDetails(), text, options)
-                    : product == null ? List.<ProductSpec>of() : productSpecs(product, text, options);
+            var specs = item.productDetails() != null ? productSpecs(item.productDetails(), language, text, options)
+                    : product == null ? List.<ProductSpec>of() : productSpecs(product, language, text, options);
             return new LineView(null, nonBlank(item.productName(), nonBlank(item.sku(), "-")), null, null,
                     specs,
                     options.includePhotos() ? productImage(product, imageCache) : null,
@@ -519,12 +609,24 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         return pattern.formatted(number);
     }
 
-    /** The container's number for the partner note; the plain word when purchasing cannot be asked. */
-    private String partnerContainerNumber(SalesOrder order) {
+    /**
+     * "container PO-2026-011" in the document language, or just the name when
+     * our own name already says container ("container/2026/002"), so the
+     * sentence never reads "container container/2026/002". Without a name the
+     * translated word stands alone.
+     */
+    static String containerPhrase(String pattern, String name) {
+        String clean = name == null ? "" : name.strip();
+        if (clean.regionMatches(true, 0, "container", 0, "container".length())) return clean;
+        if (pattern == null || pattern.isBlank()) return clean;
+        return pattern.formatted(clean).strip();
+    }
+
+    /** The container's name for the partner note (alias, else number); empty when purchasing cannot be asked. */
+    private String partnerContainerName(SalesOrder order) {
         if (order.partnerPurchaseOrderId() != null && purchaseOrders != null && purchaseOrders.isResolvable()) {
             try {
-                String number = purchaseOrders.get().get(order.partnerPurchaseOrderId()).number();
-                if (number != null && !number.isBlank()) return number;
+                return purchaseOrders.get().get(order.partnerPurchaseOrderId()).displayName();
             } catch (Exception ignored) {
                 /* A container that is gone still leaves a readable sentence. */
             }
@@ -560,14 +662,14 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         return encoded.isBlank() ? null : encoded;
     }
 
-    private static List<ProductSpec> productSpecs(Product product, Map<String, String> text,
-                                                  SalesPdfOptions options) {
+    private static List<ProductSpec> productSpecs(Product product, Language language,
+                                                  Map<String, String> text, SalesPdfOptions options) {
         return productSpecs(new ProductDetails(product.dimensions(), product.packaging(), product.carton(),
-                product.barcodes(), product.canonicalBarcode()), text, options);
+                product.barcodes(), product.canonicalBarcode()), language, text, options);
     }
 
-    private static List<ProductSpec> productSpecs(ProductDetails product, Map<String, String> text,
-                                                  SalesPdfOptions options) {
+    private static List<ProductSpec> productSpecs(ProductDetails product, Language language,
+                                                  Map<String, String> text, SalesPdfOptions options) {
         List<ProductSpec> details = new ArrayList<>();
         /* One row per thing you can hold - product, packaging, master carton -
            each reading sizes, count, volume, weight and, on its own line, the
@@ -586,23 +688,18 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             addSpec(details, packagingLabel,
                     parts(dimensions(product.packaging().dimensions()),
                             product.packaging().unitPieces() > 1
-                                    ? product.packaging().unitPieces() + " " + text.get("pieces") : null,
+                                    ? UnitNames.count(product.packaging().unitKey(),
+                                            product.packaging().unitPieces(), language) : null,
                             weightText(product.packaging().dimensions())),
                     options.showBarcode() ? eanText(product.packaging().barcode()) : null);
         }
 
         if (options.showOuterCarton() && product.carton() != null) {
-            boolean displayBasis = product.packaging() != null && product.packaging().soldAsDisplay();
-            boolean unknownBasis = product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
-                    && !product.packaging().hasExplicitSalesUnit();
-            int cartonUnits = Math.max(1, product.carton().piecesPerCarton());
-            Integer innerPieces = product.packaging() == null ? null : product.packaging().piecesPerUnit();
-            String cartonContents = cartonUnits + " " + text.get(unknownBasis ? "salesUnitsPerCarton" : displayBasis ? "salesDisplaysPerCarton" : "piecesPerCarton");
-            String innerContents = displayBasis && innerPieces != null && innerPieces > 1
-                    ? ((long) cartonUnits * innerPieces) + " " + text.get("piecesPerCarton") : null;
+            int cartonUnits = product.carton().piecesPerCarton();
+            String cartonContents = SalesUnitText.cartonContents(product.packaging(), cartonUnits, language);
             addSpec(details, text.get("catalogCarton"),
                     parts(dimensions(product.carton().dimensions()),
-                            cartonContents, innerContents,
+                            cartonContents,
                             DocumentFormat.cbm(product.carton().cbm()),
                             DocumentFormat.kg(product.carton().weightKg())),
                     options.showBarcode()

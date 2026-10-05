@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @QuarkusTest
@@ -38,37 +39,13 @@ class CatalogFoamPhotoBackfillPersistenceTest {
     @Test
     @TestTransaction
     void linksTheExistingRedPhotoOnceAndKeepsTheOriginalProductPhoto() throws Exception {
-        CategoryEntity category = new CategoryEntity();
-        category.code = "FOAM-BACKFILL-TEST";
-        category.name = "Foam";
-        category.description = "Foam category";
-        category.eyebrow = "Foam";
-        category.position = 9_001;
-        category.updatedAt = Instant.now();
-        entityManager.persist(category);
-        entityManager.flush();
+        CategoryEntity category = category("FOAM-BACKFILL-TEST", 9_001);
+        ProductFamilyEntity family = family(category, "foam-half-heart-25", "Half heart rose foam 25 cm");
 
-        ProductFamilyEntity family = new ProductFamilyEntity();
-        family.familyKey = "odoo-half-heart-foam-25";
-        family.active = true;
-        family.name = "Half heart rose foam 25 cm";
-        family.highlightsJson = "[]";
-        family.tagsJson = "[]";
-        family.categoryId = category.id;
-        family.categoryKey = CategoryPublicKey.from(category.code);
-        family.categoryName = category.name;
-        family.categoryPosition = category.position;
-        family.websiteStatus = PublicationState.DRAFT;
-        family.orderAppStatus = PublicationState.DRAFT;
-        family.catalogueStatus = PublicationState.DRAFT;
-        family.createdAt = Instant.now();
-        family.updatedAt = family.createdAt;
-        entityManager.persist(family);
-        entityManager.flush();
-
+        // The canonical variant key identifies the red product; its SKU is editable.
         ProductEntity red = product(category.id, family.id,
-                "ENR-ODOO-HALF-HEART-FOAM-25-RED",
-                "Half heart rose foam 25 cm", "Red", "25 cm");
+                "FHH-25-RD", "Half heart rose foam 25 cm", "Red", "25 cm");
+        red.canonicalVariantKey = "foam-half-heart-25-red";
         entityManager.persist(red);
         entityManager.flush();
 
@@ -111,37 +88,39 @@ class CatalogFoamPhotoBackfillPersistenceTest {
 
     @Test
     @TestTransaction
-    void createsTheSingletonFamilyAndOnlyOneMissingMixedVariant() throws Exception {
-        CategoryEntity category = new CategoryEntity();
-        category.code = "FOAM-STRUCTURE-BACKFILL-TEST";
-        category.name = "Foam";
-        category.description = "Foam category";
-        category.eyebrow = "Foam";
-        category.position = 9_002;
-        category.updatedAt = Instant.now();
-        entityManager.persist(category);
+    void anOldSkuNoLongerReparentsOrRekeysAProductThatAlreadyHasAFamily() throws Exception {
+        CategoryEntity category = category("FOAM-LEGACY-SKU-TEST", 9_003);
+        ProductFamilyEntity family = family(category, "odoo-half-heart-foam-25", "Half heart rose foam 25 cm");
+        ProductEntity red = product(category.id, family.id,
+                "ENR-ODOO-HALF-HEART-FOAM-25-RED", "Half heart rose foam 25 cm", "Red", "25 cm");
+        entityManager.persist(red);
+        entityManager.flush();
+        attachPhoto(red, "foam-legacy-red.png");
         entityManager.flush();
 
-        ProductFamilyEntity bearFamily = new ProductFamilyEntity();
-        bearFamily.familyKey = "model-108-109";
-        bearFamily.active = true;
-        bearFamily.name = "Foam bear 25 cm";
-        bearFamily.highlightsJson = "[]";
-        bearFamily.tagsJson = "[]";
-        bearFamily.categoryId = category.id;
-        bearFamily.categoryKey = CategoryPublicKey.from(category.code);
-        bearFamily.categoryName = category.name;
-        bearFamily.categoryPosition = category.position;
-        bearFamily.websiteStatus = PublicationState.DRAFT;
-        bearFamily.orderAppStatus = PublicationState.DRAFT;
-        bearFamily.catalogueStatus = PublicationState.DRAFT;
-        bearFamily.createdAt = Instant.now();
-        bearFamily.updatedAt = bearFamily.createdAt;
-        entityManager.persist(bearFamily);
+        CatalogFoamPhotoBackfillService.Result result = backfill.apply();
         entityManager.flush();
+        entityManager.clear();
+
+        ProductFamilyEntity untouched = entityManager.find(ProductFamilyEntity.class, family.id);
+        assertEquals(0, result.linkedPhotos());
+        assertEquals(0, result.createdFamilies());
+        assertEquals("odoo-half-heart-foam-25", untouched.familyKey);
+        assertTrue(untouched.photos.isEmpty());
+        assertNull(entityManager.find(ProductEntity.class, red.id).canonicalVariantKey,
+                "only an unlinked legacy row may still be identified by its old SKU");
+    }
+
+    @Test
+    @TestTransaction
+    void createsTheSingletonFamilyAndOnlyOneMissingMixedVariant() throws Exception {
+        CategoryEntity category = category("FOAM-STRUCTURE-BACKFILL-TEST", 9_002);
+        ProductFamilyEntity bearFamily = family(category, "foam-bear-25", "Foam bear 25 cm");
 
         ProductEntity bear = product(category.id, bearFamily.id,
-                "ENR-P06", "Foam bear 25 cm", "Red", "25 cm");
+                "FB-25-RD", "Foam bear 25 cm", "Red", "25 cm");
+        bear.canonicalVariantKey = "foam-bear-25-red";
+        // An unlinked legacy row may still bootstrap its missing family by the old SKU.
         ProductEntity bearWithHeart = product(category.id, null,
                 "ENR-P05", "Foam bear with heart 25 cm", "Red", "25 cm");
         entityManager.persist(bear);
@@ -179,6 +158,40 @@ class CatalogFoamPhotoBackfillPersistenceTest {
                         "select count(item) from ProductEntity item "
                                 + "where item.canonicalVariantKey = :key", Long.class)
                 .setParameter("key", "foam-bear-25-mixed").getSingleResult());
+    }
+
+    private CategoryEntity category(String code, int position) {
+        CategoryEntity category = new CategoryEntity();
+        category.code = code;
+        category.name = "Foam";
+        category.description = "Foam category";
+        category.eyebrow = "Foam";
+        category.position = position;
+        category.updatedAt = Instant.now();
+        entityManager.persist(category);
+        entityManager.flush();
+        return category;
+    }
+
+    private ProductFamilyEntity family(CategoryEntity category, String familyKey, String name) {
+        ProductFamilyEntity family = new ProductFamilyEntity();
+        family.familyKey = familyKey;
+        family.active = true;
+        family.name = name;
+        family.highlightsJson = "[]";
+        family.tagsJson = "[]";
+        family.categoryId = category.id;
+        family.categoryKey = CategoryPublicKey.from(category.code);
+        family.categoryName = category.name;
+        family.categoryPosition = category.position;
+        family.websiteStatus = PublicationState.DRAFT;
+        family.orderAppStatus = PublicationState.DRAFT;
+        family.catalogueStatus = PublicationState.DRAFT;
+        family.createdAt = Instant.now();
+        family.updatedAt = family.createdAt;
+        entityManager.persist(family);
+        entityManager.flush();
+        return family;
     }
 
     private PhotoStorage.Stored attachPhoto(ProductEntity product, String filename) throws Exception {

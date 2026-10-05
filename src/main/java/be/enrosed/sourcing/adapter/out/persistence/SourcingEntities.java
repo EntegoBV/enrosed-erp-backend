@@ -119,6 +119,8 @@ public final class SourcingEntities {
         @Column(name = "pay_pct_ordered", precision = 5, scale = 2) public BigDecimal payPctOrdered;
         @Column(name = "pay_pct_shipped", precision = 5, scale = 2) public BigDecimal payPctShipped;
         @Column(name = "pay_pct_arrived", precision = 5, scale = 2) public BigDecimal payPctArrived;
+        /** CIF: the supplier is paid the sea freight; null reads as no. */
+        @Column(name = "freight_via_supplier") public Boolean freightViaSupplier;
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
 
@@ -185,6 +187,38 @@ public final class SourcingEntities {
         @Column(name = "settles_stream") public Boolean settles;
         @Enumerated(EnumType.STRING) @Column(name = "instalment_due", length = 16)
         public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
+    }
+
+    /**
+     * Money the supplier still owes on a container. Explicit snake_case
+     * columns: the PostgreSQL migration creates this table before startup.
+     */
+    @Entity
+    @Table(name = "purchase_supplier_credit", indexes = {
+            @Index(name = "purchase_supplier_credit_order_idx", columnList = "order_id"),
+            @Index(name = "purchase_supplier_credit_offset_idx", columnList = "offset_order_id")},
+            /* Named like the migration's, so a schema update never adds a second one. */
+            uniqueConstraints = @UniqueConstraint(name = "uq_purchase_supplier_credit_offset_payment",
+                    columnNames = "offset_payment_id"))
+    public static class PurchaseSupplierCreditEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @Column(name = "order_id", nullable = false) public long orderId;
+        @Column(name = "noted_on", nullable = false) public LocalDate notedOn;
+        @Column(name = "amount", nullable = false, precision = 19, scale = 2) public BigDecimal amount;
+        @Enumerated(EnumType.STRING) @Column(name = "currency", nullable = false, length = 8) public Currency currency;
+        @Column(name = "amount_eur", nullable = false, precision = 19, scale = 2) public BigDecimal amountEur;
+        @Enumerated(EnumType.STRING) @Column(name = "reason", nullable = false, length = 16)
+        public be.enrosed.sourcing.domain.PurchaseSupplierCredit.Reason reason;
+        @Column(name = "note", length = 500) public String note;
+        @Enumerated(EnumType.STRING) @Column(name = "status", nullable = false, length = 16)
+        public be.enrosed.sourcing.domain.PurchaseSupplierCredit.Status status;
+        @Column(name = "settled_on") public LocalDate settledOn;
+        @Column(name = "offset_order_id") public Long offsetOrderId;
+        /** One offset payment settles at most one credit. */
+        @Column(name = "offset_payment_id") public Long offsetPaymentId;
+        @Column(name = "actor") public String actor;
+        @Column(name = "recorded_at", nullable = false) public Instant recordedAt;
     }
 
     /** A file that belongs to a container; the bytes live in the photo blob store. */

@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import be.enrosed.shared.Money;
 
@@ -55,6 +56,8 @@ public class SalesOrderService {
     @Inject Instance<PartnerAdvanceQuotes> advanceQuotes;
     @Inject Instance<PartnerAdvanceContents> advanceContents;
     @Inject Instance<SalesDocumentLocks> documentLocks;
+    /** Advance invoices and the slotfactuur of regular quotes; absent in pure unit tests. */
+    @Inject Instance<SalesAdvanceBillingService> advanceBilling;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -144,6 +147,21 @@ public class SalesOrderService {
     void copyCustomerRequest(SalesOrder source, SalesOrder target) {
         if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().copy(source, target);
     }
+    /** The advance billing of regular quotes, or null where it cannot be resolved (pure unit tests). */
+    private SalesAdvanceBillingService advanceBilling() {
+        return advanceBilling != null && advanceBilling.isResolvable() ? advanceBilling.get() : null;
+    }
+
+    /** A part of a delivery split. */
+    boolean isSplitPart(SalesOrder order) {
+        return splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(order) != null;
+    }
+
+    /** Cancelling a quote waits for its advance invoices, as deleting and reopening do. */
+    void requireNoAdvanceInvoices(SalesOrder quote) {
+        if (advanceBilling() != null) advanceBilling().requireQuoteWithoutAdvances(quote);
+    }
+
     public boolean hasSplitOrder(SalesOrder order) {
         return splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(order) != null;
     }
@@ -264,6 +282,8 @@ public class SalesOrderService {
                 && order.isPartnerAdvance() && PartnerFinancingService.live(order)
                 && Objects.equals(order.linkedPurchaseOrderId(), source.linkedPurchaseOrderId())))
             throw new BusinessRuleException("Er bestaat al een voorschotfactuur voor deze inkooporder zonder deze bronkoppeling; controleer eerst de bestaande facturen om dubbele financiering te voorkomen");
+        /* A quote with advance invoices becomes its slotfactuur: every issued advance is deducted on a line of its own. */
+        var deductions = advanceBilling() == null ? null : advanceBilling().prepareFinal(source);
         ActorRef creator = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(
@@ -286,7 +306,9 @@ public class SalesOrderService {
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items()))
                         .toList());
-        invoice = invoice.withExtraLines(source.extraLines())
+        List<SalesExtraLine> extras = new java.util.ArrayList<>(source.extraLines());
+        if (deductions != null) extras.addAll(deductions.lines());
+        invoice = invoice.withExtraLines(List.copyOf(extras))
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
@@ -304,6 +326,7 @@ public class SalesOrderService {
                 java.time.Instant.now(), creator.displayName(), false,
                 "Factuur " + created.number() + " aangemaakt", null));
         recordActivity(created, "Factuur aangemaakt vanuit offerte");
+        if (deductions != null) advanceBilling().saveFinal(created, source, deductions);
         archive(quoteId);
         fireCreationPush(SalesCreationPushNotifier.Ready.invoiceFromQuoteCreated(
                 created.id(), created.number(), source.number(), creator));
@@ -463,7 +486,7 @@ public class SalesOrderService {
         /* Apart from the piece price, the inspection and other named costs travel as lines of their own;
            spread by a key they are inside every piece price already and must not travel twice. */
         if (atCost && !partner && !container.separateInPiecePrice()) {
-            String suffix = " · " + container.number();
+            String suffix = " · " + container.displayName();
             if (request.includeInspection() && container.inspectionCostEur() != null && container.inspectionCostEur().signum() > 0) {
                 extras.add(new SalesExtraLine("Inspectie" + suffix, BigDecimal.ONE, part(container.inspectionCostEur(), costPct)));
             }
@@ -478,14 +501,14 @@ public class SalesOrderService {
         if (partner) {
             BigDecimal commitment = PartnerAdvanceBasis.amount(costing, costPct);
             if (commitment.signum() <= 0) throw new BusinessRuleException("Bereken eerst een positief voorschotbedrag voor deze inkooporder");
-            extras.add(new SalesExtraLine("Voorschot · " + container.number(), BigDecimal.ONE, commitment));
+            extras.add(new SalesExtraLine("Voorschot · " + container.displayName(), BigDecimal.ONE, commitment));
         }
         String channel = !isBlank(request.salesChannel()) ? request.salesChannel() : partner ? "PARTNER" : null;
         String internalNotes = partner
-                ? "Partnercontainer " + container.number() + ": voorschot van " + pct(costPct)
+                ? "Partnercontainer " + containerReference(container) + ": voorschot van " + pct(costPct)
                         + " % van het inkooptotaal inclusief Enrosed-kosten en aparte kosten. Na de veiling volgt een afzonderlijke resultaatverrekening met "
                         + pct(share) + " % winstdeling."
-                : "Offerte gemaakt vanuit inkooporder " + container.number() + (atCost ? " aan kostprijs." : ".");
+                : "Offerte gemaakt vanuit inkooporder " + containerReference(container) + (atCost ? " aan kostprijs." : ".");
         Long defaultCarrierId = shippingCarriers.findAll().stream()
                 .filter(be.enrosed.shipping.domain.Carrier::active)
                 .map(be.enrosed.shipping.domain.Carrier::id)
@@ -541,8 +564,8 @@ public class SalesOrderService {
         captureAdvanceContents(created, deliveryWeek);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator.displayName(), false,
-                (partner ? "Conceptfactuur" : "Offerte") + " opgemaakt vanuit inkooporder " + container.number() + how, null));
-        recordActivity(created, (partner ? "Conceptfactuur" : "Offerte") + " aangemaakt vanuit inkooporder " + container.number() + how);
+                (partner ? "Conceptfactuur" : "Offerte") + " opgemaakt vanuit inkooporder " + containerReference(container) + how, null));
+        recordActivity(created, (partner ? "Conceptfactuur" : "Offerte") + " aangemaakt vanuit inkooporder " + containerReference(container) + how);
         if (partner) adoptPartnerContainer(container.id(), customer.id(), costPct, share);
         recordPurchaseActivity(container.id(), container.number(),
                 (partner ? "Conceptfactuur " : "Verkoopofferte ") + created.number() + " gemaakt voor " + customer.company() + how);
@@ -640,7 +663,37 @@ public class SalesOrderService {
         }
     }
 
-    private void recordPurchaseActivity(Long purchaseOrderId, String number, String summary) {
+    /**
+     * The container for internal notes and events: the purchase order number
+     * for the audit trail, with our own name behind it when that differs,
+     * "PO-2026-011 (container/2026/002)".
+     */
+    static String containerReference(PurchaseOrder container) {
+        String number = container.number() == null || container.number().isBlank() ? "#" + container.id() : container.number().strip();
+        String name = container.displayName();
+        return name.equals(number) ? number : number + " (" + name + ")";
+    }
+
+    /** The same reference by id; the bare id when purchasing cannot be asked or the order is gone. */
+    private String linkedContainerReference(Long purchaseOrderId) {
+        if (purchaseOrderId == null) return "";
+        if (purchaseOrders != null && purchaseOrders.isResolvable()) {
+            try {
+                PurchaseOrder container = purchaseOrders.get().get(purchaseOrderId);
+                if (container != null) return containerReference(container);
+            } catch (RuntimeException gone) { /* the plain id still identifies it */ }
+        }
+        return purchaseOrderId.toString();
+    }
+
+    /** Number and name of the containers these documents come from, in one read. */
+    public Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> containerNames(java.util.Collection<Long> purchaseOrderIds) {
+        if (purchaseOrderIds == null || purchaseOrderIds.isEmpty() || purchaseOrders == null || !purchaseOrders.isResolvable())
+            return Map.of();
+        return purchaseOrders.get().names(purchaseOrderIds);
+    }
+
+    void recordPurchaseActivity(Long purchaseOrderId, String number, String summary) {
         if (activity == null || !activity.isResolvable() || purchaseOrderId == null) return;
         activity.get().record(ActivityLogService.ACTION_UPDATED, "PURCHASE_ORDER",
                 purchaseOrderId.toString(), number, summary);
@@ -679,6 +732,90 @@ public class SalesOrderService {
         if (sourceQuoteId != null) events.add(new QuoteEvent(null, sourceQuoteId, QuoteEvent.Type.GEFACTUREERD,
                 Instant.now(), currentActor().displayName(), false, "Voorschotfactuur " + saved.number() + " aangemaakt voor " + label, null));
         return saved;
+    }
+
+    /**
+     * The one rule for a partner advance term: its invoice is FIXED once it is
+     * no longer a concept, has payment history (voided receipts and the legacy
+     * paid marker included) or a live credit note. A concept, also one that was
+     * issued and reopened, follows a new split of the plan. Deleting a reopened
+     * concept stays refused: its number must not leave the series.
+     */
+    boolean scheduledAdvanceFixed(SalesOrder invoice) {
+        if (invoice.status() != QuoteStatus.CONCEPT || invoice.paidAt() != null) return true;
+        if (invoice.id() != null && incomingPayments != null && incomingPayments.isResolvable()
+                && incomingPayments.get().hasHistory(invoice.id())) return true;
+        return invoice.id() != null && !liveCreditNotesOf(invoice.id()).isEmpty();
+    }
+
+    /**
+     * A concept, also an issued-then-reopened one, follows its re-split term in
+     * place: the same number, its single "Voorschot · <label>" line at the new
+     * amount and the term's due date. Called by the schedule save, in its
+     * transaction, after the term itself was saved, so the reservation check
+     * sees the new amount. The fixed rule is checked again under the lock.
+     * A term sentence that older invoices stored in their notes names the old
+     * label and share; it is dropped, the buyer's own note stays.
+     */
+    SalesOrder reviseScheduledPartnerAdvance(PurchaseOrder purchase, long invoiceId, String label, BigDecimal amount, LocalDate dueDate) {
+        lockDocumentForMutation(invoiceId);
+        SalesOrder current = get(invoiceId);
+        if (!current.isInvoice() || !current.isPartnerAdvance() || current.status() != QuoteStatus.CONCEPT
+                || !Objects.equals(current.linkedPurchaseOrderId(), purchase.id()))
+            throw new BusinessRuleException("Alleen een conceptvoorschotfactuur van deze container volgt de nieuwe verdeling");
+        if (scheduledAdvanceFixed(current))
+            throw new BusinessRuleException("Factuur " + current.number()
+                    + " heeft een betaalhistoriek of creditnota en staat vast; de termijn blijft ongewijzigd");
+        BigDecimal before = Money.money(price(current).totals().total());
+        SalesOrder revised = withTermDueDateAndNotes(current, dueDate == null ? current.invoiceDueDate() : dueDate,
+                        withoutGeneratedTermNote(current.notes()))
+                .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, Money.money(amount))));
+        requireAdvanceBeforeSettlement(revised);
+        validateForSave(revised);
+        validatePartnerAdvanceReservation(revised, null);
+        SalesOrder saved = orders.save(revised);
+        String summary = "Voorschottermijn aangepast: € " + money(before) + " → € " + money(amount);
+        events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
+                summary, null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, summary + " (" + label + ")");
+        return saved;
+    }
+
+    /**
+     * The term sentence a scheduled advance stored in its notes between
+     * 2026-09-08 and 2026-09-10 ("Voorschot · 2/3 na productie. Vast bedrag van
+     * het afgesproken voorschot. Deze factuur betreft ..." and its older
+     * "Partnervoorschot · ..." form), whatever label or share it named.
+     */
+    private static final Pattern GENERATED_TERM_NOTE = Pattern.compile(
+            "^(?:Voorschot · .+?\\. (?:Vast bedrag|[0-9.]+%) van het afgesproken voorschot\\. "
+                    + "Deze factuur betreft uitsluitend deze termijn; de eindafrekening volgt afzonderlijk\\."
+                    + "|Partnervoorschot · .+?\\. (?:Vast bedrag|[0-9.]+%) van de afgesproken partnerbijdrage € [0-9.]+ "
+                    + "\\([0-9.]+% van kostbasis € [0-9.]+\\)\\. Deze factuur betreft uitsluitend deze termijn\\.)(?=\\s|$)");
+
+    /** The notes without a leading generated term sentence; the buyer's own note after it stays. */
+    static String withoutGeneratedTermNote(String notes) {
+        if (notes == null) return null;
+        String stripped = notes.strip();
+        var matcher = GENERATED_TERM_NOTE.matcher(stripped);
+        if (!matcher.lookingAt()) return notes;
+        String rest = stripped.substring(matcher.end()).strip();
+        return rest.isEmpty() ? null : rest;
+    }
+
+    private static SalesOrder withTermDueDateAndNotes(SalesOrder order, LocalDate dueDate, String notes) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(),
+                order.paymentTerms(), notes, order.markupMode(), order.orderMarkupPct(),
+                order.extraDiscountPct(), order.extraDiscountLabel(), order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(),
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(),
+                order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                order.freightCarrierId(), order.freightCarrierExtraEur(),
+                order.docType(), dueDate, order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(), order.lines(), order.pallets()).carrying(order);
     }
 
     private void validatePartnerAdvanceReservation(SalesOrder invoice, Long scheduleRowId) {
@@ -854,8 +991,9 @@ public class SalesOrderService {
         if (advance.signum() > 0) extras.add(new SalesExtraLine("Voorschot verrekend · uitgereikte voorschotfacturen", BigDecimal.ONE, advance.negate()));
         Customer partner = customers.get(customerId);
         String reference = container.number();
+        String audited = containerReference(container);
         String documentName = finalSettlement ? "Slotfactuur" : "Deelfactuur";
-        String notes = documentName + " partnercontainer " + reference + " · " + pct(profitShare)
+        String notes = documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
                 + " % van netto veilingresultaat (ook verlies).\n" + detail
                 + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
                 + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
@@ -882,10 +1020,10 @@ public class SalesOrderService {
         adoptPartnerContainer(purchaseId, partner.id(), request.costSharePct() == null ? container.partnerCostPctOrDefault()
                 : HUNDRED.subtract(percentage(request.costSharePct(), "Eigen aandeel in de kost")), profitShare);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
-                documentName + " partnercontainer " + reference, null));
+                documentName + " partnercontainer " + audited, null));
         if (source != null) events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD, Instant.now(),
                 currentActor().displayName(), false, documentName + " " + created.number() + " aangemaakt", null));
-        recordActivity(created, documentName + " partnercontainer " + reference + " aangemaakt");
+        recordActivity(created, documentName + " partnercontainer " + audited + " aangemaakt");
         recordPurchaseActivity(purchaseId, reference, documentName + " " + created.number() + ": € " + money(fullTotal.subtract(advance)));
         return created;
     }
@@ -917,6 +1055,8 @@ public class SalesOrderService {
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
         if (order.isCreditNote()) throw new BusinessRuleException("De partnerkoppeling van een creditnota volgt de factuur");
+        if (advanceBilling() != null && (advanceBilling().hasBilling(order) || advanceBilling().hasLiveAdvances(order)))
+            throw new BusinessRuleException("Een offerte met voorschotfacturen en haar voorschot- en slotfacturen worden geen partnerdocument");
         if (splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(order) != null)
             throw new BusinessRuleException("Een gesplitste verkoopbestelling kan niet naar partnerfinanciering worden omgezet");
         if (hasAdvanceAgreement(order))
@@ -960,7 +1100,7 @@ public class SalesOrderService {
         SalesOrder saved = orders.save(changed);
         captureAdvanceContents(saved);
         String reference = request != null && !isBlank(request.reference())
-                ? request.reference().strip() : "inkooporder " + purchaseOrderId;
+                ? request.reference().strip() : "inkooporder " + linkedContainerReference(purchaseOrderId);
         String summary = purchaseOrderId == null
                 ? "Losgekoppeld van de partnercontainer"
                 : "Gekoppeld aan partnercontainer " + reference + " · "
@@ -1091,6 +1231,7 @@ public class SalesOrderService {
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, label);
         if (saved.isCreditNote()) recordCreditedEvent(saved, "Creditnota " + saved.number() + " uitgereikt · € "
                 + money(price(saved).totals().totalInclVat()) + " incl. btw");
+        else if (advanceBilling() != null) saved = advanceBilling().afterIssue(saved);
         return saved;
     }
 
@@ -1119,6 +1260,7 @@ public class SalesOrderService {
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.VERSTUURD,
                 java.time.Instant.now(), actor.displayName(), false,
                 label, null));
+        if (fromConcept && !saved.isCreditNote() && advanceBilling() != null) saved = advanceBilling().afterIssue(saved);
         recordActivity(SALES_ACTION_SENT, saved, label);
         fireActivityPush(SalesActivityPushNotifier.Ready.staffInvoiceSent(
                 saved.id(), saved.number(), actor));
@@ -1175,7 +1317,9 @@ public class SalesOrderService {
                 throw new BusinessRuleException("Factuur " + original.number() + " is intussen niet meer actief");
             requireWithinCreditCap(original, invoice);
         }
-        if (!invoice.isPartnerDeal() && !invoice.isCreditNote()) {
+        if (!invoice.isCreditNote() && advanceBilling() != null) advanceBilling().requireIssuable(invoice);
+        /* An advance invoice claims part of a quote that met the minimum itself. */
+        if (!invoice.isPartnerDeal() && !invoice.isCreditNote() && (advanceBilling() == null || !advanceBilling().isAdvance(invoice))) {
             PricedOrder priced = price(invoice);
             if (priced != null && !priced.validation().meetsMinimum())
                 throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
@@ -1301,6 +1445,7 @@ public class SalesOrderService {
                 || (changes.freightCarrierExtraEur() != null && changes.freightCarrierExtraEur().signum() != 0)
                 || (changes.freightPricingStrategyOrNull() != null && changes.freightPricingStrategy() != FreightPricingStrategy.FIXED)))
             throw new BusinessRuleException("De producten en betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder voor een gewijzigde afspraak");
+        if (advanceBilling() != null) advanceBilling().requireParties(beforeEdit, changes);
         if (changes.partnerPurchaseOrderId() != null
                 && (!Objects.equals(changes.partnerPurchaseOrderId(), beforeEdit.partnerPurchaseOrderId())
                     || !samePercentage(changes.partnerSharePct(), beforeEdit.partnerSharePct())))
@@ -1385,6 +1530,12 @@ public class SalesOrderService {
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
                         changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
         if (current.isCreditNote()) updated = withCreditCosts(asStoredCreditNote(updated, current));
+        if (advanceBilling() != null) {
+            updated = advanceBilling().withServerLines(current, updated);
+            /* An advance claims its amount and nothing else: no freight of its own. */
+            if (advanceBilling().isAdvance(current)) updated = copyWithTerms(updated, current.freight(), current.manualFreightEur(),
+                    current.freightPricingStrategy(), current.freightRatePerCbmEur(), updated.lines());
+        }
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -1500,6 +1651,8 @@ public class SalesOrderService {
 
     private void requireFreightEditable(SalesOrder current) {
         if (current.isCreditNote()) throw new BusinessRuleException("Een creditnota heeft geen vracht of levering");
+        if (advanceBilling() != null && advanceBilling().isAdvance(current))
+            throw new BusinessRuleException("Een voorschotfactuur factureert alleen het voorschot; de vracht staat op de offerte en de slotfactuur");
         SalesLifecycle.requireTermsEditable(current);
         if (current.isInvoice() && current.status() != QuoteStatus.CONCEPT)
             throw new BusinessRuleException("De bedragen van een uitgereikte factuur kunnen niet meer worden gewijzigd");
@@ -1722,6 +1875,7 @@ public class SalesOrderService {
             purchaseOrders.get().lockForPartnerSettlement(order.linkedPurchaseOrderId());
         requireDeletable(order);
         deletedItems.trashSales(order);
+        if (advanceBilling() != null) advanceBilling().onDelete(order);
         recordActivity(ActivityLogService.ACTION_DELETED, order,
                 order.isCreditNote() ? "Creditnota verwijderd" : order.isInvoice() ? "Factuur verwijderd" : "Offerte verwijderd");
     }
@@ -1730,11 +1884,23 @@ public class SalesOrderService {
     void requireDeletable(SalesOrder order) {
         long id = order.id();
         requireNoLiveCreditNotes(order);
+        if (advanceBilling() != null) {
+            advanceBilling().requireQuoteWithoutAdvances(order);
+            advanceBilling().requireAdvanceNotSettled(order, null);
+        }
         if (incomingPayments != null && incomingPayments.isResolvable() && incomingPayments.get().hasHistory(id))
             throw new BusinessRuleException("Een factuur met een betaalhistoriek kan niet worden verwijderd, ook niet na intrekking van betalingen");
         boolean hasRevisions = !revisions.findByOrder(id).isEmpty();
+        boolean issuedBefore = order.isClaimDocument()
+                && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT);
+        /* A reopened concept of a partner advance plan points to the way that does work: it follows a new split.
+           An issued or sent term is fixed and keeps the general text. */
+        if (order.status() == QuoteStatus.CONCEPT && (issuedBefore || !SalesLifecycle.unusedDraft(order, hasRevisions))
+                && scheduledPartnerAdvanceTerm(order))
+            throw new BusinessRuleException("Factuur " + order.number() + " was al uitgereikt; het nummer blijft bestaan. "
+                    + "Pas de verdeling aan via Termijnen aanpassen op de inkooporder.");
         SalesLifecycle.requireDeletable(order, hasRevisions);
-        if (order.isClaimDocument() && events.findByOrder(id).stream().anyMatch(event -> event.type() == QuoteEvent.Type.UITGEREIKT))
+        if (issuedBefore)
             throw new BusinessRuleException(order.isCreditNote() ? "Een eerder uitgereikte creditnota blijft bewaard, ook nadat ze heropend is"
                     : "Een eerder uitgereikte factuur blijft bewaard, ook nadat ze heropend is");
         boolean hasDerivedInvoice = !order.isClaimDocument() && orders.existsBySourceQuoteId(id);
@@ -1744,12 +1910,22 @@ public class SalesOrderService {
         }
     }
 
+    /** A partner advance invoice that is a term of its container's advance plan. */
+    private boolean scheduledPartnerAdvanceTerm(SalesOrder order) {
+        return order.isInvoice() && order.isPartnerAdvance() && order.id() != null
+                && advanceSchedules != null && advanceSchedules.isResolvable() && advanceSchedules.get().isScheduledTerm(order.id());
+    }
+
     /** Reopening changes financial participation; check it under the parent and document locks. */
     void requireReopenable(SalesOrder order) {
         if (order.isArchived()) throw new BusinessRuleException("Haal het document eerst uit het archief");
         if (order.goodsReturnedAt() != null)
             throw new BusinessRuleException("De retour van deze creditnota staat al in de voorraad; ze kan niet terug naar concept");
         requireNoLiveCreditNotes(order);
+        if (advanceBilling() != null) {
+            advanceBilling().requireQuoteWithoutAdvances(order);
+            advanceBilling().requireAdvanceNotSettled(order, null);
+        }
         if (order.goodsShippedAt() != null)
             throw new BusinessRuleException("De goederen zijn al verzonden; deze factuur kan niet terug naar concept");
         if (order.paidAt() != null || incomingPayments != null && incomingPayments.isResolvable()
@@ -1804,6 +1980,8 @@ public class SalesOrderService {
             throw new BusinessRuleException("Een gesplitste levering kan niet worden gekopieerd; maak een nieuwe bestelling om dubbele aantallen te voorkomen");
         if (source.isPartnerAdvance())
             throw new BusinessRuleException("Een partnervoorschot kan niet worden gekopieerd; beheer de conceptfacturen via het termijnplan van de inkooporder");
+        if (advanceBilling() != null && advanceBilling().hasBilling(source))
+            throw new BusinessRuleException("Een voorschot- of slotfactuur kan niet worden gekopieerd; maak ze opnieuw vanuit de offerte");
         if (hasAdvanceAgreement(source))
             throw new BusinessRuleException("Maak een nieuwe offerte vanuit de inkooporder om de juiste voorschotafspraken over te nemen");
         if (source.purpose() == SalesPurpose.PARTNER_SETTLEMENT)
@@ -1878,7 +2056,13 @@ public class SalesOrderService {
                                    int invoicedQuantity, int alreadyCreditedQuantity, int suggestedQuantity,
                                    BigDecimal netUnitPriceEur, BigDecimal unitCostEur) {}
         public record ProposalExtraLine(String description, BigDecimal quantity, BigDecimal unitPriceEur, BigDecimal totalEur) {}
-        public record ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces) {}
+        /** {@code containerName}: the container as sales names it ({@link PurchaseOrder#displayName()}). */
+        public record ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces,
+                                        String containerName) {
+            public ProposalContainer(long purchaseOrderId, String number, boolean received, int missingPieces, int damagedPieces) {
+                this(purchaseOrderId, number, received, missingPieces, damagedPieces, null);
+            }
+        }
     }
 
     /** The extra line a credit note carries when the invoice's freight and handling are credited. */
@@ -1931,7 +2115,8 @@ public class SalesOrderService {
                 && original.linkedPurchaseOrderId() != null && partnerFinancing != null && partnerFinancing.isResolvable()
                 ? partnerFinancing.get().creditProposal(original.linkedPurchaseOrderId()) : null;
         return new CreditNoteProposal(original.id(), original.number(), original.orderDate(), original.customerId(),
-                original.purpose(), total, Money.money(alreadyCredited), total.subtract(alreadyCredited).max(BigDecimal.ZERO),
+                original.purpose(), total, Money.money(alreadyCredited),
+                creditableInclVat(original).subtract(alreadyCredited).max(BigDecimal.ZERO),
                 Money.money(remaining), Money.nz(priced.totals().vatRatePct()),
                 priced.totals().vatTreatment() != null && priced.totals().vatTreatment().isExempt(),
                 suggestedReason, List.copyOf(lines), freight, freightCredited,
@@ -1939,7 +2124,7 @@ public class SalesOrderService {
                         extra.description(), extra.quantity(), extra.unitPrice(), extra.total())).toList(),
                 container == null ? null : new CreditNoteProposal.ProposalContainer(container.id, container.number,
                         container.received, container.missing.values().stream().mapToInt(Integer::intValue).sum(),
-                        container.damaged.values().stream().mapToInt(Integer::intValue).sum()),
+                        container.damaged.values().stream().mapToInt(Integer::intValue).sum(), container.name),
                 partnerShortfall);
     }
 
@@ -1956,6 +2141,7 @@ public class SalesOrderService {
             purchaseOrders.get().lockForPartnerSettlement(beforeLock.linkedPurchaseOrderId());
         lockDocumentForMutation(invoiceId);
         SalesOrder original = requireCreditable(get(invoiceId));
+        if (advanceBilling() != null) advanceBilling().requireAdvanceNotSettled(original, "; maak de creditnota op de slotfactuur");
         if (request.reason() == null) throw new BusinessRuleException("Kies een reden voor de creditnota");
         CreditReason reason = request.reason();
         List<CreditLine> requestedLines = request.lines() == null ? List.of()
@@ -2134,10 +2320,15 @@ public class SalesOrderService {
                     + "; annuleer of verwijder die eerst");
     }
 
-    /** Together, the live credit notes on an invoice never credit more than it claimed, a cent per line of rounding aside. */
+    /**
+     * Together, the live credit notes on an invoice never credit more than it
+     * claimed, a cent per line of rounding aside. A slotfactuur claims the
+     * sale minus its advances; the advances it deducted count too, so a short
+     * delivery after a full prepayment can still be credited on it.
+     */
     private void requireWithinCreditCap(SalesOrder original, SalesOrder candidate) {
-        BigDecimal cap = Money.money(price(original).totals().totalInclVat())
-                .add(CENT.multiply(BigDecimal.valueOf(candidate.lines().size())));
+        BigDecimal claimed = creditableInclVat(original);
+        BigDecimal cap = claimed.add(CENT.multiply(BigDecimal.valueOf(candidate.lines().size())));
         List<SalesOrder> others = liveCreditNotesOf(original.id()).stream()
                 .filter(note -> !Objects.equals(note.id(), candidate.id())).toList();
         BigDecimal credited = others.stream().map(note -> Money.money(price(note).totals().totalInclVat()))
@@ -2146,8 +2337,14 @@ public class SalesOrderService {
             String names = others.stream().map(SalesOrder::number).collect(Collectors.joining(", "));
             throw new BusinessRuleException("Samen met " + (names.isEmpty() ? "deze creditnota" : names)
                     + " zou meer gecrediteerd worden dan factuur " + original.number()
-                    + " (€ " + money(price(original).totals().totalInclVat()) + " incl. btw)");
+                    + " (€ " + money(claimed) + " incl. btw)");
         }
+    }
+
+    /** What credit notes on this invoice may reach incl. VAT: its total, plus the advances a slotfactuur deducted. */
+    private BigDecimal creditableInclVat(SalesOrder original) {
+        BigDecimal total = Money.money(price(original).totals().totalInclVat());
+        return advanceBilling() == null ? total : total.add(advanceBilling().deductedInclEur(original));
     }
 
     /**
@@ -2291,7 +2488,7 @@ public class SalesOrderService {
         return String.format(java.util.Locale.forLanguageTag("nl-BE"), "%,.4f", Money.unit(amount));
     }
 
-    private record ProposalContainerFacts(long id, String number, boolean received, Map<Long, Integer> missing, Map<Long, Integer> damaged) {}
+    private record ProposalContainerFacts(long id, String number, String name, boolean received, Map<Long, Integer> missing, Map<Long, Integer> damaged) {}
 
     /** The container the invoice came from, with its receipt shortage per product once it has arrived. */
     private ProposalContainerFacts containerFacts(SalesOrder original) {
@@ -2307,7 +2504,7 @@ public class SalesOrderService {
             if (line.missing() > 0) missing.merge(line.productId(), line.missing(), Integer::sum);
             if (line.damaged() > 0) damaged.merge(line.productId(), line.damaged(), Integer::sum);
         }
-        return new ProposalContainerFacts(container.id(), container.number(), received, missing, damaged);
+        return new ProposalContainerFacts(container.id(), container.number(), container.displayName(), received, missing, damaged);
     }
 
     /** Rechecks an existing draft/open quotation before a document leaves. */
@@ -2358,7 +2555,7 @@ public class SalesOrderService {
             throw new BusinessRuleException("Alle producten zijn tijdelijk niet bestelbaar; dit concept kan niet uitgereikt of verstuurd worden");
     }
 
-    private void validateForSave(SalesOrder order) {
+    void validateForSave(SalesOrder order) {
         if (order == null) {
             throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         }
@@ -2631,12 +2828,12 @@ public class SalesOrderService {
         }
     }
 
-    private ActorRef currentActor() {
+    ActorRef currentActor() {
         return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
     }
 
     /** Audit and order creation share one transaction, so neither can survive the other failing. */
-    private void recordActivity(SalesOrder order, String summary) {
+    void recordActivity(SalesOrder order, String summary) {
         recordActivity(ActivityLogService.ACTION_CREATED, order, summary);
     }
 
@@ -2745,7 +2942,7 @@ public class SalesOrderService {
     }
 
     /** CDI delivers this payload only after the transaction has committed successfully. */
-    private void fireCreationPush(SalesCreationPushNotifier.Ready ready) {
+    void fireCreationPush(SalesCreationPushNotifier.Ready ready) {
         if (salesCreationPush != null) salesCreationPush.fire(ready);
     }
 
@@ -2847,7 +3044,7 @@ public class SalesOrderService {
     }
 
     /** Invoices number their own gapless-enough series: F-2026-0001. */
-    private String nextInvoiceNumber() {
+    String nextInvoiceNumber() {
         return nextNumber(profile().invoicePrefix() + "-{jaar}-{nr}", DocumentType.FACTUUR, null);
     }
 

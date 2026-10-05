@@ -54,6 +54,6 @@ class CatalogMapperPublicNameTest {
                 null, null, true, Barcodes.none(), null, Carton.empty(),
                 null, Currency.USD, null, null, null, null, null, 0,
                 List.of(), List.of(new ProductText(
-                        Language.FR, frenchName, null, null, null)));
+                        Language.FR, frenchName, null, null)));
     }
 }

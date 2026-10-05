@@ -45,6 +45,8 @@ import static org.mockito.Mockito.when;
 
 class PurchaseOrderServiceTest {
 
+    private static final LocalDate ORDER_DATE = LocalDate.of(2026, 8, 1);
+
     @Test
     void lifecycleOnlyMovesForwardIncludingLegacyUnderwayPath() {
         assertDoesNotThrow(() -> PurchaseOrderService.requireForwardTransition(
@@ -115,6 +117,115 @@ class PurchaseOrderServiceTest {
         PurchaseOrder booked = service.bookStock(10L);
         assertEquals(6, products.stockDelta);
         assertTrue(booked.isStockBooked());
+    }
+
+    @Test
+    void theReceiptDayDefaultsToTodayInBrusselsAndLiesBetweenTheOrderAndToday() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/Brussels"));
+
+        BusinessRuleException future = assertThrows(BusinessRuleException.class, () -> service.receive(10L,
+                new PurchaseOrderService.Receipt(List.of(), false, null, today.plusDays(1), null)));
+        assertEquals("Ontvangen op kan niet in de toekomst liggen", future.getMessage());
+        BusinessRuleException early = assertThrows(BusinessRuleException.class, () -> service.receive(10L,
+                new PurchaseOrderService.Receipt(List.of(), false, null, ORDER_DATE.minusDays(1), null)));
+        assertEquals("Ontvangen op kan niet vóór de orderdatum liggen", early.getMessage());
+        assertEquals(PurchaseOrderStatus.BESTELD, orders.current.status(), "a refused day leaves the order as it was");
+
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(), false, null, null, null));
+        assertEquals(today, received.receivedOn(), "no day on the sheet: today in Belgium, not in UTC");
+        assertTrue(received.notes().contains("Ontvangst " + today.format(
+                java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + ":"), received.notes());
+
+        InMemoryOrders sameDay = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        assertEquals(ORDER_DATE, service(sameDay, new RecordingProducts()).receive(10L,
+                new PurchaseOrderService.Receipt(List.of(), false, null, ORDER_DATE, null)).receivedOn(),
+                "a container received on the order day itself is fine");
+    }
+
+    @Test
+    void aReceivedOrdersDayCanBeCorrectedButANullNeverClearsItAndAnOpenOrderIgnoresIt() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        PurchaseOrder received = service.receive(10L, new PurchaseOrderService.Receipt(
+                List.of(), false, null, LocalDate.of(2026, 8, 23), null));
+
+        PurchaseOrder corrected = service.update(10L, withReceivedOn(received, LocalDate.of(2026, 8, 20))).order();
+        assertEquals(LocalDate.of(2026, 8, 20), corrected.receivedOn(), "a received order's day is corrected");
+        assertTrue(corrected.notes().contains("Ontvangst 23/08/2026:"),
+                "the diary line stays as written; the audit log keeps the correction");
+
+        assertEquals(LocalDate.of(2026, 8, 20), service.update(10L, withReceivedOn(corrected, null)).order().receivedOn(),
+                "a payload without the day keeps the stored one");
+        LocalDate tomorrow = LocalDate.now(java.time.ZoneId.of("Europe/Brussels")).plusDays(1);
+        assertEquals("Ontvangen op kan niet in de toekomst liggen", assertThrows(BusinessRuleException.class,
+                () -> service.update(10L, withReceivedOn(corrected, tomorrow))).getMessage());
+        assertEquals("Ontvangen op kan niet vóór de orderdatum liggen", assertThrows(BusinessRuleException.class,
+                () -> service.update(10L, withReceivedOn(corrected, ORDER_DATE.minusDays(1)))).getMessage());
+        assertEquals(LocalDate.of(2026, 8, 20), orders.current.receivedOn());
+
+        InMemoryOrders open = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrder stillOrdered = service(open, new RecordingProducts()).update(10L,
+                withReceivedOn(order(PurchaseOrderStatus.BESTELD, 6, 6), LocalDate.of(2026, 8, 20))).order();
+        assertNull(stillOrdered.receivedOn(), "before the receipt the form cannot set the day");
+    }
+
+    @Test
+    void aCifContainerOwesTheSupplierTheTransportBeforeTheBorderAndNothingElseMoves() {
+        PurchaseOrderService service = service(new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6)),
+                new RecordingProducts());
+        LandedCost costing = new LandedCost(List.of(), new LandedCost.Totals(6, 1, BigDecimal.ONE,
+                new BigDecimal("1111"), new BigDecimal("1000"), new BigDecimal("50"), new BigDecimal("150"),
+                new BigDecimal("1200"), new BigDecimal("60"), new BigDecimal("40"), new BigDecimal("20"),
+                new BigDecimal("1320"), new BigDecimal("220"), new BigDecimal("5")), null);
+        PurchaseOrder exw = order(PurchaseOrderStatus.BESTELD, 6, 6);
+
+        PurchaseOrderService.Payable plain = service.payable(exw, costing, "CIF");
+        assertEquals(new BigDecimal("1000.00"), plain.supplierEur(), "the incoterm on paper moves no money");
+        assertEquals(new BigDecimal("300.00"), plain.logisticsEur());
+        assertEquals(new BigDecimal("0.00"), plain.supplierFreightEur());
+        assertFalse(plain.freightInSupplierPrice());
+
+        PurchaseOrderService.Payable cif = service.payable(exw.withFreightViaSupplier(true), costing, null);
+        assertEquals(new BigDecimal("1200.00"), cif.supplierEur(), "goods plus local costs China plus sea freight");
+        assertEquals(new BigDecimal("200.00"), cif.supplierFreightEur());
+        assertEquals(new BigDecimal("100.00"), cif.logisticsEur(), "duty and arrival costs stay with Douane & transport");
+        assertTrue(cif.freightInSupplierPrice());
+        assertFalse(cif.ddp());
+        assertEquals(plain.supplierEur().add(plain.logisticsEur()), cif.supplierEur().add(cif.logisticsEur()),
+                "the Afspraken together are the same landed cost");
+
+        PurchaseOrderLine line = exw.lines().getFirst();
+        PurchaseOrder ddp = exw.withReceipt(exw.status(), null, null, false, null, List.of(new PurchaseOrderLine(
+                line.id(), line.productId(), 6, line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), 6,
+                be.enrosed.sourcing.domain.PriceBasis.DDP))).withFreightViaSupplier(true);
+        assertFalse(ddp.cif(), "DDP already folds every cost into the supplier's price");
+        PurchaseOrderService.Payable delivered = service.payable(ddp, costing, null);
+        assertEquals(new BigDecimal("1000.00"), delivered.supplierEur());
+        assertEquals(new BigDecimal("0.00"), delivered.supplierFreightEur());
+        assertEquals(0, delivered.logisticsEur().signum());
+        assertTrue(delivered.ddp());
+    }
+
+    @Test
+    void theCifChoiceTravelsWithEverySaveAndCopy() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        PurchaseOrder saved = service.update(10L, order(PurchaseOrderStatus.BESTELD, 6, 6).withFreightViaSupplier(true)).order();
+        assertEquals(Boolean.TRUE, saved.freightViaSupplier());
+        assertTrue(saved.cif());
+        assertEquals(Boolean.TRUE, saved.withReceipt(saved.status(), null, null, false, "x", saved.lines())
+                .withArchivedAt(null).withPartner(null, null, null).freightViaSupplier(), "every copy keeps the choice");
+        assertEquals(Boolean.TRUE, service.duplicate(10L).freightViaSupplier(), "a copy of a CIF calculation is CIF");
+        assertNull(service.update(10L, order(PurchaseOrderStatus.BESTELD, 6, 6)).order().freightViaSupplier(),
+                "a payload without the choice reads as no");
+    }
+
+    private static PurchaseOrder withReceivedOn(PurchaseOrder source, LocalDate day) {
+        return source.withReceipt(source.status(), day, source.paidTotalEur(), source.stockBooked(),
+                source.notes(), source.lines());
     }
 
     @Test
@@ -621,7 +732,8 @@ class PurchaseOrderServiceTest {
 
     private static PurchaseOrder order(PurchaseOrderStatus status, int quantity,
                                        Integer orderedQuantity) {
-        return new PurchaseOrder(10L, "PO-TEST", null, 7L, LocalDate.now(), status,
+        /* A fixed order date before every receipt day the tests use: a receipt cannot predate its order. */
+        return new PurchaseOrder(10L, "PO-TEST", null, 7L, ORDER_DATE, status,
                 ContainerType.FORTY_HQ, new BigDecimal("0.14"), new BigDecimal("0.90"),
                 new BigDecimal("0.90"), BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD,
                 BigDecimal.ZERO, new BigDecimal("5"), BigDecimal.ZERO,
@@ -828,7 +940,8 @@ class PurchaseOrderServiceTest {
                     order.departurePort(), order.destinationPort(), order.receivingLocationId(),
                     order.groupVariants(), order.expectedArrival(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), order.paymentTerms(), order.shippedOn(), order.trackingReference(),
-                    order.createdBy(), order.createdAt(), order.notes(), order.lines());
+                    order.createdBy(), order.createdAt(), order.notes(), order.lines())
+                    .withFreightViaSupplier(order.freightViaSupplier());
         }
     }
 }

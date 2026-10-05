@@ -16,13 +16,13 @@ import java.util.Map;
 public class CatalogMigrationResource {
     @POST
     @Path("/preflight")
-    public CatalogMigrationPreflight preflight(JsonNode rawManifest) {
+    public Response preflight(JsonNode rawManifest) {
         throw retired();
     }
 
     @POST
     @Path("/apply")
-    public CatalogMigrationResult apply(JsonNode rawRequest) {
+    public Response apply(JsonNode rawRequest) {
         throw retired();
     }
 

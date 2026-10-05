@@ -32,14 +32,14 @@ class CatalogContentBackfillResourceTest {
         new CatalogContentBackfillService(null, null, null, null, JSON).validateResources();
 
         JsonNode backfill = resource("/i18n/catalog-content-backfill.json");
-        assertEquals("2026-10-01-glass-box-thirteen-roses-test-v11", backfill.path("version").asText());
+        assertEquals("2026-10-01-glass-box-thirteen-roses-v12", backfill.path("version").asText());
         assertEquals(7, backfill.path("expectedCounts").path("categories").asInt());
         assertEquals(27, backfill.path("expectedCounts").path("families").asInt());
-        assertEquals(64, backfill.path("expectedCounts").path("variants").asInt());
+        assertEquals(61, backfill.path("expectedCounts").path("variants").asInt());
         assertEquals(85, backfill.path("expectedCounts").path("images").asInt());
-        assertEquals(64, backfill.path("targetVariantKeys").size());
+        assertEquals(61, backfill.path("targetVariantKeys").size());
         assertEquals(85, backfill.path("targetImageKeys").size());
-        assertEquals(64, values(backfill.path("targetVariantKeys")).size());
+        assertEquals(61, values(backfill.path("targetVariantKeys")).size());
         assertEquals(85, values(backfill.path("targetImageKeys")).size());
         assertTrue(values(backfill.path("targetImageKeys"))
                 .containsAll(CatalogFoamPhotoBackfillService.targetImageKeys()));
@@ -114,7 +114,7 @@ class CatalogContentBackfillResourceTest {
                 .allMatch(value -> value.contains("{seconds}")));
 
         List<List<String>> catalog = csv("/i18n/public-content.csv");
-        assertEquals(174, catalog.size(), "one header plus 173 catalogue keys");
+        assertEquals(178, catalog.size(), "one header plus 177 catalogue keys");
         assertTrue(catalog.stream().skip(1).allMatch(row -> row.size() == 13
                 && row.subList(4, 13).stream().noneMatch(String::isBlank)));
         List<List<String>> editorialCopy = catalog.stream().skip(1)

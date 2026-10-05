@@ -30,6 +30,19 @@ public interface SourcingRepositories {
         }
     }
 
+    /** Credits the supplier owes on a container ("Tegoed leverancier"). */
+    interface SupplierCredits {
+        /** The credits noted on this order, oldest first. */
+        List<be.enrosed.sourcing.domain.PurchaseSupplierCredit> forOrder(long orderId);
+        /** The credits of other orders that were offset as a payment on this one. */
+        List<be.enrosed.sourcing.domain.PurchaseSupplierCredit> offsetOnto(long orderId);
+        Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> find(long orderId, long creditId);
+        /** The credit an offset payment settles, if any. */
+        Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> forOffsetPayment(long paymentId);
+        be.enrosed.sourcing.domain.PurchaseSupplierCredit save(be.enrosed.sourcing.domain.PurchaseSupplierCredit credit);
+        boolean delete(long orderId, long creditId);
+    }
+
     interface Documents {
         List<be.enrosed.sourcing.domain.PurchaseDocument> forOrder(long orderId);
         java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> find(long orderId, long documentId);
@@ -58,6 +71,21 @@ public interface SourcingRepositories {
             return findAll().stream().anyMatch(order -> Long.valueOf(supplierId).equals(order.supplierId()));
         }
         Optional<PurchaseOrder> findById(long id);
+        /**
+         * Number and "Herkenbare naam" of many orders at once, without their
+         * lines; unknown or deleted ids are simply absent. Persistent adapters
+         * read a projection; this fallback serves the in-memory ones.
+         */
+        default java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names(java.util.Collection<Long> ids) {
+            java.util.Map<Long, be.enrosed.sourcing.domain.PurchaseOrderName> names = new java.util.HashMap<>();
+            if (ids == null) return names;
+            for (Long id : ids) {
+                if (id == null || names.containsKey(id)) continue;
+                findById(id).ifPresent(order -> names.put(id,
+                        new be.enrosed.sourcing.domain.PurchaseOrderName(id, order.number(), order.alias())));
+            }
+            return names;
+        }
         /**
          * Locks one order for a lifecycle-changing transaction.
          *

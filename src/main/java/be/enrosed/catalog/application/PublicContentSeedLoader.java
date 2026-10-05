@@ -30,6 +30,10 @@ public class PublicContentSeedLoader {
     private static final String CATALOG_RESOURCE = "/i18n/public-content.csv";
     private static final String WEBSITE_RESOURCE = "/i18n/website-content.csv";
     private static final Map<String, Map<Language, String>> LEGACY_CONSENT_VALUES = previousConsentValues();
+    private static final String SUPERSEDED_WEBSITE_COPY_RESOURCE = "/i18n/website-copy-superseded-values.json";
+    /** Exact live or earlier seed values that a planned WEBSITE copy update replaces, per key and language. */
+    private static final Map<String, Map<Language, List<String>>> SUPERSEDED_WEBSITE_COPY =
+            supersededWebsiteCopy();
     /** Additional exact former cookie intros still present when optional analytics went live. */
     private static final Map<Language, String> LEGACY_COOKIE_INTRO_VARIANTS = Map.of(
             Language.NL, "Deze Enrosed-website gebruikt momenteel geen analyse- of advertentiecookies. Er wordt alleen gebruik gemaakt van de functionaliteit die nodig is om de website weer te geven en de door u gekozen links te openen.",
@@ -492,6 +496,10 @@ public class PublicContentSeedLoader {
             return previous != null && previous.contains(current);
         }
         if (scope == ContentScope.WEBSITE) {
+            /* Compare-and-swap for planned copy updates: only a stored value that is
+               exactly a listed former value moves to the seed; any dashboard edit stays. */
+            if (current != null && SUPERSEDED_WEBSITE_COPY.getOrDefault(key, Map.of())
+                    .getOrDefault(language, List.of()).contains(current)) return true;
             // Make the original generic heading describe the wholesale product.
             // ERP-authored alternatives remain authoritative and are not replaced.
             if ("home.hero.title".equals(key)) {
@@ -576,6 +584,41 @@ public class PublicContentSeedLoader {
             return Map.copyOf(result);
         } catch (java.io.IOException exception) {
             throw new IllegalStateException("Previous consent copy cannot be read", exception);
+        }
+    }
+
+    /**
+     * Shape: {@code {key: {LANG: [exact former value, ...]}}}. Each list holds the value
+     * production serves today plus any earlier seed value a test or fresh database may hold.
+     */
+    private static Map<String, Map<Language, List<String>>> supersededWebsiteCopy() {
+        try (InputStream input = PublicContentSeedLoader.class.getResourceAsStream(
+                SUPERSEDED_WEBSITE_COPY_RESOURCE)) {
+            if (input == null) throw new IllegalStateException("Superseded website copy is missing");
+            var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(input);
+            Map<String, Map<Language, List<String>>> result = new LinkedHashMap<>();
+            root.fields().forEachRemaining(entry -> {
+                Map<Language, List<String>> values = new EnumMap<>(Language.class);
+                entry.getValue().fields().forEachRemaining(language -> {
+                    if (!language.getValue().isArray() || language.getValue().isEmpty()) {
+                        throw new IllegalStateException("Superseded website copy " + entry.getKey()
+                                + " " + language.getKey() + " must list at least one exact value");
+                    }
+                    List<String> previous = new ArrayList<>();
+                    language.getValue().forEach(value -> {
+                        if (!value.isTextual() || value.asText().isBlank()) {
+                            throw new IllegalStateException("Superseded website copy " + entry.getKey()
+                                    + " " + language.getKey() + " holds a blank or non-text value");
+                        }
+                        previous.add(value.asText());
+                    });
+                    values.put(Language.valueOf(language.getKey()), List.copyOf(previous));
+                });
+                result.put(entry.getKey(), Map.copyOf(values));
+            });
+            return Map.copyOf(result);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Superseded website copy cannot be read", exception);
         }
     }
 }

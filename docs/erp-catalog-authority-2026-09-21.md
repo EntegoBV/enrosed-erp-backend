@@ -29,7 +29,7 @@ records, not fallbacks for current offers or availability.
 
 The production audit covered all 23 published families and 55 public variants.
 Every variant had a valid current ERP-owned photo. The saved gallery also contains
-67 photographs originally imported from Shopify, which remain available as
+67 photographs originally imported from the former webshop, which remain available as
 ERP-managed assets. Thirteen variants had no positive calculable ERP price:
 49–52, 66–68, 70–72 and 74–76. Their pages remain available with price on request.
 Draft families and demo products remain unpublished. No stock quantities, prices,

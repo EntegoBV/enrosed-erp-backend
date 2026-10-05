@@ -83,19 +83,22 @@ final class SalesLifecycle {
      */
     static void requireDeletable(SalesOrder order, boolean hasRevisions) {
         if (!order.isClaimDocument()) return;
-
-        boolean unusedDraft = order.status() == QuoteStatus.CONCEPT
-                && order.sentAt() == null
-                && order.viewedAt() == null
-                && order.viewCount() == 0
-                && order.decidedAt() == null
-                && !hasRevisions;
-        if (!unusedDraft) {
+        if (!unusedDraft(order, hasRevisions)) {
             throw new BusinessRuleException(order.isCreditNote()
                     ? "Alleen een conceptcreditnota die nog nooit verstuurd of gebruikt is kan verwijderd worden"
                     : "Alleen een conceptfactuur die nog nooit verstuurd of gebruikt is "
                             + "kan verwijderd worden");
         }
+    }
+
+    /** A claim document that was never sent, viewed, decided or revised: the only kind that may be deleted. */
+    static boolean unusedDraft(SalesOrder order, boolean hasRevisions) {
+        return order.status() == QuoteStatus.CONCEPT
+                && order.sentAt() == null
+                && order.viewedAt() == null
+                && order.viewCount() == 0
+                && order.decidedAt() == null
+                && !hasRevisions;
     }
 
     /**

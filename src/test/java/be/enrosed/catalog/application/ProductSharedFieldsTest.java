@@ -80,6 +80,7 @@ class ProductSharedFieldsTest {
         assertEquals(source.packaging().kind(), updated.packaging().kind());
         assertEquals(source.packaging().dimensions(), updated.packaging().dimensions());
         assertEquals(source.packaging().piecesPerUnit(), updated.packaging().piecesPerUnit());
+        assertEquals("hart", updated.packaging().unitKey(), "the unit travels with the packaging bundle");
         assertEquals(target.packaging().barcode(), updated.packaging().barcode(),
                 "a colour variant keeps its own packaging EAN");
         assertEquals(target.carton(), updated.carton(), "CARTON was not selected");
@@ -108,7 +109,6 @@ class ProductSharedFieldsTest {
         assertEquals("Target English name", english.name());
         assertEquals("Source English description", english.description());
         assertEquals("Pink", english.colour());
-        assertEquals("Large", english.variantSize());
         ProductText french = updated.textIn(Language.FR);
         assertEquals("Description source", french.description(),
                 "a source-only translated description is added");
@@ -117,7 +117,6 @@ class ProductSharedFieldsTest {
         assertEquals("Alte Beschreibung", german.description(),
                 "an incomplete source never erases an existing target translation");
         assertEquals("Rosa", german.colour());
-        assertEquals("Groß", german.variantSize());
     }
 
     @Test
@@ -137,7 +136,7 @@ class ProductSharedFieldsTest {
         assertEquals("Source English name", english.name());
         assertEquals("Old English description", english.description());
         assertEquals("Pink", english.colour());
-        assertEquals("Large", english.variantSize());
+        assertEquals("Large", updated.variantSize(), "the one Maat stays the target's");
         assertEquals("Zielname", updated.textIn(Language.DE).name(),
                 "an absent source name keeps the translated target name");
     }
@@ -303,7 +302,7 @@ class ProductSharedFieldsTest {
                         PackagingKind.GIFT_BOX,
                         dimensions("12", "22", "32", "0.55"),
                         "5410000000033",
-                        2),
+                        2).withUnitKey("hart"),
                 "Red",
                 "Small",
                 "#AA1122",
@@ -336,9 +335,9 @@ class ProductSharedFieldsTest {
                 List.of(new Photo(11L, "source-photo", "source.jpg", "image/jpeg", 10, 5, 5, 0)),
                 List.of(
                         new ProductText(Language.EN, "Source English name",
-                                "Source English description", "Red", "Small"),
+                                "Source English description", "Red"),
                         new ProductText(Language.FR, "Nom source",
-                                "Description source", "Rouge", "Petit")),
+                                "Description source", "Rouge")),
                 false);
     }
 
@@ -385,9 +384,9 @@ class ProductSharedFieldsTest {
                 List.of(new Photo(22L, "target-photo", "target.jpg", "image/jpeg", 20, 8, 8, 0)),
                 List.of(
                         new ProductText(Language.EN, "Target English name",
-                                "Old English description", "Pink", "Large"),
+                                "Old English description", "Pink"),
                         new ProductText(Language.DE, "Zielname",
-                                "Alte Beschreibung", "Rosa", "Groß")),
+                                "Alte Beschreibung", "Rosa")),
                 true);
     }
 

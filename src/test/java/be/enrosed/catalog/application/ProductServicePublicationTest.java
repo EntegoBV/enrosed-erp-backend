@@ -38,6 +38,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -138,9 +139,28 @@ class ProductServicePublicationTest {
         assertEquals(PackagingKind.GIFT_BOX, copy.packaging().kind(), "the box itself comes along");
         assertEquals(boxed.packaging().dimensions(), copy.packaging().dimensions());
         assertNull(copy.packaging().barcode(), "the box's EAN is unique and stays behind");
+        assertEquals("box", copy.packaging().unitKey(), "a new colour is sold per the same unit");
         assertNull(copy.barcodes().inner());
         assertNull(copy.barcodes().outer());
         assertEquals("Altijd per zes verpakken", copy.supplierNote());
+    }
+
+    @Test
+    void refusesAUnitOutsideTheListOnEveryPackagingKind() {
+        Product plain = product(null, "ENR-P04", "Beschrijving", "witte-roos", null, null, true);
+        Product teddy = new Product(plain.id(), plain.sku(), plain.name(), plain.dimensions(),
+                Packaging.none().withUnitKey("teddy"), plain.colour(), plain.variantSize(), plain.colourHex(),
+                plain.description(), plain.categoryId(), plain.supplierId(), plain.active(), plain.familyId(),
+                plain.canonicalVariantKey(), plain.canonicalBarcode(), plain.variantPosition(),
+                plain.inventoryKnown(), plain.familyKey(), plain.publicHandle(), plain.websiteStatus(),
+                plain.orderAppStatus(), plain.barcodes(), plain.hsCode(), plain.carton(), plain.exwPrice(),
+                plain.exwCurrency(), plain.extraUnitCost(), plain.landedCostEur(), plain.landedCostSource(),
+                plain.markupPct(), plain.fixedSalesPriceEur(), plain.stockQuantity(), plain.photos(),
+                plain.texts());
+
+        BusinessRuleException error = assertThrows(BusinessRuleException.class, () -> service.create(teddy));
+
+        assertEquals("Onbekende eenheid 'teddy'. Kies een eenheid uit de lijst.", error.getMessage());
     }
 
     @Test
@@ -157,7 +177,8 @@ class ProductServicePublicationTest {
 
     private static Product withCodes(Product base, Barcodes codes, String giftBoxCode) {
         Packaging packaging = giftBoxCode == null ? Packaging.none()
-                : new Packaging(PackagingKind.GIFT_BOX, new Dimensions(one(), one(), one()), giftBoxCode);
+                : new Packaging(PackagingKind.GIFT_BOX, new Dimensions(one(), one(), one()), giftBoxCode)
+                        .withUnitKey("box");
         return new Product(base.id(), base.sku(), base.name(), base.dimensions(), packaging,
                 base.colour(), base.variantSize(), base.colourHex(), base.description(),
                 base.categoryId(), base.supplierId(), base.active(), base.familyId(),
@@ -215,6 +236,51 @@ class ProductServicePublicationTest {
         assertEquals("#AA1122", duplicate.colourHex());
         assertEquals("Red", duplicate.textIn(Language.EN).colour());
         assertNull(duplicate.canonicalVariantKey());
+    }
+
+    @Test
+    void duplicateWithANewMaatPrintsItInEveryLanguageAndKeepsTheTranslationRows() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
+                .withTexts(java.util.Arrays.stream(Language.values())
+                        .map(language -> new ProductText(
+                                language, "Rose " + language.code(), null, "Red"))
+                        .toList());
+        repository.add(source);
+
+        Product duplicate = service.duplicate(1L, null, null, " 4.8*4.8cm ");
+
+        assertEquals("4.8*4.8cm", duplicate.variantSize());
+        assertEquals(source.texts(), duplicate.texts(),
+                "names and colours come along; there is no size to translate");
+        for (Language language : Language.values()) {
+            assertTrue(duplicate.describeIn(language).endsWith(" - Red - 4.8*4.8cm"),
+                    "the one Maat prints in " + language.code() + ": "
+                            + duplicate.describeIn(language));
+        }
+    }
+
+    @Test
+    void duplicateNoLongerTranslatesSizeWords() {
+        Product source = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "Jumbo", "#A91F32")
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge"),
+                        new ProductText(Language.NL, "Roos", null, "Rood")));
+        repository.add(source);
+
+        Product large = service.duplicate(1L, null, null, "Large");
+
+        assertEquals("Large", large.variantSize());
+        String dutch = large.describeIn(Language.NL);
+        assertTrue(dutch.startsWith("Roos - ") && dutch.endsWith(" - Rood - Large"),
+                "Large stays Large, no Groot: the Maat is not translated: " + dutch);
+        String french = large.describeIn(Language.FR);
+        assertTrue(french.startsWith("Rose - ") && french.endsWith(" - Rouge - Large"), french);
+        assertEquals("Rose", large.textIn(Language.FR).name(), "the rows themselves stay");
     }
 
     @Test
@@ -308,15 +374,104 @@ class ProductServicePublicationTest {
         Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
-                        Language.FR, "Texte approuvé", "Description approuvée", "Rouge", "Petit")));
+                        Language.FR, "Texte approuvé", "Description approuvée", "Rouge")));
         repository.add(current);
 
         Product staleRequest = current.withTexts(List.of(new ProductText(
-                Language.FR, "Ancien brouillon", "Ancienne description", "Rouge", "Petit")));
+                Language.FR, "Ancien brouillon", "Ancienne description", "Rouge")));
         Product updated = service.update(1L, staleRequest);
 
         assertEquals("Texte approuvé", updated.textIn(Language.FR).name());
         assertEquals("Description approuvée", updated.textIn(Language.FR).description());
+    }
+
+    @Test
+    void changingTheBaseSizeReachesEveryLanguageAndLeavesTheTranslationRowsAlone() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.NL, "Roos", null, "Rood"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
+        repository.add(current);
+
+        Product updated = service.update(
+                1L, current.withVariantAttributes("Red", "4.8*4.8cm", "#A91F32"));
+
+        assertEquals("4.8*4.8cm", updated.variantSize());
+        assertEquals(current.texts(), updated.texts(),
+                "a size edit touches no translation: there is no per-language size");
+        for (Language language : Language.values()) {
+            String described = updated.describeIn(language);
+            assertTrue(described.endsWith(" - 4.8*4.8cm") && !described.contains("4.5"),
+                    "every language prints the edited size: " + language.code() + " " + described);
+        }
+    }
+
+    @Test
+    void anUnchangedBaseSizeLeavesEveryTranslationRowAlone() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.NL, "Roos", null, "Rood"),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
+        repository.add(current);
+
+        Product sameSize = service.update(
+                1L, current.withVariantAttributes("Red", "4.5*4.5cm", "#A91F32"));
+        assertEquals(current.texts(), sameSize.texts(), "the same size changes nothing");
+
+        Product olderClient = service.update(
+                1L, current.withVariantAttributes("Red", null, null));
+        assertEquals("4.5*4.5cm", olderClient.variantSize());
+        assertEquals(current.texts(), olderClient.texts(),
+                "a partial PUT that omits the size preserves the rows as they were");
+    }
+
+    @Test
+    void changingTheBaseColourFollowsTheSameCopyRule() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "XL", "#A91F32")
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "Rose", null, "Red"),
+                        new ProductText(Language.FR, "Rose", null, " red "),
+                        new ProductText(Language.NL, "Roos", null, "Rood")));
+        repository.add(current);
+
+        Product updated = service.update(
+                1L, current.withVariantAttributes("White", "XL", "#FFFFFF"));
+
+        assertEquals("White", updated.textIn(Language.EN).colour());
+        assertEquals("White", updated.textIn(Language.FR).colour(),
+                "a copy that differs only in case and whitespace follows the base");
+        assertEquals("Rood", updated.textIn(Language.NL).colour(),
+                "a translated colour is not a copy and stays");
+        assertEquals("XL", updated.variantSize(), "a colour edit leaves the Maat alone");
+    }
+
+    @Test
+    void clearingTheBaseSizeLeavesNoSizeInAnyLanguageButKeepsTheTranslations() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true)
+                .withVariantAttributes("Red", "4.5*4.5cm", "#A91F32")
+                .withTexts(List.of(
+                        new ProductText(Language.EN, "Rose", null, null),
+                        new ProductText(Language.FR, "Rose", null, "Rouge")));
+        repository.add(current);
+
+        Product updated = service.update(
+                1L, current.withVariantAttributes("Red", " ", "#A91F32"));
+
+        assertNull(updated.variantSize());
+        assertEquals(current.texts(), updated.texts(), "names and colours survive");
+        for (Language language : Language.values()) {
+            assertFalse(updated.describeIn(language).contains("4.5*4.5cm"),
+                    "nothing prints a stale size: " + language.code());
+        }
     }
 
     @Test
@@ -413,13 +568,13 @@ class ProductServicePublicationTest {
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
                         Language.EN, "x".repeat(255), "d".repeat(2_000),
-                        "c".repeat(255), "s".repeat(255))));
+                        "c".repeat(255))));
         assertEquals(255, service.create(boundary).textIn(Language.EN).name().length());
 
         Product overlong = product(null, "ENR-P256", "Beschrijving", null,
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(new ProductText(
-                        Language.EN, "x".repeat(256), null, null, null)));
+                        Language.EN, "x".repeat(256), null, null)));
         BusinessRuleException length = assertThrows(
                 BusinessRuleException.class, () -> service.create(overlong));
         assertTrue(length.getMessage().contains("255"), length.getMessage());
@@ -428,8 +583,8 @@ class ProductServicePublicationTest {
         Product duplicate = product(null, "ENR-P-DUP-TEXT", "Beschrijving", null,
                 PublicationState.DRAFT, PublicationState.DRAFT, true)
                 .withTexts(List.of(
-                        new ProductText(Language.EN, "One", null, null, null),
-                        new ProductText(Language.EN, "Two", null, null, null)));
+                        new ProductText(Language.EN, "One", null, null),
+                        new ProductText(Language.EN, "Two", null, null)));
         assertThrows(BusinessRuleException.class, () -> service.create(duplicate));
         assertTrue(repository.findBySku("ENR-P-DUP-TEXT").isEmpty());
     }
@@ -447,8 +602,8 @@ class ProductServicePublicationTest {
         byte[] exported = csv.export();
         String text = new String(exported, StandardCharsets.UTF_8);
         assertTrue(text.lines().findFirst().orElseThrow().endsWith(
-                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex"), text);
-        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32"), text);
+                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex;eenheid"), text);
+        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32;stuk"), text);
 
         ProductCsv.ImportResult result = csv.importFrom(new ByteArrayInputStream(exported));
         assertEquals(1, result.updatedProducts());
@@ -485,7 +640,8 @@ class ProductServicePublicationTest {
         byte[] bytes = "GIF89a-new-photo".getBytes(StandardCharsets.US_ASCII);
         when(blobStore.store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class)))
                 .thenReturn(new PhotoStorage.Stored("upload-key", bytes.length, null, null));
-        when(failingRepository.save(any(Product.class)))
+        // Photo changes persist through savePhotos so master data stays untouched.
+        when(failingRepository.savePhotos(any(Product.class)))
                 .thenThrow(new IllegalStateException("database write failed"));
         ProductService failingService = new ProductService(
                 failingRepository, blobStore, mock(ProductValidator.class));
@@ -499,7 +655,7 @@ class ProductServicePublicationTest {
         InOrder sequence = inOrder(blobStore, cleanup, failingRepository);
         sequence.verify(blobStore).store(eq("supplier-photo.gif"), eq("image/gif"), any(byte[].class));
         sequence.verify(cleanup).fire(new ProductPhotoCleanup.UploadReady(1L, "upload-key"));
-        sequence.verify(failingRepository).save(any(Product.class));
+        sequence.verify(failingRepository).savePhotos(any(Product.class));
     }
 
     @Test

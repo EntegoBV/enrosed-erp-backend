@@ -45,6 +45,7 @@ public class DeletedItemsService {
     @Inject PartnerAdvanceSchedules schedules;
     @Inject PartnerAdvanceScheduleService advanceService;
     @Inject PartnerAdvanceContents advanceContents;
+    @Inject be.enrosed.sales.application.SalesAdvanceBillingService advanceBilling;
     @ConfigProperty(name = "enrosed.deleted-items.retention-days", defaultValue = "90") int retentionDays;
 
     public record Claim(long id, BigDecimal total, boolean issued, boolean live, Long customerId) {}
@@ -176,6 +177,8 @@ public class DeletedItemsService {
             return "Een product bestaat niet meer. Het document blijft hier raadpleegbaar.";
         if (order.sourceQuoteId() != null && orders.findById(order.sourceQuoteId()).isEmpty())
             return "Herstel eerst de oorspronkelijke offerte.";
+        String advanceReason = advanceBilling.restoreReason(order);
+        if (advanceReason != null) return advanceReason;
         if (order.sourceQuoteId() != null && !order.isPartnerAdvance() && orders.findAll().stream().anyMatch(o -> o.isInvoice()
                 && Objects.equals(o.sourceQuoteId(), order.sourceQuoteId()) && o.status() != QuoteStatus.GEANNULEERD))
             return "Er bestaat inmiddels een andere factuur voor deze offerte.";

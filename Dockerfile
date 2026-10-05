@@ -88,10 +88,17 @@ COPY docs/migrations/2026-09-22/product-shopify-identities-postgresql.sql ./migr
 COPY docs/migrations/2026-09-22/product-short-skus-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-22/product-localized-tags-seed-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-22/product-sales-unit-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-22/family-website-quote-photo-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-22/product-unit-key-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-24/catalog-export-order-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-25/credit-notes-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-27/product-text-variant-size-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-28/product-text-variant-size-neutral-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-28/prospects-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-29/purchase-supplier-credit-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-29/purchase-order-freight-via-supplier-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-30/glass-box-twelve-roses-postgresql.sql ./migrations/
+COPY docs/migrations/2026-09-30/sales-advance-billing-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-01/glass-box-thirteen-roses-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 

@@ -42,7 +42,17 @@ public record CustomerQuoteView(
             boolean inventoryKnown, boolean inStock,
             String deliveryDate, String deliveryWeek, boolean unavailable, Integer requestedQuantity,
             /** Basis of the unchanged commercial quantity and price; no costs or internal stock data. */
-            String salesUnit, Integer piecesPerDisplay) {
+            String salesUnit, Integer piecesPerDisplay,
+            /** What one piece is called, in the view's language ("per bowl"). */
+            be.enrosed.catalog.adapter.in.rest.UnitDto unit) {
+        public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
+                            int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
+                            BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek,
+                            boolean unavailable, Integer requestedQuantity, String salesUnit, Integer piecesPerDisplay) {
+            this(productId, sku, description, photoUrl, quantity, cartons, pallets, cbm, piecesPerCarton, unitPrice,
+                    discountPct, net, inventoryKnown, inStock, deliveryDate, deliveryWeek, unavailable, requestedQuantity,
+                    salesUnit, piecesPerDisplay, null);
+        }
         public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
                             int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
                             BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek,

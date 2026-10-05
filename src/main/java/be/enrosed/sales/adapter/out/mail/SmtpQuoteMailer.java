@@ -1,5 +1,6 @@
 package be.enrosed.sales.adapter.out.mail;
 
+import be.enrosed.sales.application.SalesUnitText;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.application.port.out.QuoteMailer;
 import be.enrosed.sales.domain.Customer;
@@ -9,6 +10,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.mail.InternalMessageSender;
 import be.enrosed.shared.mail.InternalMessageSender.TeamNotice;
 
@@ -72,6 +74,9 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     /** The documents, to name the invoice a credit note corrects; optional so direct construction in tests keeps working. */
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.sales.application.port.out.SalesRepositories.Orders> orders;
+    /** Advance invoices and slotfacturen of regular quotes, for their own mail subject; optional like the documents. */
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.sales.application.SalesAdvanceBilling> advanceBilling;
 
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
@@ -143,8 +148,17 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 .data("validUntilSentence", "")
                 .render();
 
-        String subject = text.get(order.isCreditNote() ? "mailSubjectCreditNote" : "mailSubjectInvoice").formatted(order.number());
+        String subject = text.get(order.isCreditNote() ? "mailSubjectCreditNote" : invoiceSubjectKey(order)).formatted(order.number());
         deliver(customer, subject, body, document, order.number());
+    }
+
+    /** An advance invoice or slotfactuur of a regular quote says so in the subject. */
+    private String invoiceSubjectKey(SalesOrder order) {
+        if (order.id() == null || advanceBilling == null || !advanceBilling.isResolvable()) return "mailSubjectInvoice";
+        var row = advanceBilling.get().find(order.id());
+        if (row == null) return "mailSubjectInvoice";
+        return row.stage() == be.enrosed.sales.application.SalesAdvanceBilling.Stage.ADVANCE
+                ? "mailSubjectAdvanceInvoice" : "mailSubjectSettlementInvoice";
     }
 
     /** The number of the invoice a credit note corrects, for the mail intro. */
@@ -314,7 +328,8 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                 "quantity", line.unavailable() ? "-" : DocumentFormat.amount(java.math.BigDecimal.valueOf(line.quantity())),
                 "net", line.unavailable() ? "-" : line.net() == null ? "" : DocumentFormat.money(line.net()) + " EUR",
                 "unavailableText", line.unavailable() ? DocumentText.of(Language.NL).get("lineUnavailable") : "",
-                "requestedQuantityText", requestedQuantityText(line.unavailable(), line.requestedQuantity(), Language.NL))).toList();
+                "requestedQuantityText", requestedQuantityText(line.unavailable(), line.requestedQuantity(),
+                        line.packaging(), Language.NL))).toList();
         return quoteSentInternalTemplate
                 .data("logoUrl", BRAND_LOGO_URL)
                 .data("order", order)
@@ -344,12 +359,19 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     static List<DeliveryRow> deliveryRows(List<DeliveryLine> lines, Language language) {
         return lines.stream().map(line -> new DeliveryRow(line.description(),
                 line.unavailable() ? null : line.term(), line.known(), line.unavailable(),
-                requestedQuantityText(line.unavailable(), line.requestedQuantity(), language))).toList();
+                requestedQuantityText(line.unavailable(), line.requestedQuantity(), line.packaging(), language)))
+                .toList();
     }
 
-    private static String requestedQuantityText(boolean unavailable, Integer requested, Language language) {
-        return unavailable && requested != null && requested > 0
-                ? DocumentText.of(language).get("lineRequestedQuantity").formatted(requested) : "";
+    /** A plain piece keeps its long-standing sentence; any other unit says what was counted. */
+    private static String requestedQuantityText(boolean unavailable, Integer requested,
+                                                be.enrosed.catalog.domain.Packaging packaging, Language language) {
+        if (!unavailable || requested == null || requested <= 0) return "";
+        var text = DocumentText.of(language);
+        boolean plainPiece = !SalesUnitText.displayBasis(packaging) && !SalesUnitText.unknownBasis(packaging)
+                && UnitNames.DEFAULT.equals(SalesUnitText.unitKey(packaging));
+        return plainPiece ? text.get("lineRequestedQuantity").formatted(requested)
+                : text.get("salesRequestedUnits").formatted(SalesUnitText.quantity(packaging, requested, language));
     }
 
     private static List<Map<String, String>> advanceRows(AdvanceAgreement agreement, Language language) {

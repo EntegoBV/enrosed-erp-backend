@@ -69,7 +69,7 @@ public class PublicQuoteService {
 
     public ConfigurationResponse configuration(String languageCode) {
         Map<String, String> errors = new LinkedHashMap<>();
-        requireLanguage(languageCode, errors);
+        Language language = requireLanguage(languageCode, errors);
         if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
         SalesOrder priceTemplate = draft(null, null, null, Fulfillment.DELIVERY,
                 List.of(), null, FreightState.TE_BEPALEN);
@@ -81,7 +81,8 @@ public class PublicQuoteService {
                     return new ProductPrice(product.id(), available ? amount : null, available,
                             piecesPerCarton(product), product.packaging().salesUnit().name(),
                             product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                                    ? product.packaging().piecesPerUnit() : null);
+                                    ? product.packaging().piecesPerUnit() : null,
+                            be.enrosed.catalog.adapter.in.rest.UnitDto.of(product.packaging().unitKey(), language));
                 }).toList();
         List<CountryOption> destinations = countries.list().stream()
                 .map(country -> new CountryOption(country.code(), country.name(),

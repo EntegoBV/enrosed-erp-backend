@@ -29,8 +29,9 @@ public final class CataloguePhotoChoices {
                             p.originalFilename, "FAMILY", p.largeStorageKey, p.largeContentType,
                             base + "/small", base + "/large"));
                 });
+        // Unsaved members have no id yet; order them like ProductFamilyDto does.
         active.stream().sorted(Comparator.comparingInt((ProductEntity p) -> p.variantPosition)
-                        .thenComparing(p -> p.id)).forEach(p -> p.photos.stream()
+                        .thenComparing(p -> p.id, Comparator.nullsLast(Long::compareTo))).forEach(p -> p.photos.stream()
                 .filter(photo -> photo.familyPhotoId == null && photo.id != null
                         && photo.id > 0 && photo.storageKey != null && photo.sizeBytes > 0
                         && photo.contentType != null && photo.contentType.startsWith("image/"))

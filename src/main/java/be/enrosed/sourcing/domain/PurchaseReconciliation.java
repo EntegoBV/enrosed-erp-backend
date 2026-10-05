@@ -51,8 +51,22 @@ public record PurchaseReconciliation(
             BigDecimal settledSavingEur,
             boolean explicitlySettled,
             boolean finalized,
-            int paymentCount
-    ) {}
+            int paymentCount,
+            /**
+             * Credits the supplier owes on this order, whatever their status;
+             * zero for every other payee. forecastEur = paid + open - credit.
+             */
+            BigDecimal creditEur
+    ) {
+        /** Compatibility for callers written before supplier credits existed. */
+        public Stream(PurchasePayment.Payee payee, String label, Status status, BigDecimal plannedEur,
+                      BigDecimal paidEur, BigDecimal remainingEur, BigDecimal forecastEur, BigDecimal varianceEur,
+                      BigDecimal overpaidEur, BigDecimal settledSavingEur, boolean explicitlySettled,
+                      boolean finalized, int paymentCount) {
+            this(payee, label, status, plannedEur, paidEur, remainingEur, forecastEur, varianceEur, overpaidEur,
+                    settledSavingEur, explicitlySettled, finalized, paymentCount, BigDecimal.ZERO.setScale(2));
+        }
+    }
 
     public record Totals(
             BigDecimal plannedExternalEur,
@@ -76,8 +90,26 @@ public record PurchaseReconciliation(
             BigDecimal forecastPricingUnitEur,
             boolean receiptRecorded,
             /** Historical receipt header; informational only, never added to payments. */
-            BigDecimal legacyPaidTotalEur
-    ) {}
+            BigDecimal legacyPaidTotalEur,
+            /** Every supplier credit on the order; it lowers forecastExternalEur. */
+            BigDecimal supplierCreditEur,
+            /** The part of those credits still to receive. */
+            BigDecimal supplierCreditOpenEur
+    ) {
+        /** Compatibility for callers written before supplier credits existed. */
+        public Totals(BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
+                      BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
+                      BigDecimal plannedPricingEur, BigDecimal forecastPricingEur, boolean finalized,
+                      int orderedQuantity, int receivedQuantity, int damagedQuantity, int usableQuantity,
+                      int unitCostQuantity, UnitCostBasis unitCostBasis, BigDecimal forecastExternalUnitEur,
+                      BigDecimal forecastPricingUnitEur, boolean receiptRecorded, BigDecimal legacyPaidTotalEur) {
+            this(plannedExternalEur, paidEur, remainingEur, forecastExternalEur, varianceEur, internalMarkupEur,
+                    plannedPricingEur, forecastPricingEur, finalized, orderedQuantity, receivedQuantity,
+                    damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis, forecastExternalUnitEur,
+                    forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur,
+                    BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));
+        }
+    }
 
     public record Line(
             Long productId,
@@ -97,6 +129,21 @@ public record PurchaseReconciliation(
             BigDecimal forecastPricingEur,
             BigDecimal forecastExternalUnitEur,
             BigDecimal forecastPricingUnitEur,
-            String allocationBasis
-    ) {}
+            String allocationBasis,
+            /** This product's share of the supplier credits; forecastExternalEur = paid + open - credit. */
+            BigDecimal creditEur
+    ) {
+        /** Compatibility for callers written before supplier credits existed. */
+        public Line(Long productId, String productName, int orderedQuantity, int receivedQuantity,
+                    int damagedQuantity, int usableQuantity, int unitCostQuantity, UnitCostBasis unitCostBasis,
+                    BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
+                    BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
+                    BigDecimal forecastPricingEur, BigDecimal forecastExternalUnitEur,
+                    BigDecimal forecastPricingUnitEur, String allocationBasis) {
+            this(productId, productName, orderedQuantity, receivedQuantity, damagedQuantity, usableQuantity,
+                    unitCostQuantity, unitCostBasis, plannedExternalEur, paidEur, remainingEur, forecastExternalEur,
+                    varianceEur, internalMarkupEur, forecastPricingEur, forecastExternalUnitEur,
+                    forecastPricingUnitEur, allocationBasis, BigDecimal.ZERO.setScale(2));
+        }
+    }
 }

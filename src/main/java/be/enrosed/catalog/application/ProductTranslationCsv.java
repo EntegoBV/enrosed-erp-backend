@@ -28,9 +28,11 @@ import java.util.Map;
  * screen. Hence one file out, with one row per language per product, and the
  * same file back in.
  *
- * Name, description, colour and merchandising size are in it. The rest of a product is
- * universal; putting those columns in the file invites editing, and a
- * translator should not be able to change carton dimensions.
+ * Name, description and colour are in it. The rest of a product is universal;
+ * putting those columns in the file invites editing, and a translator should not
+ * be able to change carton dimensions. That includes the Maat (variant size): it
+ * is one language-neutral value, so the old 'maat' column is gone from the export
+ * and an older file that still has it imports without it.
  *
  * Two things that make the file robust in Excel:
  *  - a UTF-8 BOM, otherwise Excel turns "Rosé" into something else
@@ -41,7 +43,7 @@ import java.util.Map;
 public class ProductTranslationCsv {
 
     static final List<String> HEADERS =
-            List.of("sku", "taal", "naam", "beschrijving", "kleur", "maat");
+            List.of("sku", "taal", "naam", "beschrijving", "kleur");
 
     private final ProductRepository products;
     private final PublicProductTranslationsService publicTranslations;
@@ -97,9 +99,7 @@ public class ProductTranslationCsv {
                         text == null || isBlank(text.name()) ? nullToBlank(product.name()) : text.name(),
                         text == null || isBlank(text.description())
                                 ? nullToBlank(product.description()) : text.description(),
-                        text == null || isBlank(text.colour()) ? nullToBlank(product.colour()) : text.colour(),
-                        text == null || isBlank(text.variantSize())
-                                ? nullToBlank(product.variantSize()) : text.variantSize()));
+                        text == null || isBlank(text.colour()) ? nullToBlank(product.colour()) : text.colour()));
             }
         }
         return rows;
@@ -161,9 +161,10 @@ public class ProductTranslationCsv {
                 continue;
             }
 
+            /* A sixth 'maat' column from an older export is ignored: the Maat is language-neutral. */
             ProductText duplicate = perSku.computeIfAbsent(sku, key -> new LinkedHashMap<>())
                     .put(language, new ProductText(language,
-                            cell(cells, 2), cell(cells, 3), cell(cells, 4), cell(cells, 5)));
+                            cell(cells, 2), cell(cells, 3), cell(cells, 4)));
             if (duplicate != null) {
                 problems.add("Regel " + lineNumber + ": " + sku + " / "
                         + language.code() + " staat dubbel");
@@ -203,7 +204,7 @@ public class ProductTranslationCsv {
                 Map<Language, ProductDto.TextDto> productPatches = new LinkedHashMap<>();
                 entry.getValue().forEach((language, text) -> productPatches.put(language,
                         new ProductDto.TextDto(language, text.name(), text.description(),
-                                text.colour(), text.variantSize())));
+                                text.colour())));
                 patches.put(product.id(), productPatches);
             }
             fallbackProducts.add(product.withTexts(texts));
@@ -302,9 +303,7 @@ public class ProductTranslationCsv {
                 text.language(),
                 sameAs(text.name(), product.name()) ? null : blankToNull(text.name()),
                 sameAs(text.description(), product.description()) ? null : blankToNull(text.description()),
-                sameAs(text.colour(), product.colour()) ? null : blankToNull(text.colour()),
-                sameAs(text.variantSize(), product.variantSize())
-                        ? null : blankToNull(text.variantSize()));
+                sameAs(text.colour(), product.colour()) ? null : blankToNull(text.colour()));
     }
 
     private static void validateTexts(
@@ -313,7 +312,6 @@ public class ProductTranslationCsv {
             validateLength(sku, text.language(), "naam", text.name(), 255, problems);
             validateLength(sku, text.language(), "beschrijving", text.description(), 2_000, problems);
             validateLength(sku, text.language(), "kleur", text.colour(), 255, problems);
-            validateLength(sku, text.language(), "maat", text.variantSize(), 255, problems);
         }
     }
 

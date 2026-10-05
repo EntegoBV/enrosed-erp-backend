@@ -123,8 +123,7 @@ class PdfCatalogStandaloneQaTest {
         Product source = complete.products().getFirst();
         Product withoutFrenchName = source.withTexts(source.texts().stream()
                 .map(text -> text.language() == Language.FR
-                        ? new ProductText(Language.FR, "", text.description(), text.colour(),
-                                text.variantSize())
+                        ? new ProductText(Language.FR, "", text.description(), text.colour())
                         : text)
                 .toList());
         CatalogExportService.FamilyGroup canonicalSource = complete.families().getFirst();
@@ -280,7 +279,7 @@ class PdfCatalogStandaloneQaTest {
     private static Product colourProduct(long id, int position, String dutch, String english) {
         return product(id, "COLOUR-" + id, 100L, 1L, position)
                 .withVariantAttributes(dutch, "", "")
-                .withTexts(List.of(new ProductText(Language.EN, "Colour " + id, "", english, "")));
+                .withTexts(List.of(new ProductText(Language.EN, "Colour " + id, "", english)));
     }
 
     private static Photo thumbnailPhoto(long id, String key, Long familyPhotoId, boolean lead) {

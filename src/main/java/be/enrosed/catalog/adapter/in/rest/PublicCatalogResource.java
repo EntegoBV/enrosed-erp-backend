@@ -5,6 +5,7 @@ import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.WebsitePriceVisibility;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
@@ -57,6 +58,8 @@ public class PublicCatalogResource {
     PublicFamilyPhotoProjection publicPhotos;
     @Inject
     FamilyPhotoPublicationPolicy photoPublication;
+    @Inject
+    WebsitePriceVisibility priceVisibility;
 
     @Inject
     public PublicCatalogResource(
@@ -98,7 +101,9 @@ public class PublicCatalogResource {
                 .filter(Objects::nonNull)
                 .toList();
 
-        return Response.ok(new PublicCatalogDto(channel, language, publicProducts))
+        return Response.ok(PublicCatalogPriceVisibility.apply(
+                        new PublicCatalogDto(channel, language, publicProducts),
+                        priceVisibility == null || priceVisibility.pricesVisible()))
                 .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
                 .build();
     }

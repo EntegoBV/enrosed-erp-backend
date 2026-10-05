@@ -49,7 +49,6 @@ public class ProductValidator {
             bounded(text.name(), 255, "Vertaalde productnaam");
             bounded(text.description(), 2_000, "Vertaalde productbeschrijving");
             bounded(text.colour(), 255, "Vertaalde kleur");
-            bounded(text.variantSize(), 255, "Vertaalde variantmaat");
         }
 
         Carton carton = product.carton();
@@ -76,6 +75,12 @@ public class ProductValidator {
         Barcodes codes = product.barcodes() == null ? Barcodes.none() : product.barcodes();
         checkBarcode(codes.inner(), "Binnenbarcode");
         checkBarcode(codes.outer(), "Omdoosbarcode");
+        /* Any kind, NONE included: the unit names the piece, not its packaging. */
+        String unit = product.packaging().requestedUnitKey();
+        if (unit != null && !be.enrosed.shared.UnitNames.isKnown(unit)) {
+            throw new BusinessRuleException(
+                    "Onbekende eenheid '%s'. Kies een eenheid uit de lijst.".formatted(unit));
+        }
         if (product.packaging().isPresent()) {
             checkBarcode(product.packaging().barcode(),
                     "Barcode " + product.packaging().kind().dutchLabel().toLowerCase());
@@ -110,7 +115,7 @@ public class ProductValidator {
     public static void validateCanonicalVariantKey(String value) {
         if (value != null && value.strip().toLowerCase(java.util.Locale.ROOT).startsWith("shopify-")) {
             throw new BusinessRuleException(
-                    "De oude Shopify-variantcode is vervangen door een ERP-code. "
+                    "De oude webshop-variantcode is vervangen door een ERP-code. "
                             + "Herlaad het product voordat u opnieuw opslaat.");
         }
     }

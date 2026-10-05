@@ -1,5 +1,7 @@
 package be.enrosed.catalog.domain;
 
+import be.enrosed.shared.UnitNames;
+
 /**
  * The gift box or display a product is sold in, with its own outer size.
  *
@@ -11,7 +13,18 @@ public record Packaging(PackagingKind kind, Dimensions dimensions, String barcod
                         /** Pieces a display holds; null or 1 for a gift box around one piece. */
                         Integer piecesPerUnit,
                         /** Basis of stored sales quantities and prices; does not change their values. */
-                        SalesUnit salesUnit) {
+                        SalesUnit salesUnit,
+                        /**
+                         * What one piece is called on customer documents ({@link UnitNames} key).
+                         * Independent of the kind: a bowl stays a bowl without a display too.
+                         */
+                        String unitKey) {
+
+    /** Compatibility for callers written before a piece could be called something else than "stuk". */
+    public Packaging(PackagingKind kind, Dimensions dimensions, String barcode, Integer piecesPerUnit,
+                     SalesUnit salesUnit) {
+        this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null);
+    }
 
     public Packaging(PackagingKind kind, Dimensions dimensions, String barcode, Integer piecesPerUnit) {
         this(kind, dimensions, barcode, piecesPerUnit, SalesUnit.PIECE);
@@ -29,6 +42,21 @@ public record Packaging(PackagingKind kind, Dimensions dimensions, String barcod
     /** Legacy frozen document JSON may predate the explicit commercial-unit field. */
     public boolean hasExplicitSalesUnit() {
         return salesUnit != null;
+    }
+
+    /** Always a known unit; missing or unknown (older rows, frozen JSON) reads as "stuk". */
+    public String unitKey() {
+        return UnitNames.normalize(unitKey);
+    }
+
+    /** The key as it was given, trimmed; null when blank. Only validation needs the raw value. */
+    public String requestedUnitKey() {
+        return unitKey == null || unitKey.isBlank() ? null : unitKey.strip();
+    }
+
+    /** The same packaging with another name for one piece. */
+    public Packaging withUnitKey(String unit) {
+        return new Packaging(kind, dimensions, barcode, piecesPerUnit, salesUnit, unit);
     }
 
     public static Packaging none() {

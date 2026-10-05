@@ -10,6 +10,7 @@ import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.WebsiteRebuildEntity;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.WebsiteRebuildStatus;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
@@ -58,6 +59,8 @@ class PublicProductTranslationsStandaloneTest {
         assertTrue(initial.images().isEmpty());
         assertNotNull(initial.product());
 
+        /* An older ERP client still sends a per-language size; the Maat is language-neutral,
+           so the size is ignored on write and never returned. */
         List<ProductDto.TextDto> localized = List.of(
                 new ProductDto.TextDto(Language.FR, "Rose autonome",
                         "Description française", "Rouge", "Petit"),
@@ -67,7 +70,15 @@ class PublicProductTranslationsStandaloneTest {
                 new PublicProductTranslationsDto.UpdateDto(
                         initial.revision(), null, List.of(), localized, List.of()));
         assertNotEquals(initial.revision(), updated.revision());
-        assertEquals(localized, updated.productTexts());
+        assertEquals(List.of(
+                        new ProductDto.TextDto(Language.FR, "Rose autonome",
+                                "Description française", "Rouge"),
+                        new ProductDto.TextDto(Language.TR, "Bağımsız gül",
+                                "Türkçe açıklama", "Kırmızı")),
+                updated.productTexts());
+        assertTrue(product.texts.stream().allMatch(text -> text.variantSize == null),
+                "no per-language size is stored");
+        assertTrue(updated.product().texts().stream().allMatch(text -> text.variantSize() == null));
         assertNull(updated.familyId());
 
         PublicProductTranslationsDto noOp = translations.update(product.id,
@@ -104,11 +115,13 @@ class PublicProductTranslationsStandaloneTest {
         entityManager.flush();
         PublicProductTranslationsDto initial = translations.get(product.id);
         ProductDto.TextDto accepted = new ProductDto.TextDto(
-                Language.EN, "x".repeat(255), null, "c".repeat(255), "s".repeat(255));
+                Language.EN, "x".repeat(255), null, "c".repeat(255), "s".repeat(256));
         PublicProductTranslationsDto updated = translations.update(product.id,
                 new PublicProductTranslationsDto.UpdateDto(initial.revision(), null,
                         List.of(), List.of(accepted), List.of()));
-        assertEquals(accepted, updated.productTexts().getFirst());
+        assertEquals(new ProductDto.TextDto(Language.EN, "x".repeat(255), null, "c".repeat(255)),
+                updated.productTexts().getFirst(),
+                "an ignored per-language size is neither stored nor length-checked");
 
         ProductDto.TextDto tooLong = new ProductDto.TextDto(
                 Language.EN, "x".repeat(256), null, null, null);
@@ -184,6 +197,83 @@ class PublicProductTranslationsStandaloneTest {
                 .filter(text -> text.language == Language.TR).findFirst().orElseThrow();
         assertNull(storedTurkish.name);
         assertEquals("Halka açık gül", storedTurkish.publicName);
+    }
+
+    @Test
+    @TestTransaction
+    void aLegacyPerLanguageSizeIsNeverReadAndDisappearsOnTheNextSave() {
+        ProductEntity product = standalone("STANDALONE-LEGACY-SIZE");
+        product.variantSize = "4.8*4.8cm";
+        ProductTextEntity german = new ProductTextEntity();
+        german.product = product;
+        german.language = Language.DE;
+        german.variantSize = "4.5*4.5cm"; // A stale copy and nothing else.
+        product.texts.add(german);
+        ProductTextEntity french = new ProductTextEntity();
+        french.product = product;
+        french.language = Language.FR;
+        french.name = "Rose";
+        french.variantSize = "Petit";
+        product.texts.add(french);
+        entityManager.persist(product);
+        entityManager.flush();
+
+        Product operational = products.findById(product.id).orElseThrow();
+        assertEquals(List.of(new ProductText(Language.FR, "Rose", null, null)), operational.texts(),
+                "a per-language size is not document text");
+        assertTrue(operational.describeIn(Language.DE).endsWith(" - 4.8*4.8cm"),
+                operational.describeIn(Language.DE));
+        assertTrue(operational.describeIn(Language.FR).endsWith(" - 4.8*4.8cm"),
+                operational.describeIn(Language.FR));
+        assertTrue(translations.get(product.id).productTexts().stream()
+                        .allMatch(text -> text.variantSize() == null),
+                "the translation editor never sees the stale copy");
+
+        products.save(operational);
+        entityManager.flush();
+        entityManager.clear();
+
+        ProductEntity stored = entityManager.find(ProductEntity.class, product.id);
+        assertEquals(List.of(Language.FR), stored.texts.stream().map(text -> text.language).toList(),
+                "a row that only held a size is empty and goes, like the migration does");
+        assertEquals("Rose", stored.texts.getFirst().name);
+        assertNull(stored.texts.getFirst().variantSize, "the retired column is cleared on save");
+        assertEquals("4.8*4.8cm", stored.variantSize);
+    }
+
+    @Test
+    @TestTransaction
+    void aSizeLessTranslationRowKeepsTheRevisionItHadBeforeTheMaatWasRetired() throws Exception {
+        ProductEntity product = standalone("STANDALONE-STABLE-REVISION");
+        ProductTextEntity french = new ProductTextEntity();
+        french.product = product;
+        french.language = Language.FR;
+        french.name = "Rose";
+        french.publicName = "Rose publique";
+        french.description = "Description";
+        french.colour = "Rouge";
+        product.texts.add(french);
+        entityManager.persist(product);
+        entityManager.flush();
+
+        /* The canonical form 17ff7ff hashed, per-language size (empty here) included: an
+           editor tab opened before the deploy must still save afterwards. */
+        StringBuilder canonical = new StringBuilder();
+        for (Object value : java.util.Arrays.asList(product.id, null, null, null,
+                Language.FR, "Rose", "Rose publique", "Description", "Rouge", null)) {
+            String text = value == null ? "" : String.valueOf(value);
+            canonical.append(text.length()).append(':').append(text).append('|');
+        }
+        String beforeRetirement = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(
+                        canonical.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertEquals(beforeRetirement, translations.get(product.id).revision(),
+                "a row without a size keeps its revision over the deploy");
+
+        french.variantSize = "Petit";
+        entityManager.flush();
+        assertEquals(beforeRetirement, translations.get(product.id).revision(),
+                "a leftover per-language size is never read, also not by the revision");
     }
 
     @Test

@@ -50,6 +50,26 @@ class PublicQuotePriceVisibilityTest {
     }
 
     @Test
+    void hiddenPricesStillSayPerWhichUnitTheProductIsSold() throws Exception {
+        var bowl = be.enrosed.catalog.adapter.in.rest.UnitDto.of("bowl", be.enrosed.shared.Language.FR);
+        ConfigurationResponse original = new ConfigurationResponse("EUR", "NET_EXCL_VAT", "FULL_CARTONS",
+                List.of("DELIVERY"), "ESTIMATE_NOT_BINDING", List.of(),
+                List.of(new ProductPrice(1L, new BigDecimal("3.95"), true, 40, "PIECE", 8, bowl)),
+                List.of());
+        ConfigurationResponse hidden = PublicQuotePriceVisibility.apply(original, false);
+
+        assertNull(hidden.products().getFirst().unitPriceNet());
+        assertEquals(bowl, hidden.products().getFirst().unit(), "a unit name is not a price");
+        assertEquals(8, hidden.products().getFirst().piecesPerDisplay());
+        JsonNode unit = new ObjectMapper().valueToTree(hidden).path("products").path(0).path("unit");
+        assertEquals("bowl", unit.path("key").asText());
+        assertEquals("par bol", unit.path("per").asText());
+        assertEquals("bols", unit.path("short").asText());
+        assertEquals("bols", unit.path("few").asText());
+        assertFalse(unit.has("shortForm"), "the wire name is 'short'");
+    }
+
+    @Test
     void visibleModeRetainsExistingCalculationsAndReplayRedactsOnlyPublicResponse() {
         EstimateResponse original = pricedEstimate();
         assertTrue(original.pricesVisible());

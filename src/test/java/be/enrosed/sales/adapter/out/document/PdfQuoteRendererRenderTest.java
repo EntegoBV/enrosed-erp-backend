@@ -255,7 +255,7 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(document.content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("counter display premium kleur 1"));
-            assertTrue(text.contains("stukprijs"));
+            assertTrue(text.contains("prijs per eenheid"));
             assertTrue(text.contains("totaal"));
             assertFalse(text.contains("er-glass-001"), "SKU is optionele productinformatie");
             assertFalse(text.contains("week 37"), "leverinformatie valt onder logistiek");
@@ -346,7 +346,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("voorschotfactuur") && text.contains("frozen glass rose 1"), text);
             assertTrue(text.contains("73.933,75 eur"), text);
             assertFalse(text.contains("pallets") || text.contains("dozen: 0") || text.contains("volume: -") || text.contains("0 kg"), text);
-            assertFalse(text.contains("stukprijs"), text);
+            assertFalse(text.contains("prijs per eenheid"), text);
             assertTextFitsPage(pdf);
         }
     }
@@ -388,7 +388,7 @@ class PdfQuoteRendererRenderTest {
                 try (PDDocument pdf = Loader.loadPDF(document.content())) {
                     String text = textOf(pdf);
                     assertEquals(carton, text.contains("40 × 30 × 20 cm"), text);
-                    assertEquals(carton, text.contains("24 " + labels.get("piecesPerCarton").toLowerCase()), text);
+                    assertEquals(carton, text.contains(labels.get("unitsPerCarton").formatted("24 stuks").toLowerCase()), text);
                     assertEquals(barcode, text.contains("ean 8712345678920"), text);
                     assertEquals(carton && barcode, text.contains("ean 8712345678937"), text);
                     assertFalse(text.contains("10 × 10 × 8 cm"), "Productdetails remains independently disabled");
@@ -622,6 +622,52 @@ class PdfQuoteRendererRenderTest {
         }
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void partnerCreditNoteNamesTheContainerByOurOwnNameAndSaysContainerOnce() throws Exception {
+        var creditNote = order(DocumentType.FACTUUR, "CN-2026-0003", 0).withPartnerDeal(13L, bd("50"))
+                .asCreditNoteOn(147L, be.enrosed.sales.domain.CreditReason.PARTNER_SHORTFALL);
+        var sourcing = mock(be.enrosed.sourcing.application.PurchaseOrderService.class);
+        Instance<be.enrosed.sourcing.application.PurchaseOrderService> sourcingInstance = mock(Instance.class);
+        when(sourcingInstance.isResolvable()).thenReturn(true);
+        when(sourcingInstance.get()).thenReturn(sourcing);
+        renderer.purchaseOrders = sourcingInstance;
+        var price = advancePrice("29.15", "Voorschot te veel gefinancierd");
+
+        when(sourcing.get(13L)).thenReturn(container("container/2026/002"));
+        for (Language language : List.of(Language.NL, Language.FR)) {
+            try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(language), null, language,
+                    SalesPdfOptions.defaults()).content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("container/2026/002"), text);
+                assertFalse(text.contains("container container"), text);
+                assertFalse(text.contains("conteneur container"), text);
+                if (language == Language.NL) assertTrue(text.contains("creditnota op de partnerfinanciering van container/2026/002."), text);
+            }
+        }
+
+        when(sourcing.get(13L)).thenReturn(container(null));
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(), null, Language.NL,
+                SalesPdfOptions.defaults()).content())) {
+            assertTrue(textOf(pdf).contains("creditnota op de partnerfinanciering van container po-2026-011."), textOf(pdf));
+        }
+        try (PDDocument pdf = Loader.loadPDF(renderer.render(creditNote, price, customer(Language.FR), null, Language.FR,
+                SalesPdfOptions.defaults()).content())) {
+            assertTrue(textOf(pdf).contains("(conteneur po-2026-011)"), textOf(pdf));
+        }
+        assertEquals("container", PdfQuoteRenderer.containerPhrase("container %s", " "));
+        assertEquals("Container/2026/9", PdfQuoteRenderer.containerPhrase("Container %s", "Container/2026/9"));
+    }
+
+    /** Container PO-2026-011, with our own name when one is given. */
+    private static be.enrosed.sourcing.domain.PurchaseOrder container(String alias) {
+        return new be.enrosed.sourcing.domain.PurchaseOrder(13L, "PO-2026-011", alias, 1L, LocalDate.of(2026, 8, 19),
+                be.enrosed.sourcing.domain.PurchaseOrderStatus.ONTVANGEN, be.enrosed.sourcing.domain.ContainerType.FORTY_HQ,
+                bd("0.14"), bd("0.89"), bd("0.89"), BigDecimal.ZERO, BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.CBM,
+                be.enrosed.sourcing.domain.Allocation.CBM, be.enrosed.sourcing.domain.Allocation.PIECES, "Ningbo", "Rotterdam", "", List.of());
+    }
+
     private static PricedOrder withVat(PricedOrder priced, VatTreatment treatment) {
         var t = priced.totals();
         var zero = BigDecimal.ZERO;
@@ -649,6 +695,34 @@ class PdfQuoteRendererRenderTest {
                         "Bowl Rozen XL - B × D × H: 10 × 10 × 8 cm - Red"));
         assertTrue(PdfQuoteRenderer.hasLineDiscounts(priced(1)));
         assertFalse(PdfQuoteRenderer.hasLineDiscounts(priced(1, false)));
+    }
+
+    @Test
+    void quotationsPrintTheOneBaseMaatInEveryLanguage() throws Exception {
+        @SuppressWarnings("unchecked")
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData()
+                .withVariantAttributes("Red", "4.8*4.8cm", null)
+                .withTexts(List.of(new be.enrosed.catalog.domain.ProductText(
+                        Language.FR, "Présentoir premium", null, "Rouge"))));
+        renderer.products = productInstance;
+
+        for (Language language : List.of(Language.NL, Language.FR, Language.DE)) {
+            PdfQuoteRenderer.Document document = renderer.render(
+                    order(DocumentType.OFFERTE, "ENR-2026-0192", 1), priced(1), customer(), null,
+                    language, new SalesPdfOptions(false, true, false, false));
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                assertTrue(text.contains("4.8*4.8cm"),
+                        "the Maat prints as typed in " + language.code() + ": " + text);
+                if (language == Language.FR) {
+                    assertTrue(text.contains("rouge · 4.8*4.8cm"), text);
+                }
+            }
+        }
     }
 
     @Test
@@ -683,8 +757,69 @@ class PdfQuoteRendererRenderTest {
                 assertTrue(text.contains("8712345678913"));
                 assertTrue(text.contains("40 × 30 × 20 cm"));
                 assertTrue(text.contains("12 stuks"));
-                assertTrue(text.contains("stukprijs"), "commercial columns stay mandatory");
+                assertTrue(text.contains("prijs per eenheid"), "commercial columns stay mandatory");
             }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void bowlProductsReadInBowlsOnQuotesAndInvoicesWithTheDisplaySetPriceFirst() throws Exception {
+        Instance<ProductService> productInstance = mock(Instance.class);
+        ProductService productService = mock(ProductService.class);
+        when(productInstance.isResolvable()).thenReturn(true);
+        when(productInstance.get()).thenReturn(productService);
+        renderer.products = productInstance;
+        var details = new SalesPdfOptions(false, true, false, false, true, false);
+
+        /* Priced per bowl, packed eight to a display: 24 bowls × 12,50 = 300,00. */
+        when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
+                new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                        new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
+                        be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl"), 40));
+        for (DocumentType type : List.of(DocumentType.OFFERTE, DocumentType.FACTUUR)) {
+            var document = renderer.render(order(type, "BOWL-" + type, 1), priced(1), customer(), null,
+                    Language.NL, details);
+            if (type == DocumentType.OFFERTE) writePreview("bowl-piece-in-display-nl.pdf", document.content());
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                String text = textOf(pdf);
+                String row = text.substring(text.indexOf("counter display premium"));
+                assertTrue(row.contains("24 bowls"), row);
+                assertTrue(row.contains("displays: 3") && row.contains("8 bowls per display"), row);
+                assertTrue(row.contains("100,00 eur per display van 8 bowls"), row);
+                assertTrue(row.contains("12,50 eur per bowl"), row);
+                assertTrue(row.indexOf("100,00 eur") < row.indexOf("12,50 eur"), "the set price leads: " + row);
+                assertTrue(row.contains("40 bowls per doos"), row);
+                assertFalse(row.contains("per stuk") || row.contains("stuks per karton"), row);
+                assertPortraitAndEmbedded(pdf);
+            }
+        }
+
+        /* Priced per complete display in French and Polish: the set price leads. */
+        when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
+                new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
+                        new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
+                        be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl"), 5));
+        var french = renderer.render(order(DocumentType.FACTUUR, "BOWL-FR", 1), priced(1), customer(Language.FR),
+                null, Language.FR, details);
+        writePreview("bowl-display-set-fr.pdf", french.content());
+        try (PDDocument pdf = Loader.loadPDF(french.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("total : 192 bols"), text);
+            assertTrue(text.contains("8 bols par présentoir"), text);
+            assertTrue(text.contains("12,50 eur par présentoir"), text);
+            assertTrue(text.contains("≈ 1,563 eur par bol"), text);
+            assertTrue(text.contains("5 présentoirs par carton (40 bols)"), text);
+            assertPortraitAndEmbedded(pdf);
+        }
+        var polish = renderer.render(order(DocumentType.OFFERTE, "BOWL-PL", 1), priced(1), customer(Language.PL),
+                null, Language.PL, details);
+        try (PDDocument pdf = Loader.loadPDF(polish.content())) {
+            String text = textOf(pdf);
+            assertTrue(text.contains("łącznie: 192 miseczki"), text);
+            assertTrue(text.contains("8 miseczek w ekspozytorze"), text);
+            assertTrue(text.contains("za miseczkę"), text);
+            assertTrue(text.contains("5 ekspozytorów w kartonie (40 miseczek)"), text);
         }
     }
 
@@ -697,7 +832,7 @@ class PdfQuoteRendererRenderTest {
         when(productInstance.get()).thenReturn(productService);
         /* The shop knows the product as "glazen sierschaal"; the container and the partner know "counter display premium". */
         when(productService.get(anyLong())).thenReturn(productWithPrintableMasterData().withTexts(List.of(
-                new be.enrosed.catalog.domain.ProductText(Language.NL, "glazen sierschaal premium", null, null, null))));
+                new be.enrosed.catalog.domain.ProductText(Language.NL, "glazen sierschaal premium", null, null))));
         renderer.products = productInstance;
 
         PdfQuoteRenderer.Document plain = renderer.render(order(DocumentType.OFFERTE, "ENR-2026-0300", 1), priced(1, false), customer(), null);
@@ -791,7 +926,7 @@ class PdfQuoteRendererRenderTest {
         try (PDDocument pdf = Loader.loadPDF(renderer.render(invoice, priced(1), customer(), null).content())) {
             String text = textOf(pdf);
             assertTrue(text.contains("voorschotfactuur f-2026-0452"), text);
-            assertFalse(text.contains("stukprijs"), text);
+            assertFalse(text.contains("prijs per eenheid"), text);
             assertTrue(text.contains("totaal incl. btw"), text);
             assertFalse(text.contains("voorschotafspraken"), text);
         }
@@ -966,7 +1101,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("8712345678906"));
             assertTrue(text.contains("8712345678913"));
             assertTrue(text.contains("40 × 30 × 20 cm"));
-            assertFalse(text.contains("stukprijs"));
+            assertFalse(text.contains("prijs per eenheid"));
             assertFalse(text.contains("eur"));
         }
     }
@@ -1007,7 +1142,7 @@ class PdfQuoteRendererRenderTest {
             assertTrue(text.contains("ontvangen door / datum"));
             assertFalse(text.contains("12,50 eur"));
             assertFalse(text.contains("6.032,80 eur"));
-            assertFalse(text.contains("stukprijs"));
+            assertFalse(text.contains("prijs per eenheid"));
             assertFalse(text.contains("algemene voorwaarden"));
             assertFalse(text.contains("artikel 1"));
         }
@@ -1239,6 +1374,20 @@ class PdfQuoteRendererRenderTest {
                 bd("4.00"), Currency.USD, BigDecimal.ZERO,
                 bd("6.00"), "PO-1", bd("45"), bd("12.50"), 480,
                 List.of(), List.of());
+    }
+
+    private static Product withPackaging(Product product, be.enrosed.catalog.domain.Packaging packaging,
+                                         int unitsPerCarton) {
+        return new Product(product.id(), product.sku(), product.name(), product.dimensions(), packaging,
+                product.colour(), product.variantSize(), product.colourHex(), product.description(),
+                product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
+                product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
+                product.variantPosition(), product.inventoryKnown(), product.familyKey(), product.publicHandle(),
+                product.websiteStatus(), product.orderAppStatus(), product.barcodes(), product.hsCode(),
+                new Carton(product.carton().dimensions(), unitsPerCarton, product.carton().weightKg()),
+                product.exwPrice(), product.exwCurrency(), product.extraUnitCost(), product.landedCostEur(),
+                product.landedCostSource(), product.markupPct(), product.fixedSalesPriceEur(),
+                product.stockQuantity(), product.photos(), product.texts(), product.demo());
     }
 
     private static BigDecimal bd(String value) {

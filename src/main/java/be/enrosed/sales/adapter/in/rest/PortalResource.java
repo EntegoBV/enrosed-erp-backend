@@ -2,6 +2,7 @@ package be.enrosed.sales.adapter.in.rest;
 
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
+import be.enrosed.catalog.adapter.in.rest.UnitDto;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
@@ -58,7 +59,16 @@ public class PortalResource {
                               int piecesPerCarton, BigDecimal unitPrice,
                               /* Available from stock, or do we need to order it first? */
                               boolean inventoryKnown, boolean inStock,
-                              String salesUnit, Integer piecesPerDisplay) {
+                              String salesUnit, Integer piecesPerDisplay,
+                              /* What one piece is called, in the portal's language ("per bowl"). */
+                              UnitDto unit) {
+        public CatalogItem(Long productId, String sku, String description, String photoUrl,
+                           int piecesPerCarton, BigDecimal unitPrice, boolean inventoryKnown, boolean inStock,
+                           String salesUnit, Integer piecesPerDisplay) {
+            this(productId, sku, description, photoUrl, piecesPerCarton, unitPrice,
+                    inventoryKnown, inStock, salesUnit, piecesPerDisplay, null);
+        }
+
         public CatalogItem(Long productId, String sku, String description, String photoUrl,
                            int piecesPerCarton, BigDecimal unitPrice, boolean inventoryKnown, boolean inStock) {
             this(productId, sku, description, photoUrl, piecesPerCarton, unitPrice,
@@ -102,7 +112,8 @@ public class PortalResource {
                         product.packaging() != null && product.packaging().soldAsDisplay() ? "DISPLAY" : "PIECE",
                         product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
                                 && product.packaging().piecesPerUnit() != null && product.packaging().piecesPerUnit() > 1
-                                ? product.packaging().piecesPerUnit() : null))
+                                ? product.packaging().piecesPerUnit() : null,
+                        UnitDto.of(product.packaging() == null ? null : product.packaging().unitKey(), language)))
                 .toList();
     }
 

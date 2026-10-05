@@ -5,6 +5,7 @@ import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
@@ -55,7 +56,7 @@ public class ProductCsv {
             "barcode_inner", "barcode_outer",
             "exw_prijs", "exw_munt", "opslag_pct", "vaste_verkoopprijs_eur", "actief",
             "family_key", "public_handle", "website_status", "order_app_status",
-            "variant_size", "colour_hex");
+            "variant_size", "colour_hex", "eenheid");
 
     private final ProductRepository products;
     private final ProductValidator validator;
@@ -115,7 +116,8 @@ public class ProductCsv {
                     blank(product.familyKey()), blank(product.publicHandle()),
                     product.publicationState(CatalogChannel.WEBSITE).name(),
                     product.publicationState(CatalogChannel.ORDER_APP).name(),
-                    blank(product.variantSize()), blank(product.colourHex())));
+                    blank(product.variantSize()), blank(product.colourHex()),
+                    product.packaging().unitKey()));
         }
         return rows;
     }
@@ -228,7 +230,7 @@ public class ProductCsv {
                         decimal(cells, 5, size.lengthCm()),
                         decimal(cells, 6, size.widthCm()),
                         decimal(cells, 7, size.heightCm())),
-                current.packaging(),
+                unit(cells, 26, current.packaging()),
                 text(cells, 3, current.colour()),
                 text(cells, 24, current.variantSize()),
                 text(cells, 25, current.colourHex()),
@@ -348,6 +350,12 @@ public class ProductCsv {
             throw new IllegalArgumentException(
                     "'" + value + "' is geen publicatiestatus (DRAFT, READY of PUBLISHED)");
         }
+    }
+
+    /** Only the name of one piece is exchanged; the validator rejects a key outside the list. */
+    private static Packaging unit(List<String> cells, int index, Packaging keep) {
+        String value = cell(cells, index);
+        return value == null ? keep : keep.withUnitKey(value);
     }
 
     private static String handle(List<String> cells, int index, String keep) {

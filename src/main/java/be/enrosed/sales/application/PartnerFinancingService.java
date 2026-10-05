@@ -44,16 +44,44 @@ public class PartnerFinancingService {
                           /** Issued live credit notes on this container's documents, incl. VAT, as a positive figure. */
                           BigDecimal creditNotesEur) {}
 
-    /** What a partner is owed back when the container arrived short of what the advance financed. */
+    /**
+     * What a partner is owed back when the container arrived short of what the advance financed.
+     * {@code overFinancingEur} reads issued documents only (the partner-payments card relies on it);
+     * the suggestion subtracts concept credit notes too, so the same shortfall is never proposed twice.
+     */
     public record PartnerCreditProposal(long purchaseOrderId, boolean received, boolean settlementExists,
                                         int missingPieces, int damagedPieces, BigDecimal issuedAdvanceEur,
                                         BigDecimal creditedAdvanceEur, BigDecimal actualBasisEur,
                                         BigDecimal forecastExternalEur, BigDecimal financingPct,
                                         BigDecimal agreedShareEur, BigDecimal overFinancingEur,
-                                        BigDecimal overFinancingInclVatEur, Long suggestedAdvanceInvoiceId,
-                                        List<AdvanceOption> advances) {
+                                        BigDecimal overFinancingInclVatEur,
+                                        /** The advance the credit should go on: the latest unpaid one that can absorb it. */
+                                        Long suggestedAdvanceInvoiceId,
+                                        List<AdvanceOption> advances,
+                                        /** The container as sales names it ({@link be.enrosed.sourcing.domain.PurchaseOrder#displayName()}). */
+                                        String containerName,
+                                        /** Live concept PARTNER_ADVANCE credit notes of this container, excl. VAT, and their numbers. */
+                                        BigDecimal pendingCreditEur, List<String> pendingCreditNumbers,
+                                        /** The credit to prefill on the suggested advance, excl. and incl. its VAT. */
+                                        BigDecimal suggestedCreditEur, BigDecimal suggestedCreditInclVatEur,
+                                        /** The part of the wanted credit that does not fit on the suggested advance. */
+                                        BigDecimal remainingCreditEur,
+                                        /** Informative: the value of the missing pieces, ordered basis minus received basis. */
+                                        BigDecimal shortValueEur) {
+        /**
+         * One issued advance and its room: {@code maxCreditEur} is the room excl. VAT (rounded down to
+         * cents), {@code openEur} what is still to be paid on it, {@code suggestedCreditEur} the part of
+         * the wanted credit it could take.
+         */
         public record AdvanceOption(long invoiceId, String number, BigDecimal totalInclVatEur,
-                                    BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur) {}
+                                    BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur,
+                                    BigDecimal vatRatePct, BigDecimal maxCreditEur, BigDecimal openEur,
+                                    BigDecimal suggestedCreditEur) {
+            public AdvanceOption(long invoiceId, String number, BigDecimal totalInclVatEur,
+                                 BigDecimal alreadyCreditedInclVatEur, BigDecimal maxCreditInclVatEur) {
+                this(invoiceId, number, totalInclVatEur, alreadyCreditedInclVatEur, maxCreditInclVatEur, null, null, null, null);
+            }
+        }
     }
 
     public PartnerSettlements.Snapshot settlement(SalesOrder order) {
@@ -163,8 +191,11 @@ public class PartnerFinancingService {
     /**
      * Read-only: how much of the issued advances financed goods that never
      * arrived. The basis is the landed total on the received quantities,
-     * the same figure "Afgesproken bedrag opnieuw berekenen" uses; a supplier
-     * that later settles lower is a separate correction the owner enters.
+     * the same figure "Afgesproken bedrag opnieuw berekenen" uses, at the
+     * saved agreement's financing percentage; a supplier that later settles
+     * lower is a separate correction the owner enters. The suggestion is
+     * that difference minus concept credit notes already waiting, on the
+     * latest unpaid advance that can absorb it, capped by that advance's room.
      */
     public PartnerCreditProposal creditProposal(long purchaseId) {
         var purchase = purchases.get(purchaseId);
@@ -180,36 +211,59 @@ public class PartnerFinancingService {
                 .sorted(java.util.Comparator.comparing(SalesOrder::id)).toList();
         var advanceCredits = docs.stream().filter(order -> order.isCreditNote()
                 && order.purpose() == SalesPurpose.PARTNER_ADVANCE && issued(order)).toList();
+        var pendingCredits = docs.stream().filter(order -> order.isCreditNote() && order.purpose() == SalesPurpose.PARTNER_ADVANCE
+                && order.status() == QuoteStatus.CONCEPT && live(order)).sorted(java.util.Comparator.comparing(SalesOrder::id)).toList();
         BigDecimal issuedAdvance = sum(advances, order -> sales.price(order).totals().total());
         BigDecimal creditedAdvance = sum(advanceCredits, order -> sales.price(order).totals().total());
+        BigDecimal pendingCredit = sum(pendingCredits, order -> sales.price(order).totals().total());
         BigDecimal basis;
         try { basis = PartnerAdvanceBasis.total(purchases.calculate(purchase)); }
         catch (be.enrosed.shared.BusinessRuleException incomplete) { basis = null; }
-        BigDecimal pct = purchase.partnerCostPctOrDefault();
+        /* The saved agreement decides the percentage; its basis must be the purchase total to compare at all. */
+        var agreement = advanceRows.find(purchaseId);
+        BigDecimal pct = agreement != null && agreement.financingPct() != null ? agreement.financingPct() : purchase.partnerCostPctOrDefault();
+        boolean comparable = agreement == null || agreement.financingBasis() == PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS;
         BigDecimal agreedShare = basis == null ? null : PartnerAdvanceBasis.amount(basis, pct);
         BigDecimal over = !received || settlementExists || agreedShare == null ? ZERO
                 : Money.money(issuedAdvance.subtract(creditedAdvance).subtract(agreedShare).max(ZERO));
+        BigDecimal wanted = comparable ? Money.money(over.subtract(pendingCredit).max(ZERO)) : Money.money(ZERO);
+        BigDecimal shortValue = ZERO;
+        if (received && basis != null) {
+            try { shortValue = Money.money(PartnerAdvanceBasis.total(purchases.calculateForOrderedQuantities(purchase)).subtract(basis).max(ZERO)); }
+            catch (be.enrosed.shared.BusinessRuleException incomplete) { shortValue = ZERO; }
+        }
         List<PartnerCreditProposal.AdvanceOption> options = new java.util.ArrayList<>();
-        Long suggested = null;
-        BigDecimal suggestedRoom = ZERO;
-        BigDecimal vatRate = ZERO;
         for (var advance : advances) {
             var priced = sales.price(advance);
             BigDecimal total = Money.money(priced.totals().totalInclVat());
             BigDecimal already = sum(sales.liveCreditNotesOf(advance.id()), note -> sales.price(note).totals().totalInclVat());
             BigDecimal room = total.subtract(already).max(ZERO);
-            options.add(new PartnerCreditProposal.AdvanceOption(advance.id(), advance.number(), total, already, room));
-            if (suggested == null || room.compareTo(suggestedRoom) > 0) {
-                suggested = advance.id(); suggestedRoom = room; vatRate = Money.nz(priced.totals().vatRatePct());
-            }
+            BigDecimal vatRate = Money.nz(priced.totals().vatRatePct());
+            BigDecimal roomExcl = room.multiply(Money.HUNDRED).divide(Money.HUNDRED.add(vatRate), 2, RoundingMode.DOWN);
+            BigDecimal open = Money.money(incoming.summary(advance, priced).remainingEur());
+            options.add(new PartnerCreditProposal.AdvanceOption(advance.id(), advance.number(), total, already, room,
+                    vatRate, roomExcl, open, wanted.min(roomExcl)));
         }
+        /* The latest unpaid advance that can absorb the whole credit, so it is offset without a bank refund.
+           An advance that is already credited in full has no room left and never takes the suggestion.
+           openEur is still to be paid incl. VAT, so it is weighed against the credit incl. that advance's VAT. */
+        var target = options.stream().min(java.util.Comparator
+                .comparing((PartnerCreditProposal.AdvanceOption option) -> option.maxCreditEur().signum() <= 0)
+                .thenComparing(option -> option.openEur().compareTo(Money.money(wanted.add(Money.percentOf(wanted, option.vatRatePct())))) < 0)
+                .thenComparing(option -> option.maxCreditEur().compareTo(wanted) < 0)
+                .thenComparing(PartnerCreditProposal.AdvanceOption::invoiceId, java.util.Comparator.reverseOrder())).orElse(null);
+        BigDecimal vatRate = target == null ? ZERO : target.vatRatePct();
+        BigDecimal suggestedCredit = target == null ? Money.money(ZERO) : target.suggestedCreditEur();
         BigDecimal overInclVat = Money.money(over.add(Money.percentOf(over, vatRate)));
         /* Both figures are plain numbers to the client; a container whose costing is not
            complete yet has no basis to over-finance against, which reads as zero. */
         return new PartnerCreditProposal(purchaseId, received, settlementExists, missing, damaged, issuedAdvance,
                 creditedAdvance, basis == null ? Money.money(ZERO) : basis, reconciliation.totals().forecastExternalEur(), pct,
                 agreedShare == null ? Money.money(ZERO) : agreedShare, over, overInclVat,
-                suggested, List.copyOf(options));
+                target == null ? null : target.invoiceId(), List.copyOf(options), purchase.displayName(),
+                pendingCredit, pendingCredits.stream().map(SalesOrder::number).toList(),
+                suggestedCredit, Money.money(suggestedCredit.add(Money.percentOf(suggestedCredit, vatRate))),
+                Money.money(wanted.subtract(suggestedCredit)), shortValue);
     }
 
     public static boolean issued(SalesOrder order) { return order.isClaimDocument() && order.status() != QuoteStatus.CONCEPT && live(order); }

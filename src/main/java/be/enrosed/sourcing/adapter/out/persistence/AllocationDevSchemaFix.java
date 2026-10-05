@@ -33,10 +33,13 @@ public class AllocationDevSchemaFix {
                 LOG.debugf("allocation column %s left as is: %s", column, failure.getMessage());
             }
         }
-        try {
-            entities.createNativeQuery("alter table purchase_payment alter column payee varchar(16)").executeUpdate();
-        } catch (RuntimeException failure) {
-            LOG.debugf("payee column left as is: %s", failure.getMessage());
+        /* The payee and the supplier term (FREIGHT joined it for CIF containers). */
+        for (String column : new String[] {"payee", "instalment_due"}) {
+            try {
+                entities.createNativeQuery("alter table purchase_payment alter column " + column + " varchar(16)").executeUpdate();
+            } catch (RuntimeException failure) {
+                LOG.debugf("payment column %s left as is: %s", column, failure.getMessage());
+            }
         }
     }
 }

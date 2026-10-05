@@ -32,7 +32,7 @@ final class CatalogMapper {
                empty document translation and then accidentally erase it on PUT. */
             if (hasDocumentText(text)) {
                 texts.add(new ProductText(text.language, text.name, text.description,
-                        text.colour, text.variantSize));
+                        text.colour));
             }
         }
         return new Product(
@@ -44,7 +44,8 @@ final class CatalogMapper {
                 new Packaging(entity.packagingKind == null ? PackagingKind.NONE : entity.packagingKind,
                         new Dimensions(entity.packagingLengthCm, entity.packagingWidthCm,
                                 entity.packagingHeightCm, entity.packagingWeightKg),
-                        entity.packagingBarcode, entity.packagingPiecesPerUnit, entity.packagingSalesUnit),
+                        entity.packagingBarcode, entity.packagingPiecesPerUnit, entity.packagingSalesUnit,
+                        entity.packagingUnitKey),
                 entity.colour,
                 entity.variantSize,
                 entity.colourHex,
@@ -103,6 +104,8 @@ final class CatalogMapper {
         entity.packagingBarcode = packaging.barcode();
         entity.packagingPiecesPerUnit = packaging.isPresent() ? packaging.piecesPerUnit() : null;
         entity.packagingSalesUnit = packaging.salesUnit();
+        /* Like the sales unit, the name of one piece survives "no packaging". */
+        entity.packagingUnitKey = packaging.unitKey();
 
         entity.colour = product.colour();
         entity.variantSize = blankToNull(product.variantSize());
@@ -183,7 +186,8 @@ final class CatalogMapper {
             existing.name = blankToNull(text.name());
             existing.description = blankToNull(text.description());
             existing.colour = blankToNull(text.colour());
-            existing.variantSize = blankToNull(text.variantSize());
+            /* The Maat is language-neutral: a legacy per-language copy is cleared on save. */
+            existing.variantSize = null;
             if (publicNameInherited) existing.publicName = existing.name;
         }
 
@@ -195,7 +199,6 @@ final class CatalogMapper {
             added.publicName = added.name;
             added.description = blankToNull(text.description());
             added.colour = blankToNull(text.colour());
-            added.variantSize = blankToNull(text.variantSize());
             entity.texts.add(added);
         }
     }
@@ -330,9 +333,9 @@ final class CatalogMapper {
                 && first.strip().equalsIgnoreCase(second.strip());
     }
 
+    /** A legacy per-language Maat is not document text: the Maat is language-neutral. */
     private static boolean hasDocumentText(ProductTextEntity text) {
-        return !blank(text.name) || !blank(text.description)
-                || !blank(text.colour) || !blank(text.variantSize);
+        return !blank(text.name) || !blank(text.description) || !blank(text.colour);
     }
 
     private static void clearDocumentText(ProductTextEntity text) {

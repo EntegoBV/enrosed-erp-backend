@@ -15,6 +15,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -33,6 +34,9 @@ public class WebsiteCatalogRevisionService {
     private final PublicProductNameResolver publicProductNames;
     private final PublicFamilyPhotoProjection publicPhotos;
     private final ObjectMapper json;
+
+    @Inject
+    WebsitePriceVisibility priceVisibility;
 
     public WebsiteCatalogRevisionService(
             CanonicalCatalogDaos.ContentTranslations content,
@@ -55,6 +59,8 @@ public class WebsiteCatalogRevisionService {
 
     public String currentRevision() {
         StringBuilder out = new StringBuilder(64_000);
+        /* Only the withheld state adds a term: with prices shown the digest is the one it always was. */
+        if (priceVisibility != null && !priceVisibility.pricesVisible()) add(out, "pricesHidden");
         List<ContentTranslationEntity> websiteCopy = content.list(
                 "scope = ?1 order by key", ContentScope.WEBSITE);
         long siteCopyRevision = websiteCopy.stream().map(group -> group.updatedAt)
@@ -152,7 +158,12 @@ public class WebsiteCatalogRevisionService {
                 });
         List<ProductEntity> members = products.list(
                 "familyId = ?1 order by variantPosition, canonicalVariantKey, sku", family.id);
-        publicPhotos.images(family, members, CatalogChannel.WEBSITE).stream()
+        List<ProductFamilyPhotoEntity> websiteImages =
+                publicPhotos.images(family, members, CatalogChannel.WEBSITE);
+        /* Both values: a new choice and an automatic pick that moved each change the quote page. */
+        add(out, "quoteImage"); add(out, family.websiteQuotePhotoId);
+        add(out, WebsiteQuotePhotoChoice.resolve(family, members, publicPhotos, websiteImages));
+        websiteImages.stream()
                 .forEach(image -> {
                     add(out, image.id); add(out, image.sourceKey);
                     add(out, image.position);
@@ -177,6 +188,8 @@ public class WebsiteCatalogRevisionService {
         add(out, product.sku);
         add(out, product.packagingKind); add(out, product.packagingSalesUnit);
         add(out, product.packagingPiecesPerUnit);
+        /* Normalized: an old null and an explicit "stuk" print the same words. */
+        add(out, be.enrosed.shared.UnitNames.normalize(product.packagingUnitKey));
         add(out, product.canonicalBarcode); add(out, product.active);
         add(out, product.inventoryKnown); add(out, product.stockQuantity); add(out, product.variantPosition);
         for (Language language : Language.values()) {
@@ -186,13 +199,14 @@ public class WebsiteCatalogRevisionService {
         }
         add(out, product.description); add(out, product.colour);
         add(out, product.productLengthCm); add(out, product.productWidthCm); add(out, product.productHeightCm);
+        /* The Maat is language-neutral: the base value is the only size the website prints. */
         add(out, product.colourHex); add(out, product.variantSize);
         add(out, Product.calculateSalesPriceEur(
                 product.fixedSalesPriceEur, product.landedCostEur, product.markupPct));
         product.texts.stream().sorted(Comparator.comparing(text -> text.language)).forEach(text -> {
             add(out, text.language);
             add(out, text.description);
-            add(out, text.colour); add(out, text.variantSize);
+            add(out, text.colour);
         });
     }
 

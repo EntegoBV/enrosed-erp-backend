@@ -231,7 +231,7 @@ public class PublicProductTranslationsService {
             String before = revision(product, family);
             Map<Language, ProductDto.TextDto> merged = new java.util.EnumMap<>(Language.class);
             product.texts.forEach(text -> merged.put(text.language, new ProductDto.TextDto(
-                    text.language, text.name, text.description, text.colour, text.variantSize)));
+                    text.language, text.name, text.description, text.colour)));
             Map<Language, ProductDto.TextDto> patches = requestedByProduct.get(productId);
             if (patches == null) {
                 throw new BusinessRuleException("Geen vertaalregels voor product " + productId);
@@ -305,8 +305,7 @@ public class PublicProductTranslationsService {
                 .filter(PublicProductTranslationsService::hasDocumentText)
                 .sorted(Comparator.comparing(text -> text.language))
                 .map(text -> new ProductDto.TextDto(
-                        text.language, text.name, text.description, text.colour,
-                        text.variantSize))
+                        text.language, text.name, text.description, text.colour))
                 .toList();
         List<PublicProductTranslationsDto.ImageDto> images = family == null ? List.of() : family.photos.stream()
                 .sorted(Comparator.comparingInt((ProductFamilyPhotoEntity image) -> image.position)
@@ -372,10 +371,10 @@ public class PublicProductTranslationsService {
             if (input == null || input.language() == null || !seen.add(input.language())) {
                 throw new BusinessRuleException("Elke producttaal mag exact één keer voorkomen");
             }
+            /* The Maat is language-neutral: a per-language size an older client sends is ignored. */
             ProductText value = new ProductText(input.language(),
                     optional(input.name(), MAX_DB_SHORT), optional(input.description(), MAX_SUMMARY),
-                    optional(input.colour(), MAX_DB_SHORT),
-                    optional(input.variantSize(), MAX_DB_SHORT));
+                    optional(input.colour(), MAX_DB_SHORT));
             if (value.isEmpty()) continue;
             replacements.put(value.language(), value);
         }
@@ -439,14 +438,11 @@ public class PublicProductTranslationsService {
                 sameAs(input.description(), product.description)
                         ? null : optional(input.description(), MAX_SUMMARY),
                 sameAs(input.colour(), product.colour)
-                        ? null : optional(input.colour(), MAX_DB_SHORT),
-                sameAs(input.variantSize(), product.variantSize)
-                        ? null : optional(input.variantSize(), MAX_DB_SHORT));
+                        ? null : optional(input.colour(), MAX_DB_SHORT));
     }
 
     private static boolean isEmpty(ProductDto.TextDto value) {
-        return value.name() == null && value.description() == null
-                && value.colour() == null && value.variantSize() == null;
+        return value.name() == null && value.description() == null && value.colour() == null;
     }
 
     private static boolean sameAs(String value, String base) {
@@ -472,7 +468,8 @@ public class PublicProductTranslationsService {
         target.name = input.name();
         target.description = input.description();
         target.colour = input.colour();
-        target.variantSize = input.variantSize();
+        /* Retired column: the Maat is language-neutral, a legacy copy is cleared on save. */
+        target.variantSize = null;
         if (publicNameInherited) target.publicName = input.name();
     }
 
@@ -550,7 +547,12 @@ public class PublicProductTranslationsService {
             append(canonical, text.publicName);
             append(canonical, text.description);
             append(canonical, text.colour);
-            append(canonical, text.variantSize);
+            /* Retired per-language Maat: a constant placeholder where its value used to be
+               hashed, so the revision of a row without a size stays the same over the deploy
+               and an editor tab or copied translation batch saves without a reload. Only
+               products whose rows held a size, which the 2026-09-28 migration cleared, get a
+               new revision once. The retired column itself is never read. */
+            append(canonical, null);
         });
         if (family != null) {
             family.photos.stream()
@@ -588,9 +590,9 @@ public class PublicProductTranslationsService {
         return value == null || value.isBlank();
     }
 
+    /** A legacy per-language Maat is not document text: the Maat is language-neutral. */
     private static boolean hasDocumentText(ProductTextEntity text) {
-        return !blank(text.name) || !blank(text.description)
-                || !blank(text.colour) || !blank(text.variantSize);
+        return !blank(text.name) || !blank(text.description) || !blank(text.colour);
     }
 
     private static void clearDocumentText(ProductTextEntity text) {

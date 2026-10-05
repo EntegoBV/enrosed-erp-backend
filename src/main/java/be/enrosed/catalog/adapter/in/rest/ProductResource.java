@@ -11,20 +11,26 @@ import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.ProductOverviewOrder;
 import be.enrosed.catalog.application.ProductVariantLinkService;
+import be.enrosed.catalog.application.ProductPhotoExport;
+import be.enrosed.catalog.application.ProductPhotoExportService;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.shared.security.AdminIdentityProvider;
+import be.enrosed.shared.security.CurrentActor;
+import jakarta.annotation.security.PermitAll;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 import org.jboss.resteasy.reactive.RestForm;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
@@ -44,8 +50,20 @@ public class ProductResource {
     @Inject
     be.enrosed.catalog.application.PhotoDeliveryService photoDelivery;
 
+    @Inject
+    be.enrosed.catalog.application.ProductPhotoOverviewService photoOverviews;
+
+    @Inject
+    be.enrosed.catalog.application.ProductPhotoCommandService photoCommands;
+
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.ProductCostHistoryService> costHistory;
+
+    @Inject
+    ProductPhotoExportService photoExport;
+
+    @Inject
+    CurrentActor actor;
 
     @Inject
     public ProductResource(
@@ -78,6 +96,13 @@ public class ProductResource {
         var found = supplierId == null ? products.list() : products.listBySupplier(supplierId);
         if (supplierId != null && overviewOrder != null) found = overviewOrder.sort(found);
         return found.stream().map(ProductDto::from).toList();
+    }
+
+    /** The units a product can be sold per ("stuk", "bowl", ...), in pick-list order, in Dutch. */
+    @GET
+    @Path("/unit-names")
+    public List<UnitDto.Name> unitNames() {
+        return be.enrosed.shared.UnitNames.KEYS.stream().map(UnitDto.Name::of).toList();
     }
 
     @GET
@@ -276,6 +301,67 @@ public class ProductResource {
         return owner == null ? result : BarcodeValidator.Result.fail(owner.describe(value.trim()));
     }
 
+    /* ------------------------------------------------------ photo export */
+
+    public record PhotoExportRequest(String scope, String photos, String language) {}
+
+    public record PhotoExportPrepared(String downloadUrl, String fileName, Instant expiresAt,
+                                      int productCount, int photoCount, long totalBytes) {}
+
+    /**
+     * Prepares a ZIP of original product photos plus a read-me without
+     * prices, and answers with a short-lived download link. Nothing is
+     * built yet: the ZIP streams when the browser follows the link.
+     */
+    @POST
+    @Path("/photo-export")
+    public PhotoExportPrepared preparePhotoExport(PhotoExportRequest body) {
+        ProductPhotoExport.Request request = ProductPhotoExport.Request.parse(
+                body == null ? null : body.scope(),
+                body == null ? null : body.photos(),
+                body == null ? null : body.language());
+        ProductPhotoExportService.Prepared prepared = photoExport.prepare(request, actor.name());
+        return new PhotoExportPrepared(
+                "/api/products/photo-export/" + prepared.ticket().token(),
+                ProductPhotoExport.fileName(prepared.ticket().exportDate()),
+                prepared.ticket().expiresAt(),
+                prepared.plan().productCount(),
+                prepared.plan().photoCount(),
+                prepared.totalBytes());
+    }
+
+    /**
+     * Streams the prepared ZIP. The token is the authorization, so a plain
+     * browser download works without an Authorization header; it stays
+     * valid for 15 minutes and may be used again to retry.
+     */
+    @GET
+    @Path("/photo-export/{token}")
+    @PermitAll
+    @Produces(MediaType.WILDCARD)
+    public Response downloadPhotoExport(@PathParam("token") String token) {
+        var ticket = photoExport.ticket(token).orElse(null);
+        if (ticket == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .type("text/plain; charset=UTF-8")
+                    .entity("Deze downloadlink is verlopen of ongeldig. "
+                            + "Bereid de ZIP opnieuw voor via Foto’s exporteren in het ERP.")
+                    .header("Cache-Control", "no-store")
+                    .build();
+        }
+        ProductPhotoExport.Plan plan = photoExport.plan(ticket.request());
+        var exportedAt = photoExport.now();
+        StreamingOutput body = output -> photoExport.write(plan, ticket.exportDate(), exportedAt, output);
+        return Response.ok(body)
+                .type("application/zip")
+                .header("Content-Disposition", "attachment; filename=\""
+                        + ProductPhotoExport.fileName(ticket.exportDate()) + "\"")
+                .header("Cache-Control", "private, no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Referrer-Policy", "no-referrer")
+                .build();
+    }
+
     /* ------------------------------------------------------------ fotos */
 
     /**
@@ -360,6 +446,39 @@ public class ProductResource {
     @Path("/{id}/photos/order")
     public ProductDto reorderPhotos(@PathParam("id") long id, List<Long> photoIdsInOrder) {
         return ProductDto.from(products.reorderPhotos(id, photoIdsInOrder));
+    }
+
+    /* ------------------------------------------------------ fotorollen */
+
+    /** Own photos, the family's series photos and which photo fills which role. */
+    @GET
+    @Path("/{id}/photo-overview")
+    public ProductPhotoOverviewDto photoOverview(@PathParam("id") long id) {
+        return photoOverviews.overview(id);
+    }
+
+    /** {@code photoKey} "F221" (series) or "P5501" (own); null gives the role back to automatic. */
+    public record PhotoRoleRequest(ProductPhotoOverviewDto.Role role, String photoKey) {}
+
+    @PUT
+    @Path("/{id}/photo-roles")
+    public ProductPhotoOverviewDto setPhotoRole(@PathParam("id") long id, PhotoRoleRequest request) {
+        if (request == null || request.role() == null) {
+            throw new BadRequestException("Kies waarvoor de foto gebruikt wordt");
+        }
+        return photoCommands.setRole(id, request.role(), request.photoKey());
+    }
+
+    public record PhotoPromoteRequest(String photoKey, ProductPhotoOverviewDto.Scope scope) {}
+
+    /** Moves an own photo into the product's series ("Zet in de reeks"), or clears a duplicate. */
+    @POST
+    @Path("/{id}/photos/promote")
+    public ProductPhotoOverviewDto promotePhoto(@PathParam("id") long id, PhotoPromoteRequest request) {
+        if (request == null || request.photoKey() == null || request.photoKey().isBlank()) {
+            throw new BadRequestException("Kies welke foto in de reeks komt");
+        }
+        return photoCommands.promote(id, request.photoKey(), request.scope());
     }
 
     public record PhotoLeadRequest(be.enrosed.catalog.domain.PhotoRole role, boolean lead) {}

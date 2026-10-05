@@ -384,12 +384,12 @@
       <div class="card__title">Te betalen</div>
       {#if payableView}
       <table class="mini">
-        <tr><td>Leverancier <span class="tiny">goederen</span></td><td class="r">{payableView.supplier}</td></tr>
+        <tr><td>Leverancier <span class="tiny">{#if payableView.cif}goederen + zeevracht{#else}goederen{/if}</span></td><td class="r">{payableView.supplier}</td></tr>
         <tr><td>Douane &amp; transport</td><td class="r">{payableView.logistics}</td></tr>
         <tr><td>Enrosed kost</td><td class="r">{payableView.enrosed}</td></tr>
       </table>
       {#if payableView.ddp}<div class="note">DDP: de leverancier draagt transport en invoer.</div>
-      {#else if payableView.freightInSupplierPrice}<div class="note">Zeevracht zit in de inkoopprijs van de leverancier.</div>{/if}
+      {#else if payableView.cif}<div class="note">CIF: zeevracht via de leverancier; invoerrechten en lokale kosten aankomst via Douane &amp; transport.</div>{/if}
       <div class="card__title card__title--follow">Stand</div>
       <table class="mini">
         <tr><td>Betaald aan leverancier</td><td class="r">{payableView.paidSupplier}</td></tr>

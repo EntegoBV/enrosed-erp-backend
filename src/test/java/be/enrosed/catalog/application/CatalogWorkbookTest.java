@@ -121,6 +121,50 @@ class CatalogWorkbookTest {
     }
 
     @Test
+    void unitIsTheLastProductColumnAndABlankCellKeepsIt() throws Exception {
+        FakeProducts unitRepository = new FakeProducts();
+        unitRepository.add(product());
+        CatalogWorkbook unitWorkbook = workbookFor(unitRepository);
+
+        byte[] exported = unitWorkbook.export();
+        byte[] edited;
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(exported));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            var products = excel.getSheet("Producten");
+            assertEquals("Eenheid", products.getRow(0).getCell(26).getStringCellValue());
+            assertEquals(27, products.getRow(0).getLastCellNum(), "appended, never inserted");
+            assertEquals("stuk", products.getRow(1).getCell(26).getStringCellValue());
+            products.getRow(1).getCell(26).setCellValue("Bowl");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        CatalogWorkbook.ImportResult result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey());
+
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(unitWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            excel.getSheet("Producten").getRow(1).getCell(26).setBlank();
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey(), "blank keeps the unit");
+
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(unitWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            excel.getSheet("Producten").getRow(1).getCell(26).setCellValue("vaas");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        result = unitWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("Onbekende eenheid 'vaas'")),
+                result.problems().toString());
+        assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey());
+    }
+
+    @Test
     void oneWorkbookUpdatesMasterDataAndTranslationsWithoutFreezingOldFallbackText()
             throws Exception {
         byte[] exported = workbook.export();
@@ -183,6 +227,34 @@ class CatalogWorkbookTest {
             assertEquals(CellType.BLANK, fixedPrice.getCellType());
             assertEquals("0.00########", fixedPrice.getCellStyle().getDataFormatString());
         }
+    }
+
+    @Test
+    void theTranslationSheetHasNoMaatAndAnOlderWorkbookWithOneImportsWithoutIt()
+            throws Exception {
+        repository.add(productWithFrenchTranslation().withVariantAttributes("Rood", "4.8*4.8cm", null));
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(workbook.export()))) {
+            var header = excel.getSheet("Vertalingen").getRow(0);
+            assertEquals(5, header.getLastCellNum(), "sku, taal, naam, beschrijving, kleur");
+            assertEquals("Kleur", header.getCell(4).getStringCellValue());
+        }
+
+        byte[] older = editedWorkbook(excel -> {
+            var translations = excel.getSheet("Vertalingen");
+            translations.getRow(0).createCell(5).setCellValue("Variantmaat");
+            for (int rowIndex = 1; rowIndex <= translations.getLastRowNum(); rowIndex++) {
+                translations.getRow(rowIndex).createCell(5).setCellValue(
+                        "fr".equals(translations.getRow(rowIndex).getCell(1).getStringCellValue())
+                                ? "Petit" : "4.5*4.5cm");
+            }
+        });
+        CatalogWorkbook.ImportResult result = workbook.importFrom(new ByteArrayInputStream(older));
+
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        Product saved = repository.get("ENR-P01");
+        assertEquals(productWithFrenchTranslation().texts(), saved.texts(),
+                "the old Variantmaat column is ignored");
+        assertEquals("4.8*4.8cm", saved.variantSize(), "the one Maat stays the product's");
     }
 
     @Test

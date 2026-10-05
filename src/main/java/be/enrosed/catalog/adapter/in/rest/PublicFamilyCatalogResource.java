@@ -2,6 +2,7 @@ package be.enrosed.catalog.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.out.persistence.*;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
+import be.enrosed.catalog.application.FamilyPhotoAltText;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.application.ContentTranslationService;
@@ -9,6 +10,8 @@ import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.SharedProductDimensions;
 import be.enrosed.catalog.application.WebsiteCatalogRevisionService;
+import be.enrosed.catalog.application.WebsitePriceVisibility;
+import be.enrosed.catalog.application.WebsiteQuotePhotoChoice;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.ContentScope;
 import be.enrosed.catalog.domain.Product;
@@ -49,6 +52,8 @@ public class PublicFamilyCatalogResource {
 
     @Inject
     WebsiteCatalogRevisionService revisions;
+    @Inject
+    WebsitePriceVisibility priceVisibility;
 
     public PublicFamilyCatalogResource(
             CanonicalCatalogDaos.Families families,
@@ -126,10 +131,11 @@ public class PublicFamilyCatalogResource {
         String catalogRevision = revisions == null
                 ? String.valueOf(siteCopy.revision())
                 : requireStableRevision(revisionBeforeProjection, revisions.currentRevision());
-        return Response.ok(new PublicFamilyCatalogDto(
+        return Response.ok(PublicCatalogPriceVisibility.apply(new PublicFamilyCatalogDto(
                         channel, language, LanguageFallback.chain(language),
                         siteCopy.revision(), catalogRevision,
-                        siteCopy.values(), publicCategories, publicFamilies))
+                        siteCopy.values(), publicCategories, publicFamilies),
+                        priceVisibility == null || priceVisibility.pricesVisible()))
                 .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
                 .build();
     }
@@ -236,6 +242,10 @@ public class PublicFamilyCatalogResource {
                 .toList();
         /* Fail-safe for stale data created outside the validated write paths. */
         if (images.isEmpty() || variants.isEmpty()) return null;
+        /* The quote page is a WEBSITE view; other channels never receive a website choice. */
+        Long quoteImageId = channel == CatalogChannel.WEBSITE
+                ? WebsiteQuotePhotoChoice.resolve(family, familyMembers, publicPhotos, projectedImages)
+                : null;
 
         List<PublicFamilyCatalogDto.VariantDto> publicVariants = variants.stream()
                 .map(variant -> variant(family, variant, familyMembers, language, channel))
@@ -280,7 +290,8 @@ public class PublicFamilyCatalogResource {
                 publicFeaturedProductId(family.cardFeaturedProductId, family.id, null, channel),
                 tags.value(), status(family, channel).name(),
                 new PublicFamilyCatalogDto.SeoDto(seoTitle.value(), seoDescription.value()), dimensions,
-                packages, images, publicVariants, Collections.unmodifiableMap(textSources));
+                packages, images, publicVariants, Collections.unmodifiableMap(textSources),
+                quoteImageId);
     }
 
     private PublicFamilyCatalogDto.VariantDto variant(
@@ -296,32 +307,35 @@ public class PublicFamilyCatalogResource {
                 : "UNKNOWN";
         LanguageFallback.Resolved<String> color = productText(
                 product, language, item -> item.colour, product.colour);
-        LanguageFallback.Resolved<String> size = productText(
-                product, language, item -> item.variantSize, product.variantSize);
+        /* The Maat is one language-neutral value: the base prints in every language and is
+           therefore exact in each of them, like the unit. */
+        String size = blank(product.variantSize) ? null : product.variantSize.strip();
         LanguageFallback.Resolved<String> name = publicProductNames.resolve(product, language);
         Map<String, Language> sources = new LinkedHashMap<>();
         source(sources, "color", optionalProductSource(
                 product, language, item -> item.colour, color));
-        source(sources, "size", optionalProductSource(
-                product, language, item -> item.variantSize, size));
+        source(sources, "size", size == null ? null : language);
         source(sources, "name", name.sourceLanguage());
+        /* The unit dictionary is complete in every language, so the source is always exact. */
+        source(sources, "unit", language);
         return new PublicFamilyCatalogDto.VariantDto(
                 product.id, product.sku, product.canonicalBarcode,
                 color.value(),
-                size.value(), product.colourHex,
+                size, product.colourHex,
                 name.value(), product.variantPosition, availability,
                 primary == null ? null : primary.id, publicPrice,
                 Collections.unmodifiableMap(sources),
                 product.packagingKind == be.enrosed.catalog.domain.PackagingKind.DISPLAY
                         && product.packagingSalesUnit == be.enrosed.catalog.domain.SalesUnit.DISPLAY ? "DISPLAY" : "PIECE",
                 product.packagingKind == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                        ? product.packagingPiecesPerUnit : null);
+                        ? product.packagingPiecesPerUnit : null,
+                UnitDto.of(product.packagingUnitKey, language));
     }
 
     private PublicFamilyCatalogDto.ImageDto image(
             ProductFamilyEntity family, ProductFamilyPhotoEntity image,
             List<ProductEntity> familyMembers, Language language, int position) {
-        LanguageFallback.Resolved<String> alt = alt(image, language);
+        LanguageFallback.Resolved<String> alt = alt(family, image, familyMembers, language);
         Map<String, Language> sources = new LinkedHashMap<>();
         source(sources, "alt", alt.sourceLanguage());
         return new PublicFamilyCatalogDto.ImageDto(
@@ -557,11 +571,11 @@ public class PublicFamilyCatalogResource {
     }
 
     private LanguageFallback.Resolved<String> alt(
-            ProductFamilyPhotoEntity image, Language requested) {
+            ProductFamilyEntity family, ProductFamilyPhotoEntity image,
+            List<ProductEntity> familyMembers, Language requested) {
         List<ProductFamilyDto.AltTextDto> values = ProductFamilyDto.read(json, image.altTextsJson,
                 new TypeReference<List<ProductFamilyDto.AltTextDto>>() {});
-        return LanguageFallback.text(values, requested,
-                ProductFamilyDto.AltTextDto::language, ProductFamilyDto.AltTextDto::alt, "");
+        return FamilyPhotoAltText.resolve(family, image, familyMembers, values, requested);
     }
 
     private static void source(Map<String, Language> result, String key, Language language) {
@@ -660,10 +674,7 @@ public class PublicFamilyCatalogResource {
                     requireSource(missing, prefix + ".variants." + variant.id() + ".color",
                             variant.color(), variant.textSources().get("color"), requested);
                 }
-                if (!blank(variant.size()) || variant.textSources().containsKey("size")) {
-                    requireSource(missing, prefix + ".variants." + variant.id() + ".size",
-                            variant.size(), variant.textSources().get("size"), requested);
-                }
+                /* No size check: the Maat is language-neutral and exact in every language. */
             }
             for (PublicFamilyCatalogDto.ImageDto image : family.images()) {
                 requireSource(missing, prefix + ".images." + image.id() + ".alt",

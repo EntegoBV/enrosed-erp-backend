@@ -183,6 +183,45 @@ class PdfPurchaseRendererTest {
         assertNull(amountOnly.currency());
     }
 
+    @Test
+    void aCifContainerPrintsItsOwnBasisAndItsFreightAsATermBeforeArrival() {
+        var base = order("0.90", "0.90");
+        var exwLine = new PurchaseOrderLine(1L, 1L, 10, new BigDecimal("10"), Currency.USD, null, 10);
+        var ddpLine = new PurchaseOrderLine(2L, 2L, 10, new BigDecimal("10"), Currency.USD, null, 10,
+                be.enrosed.sourcing.domain.PriceBasis.DDP);
+        var exw = base.withReceipt(be.enrosed.sourcing.domain.PurchaseOrderStatus.ONDERWEG, null, null, false,
+                null, List.of(exwLine));
+        var cif = exw.withFreightViaSupplier(true);
+        assertEquals("Per productregel", PdfPurchaseRenderer.priceBasis(base));
+        assertEquals("EXW", PdfPurchaseRenderer.priceBasis(exw), "the supplier's incoterm on paper is not the container's");
+        assertEquals("CIF", PdfPurchaseRenderer.priceBasis(cif));
+        assertEquals("DDP", PdfPurchaseRenderer.priceBasis(cif.withReceipt(cif.status(), null, null, false, null,
+                List.of(ddpLine))));
+        assertEquals("Per productregel", PdfPurchaseRenderer.priceBasis(cif.withReceipt(cif.status(), null, null,
+                false, null, List.of(exwLine, ddpLine))));
+
+        var payable = new be.enrosed.sourcing.application.PurchaseOrderService.Payable(new BigDecimal("1200.00"),
+                BigDecimal.ZERO, BigDecimal.ZERO, true, false, new BigDecimal("300.00"));
+        var schedule = PdfPurchaseRenderer.schedule(cif, payable);
+        assertEquals(List.of("1/3 bij bestelling", "1/3 bij vertrek", "Zeevracht (CIF)", "1/3 bij aankomst"),
+                schedule.stream().map(PdfPurchaseRenderer.ScheduleRow::label).toList());
+        String third = be.enrosed.shared.DocumentFormat.eur(new BigDecimal("300.00"));
+        assertEquals(List.of(third, third, third, third),
+                schedule.stream().map(PdfPurchaseRenderer.ScheduleRow::amount).toList(),
+                "the thirds split the goods; the freight is its own amount");
+        assertEquals(List.of(true, true, true, false),
+                schedule.stream().map(PdfPurchaseRenderer.ScheduleRow::done).toList(), "the freight falls due at departure");
+        assertTrue(PdfPurchaseRenderer.payableView(List.of(), payable).cif());
+        assertFalse(PdfPurchaseRenderer.payableView(List.of(), new be.enrosed.sourcing.application.PurchaseOrderService.Payable(
+                new BigDecimal("1200.00"), BigDecimal.ZERO, BigDecimal.ZERO, true, true)).cif(), "DDP is no CIF");
+
+        var freight = new be.enrosed.sourcing.domain.PurchasePayment(1L, 1L, LocalDate.of(2026, 9, 1),
+                new BigDecimal("300"), Currency.EUR, new BigDecimal("300"), "Zeevracht", null, null,
+                be.enrosed.sourcing.domain.PurchasePayment.Payee.SUPPLIER, false,
+                be.enrosed.sourcing.domain.PaymentTerms.Moment.FREIGHT);
+        assertEquals("Termijn: Zeevracht (CIF)", PdfPurchaseRenderer.paymentScopeLabel(freight));
+    }
+
     private static be.enrosed.sourcing.domain.PurchaseOrder order(String goods, String transport) {
         return new be.enrosed.sourcing.domain.PurchaseOrder(
                 1L, "PO-PDF", null, 1L, LocalDate.now(),

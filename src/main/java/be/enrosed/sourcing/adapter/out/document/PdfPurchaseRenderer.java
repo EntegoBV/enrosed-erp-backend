@@ -176,7 +176,9 @@ public class PdfPurchaseRenderer {
     public record PayableView(String supplier, String logistics, String enrosed,
                               boolean freightInSupplierPrice, boolean ddp,
                               String paidSupplier, String paidLogistics,
-                              String openSupplier, boolean overpaid) {}
+                              String openSupplier, boolean overpaid,
+                              /** CIF: the supplier is also owed the sea freight and the local costs in China. */
+                              boolean cif) {}
 
     /**
      * Optional fields on the normal portrait export. Supplier and landscape
@@ -500,7 +502,7 @@ public class PdfPurchaseRenderer {
                 .data("showUnitPrice", options.showPrices() && options.includeUnitPrice())
                 .data("showEur", options.showEur())
                 .data("eurOnly", options.eurOnly())
-                .data("supplierIncoterm", supplier == null ? null : supplier.incoterm())
+                .data("priceBasis", priceBasis(order))
                 .data("showEnrosedCost", options.includeEnrosedCost())
                 .data("showEnrosedUnitCost", options.includeEnrosedUnitCost())
                 .data("showPaymentTerms", options.showPaymentTerms());
@@ -888,7 +890,7 @@ public class PdfPurchaseRenderer {
                                                   boolean showBarcode) {
         if (product == null) return List.of();
         List<ProductSpec> details = new ArrayList<>();
-        String variant = supplierFacing ? product.variantSizeIn(Language.EN) : product.variantSize();
+        String variant = product.variantSize(); // One language-neutral Maat for supplier and us.
         if (notBlank(variant)) details.add(new ProductSpec("Variant", variant.strip()));
 
         /* One row per thing you can hold - product, packaging, carton - each
@@ -1237,23 +1239,54 @@ public class PdfPurchaseRenderer {
         return moments;
     }
 
-    /** The agreed instalments, priced against the supplier's goods value. */
+    /**
+     * The container's own price basis, as the order says it: DDP when every
+     * line is, CIF when the supplier is paid the freight, else EXW; mixed
+     * lines say so. Never the supplier's incoterm on paper (a new supplier
+     * defaults to FOB, which contradicted DDP and CIF containers).
+     */
+    static String priceBasis(PurchaseOrder order) {
+        if (order.lines().isEmpty()) return "Per productregel";
+        if (order.deliveredDutyPaid()) return "DDP";
+        if (order.lines().stream().anyMatch(be.enrosed.sourcing.domain.PurchaseOrderLine::deliveredDutyPaid)) {
+            return "Per productregel";
+        }
+        return order.cif() ? "CIF" : "EXW";
+    }
+
+    /**
+     * The agreed instalments, priced against the supplier's goods value; a
+     * CIF container adds its freight term before the arrival term.
+     */
     static List<ScheduleRow> schedule(PurchaseOrder order, PurchaseOrderService.Payable payable) {
         if (payable == null || payable.supplierEur() == null) return List.of();
+        BigDecimal freight = payable.supplierFreightEur() == null ? BigDecimal.ZERO : payable.supplierFreightEur();
+        BigDecimal goods = payable.supplierEur().subtract(freight);
         List<ScheduleRow> rows = new ArrayList<>();
+        boolean freightShown = freight.signum() <= 0;
         for (PaymentTerms.Instalment instalment : order.paymentInstalments()) {
-            BigDecimal amount = payable.supplierEur().multiply(instalment.share())
+            if (!freightShown && instalment.due() == PaymentTerms.Moment.ARRIVED) {
+                rows.add(freightRow(order, freight));
+                freightShown = true;
+            }
+            BigDecimal amount = goods.multiply(instalment.share())
                     .setScale(2, RoundingMode.HALF_UP);
             rows.add(new ScheduleRow(instalment.label(), DocumentFormat.eur(amount),
                     momentReached(order, instalment.due())));
         }
+        if (!freightShown && !rows.isEmpty()) rows.add(freightRow(order, freight));
         return rows;
+    }
+
+    private static ScheduleRow freightRow(PurchaseOrder order, BigDecimal freight) {
+        return new ScheduleRow(PaymentTerms.FREIGHT_LABEL, DocumentFormat.eur(freight.setScale(2, RoundingMode.HALF_UP)),
+                momentReached(order, PaymentTerms.Moment.FREIGHT));
     }
 
     static boolean momentReached(PurchaseOrder order, PaymentTerms.Moment due) {
         return switch (due) {
             case ORDERED -> order.status() != PurchaseOrderStatus.CONCEPT;
-            case SHIPPED -> order.shippedOn() != null
+            case SHIPPED, FREIGHT -> order.shippedOn() != null
                     || order.status() == PurchaseOrderStatus.ONDERWEG
                     || order.status() == PurchaseOrderStatus.ONTVANGEN;
             case ARRIVED -> order.receivedOn() != null
@@ -1313,7 +1346,8 @@ public class PdfPurchaseRenderer {
                 DocumentFormat.eur(payable.enrosedEur()),
                 payable.freightInSupplierPrice(), payable.ddp(),
                 DocumentFormat.eur(paidSupplier), DocumentFormat.eur(paidLogistics),
-                DocumentFormat.eur(open.abs()), open.signum() < 0);
+                DocumentFormat.eur(open.abs()), open.signum() < 0,
+                payable.freightInSupplierPrice() && !payable.ddp());
     }
 
     static String paymentLabel(PurchasePayment payment) {
@@ -1328,6 +1362,7 @@ public class PdfPurchaseRenderer {
                     + switch (payment.instalmentDue()) {
                         case ORDERED -> "bij bestelling";
                         case SHIPPED -> "bij vertrek";
+                        case FREIGHT -> PaymentTerms.FREIGHT_LABEL;
                         case ARRIVED -> "bij aankomst";
                     };
         }

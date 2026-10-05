@@ -408,7 +408,7 @@
       {/if}
     </tr>
   {/for}
-  {#if !priceFreeProducts}{#for extra in priced.extraLines}
+  {#if !priceFreeProducts}{#for extra in documentExtras}
     <tr class="extra-line">
       <td><div class="line-name">{extra.description}</div></td>
       <td class="r nowrap">{extra.quantity.amount}</td>
@@ -420,6 +420,30 @@
   {/for}{/if}
   </tbody>
 </table>
+{/if}
+
+{#if finalInvoice && !advanceDeductions.isEmpty}
+<section class="advance-agreement advance-deductions">
+  <div class="panel-title">{t.advanceDeductionsTitle}</div>
+  <table class="lines">
+    <thead><tr>
+      <th style="width:22%">{t.advanceInvoice}</th>
+      <th class="r" style="width:12%">{t.date}</th>
+      <th class="r" style="width:16%">{t.advanceAmount}</th>
+      <th class="r" style="width:11%">{t.vat}</th>
+      <th class="r" style="width:17%">{t.totalInclVat}</th>
+      <th class="r" style="width:22%">{t.paymentTitle}</th>
+    </tr></thead>
+    <tbody>{#for advance in advanceDeductions}<tr>
+      <td><div class="line-name">{advance.number}</div></td>
+      <td class="r nowrap">{advance.date}</td>
+      <td class="r nowrap">{advance.excl}</td>
+      <td class="r nowrap">{advance.vat}</td>
+      <td class="r line-total nowrap">{advance.incl}</td>
+      <td class="r">{advance.status}</td>
+    </tr>{/for}</tbody>
+  </table>
+</section>
 {/if}
 
 {#if agreementQuote}
@@ -491,7 +515,7 @@
       <td class="r">- {priced.totals.extraDiscountAmount.eur}</td></tr>
   {/if}
   <tr class="sum"><td>{t.goodsValue}</td><td class="r">{priced.totals.goodsTotal.eur}</td></tr>
-  {#for extra in priced.extraLines}
+  {#for extra in documentExtras}
     <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
   {/for}
   {#if !creditNote}
@@ -505,17 +529,23 @@
   <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
   {/if}
   {#else}
-  {#for extra in priced.extraLines}
+  {#for extra in documentExtras}
     <tr><td>{extra.description}</td><td class="r">{extra.total.eur}</td></tr>
   {/for}
+  {/if}
+  {#if finalInvoice}
+  <tr class="sum"><td>{t.total}</td><td class="r">{finalGrossText}</td></tr>
+  <tr class="discount"><td>{t.advanceDeductionsTitle}</td><td class="r">- {finalDeductedText}</td></tr>
   {/if}
   <tr class="grand"><td>{grandTotalLabel}</td><td class="r">{priced.totals.total.eur}</td></tr>
   {#if priced.totals.vatTreatment.isExempt()}
     <tr class="aftertax"><td>{t.vat}</td><td class="r">0,00 EUR</td></tr>
+    {#if finalInvoice}<tr class="duepay"><td>{t.advanceStillToPay}</td>
+        <td class="r">{priced.totals.totalInclVat.eur}</td></tr>{/if}
   {#else}
     <tr class="aftertax"><td>{t.vat} {priced.totals.vatRatePct.pct}</td>
         <td class="r">{priced.totals.vatAmount.eur}</td></tr>
-    <tr class="duepay"><td>{t.totalInclVat}</td>
+    <tr class="duepay"><td>{#if finalInvoice}{t.advanceStillToPay}{#else}{t.totalInclVat}{/if}</td>
         <td class="r">{priced.totals.totalInclVat.eur}</td></tr>
   {/if}
 </table>

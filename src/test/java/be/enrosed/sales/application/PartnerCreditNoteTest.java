@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @QuarkusTest
 class PartnerCreditNoteTest {
     @Inject PartnerAdvanceScheduleService schedules;
+    @Inject PartnerAdvanceSchedules scheduleRows;
     @Inject SalesOrderService sales;
     @Inject PartnerSettlements settlements;
     @Inject PurchaseOrderService purchases;
@@ -62,6 +63,12 @@ class PartnerCreditNoteTest {
         assertEquals(amount("6000"), before.agreedShareEur());
         assertEquals(advance.id(), before.suggestedAdvanceInvoiceId());
         assertEquals(amount("7260"), before.advances().getFirst().maxCreditInclVatEur());
+        assertEquals(f.purchase.number(), before.containerName(), "without a Herkenbare naam the container is its number");
+        em.find(PurchaseOrderEntity.class, f.purchase.id()).alias = "container/2026/010";
+        em.flush(); em.clear();
+        assertEquals("container/2026/010", financing.creditProposal(f.purchase.id()).containerName());
+        assertEquals("container/2026/010", sales.proposeCreditNote(advance.id()).container().containerName());
+        assertEquals(f.purchase.number(), sales.proposeCreditNote(advance.id()).container().number());
 
         receive(f, 10);
         var after = financing.creditProposal(f.purchase.id());
@@ -181,7 +188,151 @@ class PartnerCreditNoteTest {
         assertTrue(incoming.forOrder(cn.id()).isEmpty());
     }
 
+    /** Emre's container: € 8.020,64 financed, € 7.991,49 agreed after receipt, € 29,15 back to the partner. */
+    @Test @TestTransaction
+    void theSuggestionIsThePartnersShareOfTheMissingPiecesAndAPendingConceptIsNotProposedAgain() {
+        var partner = customers.create(new Customer(null, "Verhoeven BV " + UUID.randomUUID(), "Finance", null, null, "NL123456789B01", "NL",
+                Language.NL, "Veilingweg 1", "1431", "Aalsmeer", "DAP", null, null, LocalDate.now()));
+        var supplier = suppliers.save(new Supplier(null, "Credit supplier", "CN", "Yiwu", null, null, null,
+                Currency.USD, "FOB", "Ningbo", 30, null));
+        var purchase = purchases.create(supplier.id(), new BigDecimal("0.14"), BigDecimal.ONE, BigDecimal.ZERO);
+        purchases.setPartner(purchase.id(), new PurchaseOrderService.PartnerRequest(partner.id(), new BigDecimal("50"), new BigDecimal("50")));
+        long whole = product(supplier.id());
+        long shortOne = product(supplier.id());
+        var entity = em.find(PurchaseOrderEntity.class, purchase.id());
+        entity.freightUsd = BigDecimal.ZERO; entity.originCosts = BigDecimal.ZERO; entity.destinationCostsEur = BigDecimal.ZERO;
+        entity.defaultDutyRatePct = BigDecimal.ZERO; entity.extraRevenueEur = BigDecimal.ZERO;
+        for (Object[] row : new Object[][] {{whole, 1, "15982.97"}, {shortOne, 7, "8.33"}}) {
+            var line = new PurchaseOrderLineEntity(); line.order = entity; line.productId = (Long) row[0]; line.quantity = (Integer) row[1];
+            line.exwPrice = new BigDecimal((String) row[2]); line.exwCurrency = Currency.EUR; entity.lines.add(line); em.persist(line);
+        }
+        em.flush(); em.clear();
+        var plan = schedules.save(purchase.id(), new PartnerAdvanceScheduleService.Request(List.of(pct("Productie", "100")), false));
+        var advance = sales.issueInvoice(schedules.createInvoice(purchase.id(), plan.rows().getFirst().id()).id());
+        assertEquals(amount("8020.64"), sales.price(advance).totals().total());
+        assertEquals(0, sales.price(advance).totals().vatRatePct().signum(), "an intra-EU partner pays no Belgian VAT");
+
+        em.find(PurchaseOrderEntity.class, purchase.id()).status = PurchaseOrderStatus.BESTELD;
+        em.flush(); em.clear();
+        purchases.receive(purchase.id(), new PurchaseOrderService.Receipt(List.of(new PurchaseOrderService.ReceivedLine(whole, 1, 0),
+                new PurchaseOrderService.ReceivedLine(shortOne, 0, 0)), false, null, LocalDate.now(), null));
+        em.flush(); em.clear();
+
+        var proposal = financing.creditProposal(purchase.id());
+        assertEquals(amount("15982.97"), proposal.actualBasisEur());
+        assertEquals(amount("7991.49"), proposal.agreedShareEur(), "50 % of 15.982,97, rounded half up");
+        assertEquals(amount("29.15"), proposal.overFinancingEur());
+        assertEquals(amount("58.31"), proposal.shortValueEur(), "the missing pieces at the ordered basis");
+        assertEquals(advance.id(), proposal.suggestedAdvanceInvoiceId());
+        assertEquals(amount("29.15"), proposal.suggestedCreditEur());
+        assertEquals(amount("29.15"), proposal.suggestedCreditInclVatEur(), "0 % VAT: incl. equals excl.");
+        assertEquals(amount("0"), proposal.remainingCreditEur());
+        assertEquals(amount("0"), proposal.pendingCreditEur());
+        assertTrue(proposal.pendingCreditNumbers().isEmpty());
+        var option = proposal.advances().getFirst();
+        assertEquals(0, option.vatRatePct().signum());
+        assertEquals(amount("8020.64"), option.maxCreditEur());
+        assertEquals(amount("8020.64"), option.openEur());
+        assertEquals(amount("29.15"), option.suggestedCreditEur());
+
+        /* A legacy agreement on the external forecast is not comparable: nothing is suggested, the figure stays visible. */
+        var agreement = scheduleRows.find(purchase.id());
+        scheduleRows.save(new PartnerAdvanceSchedules.Agreement(purchase.id(), partner.id(), agreement.externalCostEur(),
+                agreement.financingPct(), agreement.agreedAmountEur(), PartnerAdvanceBasis.Kind.EXTERNAL_FORECAST));
+        var legacy = financing.creditProposal(purchase.id());
+        assertEquals(amount("29.15"), legacy.overFinancingEur());
+        assertEquals(amount("0"), legacy.suggestedCreditEur());
+        scheduleRows.save(agreement);
+
+        var cn = sales.createCreditNote(advance.id(), new SalesOrderService.CreditNoteRequest(CreditReason.PARTNER_SHORTFALL, List.of(),
+                List.of(new SalesOrderService.CreditAmount("Voorschot te veel gefinancierd", amount("29.15"))), false, null));
+        var pending = financing.creditProposal(purchase.id());
+        assertEquals(amount("29.15"), pending.overFinancingEur(), "the issued-only figure is unchanged by a concept");
+        assertEquals(amount("29.15"), pending.pendingCreditEur());
+        assertEquals(List.of(cn.number()), pending.pendingCreditNumbers());
+        assertEquals(amount("0"), pending.suggestedCreditEur(), "never proposed twice");
+        assertEquals(amount("0"), pending.remainingCreditEur());
+
+        sales.issueInvoice(cn.id());
+        var settled = financing.creditProposal(purchase.id());
+        assertEquals(0, settled.overFinancingEur().signum());
+        assertEquals(amount("0"), settled.pendingCreditEur());
+        assertEquals(amount("0"), settled.suggestedCreditEur());
+
+    }
+
+    @Test @TestTransaction
+    void theCreditGoesOnTheLatestUnpaidAdvanceThatCanAbsorbIt() {
+        var f = fixture("12000", 12, "50");
+        var plan = schedules.save(f.purchase.id(), new PartnerAdvanceScheduleService.Request(List.of(pct("Start", "40"), pct("Klaar", "60")), false));
+        var first = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(0).id()).id());
+        var second = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(1).id()).id());
+        incoming.add(first.id(), new IncomingPaymentService.Request(sales.price(first).totals().totalInclVat(),
+                java.time.Instant.now().minusSeconds(60), "Europe/Brussels", "Eerste termijn"));
+        receive(f, 6);
+        var proposal = financing.creditProposal(f.purchase.id());
+        assertEquals(amount("3000"), proposal.overFinancingEur());
+        assertEquals(second.id(), proposal.suggestedAdvanceInvoiceId(), "the unpaid 60 % can be offset without a refund");
+        assertEquals(amount("3000"), proposal.suggestedCreditEur());
+        assertEquals(amount("3630"), proposal.suggestedCreditInclVatEur());
+        assertEquals(amount("0"), proposal.remainingCreditEur());
+        var paid = proposal.advances().stream().filter(o -> o.invoiceId() == first.id()).findFirst().orElseThrow();
+        assertEquals(amount("0"), paid.openEur());
+        assertEquals(amount("2400"), paid.maxCreditEur());
+    }
+
+    @Test @TestTransaction
+    void theOpenAmountIncludingVatMustCoverTheCreditIncludingVat() {
+        var f = fixture("12000", 12, "50");
+        var plan = schedules.save(f.purchase.id(), new PartnerAdvanceScheduleService.Request(List.of(pct("Start", "50"), pct("Klaar", "50")), false));
+        var first = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(0).id()).id());
+        var second = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(1).id()).id());
+        incoming.add(second.id(), new IncomingPaymentService.Request(amount("500"),
+                java.time.Instant.now().minusSeconds(60), "Europe/Brussels", "Deel tweede termijn"));
+        receive(f, 6);
+        var proposal = financing.creditProposal(f.purchase.id());
+        assertEquals(amount("3000"), proposal.overFinancingEur());
+        assertEquals(amount("3630"), proposal.suggestedCreditInclVatEur());
+        var partlyPaid = proposal.advances().stream().filter(o -> o.invoiceId() == second.id()).findFirst().orElseThrow();
+        assertEquals(amount("3130"), partlyPaid.openEur(), "more than € 3.000 excl. is open, less than the € 3.630 incl. credit");
+        assertEquals(first.id(), proposal.suggestedAdvanceInvoiceId(),
+                "only the unpaid first advance still owes the whole credit incl. VAT, so only there it is offset without a refund");
+        assertEquals(amount("3000"), proposal.suggestedCreditEur());
+    }
+
+    @Test @TestTransaction
+    void aCreditLargerThanOneAdvanceIsCappedByItsRoomAndTheRestMovesOn() {
+        var f = fixture("12000", 12, "50");
+        var plan = schedules.save(f.purchase.id(), new PartnerAdvanceScheduleService.Request(List.of(pct("Start", "40"), pct("Klaar", "60")), false));
+        var first = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(0).id()).id());
+        var second = sales.issueInvoice(schedules.createInvoice(f.purchase.id(), plan.rows().get(1).id()).id());
+        receive(f, 1);
+        var proposal = financing.creditProposal(f.purchase.id());
+        assertEquals(amount("5500"), proposal.overFinancingEur());
+        assertEquals(second.id(), proposal.suggestedAdvanceInvoiceId(), "neither can take it all: the latest");
+        assertEquals(amount("3600"), proposal.suggestedCreditEur(), "capped by the room excl. VAT");
+        assertEquals(amount("1900"), proposal.remainingCreditEur());
+        assertEquals(amount("2400"), proposal.advances().stream().filter(o -> o.invoiceId() == first.id())
+                .findFirst().orElseThrow().suggestedCreditEur());
+
+        sales.createCreditNote(second.id(), new SalesOrderService.CreditNoteRequest(CreditReason.PARTNER_SHORTFALL, List.of(),
+                List.of(new SalesOrderService.CreditAmount("Te veel", amount("3600"))), false, null));
+        var rest = financing.creditProposal(f.purchase.id());
+        assertEquals(amount("3600"), rest.pendingCreditEur());
+        assertEquals(first.id(), rest.suggestedAdvanceInvoiceId(), "a fully credited advance has no room left");
+        assertEquals(amount("1900"), rest.suggestedCreditEur());
+        assertEquals(amount("0"), rest.remainingCreditEur());
+    }
+
     /* ---------------------------------------------------------------- helpers */
+
+    private long product(long supplierId) {
+        ProductEntity product = new ProductEntity(); product.sku = "PCN-" + UUID.randomUUID(); product.name = "Partner roses";
+        product.supplierId = supplierId; product.cartonLengthCm = BigDecimal.TEN; product.cartonWidthCm = BigDecimal.TEN;
+        product.cartonHeightCm = BigDecimal.TEN; product.cartonWeightKg = BigDecimal.ONE; product.piecesPerCarton = 1;
+        em.persist(product); em.flush();
+        return product.id;
+    }
 
     private SalesOrder settle(Fixture f, int quantity, String proceeds, boolean finalSettlement) {
         return sales.createAuctionSettlement(new SalesOrderService.AuctionSettlementRequest(f.partnerId, f.purchase.id(), null,

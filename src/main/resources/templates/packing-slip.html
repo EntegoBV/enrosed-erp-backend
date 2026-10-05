@@ -147,7 +147,7 @@
       <div class="fact-value">
         <b>{slip.order.incoterm}</b>
         {#if slip.pallets}<br/>{slip.pallets.size} {t.pallets}{/if}
-        <br/>{slip.totalCartons} {t.cartons} · {slip.totalPieces} {t.pieces}
+        <br/>{slip.totalCartons} {t.cartons}{#if slip.totalQuantityText} · {slip.totalQuantityText}{/if}
       </div>
     </td>
   </tr>
@@ -161,7 +161,7 @@
           <span class="pallet-sub"> - {pallet.type}{#if pallet.heightCm} · {pallet.heightCm} cm {t.height}{/if}</span>
         </th>
       </tr>
-      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.pieces}</th></tr>
+      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.quantity}</th></tr>
     </thead>
     <tbody>
     {#for item in pallet.items}
@@ -172,7 +172,7 @@
             {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
             {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
               {#if item.outerCartonDimensions}<span class="nowrap">{item.outerCartonDimensions}</span>{/if}
-              {#if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
+              {#if item.cartonContentsText} · <span class="nowrap">{item.cartonContentsText}</span>{#else if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
               {#if item.outerCartonVolume} · <span class="nowrap">{item.outerCartonVolume}</span>{/if}
               {#if item.outerCartonWeight} · <span class="nowrap">{item.outerCartonWeight}</span>{/if}
               {#if showBarcode}{#if item.outerCartonBarcode}<br/><span class="product-code">EAN {item.outerCartonBarcode}</span>{/if}{/if}
@@ -180,7 +180,7 @@
           </div>{/if}
         </td>
         <td class="r">{item.cartons}</td>
-        <td class="r">{item.pieces}</td>
+        <td class="r nowrap">{#if item.quantityText}{item.quantityText}{#else}{item.pieces}{/if}</td>
       </tr>
     {/for}
     </tbody>
@@ -193,7 +193,7 @@
       <tr class="pallet-title">
         <th colspan="3">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{t.notOnPallet}{#else}{t.contents}{/if}</th>
       </tr>
-      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.pieces}</th></tr>
+      <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.quantity}</th></tr>
     </thead>
     <tbody>
     {#for item in slip.loose}
@@ -204,7 +204,7 @@
             {#if showBarcode}{#if item.barcode}<span class="product-detail"><b>EAN:</b> {item.barcode}</span>{/if}{/if}
             {#if showOuterCarton}<span class="product-detail"><b>{t.catalogCarton}:</b>
               {#if item.outerCartonDimensions}<span class="nowrap">{item.outerCartonDimensions}</span>{/if}
-              {#if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
+              {#if item.cartonContentsText} · <span class="nowrap">{item.cartonContentsText}</span>{#else if item.piecesPerOuterCarton} · <span class="nowrap">{item.piecesPerOuterCarton} {t.piecesPerCarton}</span>{/if}
               {#if item.outerCartonVolume} · <span class="nowrap">{item.outerCartonVolume}</span>{/if}
               {#if item.outerCartonWeight} · <span class="nowrap">{item.outerCartonWeight}</span>{/if}
               {#if showBarcode}{#if item.outerCartonBarcode}<br/><span class="product-code">EAN {item.outerCartonBarcode}</span>{/if}{/if}
@@ -212,7 +212,7 @@
           </div>{/if}
         </td>
         <td class="r">{item.cartons}</td>
-        <td class="r">{item.pieces}</td>
+        <td class="r nowrap">{#if item.quantityText}{item.quantityText}{#else}{item.pieces}{/if}</td>
       </tr>
     {/for}
     </tbody>
@@ -222,7 +222,7 @@
 <table class="totals">
   <tr>
     <td class="summary">{t.loadCheck}</td>
-    <td class="r total-value">{slip.totalCartons} {t.cartons} · {slip.totalPieces} {t.pieces}{#if slip.pallets} · {slip.pallets.size} {t.pallets}{/if}</td>
+    <td class="r total-value">{slip.totalCartons} {t.cartons}{#if slip.totalQuantityText} · {slip.totalQuantityText}{/if}{#if slip.pallets} · {slip.pallets.size} {t.pallets}{/if}</td>
   </tr>
 </table>
 

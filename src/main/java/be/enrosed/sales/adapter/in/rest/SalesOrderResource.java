@@ -37,6 +37,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerInvoiceDeclarations invoiceDeclarations;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesSplits splits;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesCustomerMessages customerMessages;
+    @jakarta.inject.Inject be.enrosed.sales.application.SalesAdvanceBillingService advanceBilling;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -72,7 +73,55 @@ public class SalesOrderResource {
                             Long creditedInvoiceId, String creditedInvoiceNumber,
                             be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
                             /** Invoices: their live credit notes, concepts included, and what the issued ones credit incl. VAT. */
-                            List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+                            List<CreditNoteLink> creditNotes, BigDecimal creditedEur,
+                            /**
+                             * The container this document comes from ({@code order.linkedPurchaseOrderId()}), partner or
+                             * regular container sale: its name as sales shows it ("Herkenbare naam", else the number) and
+                             * its purchase order number. Null when the document has no container or it is gone.
+                             */
+                            String partnerContainerName, String partnerContainerNumber,
+                            /** Advance invoices and slotfactuur of a regular quote: this document's own role, or null. */
+                            be.enrosed.sales.application.SalesAdvanceBillingService.Billing advanceBilling,
+                            /** On a regular quote: its live advance invoices (empty when none); null on other documents. */
+                            List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceInvoice> advanceInvoices,
+                            /** On a slotfactuur: the advance invoices it deducted, with how they were paid; null otherwise. */
+                            List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction> advanceDeductions) {
+        /** The view as it stood before the advance billing of regular quotes was added. */
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                         be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                         boolean customerRequestMessageReadonly, String customerRequestMessage,
+                         Long creditedInvoiceId, String creditedInvoiceNumber,
+                         be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                         List<CreditNoteLink> creditNotes, BigDecimal creditedEur,
+                         String partnerContainerName, String partnerContainerNumber) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, null, null, null);
+        }
+        /** The view as it stood before the container name was added. */
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                         be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                         boolean customerRequestMessageReadonly, String customerRequestMessage,
+                         Long creditedInvoiceId, String creditedInvoiceNumber,
+                         be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                         List<CreditNoteLink> creditNotes, BigDecimal creditedEur) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur, null, null);
+        }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
                          be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
@@ -101,7 +150,27 @@ public class SalesOrderResource {
             return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
                     customerRequestMessageReadonly, customerRequestMessage,
-                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur);
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions);
+        }
+        /** The same view naming the container the document comes from; null leaves it unnamed. */
+        OrderView withContainer(be.enrosed.sourcing.domain.PurchaseOrderName container) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    container == null ? null : container.displayName(), container == null ? null : container.number(),
+                    advanceBilling, advanceInvoices, advanceDeductions);
+        }
+        /** The same view with the advance billing of regular quotes filled in. */
+        OrderView withAdvanceBilling(be.enrosed.sales.application.SalesAdvanceBillingService.Views views) {
+            if (views == null) return this;
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber,
+                    views.billing(order), views.advanceInvoices(order), views.deductions(order));
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -199,15 +268,26 @@ public class SalesOrderResource {
         List<SalesOrder> all = salesOrders.list();
         java.util.Set<Long> awaiting = quotes.awaitsResendIds(all);
         Links links = Links.of(all);
+        /* One read names every container on the list; no purchase order is loaded with its lines. */
+        var containers = salesOrders.containerNames(all.stream().map(SalesOrder::linkedPurchaseOrderId)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()));
+        var advances = advanceBilling == null ? null : advanceBilling.views(all);
         return all.stream()
-                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price))
+                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price)
+                        .withContainer(order.linkedPurchaseOrderId() == null ? null : containers.get(order.linkedPurchaseOrderId()))
+                        .withAdvanceBilling(advances))
                 .toList();
     }
 
     private OrderView view(SalesOrder order) {
         /* Every persisted document may be linked: a quote to its invoice, an invoice to its credit notes. */
-        Links links = order.id() == null ? Links.of(List.of()) : Links.of(salesOrders.list());
-        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price);
+        List<SalesOrder> all = order.id() == null ? List.of() : salesOrders.list();
+        Links links = Links.of(all);
+        Long containerId = order.linkedPurchaseOrderId();
+        var container = containerId == null ? null : salesOrders.containerNames(List.of(containerId)).get(containerId);
+        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
+                .withContainer(container)
+                .withAdvanceBilling(advanceBilling == null || order.id() == null ? null : advanceBilling.views(all));
     }
 
     /* ------------------------------------------------------------ credit notes */
@@ -320,6 +400,14 @@ public class SalesOrderResource {
     public OrderView createInvoice(@PathParam("id") long id) {
         SalesOrder invoice = salesOrders.createInvoiceFrom(id);
         return view(invoice);
+    }
+
+    /** A concept advance invoice on a regular quote: a percentage or an amount excl. VAT, an optional due date. */
+    @POST
+    @Path("/{id}/advance-invoice")
+    public OrderView createAdvanceInvoice(@PathParam("id") long id,
+                                          be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceRequest request) {
+        return view(advanceBilling.createAdvanceInvoice(id, request));
     }
 
     /** A container becomes a quote in one go: lines, costs and the partner deal, or nothing at all. */
