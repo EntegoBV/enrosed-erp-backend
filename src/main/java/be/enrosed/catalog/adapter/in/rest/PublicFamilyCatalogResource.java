@@ -10,6 +10,7 @@ import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.SharedProductDimensions;
 import be.enrosed.catalog.application.WebsiteCatalogRevisionService;
+import be.enrosed.catalog.application.WebsitePriceVisibility;
 import be.enrosed.catalog.application.WebsiteQuotePhotoChoice;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.ContentScope;
@@ -51,6 +52,8 @@ public class PublicFamilyCatalogResource {
 
     @Inject
     WebsiteCatalogRevisionService revisions;
+    @Inject
+    WebsitePriceVisibility priceVisibility;
 
     public PublicFamilyCatalogResource(
             CanonicalCatalogDaos.Families families,
@@ -128,10 +131,11 @@ public class PublicFamilyCatalogResource {
         String catalogRevision = revisions == null
                 ? String.valueOf(siteCopy.revision())
                 : requireStableRevision(revisionBeforeProjection, revisions.currentRevision());
-        return Response.ok(new PublicFamilyCatalogDto(
+        return Response.ok(PublicCatalogPriceVisibility.apply(new PublicFamilyCatalogDto(
                         channel, language, LanguageFallback.chain(language),
                         siteCopy.revision(), catalogRevision,
-                        siteCopy.values(), publicCategories, publicFamilies))
+                        siteCopy.values(), publicCategories, publicFamilies),
+                        priceVisibility == null || priceVisibility.pricesVisible()))
                 .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
                 .build();
     }

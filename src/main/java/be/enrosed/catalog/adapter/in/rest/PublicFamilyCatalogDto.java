@@ -19,8 +19,18 @@ public record PublicFamilyCatalogDto(
         String catalogRevision,
         Map<String, LocalizedValueDto> siteCopy,
         List<CategoryDto> categories,
-        List<FamilyDto> families
+        List<FamilyDto> families,
+        /** False when staff withhold prices on the whole website: every {@code publicPrice} is then null on purpose. */
+        boolean pricesVisible
 ) {
+    public PublicFamilyCatalogDto(CatalogChannel channel, Language language, List<Language> fallbackChain,
+                                  long siteCopyRevision, String catalogRevision,
+                                  Map<String, LocalizedValueDto> siteCopy,
+                                  List<CategoryDto> categories, List<FamilyDto> families) {
+        this(channel, language, fallbackChain, siteCopyRevision, catalogRevision, siteCopy,
+                categories, families, true);
+    }
+
     public record FamilyDto(
             Long id,
             String familyKey,

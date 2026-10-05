@@ -1,6 +1,6 @@
 package be.enrosed.sales.adapter.in.rest;
 
-import be.enrosed.sales.adapter.out.persistence.WebsiteQuoteSettingsEntity;
+import be.enrosed.catalog.adapter.out.persistence.WebsiteQuoteSettingsEntity;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 @QuarkusTest
 class WebsiteQuoteSettingsResourceHttpTest {
@@ -37,6 +38,27 @@ class WebsiteQuoteSettingsResourceHttpTest {
                     .then().statusCode(200).body("pricesVisible", equalTo(visible));
             given().auth().preemptive().basic("berat", "named-auth-test-password")
                     .get(ENDPOINT).then().statusCode(200).body("pricesVisible", equalTo(visible));
+        }
+    }
+
+    @Test
+    void theAnonymousCatalogueAnnouncesWithheldPricesWithItsUsualCacheHeader() {
+        for (boolean visible : new boolean[]{false, true}) {
+            given().auth().preemptive().basic("emre", "named-auth-test-password").contentType("application/json")
+                    .body("{\"pricesVisible\":" + visible + "}").put(ENDPOINT).then().statusCode(200);
+            for (String channel : new String[]{"WEBSITE", "ORDER_APP", "CATALOGUE"}) {
+                String body = given().queryParam("channel", channel).queryParam("language", "EN")
+                        .get("/api/v1/public/catalog/families").then().statusCode(200)
+                        .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+                        .body("pricesVisible", equalTo(visible))
+                        .extract().asString();
+                if (!visible) assertFalse(body.contains("\"amount\""), channel);
+                String legacy = given().queryParam("channel", channel).queryParam("language", "EN")
+                        .get("/api/v1/public/catalog").then().statusCode(200)
+                        .header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+                        .extract().asString();
+                if (!visible) assertFalse(legacy.matches("(?s).*\"salesPriceEur\":\\s*[0-9].*"), channel);
+            }
         }
     }
 

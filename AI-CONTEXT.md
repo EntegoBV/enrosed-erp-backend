@@ -555,6 +555,22 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   field; `color`/`size` appear only when the variant has a value - the
   website treats them as optional. `size` is the language-neutral Maat, so
   its source is always the requested language.
+- **Website price switch**: `PUT /api/website/quote-settings`
+  `{"pricesVisible":bool}` (table `website_quote_settings`, one row; a
+  missing row = visible) withholds prices on the whole public website, not
+  only the quote flow. While false no amount leaves an anonymous endpoint:
+  the quote endpoints redact through `PublicQuotePriceVisibility`, and
+  `PublicCatalogPriceVisibility` nulls `variants[].publicPrice` in
+  `/api/v1/public/catalog/families` and `products[].salesPriceEur` in the
+  legacy `/api/v1/public/catalog`, for every channel. The families payload
+  carries top-level `pricesVisible` so the build knows null is on purpose.
+  Redaction happens at the HTTP boundary only: ERP calculations, staff
+  endpoints and the per-quote portal keep their prices. The hidden state
+  adds one term to the catalogue revision (the visible digest is unchanged)
+  and a changed value queues the website rebuild in the same transaction;
+  the static pages follow after the debounce and the Vercel build. The
+  entity and its reader `WebsitePriceVisibility` live in catalog; sales
+  owns the write side (`WebsiteQuoteSettingsService`).
 - **Migration log**: `docs/migrations/2026-08-21/category-revision-
   postgresql.sql` was executed on the Railway Postgres on 2026-08-21 via
   the TCP proxy (3 categories backfilled to revision 0, description

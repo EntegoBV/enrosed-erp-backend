@@ -14,6 +14,7 @@ import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
+import be.enrosed.catalog.adapter.out.persistence.WebsiteQuoteSettingsEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductPackageEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
@@ -1439,6 +1440,69 @@ class ProductFamilyVariantContractPersistenceTest {
                     CatalogChannel.WEBSITE, language.code(), true, null);
             assertEquals(200, response.getStatus(), language.code());
         }
+    }
+
+    @Test
+    @TestTransaction
+    void withheldPricesLeaveNoAmountInAnyPublicCatalogueAndChangeTheRevision() throws Exception {
+        FamilyContext context = completeFamilyContext("prices-withheld");
+        context.family.orderAppStatus = PublicationState.PUBLISHED;
+        context.family.catalogueStatus = PublicationState.PUBLISHED;
+        ProductEntity variant = product(
+                context.family, "SKU-PRICES-WITHHELD", "prices-withheld",
+                "Red", null, "#A91F32", 0);
+        variant.categoryId = context.category.id;
+        variant.fixedSalesPriceEur = new BigDecimal("1234.56");
+        entityManager.persist(variant);
+        entityManager.flush();
+        WebsiteQuoteSettingsEntity settings = entityManager.find(WebsiteQuoteSettingsEntity.class, 1L);
+        if (settings == null) {
+            settings = new WebsiteQuoteSettingsEntity();
+            entityManager.persist(settings);
+        }
+        settings.pricesVisible = true;
+        entityManager.flush();
+        String visibleRevision = catalogRevisions.currentRevision();
+        for (CatalogChannel channel : CatalogChannel.values()) {
+            Response response = publicFamilies.catalog(channel, "EN", null);
+            PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
+            assertTrue(catalog.pricesVisible());
+            assertEquals(0, new BigDecimal("1234.56").compareTo(variant(publicFamily(
+                    channel, "EN", context.family.publicHandle), variant.id).publicPrice().amount()));
+        }
+
+        settings.pricesVisible = false;
+        entityManager.flush();
+
+        String hiddenRevision = catalogRevisions.currentRevision();
+        assertNotEquals(visibleRevision, hiddenRevision,
+                "the static product pages must be rebuilt without their prices");
+        for (CatalogChannel channel : CatalogChannel.values()) {
+            Response response = publicFamilies.catalog(channel, "EN", null);
+            PublicFamilyCatalogDto catalog = (PublicFamilyCatalogDto) response.getEntity();
+            String body = json.writeValueAsString(catalog);
+
+            assertFalse(catalog.pricesVisible(), channel.name());
+            assertEquals(hiddenRevision, catalog.catalogRevision());
+            assertNull(variant(publicFamily(channel, "EN", context.family.publicHandle),
+                    variant.id).publicPrice(), channel.name());
+            assertTrue(catalog.families().stream().flatMap(family -> family.variants().stream())
+                    .allMatch(item -> item.publicPrice() == null), channel.name());
+            assertFalse(body.contains("1234.56"), channel.name());
+            assertFalse(body.contains("\"amount\""), channel.name());
+            assertEquals("public, max-age=60, stale-while-revalidate=300",
+                    response.getHeaderString("Cache-Control"));
+        }
+        for (Language language : Language.values()) {
+            assertEquals(hiddenRevision, ((PublicFamilyCatalogDto) publicFamilies.catalog(
+                    CatalogChannel.WEBSITE, language.code(), null).getEntity()).catalogRevision(),
+                    "every locale of one website build must carry the same revision");
+        }
+
+        settings.pricesVisible = true;
+        entityManager.flush();
+        assertEquals(visibleRevision, catalogRevisions.currentRevision(),
+                "showing prices again returns to the revision the website already knows");
     }
 
     @Test

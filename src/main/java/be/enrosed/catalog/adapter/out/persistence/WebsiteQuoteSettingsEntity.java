@@ -1,4 +1,4 @@
-package be.enrosed.sales.adapter.out.persistence;
+package be.enrosed.catalog.adapter.out.persistence;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -6,7 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
-/** Public quote presentation settings; ERP price calculations remain independent. */
+/** Public website presentation settings; ERP price calculations remain independent. */
 @Entity
 @Table(name = "website_quote_settings")
 public class WebsiteQuoteSettingsEntity {

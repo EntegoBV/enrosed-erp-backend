@@ -89,6 +89,25 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void withholdingPricesAltersTheRevisionAndShowingThemKeepsTheExistingOne() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        String withoutTheSetting = service(graph).currentRevision();
+        WebsiteCatalogRevisionService service = service(graph);
+        service.priceVisibility = mock(WebsitePriceVisibility.class);
+
+        when(service.priceVisibility.pricesVisible()).thenReturn(true);
+        String visible = service.currentRevision();
+        when(service.priceVisibility.pricesVisible()).thenReturn(false);
+        String hidden = service.currentRevision();
+
+        assertEquals(withoutTheSetting, visible,
+                "shown prices must not start a rebuild on a website that is already live");
+        assertNotEquals(visible, hidden, "the product pages only lose their prices after a rebuild");
+        assertEquals(hidden, service.currentRevision(), "the withheld state is one stable revision");
+    }
+
+    @Test
     void choosingAnotherUnitAltersTheRevisionButSpellingTheDefaultDoesNot() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");

@@ -15,6 +15,7 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.shared.Language;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -33,6 +34,9 @@ public class WebsiteCatalogRevisionService {
     private final PublicProductNameResolver publicProductNames;
     private final PublicFamilyPhotoProjection publicPhotos;
     private final ObjectMapper json;
+
+    @Inject
+    WebsitePriceVisibility priceVisibility;
 
     public WebsiteCatalogRevisionService(
             CanonicalCatalogDaos.ContentTranslations content,
@@ -55,6 +59,8 @@ public class WebsiteCatalogRevisionService {
 
     public String currentRevision() {
         StringBuilder out = new StringBuilder(64_000);
+        /* Only the withheld state adds a term: with prices shown the digest is the one it always was. */
+        if (priceVisibility != null && !priceVisibility.pricesVisible()) add(out, "pricesHidden");
         List<ContentTranslationEntity> websiteCopy = content.list(
                 "scope = ?1 order by key", ContentScope.WEBSITE);
         long siteCopyRevision = websiteCopy.stream().map(group -> group.updatedAt)

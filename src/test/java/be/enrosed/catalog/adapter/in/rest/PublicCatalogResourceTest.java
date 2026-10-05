@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.FamilyPhotoPublicationPolicy;
+import be.enrosed.catalog.application.WebsitePriceVisibility;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.ProductVariantLinkService;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
@@ -35,7 +36,9 @@ import java.net.URI;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,6 +68,38 @@ class PublicCatalogResourceTest {
                 .map(PublicCatalogDto.PublicProductDto::id).toList());
         assertEquals("public, max-age=60, stale-while-revalidate=300",
                 response.getHeaderString("Cache-Control"));
+    }
+
+    @Test
+    void legacyCatalogWithholdsTheSalesPriceOnEveryChannelWhilePricesAreHidden() throws Exception {
+        ProductService products = mock(ProductService.class);
+        CategoryService categories = mock(CategoryService.class);
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(uriInfo.getBaseUri()).thenReturn(URI.create("https://erp.example.test/"));
+        when(categories.list()).thenReturn(List.of(category()));
+        when(products.list()).thenReturn(List.of(
+                product(1L, true, PublicationState.PUBLISHED, PublicationState.PUBLISHED)));
+        PublicCatalogResource resource = new PublicCatalogResource(products, categories);
+        resource.priceVisibility = mock(WebsitePriceVisibility.class);
+
+        when(resource.priceVisibility.pricesVisible()).thenReturn(true);
+        PublicCatalogDto visible = (PublicCatalogDto) resource
+                .catalog(CatalogChannel.WEBSITE, "EN", uriInfo).getEntity();
+        assertEquals(0, new BigDecimal("15").compareTo(visible.products().getFirst().salesPriceEur()));
+
+        when(resource.priceVisibility.pricesVisible()).thenReturn(false);
+        for (CatalogChannel channel : List.of(CatalogChannel.WEBSITE, CatalogChannel.ORDER_APP)) {
+            Response response = resource.catalog(channel, "EN", uriInfo);
+            PublicCatalogDto hidden = (PublicCatalogDto) response.getEntity();
+
+            assertEquals(List.of(1L), hidden.products().stream()
+                    .map(PublicCatalogDto.PublicProductDto::id).toList(), channel.name());
+            assertNull(hidden.products().getFirst().salesPriceEur(), channel.name());
+            assertFalse(new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(hidden).contains("15"), channel.name());
+            assertEquals("public, max-age=60, stale-while-revalidate=300",
+                    response.getHeaderString("Cache-Control"));
+        }
     }
 
     @Test
