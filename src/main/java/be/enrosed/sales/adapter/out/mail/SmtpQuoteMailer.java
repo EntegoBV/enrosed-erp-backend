@@ -11,6 +11,7 @@ import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.UnitNames;
+import be.enrosed.shared.mail.CustomerAccountMailer;
 import be.enrosed.shared.mail.InternalMessageSender;
 import be.enrosed.shared.mail.InternalMessageSender.TeamNotice;
 
@@ -51,7 +52,7 @@ import org.jboss.logging.Logger;
  * real customer.
  */
 @ApplicationScoped
-public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
+public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, CustomerAccountMailer {
 
     private static final Logger LOG = Logger.getLogger(SmtpQuoteMailer.class);
     private static final URI BREVO_ENDPOINT = URI.create("https://api.brevo.com/v3/smtp/email");
@@ -67,6 +68,11 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
     private final Template cancellationMailTemplate;
     private final Template quoteSentInternalTemplate;
     private final Template teamNoticeTemplate;
+
+    /** A field, not a constructor argument: tests build this mailer by hand with its five templates. */
+    @jakarta.inject.Inject
+    @Location("account-invite-mail.html")
+    Template accountInviteTemplate;
 
     @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
     String websiteBaseUrl;
@@ -453,6 +459,72 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         mailer.send(customerMail(customer.email(), subject, body));
     }
 
+    /**
+     * The one-time link of a website login. It goes to the customer alone: no office copy on
+     * any route, because whoever reads the copy could use the link. In a deployed environment
+     * the mock mailer refuses, since it would write the link to the log.
+     */
+    @Override
+    public void sendInvitation(CustomerAccountMailer.Invitation invitation) {
+        if (mock && io.quarkus.runtime.LaunchMode.current() == io.quarkus.runtime.LaunchMode.NORMAL) {
+            throw new BusinessRuleException("De mailer staat in testmodus; de link is niet verstuurd");
+        }
+        String subject = DocumentText.of(invitation.language()).get("mailAccountInviteSubject");
+        String body = accountInviteHtml(invitation);
+        if (mock) {
+            mailer.send(Mail.withHtml(invitation.to(), subject, body));
+            return;
+        }
+        String brevoKey = brevoApiKey.orElse("").trim();
+        if (!brevoKey.isEmpty()) {
+            try {
+                sendViaBrevo(invitation.to(), subject, body, null, null, false);
+            } catch (Exception e) {
+                throw new BusinessRuleException(
+                        "De mail kon niet verzonden worden via de maildienst: " + e.getMessage());
+            }
+            return;
+        }
+        if (host.isBlank() || host.endsWith("example.com")) {
+            throw new BusinessRuleException("Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
+        }
+        try {
+            mailer.send(Mail.withHtml(invitation.to(), subject, body));
+        } catch (RuntimeException e) {
+            throw new BusinessRuleException("De mail kon niet verzonden worden: mailserver \"" + host
+                    + "\" is onbereikbaar of weigert de aanmelding.");
+        }
+    }
+
+    /** Three wordings in one template, so that no mail says anything false about a password. */
+    String accountInviteHtml(CustomerAccountMailer.Invitation invitation) {
+        Language language = invitation.language();
+        Map<String, String> text = DocumentText.of(language);
+        boolean first = invitation.kind() == CustomerAccountMailer.Kind.FIRST;
+        /* The token sits in the fragment: it reaches neither the website's logs nor a Referer. */
+        String link = websitePage(language, "account") + "#activate=" + invitation.token();
+        return accountInviteTemplate
+                .data("languageCode", language.code())
+                .data("logoUrl", BRAND_LOGO_URL)
+                .data("websiteUrl", websiteBaseUrl)
+                .data("kicker", text.get("mailAccountInviteKicker"))
+                .data("title", text.get(first ? "mailAccountInviteTitle" : "mailAccountInviteTitleNewLink"))
+                .data("contact", notBlank(invitation.contactName()) ? invitation.contactName().strip() : null)
+                .data("intro", text.get(first ? "mailAccountInviteIntro" : "mailAccountInviteIntroNewLink")
+                        .formatted(invitation.company()))
+                .data("whatTitle", text.get("mailAccountInviteWhatTitle"))
+                .data("what", text.get("mailAccountInviteWhat"))
+                .data("buttonUrl", link)
+                .data("buttonLabel", text.get("mailAccountInviteButton"))
+                .data("expiry", text.get("mailAccountInviteExpiry").formatted(invitation.validDays()))
+                .data("keepsPassword", invitation.kind() == CustomerAccountMailer.Kind.NEW_LINK_KEEPS_PASSWORD
+                        ? text.get("mailAccountInviteKeepsPassword") : null)
+                .data("fallback", text.get("mailAccountInviteFallback"))
+                .data("ignore", text.get("mailAccountInviteIgnore"))
+                .data("t", text)
+                .render();
+    }
+
     /** A customer mail with the office in blind copy; internal mail carries no copy of itself. */
     private Mail customerMail(String to, String subject, String body) {
         Mail mail = Mail.withHtml(to, subject, body);
@@ -538,25 +610,9 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
         sendViaBrevo(to, subject, html, text, attachment, true);
     }
 
-    /** The office copy travels as bcc: the customer never sees which address reads along. */
     private void sendViaBrevo(String to, String subject, String html, String text,
                               QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) throws Exception {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("sender", Map.of("name", senderName(), "email", senderEmail()));
-        payload.put("to", List.of(Map.of("email", to)));
-        String copy = withOfficeCopy ? copyFor(to) : null;
-        if (copy != null) payload.put("bcc", List.of(Map.of("email", copy)));
-        payload.put("subject", subject);
-        if (html != null) {
-            payload.put("htmlContent", html);
-        } else {
-            payload.put("textContent", text);
-        }
-        if (attachment != null) {
-            payload.put("attachment", List.of(Map.of(
-                    "name", attachment.filename(),
-                    "content", Base64.getEncoder().encodeToString(attachment.content()))));
-        }
+        Map<String, Object> payload = brevoPayload(to, subject, html, text, attachment, withOfficeCopy);
 
         HttpRequest request = HttpRequest.newBuilder(BREVO_ENDPOINT)
                 .timeout(Duration.ofSeconds(25))
@@ -576,6 +632,28 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender {
                     "maildienst antwoordde " + response.statusCode()
                     + (detail.isBlank() ? "" : " - " + detail.substring(0, Math.min(300, detail.length()))));
         }
+    }
+
+    /** The office copy travels as bcc: the customer never sees which address reads along. */
+    protected Map<String, Object> brevoPayload(String to, String subject, String html, String text,
+                                               QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sender", Map.of("name", senderName(), "email", senderEmail()));
+        payload.put("to", List.of(Map.of("email", to)));
+        String copy = withOfficeCopy ? copyFor(to) : null;
+        if (copy != null) payload.put("bcc", List.of(Map.of("email", copy)));
+        payload.put("subject", subject);
+        if (html != null) {
+            payload.put("htmlContent", html);
+        } else {
+            payload.put("textContent", text);
+        }
+        if (attachment != null) {
+            payload.put("attachment", List.of(Map.of(
+                    "name", attachment.filename(),
+                    "content", Base64.getEncoder().encodeToString(attachment.content()))));
+        }
+        return payload;
     }
 
     private String senderName() {
