@@ -39,6 +39,11 @@ public class PublicQuoteBodyLimitFilter implements ContainerRequestFilter {
     @Override
     public void filter(ContainerRequestContext request) {
         if (!"POST".equalsIgnoreCase(request.getMethod())) return;
+        PublicFormBodyLimited declared = declaredLimit();
+        if (declared != null && declared.maxBytes() > 0) {
+            enforceDeclared(request, declared);
+            return;
+        }
         Class<?> resourceClass = resourceInfo == null ? null : resourceInfo.getResourceClass();
         boolean contact = resourceClass != null
                 && PublicContactResource.class.isAssignableFrom(resourceClass);
@@ -70,6 +75,50 @@ public class PublicQuoteBodyLimitFilter implements ContainerRequestFilter {
                     : preview ? PublicQuoteDtos.PreviewRequest.class
                     : PublicQuoteDtos.SubmitRequest.class;
             if (JSON.readValue(body, requestType) == null) {
+                abortInvalidJson(request);
+                return;
+            }
+            request.setEntityStream(new ByteArrayInputStream(body));
+        } catch (IOException exception) {
+            abortInvalidJson(request);
+        }
+    }
+
+    /** The annotation on the matched resource method, else the one on its class. */
+    private PublicFormBodyLimited declaredLimit() {
+        if (resourceInfo == null) return null;
+        java.lang.reflect.Method method = resourceInfo.getResourceMethod();
+        PublicFormBodyLimited onMethod = method == null
+                ? null : method.getAnnotation(PublicFormBodyLimited.class);
+        if (onMethod != null) return onMethod;
+        for (Class<?> type = resourceInfo.getResourceClass(); type != null;
+             type = type.getSuperclass()) {
+            PublicFormBodyLimited onClass = type.getAnnotation(PublicFormBodyLimited.class);
+            if (onClass != null) return onClass;
+        }
+        return null;
+    }
+
+    /**
+     * A resource that states its own cap: the declared Content-Length and the bytes
+     * actually read both count. With a body class the JSON is pre-parsed like the
+     * legacy branches; Void.class is cap only, so an empty body is legal there.
+     */
+    private static void enforceDeclared(ContainerRequestContext request,
+                                        PublicFormBodyLimited declared) {
+        int maximum = declared.maxBytes();
+        if (request.getLength() > maximum) {
+            abortTooLarge(request);
+            return;
+        }
+        try {
+            byte[] body = request.getEntityStream().readNBytes(maximum + 1);
+            if (body.length > maximum) {
+                abortTooLarge(request);
+                return;
+            }
+            if (declared.body() != Void.class
+                    && JSON.readValue(body, declared.body()) == null) {
                 abortInvalidJson(request);
                 return;
             }

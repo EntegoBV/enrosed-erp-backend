@@ -95,8 +95,12 @@ public class TurnstileVerificationService {
                 throw new PublicFormServiceUnavailableException();
             }
             JsonNode result = json.readTree(response.body());
-            String expectedAction = purpose == PublicFormPurpose.QUOTE
-                    ? "quote_submit" : "contact_submit";
+            String expectedAction = switch (purpose) {
+                case QUOTE -> "quote_submit";
+                case CONTACT -> "contact_submit";
+                case ACCOUNT -> "account_submit";
+                case ACCOUNT_QUOTE -> "quote_submit";
+            };
             String hostname = result.path("hostname").asText("").toLowerCase(Locale.ROOT);
             if (!result.path("success").asBoolean(false)
                     || !expectedAction.equals(result.path("action").asText())
