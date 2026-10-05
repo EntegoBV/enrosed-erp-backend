@@ -71,7 +71,7 @@ class PublicCatalogResourceTest {
     }
 
     @Test
-    void legacyCatalogWithholdsTheSalesPriceOnEveryChannelWhilePricesAreHidden() throws Exception {
+    void legacyCatalogWithholdsTheSalesPriceOfAnUnlinkedProductWhilePricesAreHidden() throws Exception {
         ProductService products = mock(ProductService.class);
         CategoryService categories = mock(CategoryService.class);
         UriInfo uriInfo = mock(UriInfo.class);
@@ -88,6 +88,7 @@ class PublicCatalogResourceTest {
         assertEquals(0, new BigDecimal("15").compareTo(visible.products().getFirst().salesPriceEur()));
 
         when(resource.priceVisibility.pricesVisible()).thenReturn(false);
+        /* A product without a family has no catalogue status; the persistence test covers all three. */
         for (CatalogChannel channel : List.of(CatalogChannel.WEBSITE, CatalogChannel.ORDER_APP)) {
             Response response = resource.catalog(channel, "EN", uriInfo);
             PublicCatalogDto hidden = (PublicCatalogDto) response.getEntity();

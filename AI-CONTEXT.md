@@ -568,7 +568,12 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   endpoints and the per-quote portal keep their prices. The hidden state
   adds one term to the catalogue revision (the visible digest is unchanged)
   and a changed value queues the website rebuild in the same transaction;
-  the static pages follow after the debounce and the Vercel build. The
+  the static pages follow after the debounce and the Vercel build. Only
+  price fields are redacted: `siteCopy` passes through as staff wrote it,
+  including policy amounts in running text (the private-label minimum
+  order value in `home.faq.*`, the statutory recovery fee in
+  `legal.trade.*`). A backend that boots with the row already false has a
+  new revision, so `WebsiteRebuildService.onStart` queues one build. The
   entity and its reader `WebsitePriceVisibility` live in catalog; sales
   owns the write side (`WebsiteQuoteSettingsService`).
 - **Migration log**: `docs/migrations/2026-08-21/category-revision-

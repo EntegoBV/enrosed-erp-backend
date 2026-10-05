@@ -3,6 +3,8 @@ package be.enrosed.catalog.application;
 import be.enrosed.catalog.adapter.in.rest.ProductDto;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyResource;
+import be.enrosed.catalog.adapter.in.rest.PublicCatalogDto;
+import be.enrosed.catalog.adapter.in.rest.PublicCatalogResource;
 import be.enrosed.catalog.adapter.in.rest.PublicProductTranslationsDto;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogDto;
 import be.enrosed.catalog.adapter.in.rest.PublicFamilyCatalogResource;
@@ -68,6 +70,8 @@ class ProductFamilyVariantContractPersistenceTest {
     @Inject ProductRepository products;
     @Inject FamilyImageVariantService familyImageVariants;
     @Inject PublicFamilyCatalogResource publicFamilies;
+    @Inject PublicCatalogResource publicCatalog;
+    @Inject be.enrosed.sales.application.WebsiteQuoteSettingsService quoteSettings;
     @Inject FeaturedProductSelectionService featuredProducts;
     @Inject CategoryService categoryService;
     @Inject ProductService productService;
@@ -1469,6 +1473,8 @@ class ProductFamilyVariantContractPersistenceTest {
             assertTrue(catalog.pricesVisible());
             assertEquals(0, new BigDecimal("1234.56").compareTo(variant(publicFamily(
                     channel, "EN", context.family.publicHandle), variant.id).publicPrice().amount()));
+            assertEquals(0, new BigDecimal("1234.56").compareTo(
+                    legacyProduct(channel, variant.id).salesPriceEur()), channel.name());
         }
 
         settings.pricesVisible = false;
@@ -1492,6 +1498,9 @@ class ProductFamilyVariantContractPersistenceTest {
             assertFalse(body.contains("\"amount\""), channel.name());
             assertEquals("public, max-age=60, stale-while-revalidate=300",
                     response.getHeaderString("Cache-Control"));
+            PublicCatalogDto.PublicProductDto legacy = legacyProduct(channel, variant.id);
+            assertNull(legacy.salesPriceEur(), channel.name());
+            assertFalse(json.writeValueAsString(legacy).contains("1234.56"), channel.name());
         }
         for (Language language : Language.values()) {
             assertEquals(hiddenRevision, ((PublicFamilyCatalogDto) publicFamilies.catalog(
@@ -1503,6 +1512,47 @@ class ProductFamilyVariantContractPersistenceTest {
         entityManager.flush();
         assertEquals(visibleRevision, catalogRevisions.currentRevision(),
                 "showing prices again returns to the revision the website already knows");
+    }
+
+    @Test
+    @TestTransaction
+    void savingTheWebsitePriceSwitchQueuesARebuildForTheHiddenRevisionAndSettlesWhenShownAgain() {
+        quoteSettings.update(true);
+        String visibleRevision = catalogRevisions.currentRevision();
+        WebsiteRebuildEntity rebuildState = entityManager.find(WebsiteRebuildEntity.class, 1L);
+        if (rebuildState == null) {
+            rebuildState = new WebsiteRebuildEntity();
+            entityManager.persist(rebuildState);
+        }
+        rebuildState.status = WebsiteRebuildStatus.LIVE;
+        rebuildState.liveRevision = visibleRevision;
+        rebuildState.currentRevision = visibleRevision;
+        rebuildState.attemptCount = 0;
+        entityManager.flush();
+        Optional<String> previousHook = websiteRebuildTarget().deployHookUrl;
+        try {
+            websiteRebuildTarget().deployHookUrl = Optional.of(
+                    "https://example.invalid/deploy-hook");
+
+            assertTrue(quoteSettings.update(true));
+            assertEquals(WebsiteRebuildStatus.LIVE, rebuildState.status,
+                    "saving the stored value again starts no rebuild");
+
+            assertFalse(quoteSettings.update(false));
+            String hiddenRevision = catalogRevisions.currentRevision();
+            assertNotEquals(visibleRevision, hiddenRevision);
+            assertEquals(WebsiteRebuildStatus.QUEUED, rebuildState.status,
+                    "hiding the prices queues a website rebuild");
+            assertEquals(hiddenRevision, rebuildState.currentRevision,
+                    "the queued build is the one without prices");
+
+            assertTrue(quoteSettings.update(true));
+            assertEquals(WebsiteRebuildStatus.LIVE, rebuildState.status,
+                    "the live website already shows prices, so nothing is left to build");
+            assertEquals(visibleRevision, rebuildState.currentRevision);
+        } finally {
+            websiteRebuildTarget().deployHookUrl = previousHook;
+        }
     }
 
     @Test
@@ -2118,6 +2168,15 @@ class ProductFamilyVariantContractPersistenceTest {
         entityManager.persist(global);
         entityManager.flush();
         return family;
+    }
+
+    private PublicCatalogDto.PublicProductDto legacyProduct(CatalogChannel channel, Long productId) {
+        jakarta.ws.rs.core.UriInfo uriInfo = org.mockito.Mockito.mock(jakarta.ws.rs.core.UriInfo.class);
+        org.mockito.Mockito.when(uriInfo.getBaseUri())
+                .thenReturn(java.net.URI.create("https://erp.example.test/"));
+        return ((PublicCatalogDto) publicCatalog.catalog(channel, "EN", uriInfo).getEntity())
+                .products().stream().filter(product -> productId.equals(product.id()))
+                .findFirst().orElseThrow();
     }
 
     private FamilyContext completeFamilyContext(String key) {
