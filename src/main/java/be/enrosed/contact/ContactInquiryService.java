@@ -18,7 +18,8 @@ public class ContactInquiryService {
     private static final Pattern EMAIL = Pattern.compile(
             "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
             Pattern.CASE_INSENSITIVE);
-    private static final String CURRENT_PRIVACY_VERSION = "2026-08-28";
+    /** Also recorded with a login request, which accepts the same policy. */
+    public static final String CURRENT_PRIVACY_VERSION = "2026-08-28";
 
     public void validate(ContactDtos.Request request) {
         java.util.LinkedHashMap<String, String> errors = new java.util.LinkedHashMap<>();
