@@ -13,6 +13,7 @@ import be.enrosed.shipping.application.CarrierRepository;
 import be.enrosed.shipping.domain.Carrier;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
@@ -46,6 +47,10 @@ public class PublicQuoteService {
     private final VatCalculator vat;
     private final CarrierRepository carriers;
     private final Event<WebsiteQuotePushNotifier.Ready> websiteQuoteReady;
+
+    /** A field, not a constructor argument: tests build this service by hand and may leave it null. */
+    @Inject
+    Event<WebsiteQuoteLoginRequested> loginRequestedEvent;
 
     public PublicQuoteService(ProductService products, StockService stock,
                               CountryService countries,
@@ -122,7 +127,57 @@ public class PublicQuoteService {
                 prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP",
                 null, "Aangemaakt via het publieke offerteformulier", null));
 
-        SalesOrder created = salesOrders.createWebsiteRequest(buyer.id(), prepared.country.code(),
+        boolean loginRequested = Boolean.TRUE.equals(request.loginRequested());
+        Stored stored = store(request, prepared, buyer.id(), loginRequested
+                ? List.of(WebsiteQuoteLoginRequested.NOTE_MARKER
+                        + " De klant vraagt ook een login; goedkeuren bij Login-aanvragen.")
+                : List.of());
+        /* Observed after the commit only: a login request never rolls back the quote, and a
+           rolled-back quote leaves no login request. */
+        if (loginRequested && loginRequestedEvent != null) {
+            loginRequestedEvent.fire(new WebsiteQuoteLoginRequested(
+                    buyer.id(), stored.order.id(), stored.order.number(), prepared.language.name(),
+                    clean(request.companyName()), companyCountryCode,
+                    normalizedVat(request.vatNumber()), clean(request.contactName()),
+                    clean(request.email()), clean(request.phone())));
+        }
+        return stored.response;
+    }
+
+    /** Read-only validation of a logged-in customer's request; the identity fields of the body are not looked at. */
+    public void validateSubmissionForCustomer(SubmitRequest request, long customerId) {
+        validateAndPrepareForCustomer(request, customers.get(customerId));
+    }
+
+    /**
+     * The request of a logged-in customer: no customer is created or changed, the quote hangs on
+     * the customer of the login, and the prices are the public list, as for any visitor.
+     */
+    @Transactional
+    public SubmissionResponse submitForCustomer(SubmitRequest request, long customerId,
+                                                String accountEmail) {
+        Customer buyer = customers.get(customerId);
+        Prepared prepared = validateAndPrepareForCustomer(request, buyer);
+
+        List<String> notes = new ArrayList<>();
+        notes.add("Aangevraagd via klantlogin " + accountEmail);
+        String contact = isBlank(request.contactName()) ? clean(buyer.contact())
+                : clean(request.contactName());
+        String phone = isBlank(request.phone()) ? null : clean(request.phone());
+        boolean otherContact = !isBlank(contact) && !contact.equals(clean(buyer.contact()));
+        boolean otherPhone = phone != null && !phone.equals(clean(buyer.phone()));
+        if (otherContact || otherPhone) {
+            /* Customer-typed text in a note where staff and code read bracket markers. */
+            notes.add("Contact op aanvraag: " + withoutBrackets(contact)
+                    + (phone == null ? "" : " · " + withoutBrackets(phone)));
+        }
+        return store(request, prepared, buyer.id(), notes).response;
+    }
+
+    /** Turns a validated request into the ERP draft quote of one customer, with frozen public prices. */
+    private Stored store(SubmitRequest request, Prepared prepared, long customerId,
+                         List<String> extraInternalNotes) {
+        SalesOrder created = salesOrders.createWebsiteRequest(customerId, prepared.country.code(),
                 prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP");
         Map<Long, PricedOrder.Line> pricedLines = prepared.priced.lines().stream()
                 .collect(Collectors.toMap(PricedOrder.Line::productId, Function.identity()));
@@ -144,9 +199,10 @@ public class PublicQuoteService {
         String internal = marker
                 + "\nNiet-bindende aanvraag; prijzen en logistiek door Enrosed te bevestigen."
                 + (missingCartons.isBlank() ? ""
-                        : "\n" + missingCartons);
+                        : "\n" + missingCartons)
+                + extraInternalNotes.stream().map(line -> "\n" + line).collect(Collectors.joining());
         SalesOrder changes = new SalesOrder(
-                created.id(), created.number(), buyer.id(), prepared.country.code(),
+                created.id(), created.number(), customerId, prepared.country.code(),
                 created.orderDate(), created.validUntil(), created.status(), created.incoterm(),
                 created.paymentTerms(), clean(request.notes()), created.markupMode(),
                 created.orderMarkupPct(), null, null, null, null, null, 0,
@@ -163,8 +219,35 @@ public class PublicQuoteService {
         salesOrders.captureCustomerRequest(created.id());
         websiteQuoteReady.fire(new WebsiteQuotePushNotifier.Ready(
                 created.id(), created.number()));
-        return new SubmissionResponse(created.number(), "RECEIVED",
-                "REQUEST_RECEIVED_NOT_BINDING", "FINAL_QUOTE_FOLLOWS", toResponse(prepared));
+        return new Stored(created, new SubmissionResponse(created.number(), "RECEIVED",
+                "REQUEST_RECEIVED_NOT_BINDING", "FINAL_QUOTE_FOLLOWS", toResponse(prepared)));
+    }
+
+    /**
+     * Company name, company country, e-mail and VAT number of the body are ignored here: they
+     * are the customer record's. A blank contact name is fine, the customer's contact stands in.
+     */
+    private Prepared validateAndPrepareForCustomer(SubmitRequest request, Customer customer) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        if (request == null) {
+            errors.put("request", "REQUIRED");
+            throw new PublicQuoteValidationException(errors);
+        }
+        checkSingleLine(request.contactName(), 120, "contactName", errors);
+        validateRequestDetails(request, errors);
+        if (!isBlank(request.website())) errors.put("request", "INVALID");
+        Prepared prepared = null;
+        try {
+            /* The number on the customer record was entered or checked by staff; it is not judged again. */
+            prepared = prepare(new PreviewRequest(
+                    request.language(), request.fulfillment(), customer.vatNumber(),
+                    request.destination(), request.items(), request.pickupLocationId()), false);
+        } catch (PublicQuoteValidationException validation) {
+            validation.fieldErrors().forEach(errors::putIfAbsent);
+        }
+        if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
+        if (prepared == null) throw new IllegalStateException("Quote preparation yielded no result");
+        return prepared;
     }
 
     private Prepared validateAndPrepareSubmission(SubmitRequest request) {
@@ -194,6 +277,10 @@ public class PublicQuoteService {
     }
 
     private Prepared prepare(PreviewRequest request) {
+        return prepare(request, true);
+    }
+
+    private Prepared prepare(PreviewRequest request, boolean judgeVatNumber) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
             errors.put("request", "REQUIRED");
@@ -219,7 +306,7 @@ public class PublicQuoteService {
                 "destination.city", errors);
         checkLength(destination == null ? null : destination.address(), 200,
                 "destination.address", errors);
-        validateVat(request.vatNumber(), errors);
+        if (judgeVatNumber) validateVat(request.vatNumber(), errors);
 
         List<ItemRequest> requested = request.items();
         if (requested == null || requested.isEmpty()) errors.put("items", "REQUIRED");
@@ -420,6 +507,11 @@ public class PublicQuoteService {
         if (!isBlank(request.email()) && !EMAIL.matcher(request.email().trim()).matches()) {
             errors.put("email", "INVALID");
         }
+        validateRequestDetails(request, errors);
+    }
+
+    /** What every request must carry, whoever sends it: phone, notes, consent and a delivery address. */
+    private static void validateRequestDetails(SubmitRequest request, Map<String, String> errors) {
         checkSingleLine(request.phone(), 50, "phone", errors);
         checkLength(request.notes(), 2000, "notes", errors);
         if (!Boolean.TRUE.equals(request.privacyAccepted())) {
@@ -566,6 +658,10 @@ public class PublicQuoteService {
         return value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", "").trim();
     }
 
+    private static String withoutBrackets(String value) {
+        return value == null ? "" : value.replace("[", "").replace("]", "").strip();
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
@@ -574,6 +670,8 @@ public class PublicQuoteService {
 
     private record PreparedItem(Product product, int cartons, int quantityPieces,
                                 int piecesPerCarton) {}
+
+    private record Stored(SalesOrder order, SubmissionResponse response) {}
 
     private record Prepared(Language language, Fulfillment fulfillment, Country country,
                             Carrier carrier, FreightPricingStrategy strategy,

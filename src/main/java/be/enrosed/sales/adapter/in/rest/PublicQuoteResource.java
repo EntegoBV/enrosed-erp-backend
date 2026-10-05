@@ -130,7 +130,7 @@ public class PublicQuoteResource {
                     request.destination(), request.items(), request.companyCountryCode(),
                     request.companyName(), request.contactName(), request.email(), request.phone(),
                     request.notes(), request.privacyAccepted(), request.website(),
-                    request.pickupLocationId()));
+                    request.pickupLocationId(), request.loginRequested()));
         } catch (Exception exception) {
             throw new IllegalStateException("Quote request could not be fingerprinted", exception);
         }
@@ -142,5 +142,5 @@ public class PublicQuoteResource {
             java.util.List<PublicQuoteDtos.ItemRequest> items,
             String companyCountryCode, String companyName, String contactName,
             String email, String phone, String notes, Boolean privacyAccepted,
-            String website, Long pickupLocationId) {}
+            String website, Long pickupLocationId, Boolean loginRequested) {}
 }

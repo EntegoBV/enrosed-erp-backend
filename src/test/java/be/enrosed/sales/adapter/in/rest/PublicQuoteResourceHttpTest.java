@@ -1,5 +1,6 @@
 package be.enrosed.sales.adapter.in.rest;
 
+import be.enrosed.account.CustomerAccountService;
 import be.enrosed.publicform.ClientIdentityResolver;
 import be.enrosed.publicform.PublicFormAction;
 import be.enrosed.publicform.PublicFormIdempotencyService;
@@ -7,21 +8,27 @@ import be.enrosed.publicform.PublicFormPurpose;
 import be.enrosed.publicform.PublicFormRateLimiter;
 import be.enrosed.publicform.PublicFormSecurityService;
 import be.enrosed.sales.application.*;
+import be.enrosed.sales.domain.Customer;
+import be.enrosed.shared.Language;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -33,6 +40,8 @@ class PublicQuoteResourceHttpTest {
     @InjectMock PublicFormIdempotencyService idempotency;
     @InjectMock ClientIdentityResolver identities;
     @Inject WebsiteQuoteSettingsService quoteSettings;
+    @Inject CustomerAccountService accounts;
+    @Inject CustomerService customers;
 
     @AfterEach
     void restorePriceVisibility() {
@@ -227,6 +236,80 @@ class PublicQuoteResourceHttpTest {
                 .header("Cache-Control", "no-store")
                 .body("code", equalTo("PAYLOAD_TOO_LARGE"));
         verifyNoInteractions(quotes);
+    }
+
+    @Test
+    void theLoginTickBoxIsPartOfTheFingerprint() {
+        when(quotes.submit(any())).thenReturn(new PublicQuoteDtos.SubmissionResponse(
+                "ENR-2026-0041", "RECEIVED", "REQUEST_RECEIVED_NOT_BINDING",
+                "FINAL_QUOTE_FOLLOWS", null));
+        String plain = validSubmitJson();
+        String ticked = plain.replace("\"website\":\"\"", "\"website\":\"\",\"loginRequested\":true");
+        String unticked = plain.replace("\"website\":\"\"", "\"website\":\"\",\"loginRequested\":false");
+        assertNotEquals(plain, ticked);
+
+        for (String body : List.of(plain, ticked, ticked, unticked)) {
+            given().contentType("application/json").header("Idempotency-Key", "browser-12345678")
+                    .body(body).when().post("/api/v1/public/quotes/requests")
+                    .then().statusCode(201);
+        }
+
+        ArgumentCaptor<String> fingerprints = ArgumentCaptor.forClass(String.class);
+        verify(idempotency, times(4)).replay(eq(PublicFormPurpose.QUOTE), eq("browser-12345678"),
+                fingerprints.capture(), eq(PublicQuoteDtos.SubmissionResponse.class));
+        List<String> seen = fingerprints.getAllValues();
+        assertNotEquals(seen.get(0), seen.get(1), "a retry with the box ticked is another request");
+        assertEquals(seen.get(1), seen.get(2), "the same request has the same fingerprint");
+        assertNotEquals(seen.get(1), seen.get(3));
+        assertNotEquals(seen.get(0), seen.get(3));
+        verify(quotes).submit(argThat(request -> request.loginRequested() == null));
+        verify(quotes, times(2)).submit(argThat(request -> Boolean.TRUE.equals(request.loginRequested())));
+        verify(quotes).submit(argThat(request -> Boolean.FALSE.equals(request.loginRequested())));
+    }
+
+    @Test
+    void theAnonymousEndpointsIgnoreAValidCustomerSession() {
+        Customer customer = customers.create(new Customer(null, "Bloemen Peeters BV", "An Peeters",
+                "info-" + UUID.randomUUID().toString().substring(0, 12) + "@example.com", null,
+                "BE0123456789", "BE", Language.NL, null, null, null, null, null, null, null));
+        try {
+            var grant = accounts.grant(customer.id(),
+                    "buyer-" + UUID.randomUUID().toString().substring(0, 12) + "@example.com",
+                    "An Peeters", Language.NL);
+            String bearer = "Bearer " + accounts.activate(grant.rawToken(), "roses-in-a-dome").sessionToken();
+            given().header("Authorization", bearer).get("/api/v1/public/account/session")
+                    .then().statusCode(200);
+            quoteSettings.update(false);
+            when(quotes.configuration("EN")).thenReturn(new PublicQuoteDtos.ConfigurationResponse(
+                    "EUR", "NET_EXCL_VAT", "FULL_CARTONS", List.of("DELIVERY"), "ESTIMATE_NOT_BINDING",
+                    List.of(new PublicQuoteDtos.CountryOption("BE", "Belgium", decimal("100"), 2)),
+                    List.of(new PublicQuoteDtos.ProductPrice(1L, decimal("10"), true, 12))));
+            when(quotes.preview(any())).thenReturn(PublicQuotePriceVisibilityTest.pricedEstimate());
+            when(quotes.submit(any())).thenReturn(new PublicQuoteDtos.SubmissionResponse("WEB-123",
+                    "RECEIVED", "REQUEST_RECEIVED_NOT_BINDING", "FINAL_QUOTE_FOLLOWS",
+                    PublicQuotePriceVisibilityTest.pricedEstimate()));
+
+            given().header("Authorization", bearer).get("/api/v1/public/quotes/configuration")
+                    .then().statusCode(200)
+                    .body("pricesVisible", equalTo(false))
+                    .body("countries[0].minimumOrderNet", org.hamcrest.Matchers.nullValue())
+                    .body("products[0].unitPriceNet", org.hamcrest.Matchers.nullValue());
+            given().header("Authorization", bearer).contentType("application/json").body("{}")
+                    .post("/api/v1/public/quotes/preview")
+                    .then().statusCode(200).body("pricesVisible", equalTo(false))
+                    .body("lines[0].unitPriceNet", org.hamcrest.Matchers.nullValue())
+                    .body("totals.totalNet", org.hamcrest.Matchers.nullValue());
+            given().header("Authorization", bearer).contentType("application/json")
+                    .body(validSubmitJson()).post("/api/v1/public/quotes/requests")
+                    .then().statusCode(201)
+                    .body("estimate.pricesVisible", equalTo(false))
+                    .body("estimate.lines[0].unitPriceNet", org.hamcrest.Matchers.nullValue());
+            /* The anonymous route stays the anonymous route: a new customer, never the login's. */
+            verify(quotes).submit(any());
+            verify(quotes, never()).submitForCustomer(any(), anyLong(), anyString());
+        } finally {
+            customers.delete(customer.id());
+        }
     }
 
     private static String validSubmitJson() {

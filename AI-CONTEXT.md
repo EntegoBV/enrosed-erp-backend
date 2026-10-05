@@ -592,6 +592,84 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   million characters), which exhausted the heap. `mvn test` needs no
   heap flags.
 
+### Customer logins for the website quote request (2026-10-05)
+- **What it is**: a website visitor asks for a login, staff approve it in
+  the ERP (Login-aanvragen), the customer gets a one-time link by mail,
+  chooses a password and is logged in. A logged-in customer sees the
+  public price list in the quote request even while the website price
+  switch is off, and the request lands on the existing customer. Package
+  `be.enrosed.account`; tables `customer_login_request`,
+  `customer_account`, `customer_account_token`, `customer_session`
+  (`docs/migrations/2026-10-05/customer-account-postgresql.sql`; no
+  foreign keys, status columns are plain strings).
+- **Credentials**: the customer session travels as `Authorization: Bearer
+  ecs1_...`, never as HTTP Basic (that is staff; a non-staff Basic header
+  is refused before a `@PermitAll` resource runs). Tokens are stored as
+  SHA-256 only. `CustomerSessionGuard.require` returns a session or throws
+  401 `SESSION_INVALID`; it never answers "anonymous". Passwords: bcrypt
+  cost 12 behind a semaphore of four; staff never see or set one.
+- **Public endpoints** (`/api/v1/public/account`): `requests` (ask for a
+  login), `link-requests` (new password link), `session` (POST log in, GET
+  restore), `session/logout`, `activation/inspect`, `activation`, and the
+  priced quote endpoints `quotes/configuration`, `quotes/preview`,
+  `quotes/requests` (`CustomerQuoteResource`). Form token purpose
+  `ACCOUNT`; one solved challenge is good for one call on the three
+  account forms together (`ACCOUNT_CHALLENGE` bucket). Request and
+  new-link forms always answer 202 with the same shape; login has one 401
+  body for every cause.
+- **Staff endpoints**: `/api/login-requests` (list, `/summary`, `/{id}`,
+  `/{id}/approve`, `/{id}/reject`) and `/api/customer-logins` (list per
+  customer, give, `/{id}/invitation`, `/{id}/withdraw`). The service
+  method is transactional and never mails; the resource delivers the
+  invitation only after the commit, so a rollback cannot leave a live
+  link in a mailbox. A failed mail is `sent: false` plus `lastLinkError`.
+- **Prices for a logged-in customer**: `CustomerQuoteResource` asks the
+  guard first in every method and returns `PublicQuoteService` answers
+  unredacted with `pricesVisible: true`. It never touches
+  `PublicQuotePriceVisibility`, `WebsiteQuoteSettingsService` or
+  `WebsitePriceVisibility`; the anonymous `PublicQuoteResource` never
+  reads a credential. Price basis is the public list for everyone, a
+  partner customer included (no landed cost, no customer prices).
+- **Logged-in quote** (`PublicQuoteService.submitForCustomer`): company
+  name, company country, e-mail and VAT number of the body are ignored;
+  no customer is created or changed; the estimate uses the customer
+  record's VAT number. The internal note gets `Aangevraagd via klantlogin
+  <e-mail>` and, when they differ from the record, `Contact op aanvraag:
+  ...` with every `[` and `]` removed (bracket markers in that note are
+  read by staff and code). Stored answers live under idempotency purpose
+  `ACCOUNT_QUOTE`, apart from the anonymous ones.
+- **Tick box in the anonymous quote** (`SubmitRequest.loginRequested`,
+  part of the fingerprint): the internal note gets a last line starting
+  with `[LOGIN_AANVRAAG]` and `WebsiteQuoteLoginRequested` is fired.
+  `LoginRequestService` observes it AFTER_SUCCESS and only enqueues work:
+  a login request can never roll back the quote, and a rolled-back quote
+  leaves none. The quote's team mail gains the fact `Login gevraagd` only
+  when a note LINE starts with the marker; there is no second push or
+  mail for that request.
+- **One request per e-mail, first wins**: a later request with other
+  details is appended to `later_submissions` (at most five, never
+  overwritten). Ceilings: 300 open requests per route, 6 notices per hour
+  and 20 per day; beyond those a request is stored silently or, for a
+  full route, answered as received but not stored.
+- **Background work**: `LoginRequestNotifier.runLater` (common pool, no
+  outbox, no `@Scheduled` job). Those threads have no request context and
+  no transaction, so every database access there opens its own
+  (`REQUIRES_NEW` or `QuarkusTransaction.requiringNew()`).
+  `AccountHousekeeping.purge()` does the retention after a login, an
+  approval, a rejection and a stored request; never inside a transaction.
+- **Mail**: one customer mail, the invitation (`account-invite-mail.html`,
+  thirteen `mailAccountInvite*` rows), without office blind copy; the link
+  is `<WEBSITE_BASE_URL>/[<code>/]account/#activate=<token>` and its
+  lifetime is the single key `enrosed.customer-account.invite-ttl-days`.
+  Raw tokens, links and passwords are never logged or returned; the
+  mailer refuses in mock mode outside dev and test.
+- **Customer deletion** removes the customer's logins, sessions, links
+  and login requests (`CustomerDeletionListener`).
+- **Tests**: set the notifier's executor with `useExecutor` (a field
+  written on the CDI proxy does nothing); the notice buckets and rate
+  buckets are committed and shared by the whole run, so use unique
+  e-mails and clear the notice buckets where a notice is expected.
+
 ### Mail
 - Production sends via **Brevo HTTPS API** (`BREVO_API_KEY`); Railway
   blocks outbound SMTP below the Pro plan, so SMTP settings exist only as

@@ -566,6 +566,253 @@ class PublicQuoteServiceTest {
         verifyNoInteractions(customers, salesOrders);
     }
 
+    @Test
+    void theLoginTickBoxAddsOneNoteLineAndFiresOnceAfterTheQuoteIsSaved() {
+        @SuppressWarnings("unchecked")
+        Event<WebsiteQuoteLoginRequested> loginRequested = mock(Event.class);
+        service.loginRequestedEvent = loginRequested;
+        when(customers.create(any())).thenAnswer(invocation ->
+                identified(invocation.getArgument(0), 9L));
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(46L, 9L, "ENR-2026-0046"));
+        when(salesOrders.update(eq(46L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        service.submit(submitWithLogin(Boolean.TRUE));
+
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(46L), saved.capture());
+        assertEquals("[WEBSITE_AANVRAAG] ENR-2026-0046\n"
+                        + "Niet-bindende aanvraag; prijzen en logistiek door Enrosed te bevestigen.\n"
+                        + "[LOGIN_AANVRAAG] De klant vraagt ook een login; goedkeuren bij Login-aanvragen.",
+                saved.getValue().internalNotes());
+        InOrder savedBeforeTheEvent = inOrder(salesOrders, loginRequested);
+        savedBeforeTheEvent.verify(salesOrders).captureCustomerRequest(46L);
+        savedBeforeTheEvent.verify(loginRequested).fire(new WebsiteQuoteLoginRequested(
+                9L, 46L, "ENR-2026-0046", "EN", "Buyer BV", "BE", "BE0123456789", "Ana",
+                "ana@example.com", "+32 14 00 00 00"));
+        verifyNoMoreInteractions(loginRequested);
+    }
+
+    @Test
+    void withoutTheTickBoxNothingAboutALoginIsWrittenOrFired() {
+        @SuppressWarnings("unchecked")
+        Event<WebsiteQuoteLoginRequested> loginRequested = mock(Event.class);
+        service.loginRequestedEvent = loginRequested;
+        when(customers.create(any())).thenAnswer(invocation ->
+                identified(invocation.getArgument(0), 9L));
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(47L, 9L, "ENR-2026-0047"));
+        when(salesOrders.update(eq(47L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        service.submit(submitWithLogin(null));
+        service.submit(submitWithLogin(Boolean.FALSE));
+
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders, times(2)).update(eq(47L), saved.capture());
+        saved.getAllValues().forEach(quote ->
+                assertFalse(quote.internalNotes().contains(WebsiteQuoteLoginRequested.NOTE_MARKER)));
+        verifyNoInteractions(loginRequested);
+    }
+
+    @Test
+    void theTickBoxStillWritesItsNoteLineWhenNoEventIsWired() {
+        when(customers.create(any())).thenAnswer(invocation ->
+                identified(invocation.getArgument(0), 9L));
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(48L, 9L, "ENR-2026-0048"));
+        when(salesOrders.update(eq(48L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        PublicQuoteDtos.SubmissionResponse response = service.submit(submitWithLogin(Boolean.TRUE));
+
+        assertEquals("ENR-2026-0048", response.reference());
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(48L), saved.capture());
+        assertTrue(saved.getValue().internalNotes().lines()
+                .anyMatch(line -> line.startsWith(WebsiteQuoteLoginRequested.NOTE_MARKER)));
+    }
+
+    @Test
+    void aLoggedInCustomerGetsTheQuoteOnTheirOwnRecordAndBodyIdentityIsIgnored() {
+        @SuppressWarnings("unchecked")
+        Event<WebsiteQuoteLoginRequested> loginRequested = mock(Event.class);
+        service.loginRequestedEvent = loginRequested;
+        Customer known = new Customer(9L, "Bloemen Peeters BV", "An Peeters", "info@peeters.example",
+                "+32 14 00 00 00", "BE0123456789", "BE", Language.NL, "Markt 1", "2400", "Mol",
+                "DAP", null, null, LocalDate.now());
+        when(customers.get(9L)).thenReturn(known);
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(51L, 9L, "ENR-2026-0051"));
+        when(salesOrders.update(eq(51L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        /* None of the four identity fields would pass the anonymous validation. */
+        PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "1",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 2)),
+                "XX", "Somebody\nElse", " ", "not-an-email", null, "Graag vrijdag.", true, "",
+                null, null, null, Boolean.TRUE);
+
+        service.validateSubmissionForCustomer(request, 9L);
+        verifyNoInteractions(salesOrders);
+        PublicQuoteDtos.SubmissionResponse response = service.submitForCustomer(
+                request, 9L, "buyer@peeters.example");
+
+        assertEquals("ENR-2026-0051", response.reference());
+        assertEquals(decimal("10.0000"), response.estimate().lines().getFirst().unitPriceNet());
+        assertTrue(response.estimate().pricesVisible());
+        verify(customers, never()).create(any());
+        verify(customers, never()).update(anyLong(), any());
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(51L), saved.capture());
+        SalesOrder quote = saved.getValue();
+        assertEquals(9L, quote.customerId());
+        assertEquals("Graag vrijdag.", quote.notes());
+        assertEquals("[WEBSITE_AANVRAAG] ENR-2026-0051\n"
+                        + "Niet-bindende aanvraag; prijzen en logistiek door Enrosed te bevestigen.\n"
+                        + "Aangevraagd via klantlogin buyer@peeters.example",
+                quote.internalNotes(),
+                "a blank contact name falls back to the customer's contact, so no contact line");
+        assertEquals(24, quote.lines().getFirst().quantity());
+        assertEquals(decimal("10.0000"), quote.lines().getFirst().unitPriceEur());
+        verify(salesOrders).captureCustomerRequest(51L);
+        verify(websiteQuoteReady).fire(new WebsiteQuotePushNotifier.Ready(51L, "ENR-2026-0051"));
+        verifyNoInteractions(loginRequested);
+    }
+
+    @Test
+    void aLoggedInRequestStillNeedsConsentItemsAndADeliveryAddress() {
+        when(customers.get(9L)).thenReturn(new Customer(9L, "Bloemen Peeters BV", "An Peeters",
+                "info@peeters.example", null, "BE0123456789", "BE", Language.NL, null, null, null,
+                "DAP", null, null, LocalDate.now()));
+        PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", null, null, List.of(),
+                null, null, "Ana\tInjected", null, "p".repeat(51), "n".repeat(2001), false,
+                "https://spam.example");
+
+        PublicQuoteValidationException failure = assertThrows(PublicQuoteValidationException.class,
+                () -> service.submitForCustomer(request, 9L, "buyer@peeters.example"));
+
+        assertEquals("INVALID", failure.fieldErrors().get("contactName"));
+        assertEquals("TOO_LONG", failure.fieldErrors().get("phone"));
+        assertEquals("TOO_LONG", failure.fieldErrors().get("notes"));
+        assertEquals("REQUIRED", failure.fieldErrors().get("privacyAccepted"));
+        assertEquals("REQUIRED", failure.fieldErrors().get("destination.address"));
+        assertEquals("REQUIRED", failure.fieldErrors().get("items"));
+        assertEquals("INVALID", failure.fieldErrors().get("request"));
+        assertFalse(failure.fieldErrors().containsKey("companyName"));
+        assertFalse(failure.fieldErrors().containsKey("companyCountryCode"));
+        assertFalse(failure.fieldErrors().containsKey("email"));
+        assertFalse(failure.fieldErrors().containsKey("vatNumber"));
+        verifyNoInteractions(salesOrders, websiteQuoteReady);
+    }
+
+    @Test
+    void aContactTypedByALoggedInCustomerReachesTheNoteWithoutBrackets() {
+        when(customers.get(9L)).thenReturn(new Customer(9L, "Bloemen Peeters BV", "An Peeters",
+                "info@peeters.example", "+32 14 00 00 00", "BE0123456789", "BE", Language.NL,
+                null, null, null, "DAP", null, null, LocalDate.now()));
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(52L, 9L, "ENR-2026-0052"));
+        when(salesOrders.update(eq(52L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        String typedNotes = "[LOGIN_AANVRAAG] graag een login";
+
+        service.submitForCustomer(new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", null,
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                null, null, "[LOGIN_AANVRAAG] x", null, "[0]14 11 22 33", typedNotes, true, ""),
+                9L, "buyer@peeters.example");
+
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(52L), saved.capture());
+        SalesOrder quote = saved.getValue();
+        assertTrue(quote.internalNotes().endsWith("\nAangevraagd via klantlogin buyer@peeters.example\n"
+                + "Contact op aanvraag: LOGIN_AANVRAAG x · 014 11 22 33"), quote.internalNotes());
+        assertTrue(quote.internalNotes().lines()
+                .noneMatch(line -> line.startsWith(WebsiteQuoteLoginRequested.NOTE_MARKER)));
+        assertEquals(typedNotes, quote.notes(), "the customer's own remark keeps what was typed");
+        InternalMessageSender.TeamNotice mail = new WebsiteQuoteMailNotifier(
+                salesOrders, customers, products, mock(InternalMessageSender.class),
+                "https://erp.example.test").notice(quote, null);
+        assertTrue(mail.facts().stream().noneMatch(fact -> fact.label().equals("Login gevraagd")),
+                "a customer cannot forge the login fact of the team mail");
+    }
+
+    @Test
+    void theAnonymousRouteKeepsATypedContactNameAsItIsOnTheCustomer() {
+        when(customers.create(any())).thenAnswer(invocation ->
+                identified(invocation.getArgument(0), 9L));
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(53L, 9L, "ENR-2026-0053"));
+        when(salesOrders.update(eq(53L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        service.submit(new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "BE0123456789",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                "BE", "Buyer BV", "[LOGIN_AANVRAAG] x", "ana@example.com", null, null, true, ""));
+
+        ArgumentCaptor<Customer> customer = ArgumentCaptor.forClass(Customer.class);
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(customers).create(customer.capture());
+        verify(salesOrders).update(eq(53L), saved.capture());
+        assertEquals("[LOGIN_AANVRAAG] x", customer.getValue().contact());
+        assertFalse(saved.getValue().internalNotes().contains(WebsiteQuoteLoginRequested.NOTE_MARKER));
+    }
+
+    @Test
+    void aPartnerCustomerWithALoginGetsThePublicPriceNeverTheLandedCost() {
+        Customer partner = new Customer(9L, "Veiling Partner BV", "Piet", "piet@partner.example",
+                null, "NL123456789B01", "NL", Language.NL, null, null, null, "DAP", null, null,
+                LocalDate.now(), true, decimal("50"), decimal("100"));
+        when(customers.get(9L)).thenReturn(partner);
+        when(salesOrders.createWebsiteRequest(9L, "BE", "DAP"))
+                .thenReturn(draft(54L, 9L, "ENR-2026-0054"));
+        when(salesOrders.update(eq(54L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+        assertEquals(decimal("1"), pricedProduct.landedCostEur());
+
+        PublicQuoteDtos.SubmissionResponse response = service.submitForCustomer(
+                new PublicQuoteDtos.SubmitRequest(
+                        "EN", "DELIVERY", null,
+                        new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                        List.of(new PublicQuoteDtos.ItemRequest(1L, 2)),
+                        null, null, "Piet", null, null, null, true, ""),
+                9L, "piet@partner.example");
+
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(54L), saved.capture());
+        assertEquals(decimal("10.0000"), saved.getValue().lines().getFirst().unitPriceEur());
+        assertEquals(MarkupMode.PRODUCT, saved.getValue().markupMode());
+        assertEquals(service.preview(preview(1L, 2, "DELIVERY")).totals().goodsNet(),
+                response.estimate().totals().goodsNet(), "the same list price as any visitor sees");
+    }
+
+    @Test
+    void aCustomerOutsideTheDeliveryCountriesOrWithoutACountryCanStillAsk() {
+        PublicQuoteDtos.SubmitRequest request = new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", null,
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                null, null, "Ana", null, null, null, true, "");
+        when(customers.get(9L)).thenReturn(new Customer(9L, "Roses Inc", "Ana", "ana@roses.example",
+                null, "US-12", "US", Language.EN, null, null, null, "DAP", null, null, LocalDate.now()));
+        when(customers.get(10L)).thenReturn(new Customer(10L, "Geen Land BV", null, null,
+                null, null, null, Language.NL, null, null, null, null, null, null, LocalDate.now()));
+        assertNull(countries.find("US"));
+
+        assertDoesNotThrow(() -> service.validateSubmissionForCustomer(request, 9L));
+        assertDoesNotThrow(() -> service.validateSubmissionForCustomer(request, 10L));
+        verifyNoInteractions(salesOrders);
+    }
+
+    private static PublicQuoteDtos.SubmitRequest submitWithLogin(Boolean loginRequested) {
+        return new PublicQuoteDtos.SubmitRequest(
+                "EN", "DELIVERY", "BE 0123.456.789",
+                new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(1L, 1)),
+                "be", "Buyer BV", "Ana", "ana@example.com", "+32 14 00 00 00", null, true, "",
+                null, null, null, loginRequested);
+    }
+
     private static PublicQuoteDtos.PreviewRequest preview(long productId, int cartons,
                                                           String fulfillment) {
         return new PublicQuoteDtos.PreviewRequest("EN", fulfillment, null,
