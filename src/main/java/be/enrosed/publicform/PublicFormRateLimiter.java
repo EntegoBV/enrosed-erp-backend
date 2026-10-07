@@ -30,6 +30,22 @@ public class PublicFormRateLimiter {
                 action.ipLimit(), startedAt)), now, resetAt);
     }
 
+    /**
+     * Counts one attempt against a key of the caller's choosing (EMAIL, ACCOUNT, CHALLENGE,
+     * GLOBAL) with the caller's limit, in the fixed window of the action. Committed
+     * independently like checkIp; a null or blank value is not counted.
+     */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    public void checkKey(PublicFormAction action, String keyType, String value, int limit) {
+        if (value == null || value.isBlank()) return;
+        Instant now = Instant.now();
+        long window = action.windowSeconds();
+        Instant startedAt = Instant.ofEpochSecond((now.getEpochSecond() / window) * window);
+        Instant resetAt = startedAt.plusSeconds(window);
+        checkBuckets(List.of(bucket(action, keyType,
+                value.strip().toLowerCase(Locale.ROOT), limit, startedAt)), now, resetAt);
+    }
+
     OptionalEmailAttempt emailAttempt(PublicFormAction action, String email, Instant now) {
         if (action.emailLimit() <= 0 || email == null || email.isBlank()) {
             return OptionalEmailAttempt.empty();

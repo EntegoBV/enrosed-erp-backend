@@ -54,8 +54,22 @@ public final class PublicQuoteDtos {
             /** Server-minted proof that this form was open for a plausible amount of time. */
             String formToken,
             /** Cloudflare Turnstile token; required only when Turnstile is configured. */
-            String challengeToken
+            String challengeToken,
+            /** Tick box "I would also like a login"; the answer never tells whether it was stored. */
+            Boolean loginRequested
     ) {
+        /** Compatibility for clients and tests written before the login tick box. */
+        public SubmitRequest(String language, String fulfillment, String vatNumber,
+                             Destination destination, List<ItemRequest> items,
+                             String companyCountryCode, String companyName, String contactName,
+                             String email, String phone, String notes, Boolean privacyAccepted,
+                             String website, Long pickupLocationId, String formToken,
+                             String challengeToken) {
+            this(language, fulfillment, vatNumber, destination, items, companyCountryCode,
+                    companyName, contactName, email, phone, notes, privacyAccepted, website,
+                    pickupLocationId, formToken, challengeToken, null);
+        }
+
         /** Compatibility for clients written before selectable collection points. */
         public SubmitRequest(String language, String fulfillment, String vatNumber,
                              Destination destination, List<ItemRequest> items,

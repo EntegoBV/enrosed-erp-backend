@@ -75,6 +75,11 @@ public class WebsiteQuoteMailNotifier {
             facts.add(new TeamFact("Levering", "EXW".equalsIgnoreCase(order.incoterm())
                     ? "Afhaling (EXW)" : "Levering (DAP)" + (destination.isBlank() ? "" : " · " + destination)));
         }
+        /* Only a line that STARTS with the marker counts: our own note line, never text a customer typed. */
+        if (order.internalNotes() != null && order.internalNotes().lines()
+                .anyMatch(line -> line.startsWith(WebsiteQuoteLoginRequested.NOTE_MARKER))) {
+            facts.add(new TeamFact("Login gevraagd", "Ja · goedkeuren bij Login-aanvragen"));
+        }
         facts.add(new TeamFact("Ordernummer", value(order.number())));
 
         List<TeamLine> lines = new ArrayList<>();

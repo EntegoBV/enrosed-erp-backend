@@ -441,6 +441,73 @@ class RailwayPreDeployMigrationContractTest {
                 "the new table lands after every earlier script");
     }
 
+    @Test
+    void customerAccountSchemaIsFourAdditiveTablesRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-05/customer-account-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists customer_login_request ("));
+        assertTrue(sql.contains("create table if not exists customer_account ("));
+        assertTrue(sql.contains("create table if not exists customer_account_token ("));
+        assertTrue(sql.contains("create table if not exists customer_session ("));
+        assertTrue(sql.contains("reference varchar(32) not null"));
+        assertTrue(sql.contains("repeat_count integer not null default 0"));
+        assertTrue(sql.contains("later_submissions varchar(8000),"));
+        assertTrue(sql.contains("token_hash varchar(64) not null"));
+        assertTrue(sql.contains("password_hash varchar(100),"));
+        assertTrue(sql.contains("expires_at timestamptz not null"));
+        assertTrue(sql.contains("create unique index if not exists uq_customer_login_request_pending_email"
+                + " on customer_login_request (email) where status = 'pending'"));
+        assertFalse(sql.contains("check"), "status, source and language are plain strings");
+        assertFalse(sql.contains("alter table"), "no existing table gains a column");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
+        assertNonDestructive(sql);
+
+        assertEntityNamesEveryColumn(sql, "customer_login_request", "CustomerLoginRequestEntity", 25);
+        assertEntityNamesEveryColumn(sql, "customer_account", "CustomerAccountEntity", 16);
+        assertEntityNamesEveryColumn(sql, "customer_account_token", "CustomerAccountTokenEntity", 7);
+        assertEntityNamesEveryColumn(sql, "customer_session", "CustomerSessionEntity", 6);
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/glass-box-thirteen-roses-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the new tables land after every earlier script");
+        assertTrue(runner.contains("glass-box-thirteen-roses-postgresql.sql \\\n"),
+                "without the continuation backslash psql never sees the new file");
+        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
+    }
+
+    /**
+     * Railway validates the schema: every column the script creates must be named by the
+     * entity, and the entity must not map a column the script does not create.
+     */
+    private static void assertEntityNamesEveryColumn(String sql, String table, String entityName,
+                                                     int expectedColumns) throws IOException {
+        String opening = "create table if not exists " + table + " (";
+        int start = sql.indexOf(opening) + opening.length();
+        String body = sql.substring(start, sql.indexOf(");", start));
+        java.util.List<String> columns = java.util.Arrays.stream(body.split(","))
+                .map(String::trim)
+                .filter(definition -> !definition.startsWith("constraint "))
+                .map(definition -> definition.substring(0, definition.indexOf(' ')))
+                .toList();
+        assertEquals(expectedColumns, columns.size(), table);
+        String entity = Files.readString(Path.of(
+                "src/main/java/be/enrosed/account/" + entityName + ".java"));
+        for (String column : columns) {
+            assertTrue(entity.contains("@Column(name = \"" + column + "\""),
+                    entityName + " names " + column + " explicitly, so validation finds the migrated column");
+        }
+        assertEquals(columns.size(), entity.split("@Column\\(name = \"", -1).length - 1,
+                entityName + " maps no column the script does not create");
+        assertTrue(entity.contains("@Table(name = \"" + table + "\""));
+        assertFalse(entity.contains("@Enumerated"), "no enum column that Hibernate would guard with a check");
+        assertFalse(entity.contains("nullable = false"),
+                "dev H2 adds columns through schema update, which cannot add NOT NULL to a filled table");
+    }
+
     private static void assertNonDestructive(String sql) {
         assertFalse(sql.matches("(?s).*(drop\\s+(table|column)|truncate|delete\\s+from).*"));
     }

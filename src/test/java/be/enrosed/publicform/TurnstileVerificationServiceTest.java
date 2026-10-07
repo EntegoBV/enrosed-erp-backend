@@ -65,6 +65,30 @@ class TurnstileVerificationServiceTest {
     }
 
     @Test
+    void accountFormsExpectTheirOwnActionAndLoggedInQuotesTheQuoteAction() {
+        TurnstileVerificationService accountAction = service("site", "secret", true,
+                Set.of("www.enrosed.com"), response(200,
+                        "{\"success\":true,\"action\":\"account_submit\","
+                                + "\"hostname\":\"www.enrosed.com\"}"), null);
+        assertDoesNotThrow(() -> accountAction.verify(PublicFormPurpose.ACCOUNT, "challenge"));
+        assertThrows(PublicFormValidationException.class,
+                () -> accountAction.verify(PublicFormPurpose.QUOTE, "challenge"));
+        assertThrows(PublicFormValidationException.class,
+                () -> accountAction.verify(PublicFormPurpose.CONTACT, "challenge"));
+        assertThrows(PublicFormValidationException.class,
+                () -> accountAction.verify(PublicFormPurpose.ACCOUNT_QUOTE, "challenge"));
+
+        TurnstileVerificationService quoteAction = service("site", "secret", true,
+                Set.of("www.enrosed.com"), response(200,
+                        "{\"success\":true,\"action\":\"quote_submit\","
+                                + "\"hostname\":\"www.enrosed.com\"}"), null);
+        assertDoesNotThrow(() -> quoteAction.verify(PublicFormPurpose.QUOTE, "challenge"));
+        assertDoesNotThrow(() -> quoteAction.verify(PublicFormPurpose.ACCOUNT_QUOTE, "challenge"));
+        assertThrows(PublicFormValidationException.class,
+                () -> quoteAction.verify(PublicFormPurpose.ACCOUNT, "challenge"));
+    }
+
+    @Test
     void wrongHostnameFailedChallengeMalformedReplyAndTransportExceptionAllFailClosed() {
         assertThrows(PublicFormValidationException.class,
                 () -> service("site", "secret", true, Set.of("www.enrosed.com"),

@@ -100,6 +100,7 @@ COPY docs/migrations/2026-09-29/purchase-order-freight-via-supplier-postgresql.s
 COPY docs/migrations/2026-09-30/glass-box-twelve-roses-postgresql.sql ./migrations/
 COPY docs/migrations/2026-09-30/sales-advance-billing-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-01/glass-box-thirteen-roses-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-05/customer-account-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

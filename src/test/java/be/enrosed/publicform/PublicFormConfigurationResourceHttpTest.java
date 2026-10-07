@@ -22,6 +22,18 @@ class PublicFormConfigurationResourceHttpTest {
     }
 
     @Test
+    void accountPurposeMintsItsOwnFormStartToken() {
+        given().queryParam("purpose", "ACCOUNT")
+                .when().get("/api/v1/public/forms/configuration")
+                .then().statusCode(200)
+                .header("Cache-Control", "no-store")
+                .body("purpose", equalTo("ACCOUNT"))
+                .body("formToken", notNullValue())
+                .body("minimumSubmitAt", notNullValue())
+                .body("expiresAt", notNullValue());
+    }
+
+    @Test
     void unknownPurposeIsRejectedWithoutCaching() {
         given().queryParam("purpose", "NEWSLETTER")
                 .when().get("/api/v1/public/forms/configuration")

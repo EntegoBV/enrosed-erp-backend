@@ -27,6 +27,9 @@ public class CustomerService {
     Instance<ActivityLogService> activity;
     @Inject
     Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.PurchaseOrders> partnerPurchases;
+    /** Features that keep rows of their own for a customer (website logins) clear them before the customer goes. */
+    @Inject
+    Instance<CustomerDeletionListener> deletionListeners;
 
     public CustomerService(SalesRepositories.Customers customers, SalesRepositories.Orders orders) {
         this.customers = customers;
@@ -98,6 +101,9 @@ public class CustomerService {
         if (partnerPurchases != null && partnerPurchases.isResolvable()
                 && partnerPurchases.get().referencesPartnerIncludingDeleted(id))
             throw new BusinessRuleException("Deze klant is partner op een inkooporder, mogelijk in de prullenbak. Behoud deze klant zodat documenten en financiële historie intact blijven");
+        if (deletionListeners != null) {
+            for (CustomerDeletionListener listener : deletionListeners) listener.beforeDelete(id);
+        }
         customers.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, customer, "Klant verwijderd");
     }
