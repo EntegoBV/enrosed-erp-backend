@@ -55,6 +55,12 @@ public record QuoteEvent(
         /** A credit note's balance was offset against an invoice, on both documents. */
         VERREKEND,
         /** The credited goods came back into the warehouse. */
-        GOEDEREN_RETOUR
+        GOEDEREN_RETOUR,
+        /** A logged-in customer placed this document as an order on the website. */
+        KLANT_BESTELD,
+        /** The customer changed that order before we took it; the detail lists what changed. */
+        KLANT_GEWIJZIGD,
+        /** We took the website order into processing; from here the customer can no longer change it. */
+        IN_VERWERKING
     }
 }

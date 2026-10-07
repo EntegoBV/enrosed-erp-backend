@@ -100,6 +100,7 @@ public class TurnstileVerificationService {
                 case CONTACT -> "contact_submit";
                 case ACCOUNT -> "account_submit";
                 case ACCOUNT_QUOTE -> "quote_submit";
+                case ACCOUNT_ORDER -> "quote_submit";
             };
             String hostname = result.path("hostname").asText("").toLowerCase(Locale.ROOT);
             if (!result.path("success").asBoolean(false)
