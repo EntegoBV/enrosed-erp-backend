@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Railway SDK that `railway config plan` and `apply` need to evaluate railway.ts",
+  "devDependencies": {
+    "railway": "3.13.0"
+  }
+}

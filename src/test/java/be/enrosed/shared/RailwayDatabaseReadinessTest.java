@@ -1,6 +1,5 @@
 package be.enrosed.shared;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -77,11 +76,11 @@ class RailwayDatabaseReadinessTest {
 
     @Test
     void railwayKeepsDatabaseReadinessAsTheReleaseGateAndRestartsStoppedProcesses() throws Exception {
-        var deploy = new ObjectMapper().readTree(Path.of("railway.json").toFile()).path("deploy");
-        assertEquals("/api/public/terms", deploy.path("healthcheckPath").asText());
-        assertEquals(300, deploy.path("healthcheckTimeout").asInt());
-        assertEquals("ALWAYS", deploy.path("restartPolicyType").asText());
-        assertFalse(deploy.has("restartPolicyMaxRetries"), "do not retain the old three-restart ceiling");
+        var railway = RailwayServiceSettings.read();
+        assertEquals("/api/public/terms", railway.text("deploy", "healthcheckPath"));
+        assertEquals(300, railway.number("deploy", "healthcheckTimeout"));
+        assertEquals("ALWAYS", railway.text("deploy", "restartPolicyType"));
+        assertFalse(railway.has("deploy", "restartPolicyMaxRetries"), "do not retain the old three-restart ceiling");
     }
 
     private Result run(String mode, String error) throws Exception {
