@@ -74,6 +74,8 @@ class WebOrderMailsTest {
     @Inject Event<WebOrderEvents.Taken> taken;
     @InjectMock SalesRepositories.Orders orders;
     @InjectMock SalesRepositories.Customers customers;
+    /** The team notice of a website order is another mail to another mailbox; this class counts the customer's. */
+    @InjectMock WebsiteQuoteMailNotifier teamNotices;
 
     private final List<Long> orderIds = new ArrayList<>();
     private final List<Long> loginIds = new ArrayList<>();

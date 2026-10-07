@@ -27,5 +27,33 @@ public class WebsiteQuotePushNotifier {
         }
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    void afterOrderPlaced(@Observes(during = TransactionPhase.AFTER_SUCCESS) WebOrderEvents.Placed placed) {
+        push(placed.orderId(), "Nieuwe websitebestelling " + placed.number(),
+                "Klant kan nog wijzigen · neem in verwerking in Verkoop");
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    void afterOrderChanged(@Observes(during = TransactionPhase.AFTER_SUCCESS) WebOrderEvents.Changed changed) {
+        String summary = changed.summary() == null ? "" : changed.summary().strip();
+        push(changed.orderId(), "Websitebestelling " + changed.number() + " gewijzigd door de klant",
+                "Versie " + changed.revision() + (summary.isEmpty() ? ""
+                        : " · " + (summary.length() > 120 ? summary.substring(0, 120) : summary)));
+    }
+
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    void afterOrderCancelled(@Observes(during = TransactionPhase.AFTER_SUCCESS) WebOrderEvents.Cancelled cancelled) {
+        push(cancelled.orderId(), "Websitebestelling " + cancelled.number() + " geannuleerd door de klant",
+                "De klant annuleerde de bestelling op de website");
+    }
+
+    private void push(long orderId, String title, String body) {
+        try {
+            phones.notifyAll("sale-quote", title, body, "/sales/" + orderId);
+        } catch (RuntimeException ignored) {
+            /* A push subscription or VAPID problem may never affect the saved order. */
+        }
+    }
+
     public record Ready(long orderId, String reference) {}
 }

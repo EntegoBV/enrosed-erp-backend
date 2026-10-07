@@ -8,6 +8,10 @@ package be.enrosed.sales.application.port.out;
  * quantities and the amount due remain mandatory. Invoice prices, VAT and
  * totals remain mandatory. An advance-agreement quotation carries its frozen
  * instalments, or just its agreed advance amount when payment details are hidden.</p>
+ *
+ * <p>Without {@code includeReceipts} an invoice or credit note prints as it was
+ * issued: its own amount, and nothing about what was received, offset or
+ * refunded since. That is the copy a customer downloads from their account.</p>
  */
 public record SalesPdfOptions(
         boolean includePhotos,
@@ -16,8 +20,18 @@ public record SalesPdfOptions(
         boolean includeTerms,
         boolean showOuterCarton,
         boolean showBarcode,
-        boolean includePaymentDetails
+        boolean includePaymentDetails,
+        boolean includeReceipts
 ) {
+    /** Every download from before the account copy keeps showing how the document stands today. */
+    public SalesPdfOptions(boolean includePhotos, boolean includeProductDetails,
+                           boolean includeLogistics, boolean includeTerms,
+                           boolean showOuterCarton, boolean showBarcode,
+                           boolean includePaymentDetails) {
+        this(includePhotos, includeProductDetails, includeLogistics, includeTerms,
+                showOuterCarton, showBarcode, includePaymentDetails, true);
+    }
+
     /** Existing downloads retain payment details unless explicitly hidden. */
     public SalesPdfOptions(boolean includePhotos, boolean includeProductDetails,
                            boolean includeLogistics, boolean includeTerms,
@@ -35,6 +49,11 @@ public record SalesPdfOptions(
 
     public static SalesPdfOptions defaults() {
         return new SalesPdfOptions(true, true, true, true, false, false);
+    }
+
+    /** The customer's own download: the document as issued, without payment sentences or receipts. */
+    public static SalesPdfOptions accountCopy() {
+        return new SalesPdfOptions(true, true, true, true, false, false, false, false);
     }
 
     /** The packing slip only consumes the two price-free product-data switches. */

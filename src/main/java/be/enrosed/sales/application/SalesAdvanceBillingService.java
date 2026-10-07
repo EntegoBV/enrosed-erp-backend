@@ -51,6 +51,7 @@ public class SalesAdvanceBillingService {
     @Inject SalesRepositories.Events events;
     @Inject IncomingPaymentService incoming;
     @Inject CustomerService customers;
+    @Inject jakarta.enterprise.inject.Instance<WebOrders> webOrders;
 
     private static final String BRUSSELS = "Europe/Brussels";
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -100,6 +101,8 @@ public class SalesAdvanceBillingService {
         SalesOrder quote = sales.get(quoteId);
         requireAdvanceSource(quote);
         PricedOrder priced = sales.price(quote);
+        /* An advance on a website order is an invoice too: only on what the customer ordered or approved. */
+        if (webOrders != null && webOrders.isResolvable()) webOrders.get().requireInvoiceable(quote, priced);
         BigDecimal base = Money.money(priced.totals().total());
         if (base.signum() <= 0) throw new BusinessRuleException("Offerte " + quote.number() + " heeft nog geen bedrag om een voorschot op te factureren");
         BigDecimal percentage = request.percentage();

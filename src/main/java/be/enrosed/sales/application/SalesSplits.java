@@ -66,6 +66,7 @@ public class SalesSplits {
     @Inject CatalogMutationLock catalogLock;
     @Inject ActivityLogService activity;
     @Inject jakarta.enterprise.inject.Instance<SalesAdvanceBillingService> advanceBilling;
+    @Inject jakarta.enterprise.inject.Instance<WebOrders> webOrders;
 
     public Eligibility eligibility(long id) {
         SalesOrder source = sales.get(id);
@@ -355,6 +356,7 @@ public class SalesSplits {
     }
 
     private void requireEligible(SalesOrder source) {
+        if (webOrders != null && webOrders.isResolvable()) webOrders.get().requireSplittable(source, source.sourceQuoteId() == null ? null : orders.findById(source.sourceQuoteId()).orElse(null));
         if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");

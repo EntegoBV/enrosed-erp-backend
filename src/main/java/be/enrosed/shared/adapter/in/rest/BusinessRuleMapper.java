@@ -1,5 +1,6 @@
 package be.enrosed.shared.adapter.in.rest;
 
+import be.enrosed.sales.application.WebOrderChangedException;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.UnprocessableBusinessRuleException;
@@ -22,6 +23,17 @@ public class BusinessRuleMapper implements ExceptionMapper<BusinessRuleException
                             "code", "LOCALIZATION_INCOMPLETE",
                             "message", localized.getMessage(),
                             "missingPaths", localized.missingPaths()))
+                    .build();
+        }
+        /* The staff screen worked from a version of a website order the customer has since changed. */
+        if (exception instanceof WebOrderChangedException changed) {
+            return Response.status(409)
+                    .type(MediaType.APPLICATION_JSON_TYPE)
+                    .entity(Map.of("status", 409,
+                            "code", "WEB_ORDER_CHANGED",
+                            "message", changed.getMessage(),
+                            "webOrderRevision", changed.currentRevision(),
+                            "timestamp", Instant.now().toString()))
                     .build();
         }
         if (exception instanceof UnprocessableBusinessRuleException) {

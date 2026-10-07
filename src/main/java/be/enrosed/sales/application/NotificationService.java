@@ -7,11 +7,15 @@ import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * What is waiting on us.
@@ -35,6 +39,12 @@ public class NotificationService {
     private final SalesRepositories.Revisions revisions;
     private final SalesRepositories.Events events;
     private final CustomerService customers;
+    /** Website orders of logged-in customers; absent in pure unit tests, where every document reads as before. */
+    @Inject Instance<WebOrders> webOrders;
+    @Inject Instance<WebOrderDeliveries> deliveries;
+    @Inject Instance<SalesOrderService> salesOrders;
+    /** How long the news that a customer cancelled their own order stays in the feed. */
+    private static final Duration CUSTOMER_CANCEL_NEWS = Duration.ofDays(14);
 
     public NotificationService(SalesRepositories.Orders orders,
                                SalesRepositories.Revisions revisions,
@@ -82,14 +92,44 @@ public class NotificationService {
         List<Notification> items = new ArrayList<>();
         List<SalesOrder> documents = orders.findAll();
         var closedQuoteIds = OpenQuoteWork.closedQuoteIds(documents);
+        Map<Long, WebOrders.Row> webOrderRows = webOrders != null && webOrders.isResolvable()
+                ? webOrders.get().indexStates() : Map.of();
 
         for (SalesOrder order : documents) {
             if (order.isArchived() || closedQuoteIds.contains(order.id())) continue;
             String who = customerName(order);
+            WebOrders.Row webOrder = order.id() == null || order.isClaimDocument() ? null : webOrderRows.get(order.id());
 
             /* ---- our move ------------------------------------------------ */
 
-            if (isWebsiteRequestAwaitingReview(order)) {
+            if (webOrder != null) {
+                if (webOrder.customerCancelledAt() != null) {
+                    /* News, not work: the customer withdrew the order before anyone took it. */
+                    if (webOrder.customerCancelledAt().isAfter(Instant.now().minus(CUSTOMER_CANCEL_NEWS)))
+                        items.add(new Notification(Kind.AFGEWEZEN, order.id(), order.number(), who,
+                                "Bestelling geannuleerd door de klant",
+                                "De klant annuleerde websitebestelling " + order.number() + " op de website.",
+                                false, webOrder.customerCancelledAt()));
+                } else if (order.status() == QuoteStatus.CONCEPT && webOrder.processingStartedAt() == null) {
+                    items.add(new Notification(Kind.WEBSITE_AANVRAAG, order.id(), order.number(), who,
+                            "Nieuwe websitebestelling",
+                            webOrder.revision() > 1
+                                    ? "Door de klant gewijzigd (versie " + webOrder.revision() + "). Controleer opnieuw en neem in verwerking."
+                                    : "De klant kan nog wijzigen. Controleer en neem in verwerking.",
+                            true, webOrder.customerChangedAt() != null ? webOrder.customerChangedAt() : webOrder.placedAt()));
+                } else if (order.status() == QuoteStatus.CONCEPT) {
+                    items.add(new Notification(Kind.WEBSITE_AANVRAAG, order.id(), order.number(), who,
+                            "Websitebestelling in verwerking",
+                            "Ongewijzigd: factuur maken. Gewijzigd: versturen ter goedkeuring.",
+                            true, webOrder.processingStartedAt()));
+                } else if (resendRequired(order, webOrder)) {
+                    /* The customer's link refuses these figures until they are mailed again; nobody else is told. */
+                    items.add(new Notification(Kind.WEBSITE_AANVRAAG, order.id(), order.number(), who,
+                            "Websitebestelling opnieuw versturen",
+                            "De cijfers zijn gewijzigd sinds de verstuurde versie; de klant kan niet goedkeuren tot je opnieuw verstuurt.",
+                            true, order.sentAt()));
+                }
+            } else if (isWebsiteRequestAwaitingReview(order)) {
                 items.add(new Notification(Kind.WEBSITE_AANVRAAG,
                         order.id(), order.number(), who,
                         "Nieuwe websiteaanvraag",
@@ -160,6 +200,25 @@ public class NotificationService {
 
         int actions = (int) items.stream().filter(Notification::actionNeeded).count();
         return new Feed(items, actions);
+    }
+
+    /**
+     * A sent website order whose figures no longer equal the version that
+     * was mailed: a staff freight or shipping edit, or a price, tier or
+     * freight table that changed since. Only such a document is priced here.
+     */
+    private boolean resendRequired(SalesOrder order, WebOrders.Row row) {
+        if (order.status() != QuoteStatus.VERZONDEN && order.status() != QuoteStatus.BEKEKEN) return false;
+        if (row.sentTerms() == null || salesOrders == null || !salesOrders.isResolvable()) return false;
+        try {
+            /* One read of the delivery rows however many documents are priced; a second call finds them loaded. */
+            if (deliveries != null && deliveries.isResolvable()) deliveries.get().preloadForRequest();
+            return WebOrders.termsState(order, row, WebOrderTerms.of(salesOrders.get().price(order)))
+                    == WebOrders.TermsState.RESEND_REQUIRED;
+        } catch (RuntimeException unpriceable) {
+            /* A document that cannot be priced right now is no reason to lose the whole feed. */
+            return false;
+        }
     }
 
     private static boolean isWebsiteRequestAwaitingReview(SalesOrder order) {
