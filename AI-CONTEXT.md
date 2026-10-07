@@ -670,6 +670,112 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   buckets are committed and shared by the whole run, so use unique
   e-mails and clear the notice buckets where a notice is expected.
 
+### Website orders of logged-in customers (2026-10-08)
+- **What it is**: a logged-in customer places an ORDER on the website
+  quote page; Enrosed confirms it. Anonymous visitors keep the quote
+  request. An order is a concept OFFERTE of channel WEBSITE from the
+  ordinary quote series PLUS a row in `sales_web_order` (the order state)
+  PLUS a row in `sales_order_delivery` (address and contact typed for this
+  order), all with the same id
+  (`docs/migrations/2026-10-08/sales-web-order-postgresql.sql`). **The
+  `sales_web_order` row alone defines a "websitebestelling"**; the note
+  marker and the channel are never the key. A website concept without the
+  row is a legacy "Websiteaanvraag". No new status, document type or
+  number series, and no field on `SalesOrder`.
+- **Kill switch**: `enrosed.website.ordering.enabled`
+  (`WEBSITE_ORDERING_ENABLED`, default true), read on every call. Off:
+  every endpoint under `/api/v1/public/account/documents` and `/orders`
+  answers 404 `NOT_FOUND` after the session guard (what an older backend
+  answers; the website then offers the quote request) and the old
+  logged-in submit drops its minimum rule.
+- **Customer endpoints** (`/api/v1/public/account`, bearer session, GET
+  and POST only, `Cache-Control: no-store`): `documents/delivery-defaults`
+  (prefill and the website's capability probe, own budget), `documents`
+  (list `kind=ORDERS|INVOICES`), `documents/{id}`, `documents/{id}/pdf`
+  (`CustomerDocumentResource`, `AccountDocuments`); `orders/preview`,
+  `orders`, `orders/{id}/changes`, `orders/{id}/cancellation`
+  (`CustomerOrderResource`, `WebOrderService`). DTOs are the allow-list
+  records of `AccountOrderDtos`. No sentence of the sales core leaves:
+  404 `ORDER_NOT_FOUND` (one body for missing, foreign and hidden), 409
+  `ORDER_LOCKED`, `ORDER_CHANGED`, `ORDER_CHANGE_LIMIT`,
+  `ORDER_REVIEW_REQUIRED`, `DOCUMENT_UNAVAILABLE`.
+- **Writes**: guard, switch, replay, budgets, read-only validation, form
+  check (the page's QUOTE token), then the idempotency transaction.
+  Stored answers live under purpose `ACCOUNT_ORDER` and are the four
+  fields of `OrderReceipt` only. Placing uses the budgets of the logged-in
+  quote submit; change and cancel have `ACCOUNT_ORDER_WRITE` (20 an hour
+  per login). A filled honeypot gets a pretended 201 without id on place
+  and 422 on a change.
+- **Minimum order value**: an order below the minimum of the delivery
+  country is refused with 422 `items: MINIMUM_NOT_MET`, on validation and
+  again in the write. Only lines the ERP can price count; a line without a
+  price or without known carton content adds nothing. While the switch is
+  on, the old logged-in `quotes/requests` holds the same minimum
+  (`PublicQuoteService.validateSubmissionForCustomer`); the anonymous
+  request never does.
+- **Pricing of an order** (`PublicQuoteService.prepareOrder`): the
+  customer RECORD delivered at the typed address
+  (`Customer.withDeliveryAddress`), VAT from the record. The sales core
+  prices the stored document the same way through
+  `WebOrderDeliveries.pricingCustomer`, so the estimate equals the stored
+  order, its invoice, a split part and a "Nieuwe kopie". The customer
+  record is never written by a customer path.
+- **Snapshot**: `sales_web_order.order_snapshot` freezes the ERP's own
+  pricing of the saved document at placement and at every customer change
+  (`WebOrderSnapshot`); `ordered_terms` is its fingerprint
+  (`WebOrderTerms`), null when freight, a price or carton content was
+  still open. The customer keeps seeing the snapshot until the order was
+  sent, so unsent staff edits never show under "my orders".
+- **Customer change**: until staff take the order the customer replaces
+  it whole (`SalesOrderService.updateByCustomer`). A product that stays
+  keeps its line id, its unit price and its cost; a new product gets
+  today's price; order date and validity stay. `revision` counts the
+  customer's versions (cap 20). The Dutch change summary
+  (`customer_change_summary`) goes to the team mail, the push, the history
+  and the ERP banner and names a kept price that is no longer the list
+  price.
+- **Locks**: form stripes, then the `sales_order` row, then the
+  `sales_web_order` row. Every writer locks first and reads afterwards.
+  Customer paths call `lockDocumentForCustomer`, `updateByCustomer` and
+  `QuoteService.cancelByCustomer`; they never run the staff gate and
+  never infer "customer" from a missing staff identity.
+- **Staff gate** (`WebOrders.afterStaffLock`, inside
+  `lockDocumentForMutation`): every staff mutation carries
+  `?webOrderRevision=<n>` (`WebOrderRevisionFilter`). A stale revision, or
+  none for an order the customer ever changed, is refused with 409
+  `WEB_ORDER_CHANGED`, also after a colleague took the order. The first
+  staff mutation that passes takes the order "in verwerking" (trigger
+  `KNOP` for `POST /{id}/take-into-processing`, else `AUTOMATISCH`); the
+  marker is never cleared and a rolled-back action leaves it unset. The
+  SYSTEM actor never takes an order.
+- **D1 guard** (all in `WebOrders`): an invoice is made, and issued, only
+  when price, quantity, freight, extra lines and VAT rate equal what the
+  customer ordered, or what the customer approved in the version that was
+  mailed (`requireInvoiceable`, `requireIssuable`). An approval through
+  the quote link counts only for the version sent (`requireAcceptable`).
+  No split and no partner deal on a web order before approval; no delete
+  unless cancelled or declined; no reopen of a customer-cancelled order.
+  There is no override; soften a rule there and nowhere else.
+- **Mails**: order received and order in processing
+  (`order-mail.html`, `WebOrderMails`, observers after the commit, the
+  timestamp claimed with one conditional update, no job and no outbox).
+  The approval mail and the staff cancellation mail of a web order get
+  order wording. Every customer mail about a web order goes to the login
+  that last placed or changed it (`WebOrderRecipients`), the approval and
+  cancellation mail with the record's address in copy. A failed mail shows
+  on the order with "Opnieuw sturen" (`POST /{id}/web-order/mails`).
+- **Account PDF**: `SalesPdfOptions.accountCopy()` renders an invoice or
+  credit note as issued, without receipts or settlement; the customer
+  history never shows a payment state.
+- **Tests**: `WebOrderStaffGateTest.Shop` builds customers, products,
+  logins and orders and removes them; `WebOrderFlowHttpTest` walks four
+  orders over real HTTP. In a `@QuarkusTest` a read outside a transaction
+  answers from the test's own session and can be stale after another
+  transaction wrote: read inside `QuarkusTransaction.requiringNew()`.
+  Not verified on PostgreSQL locally (none on the build machine): the
+  migration, schema validation and the row locks first meet it on the
+  Railway TEST deploy.
+
 ### Mail
 - Production sends via **Brevo HTTPS API** (`BREVO_API_KEY`); Railway
   blocks outbound SMTP below the Pro plan, so SMTP settings exist only as

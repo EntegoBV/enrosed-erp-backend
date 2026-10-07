@@ -246,30 +246,30 @@ class CustomerLoginEndToEndTest {
                 .body("pricesVisible", equalTo(true))
                 .body(product() + ".unitPriceNet", equalTo(10.0f))
                 .body(product() + ".priceAvailable", equalTo(true));
-        bearer(session).contentType("application/json").body(fixture.previewBody(productId, 2))
+        bearer(session).contentType("application/json").body(fixture.previewBody(productId, QuoteFixture.CARTONS))
                 .when().post(ACCOUNT_QUOTES + "/preview")
                 .then().statusCode(200)
                 .body("pricesVisible", equalTo(true))
                 .body("lines[0].unitPriceNet", equalTo(10.0f))
-                .body("totals.goodsNet", equalTo(240.0f));
+                .body("totals.goodsNet", equalTo(720.0f));
         anonymousSeesNoPrices();
 
         // (g) a logged-in quote request hangs on the approved customer; no customer is created
         long customersBeforeQuote = customerCount();
         String quoteReference = bearer(session).contentType("application/json")
                 .header("Idempotency-Key", "account-quote-" + UUID.randomUUID())
-                .body(fixture.submitBody(productId, 2, Map.of("formToken", quoteFormToken)))
+                .body(fixture.submitBody(productId, QuoteFixture.CARTONS, Map.of("formToken", quoteFormToken)))
                 .when().post(ACCOUNT_QUOTES + "/requests")
                 .then().statusCode(201)
                 .body("status", equalTo("RECEIVED"))
                 .body("estimate.pricesVisible", equalTo(true))
                 .body("estimate.lines[0].unitPriceNet", equalTo(10.0f))
-                .body("estimate.totals.goodsNet", equalTo(240.0f))
+                .body("estimate.totals.goodsNet", equalTo(720.0f))
                 .extract().path("reference");
         SalesOrder order = fixture.order(salesOrders, quoteReference);
         assertEquals(customerId, order.customerId(), "the quote hangs on the approved customer");
         assertEquals(customersBeforeQuote, customerCount(), "a logged-in quote creates no customer");
-        assertEquals(24, order.lines().getFirst().quantity());
+        assertEquals(72, order.lines().getFirst().quantity());
         assertEquals(0, new BigDecimal("10").compareTo(order.lines().getFirst().unitPriceEur()));
         assertTrue(order.internalNotes().contains("Aangevraagd via klantlogin " + email), order.internalNotes());
         Customer afterQuote = customers.get(customerId);
