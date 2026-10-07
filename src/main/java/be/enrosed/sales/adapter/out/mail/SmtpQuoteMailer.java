@@ -12,6 +12,7 @@ import be.enrosed.shared.DocumentText;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.mail.CustomerAccountMailer;
+import be.enrosed.shared.mail.CustomerOrderMailer;
 import be.enrosed.shared.mail.InternalMessageSender;
 import be.enrosed.shared.mail.InternalMessageSender.TeamNotice;
 
@@ -21,11 +22,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +55,7 @@ import org.jboss.logging.Logger;
  * real customer.
  */
 @ApplicationScoped
-public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, CustomerAccountMailer {
+public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, CustomerAccountMailer, CustomerOrderMailer {
 
     private static final Logger LOG = Logger.getLogger(SmtpQuoteMailer.class);
     private static final URI BREVO_ENDPOINT = URI.create("https://api.brevo.com/v3/smtp/email");
@@ -74,6 +77,11 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
     @Location("account-invite-mail.html")
     Template accountInviteTemplate;
 
+    /** The two mails about a website order; a field for the same reason. */
+    @jakarta.inject.Inject
+    @Location("order-mail.html")
+    Template orderMailTemplate;
+
     @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
     String websiteBaseUrl;
 
@@ -83,6 +91,12 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
     /** Advance invoices and slotfacturen of regular quotes, for their own mail subject; optional like the documents. */
     @jakarta.inject.Inject
     jakarta.enterprise.inject.Instance<be.enrosed.sales.application.SalesAdvanceBilling> advanceBilling;
+
+    /** Website orders, for their own wording and for the login that ordered; optional like the documents. */
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.sales.application.WebOrders> webOrders;
+    @jakarta.inject.Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.sales.application.WebOrderRecipients> webOrderRecipients;
 
     @ConfigProperty(name = "enrosed.mail.internal-recipient", defaultValue = "verkoop@enrosed.be")
     String internalRecipient;
@@ -221,6 +235,9 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         /* The mail leaves in the customer's language, just like the PDF. */
         Language language = customer.language();
         Map<String, String> text = DocumentText.of(language);
+        /* A website order went out as an order: the customer is told this is its adjusted
+           version, and the login that ordered receives the approval link. */
+        Addressee addressee = addressee(order, customer);
 
         String body = quoteMailTemplate
                 .data("languageCode", language.code())
@@ -238,6 +255,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
                 .data("advanceSchedule", advanceRows(advanceAgreement, language))
                 .data("advanceSettlementNotice", advanceSettlementNotice(advanceAgreement, language))
                 .data("intro", (advanceAgreement != null ? text.get("advanceAgreementMailIntro")
+                        : addressee.webOrder() ? text.get("mailOrderApprovalIntro")
                         : notice.deliveryTermsAdded() || notice.freightAdded()
                         ? text.get("mailIntroUpdated") : text.get("mailIntro"))
                         .formatted(order.number()))
@@ -248,12 +266,13 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         /* The subject says right away why this mail exists. On a second
            sending with the delivery term filled in, that is the news - not
            the quote itself - or it reads like a duplicate mail. */
-        String subject = (notice.deliveryTermsAdded()
+        String subject = (addressee.webOrder() ? text.get("mailSubjectOrderApproval")
+                : notice.deliveryTermsAdded()
                 ? text.get("mailSubjectTermsAdded") : text.get("mailSubject"))
                 .formatted(order.number());
 
         if (mock) {
-            mailer.send(customerMail(customer.email(), subject, body)
+            mailer.send(customerMail(addressee.to(), addressee.cc(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail. De offerte %s is"
                             + " wel opgebouwd.", order.number());
@@ -263,7 +282,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         String brevoKey = brevoApiKey.orElse("").trim();
         if (!brevoKey.isEmpty()) {
             try {
-                sendViaBrevo(customer.email(), subject, body, null, document);
+                sendViaBrevo(addressee.to(), addressee.cc(), subject, body, null, document, true);
             } catch (Exception e) {
                 LOG.errorf(e, "Klantmail voor offerte %s via Brevo mislukt", order.number());
                 throw new BusinessRuleException(
@@ -285,7 +304,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         }
 
         try {
-            mailer.send(customerMail(customer.email(), subject, body)
+            mailer.send(customerMail(addressee.to(), addressee.cc(), subject, body)
                     .addAttachment(document.filename(), document.content(), document.contentType()));
         } catch (RuntimeException e) {
             LOG.errorf(e, "Klantmail via %s mislukt", host);
@@ -402,30 +421,145 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
 
     @Override
     public void sendCancellation(SalesOrder order, Customer customer, String portalUrl, String message) {
-        Language language = customer.language();
+        /* A website order is cancelled as an order, in the language of the page it was placed
+           on, to the login that ordered and with My orders as the place to go. */
+        Addressee addressee = addressee(order, customer);
+        boolean webOrder = addressee.webOrder();
+        Language language = addressee.language();
         Map<String, String> text = DocumentText.of(language);
         /* Never sent: the customer only ever saw their own request, so the
            mail speaks of the request, not of an offer they never received,
            and points them to a fresh request rather than to us. */
-        boolean request = order.sentAt() == null;
-        String subject = text.get(request ? "mailSubjectRequestCancelled" : "mailSubjectCancelled").formatted(order.number());
+        boolean request = !webOrder && order.sentAt() == null;
+        String subject = text.get(webOrder ? "mailSubjectOrderCancelled"
+                : request ? "mailSubjectRequestCancelled" : "mailSubjectCancelled").formatted(order.number());
         String body = cancellationMailTemplate
                 .data("languageCode", language.code())
                 .data("logoUrl", BRAND_LOGO_URL)
                 .data("websiteUrl", websiteBaseUrl)
                 .data("customer", customer)
                 .data("kicker", order.number())
-                .data("title", text.get(request ? "mailRequestCancelledTitle" : "mailCancelledTitle"))
-                .data("intro", text.get(request ? "mailRequestCancelledIntro" : "mailCancelledIntro").formatted(order.number()))
+                .data("title", text.get(webOrder ? "mailOrderCancelledTitle"
+                        : request ? "mailRequestCancelledTitle" : "mailCancelledTitle"))
+                .data("intro", text.get(webOrder ? "mailOrderCancelledIntro"
+                        : request ? "mailRequestCancelledIntro" : "mailCancelledIntro").formatted(order.number()))
                 .data("message", message == null || message.isBlank() ? null : message.strip())
                 .data("whatNowTitle", text.get("mailCancelledWhatNowTitle"))
-                .data("whatNow", text.get(request ? "mailRequestCancelledWhatNow" : "mailCancelledWhatNow"))
-                .data("buttonUrl", websitePage(language, request ? "quote" : "contact"))
-                .data("buttonLabel", text.get(request ? "mailCancelledButtonRequest" : "mailCancelledButtonContact"))
-                .data("portalUrl", portalUrl == null || portalUrl.isBlank() ? null : portalUrl)
+                .data("whatNow", text.get(webOrder ? "mailOrderCancelledWhatNow"
+                        : request ? "mailRequestCancelledWhatNow" : "mailCancelledWhatNow"))
+                .data("buttonUrl", websitePage(language, webOrder ? "account" : request ? "quote" : "contact"))
+                .data("buttonLabel", text.get(webOrder ? "mailOrderButton"
+                        : request ? "mailCancelledButtonRequest" : "mailCancelledButtonContact"))
+                /* The portal line speaks of a quotation page; for an order My orders is the place. */
+                .data("portalUrl", webOrder || portalUrl == null || portalUrl.isBlank() ? null : portalUrl)
                 .data("t", text)
                 .render();
-        deliverWithoutAttachment(customer, subject, body, order.number());
+        deliverWithoutAttachment(addressee.to(), addressee.cc(), subject, body, order.number());
+    }
+
+    /** Whom a customer mail about this document goes to, and whether the document is this customer's website order. */
+    private record Addressee(String to, String cc, Language language, boolean webOrder) {}
+
+    /**
+     * A document without a website-order row mails the customer record, as always. A row that
+     * was placed for another customer is ignored: staff re-linked the document, so it is the
+     * new customer's plain quote.
+     */
+    private Addressee addressee(SalesOrder order, Customer customer) {
+        Addressee plain = new Addressee(customer.email(), null, customer.language(), false);
+        if (order.id() == null || webOrders == null || !webOrders.isResolvable()
+                || webOrderRecipients == null || !webOrderRecipients.isResolvable()) return plain;
+        var row = webOrders.get().find(order.id()).orElse(null);
+        if (row == null || row.customerId() == null || !Objects.equals(row.customerId(), order.customerId())) return plain;
+        var recipient = webOrderRecipients.get().of(order, customer);
+        return new Addressee(recipient.to(), recipient.cc(), recipient.language(), true);
+    }
+
+    @Override
+    public void sendOrderReceived(CustomerOrderMailer.OrderMail mail) {
+        sendOrderMail(mail, true);
+    }
+
+    @Override
+    public void sendOrderInProcessing(CustomerOrderMailer.OrderMail mail) {
+        sendOrderMail(mail, false);
+    }
+
+    /**
+     * Same route and office copy as the cancellation mail. In a deployed environment the mock
+     * mailer refuses, so staff see on the order that nothing reached the customer.
+     */
+    private void sendOrderMail(CustomerOrderMailer.OrderMail mail, boolean received) {
+        if (mock && io.quarkus.runtime.LaunchMode.current() == io.quarkus.runtime.LaunchMode.NORMAL) {
+            throw new BusinessRuleException("De mailer staat in testmodus; de e-mail aan de klant is niet verstuurd");
+        }
+        String subject = DocumentText.of(mail.language())
+                .get(received ? "mailOrderReceivedSubject" : "mailOrderProcessingSubject").formatted(mail.number());
+        deliverWithoutAttachment(mail.to(), null, subject, orderMailHtml(mail, received), mail.number());
+    }
+
+    /** Received: what was ordered, where it goes and that it can still be changed. In processing: what happens next. */
+    String orderMailHtml(CustomerOrderMailer.OrderMail mail, boolean received) {
+        Language language = mail.language();
+        Map<String, String> text = DocumentText.of(language);
+        List<Map<String, String>> lines = new ArrayList<>();
+        List<Map<String, Object>> totals = new ArrayList<>();
+        if (received) {
+            for (CustomerOrderMailer.Line line : mail.lines()) {
+                lines.add(Map.of(
+                        "description", line.description() == null ? "" : line.description(),
+                        "quantity", orderQuantity(line, text),
+                        "net", line.net() == null ? text.get("mailOrderShippingToConfirm") : euro(line.net(), language)));
+            }
+            /* Collection without a charge has no delivery costs to name. */
+            if (mail.shippingToConfirm()) {
+                totals.add(totalRow(text.get("mailOrderDeliveryCosts"), text.get("mailOrderShippingToConfirm"), false));
+            } else if (mail.shipping() != null && !(mail.pickup() && mail.shipping().signum() == 0)) {
+                totals.add(totalRow(text.get("mailOrderDeliveryCosts"), euro(mail.shipping(), language), false));
+            }
+            if (mail.totalExclVat() != null && mail.vatAmount() != null && mail.totalInclVat() != null) {
+                totals.add(totalRow(text.get("mailOrderTotalExclVat"), euro(mail.totalExclVat(), language), false));
+                totals.add(totalRow(text.get("vat"), euro(mail.vatAmount(), language), false));
+                totals.add(totalRow(text.get("totalInclVat"), euro(mail.totalInclVat(), language), true));
+            }
+        }
+        return orderMailTemplate
+                .data("languageCode", language.code())
+                .data("logoUrl", BRAND_LOGO_URL)
+                .data("websiteUrl", websiteBaseUrl)
+                .data("kicker", text.get("mailOrderKicker").formatted(mail.number()))
+                .data("title", text.get(received ? "mailOrderReceivedTitle" : "mailOrderProcessingTitle"))
+                .data("contact", notBlank(mail.contactName()) ? mail.contactName().strip() : null)
+                .data("intro", text.get(received ? "mailOrderReceivedIntro" : "mailOrderProcessingIntro")
+                        .formatted(mail.number()))
+                .data("summaryTitle", text.get("mailOrderSummaryTitle"))
+                .data("lines", lines)
+                .data("totals", totals)
+                .data("deliveryTitle", text.get(mail.pickup() ? "mailOrderPickup" : "delivery"))
+                .data("deliveryLine", received && notBlank(mail.deliveryLine()) ? mail.deliveryLine().strip() : null)
+                .data("paragraph", text.get(received ? "mailOrderReceivedChange" : "mailOrderProcessingNext"))
+                .data("buttonUrl", websitePage(language, "account"))
+                .data("buttonLabel", text.get("mailOrderButton"))
+                .data("t", text)
+                .render();
+    }
+
+    /** "4 dozen × 24" when the carton content is known, the cartons alone when it is not. */
+    private static String orderQuantity(CustomerOrderMailer.Line line, Map<String, String> text) {
+        if (line.cartons() != null && line.cartons() > 0) {
+            String cartons = line.cartons() + " " + text.get("mailOrderCartons");
+            return line.piecesPerCarton() != null && line.piecesPerCarton() > 0
+                    ? cartons + " × " + line.piecesPerCarton() : cartons;
+        }
+        return line.quantity() > 0 ? String.valueOf(line.quantity()) : "";
+    }
+
+    private static Map<String, Object> totalRow(String label, String value, boolean strong) {
+        return Map.of("label", label, "value", value, "strong", strong);
+    }
+
+    private static String euro(java.math.BigDecimal amount, Language language) {
+        return DocumentText.money(amount, language) + " EUR";
     }
 
     /** The website page in the customer's language: English lives at the root, the others under their code. */
@@ -435,16 +569,16 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         return base + ("en".equals(code) ? "" : "/" + code) + "/" + page + "/";
     }
 
-    private void deliverWithoutAttachment(Customer customer, String subject, String body, String number) {
+    private void deliverWithoutAttachment(String to, String cc, String subject, String body, String number) {
         if (mock) {
-            mailer.send(customerMail(customer.email(), subject, body));
+            mailer.send(customerMail(to, cc, subject, body));
             LOG.warnf("MAILER STAAT IN TESTMODUS - er vertrok GEEN klantmail voor %s.", number);
             return;
         }
         String brevoKey = brevoApiKey.orElse("").trim();
         if (!brevoKey.isEmpty()) {
             try {
-                sendViaBrevo(customer.email(), subject, body, null, null);
+                sendViaBrevo(to, cc, subject, body, null, null, true);
             } catch (Exception e) {
                 LOG.errorf(e, "Klantmail voor %s via Brevo mislukt", number);
                 throw new BusinessRuleException(
@@ -456,7 +590,7 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         if (host.isBlank() || host.endsWith("example.com")) {
             throw new BusinessRuleException("Er is geen mailserver ingesteld; de mail kan niet vertrekken.");
         }
-        mailer.send(customerMail(customer.email(), subject, body));
+        mailer.send(customerMail(to, cc, subject, body));
     }
 
     /**
@@ -534,6 +668,13 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
         Mail mail = Mail.withHtml(to, subject, body);
         String copy = copyFor(to);
         if (copy != null) mail.addBcc(copy);
+        return mail;
+    }
+
+    /** The same, with the customer record in visible copy when a website order went to the login that ordered. */
+    private Mail customerMail(String to, String cc, String subject, String body) {
+        Mail mail = customerMail(to, subject, body);
+        if (cc != null) mail.addCc(cc);
         return mail;
     }
 
@@ -616,7 +757,14 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
 
     private void sendViaBrevo(String to, String subject, String html, String text,
                               QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) throws Exception {
+        sendViaBrevo(to, null, subject, html, text, attachment, withOfficeCopy);
+    }
+
+    private void sendViaBrevo(String to, String cc, String subject, String html, String text,
+                              QuoteDocumentRenderer.Document attachment, boolean withOfficeCopy) throws Exception {
         Map<String, Object> payload = brevoPayload(to, subject, html, text, attachment, withOfficeCopy);
+        /* The visible copy of a website order's mail; every other mail has none. */
+        if (cc != null) payload.put("cc", List.of(Map.of("email", cc)));
 
         BrevoAnswer answer = postToBrevo(payload);
         if (answer.status() >= 300) {
