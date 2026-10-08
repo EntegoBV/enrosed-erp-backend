@@ -334,6 +334,10 @@ public class PublicContentSeedLoader {
                                 && isKnownStaleSeedValue(seed.scope(), seed.key(), value.getKey(),
                                 presentText.value)) {
                             presentText.value = value.getValue();
+                            /* A planned swap is otherwise invisible: the count below
+                               only covers added values. */
+                            LOG.infof("Publieke copy vervangen door de nieuwe standaardtekst: %s (%s)",
+                                    seed.key(), value.getKey().code());
                             changed = true;
                         }
                         continue;

@@ -403,6 +403,11 @@ class ContentTranslationContractTest {
             text.value = former.path(language.name()).get(0).asText();
             assertTrue(!text.value.equals(seeded.get(language)), language.name());
         }
+        // Pinned from the release before this one, not read from the list the loader uses.
+        assertEquals("This website presents Enrosed products and wholesale information to businesses,"
+                + " including wholesalers, florists and retail buyers. It supports product comparison and"
+                + " quotation requests; it is not an online wholesale checkout and does not itself"
+                + " conclude a sale.", translation(purpose, Language.EN).value);
         assertTrue(seeded.get(Language.EN).endsWith("business customers with an account can also place orders,"
                 + " which become binding only once Enrosed has confirmed them."
                 + " The website itself does not conclude a sale."), seeded.get(Language.EN));
