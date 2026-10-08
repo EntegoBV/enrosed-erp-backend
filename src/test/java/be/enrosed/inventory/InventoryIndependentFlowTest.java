@@ -133,21 +133,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 475,60 is paid; the opening value of LOOS is replaced by 1,30; 3 pieces are found back.
  *   Container 2: Afspraak 540 + 75,60 + 500 = 1.115,60, paid 975,60, open 140,00.
  *     1.115,60 / 590 = 1,8908; estimated 140,00 / 590 = 0,2373. Unit value 4,3241.
- *   Warehouse: correction count 715 + 3 = 718; + 42 (the rows of D and B; the row of B was deleted
- *   from the ledger, so D now carries both) = 760. Q = 860: 570 + 290, of which 20 invoiced out.
+ *   Warehouse: correction count 715 + 3 = 718; + 12 (the row of D; the row of B was deleted from the
+ *   ledger after version 1 and counts for nothing: it stays listed as removed and D keeps its own 12)
+ *   = 730. Q = 830: 570 + 260, of which 20 invoiced out.
  *     570 x 4,3241 = 2.464,737 -> 2.464,74
- *     270 x 2,6560 =               717,12
+ *     240 x 2,6560 =               637,44
  *     40 x 1,30    =                52,00
- *     AANSCHAFWAARDE             3.233,86
+ *     AANSCHAFWAARDE             3.154,18
  *     15 x (4,3241 - 1,00) = 49,8615 -> 49,86
- *     EIGEN VOORRAAD             3.184,00
+ *     EIGEN VOORRAAD             3.104,32
  *     onderweg                     719,00
- *     TOTAAL                     3.903,00   estimated 570 x 0,2373 = 135,26 + 504,00 = 639,26
+ *     TOTAAL                     3.823,32   estimated 570 x 0,2373 = 135,26 + 504,00 = 639,26
  *   Then the forwarder's final invoice is confirmed: 120,00 still owed instead of 140,00.
  *     975,60 + 120,00 = 1.095,60; / 590 = 1,8569. Unit value 4,2902, nothing of it estimated.
- *     570 x 4,2902 = 2.445,414 -> 2.445,41, + 717,12 + 52,00 = AANSCHAFWAARDE 3.214,53
- *     15 x (4,2902 - 1,00) = 49,353 -> 49,35; EIGEN VOORRAAD 3.165,18; onderweg 719,00
- *     TOTAAL VERSIE 2            3.884,18   estimated 504,00
+ *     570 x 4,2902 = 2.445,414 -> 2.445,41, + 637,44 + 52,00 = AANSCHAFWAARDE 3.134,85
+ *     15 x (4,2902 - 1,00) = 49,353 -> 49,35; EIGEN VOORRAAD 3.085,50; onderweg 719,00
+ *     TOTAAL VERSIE 2            3.804,50   estimated 504,00
  */
 @QuarkusTest
 @TestProfile(InventoryIndependentFlowTest.OwnBook.class)
@@ -633,36 +634,40 @@ class InventoryIndependentFlowTest {
         money("v2 container 2 unit estimated", "0.2373", one(c2After.path("lots"), "productId", rose).path("unitEstimatedEur"));
         JsonNode roseAfter = one(corrected.path("articles"), "productId", rose);
         JsonNode roseWarehouseAfter = one(roseAfter.path("locations"), "locationId", warehouse);
-        check("v2 warehouse", List.of("718", "42", "760"), List.of(roseWarehouseAfter.path("anchorQuantity").asText(),
+        check("v2 warehouse", List.of("718", "12", "730"), List.of(roseWarehouseAfter.path("anchorQuantity").asText(),
                 roseWarehouseAfter.path("rollDelta").asText(), roseWarehouseAfter.path("closingQuantity").asText()));
-        check("v2 closing quantity", 860, roseAfter.path("closingQuantity").asInt());
-        money("v2 aanschafwaarde", "3233.86", corrected.at("/totals/costValueEur"));
+        check("v2 closing quantity", 830, roseAfter.path("closingQuantity").asInt());
+        money("v2 aanschafwaarde", "3154.18", corrected.at("/totals/costValueEur"));
         money("v2 waardevermindering", "49.86", corrected.at("/totals/writeDownEur"));
-        money("v2 eigen voorraad", "3184.00", corrected.at("/totals/ownValueEur"));
+        money("v2 eigen voorraad", "3104.32", corrected.at("/totals/ownValueEur"));
         money("v2 onderweg", "719.00", corrected.at("/totals/transitIncludedEur"));
-        money("v2 totaal", "3903.00", corrected.at("/totals/totalValueEur"));
+        money("v2 totaal", "3823.32", corrected.at("/totals/totalValueEur"));
         money("v2 geschat", "639.26", corrected.at("/totals/estimatedEur"));
-        check("v2 own quantity", 880, corrected.at("/totals/ownQuantity").asInt());
+        check("v2 own quantity", 850, corrected.at("/totals/ownQuantity").asInt());
         JsonNode changes = corrected.path("versionChanges");
         check("compared with version 1", List.of(String.valueOf(closing), "1"), List.of(changes.path("againstClosingId").asText(), changes.path("againstVersionNo").asText()));
         money("changes: total before", "3761.38", changes.path("totalBeforeEur"));
-        money("changes: total after", "3903.00", changes.path("totalAfterEur"));
+        money("changes: total after", "3823.32", changes.path("totalAfterEur"));
         JsonNode roseChange = one(changes.path("articles"), "productId", rose);
-        check("changes: quantity", List.of("857", "860"), List.of(roseChange.path("quantityBefore").asText(), roseChange.path("quantityAfter").asText()));
+        check("changes: quantity", List.of("857", "830"), List.of(roseChange.path("quantityBefore").asText(), roseChange.path("quantityAfter").asText()));
         money("changes: cost before", "3038.68", roseChange.path("costValueBeforeEur"));
-        money("changes: cost after", "3181.86", roseChange.path("costValueAfterEur"));
+        money("changes: cost after", "3102.18", roseChange.path("costValueAfterEur"));
         JsonNode lotChange = one(changes.path("lots"), "purchaseOrderId", second);
         money("changes: lot before", "4.0869", lotChange.path("unitValueBeforeEur"));
         money("changes: lot after", "4.3241", lotChange.path("unitValueAfterEur"));
         check("changes: only that lot", 1, changes.path("lots").size());
         JsonNode goneRow = one(changes.path("movements"), "movementId", deletedRow);
         check("changes: the deleted ledger row", List.of("-30", "true"), List.of(goneRow.path("effectBefore").asText(), String.valueOf(goneRow.path("effectAfter").isNull())));
-        JsonNode carriedRow = one(changes.path("movements"), "movementId", rowD.path("movementId").asLong());
-        check("changes: the row that now carries it", List.of("-12", "-42"), List.of(carriedRow.path("effectBefore").asText(), carriedRow.path("effectAfter").asText()));
+        check("changes: no other row took its pieces over", 1, changes.path("movements").size());
+        JsonNode keptD = one(corrected.path("movements"), "movementId", rowD.path("movementId").asLong());
+        check("the next sale keeps its own 12", List.of("-12", "-12", "true", "false"), List.of(keptD.path("delta").asText(),
+                keptD.path("effectiveDelta").asText(), keptD.path("applied").asText(), keptD.path("removed").asText()));
+        JsonNode goneB = one(corrected.path("movements"), "movementId", deletedRow);
+        check("the deleted sale stays listed and counts for nothing", List.of("true", "false", "-30"),
+                List.of(goneB.path("removed").asText(), goneB.path("applied").asText(), goneB.path("effectiveDelta").asText()));
         check("changes: both opening values", 2, changes.path("openingLayers").size());
         check("the differences are announced", true, codes(corrected, "WARNING").contains("VERSCHIL_MET_VORIGE_VERSIE"));
-        check("the deleted row is named", true, codes(corrected, "WARNING").contains("BEWEGING_VERDWENEN")
-                || goneRow.path("effectAfter").isNull());
+        check("the deleted row is named", true, codes(corrected, "WARNING").contains("BEWEGING_VERDWENEN"));
 
         /* The forwarder's final invoice is in: 120,00 is still owed, not the 140,00 the Afspraak leaves open. */
         invalid(call("PUT", CLOSINGS + "/" + version2 + "/decisions", Map.of("kind", "ACCRUAL", "purchaseOrderId", second,
@@ -756,10 +761,10 @@ class InventoryIndependentFlowTest {
         byte[] pdf2 = download(CLOSINGS + "/" + version2 + "/pdf", "jaarinventaris-2025-v2.pdf");
         check("v2 workbook hash", sha256(xlsx2), frozen2.path("xlsxSha256").asText());
         check("v2 pdf hash", sha256(pdf2), frozen2.path("pdfSha256").asText());
-        check("the v2 workbook holds its total", true, workbookText(xlsx2).contains("3884.18"));
+        check("the v2 workbook holds its total", true, workbookText(xlsx2).contains("3804.5"));
         String paper2 = pdfText(pdf2);
         Files.writeString(DUMP.resolve("09-version-2-final.pdf.txt"), paper2);
-        check("the v2 pdf prints its total", true, paper2.contains("3.884,18"));
+        check("the v2 pdf prints its total", true, paper2.contains("3.804,50"));
         check("the v2 pdf names what it replaces", true, paper2.replaceAll("\\s", "").contains("Wijzigingentegenoverversie1"));
 
         /* The old version stays readable, with its own figures and its own files. */
@@ -780,35 +785,33 @@ class InventoryIndependentFlowTest {
         check("the rule did not move", YEAR, call("GET", RULE, null, 200).path("effectiveFromYear").asInt());
 
         /* ------------------------------------------------------------------ what a deleted ledger row does
-         * REVIEW FINDING, asserted as the code behaves today. Two sales lay between the closing date and the count:
-         * B (-30) and D (-12). Deleting the row of B changed nothing in version 2: the 30 pieces went on counting
-         * through the next row (D, booked -12, counted as -42). Deleting the row of D now takes all 42 pieces out of
-         * the closing quantity, because the row after it is the replaced count, which does not count:
-         * 718 + 0 = 718 in the warehouse, 818 in all, where one deleted sale of 12 would give 848.
+         * Two sales lay between the closing date and the count: B (-30) and D (-12). The row of B was deleted before
+         * version 2 and took its own 30 pieces out of the closing quantity, no more. Deleting the row of D takes its
+         * 12 out as well, whatever row follows it (here the replaced count, which does not count and stays at -5):
+         * 718 + 0 = 718 in the warehouse, 818 in all.
          *   570 x 4,2902 = 2.445,41; 228 x 2,6560 = 605,57; 52,00: 3.102,98 - 49,35 + 719,00 = 3.772,63,
-         *   that is 42 x 2,6560 = 111,55 below version 2.
-         * Whether a deleted row keeps counting depends on its neighbour, not on a decision of the user. */
+         *   that is 12 x 2,6560 = 31,87 below version 2. */
         JsonNode third3 = call("POST", CLOSINGS + "/" + version2 + "/versions", Map.of("reason", "Proef: nog een boeking verwijderd"), 201);
         long version3 = third3.path("id").asLong();
         dump("11-version-3-created", third3);
-        check("version 3 starts on the figures of version 2", List.of("3", "860"), List.of(third3.path("versionNo").asText(),
+        check("version 3 starts on the figures of version 2", List.of("3", "830"), List.of(third3.path("versionNo").asText(),
                 one(third3.path("articles"), "productId", rose).path("closingQuantity").asText()));
-        money("version 3 starts on the total of version 2", "3884.18", third3.at("/totals/totalValueEur"));
+        money("version 3 starts on the total of version 2", "3804.50", third3.at("/totals/totalValueEur"));
         check("nothing differs yet", List.of(0, 0, 0, 0), List.of(third3.at("/versionChanges/articles").size(), third3.at("/versionChanges/lots").size(),
                 third3.at("/versionChanges/movements").size(), third3.at("/versionChanges/openingLayers").size()));
         assertEquals(204, staff().delete("/api/products/" + rose + "/stock-movements/" + rowD.path("movementId").asLong()).statusCode());
         JsonNode probed = call("POST", CLOSINGS + "/" + version3 + "/recompute", Map.of(), 200);
         dump("12-version-3-row-deleted", probed);
         JsonNode vanished = one(probed.path("movements"), "movementId", rowD.path("movementId").asLong());
-        check("the deleted row stays listed", List.of("true", "false", "-12", "-42"), List.of(vanished.path("removed").asText(),
+        check("the deleted row stays listed", List.of("true", "false", "-12", "-12"), List.of(vanished.path("removed").asText(),
                 vanished.path("applied").asText(), vanished.path("delta").asText(), vanished.path("effectiveDelta").asText()));
         check("and is named", true, codes(probed, "WARNING").contains("BEWEGING_VERDWENEN"));
         JsonNode replacedCount = one(probed.path("movements"), "kind", "STOCKTAKE");
-        check("the replaced count now carries both sales and does not count", List.of("-5", "-47", "false"),
+        check("the replaced count keeps its own difference and does not count", List.of("-5", "-5", "false"),
                 List.of(replacedCount.path("delta").asText(), replacedCount.path("effectiveDelta").asText(), replacedCount.path("applied").asText()));
-        check("FINDING: 42 pieces leave the closing quantity for one deleted sale of 12", 818,
+        check("12 pieces leave the closing quantity for the deleted sale of 12", 818,
                 one(probed.path("articles"), "productId", rose).path("closingQuantity").asInt());
-        money("FINDING: the total follows", "3772.63", probed.at("/totals/totalValueEur"));
+        money("the total follows", "3772.63", probed.at("/totals/totalValueEur"));
         check("nothing blocks this version", List.of(), codes(probed, "BLOCKER"));
         /* The probe is thrown away: a concept can be deleted, and version 2 is the valid closing again. */
         assertEquals(204, staff().delete(CLOSINGS + "/" + version3).statusCode());
@@ -898,20 +901,20 @@ class InventoryIndependentFlowTest {
     /**
      * Version 2 once the forwarder's invoice is confirmed: 975,60 paid + 120,00 owed = 1.095,60, / 590 = 1,8569;
      * unit value 2,2333 + 1,8569 + 0,2000 = 4,2902, nothing of it estimated.
-     *   570 x 4,2902 = 2.445,414 -> 2.445,41; 270 x 2,6560 = 717,12; 40 x 1,30 = 52,00: AANSCHAFWAARDE 3.214,53
-     *   15 x (4,2902 - 1,00) = 49,353 -> 49,35: EIGEN VOORRAAD 3.165,18; onderweg 719,00: TOTAAL 3.884,18
+     *   570 x 4,2902 = 2.445,414 -> 2.445,41; 240 x 2,6560 = 637,44; 40 x 1,30 = 52,00: AANSCHAFWAARDE 3.134,85
+     *   15 x (4,2902 - 1,00) = 49,353 -> 49,35: EIGEN VOORRAAD 3.085,50; onderweg 719,00: TOTAAL 3.804,50
      *   estimated: only the 504,00 on the water.
      */
     private void assertSecondVersion(JsonNode view) {
         String v = "v2 " + view.path("status").asText() + ": ";
-        money(v + "aanschafwaarde", "3214.53", view.at("/totals/costValueEur"));
+        money(v + "aanschafwaarde", "3134.85", view.at("/totals/costValueEur"));
         money(v + "waardevermindering", "49.35", view.at("/totals/writeDownEur"));
-        money(v + "eigen voorraad", "3165.18", view.at("/totals/ownValueEur"));
+        money(v + "eigen voorraad", "3085.50", view.at("/totals/ownValueEur"));
         money(v + "onderweg", "719.00", view.at("/totals/transitIncludedEur"));
         money(v + "gefactureerd uit", "53.12", view.at("/totals/invoicedOutEur"));
-        money(v + "TOTAAL", "3884.18", view.at("/totals/totalValueEur"));
+        money(v + "TOTAAL", "3804.50", view.at("/totals/totalValueEur"));
         money(v + "geschat", "504.00", view.at("/totals/estimatedEur"));
-        check(v + "own quantity", 880, view.at("/totals/ownQuantity").asInt());
+        check(v + "own quantity", 850, view.at("/totals/ownQuantity").asInt());
         check(v + "blockers", List.of(), codes(view, "BLOCKER"));
     }
 

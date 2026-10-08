@@ -255,8 +255,8 @@ public final class FifoValuer {
                 boolean automatic = invoice.automaticProducts().contains(productId);
                 String choice = automatic ? CHOICE_GONE : invoice.decision() == null ? null : invoice.decision().choice();
                 int need = CHOICE_OUT.equals(choice) ? invoiced : 0;
-                int taken = 0;
-                BigDecimal value = ZERO, estimated = ZERO;
+                int taken = 0, sources = 0;
+                BigDecimal value = ZERO, estimated = ZERO, sourceUnit = null;
                 for (int index = own.size() - 1; index >= 0 && need > 0; index--) {
                     StockClosingLayerEntity layer = own.get(index);
                     int pieces = Math.min(need, layer.quantity);
@@ -264,6 +264,8 @@ public final class FifoValuer {
                     layer.quantity -= pieces;
                     need -= pieces;
                     taken += pieces;
+                    sources++;
+                    sourceUnit = layer.unitValueEur;
                     StockClosingLayerEntity out = copy(layer);
                     out.block = BLOCK_INVOICED;
                     out.salesOrderId = invoice.salesOrderId();
@@ -275,7 +277,8 @@ public final class FifoValuer {
                     estimated = estimated.add(out.estimatedEur);
                 }
                 invoicedOut += taken;
-                separates.add(invoicedRow(invoice, article, invoiced, choice, automatic, taken, value, estimated));
+                separates.add(invoicedRow(invoice, article, invoiced, choice, automatic, taken, value, estimated,
+                        sources == 1 ? sourceUnit : null));
             }
             own.removeIf(layer -> layer.quantity == 0);
             own.forEach(FifoValuer::worth);
@@ -292,13 +295,15 @@ public final class FifoValuer {
                             .thenComparing(layer -> layer.position)).toList();
             for (WriteDown decision : decisions) {
                 int need = decision.quantity() == null ? Integer.MAX_VALUE : decision.quantity();
-                BigDecimal market = decision.marketUnitEur() == null ? BigDecimal.ZERO : decision.marketUnitEur();
+                /* A market value below nothing does not exist: a piece is written down to zero at most. */
+                BigDecimal market = decision.marketUnitEur() == null ? BigDecimal.ZERO : decision.marketUnitEur().max(BigDecimal.ZERO);
                 BigDecimal lowered = ZERO;
                 for (StockClosingLayerEntity layer : dearest) {
                     int pieces = Math.min(need, layer.quantity - layer.writeDownQuantity);
                     if (pieces <= 0) continue;
+                    /* Rounded per decision, so capped at what is left of the layer: its value never goes below zero. */
                     BigDecimal amount = money(layer.unitValueEur.subtract(market).max(BigDecimal.ZERO)
-                            .multiply(BigDecimal.valueOf(pieces)));
+                            .multiply(BigDecimal.valueOf(pieces))).min(layer.valueEur.subtract(layer.writeDownEur)).max(ZERO);
                     layer.writeDownQuantity += pieces;
                     layer.writeDownEur = layer.writeDownEur.add(amount);
                     need -= pieces;
@@ -351,7 +356,9 @@ public final class FifoValuer {
                 row.separateEur = row.separateEur.add(separate);
                 row.goodsEur = row.goodsEur.add(layer.valueEur.subtract(transport).subtract(logistics).subtract(separate));
             }
+            /* One layer: its own unit value, not a figure recomputed from the rounded value that differs in the last decimal. */
             row.averageUnitEur = ownQuantity == 0 ? null
+                    : own.size() == 1 && own.getFirst().quantity == ownQuantity ? own.getFirst().unitValueEur
                     : row.costValueEur.divide(BigDecimal.valueOf(ownQuantity), 4, RoundingMode.HALF_UP);
             row.ownValueEur = row.costValueEur.subtract(row.writeDownEur);
             row.previousWriteDownEur = input.previousWriteDowns().get(productId);
@@ -699,7 +706,8 @@ public final class FifoValuer {
     }
 
     private static StockClosingSeparateEntity invoicedRow(Invoice invoice, Article article, int invoiced, String choice,
-                                                          boolean automatic, int taken, BigDecimal value, BigDecimal estimated) {
+                                                          boolean automatic, int taken, BigDecimal value, BigDecimal estimated,
+                                                          BigDecimal singleLayerUnit) {
         StockClosingSeparateEntity row = new StockClosingSeparateEntity();
         row.kind = KIND_INVOICED;
         row.salesOrderId = invoice.salesOrderId();
@@ -710,6 +718,7 @@ public final class FifoValuer {
         row.sku = article.sku();
         row.productName = article.name();
         row.quantity = invoiced;
+        row.carvedQuantity = taken;
         row.choice = choice;
         row.automatic = automatic;
         if (automatic) {
@@ -722,7 +731,9 @@ public final class FifoValuer {
         }
         /* Only pieces that were taken out of the own stock have a value here. */
         if (taken > 0) {
-            row.unitValueEur = value.divide(BigDecimal.valueOf(taken), 4, RoundingMode.HALF_UP);
+            /* From one layer: its own unit value; from several: the average of what was taken. */
+            row.unitValueEur = singleLayerUnit != null ? singleLayerUnit
+                    : value.divide(BigDecimal.valueOf(taken), 4, RoundingMode.HALF_UP);
             row.valueEur = value;
             row.estimatedEur = estimated;
         }

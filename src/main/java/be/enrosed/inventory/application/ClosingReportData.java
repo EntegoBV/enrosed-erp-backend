@@ -56,6 +56,9 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
     public static final String LOCATION_NOTE = "De verdeling per locatie is een verhouding naar aantal en dient ter info;"
             + " het producttotaal is het gewaardeerde cijfer. Het aantal per locatie bevat ook goederen van derden,"
             + " partnerstuks en gefactureerde stuks; de waarde betreft alleen de eigen voorraad.";
+    public static final String TRANSIT_NOTE = "De waarde van goederen onderweg is per product het bestelde aantal x de"
+            + " waarde per stuk (4 decimalen); een verschil van enkele centen met het bedrag van de container onder"
+            + " 'Geschatte kosten' en 'Containers' is afronding.";
     public static final String LOT_NOTE = "Aandeel van een partij = bedrag van de container x sleutel van de partij"
             + " / som van de sleutels van de container.";
     public static final String RATES_STATEMENT = "De koersen zijn op de container ingevoerd; het ERP bewaart geen"
@@ -433,7 +436,8 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
     /** One row per stream that carries an estimated amount or on which an amount owed was entered. */
     public Table estimatedTable() {
         List<Column> columns = List.of(col("Container"), col("Betaalstroom"), col("Afspraak", Kind.MONEY),
-                col("Betaald", Kind.MONEY), col("Nog open", Kind.MONEY), col("Opgenomen", Kind.MONEY),
+                col("Betaald", Kind.MONEY), col("Nog open volgens Afspraak", Kind.MONEY),
+                col("Nog verschuldigd (ingevoerd)", Kind.MONEY), col("Opgenomen", Kind.MONEY),
                 col("waarvan geschat", Kind.MONEY), col("Basis"));
         List<List<Object>> rows = new ArrayList<>();
         for (StockClosingContainerEntity container : valuedContainers()) {
@@ -441,8 +445,8 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
                 if (stream.estimatedEur().signum() == 0 && stream.accrual() == null) continue;
                 boolean applied = stream.accrual() != null && !stream.stale();
                 rows.add(row(container.displayName, PayeeLabels.of(stream.payee()), stream.plannedEur(), stream.paidEur(),
-                        stream.openEur(), stream.includedEur(), stream.estimatedEur(),
-                        applied ? stream.accrual().reason : "Afspraak op de container"));
+                        stream.openEur(), applied ? nz(stream.accrual().amountEur) : null, stream.includedEur(),
+                        stream.estimatedEur(), applied ? stream.accrual().reason : "Afspraak op de container"));
             }
         }
         return new Table("Geschatte kosten", columns, rows, null);
@@ -514,11 +518,14 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
 
     public Table invoicedTable() {
         List<Column> columns = List.of(col("Factuur"), col("Datum", Kind.DAY), col("Klant"), col("Product"),
-                col("Aantal", Kind.COUNT), col("Waarde", Kind.MONEY), col("Beslissing"), col("Reden"));
+                col("Gefactureerd", Kind.COUNT), col("Uit voorraad", Kind.COUNT), col("Waarde per stuk", Kind.UNIT),
+                col("Waarde", Kind.MONEY), col("Beslissing"), col("Reden"));
         List<List<Object>> rows = new ArrayList<>();
         for (StockClosingSeparateEntity row : kind(FifoValuer.KIND_INVOICED)) {
+            /* The value covers the pieces taken out of the own stock, which can be fewer than were invoiced. */
+            boolean out = FifoValuer.CHOICE_OUT.equals(row.choice);
             rows.add(row(row.documentNumber, row.documentDate, row.counterparty, row.productName, count(row.quantity),
-                    FifoValuer.CHOICE_OUT.equals(row.choice) ? row.valueEur : null, invoicedLabel(row.choice), row.reason));
+                    out ? row.carvedQuantity : null, out ? row.unitValueEur : null, out ? row.valueEur : null, invoicedLabel(row.choice), row.reason));
         }
         return new Table("Gefactureerd, nog niet afgepunt", columns, rows, null);
     }
@@ -710,7 +717,9 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
     public Table noticeTable() {
         List<Column> columns = List.of(col("Soort"), col("Tekst"));
         List<List<Object>> rows = new ArrayList<>();
-        for (Notice notice : notices) rows.add(row(notice.blocker() ? "Blokkeert" : "Aandacht", notice.message()));
+        for (Notice notice : notices) {
+            rows.add(row(notice.blocker() ? "Blokkeert" : "Aandacht", ClosingNotices.reportText(notice.message())));
+        }
         return new Table("Aandachtspunten", columns, rows, null);
     }
 
@@ -733,9 +742,20 @@ public record ClosingReportData(StockClosingEntity closing, CompanyIdentity comp
         for (StockClosingContainerEntity container : valuedContainers()) {
             if (container.rateCutoffDate == null || StockClosingService.BORDER_RECEIPT.equals(container.rateCutoffSource)) continue;
             statements.add("Container " + container.displayName + ": eigendom of risico vanaf " + DAY.format(container.rateCutoffDate)
-                    + " (" + StockClosingService.borderLabel(container.rateCutoffSource) + ").");
+                    + ", " + borderStatement(container.rateCutoffSource) + ".");
         }
         return statements;
+    }
+
+    /** Where the day of purchase of a container comes from, as a clause of a sentence. */
+    private static String borderStatement(String source) {
+        return switch (source == null ? "" : source) {
+            case StockClosingService.BORDER_DECISION -> "door de gebruiker ingevoerd";
+            case StockClosingService.BORDER_TRANSIT -> "opgegeven bij de beslissing over goederen onderweg";
+            case StockClosingService.BORDER_PREVIOUS -> "overgenomen uit de vorige afsluiting";
+            case StockClosingService.BORDER_CLOSING_DATE -> "de afsluitdatum, omdat de container niet is opgenomen";
+            default -> "de ontvangstdatum";
+        };
     }
 
     /* --------------------------------------------------------------- helpers */

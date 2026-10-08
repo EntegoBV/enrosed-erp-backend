@@ -306,7 +306,7 @@ public final class StockClosingDtos {
 
     public record SeparateItem(long id, String kind, Long purchaseOrderId, Long salesOrderId, String documentNumber,
                                String documentName, LocalDate documentDate, String counterparty, Long productId, String sku,
-                               String productName, Integer proposedQuantity, int quantity, BigDecimal unitValueEur,
+                               String productName, Integer proposedQuantity, int quantity, Integer carvedQuantity, BigDecimal unitValueEur,
                                BigDecimal valueEur, BigDecimal estimatedEur, Boolean included, String choice,
                                LocalDate ownershipDate, LocalDate shippedOn, LocalDate receivedOn, BigDecimal paidUntilClosingEur,
                                String reason, boolean automatic, String decidedByName, Instant decidedAt, Long decisionId,
@@ -316,7 +316,7 @@ public final class StockClosingDtos {
                     .filter(candidate -> Objects.equals(candidate.purchaseOrderId, row.purchaseOrderId)).findFirst().orElse(null);
             return new SeparateItem(row.id, row.kind, row.purchaseOrderId, row.salesOrderId, row.documentNumber, row.documentName,
                     row.documentDate, row.counterparty, row.productId, row.sku, row.productName, row.proposedQuantity,
-                    count(row.quantity), row.unitValueEur, row.valueEur, row.estimatedEur, row.included, row.choice,
+                    count(row.quantity), row.carvedQuantity, row.unitValueEur, row.valueEur, row.estimatedEur, row.included, row.choice,
                     row.ownershipDate, row.shippedOn, row.receivedOn, row.paidUntilClosingEur, row.reason,
                     Boolean.TRUE.equals(row.automatic), row.decidedByName, row.decidedAt, row.decisionId,
                     container == null ? null : container.supplierIncoterm, container == null ? null : Boolean.TRUE.equals(container.cif));

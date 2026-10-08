@@ -424,6 +424,31 @@ class StockCountServiceTest {
     }
 
     @Test @TestTransaction
+    void aMovementCommittedWhileTheBookingRunsIsNotOverwritten() {
+        StockLocation shelf = location("Venster");
+        long rose = product("Roos", true);
+        level(rose, shelf, 100);
+        long count = counts.start(YEAR, shelf.id(), null, null).summary().count().id;
+        save(count, rose, 98, "BESCHADIGD", null);
+        String seen = counts.bookingCheck(count).checkToken();
+        assertEquals(sha256(rose + ":100:1"), seen);
+
+        /* Another user's sale of 10 reaches the database behind the back of this session, which still holds 100. */
+        assertEquals(1, em.createQuery("update StockLevelEntity set quantity = 90 where productId = ?1 and locationId = ?2")
+                .setParameter(1, rose).setParameter(2, shelf.id()).executeUpdate());
+        assertEquals(100, stock.quantityAt(rose, shelf.id()), "the stale figure the booking used to write from");
+
+        InventoryRefusal refused = assertThrows(InventoryRefusal.class, () -> counts.book(count, seen));
+        assertEquals("TELLING_GEWIJZIGD", refused.code());
+        assertEquals(List.of(), stocktakes(count));
+        assertEquals(90, stock.quantityAt(rose, shelf.id()), "the sale stands; 98 was never written over it");
+
+        em.clear();
+        counts.book(count, counts.bookingCheck(count).checkToken());
+        assertEquals(88, stock.quantityAt(rose, shelf.id()), "the sale of 10 and the difference of -2 both survive");
+    }
+
+    @Test @TestTransaction
     void aStaleCheckTokenSendsTheUserBackToTheCheck() {
         StockLocation shelf = location("Token");
         long rose = product("Roos", true);

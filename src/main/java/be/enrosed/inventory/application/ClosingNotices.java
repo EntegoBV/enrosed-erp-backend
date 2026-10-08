@@ -103,6 +103,23 @@ public final class ClosingNotices {
         return sorted;
     }
 
+    /* What the user can do about a notice: shown on the screen, left out of the files, which state facts only. */
+    public static final String HINT_LOSS_CREDIT = " Is het een korting op stuks die er liggen, geef dat dan aan bij het tegoed.";
+    public static final String HINT_OTHER_COSTS = " Hoort een bedrag bij de zending, zet het dan op de container onder"
+            + " 'Inspectie & andere kosten'. Btw die je terugkrijgt hoort hier wel.";
+    public static final String HINT_RATES = " en blijven wijzigbaar tot de afsluiting definitief is";
+
+    /** A notice as the PDF and the workbook print it: the fact without the advice of the screen. */
+    public static String reportText(String message) {
+        if (message == null) return null;
+        return message.replace(HINT_LOSS_CREDIT, "").replace(HINT_OTHER_COSTS, "").replace(HINT_RATES, "");
+    }
+
+    /** "1 container" or "3 containers": the count with the word in the right number. */
+    public static String counted(long count, String one, String many) {
+        return count + " " + (count == 1 ? one : many);
+    }
+
     /* -------------------------------------------------------------- containers */
 
     /**
@@ -159,16 +176,22 @@ public final class ClosingNotices {
         }
         if (aboveLoss) {
             replaceLast(block("TEGOED_MEER_DAN_VERLIES", SEGMENT_VALUE, "Container " + name + ": tegoed voor tekort of schade € "
-                    + euro(cost.defaultLossCreditEur()) + ", terwijl de ontbrekende en beschadigde stuks samen € "
+                    + euro(cost.lossCreditEur()) + ", terwijl de ontbrekende en beschadigde stuks samen € "
                     + euro(cost.missingAndDamagedCostEur()) + " kostten. Geef per tegoed aan wat het is.")
-                    .container(purchaseOrderId).stream(null, money(cost.defaultLossCreditEur())));
+                    .container(purchaseOrderId).stream(null, money(cost.lossCreditEur())));
         } else if (cost.lossCreditEur() != null && cost.lossCreditEur().signum() > 0) {
             replaceLast(warn("TEGOED_BUITEN_WAARDE", SEGMENT_VALUE, "Container " + name
                     + ": tegoed leverancier voor tekort of schade € " + euro(cost.lossCreditEur())
-                    + " staat buiten de voorraadwaarde. Is het een korting op stuks die er liggen, geef dat dan aan bij het tegoed.")
+                    + " staat buiten de voorraadwaarde." + HINT_LOSS_CREDIT)
                     .container(purchaseOrderId).stream(null, money(cost.lossCreditEur())));
         }
         for (LotCost.Lot lot : cost.lots()) {
+            if (lot.priceCreditEur() != null && lot.goodsEur() != null && lot.priceCreditEur().compareTo(lot.goodsEur()) > 0) {
+                replaceLast(block("TEGOED_MEER_DAN_GOEDEREN", SEGMENT_VALUE, "Container " + name + ", " + lot.productName()
+                        + ": prijstegoed € " + euro(lot.priceCreditEur()) + " is hoger dan de goederen van de partij (€ "
+                        + euro(lot.goodsEur()) + "). Kijk het tegoed na of geef aan dat het buiten de voorraadwaarde blijft.")
+                        .container(purchaseOrderId).product(lot.productId()));
+            }
             if (lot.status() == LotCost.LotStatus.GEEN_PRIJS) {
                 replaceLast(block("GEEN_PRIJS", SEGMENT_VALUE, "Partij zonder inkoopprijs: container " + name + ", "
                         + lot.productName() + ". Vul de inkoopprijs aan op de container.")

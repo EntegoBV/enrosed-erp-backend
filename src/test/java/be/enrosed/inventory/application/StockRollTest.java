@@ -308,7 +308,7 @@ class StockRollTest {
         Result first = roll(counted, line);
         assertEquals(100, first.position(ROSE, WAREHOUSE).closingQuantity());
 
-        /* The first sale is struck from the stock book; the second now starts from the level before both. */
+        /* The first sale is struck from the stock book; the second keeps its own 10 and takes nothing over. */
         book.removeIf(movement -> movement.id() == 1L);
         previous = first.rows().stream().map(StockRoll.Row::row).toList();
         stillInBook = Set.of(2L);
@@ -319,8 +319,9 @@ class StockRollTest {
         assertFalse(gone.row().applied);
         assertEquals(-30, gone.row().effectiveDelta, "written again as it was");
         assertEquals("F-2027-001", gone.row().refText);
-        assertEquals(-40, second.row(2).row().effectiveDelta);
-        assertEquals(100, second.position(ROSE, WAREHOUSE).closingQuantity());
+        assertEquals(-10, second.row(2).row().effectiveDelta, "the deleted 30 do not move onto the next line");
+        assertFalse(second.row(2).row().review);
+        assertEquals(70, second.position(ROSE, WAREHOUSE).closingQuantity(), "60 counted + the one sale that is still booked");
 
         for (int compute = 0; compute < 2; compute++) {
             previous = second.rows().stream().map(StockRoll.Row::row).toList();
@@ -328,7 +329,8 @@ class StockRollTest {
             assertTrue(second.row(1).row().removed, "still listed after compute " + (compute + 2));
             assertFalse(second.row(1).row().applied);
             assertEquals(2, second.rows().size());
-            assertEquals(100, second.position(ROSE, WAREHOUSE).closingQuantity());
+            assertEquals(-10, second.row(2).row().effectiveDelta);
+            assertEquals(70, second.position(ROSE, WAREHOUSE).closingQuantity());
         }
 
         /* A row that only fell out of the window is not a vanished row. */
@@ -336,6 +338,97 @@ class StockRollTest {
         book.clear();
         stillInBook = Set.of(2L);
         assertEquals(0, roll(counted, line).rows().size());
+    }
+
+    @Test
+    void aDeletedLineCountsForNothingWhateverLineFollowsIt() {
+        /* Counted 718 on 05/01. Since the closing date: sale B -30, sale D -12, and a count of 723 that a correction replaced. */
+        Instant firstCount = at(2027, 1, 4, 9, 0);
+        Instant counted = at(2027, 1, 5, 9, 0);
+        before.put(ROSE + ":" + WAREHOUSE, 765);
+        move(1, ROSE, at(2027, 1, 2, 9, 0), -30, 735, Kind.SALE, "F-2027-001");
+        move(2, ROSE, at(2027, 1, 3, 9, 0), -12, 723, Kind.SALE, "F-2027-002");
+        move(3, ROSE, firstCount, 0, 723, Kind.STOCKTAKE, BASE_REF + " geen verschil");
+        move(4, ROSE, counted, -5, 718, Kind.STOCKTAKE, CORRECTION_REF + " correctie");
+        Location location = new Location(WAREHOUSE, "Magazijn", StockRoll.ANCHOR_COUNT, BASE,
+                Map.of(BASE, BASE_REF, CORRECTION, CORRECTION_REF),
+                List.of(new BookedLine(BASE, 400, ROSE, 723, firstCount), new BookedLine(CORRECTION, 410, ROSE, 718, counted)),
+                null, firstCount);
+        Result first = roll(location);
+        assertEquals(718 + 30 + 12, first.position(ROSE, WAREHOUSE).closingQuantity());
+        assertFalse(first.row(3).row().applied, "the replaced count");
+
+        /* Followed by an applied line: B is deleted, D keeps -12. */
+        book.removeIf(movement -> movement.id() == 1L);
+        previous = first.rows().stream().map(StockRoll.Row::row).toList();
+        stillInBook = Set.of(2L, 3L, 4L);
+        Result second = roll(location);
+        assertTrue(second.row(1).row().removed);
+        assertEquals(-12, second.row(2).row().effectiveDelta);
+        assertTrue(second.row(2).row().applied);
+        assertEquals(718 + 12, second.position(ROSE, WAREHOUSE).closingQuantity());
+
+        /* Followed by a line that does not count: D is deleted too, the replaced count stays at 0 and nothing else moves. */
+        book.removeIf(movement -> movement.id() == 2L);
+        previous = second.rows().stream().map(StockRoll.Row::row).toList();
+        stillInBook = Set.of(3L, 4L);
+        Result third = roll(location);
+        assertTrue(third.row(1).row().removed);
+        assertTrue(third.row(2).row().removed);
+        assertEquals(-30, third.row(1).row().effectiveDelta);
+        assertEquals(-12, third.row(2).row().effectiveDelta);
+        assertEquals(0, third.row(3).row().effectiveDelta, "723 after the deleted sale of 12, 723 counted");
+        assertFalse(third.row(3).row().applied);
+        assertEquals(718, third.position(ROSE, WAREHOUSE).closingQuantity(), "each deleted sale took its own pieces out, no more");
+
+        /* The same book read by a correction version: the rows of the version it replaces are the memory. */
+        previous = first.rows().stream().map(StockRoll.Row::row).toList();
+        Result version = roll(location);
+        assertEquals(718, version.position(ROSE, WAREHOUSE).closingQuantity());
+        assertEquals(2, version.rows().stream().filter(row -> row.row().removed).count());
+    }
+
+    @Test
+    void aLineThatCountsForAnotherNumberThanItBookedIsFlagged() {
+        /* A sale of 30 was deleted before the closing was ever computed: nothing remembers it. */
+        Instant counted = at(2027, 1, 6, 9, 0);
+        before.put(ROSE + ":" + WAREHOUSE, 100);
+        move(2, ROSE, at(2027, 1, 3, 9, 0), -10, 60, Kind.SALE, "F-2027-002");
+        move(3, ROSE, at(2027, 1, 4, 9, 0), -5, 60, Kind.MANUAL_CORRECTION, "Schade bij aankomst");
+
+        Result result = roll(counted, new BookedLine(BASE, 400, ROSE, 60, counted));
+
+        var sale = result.row(2).row();
+        assertEquals(-10, sale.delta);
+        assertEquals(-40, sale.effectiveDelta);
+        assertTrue(sale.review, "the user decides, the line does not take 30 pieces unseen");
+        assertEquals(StockRoll.NOTE_GAP, sale.defaultNote);
+        assertTrue(sale.applied);
+        assertEquals(0, result.row(3).row().effectiveDelta, "a memo line that changed nothing");
+        assertEquals(100, result.position(ROSE, WAREHOUSE).closingQuantity());
+    }
+
+    @Test
+    void aLineOfTheVeryInstantOfACountBeforeTheClosingDateIsListedForTheUser() {
+        Instant counted = at(2026, 12, 28, 10, 0);
+        before.put(ROSE + ":" + WAREHOUSE, 505);
+        move(1, ROSE, counted, -5, 500, Kind.STOCKTAKE, BASE_REF + " verschil");
+        move(2, ROSE, counted, -30, 470, Kind.SALE, "F-2026-090");
+        move(3, ROSE, at(2026, 12, 29, 9, 0), -20, 450, Kind.SALE, "F-2026-091");
+
+        Result result = roll(counted, new BookedLine(BASE, 400, ROSE, 500, counted));
+
+        assertNull(result.row(1), "the count's own line");
+        var same = result.row(2).row();
+        assertFalse(same.defaultApplied);
+        assertFalse(same.applied);
+        assertTrue(same.review);
+        assertEquals(StockRoll.NOTE_SAME_INSTANT, same.defaultNote);
+        assertEquals(-30, same.effectiveDelta);
+        assertEquals(480, result.position(ROSE, WAREHOUSE).closingQuantity(), "500 - the 20 of 29/12");
+
+        decisions.put(2L, new Flip(true, "Na het tellen meegegeven"));
+        assertEquals(450, roll(counted, new BookedLine(BASE, 400, ROSE, 500, counted)).position(ROSE, WAREHOUSE).closingQuantity());
     }
 
     /* ---------------------------------------------------------- helpers */

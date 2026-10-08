@@ -77,11 +77,18 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
                         .data th { background: #214939; color: white; padding: 4pt 3pt; text-align: left; font-weight: 700; }
                         .data td { padding: 3pt 3pt; border-bottom: 0.5pt solid #dce4de; vertical-align: top; word-wrap: break-word; }
                         .data tr { page-break-inside: avoid; }
+                        .data thead, .data thead tr { page-break-after: avoid; }
                         .data tr.sum td { background: #eef3ef; font-weight: 700; }
                         .data tr.group td { background: #f6f3ea; font-weight: 700; }
+                        .data tr.group { page-break-after: avoid; }
+                        .data tbody.product { page-break-inside: avoid; }
+                        .data tr.parent td { border-bottom: none; }
+                        .data tr.layer { page-break-before: avoid; }
                         .data tr.layer td { font-size: 6pt; color: #4c5f57; border-bottom: none; padding: 1pt 3pt; }
+                        .data tr.last td { border-bottom: 0.5pt solid #dce4de; padding-bottom: 3pt; }
                         .data .num { text-align: right; }
-                        .data td.num { white-space: nowrap; }
+                        .data td.num, .data td.nw, .data span.nw { white-space: nowrap; }
+                        table.fixed { table-layout: fixed; }
                         table.summary { width: 62%; border-collapse: collapse; }
                         .summary td { padding: 3pt 4pt; border-bottom: 0.5pt solid #dce4de; }
                         .summary td.num { text-align: right; white-space: nowrap; }
@@ -102,6 +109,9 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
         section(html, data.estimatedTable());
         section(html, data.partnerTable());
         section(html, data.transitTable());
+        if (!data.kind(be.enrosed.inventory.application.FifoValuer.KIND_TRANSIT).isEmpty()) {
+            html.append("<p class=\"muted\">").append(escape(ClosingReportData.TRANSIT_NOTE)).append("</p>");
+        }
         section(html, data.invoicedTable());
         if (data.olderInvoiceLine() != null) html.append("<p>").append(escape(data.olderInvoiceLine())).append("</p>");
         section(html, data.thirdPartyTable());
@@ -171,7 +181,7 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
         html.append("<table class=\"data\"><thead><tr><th style=\"width:13%\">SKU</th><th style=\"width:31%\">Product</th>")
                 .append("<th>Eenheid</th><th class=\"num\">Aantal</th><th class=\"num\">Waarde per stuk (gem.)</th>")
                 .append("<th class=\"num\">Aanschafwaarde</th><th class=\"num\">Waardevermindering</th><th class=\"num\">Waarde</th>")
-                .append("</tr></thead><tbody>");
+                .append("</tr></thead>");
         Sum all = new Sum(), group = new Sum();
         String category = null;
         for (StockClosingArticleEntity article : articles) {
@@ -180,39 +190,49 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
                 if (category != null) group.row(html, "Subtotaal " + category);
                 group = new Sum();
                 category = own;
-                html.append("<tr class=\"group\"><td colspan=\"8\">").append(escape(own)).append("</td></tr>");
             }
-            html.append("<tr><td>").append(escape(article.sku)).append("</td><td>").append(escape(article.productName))
+            /* A product and the lots under it are one block: a page never breaks between them, and the
+               heading of a category stays with its first product. */
+            List<StockClosingLayerEntity> layers = data.ownLayers(article.productId);
+            boolean unvalued = count(article.unvaluedQuantity) > 0;
+            boolean heading = byCategory && group.products == 0;
+            html.append("<tbody class=\"product\">");
+            if (heading) html.append("<tr class=\"group\"><td colspan=\"8\">").append(escape(own)).append("</td></tr>");
+            html.append(layers.isEmpty() && !unvalued ? "<tr>" : "<tr class=\"parent\">").append("<td>").append(escape(article.sku)).append("</td><td>").append(escape(article.productName))
                     .append("</td><td>").append(escape(article.unitKey)).append("</td><td class=\"num\">")
                     .append(count(article.ownQuantity)).append("</td><td class=\"num\">").append(unit(article.averageUnitEur))
                     .append("</td><td class=\"num\">").append(money(article.costValueEur)).append("</td><td class=\"num\">")
                     .append(money(article.writeDownEur)).append("</td><td class=\"num\">").append(money(article.ownValueEur))
                     .append("</td></tr>");
-            for (StockClosingLayerEntity layer : data.ownLayers(article.productId)) {
+            for (int index = 0; index < layers.size(); index++) {
+                StockClosingLayerEntity layer = layers.get(index);
                 boolean estimated = layer.estimatedEur != null && layer.estimatedEur.signum() > 0;
-                html.append("<tr class=\"layer\"><td></td><td>").append(escape(data.layerLabel(layer)))
+                html.append(index == layers.size() - 1 && !unvalued ? "<tr class=\"layer last\">" : "<tr class=\"layer\">")
+                        .append("<td></td><td>").append(escape(data.layerLabel(layer)))
                         .append(estimated ? " · geschat" : "").append("</td><td></td><td class=\"num\">").append(count(layer.quantity))
                         .append("</td><td class=\"num\">").append(unit(layer.unitValueEur)).append("</td><td class=\"num\">")
                         .append(money(layer.valueEur)).append("</td><td></td><td></td></tr>");
             }
-            if (count(article.unvaluedQuantity) > 0) {
-                html.append("<tr class=\"layer\"><td></td><td>Zonder gewaardeerde partij</td><td></td><td class=\"num\">")
+            if (unvalued) {
+                html.append("<tr class=\"layer last\"><td></td><td>Zonder gewaardeerde partij</td><td></td><td class=\"num\">")
                         .append(count(article.unvaluedQuantity)).append("</td><td></td><td></td><td></td><td></td></tr>");
             }
+            html.append("</tbody>");
             all.add(article);
             group.add(article);
         }
         if (byCategory && category != null) group.row(html, "Subtotaal " + category);
         all.row(html, byCategory ? "Totaal eigen voorraad" : "Subtotaal demostukken");
-        html.append("</tbody></table>");
+        html.append("</table>");
     }
 
     /** The running totals of the valued list. */
     private static final class Sum {
-        private int quantity;
+        private int quantity, products;
         private BigDecimal cost = BigDecimal.ZERO, writeDown = BigDecimal.ZERO, value = BigDecimal.ZERO;
 
         void add(StockClosingArticleEntity article) {
+            products++;
             quantity += count(article.ownQuantity);
             cost = cost.add(nz(article.costValueEur));
             writeDown = writeDown.add(nz(article.writeDownEur));
@@ -220,9 +240,9 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
         }
 
         void row(StringBuilder html, String label) {
-            html.append("<tr class=\"sum\"><td colspan=\"3\">").append(escape(label)).append("</td><td class=\"num\">").append(quantity)
+            html.append("<tbody><tr class=\"sum\"><td colspan=\"3\">").append(escape(label)).append("</td><td class=\"num\">").append(quantity)
                     .append("</td><td></td><td class=\"num\">").append(money(cost)).append("</td><td class=\"num\">")
-                    .append(money(writeDown)).append("</td><td class=\"num\">").append(money(value)).append("</td></tr>");
+                    .append(money(writeDown)).append("</td><td class=\"num\">").append(money(value)).append("</td></tr></tbody>");
         }
     }
 
@@ -237,7 +257,12 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
             html.append("<p class=\"muted\">Geen.</p>");
             return;
         }
-        html.append("<table class=\"data\"><thead><tr>");
+        /* Fixed widths by the kind of each column: a long name or reason never squeezes a date or an amount. */
+        html.append("<table class=\"data fixed\"><colgroup>");
+        for (double width : widths(table.columns())) {
+            html.append("<col style=\"width:").append(String.format(java.util.Locale.ROOT, "%.2f", width)).append("%\"/>");
+        }
+        html.append("</colgroup><thead><tr>");
         for (Column column : table.columns()) {
             html.append(numeric(column.kind()) ? "<th class=\"num\">" : "<th>").append(escape(column.title())).append("</th>");
         }
@@ -252,9 +277,65 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
         for (int index = 0; index < columns.size(); index++) {
             Object value = index < values.size() ? values.get(index) : null;
             boolean right = value instanceof Number;
-            html.append(right ? "<td class=\"num\">" : "<td>").append(escape(print(value, columns.get(index).kind()))).append("</td>");
+            boolean whole = value instanceof LocalDate || value instanceof Instant;
+            html.append(right ? "<td class=\"num\">" : whole ? "<td class=\"nw\">" : "<td>")
+                    .append(whole ? escape(print(value, columns.get(index).kind()))
+                            : whole(escape(print(value, columns.get(index).kind())))).append("</td>");
         }
         html.append("</tr>");
+    }
+
+    /**
+     * The width of each column in percent. A date, a moment, a count and an amount get what their content
+     * needs; the text columns share the rest, the ones that carry sentences taking twice the share of a label.
+     */
+    static double[] widths(List<Column> columns) {
+        double[] widths = new double[columns.size()];
+        double fixed = 0, shares = 0;
+        for (int index = 0; index < widths.length; index++) {
+            Column column = columns.get(index);
+            double width = switch (column.kind()) {
+                case DAY -> 7;
+                case MOMENT -> 10;
+                case COUNT, YES_NO -> 6;
+                case MONEY, RATE -> 9;
+                case UNIT -> 8;
+                default -> 0;
+            };
+            if (width > 0) {
+                widths[index] = Math.max(width, heading(column));
+                fixed += widths[index];
+            } else {
+                shares += share(column);
+            }
+        }
+        double sum = fixed;
+        for (int index = 0; index < widths.length; index++) {
+            if (widths[index] > 0) continue;
+            Column column = columns.get(index);
+            widths[index] = Math.max(Math.max(6, heading(column)), (100 - fixed) * share(column) / shares);
+            sum += widths[index];
+        }
+        /* More than the page holds, or less: every column gives or takes in proportion. */
+        for (int index = 0; index < widths.length; index++) widths[index] = widths[index] * 100 / sum;
+        return widths;
+    }
+
+    /** What the longest word of a heading needs, so a title never runs into its neighbour. */
+    private static double heading(Column column) {
+        int longest = 0;
+        for (String word : column.title().split("\\s+")) longest = Math.max(longest, word.length());
+        /* A long title may wrap onto three lines, not onto seven. */
+        return Math.max(longest, Math.min(28, column.title().length() / 3.0)) * 0.6 + 1.2;
+    }
+
+    private static double share(Column column) {
+        return switch (column.title()) {
+            case "Product", "Partij", "Toelichting", "Reden", "Basis", "Tekst", "Onderwerp", "Referentie",
+                 "Reden van de beslissing" -> 2;
+            case "Munt", "Soort", "Door", "Keuze", "Meegerekend" -> 0.8;
+            default -> 1;
+        };
     }
 
     private static void changes(StringBuilder html, ClosingReportData data) {
@@ -275,10 +356,17 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
             }
         }
         if (data.warnings().isEmpty()) html.append("<p class=\"muted\">Geen.</p>");
-        for (ClosingNotices.Notice warning : data.warnings()) html.append("<p>").append(escape(warning.message())).append("</p>");
+        for (ClosingNotices.Notice warning : data.warnings()) html.append("<p>").append(escape(ClosingNotices.reportText(warning.message()))).append("</p>");
     }
 
     /* --------------------------------------------------------------- printing */
+
+    private static final java.util.regex.Pattern DATE = java.util.regex.Pattern.compile("\\d{2}/\\d{2}/\\d{4}( \\d{2}:\\d{2})?");
+
+    /** A date inside a sentence stays in one piece when the line wraps. */
+    private static String whole(String escaped) {
+        return DATE.matcher(escaped).replaceAll("<span class=\"nw\">$0</span>");
+    }
 
     private static boolean numeric(Kind kind) {
         return kind == Kind.COUNT || kind == Kind.MONEY || kind == Kind.UNIT || kind == Kind.RATE;

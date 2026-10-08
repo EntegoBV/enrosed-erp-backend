@@ -32,6 +32,8 @@ public class StockClosingSeparateEntity {
     @Column(name = "product_name", length = 255) public String productName;
     @Column(name = "proposed_quantity") public Integer proposedQuantity;
     @Column(name = "quantity") public Integer quantity;
+    /** GEFACTUREERD: the pieces that were taken out of the own stock; the value of the row covers these only. */
+    @Column(name = "carved_quantity") public Integer carvedQuantity;
     @Column(name = "unit_value_eur", precision = 19, scale = 4) public BigDecimal unitValueEur;
     @Column(name = "value_eur", precision = 19, scale = 2) public BigDecimal valueEur;
     @Column(name = "estimated_eur", precision = 19, scale = 2) public BigDecimal estimatedEur;

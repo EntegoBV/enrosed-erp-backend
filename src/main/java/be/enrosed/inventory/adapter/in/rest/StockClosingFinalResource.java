@@ -67,6 +67,7 @@ public class StockClosingFinalResource {
         } catch (BusinessRuleException | NotFoundException refused) {
             throw refused;
         } catch (PersistenceException raced) {
+            if (!be.enrosed.inventory.application.StockClosingService.uniqueViolation(raced)) throw raced;
             /* Two corrections of one year at once: the unique index on year and version let one through. */
             throw new InventoryRefusal("CONCEPT_BESTAAT", "Voor " + finalizer.closingYear(id) + " staat al een concept open");
         }

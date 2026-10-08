@@ -587,6 +587,11 @@ public class StockClosingService {
     public void compute(long closingId) {
         StockClosingEntity closing = closings.findById(closingId);
         if (closing == null) throw new NotFoundException("Afsluiting", closingId);
+        /* A final closing is never rebuilt from live data, whoever calls. */
+        if (!STATUS_CONCEPT.equals(closing.status)) {
+            throw new InventoryRefusal("DEFINITIEF",
+                    "Deze afsluiting is definitief. Maak een nieuwe versie om iets te corrigeren");
+        }
         Instant now = Instant.now();
         LocalDate closingDate = closing.closingDate;
         Instant cutoff = InventoryClock.cutoffAt(closingDate);
@@ -729,7 +734,8 @@ public class StockClosingService {
                     lotRow.previousClosingId = previous.id;
                 }
                 ownLots.add(lotRow);
-                FifoValuer.Lot valued = new FifoValuer.Lot(order.id(), order.number(), order.displayName(), order.receivedOn(),
+                FifoValuer.Lot valued = new FifoValuer.Lot(order.id(), cut(order.number(), 120), cut(order.displayName(), 255),
+                        order.receivedOn(),
                         lot.productId(), lot.capacity(), lot.unitValueEur(), lot.unitGoodsEur(), lot.unitTransportEur(),
                         lot.unitLogisticsEur(), lot.unitSeparateEur(), lot.unitEstimatedEur());
                 if (ROLE_OWN.equals(role) && lot.capacity() > 0) periodLots.add(valued);
@@ -903,7 +909,7 @@ public class StockClosingService {
         }
         if (!containerRows.isEmpty()) {
             notices.warn("KOERS_INGEVOERD", ClosingNotices.SEGMENT_FINALIZE,
-                    "De koersen zijn op de container ingevoerd en blijven wijzigbaar tot de afsluiting definitief is.");
+                    "De koersen zijn op de container ingevoerd" + ClosingNotices.HINT_RATES + ".");
         }
         if (closing.supersedesId != null) correctionNotices(closing, notices, valued, allLots, containerRows, keptMovements);
 
@@ -1005,7 +1011,15 @@ public class StockClosingService {
                 new StockRoll.Named(cut(product.sku(), 120), cut(product.nameWithColour(), 255))));
 
         /* Which lines of the previous compute are still in the stock book: a vanished one stays listed. */
-        List<StockClosingMovementEntity> previousRows = movements.list("closingId", closing.id);
+        List<StockClosingMovementEntity> previousRows = new ArrayList<>(movements.list("closingId", closing.id));
+        if (closing.supersedesId != null) {
+            /* A correction is measured against the version it replaces: a line that version listed and that
+               has left the stock book since stays in the list here too, and counts for nothing. */
+            Set<Long> own = previousRows.stream().map(row -> row.movementId).collect(Collectors.toSet());
+            for (StockClosingMovementEntity row : movements.list("closingId", closing.supersedesId)) {
+                if (row.movementId != null && own.add(row.movementId)) previousRows.add(row);
+            }
+        }
         Set<Long> inBook = book.stream().map(StockMovement::id).collect(Collectors.toCollection(HashSet::new));
         List<StockClosingMovementEntity> outside = previousRows.stream()
                 .filter(row -> row.bookedAt != null && !inBook.contains(row.movementId)).toList();
@@ -1037,12 +1051,14 @@ public class StockClosingService {
         }
         if (toReview > 0) {
             notices.warn("BEWEGING_NAKIJKEN", ClosingNotices.SEGMENT_DATE,
-                    toReview + " bewegingen rond de afsluitdatum moet je nog nakijken.");
+                    ClosingNotices.counted(toReview, "beweging", "bewegingen") + " rond de afsluitdatum moet je nog nakijken.");
         }
         if (!vanished.isEmpty()) {
-            notices.warn("BEWEGING_VERDWENEN", ClosingNotices.SEGMENT_DATE, cut(vanished.size()
-                    + " bewegingen uit de vorige berekening staan niet meer in de voorraadgeschiedenis: "
-                    + String.join(", ", vanished) + ".", 2000));
+            boolean one = vanished.size() == 1;
+            notices.warn("BEWEGING_VERDWENEN", ClosingNotices.SEGMENT_DATE, cut(
+                    ClosingNotices.counted(vanished.size(), "beweging", "bewegingen") + " uit de vorige berekening "
+                    + (one ? "staat" : "staan") + " niet meer in de voorraadgeschiedenis: " + String.join(", ", vanished)
+                    + ". " + (one ? "Ze telt" : "Ze tellen") + " niet mee in het aantal op de afsluitdatum.", 2000));
         }
         lateReceipts.forEach((orderId, message) ->
                 notices.forContainer(false, "ONTVANGST_NA_TELLING", ClosingNotices.SEGMENT_DATE, orderId, message));
@@ -1064,7 +1080,7 @@ public class StockClosingService {
         }
         long unvaluedProducts = valued.articles().stream().filter(article -> article.unvaluedQuantity > 0).count();
         if (unvaluedProducts > 0) {
-            notices.block("ZONDER_WAARDE", ClosingNotices.SEGMENT_VALUE, unvaluedProducts + " producten (" + closing.unvaluedQuantity
+            notices.block("ZONDER_WAARDE", ClosingNotices.SEGMENT_VALUE, ClosingNotices.counted(unvaluedProducts, "product", "producten") + " (" + closing.unvaluedQuantity
                     + " stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
         }
         for (Long productId : valued.writeDownExcess()) {
@@ -1102,15 +1118,14 @@ public class StockClosingService {
                 .filter(row -> !ROLE_PREVIOUS.equals(row.role)).toList();
         if (closing.estimatedEur.signum() > 0) {
             long estimated = valuedContainers.stream().filter(row -> row.estimatedEur != null && row.estimatedEur.signum() > 0).count();
-            notices.amount("GESCHAT", ClosingNotices.SEGMENT_VALUE, closing.estimatedEur, estimated
-                    + " containers met geschatte kosten: € " + ClosingNotices.euro(closing.estimatedEur) + " in de voorraadwaarde.");
+            notices.amount("GESCHAT", ClosingNotices.SEGMENT_VALUE, closing.estimatedEur,
+                    ClosingNotices.counted(estimated, "container", "containers") + " met geschatte kosten: € " + ClosingNotices.euro(closing.estimatedEur) + " in de voorraadwaarde.");
         }
         BigDecimal other = sum(valuedContainers, row -> row.otherExcludedEur);
         if (other.signum() > 0) {
             notices.amount("BIJKOMENDE_KOSTEN", ClosingNotices.SEGMENT_VALUE, other, "€ " + ClosingNotices.euro(other)
                     + " bank- en betalingskosten en andere bedragen onder 'Bijkomende kosten' zijn niet opgenomen."
-                    + " Hoort een bedrag bij de zending, zet het dan op de container onder 'Inspectie & andere kosten'."
-                    + " Btw die je terugkrijgt hoort hier wel.");
+                    + ClosingNotices.HINT_OTHER_COSTS);
         }
         BigDecimal exchange = sum(valuedContainers, row -> row.exchangeDifferenceEur);
         if (exchange.signum() != 0) {
@@ -1127,7 +1142,7 @@ public class StockClosingService {
         long fullDemo = valued.articles().stream().filter(article -> Boolean.TRUE.equals(article.demo)
                 && article.ownQuantity > 0 && !loweredProducts.contains(article.productId)).count();
         if (fullDemo > 0) {
-            notices.warn("DEMO_VOL", ClosingNotices.SEGMENT_VALUE, fullDemo + " demoproducten staan aan volle aanschafwaarde.");
+            notices.warn("DEMO_VOL", ClosingNotices.SEGMENT_VALUE, (fullDemo == 1 ? "1 demoproduct staat" : fullDemo + " demoproducten staan") + " aan volle aanschafwaarde.");
         }
         List<StockClosingArticleEntity> notAgain = valued.articles().stream()
                 .filter(article -> article.previousWriteDownEur != null && article.previousWriteDownEur.signum() > 0
@@ -1135,7 +1150,7 @@ public class StockClosingService {
         if (!notAgain.isEmpty()) {
             BigDecimal lastYear = sum(notAgain, article -> article.previousWriteDownEur);
             notices.amount("VORIG_AFGEWAARDEERD", ClosingNotices.SEGMENT_VALUE, lastYear, "Vorig jaar een waardevermindering,"
-                    + " dit jaar niet: " + notAgain.size() + " producten, € " + ClosingNotices.euro(lastYear) + ".");
+                    + " dit jaar niet: " + ClosingNotices.counted(notAgain.size(), "product", "producten") + ", € " + ClosingNotices.euro(lastYear) + ".");
         }
         for (FifoValuer.WriteDown decision : valued.withoutEffect()) {
             FifoValuer.Article article = named.get(decision.productId());
@@ -1188,6 +1203,15 @@ public class StockClosingService {
                                                    List<StockClosingLotEntity> lotRows, List<StockClosingContainerEntity> containerRows,
                                                    List<StockClosingMovementEntity> movementRows, List<StockClosingLayerEntity> layerRows) {
         return new ClosingVersionDiff.Rows(closing, articleRows, lotRows, containerRows, movementRows, layerRows);
+    }
+
+    /** Whether a failed write hit a unique index: the only database error that means "somebody else was first". */
+    public static boolean uniqueViolation(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException) return true;
+            if (cause == cause.getCause()) break;
+        }
+        return false;
     }
 
     /** The stored rows of a closing in the shape the version comparison reads. */

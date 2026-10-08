@@ -77,6 +77,11 @@ public class StockClosingWorkbook {
             sheet(workbook, SHEET_WRITE_DOWNS, null, styles, data.writeDownTable());
             sheet(workbook, SHEET_PARTNER, null, styles, data.partnerTable(), data.thirdPartyTable());
             sheet(workbook, SHEET_TRANSIT, null, styles, data.transitTable());
+            if (!data.kind(FifoValuer.KIND_TRANSIT).isEmpty()) {
+                /* Under the table, so the header row stays the first row and keeps its filter. */
+                Sheet transit = workbook.getSheet(SHEET_TRANSIT);
+                label(transit.createRow(transit.getLastRowNum() + 2), ClosingReportData.TRANSIT_NOTE, styles.note());
+            }
             sheet(workbook, SHEET_INVOICED, null, styles, data.invoicedTable(), data.olderInvoiceTable());
             sheet(workbook, SHEET_COUNT, null, styles, data.countDifferenceTable());
             sheet(workbook, SHEET_MOVEMENTS, null, styles, data.movementTable());
@@ -115,6 +120,10 @@ public class StockClosingWorkbook {
         }
         if (data.marketNote() != null) label(sheet.createRow(at++), data.marketNote(), styles.note());
         var closing = data.closing();
+        /* Opened on its own, the workbook says whose stock it is. */
+        at = fact(sheet, at, "Onderneming", data.company().name(), styles);
+        at = fact(sheet, at, "Btw-nummer", data.company().vat(), styles);
+        at = fact(sheet, at, "Adres", data.company().address(), styles);
         at = fact(sheet, at, "Boekjaar", closing.closingYear, styles);
         at = fact(sheet, at, "Afsluitdatum", closing.closingDate, styles);
         at = fact(sheet, at, "Versie", closing.versionNo, styles);

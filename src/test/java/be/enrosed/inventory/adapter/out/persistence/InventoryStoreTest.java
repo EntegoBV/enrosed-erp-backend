@@ -75,7 +75,7 @@ class InventoryStoreTest {
         assertReadsBack(articles, new StockClosingArticleEntity(), 31);
         assertReadsBack(layers, new StockClosingLayerEntity(), 28);
         assertReadsBack(lines, new StockClosingLineEntity(), 30);
-        assertReadsBack(separates, new StockClosingSeparateEntity(), 28);
+        assertReadsBack(separates, new StockClosingSeparateEntity(), 29);
         assertReadsBack(writeDowns, new StockClosingWriteDownEntity(), 16);
     }
 

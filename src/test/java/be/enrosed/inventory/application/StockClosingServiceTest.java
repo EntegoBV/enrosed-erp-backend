@@ -455,7 +455,7 @@ class StockClosingServiceTest {
         assertMoney("5082.14", view.closing().totalValueEur);
         assertMoney("443.73", view.closing().estimatedEur, "930 x 0,3103 + 500 x 0,3103");
         assertEquals(List.of(), blockers(view));
-        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 containers met geschatte kosten: € 443,73 in de voorraadwaarde.");
+        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 container met geschatte kosten: € 443,73 in de voorraadwaarde.");
         assertNotice(view, "KOERSVERSCHIL", "WARNING", "waarde", "€ 28,00 koersverschil staat buiten de voorraadwaarde.");
         assertNotice(view, "BIJKOMENDE_KOSTEN", "WARNING", "waarde", "€ 35,00 bank- en betalingskosten en andere bedragen onder"
                 + " 'Bijkomende kosten' zijn niet opgenomen. Hoort een bedrag bij de zending, zet het dan op de container onder"
@@ -753,7 +753,7 @@ class StockClosingServiceTest {
         assertEquals("EIGEN", container(view, k7).role);
         assertEquals(10, article(view, g).ownQuantity, "received before the closing date: it lay there");
         assertMoney("18.40", article(view, g).costValueEur);
-        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 containers met geschatte kosten: € 18,40 in de voorraadwaarde.");
+        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 container met geschatte kosten: € 18,40 in de voorraadwaarde.");
     }
 
     /* ------------------------------------------------------- counting, rolling */
@@ -791,7 +791,7 @@ class StockClosingServiceTest {
         assertEquals(5, line.rollDelta, "the sale of today happened after the closing date");
         assertEquals(30, line.closingQuantity);
         assertNotice(view, "ZONDER_WAARDE", "BLOCKER", "waarde",
-                "1 producten (30 stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
+                "1 product (30 stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
         assertEquals("ZONDER_WAARDE", article(view, rose).status);
 
         /* The level was set today by hand: no physical movement, to be looked at. */
@@ -801,7 +801,7 @@ class StockClosingServiceTest {
         assertTrue(set.review);
         assertEquals(StockRoll.NOTE_CORRECTION, set.defaultNote);
         assertTrue(set.noAnchor, "no earlier booking of this product here");
-        assertNotice(view, "BEWEGING_NAKIJKEN", "WARNING", "datum", "1 bewegingen rond de afsluitdatum moet je nog nakijken.");
+        assertNotice(view, "BEWEGING_NAKIJKEN", "WARNING", "datum", "1 beweging rond de afsluitdatum moet je nog nakijken.");
         StockClosingMovementEntity sale = view.movements().stream().filter(row -> row.productId == rose && "SALE".equals(row.kind))
                 .findFirst().orElseThrow();
         assertTrue(sale.applied);
@@ -847,7 +847,8 @@ class StockClosingServiceTest {
         em.clear();
         view = closings.recompute(id);
         assertNotice(view, "BEWEGING_VERDWENEN", "WARNING", "datum",
-                "1 bewegingen uit de vorige berekening staan niet meer in de voorraadgeschiedenis: F-TEST-1.");
+                "1 beweging uit de vorige berekening staat niet meer in de voorraadgeschiedenis: F-TEST-1."
+                        + " Ze telt niet mee in het aantal op de afsluitdatum.");
         StockClosingMovementEntity vanished = view.movements().stream().filter(row -> row.movementId == saleId).findFirst().orElseThrow();
         assertTrue(vanished.removed);
         assertFalse(vanished.applied);
@@ -991,7 +992,7 @@ class StockClosingServiceTest {
         assertMoney("2576.00", view.closing().estimatedEur, "the balance is still owed");
         assertNotice(view, "APART_ZONDER_MARKTTOETS", "WARNING", "apart",
                 "Op opgenomen partnercontainers en goederen onderweg (€ 3.692,00) is geen lagere marktwaarde ingevoerd.");
-        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 containers met geschatte kosten: € 2.576,00 in de voorraadwaarde.");
+        assertNotice(view, "GESCHAT", "WARNING", "waarde", "1 container met geschatte kosten: € 2.576,00 in de voorraadwaarde.");
 
         /* Partner containers: the pieces that still lie there, at the unit value of the partner lot. */
         assertEquals("PARTNER", container(view, p1).role);
@@ -1160,9 +1161,9 @@ class StockClosingServiceTest {
         View view = closings.create(YEAR1, null);
         long id = view.closing().id;
         assertNotice(view, "ZONDER_WAARDE", "BLOCKER", "waarde",
-                "1 producten (80 stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
+                "1 product (80 stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
         assertEquals(80, view.closing().unvaluedQuantity);
-        assertNotice(view, "DEMO_VOL", "WARNING", "waarde", "1 demoproducten staan aan volle aanschafwaarde.");
+        assertNotice(view, "DEMO_VOL", "WARNING", "waarde", "1 demoproduct staat aan volle aanschafwaarde.");
         assertMoney("46.00", view.closing().demoValueEur);
         assertTrue(article(view, demoId).demo);
 
@@ -1426,7 +1427,7 @@ class StockClosingServiceTest {
         assertMoney("10.00", article(year2, old).previousWriteDownEur);
         assertEquals(List.of(), year2.writeDowns());
         assertNotice(year2, "VORIG_AFGEWAARDEERD", "WARNING", "waarde",
-                "Vorig jaar een waardevermindering, dit jaar niet: 1 producten, € 10,00.");
+                "Vorig jaar een waardevermindering, dit jaar niet: 1 product, € 10,00.");
         assertEquals(List.of(), separate(year2, "ONDERWEG"));
         /* An invoice from before the previous closing date that was never afgepunt is only listed. */
         assertEquals(List.of(unshipped.id()), separate(year2, "OUDER").stream().map(row -> row.salesOrderId).toList());

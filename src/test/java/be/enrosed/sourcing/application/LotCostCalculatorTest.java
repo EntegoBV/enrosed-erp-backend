@@ -256,7 +256,8 @@ class LotCostCalculatorTest {
         eq("0.00", container.exchangeDifferenceEur(), "paid before the purchase: the bank euro is the cost");
         eq("0.00", container.estimatedEur());
         eq("10310.00", container.acquisitionEur());
-        assertEquals(List.of(), container.notes());
+        assertEquals(List.of("Transport via leverancier: het bedrag van de leverancier is gesplitst volgens de Afspraak"
+                + " van € 9000.00, waarvan € 1440.00 transport."), container.notes(), "the weights of the split, kept with the closing");
 
         var c = container.lot(C);
         assertEquals(LotStatus.OK, c.status());
@@ -638,12 +639,61 @@ class LotCostCalculatorTest {
         assertFalse(credit(container, 2L).decisionRequired());
         assertFalse(credit(container, 3L).decisionRequired());
 
-        /* Deciding one of them leaves the rest below the cost again. */
+        /* One decision does not clear it: € 141,00 still stands outside the value against € 140,90 of lost pieces. */
         above.treatments.put(3L, CreditTreatment.BUITEN);
         container = above.run();
         eq("92.00", container.defaultLossCreditEur());
         eq("141.00", container.lossCreditEur());
+        eq("140.90", container.missingAndDamagedCostEur());
+        assertEquals("TEGOED_MEER_DAN_VERLIES", credit(container, 2L).requiredBy());
+        assertNull(credit(container, 3L).requiredBy(), "decided");
+        var notices = new be.enrosed.inventory.application.ClosingNotices();
+        notices.container(7L, "Herfst", container, false, Map.of());
+        var blocker = notices.list().stream().filter(notice -> notice.code().equals("TEGOED_MEER_DAN_VERLIES")).findFirst().orElseThrow();
+        assertTrue(blocker.blocker());
+        assertEquals("Container Herfst: tegoed voor tekort of schade € 141,00, terwijl de ontbrekende en beschadigde stuks"
+                + " samen € 140,90 kostten. Geef per tegoed aan wat het is.", blocker.message());
+        eq("2.5449", container.lot(A).unitValueEur());
+
+        /* Every shortage and damage credit decided: the user answered for each, the blocker is gone. */
+        above.treatments.put(2L, CreditTreatment.BUITEN);
+        container = above.run();
+        eq("0.00", container.defaultLossCreditEur());
+        eq("141.00", container.lossCreditEur());
         assertFalse(credit(container, 2L).decisionRequired());
+        assertFalse(credit(container, 3L).decisionRequired());
+        eq("2.5449", container.lot(A).unitValueEur());
+
+        /* Deciding that the second credit is a discount on pieces that lie there leaves € 92,00 outside: below the cost. */
+        above.treatments.remove(2L);
+        above.treatments.put(3L, CreditTreatment.VERLAAGT);
+        container = above.run();
+        eq("92.00", container.lossCreditEur());
+        assertFalse(credit(container, 2L).decisionRequired());
+    }
+
+    @Test
+    void aPriceCreditAboveTheGoodsOfItsLotLowersThemToNothingAndIsReported() {
+        /* 100 pieces, supplier paid 184,00; a price credit of 250,00 is more than the goods. */
+        Scenario scenario = new Scenario();
+        scenario.line(A, 100, 100, 0, "2.00", Currency.USD);
+        scenario.supplierPlanned = "184.00";
+        scenario.pay(1L, SUPPLIER, NOV_20, "184", Currency.EUR, "184.00");
+        scenario.credit(1L, Reason.PRICE, "250", Currency.EUR);
+        var container = scenario.run();
+        eq("184.00", container.lot(A).goodsEur());
+        eq("250.00", container.lot(A).priceCreditEur());
+        eq("0.0000", container.lot(A).unitGoodsEur());
+        eq("0.0000", container.lot(A).unitValueEur());
+        eq("0.00", container.lot(A).lotCostEur(), "the lot agrees with its unit value, never below nothing");
+        eq("0.00", container.acquisitionEur());
+        assertTrue(container.notes().stream().anyMatch(note -> note.contains("€ 66.00 is niet van de aanschafwaarde afgetrokken")),
+                container.notes().toString());
+        var notices = new be.enrosed.inventory.application.ClosingNotices();
+        notices.container(7L, "Herfst", container, false, Map.of());
+        var blocker = notices.list().stream().filter(notice -> notice.code().equals("TEGOED_MEER_DAN_GOEDEREN")).findFirst().orElseThrow();
+        assertTrue(blocker.blocker());
+        assertTrue(blocker.message().contains("prijstegoed € 250,00 is hoger dan de goederen van de partij (€ 184,00)"), blocker.message());
     }
 
     /* ---- quantities ---- */
@@ -871,6 +921,27 @@ class LotCostCalculatorTest {
     }
 
     @Test
+    void aProductThatGetsNoSeaFreightInTheCalculationIsNamed() {
+        /* B has no carton volume: the calculation gives it no freight, so its duty was calculated on the goods alone. */
+        Scenario scenario = new Scenario();
+        scenario.line(A, 100, 100, 0, "2.00", Currency.USD);
+        scenario.line(B, 100, 100, 0, "2.00", Currency.USD);
+        scenario.supplierPlanned = "368.00";
+        scenario.logisticsPlanned = "200.00";
+        scenario.brec(A, "20.00", "80.00", "40.00", "30.00", "0.00");
+        scenario.brec(B, "0.00", "0.00", "20.00", "10.00", "0.00");
+        scenario.pay(1L, SUPPLIER, SEP_1, "368", Currency.EUR, "368.00");
+        scenario.pay(2L, LOGISTICS, SEP_1, "200", Currency.EUR, "200.00");
+        var container = scenario.run();
+        assertEquals(1, container.notes().stream().filter(note -> note.contains("geen aandeel in vertrekkosten en zeevracht")).count(),
+                container.notes().toString());
+        assertTrue(container.notes().stream().anyMatch(note -> note.startsWith(scenario.products.get(B).nameWithColour())),
+                container.notes().toString());
+        eq("170.00", container.lot(A).logisticsEur(), "200,00 x 170 / 200");
+        eq("30.00", container.lot(B).logisticsEur());
+    }
+
+    @Test
     void everyFallbackKeyIsNamedInTheNotes() {
         Scenario bare = new Scenario();
         bare.cif = true;
@@ -885,6 +956,8 @@ class LotCostCalculatorTest {
         bare.pay(3L, SEPARATE, SEP_1, "40", Currency.EUR, "40.00");
         var container = bare.run();
         assertEquals(List.of(
+                "Transport via leverancier: het bedrag van de leverancier is gesplitst volgens de Afspraak van € 1000.00,"
+                        + " waarvan € 200.00 transport.",
                 "Goederen verdeeld volgens aangerekende stuks: de berekening gaf geen sleutel.",
                 "Transport via leverancier verdeeld volgens ontvangen stuks: de berekening gaf geen sleutel.",
                 "Douane & transport verdeeld volgens ontvangen stuks: de berekening gaf geen sleutel.",
@@ -1208,7 +1281,7 @@ class LotCostCalculatorTest {
             assertEquals(lot.unitValueEur(), lot.unitGoodsEur().add(lot.unitTransportEur())
                     .add(lot.unitLogisticsEur()).add(lot.unitSeparateEur()), "components of product " + lot.productId());
             assertEquals(4, lot.unitValueEur().scale());
-            assertEquals(lot.lotCostEur(), lot.goodsEur().subtract(lot.priceCreditEur()).add(lot.transportEur())
+            assertEquals(lot.lotCostEur(), lot.goodsEur().subtract(lot.priceCreditEur()).max(bd("0.00")).add(lot.transportEur())
                     .add(lot.logisticsEur()).add(lot.separateEur()));
             assertEquals(lot.logisticsEur().add(lot.transportEur()), lot.calcOriginEur().add(lot.calcFreightEur())
                     .add(lot.calcDutyEur()).add(lot.calcDestinationEur()));

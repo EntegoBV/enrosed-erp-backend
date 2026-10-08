@@ -457,6 +457,47 @@ class FifoValuerTest {
     /* ---------------------------------------------------------------- helpers */
 
     /** Product "Roos in stolp rood" of section 3.8: 1.250 in the warehouse, 50 at TICA, three own containers. */
+    @Test
+    void twoWriteDownsOnOneLayerNeverTakeMoreThanItsRoundedValue() {
+        /* 2 pieces at 2,3350 are worth 4,67; each piece to nothing would round to 2,34 twice. */
+        quantity(ROSE, 2);
+        lots.add(lot(1, LocalDate.of(2026, 2, 10), ROSE, 2, "2.3350"));
+        writeDowns.add(new WriteDown(1, ROSE, 1, new BigDecimal("0.00"), "BESCHADIGD", "a", "Emre", DECIDED));
+        writeDowns.add(new WriteDown(2, ROSE, 1, new BigDecimal("0.00"), "DEMO", "b", "Emre", DECIDED));
+        Result result = value();
+        assertEquals(new BigDecimal("4.67"), result.article(ROSE).costValueEur);
+        assertEquals(new BigDecimal("4.67"), result.article(ROSE).writeDownEur);
+        assertEquals(new BigDecimal("0.00"), result.article(ROSE).ownValueEur);
+        assertEquals(new BigDecimal("2.34"), result.writeDowns().get(0).amountEur);
+        assertEquals(new BigDecimal("2.33"), result.writeDowns().get(1).amountEur, "what was left of the layer");
+    }
+
+    @Test
+    void aMarketValueBelowNothingWritesDownToZeroAtMost() {
+        quantity(ROSE, 100);
+        lots.add(lot(1, LocalDate.of(2026, 2, 10), ROSE, 100, "2.0000"));
+        writeDowns.add(new WriteDown(1, ROSE, 100, new BigDecimal("-1.00"), "MARKT", "negatief", "Emre", DECIDED));
+        Result result = value();
+        assertEquals(new BigDecimal("200.00"), result.article(ROSE).costValueEur);
+        assertEquals(new BigDecimal("200.00"), result.article(ROSE).writeDownEur);
+        assertEquals(new BigDecimal("0.00"), result.article(ROSE).ownValueEur);
+    }
+
+    @Test
+    void anInvoiceLargerThanThePoolStatesHowManyPiecesItsValueCovers() {
+        quantity(ROSE, 20);
+        lots.add(lot(1, LocalDate.of(2026, 2, 10), ROSE, 100, "2.0000"));
+        invoices.add(new Invoice(118, "F-2026-118", LocalDate.of(2026, 12, 20), "Klant", Map.of(ROSE, 30),
+                decision(7, FifoValuer.CHOICE_OUT, null), Set.of()));
+        Result result = value();
+        StockClosingSeparateEntity row = separate(result, FifoValuer.KIND_INVOICED);
+        assertEquals(30, row.quantity, "invoiced");
+        assertEquals(20, row.carvedQuantity, "taken out of the own stock");
+        assertEquals(new BigDecimal("2.0000"), row.unitValueEur);
+        assertEquals(new BigDecimal("40.00"), row.valueEur, "20 x 2,0000");
+        assertEquals(0, result.article(ROSE).ownQuantity);
+    }
+
     private void exampleOfSection38() {
         quantities.put(ROSE, List.of(new LocationQuantity(WAREHOUSE, 1210, 40, 1250), new LocationQuantity(TICA, 50, 0, 50)));
         lots.add(new Lot(14, "PO-2026-014", "PO-2026-014", LocalDate.of(2026, 11, 20), ROSE, 930, new BigDecimal("2.5449"),

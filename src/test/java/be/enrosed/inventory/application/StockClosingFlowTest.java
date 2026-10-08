@@ -252,6 +252,7 @@ class StockClosingFlowTest {
                 "the list of older invoices is the one it was frozen with");
         for (InventoryRefusal refused : List.of(
                 assertThrows(InventoryRefusal.class, () -> closings.recompute(first)),
+                assertThrows(InventoryRefusal.class, () -> closings.compute(first), "not even a direct call rebuilds a final closing"),
                 assertThrows(InventoryRefusal.class, () -> closings.saveDecision(first, vat())),
                 assertThrows(InventoryRefusal.class, () -> closings.setClosingDate(first, END1.minusDays(1))),
                 assertThrows(InventoryRefusal.class, () -> closings.delete(first)))) {

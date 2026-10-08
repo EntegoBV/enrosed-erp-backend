@@ -827,7 +827,9 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `docs/migrations/2026-10-09/stock-inventory-postgresql.sql`, registered
   after the web-order file. Entities are plain classes with public fields
   in DDL order, IDENTITY ids, every other column nullable, no relations.
-  Money has scale 2, unit values 4, the three rates 8. The two unique
+  Money has scale 2, unit values 4, the three rates 8, and the migration
+  writes the same `numeric(19,x)` so `validate` and `update` end on one
+  column type. The two unique
   indexes exist on PostgreSQL only; H2 builds the tables from the
   entities, so the services enforce both rules under row locks.
 - **Lot cost** (`LotCostCalculator`, `LotCostService`): the acquisition
@@ -838,11 +840,19 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   kosten". A foreign payment up to the day ownership passed keeps its
   bank euro, a later one counts at the container rate and the difference
   is listed outside the value. An unpaid amount is taken at the Afspraak
-  and marked as estimated until an accrual decision confirms it.
+  and marked as estimated until an accrual decision confirms it. A price
+  credit lowers the goods of its lot to nothing at most (blocker
+  `TEGOED_MEER_DAN_GOEDEREN` for the rest). Credits kept outside the
+  value that are together above the cost of the lost pieces block
+  (`TEGOED_MEER_DAN_VERLIES`) until every shortage and damage credit has
+  the user's own decision; one decision does not clear it.
 - **Count** (`StockCountService`, `/api/stock-counts`): one open session
   per location, two phones under the session row lock, a reason for every
   difference. Booking writes one `STOCKTAKE` row per counted line at
-  live level + difference, so a sale during the count survives. A
+  live level + difference, so a sale during the count survives. Before
+  it writes, the booking reads every level again from the database with
+  the row locked and refuses `TELLING_GEWIJZIGD` when one moved since the
+  check; `StockService.write` itself still takes no lock. A
   difference that an unshipped invoice or an unbooked container explains
   is refused until that document is handled or the user confirms.
   A booked count is never undone; a correction session replaces it per
@@ -852,7 +862,13 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `stock_closing_decision` and `stock_opening_layer`; every other closing
   table is output that a compute deletes and rebuilds. Every write takes
   the closing row with `requireConcept` first. The quantity is the booked
-  count rolled to the closing date (`StockRoll`), the value is FIFO per
+  count rolled to the closing date (`StockRoll`). A ledger row that was
+  listed and has left the stock book since stays listed as removed, counts
+  for nothing and keeps its place in the chain, so its pieces never move
+  onto the row after it; a correction version reads the rows of the
+  version it replaces for this. A row that counts for another number than
+  it booked, or that was booked at the very instant of a count before the
+  closing date, is flagged for review. The value is FIFO per
   receipt lot (`FifoValuer`), a later year carries the frozen layers of
   the previous final closing and never recomputes them. Blockers and
   warnings are `ClosingNotices`; the fingerprint of everything frozen is
@@ -876,7 +892,11 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `StockClosingWorkbook`): both are built from stored rows only; the one
   live value is the company head of a concept file. The PDF sections and
   their sheets take their tables from the same `ClosingReportData`
-  methods, so add a column there and both follow. Wording rules that the
+  methods, so add a column there and both follow. The files print a
+  notice through `ClosingNotices.reportText`, which drops the advice
+  sentences of the screen (the `HINT_*` constants). In the PDF a product
+  and its lots are one `tbody` that a page cannot split, and the section
+  tables have fixed column widths per column kind. Wording rules that the
   tests guard: "Enrosed kost" only as "buiten waarde", "Bijkomende
   kosten" never alone (it is the legal name of the costs that ARE in the
   value), and the word is "waardevermindering", never "afwaardering".
@@ -885,7 +905,10 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `photo_blob` without a reference must learn `pdf_storage_key` and
   `xlsx_storage_key` on `stock_closing`.
 - **Tests**: `LotCostCalculatorTest`, `StockRollTest` and `FifoValuerTest`
-  hold the worked examples to the cent; `StockClosingServiceTest` and
+  hold the worked examples to the cent; `InventoryIndependentFlowTest`
+  walks count, closing, final, correction and a deleted ledger row over
+  HTTP on its own H2 database with hand-calculated figures;
+  `StockClosingServiceTest` and
   `StockClosingFlowTest` empty the book inside one rolled-back
   transaction (`quiet()`), book receipts today and date them afterwards,
   and use years in the past. `StockClosingHttpTest` commits a closing for

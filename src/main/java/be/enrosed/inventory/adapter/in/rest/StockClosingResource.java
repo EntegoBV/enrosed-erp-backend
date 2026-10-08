@@ -50,6 +50,8 @@ public class StockClosingResource {
         } catch (BusinessRuleException | NotFoundException refused) {
             throw refused;
         } catch (PersistenceException raced) {
+            /* Any other database error keeps its own face instead of reading as "bestaat al". */
+            if (!be.enrosed.inventory.application.StockClosingService.uniqueViolation(raced)) throw raced;
             /* Two first closings at once: the unique index on year and version let one through. */
             throw new InventoryRefusal("BESTAAT_AL", "Voor " + asked.closingYear() + " bestaat al een afsluiting."
                     + " Open ze, of maak een nieuwe versie");

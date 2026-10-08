@@ -540,6 +540,15 @@ class RailwayPreDeployMigrationContractTest {
         assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
         assertNonDestructive(sql);
 
+        /* The scale the entity declares: schema strategy "update" would otherwise alter every plain numeric column. */
+        java.util.regex.Matcher numeric = java.util.regex.Pattern.compile("numeric(\\(\\d+,\\s*\\d+\\))?").matcher(sql);
+        int amounts = 0;
+        while (numeric.find()) {
+            amounts++;
+            assertTrue(numeric.group().replace(" ", "").matches("numeric\\(19,(2|4|8)\\)"), "a money, unit or rate column: " + numeric.group());
+        }
+        assertEquals(102, amounts, "every numeric column of the fourteen tables");
+
         String entities = "src/main/java/be/enrosed/inventory/adapter/out/persistence/";
         assertEntityNamesEveryColumn(sql, "stock_valuation_rule", "StockValuationRuleEntity", 9, entities);
         assertEntityNamesEveryColumn(sql, "stock_count", "StockCountEntity", 17, entities);
@@ -553,7 +562,7 @@ class RailwayPreDeployMigrationContractTest {
         assertEntityNamesEveryColumn(sql, "stock_closing_article", "StockClosingArticleEntity", 31, entities);
         assertEntityNamesEveryColumn(sql, "stock_closing_layer", "StockClosingLayerEntity", 28, entities);
         assertEntityNamesEveryColumn(sql, "stock_closing_line", "StockClosingLineEntity", 30, entities);
-        assertEntityNamesEveryColumn(sql, "stock_closing_separate", "StockClosingSeparateEntity", 28, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_separate", "StockClosingSeparateEntity", 29, entities);
         assertEntityNamesEveryColumn(sql, "stock_closing_write_down", "StockClosingWriteDownEntity", 16, entities);
 
         assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
@@ -579,7 +588,8 @@ class RailwayPreDeployMigrationContractTest {
         String opening = "create table if not exists " + table + " (";
         int start = sql.indexOf(opening) + opening.length();
         String body = sql.substring(start, sql.indexOf(");", start));
-        java.util.List<String> columns = java.util.Arrays.stream(body.split(","))
+        /* A comma inside "numeric(19,2)" does not end a column. */
+        java.util.List<String> columns = java.util.Arrays.stream(body.split(",(?![^(]*\\))"))
                 .map(String::trim)
                 .filter(definition -> !definition.startsWith("constraint "))
                 .map(definition -> definition.substring(0, definition.indexOf(' ')))

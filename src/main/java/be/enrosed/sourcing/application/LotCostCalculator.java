@@ -191,6 +191,10 @@ public class LotCostCalculator {
             transportPart = parts.get(1);
             goodsEstimated = estimated.get(0);
             transportEstimated = estimated.get(1);
+            /* The weights live on the container only: written down, so a frozen closing can redo its split. */
+            notes.add("Transport via leverancier: het bedrag van de leverancier is gesplitst volgens de Afspraak van € "
+                    + Money.money(input.supplierEur()).toPlainString() + ", waarvan € " + supplierFreight.toPlainString()
+                    + " transport.");
         }
 
         Key goodsKey = key(rows, List.of(
@@ -212,6 +216,16 @@ public class LotCostCalculator {
                 : key(rows, List.of(
                         new Candidate(null, row -> row.receivedValue),
                         new Candidate(BY_RECEIVED_PIECES, row -> BigDecimal.valueOf(row.received))));
+        /* A product without carton volume gets no sea freight in the calculation, and the duty of the Afspraak
+           is then calculated on its goods alone: said out loud, since it lowers an amount that may be estimated. */
+        boolean carried = rows.stream().anyMatch(row -> row.origin.add(row.freight).signum() > 0);
+        for (Row row : rows) {
+            if (carried && row.nonDdp && row.received > 0 && row.origin.add(row.freight).signum() == 0) {
+                notes.add(row.product.nameWithColour() + " krijgt in de berekening geen aandeel in vertrekkosten en zeevracht"
+                        + " (sleutel 0, bijvoorbeeld zonder doosafmetingen): de invoerrechten in de Afspraak zijn voor dit"
+                        + " product op de goederen alleen berekend. Kijk de doosafmetingen na.");
+            }
+        }
         noteFallback(notes, "Goederen", goodsKey, goodsPart.add(priceCredit));
         if (cif) noteFallback(notes, "Transport via leverancier", transportKey, transportPart);
         noteFallback(notes, "Douane & transport", logisticsKey, logistics.includedEur());
@@ -241,14 +255,21 @@ public class LotCostCalculator {
             int goodsDivisor = Math.max(row.billed, row.received);
             int costDivisor = row.received;
             BigDecimal containerEstimated = transportEst.get(i).add(logisticsEst.get(i)).add(separateEst.get(i));
-            BigDecimal unitGoods = unit(goods.get(i).subtract(priceCredits.get(i)).max(BigDecimal.ZERO), goodsDivisor);
+            /* A price credit lowers the goods of its lot to nothing at most: the rest is no price reduction of this lot. */
+            BigDecimal netGoods = goods.get(i).subtract(priceCredits.get(i)).max(ZERO);
+            if (priceCredits.get(i).compareTo(goods.get(i)) > 0) {
+                notes.add("Prijstegoed hoger dan de goederen van " + row.product.nameWithColour() + ": € "
+                        + priceCredits.get(i).subtract(goods.get(i)).toPlainString()
+                        + " is niet van de aanschafwaarde afgetrokken.");
+            }
+            BigDecimal unitGoods = unit(netGoods, goodsDivisor);
             BigDecimal unitTransport = unit(transport.get(i), costDivisor);
             BigDecimal unitLogistics = unit(logisticsShares.get(i), costDivisor);
             BigDecimal unitSeparate = unit(separateShares.get(i), costDivisor);
             /* The sum of the rounded components, so the breakdown always adds up. */
             BigDecimal unitValue = unitGoods.add(unitTransport).add(unitLogistics).add(unitSeparate);
             BigDecimal unitEstimated = unit(goodsEst.get(i), goodsDivisor).add(unit(containerEstimated, costDivisor));
-            BigDecimal lotCost = goods.get(i).subtract(priceCredits.get(i)).add(transport.get(i))
+            BigDecimal lotCost = netGoods.add(transport.get(i))
                     .add(logisticsShares.get(i)).add(separateShares.get(i));
             int lost = laterLost.getOrDefault(row.productId, 0);
             BigDecimal missingCost = Money.money(unitGoods.multiply(BigDecimal.valueOf(goodsDivisor - row.received)));
@@ -275,8 +296,10 @@ public class LotCostCalculator {
             missingAndDamaged = missingAndDamaged.add(missingCost).add(damagedCost);
         }
 
-        /* More credit for loss than the lost pieces cost: some of it is a discount on pieces that lie there. */
-        boolean aboveLoss = defaultLossCredit.compareTo(missingAndDamaged) > 0;
+        /* More credit kept outside the value than the lost pieces cost: some of it is a discount on pieces that
+           lie there. Decided and default amounts together, so one decision cannot clear it: every shortage and
+           damage credit needs the user's own answer. */
+        boolean aboveLoss = lossCredit.compareTo(missingAndDamaged) > 0;
         List<CreditUse> creditUses = new ArrayList<>();
         for (Credit use : credits) {
             if (aboveLoss && !use.decided && use.treatment == CreditTreatment.BUITEN) use.requiredBy = CreditUse.ABOVE_LOSS;

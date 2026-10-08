@@ -137,7 +137,8 @@ public class StockClosingWorkbookTest {
                 "Getelde eurowaarde", "In de waarde", "Regel"), book.get("Betalingen").get(0));
         assertEquals(List.of("Container", "Datum", "Reden", "Bedrag", "Munt", "Eurowaarde", "Behandeling", "Beslist door",
                 "Reden van de beslissing"), book.get("Creditnota's").get(0));
-        assertEquals(List.of("Container", "Betaalstroom", "Afspraak", "Betaald", "Nog open", "Opgenomen", "waarvan geschat", "Basis"),
+        assertEquals(List.of("Container", "Betaalstroom", "Afspraak", "Betaald", "Nog open volgens Afspraak",
+                        "Nog verschuldigd (ingevoerd)", "Opgenomen", "waarvan geschat", "Basis"),
                 book.get("Geschatte kosten").get(0));
         assertEquals(List.of("Product", "Partij", "Aantal", "Aanschafwaarde per stuk", "Marktwaarde per stuk", "Waardevermindering",
                 "Reden", "Toelichting", "Door", "Op"), book.get("Waardeverminderingen").get(0));
@@ -146,7 +147,8 @@ public class StockClosingWorkbookTest {
         assertEquals(List.of("Eigenaar", "Product", "Aantal", "Reden"), below(book.get("Partner en derden"), "Goederen van derden"));
         assertEquals(List.of("Container", "Leverancier", "Incoterm leverancier (fiche)", "Transport via leverancier", "Afvaart",
                 "Betaald t/m afsluitdatum", "Waarde", "Opgenomen", "Eigendom of risico vanaf", "Reden"), book.get("Onderweg").get(0));
-        assertEquals(List.of("Factuur", "Datum", "Klant", "Product", "Aantal", "Waarde", "Beslissing", "Reden"),
+        assertEquals(List.of("Factuur", "Datum", "Klant", "Product", "Gefactureerd", "Uit voorraad", "Waarde per stuk", "Waarde",
+                        "Beslissing", "Reden"),
                 book.get("Gefactureerd niet afgepunt").get(0));
         assertEquals(List.of("Locatie", "Product", "Volgens systeem", "Geteld", "Verschil", "Reden", "Toelichting", "Geteld door",
                 "Tijdstip"), book.get("Telverschillen").get(0));
@@ -171,6 +173,7 @@ public class StockClosingWorkbookTest {
                 "waarvan op geschatte kosten",
                 "Op opgenomen partnercontainers en goederen onderweg (€ 1.840,00) is geen lagere marktwaarde ingevoerd;"
                         + " het ERP voorziet daar geen waardevermindering.",
+                "Onderneming", "Btw-nummer", "Adres",
                 "Boekjaar", "Afsluitdatum", "Versie", "Status", "Methode", "Ondertekenaar", "Definitief op", "Gegevenscontrole"),
                 List.copyOf(summary.keySet()));
         assertMoney("3181.76", summary.get("Aanschafwaarde eigen voorraad"));
@@ -335,7 +338,9 @@ public class StockClosingWorkbookTest {
         assertEquals("F-2026-118", out.get("Factuur"));
         assertEquals(LocalDate.of(2026, 12, 20), out.get("Datum"));
         assertEquals("Bloemen Peeters", out.get("Klant"));
-        assertMoney("30", out.get("Aantal"));
+        assertMoney("30", out.get("Gefactureerd"));
+        assertMoney("30", out.get("Uit voorraad"));
+        assertMoney("2.3000", out.get("Waarde per stuk"));
         assertMoney("69.00", out.get("Waarde"));
         assertEquals("Uit eigen voorraad", out.get("Beslissing"));
         assertEquals(List.of("Factuur", "Datum", "Klant", "Aantal"),
@@ -650,6 +655,7 @@ public class StockClosingWorkbookTest {
         StockClosingSeparateEntity invoiced = separate("GEFACTUREERD", "F-2026-118", LocalDate.of(2026, 12, 20), "Bloemen Peeters", 30);
         invoiced.salesOrderId = 118L; invoiced.productId = 1L; invoiced.productName = "Roos in stolp rood";
         invoiced.unitValueEur = new BigDecimal("2.3000"); invoiced.valueEur = new BigDecimal("69.00"); invoiced.choice = "UIT";
+        invoiced.carvedQuantity = 30;
         StockClosingSeparateEntity transit = separate("ONDERWEG", "PO-2026-030", LocalDate.of(2026, 10, 1), "Yiwu Roses", 1000);
         transit.purchaseOrderId = 30L; transit.documentName = "PO-2026-030"; transit.productId = 3L; transit.productName = "Roos in stolp wit";
         transit.unitValueEur = new BigDecimal("1.8400"); transit.valueEur = new BigDecimal("1840.00"); transit.included = true;
@@ -683,7 +689,7 @@ public class StockClosingWorkbookTest {
         if (concept) notices.add(new Notice("BTW_BEVESTIGING", "BLOCKER", "afsluiten", "Bevestig dat de betalingen onder Leverancier,"
                 + " Douane & transport en Inspectie & andere kosten zonder aftrekbare btw zijn ingevoerd.", null, null, null, null,
                 null, null, null));
-        notices.add(new Notice("GESCHAT", "WARNING", "waarde", "1 containers met geschatte kosten: € 188,33 in de voorraadwaarde.",
+        notices.add(new Notice("GESCHAT", "WARNING", "waarde", "1 container met geschatte kosten: € 188,33 in de voorraadwaarde.",
                 null, null, null, null, null, null, null));
         notices.add(new Notice("BIJKOMENDE_KOSTEN", "WARNING", "waarde", "€ 35,00 bank- en betalingskosten en andere bedragen onder"
                 + " 'Bijkomende kosten' zijn niet opgenomen. Hoort een bedrag bij de zending, zet het dan op de container onder"

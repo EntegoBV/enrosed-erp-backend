@@ -1,5 +1,6 @@
 package be.enrosed.inventory.application;
 
+import be.enrosed.catalog.adapter.out.persistence.StockLevelEntity;
 import be.enrosed.catalog.adapter.out.persistence.StockLocationEntity;
 import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.ProductService;
@@ -389,6 +390,16 @@ public class StockCountService {
                     "De voorraad of de telling is intussen gewijzigd; bekijk de controle opnieuw");
         }
 
+        /* The check read the levels at the start of this transaction. Each one is read again from the database
+           with its row locked: a movement another user committed while the booking ran sends the user back to
+           the check instead of being overwritten. */
+        for (Line line : checked.counted()) {
+            if (lockedLevel(line.row().productId, count.locationId) != line.liveQuantity()) {
+                throw new InventoryRefusal("TELLING_GEWIJZIGD",
+                        "De voorraad of de telling is intussen gewijzigd; bekijk de controle opnieuw");
+            }
+        }
+
         /* Only the difference goes to the level of now; a line whose product is gone is left alone. */
         for (Line line : checked.counted()) {
             StockCountLineEntity row = line.row();
@@ -438,6 +449,16 @@ public class StockCountService {
     }
 
     /* --------------------------------------------------------------- internals */
+
+    /** The level as the database holds it now, not as this transaction read it earlier; the row stays locked until the commit. */
+    private int lockedLevel(long productId, long locationId) {
+        StockLevelEntity level = entities.createQuery(
+                        "select l from StockLevelEntity l where l.productId = ?1 and l.locationId = ?2", StockLevelEntity.class)
+                .setParameter(1, productId).setParameter(2, locationId).getResultStream().findFirst().orElse(null);
+        if (level == null) return 0;
+        entities.refresh(level, LockModeType.PESSIMISTIC_WRITE);
+        return level.quantity;
+    }
 
     private StockCountEntity require(long countId) {
         StockCountEntity count = counts.findById(countId);
@@ -715,7 +736,9 @@ public class StockCountService {
                     Integer quantity = container.quantities().get(row.productId);
                     if (quantity != null) {
                         open.add(new OpenDocument("CONTAINER", container.purchaseOrderId(),
-                                container.number() == null ? container.displayName() : container.number(), quantity));
+                                /* By the name the page and the refusal use; the number only when it has none. */
+                                container.displayName() == null || container.displayName().isBlank()
+                                        ? container.number() : container.displayName(), quantity));
                     }
                 }
             }

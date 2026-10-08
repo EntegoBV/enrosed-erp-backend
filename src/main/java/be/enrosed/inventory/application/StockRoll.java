@@ -40,6 +40,10 @@ public final class StockRoll {
     public static final String NOTE_REPLACED_COUNT = "Eerdere telling van dit product, vervangen door de correctie";
     public static final String SOURCE_RECEIPT = "Ontvangstdatum van de container";
     public static final String SOURCE_INVOICE = "Factuurdatum";
+    public static final String NOTE_GAP = "Sluit niet aan op de vorige boeking: mogelijk is een eerdere boeking"
+            + " verwijderd. Kijk dit aantal na";
+    public static final String NOTE_SAME_INSTANT = "Geboekt op het moment van de telling zelf: geef aan of de telling"
+            + " deze beweging al bevat";
 
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final Comparator<StockMovement> BOOK_ORDER = Comparator.comparing(StockMovement::at)
@@ -151,6 +155,16 @@ public final class StockRoll {
         }
         book.values().forEach(lines -> lines.sort(BOOK_ORDER));
 
+        /* The lines that were listed before and have left the stock book since. Each keeps its place in the
+           chain, so the pieces of a deleted line never move onto the line that happens to follow it. */
+        Map<Key, List<StockClosingMovementEntity>> gone = new HashMap<>();
+        for (StockClosingMovementEntity before : input.previousRows()) {
+            if (before.movementId == null || before.productId == null || before.locationId == null
+                    || before.bookedAt == null || before.quantityAfter == null) continue;
+            if (!Boolean.TRUE.equals(before.removed) && input.ledgerIds().contains(before.movementId)) continue;
+            gone.computeIfAbsent(new Key(before.productId, before.locationId), key -> new ArrayList<>()).add(before);
+        }
+
         List<Position> positions = new ArrayList<>();
         List<Row> rows = new ArrayList<>();
         for (Location location : input.locations()) {
@@ -178,8 +192,9 @@ public final class StockRoll {
                 Long ownSession = anchor == null ? location.baseCountId() : Long.valueOf(anchor.countId());
                 String ownRef = ownSession == null ? null : location.ledgerRefs().get(ownSession);
 
+                Key key = new Key(productId, location.locationId());
                 List<Row> own = listedRows(input, location, productId, anchoredAt, countAfter, ownRef,
-                        book.getOrDefault(new Key(productId, location.locationId()), List.of()));
+                        book.getOrDefault(key, List.of()), gone.getOrDefault(key, List.of()));
                 int moved = 0;
                 for (Row row : own) {
                     if (Boolean.TRUE.equals(row.row().applied)) moved += row.row().effectiveDelta;
@@ -211,7 +226,8 @@ public final class StockRoll {
     }
 
     private static List<Row> listedRows(Input input, Location location, long productId, Instant anchoredAt,
-                                        boolean countAfter, String ownRef, List<StockMovement> book) {
+                                        boolean countAfter, String ownRef, List<StockMovement> book,
+                                        List<StockClosingMovementEntity> gone) {
         Instant from = countAfter ? input.cutoffAt() : anchoredAt;
         Instant until = (countAfter ? anchoredAt : input.cutoffAt()).plus(LATER_DAYS, ChronoUnit.DAYS);
         LocalDate countDay = LocalDate.ofInstant(anchoredAt, InventoryClock.BRUSSELS);
@@ -220,15 +236,20 @@ public final class StockRoll {
         for (int index = 0; index < book.size(); index++) {
             StockMovement movement = book.get(index);
             Instant at = movement.at();
-            /* A line of the very moment of a count before the closing date is part of that count. */
-            boolean inWindow = countAfter ? !at.isBefore(from) && !at.isAfter(until) : at.isAfter(from) && !at.isAfter(until);
+            /* From the moment of the count itself, inclusive: the count's own lines are left out by their reference. */
+            boolean inWindow = !at.isBefore(from) && !at.isAfter(until);
             if (!inWindow || movement.id() == null) continue;
             boolean stocktake = movement.kind() == StockMovement.Kind.STOCKTAKE;
             if (stocktake && ownRef != null && startsWith(movement.reference(), ownRef)) continue;
 
-            Integer startedFrom = index > 0 ? Integer.valueOf(book.get(index - 1).quantityAfter())
+            StockMovement previous = index > 0 ? book.get(index - 1) : null;
+            StockClosingMovementEntity deleted = lastBefore(gone, movement, previous);
+            Integer startedFrom = deleted != null ? deleted.quantityAfter
+                    : previous != null ? Integer.valueOf(previous.quantityAfter())
                     : input.preceding().quantityBefore(productId, location.locationId(), at);
-            boolean between = countAfter ? !at.isAfter(anchoredAt) : at.isBefore(input.cutoffAt());
+            /* Another line of the very instant of a count before the closing date: the book cannot tell on which side it fell. */
+            boolean sameInstant = !countAfter && at.equals(anchoredAt);
+            boolean between = countAfter ? !at.isAfter(anchoredAt) : at.isBefore(input.cutoffAt()) && !sameInstant;
 
             StockClosingMovementEntity row = new StockClosingMovementEntity();
             row.movementId = movement.id();
@@ -288,6 +309,17 @@ public final class StockRoll {
                 row.review = !invoiceDate.isAfter(input.closingDate()) != at.isBefore(input.cutoffAt());
             }
 
+            if (sameInstant) {
+                row.defaultApplied = false;
+                row.defaultNote = NOTE_SAME_INSTANT;
+                row.review = true;
+            } else if (row.defaultApplied && row.defaultNote == null && startedFrom != null
+                    && row.effectiveDelta != 0 && row.effectiveDelta != movement.delta()) {
+                /* The line counts for another number than it booked: a line before it left the book unseen. */
+                row.defaultNote = NOTE_GAP;
+                row.review = true;
+            }
+
             Flip flip = input.decisions().get(movement.id());
             row.applied = flip == null ? row.defaultApplied : flip.applied();
             row.appliedReason = flip == null ? null : cut(flip.reason(), 1000);
@@ -303,6 +335,24 @@ public final class StockRoll {
             if (position.productId() == productId) quantities.put(position.locationId(), position.closingQuantity());
         }
         return quantities;
+    }
+
+    /** The deleted line that stood directly before this one in the chain; null when a live line did. */
+    private static StockClosingMovementEntity lastBefore(List<StockClosingMovementEntity> gone, StockMovement movement,
+                                                         StockMovement previous) {
+        StockClosingMovementEntity last = null;
+        for (StockClosingMovementEntity row : gone) {
+            if (!before(row.bookedAt, row.movementId, movement.at(), movement.id())) continue;
+            if (previous != null && !before(previous.at(), previous.id(), row.bookedAt, row.movementId)) continue;
+            if (last == null || before(last.bookedAt, last.movementId, row.bookedAt, row.movementId)) last = row;
+        }
+        return last;
+    }
+
+    private static boolean before(Instant leftAt, Long leftId, Instant rightAt, Long rightId) {
+        int byMoment = leftAt.compareTo(rightAt);
+        if (byMoment != 0) return byMoment < 0;
+        return leftId != null && rightId != null && leftId < rightId;
     }
 
     private static boolean later(BookedLine first, BookedLine second) {
