@@ -799,6 +799,37 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   that last placed or changed it (`WebOrderRecipients`), the approval and
   cancellation mail with the record's address in copy. A failed mail shows
   on the order with "Opnieuw sturen" (`POST /{id}/web-order/mails`).
+- **Customer address for the invoice ("Leveradres overnemen")**: a
+  customer made at login approval has no street, postal code or city, and
+  `validateInvoiceForSend` refuses an invoice or credit note without them.
+  `CustomerInvoiceData` (pure, one place) names what is missing, writes
+  the refusal ("De factuur kan niet uitgereikt worden: bij klant X
+  ontbreken straat en nummer, postcode en stad. Vul dit in bij de
+  klantgegevens.", HTTP 409 without a code, as before) and decides the
+  offer. The staff view of ONE document (never the list) carries
+  `invoiceCustomer` {customerId, company, missing[ADDRESS|POSTAL_CODE|CITY],
+  takeover{address,postalCode,city,countryCode}|null,
+  takeoverBlockedBy PICKUP|NO_DELIVERY|OTHER_COUNTRY|INCOMPLETE|null};
+  null when nothing is missing, or the document is archived, cancelled,
+  declined, expired, customer-cancelled, or an invoice/credit note past
+  concept. The takeover is offered only when the document's delivery row
+  (`WebOrderDeliveries.forDocument`, so also the invoice made from the
+  order) is a DELIVERY that fills every empty field and agrees with every
+  field the record already has, in the record's country.
+  `POST /api/sales-orders/{id}/customer-address-from-delivery` with the
+  address staff confirmed ({address, postalCode, city}) answers the fresh
+  view. `CustomerAddressTakeover.take` locks the document with
+  `lockDocumentForCustomer` (**never the staff gate**: no webOrderRevision,
+  the order is not taken into processing and nobody is mailed), then the
+  customer row, and calls `CustomerService.fillMissingAddress`, which
+  writes only empty fields (country too when the record has none), never
+  name, VAT number or contact data, and logs a CUSTOMER UPDATED activity
+  "Adres overgenomen van het leveradres van <number>". A complete record
+  answers 200 and writes nothing; a delivery that no longer reads as
+  confirmed is 409 "Het leveradres is intussen gewijzigd. Controleer het
+  adres opnieuw."; no offer is 409 "Het leveradres kan niet overgenomen
+  worden. Vul het adres in bij de klant.". The website and the customer
+  session cannot reach any of this (`CustomerAddressTakeoverHttpTest`).
 - **Account PDF**: `SalesPdfOptions.accountCopy()` renders an invoice or
   credit note as issued, without receipts or settlement; the customer
   history never shows a payment state.

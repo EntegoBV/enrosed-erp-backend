@@ -76,6 +76,37 @@ public class CustomerService {
         return saved;
     }
 
+    /**
+     * Completes the address of a record: each of street, postal code, city
+     * and country is written only where the record has none. A field that
+     * holds a value keeps it, and name, VAT number and contact data are not
+     * looked at, so a record that would not pass today's form still saves.
+     * Logged like any other edit of the record, under the given summary;
+     * nothing to fill means nothing saved and nothing logged.
+     */
+    @Transactional
+    public Customer fillMissingAddress(long id, String address, String postalCode, String city, String countryCode,
+                                       String summary) {
+        Customer current = get(id);
+        Customer filled = new Customer(current.id(), current.company(), current.contact(), current.email(),
+                current.phone(), current.vatNumber(), whenEmpty(current.countryCode(), countryCode),
+                current.language(), whenEmpty(current.address(), address),
+                whenEmpty(current.postalCode(), postalCode), whenEmpty(current.city(), city), current.incoterm(),
+                current.paymentTerms(), current.notes(), current.createdAt(), current.partner(),
+                current.partnerSharePct(), current.partnerCostPct(), current.fiscalRepresentative(),
+                current.invoiceNote());
+        List<ActivityChangeDto> changesMade = customerChanges(current, filled);
+        if (changesMade.isEmpty()) return current;
+        Customer saved = customers.save(filled);
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, summary, changesMade);
+        return saved;
+    }
+
+    private static String whenEmpty(String current, String value) {
+        if (current != null && !current.isBlank()) return current;
+        return value == null || value.isBlank() ? current : value.strip();
+    }
+
     /** A percentage between 0 and 100, or null when it was not filled in. */
     /** The document sentence as typed, trimmed; blank means none, and it stays short enough for a footer. */
     private static String invoiceNote(String note) {
