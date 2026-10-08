@@ -555,6 +555,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   field; `color`/`size` appear only when the variant has a value - the
   website treats them as optional. `size` is the language-neutral Maat, so
   its source is always the requested language.
+- **Public colour text** (2026-10-08, `PublicColourText`): a colour text of
+  the product's own in the requested language wins; without one a standard
+  pick-list colour (`ColourNames.isStandard`, same normalisation as
+  `translate`) prints the dictionary word (`ColourNames.standardName`, the
+  dictionary's spelling in Dutch too) and is exact in that language, like a
+  unit; any other colour borrows from the fallback chain or prints as typed
+  and stays a localization hole. The strict family endpoint, the generated
+  alt, `PublicLocalizationCompletenessService` (both channels) and
+  `Product.colourResolved` (documents, strict PDF check, legacy public
+  catalogue) share the rule, so a new product with a pick-list colour never
+  blocks the website build. The website revision adds a `dictionaryColour`
+  term only for a variant whose colour comes from the dictionary.
 - **Website price switch**: `PUT /api/website/quote-settings`
   `{"pricesVisible":bool}` (table `website_quote_settings`, one row; a
   missing row = visible) withholds prices on the whole public website, not

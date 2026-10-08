@@ -126,8 +126,6 @@ public class PublicLocalizationCompletenessService {
                     .sorted(Comparator.comparingInt(item -> item.variantPosition)).toList()) {
                 String variantKey = blank(product.canonicalVariantKey)
                         ? String.valueOf(product.id) : product.canonicalVariantKey;
-                ProductTextEntity text = product.texts.stream()
-                        .filter(item -> item.language == language).findFirst().orElse(null);
                 if (productUsesPublicName(product)) {
                     LanguageFallback.Resolved<String> publicName =
                             publicProductNames.resolve(product, language);
@@ -136,9 +134,11 @@ public class PublicLocalizationCompletenessService {
                                 + locale + ".name");
                     }
                 }
+                /* Same rule as the public DTO: the variant's own colour text or, for a
+                   standard colour, the colour dictionary. Staff translate the rest by hand. */
                 if (productUses(product, product.colour, item -> item.colour)) {
                     required(missing, prefix + ".variants." + variantKey + "." + locale + ".color",
-                            value(text, item -> item.colour));
+                            PublicColourText.exact(product, language));
                 }
                 /* No size: the Maat is one language-neutral value, never translated. */
             }

@@ -5,7 +5,6 @@ import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyTextEntity;
-import be.enrosed.catalog.adapter.out.persistence.ProductTextEntity;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.LanguageFallback;
 
@@ -71,9 +70,9 @@ public final class FamilyPhotoAltText {
 
     private static String exactColour(ProductEntity variant, Language requested) {
         if (variant == null) return null;
-        return variant.texts.stream().filter(text -> text.language == requested)
-                .map((ProductTextEntity text) -> text.colour).filter(value -> !blank(value))
-                .map(String::strip).findFirst().orElse(null);
+        /* The variant's own text or, for a standard colour, the colour dictionary. */
+        String colour = PublicColourText.exact(variant, requested);
+        return colour == null ? null : colour.strip();
     }
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }

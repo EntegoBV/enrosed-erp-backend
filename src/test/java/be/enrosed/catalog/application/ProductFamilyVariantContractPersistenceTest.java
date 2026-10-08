@@ -243,8 +243,13 @@ class ProductFamilyVariantContractPersistenceTest {
 
         PublicFamilyCatalogDto.VariantDto frenchFallback = variant(
                 publicFamily("FR", family.publicHandle), small.id);
-        assertEquals("Red", frenchFallback.color());
+        assertEquals("Rouge", frenchFallback.color(),
+                "Rood is a pick-list colour: without a French text of its own the dictionary "
+                        + "translates it, the English text is not borrowed");
+        assertEquals(Language.FR, frenchFallback.textSources().get("color"));
         assertEquals("English small rose", frenchFallback.name());
+        assertEquals(Language.EN, frenchFallback.textSources().get("name"),
+                "a name has no dictionary and still falls back");
     }
 
     @Test
@@ -1374,6 +1379,181 @@ class ProductFamilyVariantContractPersistenceTest {
                 () -> productService.update(source.id,
                         current.withVariantAttributes("Red", "Small", "")));
         assertTrue(swatch.getMessage().contains("Kleurstaal"), swatch.getMessage());
+    }
+
+    /** The reviewed words of i18n/colour-names.csv for the pick-list colour Bordeaux. */
+    private static final java.util.Map<Language, String> BORDEAUX = java.util.Map.of(
+            Language.NL, "Bordeaux", Language.FR, "Bordeaux", Language.EN, "Burgundy",
+            Language.DE, "Bordeauxrot", Language.ES, "Burdeos", Language.PL, "Bordowy",
+            Language.PT, "Bordô", Language.TR, "Bordo", Language.EL, "Μπορντό");
+
+    @Test
+    @TestTransaction
+    void aStandardColourWithoutItsOwnTextIsCompleteAndTranslatedInEveryLanguage() {
+        FamilyContext context = completeFamilyContext("colour-from-dictionary");
+        ProductEntity variant = product(
+                context.family, "SKU-COLOUR-DICTIONARY", "colour-from-dictionary",
+                "Bordeaux", null, "#6D1F2C", 0);
+        variant.categoryId = context.category.id;
+        /* A new product: the colour comes from the pick-list, nobody typed it nine times. */
+        variant.texts.forEach(text -> text.colour = null);
+        ProductFamilyPhotoEntity colourPhoto = photo(context.family, "colour-from-dictionary-own", 1);
+        colourPhoto.variantProduct = variant;
+        colourPhoto.altTextsJson = "[]";
+        colourPhoto.publishedChannelsJson = "[\"WEBSITE\"]";
+        entityManager.persist(variant);
+        entityManager.persist(colourPhoto);
+        entityManager.flush();
+
+        assertEquals(9, BORDEAUX.size());
+        assertEquals(List.of(), localization.missing(
+                        context.family, List.of(variant), CatalogChannel.WEBSITE),
+                "staff are not asked to translate a standard colour by hand");
+        assertEquals(List.of(), localization.missing(
+                context.family, List.of(variant), CatalogChannel.CATALOGUE).stream()
+                .filter(path -> path.contains(".variants.")).toList());
+        assertTrue(familyWrites.websiteBuildReady());
+        for (Language language : Language.values()) {
+            Response response = publicFamilies.catalog(
+                    CatalogChannel.WEBSITE, language.code(), true, null);
+            assertEquals(200, response.getStatus(), language.code());
+            PublicFamilyCatalogDto.FamilyDto family = ((PublicFamilyCatalogDto) response.getEntity())
+                    .families().stream()
+                    .filter(item -> context.family.publicHandle.equals(item.publicHandle()))
+                    .findFirst().orElseThrow();
+            PublicFamilyCatalogDto.VariantDto projected = variant(family, variant.id);
+            assertEquals(BORDEAUX.get(language), projected.color(), language.code());
+            assertEquals(language, projected.textSources().get("color"),
+                    "the dictionary word is exact in " + language.code());
+            PublicFamilyCatalogDto.ImageDto image = family.images().stream()
+                    .filter(item -> item.id().equals(colourPhoto.id)).findFirst().orElseThrow();
+            assertEquals("Family " + language.code() + " — " + BORDEAUX.get(language), image.alt(),
+                    "the generated alt names the same colour");
+            assertEquals(language, image.textSources().get("alt"));
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void aColourTextOfTheProductItselfStillWinsOverTheDictionary() {
+        FamilyContext context = completeFamilyContext("colour-own-text-wins");
+        ProductEntity variant = product(
+                context.family, "SKU-COLOUR-OWN", "colour-own-text-wins",
+                "Bordeaux", null, "#6D1F2C", 0);
+        variant.categoryId = context.category.id;
+        entityManager.persist(variant);
+        entityManager.flush();
+        String allOwnTexts = catalogRevisions.currentRevision();
+
+        assertEquals(List.of(), localization.missing(
+                context.family, List.of(variant), CatalogChannel.WEBSITE));
+        for (Language language : Language.values()) {
+            PublicFamilyCatalogDto.VariantDto projected = variant(
+                    strictFamily(language, context.family.publicHandle), variant.id);
+            assertEquals("Bordeaux " + language.code(), projected.color(), language.code());
+            assertEquals(language, projected.textSources().get("color"));
+        }
+
+        /* One language loses its own text: only that language reads the dictionary. */
+        variant.texts.stream().filter(text -> text.language == Language.DE)
+                .forEach(text -> text.colour = " ");
+        entityManager.flush();
+
+        assertEquals(List.of(), localization.missing(
+                context.family, List.of(variant), CatalogChannel.WEBSITE));
+        for (Language language : Language.values()) {
+            PublicFamilyCatalogDto.VariantDto projected = variant(
+                    strictFamily(language, context.family.publicHandle), variant.id);
+            assertEquals(language == Language.DE ? "Bordeauxrot" : "Bordeaux " + language.code(),
+                    projected.color(), language.code());
+            assertEquals(language, projected.textSources().get("color"));
+        }
+        assertNotEquals(allOwnTexts, catalogRevisions.currentRevision());
+    }
+
+    @Test
+    @TestTransaction
+    void aColourOutsideTheDictionaryWithoutItsOwnTextStillStopsTheStrictCatalog() {
+        FamilyContext context = completeFamilyContext("colour-not-standard");
+        ProductEntity variant = product(
+                context.family, "SKU-COLOUR-CUSTOM", "colour-not-standard",
+                "Vintage roze", null, "#D8A7B1", 0);
+        variant.categoryId = context.category.id;
+        variant.texts.forEach(text -> text.colour = null);
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        List<String> expectedForStaff = java.util.Arrays.stream(Language.values())
+                .map(language -> "website.families.colour-not-standard.variants."
+                        + "colour-not-standard." + language.code() + ".color")
+                .toList();
+        assertEquals(expectedForStaff, localization.missing(
+                context.family, List.of(variant), CatalogChannel.WEBSITE));
+        assertFalse(familyWrites.websiteBuildReady());
+        for (Language language : Language.values()) {
+            LocalizationIncompleteException error = assertThrows(
+                    LocalizationIncompleteException.class,
+                    () -> publicFamilies.catalog(
+                            CatalogChannel.WEBSITE, language.code(), true, null),
+                    language.code());
+            assertEquals(List.of("families.colour-not-standard.variants." + variant.id + ".color"),
+                    error.missingPaths(), language.code());
+        }
+        PublicFamilyCatalogDto.VariantDto lenient = variant(
+                publicFamily("fr", context.family.publicHandle), variant.id);
+        assertEquals("Vintage roze", lenient.color(), "the stored colour prints as typed");
+        assertNull(lenient.textSources().get("color"), "and is exact in no language");
+
+        /* Its own text in one language closes exactly that language. */
+        text(variant, Language.FR, "Variant fr", "Rose vintage");
+        entityManager.flush();
+        assertEquals(expectedForStaff.stream().filter(path -> !path.contains(".fr.")).toList(),
+                localization.missing(context.family, List.of(variant), CatalogChannel.WEBSITE));
+        assertEquals("Rose vintage", variant(
+                strictFamily(Language.FR, context.family.publicHandle), variant.id).color());
+        assertThrows(LocalizationIncompleteException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "de", true, null));
+    }
+
+    @Test
+    @TestTransaction
+    void caseAndSurroundingSpacesOfAStoredColourFollowTheDictionary() {
+        FamilyContext context = completeFamilyContext("colour-normalised");
+        ProductEntity variant = product(
+                context.family, "SKU-COLOUR-NORMALISED", "colour-normalised",
+                "  bORDEAUX ", null, "#6D1F2C", 0);
+        variant.categoryId = context.category.id;
+        variant.texts.forEach(text -> text.colour = null);
+        entityManager.persist(variant);
+        entityManager.flush();
+
+        assertEquals(List.of(), localization.missing(
+                context.family, List.of(variant), CatalogChannel.WEBSITE));
+        for (Language language : Language.values()) {
+            PublicFamilyCatalogDto.VariantDto projected = variant(
+                    strictFamily(language, context.family.publicHandle), variant.id);
+            assertEquals(BORDEAUX.get(language), projected.color(), language.code());
+            assertEquals(language, projected.textSources().get("color"));
+        }
+
+        /* A near miss is not a standard colour: nothing is guessed. */
+        variant.colour = "Bordeaux rood";
+        entityManager.flush();
+        assertEquals(9, localization.missing(
+                context.family, List.of(variant), CatalogChannel.WEBSITE).size());
+        LocalizationIncompleteException error = assertThrows(
+                LocalizationIncompleteException.class,
+                () -> publicFamilies.catalog(CatalogChannel.WEBSITE, "nl", true, null));
+        assertEquals(List.of("families.colour-normalised.variants." + variant.id + ".color"),
+                error.missingPaths());
+    }
+
+    private PublicFamilyCatalogDto.FamilyDto strictFamily(Language language, String handle) {
+        Response response = publicFamilies.catalog(
+                CatalogChannel.WEBSITE, language.code(), true, null);
+        assertEquals(200, response.getStatus(), language.code());
+        return ((PublicFamilyCatalogDto) response.getEntity()).families().stream()
+                .filter(item -> handle.equals(item.publicHandle())).findFirst().orElseThrow();
     }
 
     @Test

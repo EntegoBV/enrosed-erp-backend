@@ -89,6 +89,42 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void aDictionaryColourIsInTheRevisionAndAVariantWithItsOwnColourTextsKeepsItsDigest() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().colour = "Bordeaux";
+        for (Language language : Language.values()) {
+            be.enrosed.catalog.adapter.out.persistence.ProductTextEntity text =
+                    new be.enrosed.catalog.adapter.out.persistence.ProductTextEntity();
+            text.product = graph.product();
+            text.language = language;
+            text.colour = "Bordeaux " + language.code();
+            graph.product().texts.add(text);
+        }
+        String ownTexts = service(graph).currentRevision();
+        /* The digest before the dictionary rule: every term the service wrote for this
+           variant, and no dictionary term. Pinned so existing data cannot start a rebuild. */
+        assertEquals("008151cd10d865e2d3a1b454a89afd007812a141d81faa686561149ee7bd1b93", ownTexts,
+                "a variant with a colour text of its own in every language keeps its digest");
+
+        graph.product().texts.forEach(text -> text.colour =
+                text.language == Language.DE ? null : text.colour);
+        String germanFromDictionary = service(graph).currentRevision();
+        graph.product().colour = "Rood";
+        String anotherStandardColour = service(graph).currentRevision();
+        graph.product().colour = "Vintage roze";
+        String notStandard = service(graph).currentRevision();
+        graph.product().colour = " vintage ROZE ";
+        String notStandardRespelled = service(graph).currentRevision();
+
+        assertNotEquals(ownTexts, germanFromDictionary);
+        assertNotEquals(germanFromDictionary, anotherStandardColour,
+                "German visitors read Rot instead of Bordeauxrot only after a rebuild");
+        assertNotEquals(anotherStandardColour, notStandard);
+        assertNotEquals(notStandard, notStandardRespelled, "the stored colour itself stays covered");
+    }
+
+    @Test
     void withholdingPricesAltersTheRevisionAndShowingThemKeepsTheExistingOne() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");

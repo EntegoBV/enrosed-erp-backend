@@ -208,6 +208,15 @@ public class WebsiteCatalogRevisionService {
             add(out, text.description);
             add(out, text.colour);
         });
+        /* A standard colour without a text of its own prints the dictionary word, so a
+           corrected dictionary is a public change. Only such a colour adds a term: a variant
+           with its own colour texts keeps the digest it always had. */
+        for (Language language : Language.values()) {
+            String dictionaryColour = PublicColourText.fromDictionary(product, language);
+            if (dictionaryColour != null) {
+                add(out, "dictionaryColour"); add(out, language); add(out, dictionaryColour);
+            }
+        }
     }
 
     private String normalized(String value) {

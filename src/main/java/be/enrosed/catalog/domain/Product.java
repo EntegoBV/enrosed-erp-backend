@@ -336,9 +336,12 @@ public record Product(
     /**
      * Colour in the given language.
      *
-     * A product-specific translation wins; otherwise standard colours
-     * translate themselves through the shared dictionary, and anything
-     * unknown stays as typed.
+     * A product-specific translation in this language wins; otherwise a
+     * standard colour translates itself through the shared dictionary, and
+     * that word is exact in the language. Anything else borrows a
+     * product-specific text from the fallback languages or stays as typed,
+     * and is not exact. Same rule as the public catalogue
+     * ({@code PublicColourText}).
      */
     public String colourIn(Language language) {
         return colourResolved(language).value();
@@ -347,6 +350,13 @@ public record Product(
     public LanguageFallback.Resolved<String> colourResolved(Language language) {
         LanguageFallback.Resolved<String> translated = LanguageFallback.text(
                 texts(), language, ProductText::language, ProductText::colour, null);
+        if (translated.value() != null && translated.sourceLanguage() == language) {
+            return translated;
+        }
+        if (be.enrosed.shared.ColourNames.isStandard(colour)) {
+            return new LanguageFallback.Resolved<>(
+                    be.enrosed.shared.ColourNames.translate(colour, language), language);
+        }
         if (translated.value() != null) return translated;
         return new LanguageFallback.Resolved<>(
                 be.enrosed.shared.ColourNames.translate(colour, language), null);
