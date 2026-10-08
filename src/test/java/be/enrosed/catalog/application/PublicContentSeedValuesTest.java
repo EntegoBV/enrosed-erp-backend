@@ -43,8 +43,10 @@ class PublicContentSeedValuesTest {
     @Test
     void supersededWebsiteCopyMatchesOnlyTheListedExactValuesPerKeyAndLanguage() throws Exception {
         JsonNode superseded = supersededWebsiteCopy();
-        assertEquals(List.of("products.hero.title", "meta.products.title", "meta.products.description"),
-                fieldNames(superseded), "only the reviewed products-page copy is swapped");
+        assertEquals(List.of("products.hero.title", "meta.products.title", "meta.products.description",
+                        "legal.notice.purpose.p1"),
+                fieldNames(superseded),
+                "only the reviewed products-page copy and the legal notice purpose are swapped");
         int values = 0;
         for (String key : fieldNames(superseded)) {
             JsonNode byLanguage = superseded.path(key);
@@ -80,7 +82,8 @@ class PublicContentSeedValuesTest {
                         ContentScope.WEBSITE, key, language, ""));
             }
         }
-        assertEquals(35, values, "live production value per language plus the earlier bestseller seed");
+        assertEquals(44, values, "products page: live production value per language plus the earlier"
+                + " bestseller seed (35); legal notice purpose: the one value every database held (9)");
     }
 
     @Test
@@ -126,6 +129,45 @@ class PublicContentSeedValuesTest {
             assertTrue(seed.get("meta.products.title").get(index).length() <= 60,
                     seed.get("meta.products.title").get(index));
         }
+    }
+
+    @Test
+    void legalNoticePurposeSaysAccountCustomersCanOrderAndTheFormerDenialIsSuperseded() throws Exception {
+        String key = "legal.notice.purpose.p1";
+        List<String> row;
+        try (var input = getClass().getResourceAsStream("/i18n/website-content.csv")) {
+            row = be.enrosed.shared.Csv.parseRows(
+                            new java.io.InputStreamReader(input, java.nio.charset.StandardCharsets.UTF_8))
+                    .stream().filter(candidate -> candidate.getFirst().equals(key)).findFirst().orElseThrow();
+        }
+        JsonNode superseded = supersededWebsiteCopy();
+        List<Language> columns = List.of(Language.NL, Language.FR, Language.EN, Language.DE,
+                Language.ES, Language.PL, Language.PT, Language.TR, Language.EL);
+        for (int index = 0; index < columns.size(); index++) {
+            Language language = columns.get(index);
+            JsonNode previous = previous(superseded, key, language);
+            assertEquals(1, previous.size(), "one former value: the seed every database held " + language);
+            String former = previous.get(0).asText();
+            String seeded = row.get(3 + index);
+            int firstSentence = former.indexOf(". ") + 2;
+            assertTrue(firstSentence > 2 && seeded.startsWith(former.substring(0, firstSentence)),
+                    "the first sentence is unchanged " + language);
+            assertTrue(seeded.length() > former.length(), language.name());
+        }
+        assertEquals("This website presents Enrosed products and wholesale information to businesses, including"
+                        + " wholesalers, florists and retail buyers. It supports product comparison and quotation"
+                        + " requests; business customers with an account can also place orders, which become binding"
+                        + " only once Enrosed has confirmed them. The website itself does not conclude a sale.",
+                row.get(5));
+        assertTrue(row.get(3).endsWith(" De site ondersteunt productvergelijking en offerteaanvragen; zakelijke"
+                + " klanten met een account kunnen er ook bestellen, waarbij een bestelling pas bindend is nadat"
+                + " Enrosed ze heeft bevestigd. De website sluit zelf geen verkoop af."), row.get(3));
+        assertTrue(previous(superseded, key, Language.EN).get(0).asText()
+                .endsWith("it is not an online wholesale checkout and does not itself conclude a sale."));
+        assertTrue(previous(superseded, key, Language.NL).get(0).asText()
+                .endsWith("het is geen online groothandelswebshop en brengt zelf geen verkoopovereenkomst tot stand."));
+        assertFalse(row.get(5).contains("not an online wholesale checkout"));
+        assertFalse(row.get(3).contains("geen online groothandelswebshop"));
     }
 
     private JsonNode supersededWebsiteCopy() throws Exception {

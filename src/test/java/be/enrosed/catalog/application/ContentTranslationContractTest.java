@@ -386,6 +386,55 @@ class ContentTranslationContractTest {
 
     @Test
     @TestTransaction
+    void legalNoticePurposeMovesFromTheFormerSeedToTheOrderingTextAndKeepsDashboardEdits() throws Exception {
+        com.fasterxml.jackson.databind.JsonNode former;
+        try (var input = getClass().getResourceAsStream("/i18n/website-copy-superseded-values.json")) {
+            former = new com.fasterxml.jackson.databind.ObjectMapper().readTree(input)
+                    .path("legal.notice.purpose.p1");
+        }
+        ContentTranslationEntity purpose = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.notice.purpose.p1").firstResult();
+        java.util.Map<Language, String> seeded = new java.util.EnumMap<>(Language.class);
+        for (Language language : Language.values()) {
+            ContentTranslationTextEntity text = translation(purpose, language);
+            seeded.put(language, text.value);
+            // What production and test served until this release: the former seed, untouched.
+            text.value = former.path(language.name()).get(0).asText();
+            assertTrue(!text.value.equals(seeded.get(language)), language.name());
+        }
+        assertTrue(seeded.get(Language.EN).endsWith("business customers with an account can also place orders,"
+                + " which become binding only once Enrosed has confirmed them."
+                + " The website itself does not conclude a sale."), seeded.get(Language.EN));
+        // Two dashboard edits: an own text, and the former seed with one word added.
+        ContentTranslationTextEntity german = translation(purpose, Language.DE);
+        ContentTranslationTextEntity polish = translation(purpose, Language.PL);
+        german.value = "Im Dashboard freigegebener Zweck der Website.";
+        polish.value = polish.value + " Uzupełnienie.";
+        String editedPolish = polish.value;
+        entityManager.flush();
+        long revisionBefore = purpose.revision;
+        var revisionOfSiteBefore = catalogRevision.currentRevision();
+
+        seeds.onStart(null);
+        entityManager.flush();
+
+        for (Language language : Language.values()) {
+            if (language == Language.DE || language == Language.PL) continue;
+            assertEquals(seeded.get(language), translation(purpose, language).value,
+                    "the former seed must move to the ordering text " + language);
+        }
+        assertEquals("Im Dashboard freigegebener Zweck der Website.", german.value,
+                "dashboard-authored legal copy must never be overwritten");
+        assertEquals(editedPolish, polish.value, "a former value with an own addition is a dashboard edit");
+        assertTrue(purpose.revision > revisionBefore,
+                "the swap must bump the revision so a stale dashboard page cannot overwrite it");
+        assertTrue(!revisionOfSiteBefore.equals(catalogRevision.currentRevision()),
+                "the swap must change the website revision so the rebuild is queued");
+    }
+
+    @Test
+    @TestTransaction
     void startupSeedDeltaQueuesAnExistingLiveWebsiteWithoutNoOpLoops() {
         ContentTranslationEntity entity = rows.find(
                 "scope = ?1 and key = ?2", ContentScope.WEBSITE,
