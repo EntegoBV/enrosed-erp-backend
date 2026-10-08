@@ -1406,10 +1406,10 @@ public class SalesOrderService {
                 throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
         }
         Customer customer = customers.get(invoice.customerId());
-        if (isBlank(customer.address()) || isBlank(customer.postalCode()) || isBlank(customer.city())) {
-            throw new BusinessRuleException("Vul het volledige adres van " + customer.company()
-                    + " in - een factuur zonder adres is niet geldig");
-        }
+        /* An invoice without the customer's address is not valid; the sentence names what is missing. */
+        String addressRefusal = CustomerInvoiceData.refusal(customer, invoice.isCreditNote(),
+                invoice.status() == QuoteStatus.UITGEREIKT || invoice.status() == QuoteStatus.BETAALD);
+        if (addressRefusal != null) throw new BusinessRuleException(addressRefusal);
         Country country = countries.find(invoice.countryCode());
         boolean intraEu = country != null && country.euMember()
                 && !"BE".equalsIgnoreCase(invoice.countryCode());

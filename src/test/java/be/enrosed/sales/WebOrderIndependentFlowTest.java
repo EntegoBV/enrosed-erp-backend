@@ -371,7 +371,9 @@ class WebOrderIndependentFlowTest {
            address typed for the order does not count. Staff fill in the record first. */
         Response noAddress = issue(invoiceId);
         assertEquals(409, noAddress.statusCode(), noAddress.asString());
-        assertTrue(noAddress.<String>path("message").contains("Vul het volledige adres"), noAddress.asString());
+        String refusal = noAddress.path("message");
+        assertTrue(refusal.startsWith("De factuur kan niet uitgereikt worden: bij klant ")
+                && refusal.endsWith(" ontbreken straat en nummer, postcode en stad. Vul dit in bij de klantgegevens."), refusal);
         Map<String, Object> record = new LinkedHashMap<>(staff().when().get("/api/customers/" + anna.customerId())
                 .then().statusCode(200).extract().jsonPath().getMap("$"));
         record.put("address", "Avenue Louise 100");

@@ -42,6 +42,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.WebOrderDeliveries deliveries;
     @jakarta.inject.Inject be.enrosed.sales.application.WebOrderMails webOrderMails;
     @jakarta.inject.Inject be.enrosed.sales.application.CustomerService customers;
+    @jakarta.inject.Inject be.enrosed.sales.application.CustomerAddressTakeover addressTakeover;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -93,7 +94,13 @@ public class SalesOrderResource {
                             /** Only on the document that IS the website order of a logged-in customer; null otherwise. */
                             WebOrderView webOrder,
                             /** The delivery the customer typed for a website order, also on the documents derived from it. */
-                            DeliveryView delivery) {
+                            DeliveryView delivery,
+                            /**
+                             * Only on a single document, never on the list: the address data its customer record still
+                             * lacks for an invoice, and the delivery address staff may take over; null when nothing is
+                             * missing or the document can no longer lead to an invoice.
+                             */
+                            be.enrosed.sales.application.CustomerInvoiceData.Notice invoiceCustomer) {
         /** The view as it stood before website orders of logged-in customers were added. */
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -114,7 +121,7 @@ public class SalesOrderResource {
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
-                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions, null, null);
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions, null, null, null);
         }
         /** The same view with the website order state and its delivery filled in. */
         OrderView withWebOrder(WebOrderView webOrder, DeliveryView delivery) {
@@ -123,7 +130,16 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
-                    webOrder, delivery);
+                    webOrder, delivery, invoiceCustomer);
+        }
+        /** The same view with what the customer record lacks for an invoice. */
+        OrderView withInvoiceCustomer(be.enrosed.sales.application.CustomerInvoiceData.Notice invoiceCustomer) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
+                    webOrder, delivery, invoiceCustomer);
         }
         /** The view as it stood before the advance billing of regular quotes was added. */
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
@@ -191,7 +207,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
-                    webOrder, delivery);
+                    webOrder, delivery, invoiceCustomer);
         }
         /** The same view naming the container the document comes from; null leaves it unnamed. */
         OrderView withContainer(be.enrosed.sourcing.domain.PurchaseOrderName container) {
@@ -200,7 +216,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     container == null ? null : container.displayName(), container == null ? null : container.number(),
-                    advanceBilling, advanceInvoices, advanceDeductions, webOrder, delivery);
+                    advanceBilling, advanceInvoices, advanceDeductions, webOrder, delivery, invoiceCustomer);
         }
         /** The same view with the advance billing of regular quotes filled in. */
         OrderView withAdvanceBilling(be.enrosed.sales.application.SalesAdvanceBillingService.Views views) {
@@ -210,7 +226,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber,
-                    views.billing(order), views.advanceInvoices(order), views.deductions(order), webOrder, delivery);
+                    views.billing(order), views.advanceInvoices(order), views.deductions(order), webOrder, delivery, invoiceCustomer);
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -359,8 +375,10 @@ public class SalesOrderResource {
         OrderView view = links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
                 .withContainer(container)
                 .withAdvanceBilling(advanceBilling == null || order.id() == null ? null : advanceBilling.views(all));
-        return webOrderBlocks(view, webOrders == null || order.id() == null ? null : webOrders.find(order.id()).orElse(null),
+        OrderView blocks = webOrderBlocks(view, webOrders == null || order.id() == null ? null : webOrders.find(order.id()).orElse(null),
                 true, invoicedQuoteIds(all), new java.util.HashMap<>());
+        /* Read live on one document; the list stays at its own number of reads. */
+        return addressTakeover == null ? blocks : blocks.withInvoiceCustomer(addressTakeover.notice(order));
     }
 
     /** Every quote an invoice was made from: such a website order is closed to its customer. */
@@ -460,6 +478,21 @@ public class SalesOrderResource {
         salesOrders.get(id);
         webOrderMails.resend(id, repeat);
         return view(salesOrders.get(id));
+    }
+
+    /** The address staff confirmed in "Leveradres overnemen": the server refuses when the delivery reads otherwise by now. */
+    public record CustomerAddressRequest(String address, String postalCode, String city) {}
+
+    /**
+     * "Leveradres overnemen": fills the empty address fields of the customer
+     * record from the delivery address of this document. It carries no
+     * webOrderRevision and never takes a website order into processing.
+     */
+    @POST
+    @Path("/{id}/customer-address-from-delivery")
+    public OrderView takeCustomerAddress(@PathParam("id") long id, CustomerAddressRequest request) {
+        return view(addressTakeover.take(id, request == null ? null : request.address(),
+                request == null ? null : request.postalCode(), request == null ? null : request.city()));
     }
 
     /* ------------------------------------------------------------ credit notes */
