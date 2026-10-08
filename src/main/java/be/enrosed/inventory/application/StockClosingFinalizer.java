@@ -101,7 +101,7 @@ public class StockClosingFinalizer {
         }
         List<Notice> blockers = ClosingNotices.fromJson(closing.noticesJson).stream().filter(Notice::blocker).toList();
         if (!blockers.isEmpty()) {
-            throw new InventoryRefusal("GEBLOKKEERD", "Nog " + blockers.size() + " punten houden de afsluiting tegen",
+            throw new InventoryRefusal("GEBLOKKEERD", "Nog " + ClosingNotices.counted(blockers.size(), "punt houdt", "punten houden") + " de afsluiting tegen",
                     Map.of("notices", blockers));
         }
 

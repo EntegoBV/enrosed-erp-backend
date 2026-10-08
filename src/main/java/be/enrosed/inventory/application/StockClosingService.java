@@ -760,8 +760,9 @@ public class StockClosingService {
             }
         }
         if (changedLots > 0) {
-            notices.amount("PARTIJ_GEWIJZIGD", ClosingNotices.SEGMENT_VALUE, changedValue, changedLots
-                    + " partijen hebben nu een andere waarde per stuk dan in de afsluiting van " + previous.closingYear
+            notices.amount("PARTIJ_GEWIJZIGD", ClosingNotices.SEGMENT_VALUE, changedValue,
+                    ClosingNotices.counted(changedLots, "partij heeft", "partijen hebben")
+                    + " nu een andere waarde per stuk dan in de afsluiting van " + previous.closingYear
                     + ": verschil € " + ClosingNotices.euro(changedValue) + ", niet verwerkt.");
         }
 
@@ -946,7 +947,7 @@ public class StockClosingService {
                 if (level.quantity() != 0) {
                     notices.forProduct(false, "VERWIJDERD_PRODUCT", ClosingNotices.SEGMENT_COUNT, level.productId(),
                             level.location().id(), "Voorraadstand van een verwijderd product (id " + level.productId() + ", "
-                                    + level.quantity() + " stuks) is niet opgenomen.");
+                                    + ClosingNotices.pieces(level.quantity()) + ") is niet opgenomen.");
                 }
                 continue;
             }
@@ -1080,8 +1081,8 @@ public class StockClosingService {
         }
         long unvaluedProducts = valued.articles().stream().filter(article -> article.unvaluedQuantity > 0).count();
         if (unvaluedProducts > 0) {
-            notices.block("ZONDER_WAARDE", ClosingNotices.SEGMENT_VALUE, ClosingNotices.counted(unvaluedProducts, "product", "producten") + " (" + closing.unvaluedQuantity
-                    + " stuks) zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
+            notices.block("ZONDER_WAARDE", ClosingNotices.SEGMENT_VALUE, ClosingNotices.counted(unvaluedProducts, "product", "producten") + " (" + ClosingNotices.pieces(closing.unvaluedQuantity)
+                    + ") zonder gewaardeerde partij. Vul een beginwaarde met bron in.");
         }
         for (Long productId : valued.writeDownExcess()) {
             notices.forProduct(true, "AFWAARDERING_TE_VEEL", ClosingNotices.SEGMENT_VALUE, productId, null,
@@ -1176,8 +1177,10 @@ public class StockClosingService {
                 diffRows(closing, valued.articles(), lotRows, containerRows, movementRows, valued.layers()), storedDiffRows(replaced));
         if (!changes.isEmpty()) {
             notices.warn("VERSCHIL_MET_VORIGE_VERSIE", ClosingNotices.SEGMENT_FINALIZE, "Tegenover versie " + replaced.versionNo + ": "
-                    + changes.articles().size() + " producten, " + changes.lots().size() + " partijen, "
-                    + changes.movements().size() + " bewegingen en " + changes.openingLayers().size() + " beginwaarden anders."
+                    + ClosingNotices.counted(changes.articles().size(), "product", "producten") + ", "
+                    + ClosingNotices.counted(changes.lots().size(), "partij", "partijen") + ", "
+                    + ClosingNotices.counted(changes.movements().size(), "beweging", "bewegingen") + " en "
+                    + ClosingNotices.counted(changes.openingLayers().size(), "beginwaarde", "beginwaarden") + " anders."
                     + " Totaal € " + ClosingNotices.euro(replaced.totalValueEur) + " → € " + ClosingNotices.euro(closing.totalValueEur) + ".");
         }
         Set<Long> ownVersions = all.stream().filter(row -> Objects.equals(row.closingYear, closing.closingYear))

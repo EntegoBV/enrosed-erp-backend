@@ -183,7 +183,7 @@ class StockClosingHttpTest {
         refusal(post(finalize, Map.of("dataSha256", "0".repeat(64), "signerName", "Emre")), "CIJFERS_GEWIJZIGD")
                 .body("message", equalTo("De gegevens zijn intussen gewijzigd. Herbereken en kijk de cijfers opnieuw na"));
         refusal(post(finalize, Map.of("dataSha256", seen, "signerName", "Emre")), "GEBLOKKEERD")
-                .body("message", matchesPattern("Nog \\d+ punten houden de afsluiting tegen"))
+                .body("message", matchesPattern("Nog (1 punt houdt|[2-9]\\d* punten houden) de afsluiting tegen"))
                 .body("details.notices.code", hasItem("BTW_BEVESTIGING"))
                 .body("details.notices.severity", not(hasItem("WARNING")))
                 .body("details.notices.find { it.code == 'BTW_BEVESTIGING' }.segment", equalTo("afsluiten"))

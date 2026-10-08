@@ -15,6 +15,7 @@ import be.enrosed.inventory.application.StockCountService.LineWrite;
 import be.enrosed.inventory.application.StockCountService.OpenDocument;
 import be.enrosed.inventory.application.StockCountService.OrphanLevel;
 import be.enrosed.inventory.application.StockCountService.Session;
+import be.enrosed.inventory.application.StockCountService.Summary;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderLineEntity;
 import be.enrosed.sales.application.CustomerService;
@@ -379,12 +380,15 @@ class StockCountServiceTest {
         assertEquals("Nog 2 producten met voorraad zijn niet geteld", uncounted.getMessage());
 
         save(count, tulip, 5, null, null);
+        InventoryRefusal oneLeft = assertThrows(InventoryRefusal.class,
+                () -> counts.book(count, counts.bookingCheck(count).checkToken()));
+        assertEquals("Nog 1 product met voorraad is niet geteld", oneLeft.getMessage());
         counts.addLine(count, late);
         save(count, late, 2, null, null);
         InventoryRefusal reason = assertThrows(InventoryRefusal.class,
                 () -> counts.book(count, counts.bookingCheck(count).checkToken()));
         assertEquals("REDEN_ONTBREEKT", reason.code());
-        assertEquals("Bij 1 verschillen ontbreekt een reden", reason.getMessage());
+        assertEquals("Bij 1 verschil ontbreekt een reden", reason.getMessage());
         assertEquals("OPEN", counts.view(count).summary().count().status);
 
         save(count, rose, 9, "BESCHADIGD", null);
@@ -411,7 +415,7 @@ class StockCountServiceTest {
         ActivityLogEntity entry = activity(count).getFirst();
         assertEquals("STOCK_BOOKED", entry.action);
         assertEquals("Jaartelling " + YEAR + " " + shelf.name(), entry.entityLabel);
-        assertEquals("Jaartelling " + YEAR + " " + shelf.name() + " geboekt: 3 regels, 1 verschillen (-1 / +0)", entry.summary);
+        assertEquals("Jaartelling " + YEAR + " " + shelf.name() + " geboekt: 3 regels, 1 verschil (-1 / +0)", entry.summary);
         assertEquals("emre", entry.actorUsername);
     }
 
@@ -723,11 +727,21 @@ class StockCountServiceTest {
         save(count, rose, 5, null, null);
         long goneLine = save(count, gone, 8, null, null).row().id;
         assertEquals(sha256(rose + ":5:1\n" + gone + ":10:1"), counts.bookingCheck(count).checkToken());
+        Summary before = counts.view(count).summary();
+        assertEquals(List.of(2, 2, 1, 1), List.of(before.lineCount(), before.countedCount(), before.differenceCount(),
+                before.missingReasonCount()));
 
         products.delete(gone);
         em.flush(); em.clear();
 
         Session session = counts.view(count);
+        Summary after = session.summary();
+        assertEquals(List.of(1, 1, 0, 0), List.of(after.lineCount(), after.countedCount(), after.differenceCount(),
+                after.missingReasonCount()), "the figures leave the line out, as the booking check does");
+        Summary onHub = counts.overview(YEAR).locations().stream()
+                .filter(location -> location.location().id().equals(shelf.id())).findFirst().orElseThrow().open();
+        assertEquals(List.of(1, 1, 0, 0), List.of(onHub.lineCount(), onHub.countedCount(), onHub.differenceCount(),
+                onHub.missingReasonCount()), "and the overview shows the same four");
         assertEquals(List.of(new OrphanLevel(gone, 10)), session.warnings().orphanLevels());
         assertNotNull(line(session, gone), "the line stays in the list");
         assertFalse(line(session, gone).moved());
@@ -740,6 +754,9 @@ class StockCountServiceTest {
         Session booked = counts.book(count, check.checkToken());
 
         assertEquals("GEBOEKT", booked.summary().count().status);
+        assertEquals(check.summary().lines(), booked.summary().lineCount(), "the booked session counts what was booked");
+        assertEquals(1, booked.summary().countedCount());
+        assertEquals(0, booked.summary().differenceCount());
         assertEquals(1, stocktakes(count).size(), "one row for the other line, none for the deleted product");
         assertEquals(rose, stocktakes(count).getFirst().productId);
         StockCountLineEntity skipped = em.find(StockCountLineEntity.class, goneLine);
@@ -796,7 +813,7 @@ class StockCountServiceTest {
         assertEquals(12, row.bookedQuantity);
         assertNotNull(row.bookedAt);
         assertFalse(row.bookedAt.isAfter(booked.summary().count().bookedAt), "the session is booked after its last line");
-        assertEquals("Correctie jaartelling " + YEAR + " " + shelf.name() + " geboekt: 1 regels, 1 verschillen (-0 / +2)",
+        assertEquals("Correctie jaartelling " + YEAR + " " + shelf.name() + " geboekt: 1 regel, 1 verschil (-0 / +2)",
                 activity(id).getFirst().summary);
         assertEquals(List.of(), counts.openSessions(YEAR).stream().filter(open -> open.id == id).toList());
 

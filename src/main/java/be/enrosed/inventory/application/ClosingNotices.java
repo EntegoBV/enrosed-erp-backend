@@ -120,6 +120,11 @@ public final class ClosingNotices {
         return count + " " + (count == 1 ? one : many);
     }
 
+    /** "1 stuk" or "7 stuks"; a level below nothing reads "-1 stuk". */
+    public static String pieces(long quantity) {
+        return quantity + " " + (Math.abs(quantity) == 1 ? "stuk" : "stuks");
+    }
+
     /* -------------------------------------------------------------- containers */
 
     /**

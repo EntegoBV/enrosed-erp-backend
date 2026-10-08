@@ -331,8 +331,8 @@ class StockClosingFlowTest {
         assertNull(changes.openingLayers().get(0).quantityAfter());
         assertNull(changes.openingLayers().get(1).quantityBefore());
         assertEquals(50, changes.openingLayers().get(1).quantityAfter());
-        assertNotice(version, "VERSCHIL_MET_VORIGE_VERSIE", "WARNING", "afsluiten", "Tegenover versie 1: 1 producten, 1 partijen,"
-                + " 1 bewegingen en 2 beginwaarden anders. Totaal € 2.150,32 → € 2.162,28.");
+        assertNotice(version, "VERSCHIL_MET_VORIGE_VERSIE", "WARNING", "afsluiten", "Tegenover versie 1: 1 product, 1 partij,"
+                + " 1 beweging en 2 beginwaarden anders. Totaal € 2.150,32 → € 2.162,28.");
         assertEquals(1, resource.get(secondId).locations().stream().filter(row -> row.locationId() == main.id())
                 .findFirst().orElseThrow().correctionCount(), "the concept does see the correction of the count");
         assertEquals(List.of(), blockers(version));
@@ -394,7 +394,7 @@ class StockClosingFlowTest {
         assertMoney("0.00", year2.closing().writeDownEur, "a new year starts without waardeverminderingen");
         assertEquals(List.of(), year2.writeDowns());
         assertMoney("83.00", article(year2, old).previousWriteDownEur);
-        assertNotice(year2, "PARTIJ_GEWIJZIGD", "WARNING", "waarde", "1 partijen hebben nu een andere waarde per stuk dan in de"
+        assertNotice(year2, "PARTIJ_GEWIJZIGD", "WARNING", "waarde", "1 partij heeft nu een andere waarde per stuk dan in de"
                 + " afsluiting van " + YEAR1 + ": verschil € 9,50, niet verwerkt.");
         assertMoney("2237.78", year2.closing().totalValueEur, "192,28 + 205,50 + 1.840,00 on the water");
         assertEquals(List.of(), blockers(year2));
@@ -455,7 +455,7 @@ class StockClosingFlowTest {
         InventoryRefusal blocked = assertThrows(InventoryRefusal.class,
                 () -> finalResource.finalizeClosing(id, new FinalizeRequest(concept.closing().dataSha256, "Emre Yilmaz")));
         assertEquals("GEBLOKKEERD", blocked.code());
-        assertEquals("Nog 1 punten houden de afsluiting tegen", blocked.getMessage());
+        assertEquals("Nog 1 punt houdt de afsluiting tegen", blocked.getMessage());
         List<?> named = (List<?>) blocked.details().get("notices");
         assertEquals(1, named.size());
         StockClosingDtos.Notice point = (StockClosingDtos.Notice) named.getFirst();

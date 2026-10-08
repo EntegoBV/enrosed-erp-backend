@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -183,14 +184,22 @@ public class StockClosingWorkbookTest {
         assertMoney("69.00", summary.get("Gefactureerd, uit eigen voorraad gehaald"));
         assertMoney("4997.22", summary.get("Totaal voorraadwaarde volgens de genomen beslissingen"));
         assertMoney("188.33", summary.get("waarvan op geschatte kosten"));
+        assertEquals(List.of("Enrosed BV", "BE 1034.273.386", "Vekeblok 17, 2400 Mol, BE"),
+                List.of(summary.get("Onderneming"), summary.get("Btw-nummer"), summary.get("Adres")),
+                "a final closing prints the company it was frozen with");
         assertMoney("2026", summary.get("Boekjaar"));
         assertEquals(LocalDate.of(2026, 12, 31), summary.get("Afsluitdatum"));
         assertEquals("Definitief", summary.get("Status"));
         assertEquals("FIFO per ontvangen partij", summary.get("Methode"));
         assertEquals("Emre Yilmaz", summary.get("Ondertekenaar"));
         assertEquals("d".repeat(64), summary.get("Gegevenscontrole"));
-        assertEquals("CONCEPT, niet definitief", read(new StockClosingWorkbook().render(sample(true, false))).get("Samenvatting")
-                .stream().filter(row -> "Status".equals(row.get(0))).findFirst().orElseThrow().get(1));
+        List<List<Object>> concept = read(new StockClosingWorkbook().render(sample(true, false))).get("Samenvatting");
+        assertEquals("CONCEPT, niet definitief",
+                concept.stream().filter(row -> "Status".equals(row.get(0))).findFirst().orElseThrow().get(1));
+        assertEquals(List.of("Concept BV", "BE 0000.000.097", "Dorpsstraat 1, 9000 Gent, BE"),
+                Stream.of("Onderneming", "Btw-nummer", "Adres").map(label -> concept.stream()
+                        .filter(row -> label.equals(row.get(0))).findFirst().orElseThrow().get(1)).toList(),
+                "a concept prints the profile of today");
     }
 
     /* ---------------------------------------------------------------- totals */

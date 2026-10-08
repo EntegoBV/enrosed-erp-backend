@@ -857,6 +857,11 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   is refused until that document is handled or the user confirms.
   A booked count is never undone; a correction session replaces it per
   product.
+  A line whose product was deleted is in no list of the booking check
+  and in none of the four figures of the session summary, on the count
+  page and on the hub alike. Refusals and notices that print a number
+  use the singular for 1 (`ClosingNotices.counted`, `pieces`); a refusal
+  ends without a full stop, as everywhere in this backend.
 - **Closing** (`StockClosingService`, `/api/stock-closings`): one row per
   year and version, `CONCEPT` or `DEFINITIEF`. User input lives only in
   `stock_closing_decision` and `stock_opening_layer`; every other closing

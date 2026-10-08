@@ -179,7 +179,7 @@ public class StockCountService {
         List<StockCountEntity> ofYear = counts.list("countYear", shown);
         Map<Long, Summary> summaries = new HashMap<>();
         Function<StockCountEntity, Summary> summarised = count -> summaries.computeIfAbsent(count.id,
-                key -> summary(count, lines.list("countId", count.id), levels.getOrDefault(count.locationId, Map.of())));
+                key -> summary(count, lines.list("countId", count.id), levels.getOrDefault(count.locationId, Map.of()), existing));
 
         List<LocationState> states = new ArrayList<>();
         for (StockLocation location : stock.locations()) {
@@ -374,11 +374,13 @@ public class StockCountService {
         Check check = checked.check();
         if (!check.uncounted().isEmpty()) {
             throw new InventoryRefusal("NIET_GETELD",
-                    "Nog " + check.uncounted().size() + " producten met voorraad zijn niet geteld");
+                    "Nog " + ClosingNotices.counted(check.uncounted().size(), "product met voorraad is",
+                            "producten met voorraad zijn") + " niet geteld");
         }
         if (!check.missingReasons().isEmpty()) {
             throw new InventoryRefusal("REDEN_ONTBREEKT",
-                    "Bij " + check.missingReasons().size() + " verschillen ontbreekt een reden");
+                    "Bij " + ClosingNotices.counted(check.missingReasons().size(), "verschil", "verschillen")
+                            + " ontbreekt een reden");
         }
         if (!check.negative().isEmpty()) {
             throw new InventoryRefusal("ONDER_NUL", check.negative().getFirst().productName()
@@ -423,8 +425,9 @@ public class StockCountService {
         Check.CheckSummary summary = check.summary();
         activity.record(ActivityLogService.ACTION_STOCK_BOOKED, ENTITY_STOCK_COUNT, String.valueOf(count.id), label(count),
                 cut((count.correctsCountId == null ? "Jaartelling " : "Correctie jaartelling ") + count.countYear + " "
-                        + count.locationName + " geboekt: " + summary.lines() + " regels, "
-                        + (summary.shortLines() + summary.overLines()) + " verschillen (-" + summary.shortUnits()
+                        + count.locationName + " geboekt: " + ClosingNotices.counted(summary.lines(), "regel", "regels") + ", "
+                        + ClosingNotices.counted(summary.shortLines() + summary.overLines(), "verschil", "verschillen")
+                        + " (-" + summary.shortUnits()
                         + " / +" + summary.overUnits() + ")", 500));
         return session(count);
     }
@@ -565,9 +568,15 @@ public class StockCountService {
         return counted(row) && row.difference != null && row.difference != 0;
     }
 
-    private static Summary summary(StockCountEntity count, List<StockCountLineEntity> rows, Map<Long, Integer> live) {
+    /**
+     * The four figures of a session, on the lines whose product still exists: a line of a deleted product is
+     * in none of the lists of the booking check and is never booked (4.2), so it is in none of these either.
+     */
+    private static Summary summary(StockCountEntity count, List<StockCountLineEntity> rows, Map<Long, Integer> live,
+                                   Set<Long> existing) {
         int listed = 0, counted = 0, different = 0, withoutReason = 0;
         for (StockCountLineEntity row : rows) {
+            if (!existing.contains(row.productId)) continue;
             boolean expected = row.expectedQuantity != null && row.expectedQuantity != 0;
             if (!counted(row) && live.getOrDefault(row.productId, 0) == 0 && !expected
                     && !Boolean.TRUE.equals(row.addedByHand)) continue;
@@ -612,7 +621,7 @@ public class StockCountService {
         List<OrphanLevel> orphanLevels = orphans.entrySet().stream()
                 .map(level -> new OrphanLevel(level.getKey(), level.getValue()))
                 .sorted(Comparator.comparingLong(OrphanLevel::productId)).toList();
-        return new Session(summary(count, rows, live),
+        return new Session(summary(count, rows, live, existing),
                 new Warnings(documents.containers, documents.invoices, documents.olderInvoices, orphanLevels), shown);
     }
 

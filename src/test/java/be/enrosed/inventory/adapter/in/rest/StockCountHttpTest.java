@@ -219,7 +219,7 @@ class StockCountHttpTest {
                 .body("summary", not(hasKey("shortLines")))
                 .body("checkToken", matchesPattern("[0-9a-f]{64}"));
         refusal(post(BASE + "/" + count + "/book", Map.of("checkToken", check.extract().path("checkToken"))), "REDEN_ONTBREEKT")
-                .body("message", equalTo("Bij 1 verschillen ontbreekt een reden"));
+                .body("message", equalTo("Bij 1 verschil ontbreekt een reden"));
 
         put(count, alfaLine, write(8, "BESCHADIGD", "doos nat", 1)).statusCode(200)
                 .body("reasonLabel", equalTo("Beschadigd of stuk"))

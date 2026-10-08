@@ -1404,7 +1404,7 @@ class StockClosingServiceTest {
         assertEquals(new BigDecimal("1.9400"), compared.unitValueEur);
         assertEquals(new BigDecimal("1.8400"), compared.previousUnitValueEur);
         assertEquals(first, compared.previousClosingId);
-        assertNotice(year2, "PARTIJ_GEWIJZIGD", "WARNING", "waarde", "1 partijen hebben nu een andere waarde per stuk dan in de"
+        assertNotice(year2, "PARTIJ_GEWIJZIGD", "WARNING", "waarde", "1 partij heeft nu een andere waarde per stuk dan in de"
                 + " afsluiting van " + YEAR1 + ": verschil € 10,00, niet verwerkt.");
         assertTrue(notices(year2, "MEER_BETAALD").isEmpty(), "a container of an earlier year raises nothing of its own");
 
@@ -1523,7 +1523,7 @@ class StockClosingServiceTest {
         /* A payment that was missing: the lot and the product move, and the list says so. */
         pay(box, LocalDate.of(YEAR1, 12, 1), new BigDecimal("16"), Currency.EUR, Payee.SUPPLIER, false, null);
         View moved = closings.recompute(second);
-        assertNotice(moved, "VERSCHIL_MET_VORIGE_VERSIE", "WARNING", "afsluiten", "Tegenover versie 1: 1 producten, 1 partijen,"
+        assertNotice(moved, "VERSCHIL_MET_VORIGE_VERSIE", "WARNING", "afsluiten", "Tegenover versie 1: 1 product, 1 partij,"
                 + " 0 bewegingen en 0 beginwaarden anders. Totaal € 184,00 → € 200,00.");
         ClosingVersionDiff.Changes changes = moved.versionChanges();
         assertMoney("184.00", changes.totalBeforeEur());

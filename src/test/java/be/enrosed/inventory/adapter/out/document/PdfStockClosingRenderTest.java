@@ -131,6 +131,9 @@ class PdfStockClosingRenderTest {
                         + " voorraadwaarde. Is het een korting op stuks die er liggen, geef dat dan aan bij het tegoed."));
         assertEquals("1 container", ClosingNotices.counted(1, "container", "containers"));
         assertEquals("2 containers", ClosingNotices.counted(2, "container", "containers"));
+        assertEquals("0 containers", ClosingNotices.counted(0, "container", "containers"));
+        assertEquals(List.of("1 stuk", "7 stuks", "0 stuks", "-1 stuk", "-3 stuks"),
+                java.util.stream.LongStream.of(1, 7, 0, -1, -3).mapToObj(ClosingNotices::pieces).toList());
     }
 
     @Test
