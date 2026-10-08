@@ -168,7 +168,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String creditAmountText = null;
         List<String> creditSentences = new ArrayList<>();
         if (creditNote) {
-            var receipts = incomingPayments != null && incomingPayments.isResolvable()
+            /* The account copy shows the credit note as issued: its own total, whatever was offset or refunded since. */
+            var receipts = options.includeReceipts() && incomingPayments != null && incomingPayments.isResolvable()
                     ? incomingPayments.get().summary(order, priced) : null;
             java.math.BigDecimal refunded = java.math.BigDecimal.ZERO;
             if (receipts != null) for (var row : receipts.payments()) {
@@ -220,7 +221,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 deductedTotal = deductedTotal.add(advance.exclEur());
                 rows.add(new AdvanceDeductionView(advance.number(), DocumentText.date(advance.invoiceDate(), language),
                         deducted(advance.exclEur()), deducted(advance.vatEur()), deducted(advance.inclEur()),
-                        advancePaymentText(advance, language, text)));
+                        options.includeReceipts() ? advancePaymentText(advance, language, text) : ""));
             }
             documentExtras = priced.extraLines().stream().filter(extra -> extra.description() == null
                     || owned.stream().noneMatch(prefix -> extra.description().startsWith(prefix))).toList();
@@ -259,7 +260,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
             /* The claim is what must actually arrive: including VAT when charged. */
             java.math.BigDecimal claim = priced.totals().vatTreatment().isExempt()
                     ? priced.totals().total() : priced.totals().totalInclVat();
-            var receipts = incomingPayments != null && incomingPayments.isResolvable()
+            /* The account copy claims the invoice's own amount: the claim before any receipt. */
+            var receipts = options.includeReceipts() && incomingPayments != null && incomingPayments.isResolvable()
                     ? incomingPayments.get().summary(order, priced) : null;
             java.math.BigDecimal credit = claim.negate().max(java.math.BigDecimal.ZERO);
             java.math.BigDecimal overpaid = java.math.BigDecimal.ZERO;
@@ -267,7 +269,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 claim = receipts.remainingEur(); credit = receipts.creditEur(); overpaid = receipts.overpaidEur();
                 if (receipts.grossReceivedEur().signum() > 0) receivedAmount = DocumentFormat.eur(receipts.grossReceivedEur());
                 if (receipts.refundedEur().signum() > 0) refundedAmount = DocumentFormat.eur(receipts.refundedEur());
-            } else if (order.paidAt() != null) claim = java.math.BigDecimal.ZERO;
+            } else if (options.includeReceipts() && order.paidAt() != null) claim = java.math.BigDecimal.ZERO;
             claimAmount = DocumentFormat.eur(claim.max(java.math.BigDecimal.ZERO));
             paymentInstruction = credit.signum() > 0 ? text.get("paymentCredit").formatted(DocumentFormat.eur(credit))
                     : overpaid.signum() > 0 ? text.get("paymentOverpaid").formatted(DocumentFormat.eur(overpaid))

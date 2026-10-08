@@ -64,6 +64,7 @@ class CustomerQuoteResourceHttpTest {
     private static final String BASE = "/api/v1/public/account/quotes";
     private static final String ANONYMOUS = "/api/v1/public/quotes";
     private static final String PASSWORD = "roses-in-a-dome";
+    private static final String ORDERING_SWITCH = "enrosed.website.ordering.enabled";
     private static final String SESSION_INVALID = "{\"code\":\"SESSION_INVALID\","
             + "\"message\":\"The session is no longer valid\",\"fieldErrors\":{}}";
 
@@ -118,7 +119,7 @@ class CustomerQuoteResourceHttpTest {
                 .header("Cache-Control", "no-store")
                 .body("pricesVisible", equalTo(true))
                 .body("lines[0].unitPriceNet", equalTo(10.0f))
-                .body("totals.goodsNet", equalTo(240.0f));
+                .body("totals.goodsNet", equalTo(720.0f));
         verify(rateLimiter).checkIp(eq(PublicFormAction.QUOTE_PREVIEW), any());
 
         String reference = submit(login.token(), "account-" + UUID.randomUUID(), submitBody(Map.of()))
@@ -128,13 +129,13 @@ class CustomerQuoteResourceHttpTest {
                 .body("bindingStatus", equalTo("REQUEST_RECEIVED_NOT_BINDING"))
                 .body("estimate.pricesVisible", equalTo(true))
                 .body("estimate.lines[0].unitPriceNet", equalTo(10.0f))
-                .body("estimate.totals.goodsNet", equalTo(240.0f))
+                .body("estimate.totals.goodsNet", equalTo(720.0f))
                 .extract().path("reference");
 
         SalesOrder order = fixture.order(salesOrders, reference);
         assertEquals(login.customerId(), order.customerId(), "the quote hangs on the customer of the login");
         assertEquals(customersBefore, customerCount(), "no customer was created");
-        assertEquals(24, order.lines().getFirst().quantity());
+        assertEquals(72, order.lines().getFirst().quantity());
         assertEquals(0, new BigDecimal("10").compareTo(order.lines().getFirst().unitPriceEur()));
         assertTrue(order.internalNotes().startsWith("[WEBSITE_AANVRAAG] " + reference + "\n"),
                 order.internalNotes());
@@ -356,10 +357,10 @@ class CustomerQuoteResourceHttpTest {
                         .when().post(BASE + "/preview")
                         .then().statusCode(200)
                         .header("Cache-Control", "no-store")
-                        .body("totals.goodsNet", equalTo(240.0f));
+                        .body("totals.goodsNet", equalTo(720.0f));
             }
             submit(token, null, submitBody(Map.of("vatNumber", "x")))
-                    .then().statusCode(201).body("estimate.totals.goodsNet", equalTo(240.0f));
+                    .then().statusCode(201).body("estimate.totals.goodsNet", equalTo(720.0f));
         }
 
         /* The anonymous estimate still judges what a visitor types. */
@@ -368,6 +369,58 @@ class CustomerQuoteResourceHttpTest {
         given().contentType("application/json").body(anonymous)
                 .when().post(ANONYMOUS + "/preview")
                 .then().statusCode(422).body("fieldErrors.vatNumber", equalTo("INVALID"));
+    }
+
+    /**
+     * While customers can order, the old route holds the minimum order value too; with ordering
+     * switched off it is the route it always was. A visitor's request is never held to it.
+     */
+    @Test
+    void belowTheMinimumALoggedInRequestIsRefusedOnlyWhileOrderingIsOn() {
+        Login login = login();
+        Map<String, Object> small = fixture.submitBody(productId, 2, Map.of());
+
+        submit(login.token(), "account-" + UUID.randomUUID(), small)
+                .then().statusCode(422)
+                .header("Cache-Control", "no-store")
+                .body("code", equalTo("VALIDATION_ERROR"))
+                .body("fieldErrors.items", equalTo("MINIMUM_NOT_MET"))
+                .body("fieldErrors.size()", equalTo(1));
+        verify(quotes, never()).submitForCustomer(any(), anyLong(), anyString());
+        assertTrue(fixture.orders(salesOrders, login.customerId()).isEmpty());
+        anonymousRequestBelowTheMinimumIsTaken();
+
+        System.setProperty(ORDERING_SWITCH, "false");
+        try {
+            String reference = submit(login.token(), "account-" + UUID.randomUUID(), small)
+                    .then().statusCode(201)
+                    .header("Cache-Control", "no-store")
+                    .body("status", equalTo("RECEIVED"))
+                    .body("bindingStatus", equalTo("REQUEST_RECEIVED_NOT_BINDING"))
+                    .body("estimate.pricesVisible", equalTo(true))
+                    .body("estimate.lines[0].unitPriceNet", equalTo(10.0f))
+                    .body("estimate.totals.goodsNet", equalTo(240.0f))
+                    .body("estimate.validation.meetsMinimum", equalTo(false))
+                    .extract().path("reference");
+            SalesOrder order = fixture.order(salesOrders, reference);
+            assertEquals(24, order.lines().getFirst().quantity());
+            assertTrue(order.internalNotes().contains("\nAangevraagd via klantlogin " + login.email()),
+                    order.internalNotes());
+            anonymousRequestBelowTheMinimumIsTaken();
+        } finally {
+            System.clearProperty(ORDERING_SWITCH);
+        }
+    }
+
+    private void anonymousRequestBelowTheMinimumIsTaken() {
+        String email = QuoteFixture.email();
+        given().contentType("application/json").header("Idempotency-Key", "anonymous-" + UUID.randomUUID())
+                .body(fixture.submitBody(productId, 2, Map.of("email", email)))
+                .when().post(ANONYMOUS + "/requests")
+                .then().statusCode(201)
+                .body("status", equalTo("RECEIVED"));
+        customers.list().stream().filter(customer -> email.equals(customer.email()))
+                .forEach(customer -> fixture.adopt(customer.id()));
     }
 
     private record Login(long customerId, long accountId, String email, String token) {}
@@ -398,11 +451,11 @@ class CustomerQuoteResourceHttpTest {
     }
 
     private Map<String, Object> previewBody() {
-        return fixture.previewBody(productId, 2);
+        return fixture.previewBody(productId, QuoteFixture.CARTONS);
     }
 
     private Map<String, Object> submitBody(Map<String, Object> changes) {
-        return fixture.submitBody(productId, 2, changes);
+        return fixture.submitBody(productId, QuoteFixture.CARTONS, changes);
     }
 
     /**
@@ -410,6 +463,9 @@ class CustomerQuoteResourceHttpTest {
      * QuoteLoginRequestFlowTest; nothing here survives the test that made it.
      */
     static final class QuoteFixture {
+        /** 6 cartons x 12 x 10,00 = 720,00 of goods: above the Belgian minimum order value of 600,00. */
+        static final int CARTONS = 6;
+
         private final List<Long> products = new ArrayList<>();
         private final List<Long> customerIds = new ArrayList<>();
 

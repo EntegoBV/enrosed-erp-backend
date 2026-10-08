@@ -80,6 +80,13 @@ public class QuoteService {
     jakarta.enterprise.inject.Instance<IncomingPaymentService> incomingPayments;
     @Inject
     jakarta.enterprise.inject.Instance<PartnerAdvanceQuotes> advanceQuotes;
+    /** Website orders of logged-in customers; absent in pure unit tests, where every document is a plain quote. */
+    @Inject
+    jakarta.enterprise.inject.Instance<WebOrders> webOrders;
+    @Inject
+    jakarta.enterprise.inject.Instance<WebOrderDeliveries> deliveries;
+    @Inject
+    jakarta.enterprise.inject.Instance<WebOrderRecipients> recipients;
 
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
@@ -241,6 +248,13 @@ public class QuoteService {
                 : countedUnits.size() == 1 && !countedUnits.contains("?")
                         ? SalesUnitText.quantity(countedPackaging, totalPieces, language) : null;
 
+        /* A website order ships to the address and contact the customer typed for it, not to the record's. */
+        var delivery = customer == null || deliveries == null || !deliveries.isResolvable() ? null
+                : deliveries.get().forDocument(order)
+                        .filter(row -> WebOrderDeliveries.DELIVERY.equals(row.fulfillment())).orElse(null);
+        if (delivery != null) customer = customer.withDelivery(delivery.contactName(), delivery.address(),
+                delivery.postalCode(), delivery.city(), order.countryCode());
+
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
                 order, customer, pallets, loose, totalCartons, totalPieces,
                 order.loadMode() == LoadMode.LOOSE_CARTONS, totalQuantity), options);
@@ -295,6 +309,9 @@ public class QuoteService {
         if (order.isClaimDocument()) {
             return sendInvoiceByMail(order, personalMessage);
         }
+        /* Under the document lock, so the PDF that is mailed is the version that is saved. */
+        salesOrders.lockDocumentForMutation(orderId);
+        order = salesOrders.get(orderId);
         SalesLifecycle.requireSendable(order);
         salesOrders.validateForSend(order);
 
@@ -359,11 +376,14 @@ public class QuoteService {
                         freightState == FreightState.TE_BEPALEN,
                         freightState == FreightState.AANGEVULD),
                 mailSummary(order, priced));
+        /* The customer of a website order approves these figures and no others. */
+        if (webOrders != null && webOrders.isResolvable()) webOrders.get().recordSent(orderId, WebOrderTerms.of(priced));
 
         ActorRef actor = staffActor();
+        WebOrderRecipients.Recipient recipient = recipient(order, customer);
         record(order, QuoteEvent.Type.VERSTUURD, false, actor.displayName(),
                 order.sentAt() == null ? "Offerte verstuurd" : "Offerte opnieuw verstuurd",
-                "Naar " + customer.email());
+                "Naar " + recipient.to() + (recipient.cc() == null ? "" : ", kopie aan " + recipient.cc()));
         if (terms == DeliveryTermsState.AANGEVULD) {
             record(order, QuoteEvent.Type.LEVERTERMIJN_INGEVULD, false, null,
                     "Levertermijn ingevuld", null);
@@ -380,6 +400,12 @@ public class QuoteService {
         notifyAfterCommit(SalesActivityPushNotifier.Ready.staffQuoteSent(
                 order.id(), order.number(), actor));
         return sent;
+    }
+
+    /** Whom the mailer reaches for this document: the login that placed a website order, else the customer record. */
+    private WebOrderRecipients.Recipient recipient(SalesOrder order, Customer customer) {
+        return recipients != null && recipients.isResolvable() ? recipients.get().of(order, customer)
+                : new WebOrderRecipients.Recipient(customer.email(), null, customer.language());
     }
 
     private QuoteMailer.Summary mailSummary(SalesOrder order, PricedOrder priced) {
@@ -434,6 +460,18 @@ public class QuoteService {
         String portalUrl = activePortalUrl(order).orElse(null);
         return renderer.render(order, salesOrders.price(order), customer, portalUrl, language,
                 options == null ? SalesPdfOptions.defaults() : options);
+    }
+
+    /**
+     * The PDF a logged-in customer downloads from their account: without the
+     * signing link, and for an invoice or credit note as it was issued,
+     * saying nothing about what was paid, offset or refunded since. The
+     * caller passes the instance it tested for ownership and visibility.
+     */
+    public QuoteDocumentRenderer.Document documentForAccount(SalesOrder order, be.enrosed.shared.Language language) {
+        Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+        return renderer.render(order, salesOrders.price(order), customer, null, language,
+                order.isClaimDocument() ? SalesPdfOptions.accountCopy() : SalesPdfOptions.defaults());
     }
 
     /* ======================================================= customer side */
@@ -502,7 +540,18 @@ public class QuoteService {
     @Transactional
     public SalesOrder acceptByCustomer(String token, String signedByName, String message) {
         SalesOrder order = byToken(token);
+        /* A quote can be reopened, changed and resent: the approval lands on what the lock shows, or not at all. */
+        salesOrders.lockDocumentForCustomer(order.id());
+        /* Read again by the link itself: it must still lead to this document, and the document must still be shown. */
+        order = byToken(token);
         requireOpen(order);
+        /* A website order is approved only as the version that was mailed. */
+        String approvedTerms = null;
+        if (webOrders != null && webOrders.isResolvable() && webOrders.get().find(order.id()).isPresent()) {
+            PricedOrder priced = salesOrders.price(order);
+            webOrders.get().requireAcceptable(order, priced);
+            approvedTerms = WebOrderTerms.of(priced);
+        }
         if (signedByName == null || signedByName.isBlank()) {
             throw new BusinessRuleException("Vul je naam in om te tekenen");
         }
@@ -513,6 +562,7 @@ public class QuoteService {
         SalesOrder accepted = orders.save(withStatus(order, QuoteStatus.GEACCEPTEERD,
                 order.portalToken(), order.sentAt(), order.viewedAt(), order.viewCount(),
                 Instant.now(), signedByName.trim(), message));
+        if (approvedTerms != null) webOrders.get().recordAccepted(order.id(), approvedTerms);
 
         record(order, QuoteEvent.Type.GETEKEND, true, signedByName.trim(),
                 "Offerte aanvaard en getekend", message);
@@ -894,6 +944,7 @@ public class QuoteService {
                             + order.status().name().toLowerCase() + " en hoeft niet heropend.");
         }
         salesOrders.requireReopenable(order);
+        if (webOrders != null && webOrders.isResolvable()) webOrders.get().requireReopenable(order);
 
         record(order, QuoteEvent.Type.HEROPEND, false, null,
                 (order.isCreditNote() ? "Creditnota" : order.isInvoice() ? "Factuur" : "Offerte")
@@ -922,6 +973,8 @@ public class QuoteService {
         if (order.isInvoice()) {
             throw new BusinessRuleException("Een factuur annuleer je niet; maak een creditnota.");
         }
+        salesOrders.lockDocumentForMutation(orderId);
+        order = salesOrders.get(orderId);
         salesOrders.requireNoAdvanceInvoices(order);
         QuoteStatus status = order.status();
         if (status != QuoteStatus.CONCEPT && !status.isOpenForCustomer()) {
@@ -941,7 +994,7 @@ public class QuoteService {
             if (customer.email() != null && !customer.email().isBlank()) {
                 if (token == null || token.isBlank()) token = newToken();
                 mailer.sendCancellation(order, customer, portalUrl(token), message);
-                toldCustomer = customer.email();
+                toldCustomer = recipient(order, customer).to();
             }
         }
 
@@ -953,6 +1006,23 @@ public class QuoteService {
                 order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
                 order.customerMessage()));
         recordActivity("CANCELLED", order, "Offerte geannuleerd");
+        return cancelled;
+    }
+
+    /**
+     * The customer cancels their own website order before anyone at Enrosed
+     * took it. The caller holds the document lock and has checked that the
+     * order may still be changed, so no advance invoice can exist; nothing is
+     * mailed and no portal link is made.
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public SalesOrder cancelByCustomer(long orderId) {
+        SalesOrder order = salesOrders.get(orderId);
+        record(order, QuoteEvent.Type.GEANNULEERD, true, null, "Bestelling geannuleerd door de klant", null);
+        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, order.portalToken(),
+                order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
+                order.customerMessage()));
+        recordActivity("CUSTOMER_CANCELLED", order, "Klant annuleerde de bestelling");
         return cancelled;
     }
 

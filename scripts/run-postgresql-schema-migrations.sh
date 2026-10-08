@@ -134,4 +134,5 @@ exec psql \
     --file=/app/migrations/glass-box-twelve-roses-postgresql.sql \
     --file=/app/migrations/sales-advance-billing-postgresql.sql \
     --file=/app/migrations/glass-box-thirteen-roses-postgresql.sql \
-    --file=/app/migrations/customer-account-postgresql.sql
+    --file=/app/migrations/customer-account-postgresql.sql \
+    --file=/app/migrations/sales-web-order-postgresql.sql

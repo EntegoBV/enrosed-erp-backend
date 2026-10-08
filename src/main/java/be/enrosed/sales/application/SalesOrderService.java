@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -58,6 +59,11 @@ public class SalesOrderService {
     @Inject Instance<SalesDocumentLocks> documentLocks;
     /** Advance invoices and the slotfactuur of regular quotes; absent in pure unit tests. */
     @Inject Instance<SalesAdvanceBillingService> advanceBilling;
+    /** Website orders of logged-in customers: the staff gate and the rule that only what was ordered or approved is invoiced. */
+    @Inject Instance<WebOrders> webOrders;
+    /** The delivery address a customer typed for one website order; freight is priced on it. */
+    @Inject Instance<WebOrderDeliveries> deliveries;
+    @Inject Instance<StaffWebOrderRevision> staffRevision;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -146,6 +152,15 @@ public class SalesOrderService {
 
     void copyCustomerRequest(SalesOrder source, SalesOrder target) {
         if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().copy(source, target);
+        /* The invoice and the later split part ship to the address the customer ordered for. */
+        if (deliveries() != null && source.id() != null && target.id() != null) deliveries().copy(source.id(), target.id());
+    }
+    /** The website orders, or null where they cannot be resolved (pure unit tests). */
+    private WebOrders webOrders() {
+        return webOrders != null && webOrders.isResolvable() ? webOrders.get() : null;
+    }
+    private WebOrderDeliveries deliveries() {
+        return deliveries != null && deliveries.isResolvable() ? deliveries.get() : null;
     }
     /** The advance billing of regular quotes, or null where it cannot be resolved (pure unit tests). */
     private SalesAdvanceBillingService advanceBilling() {
@@ -171,22 +186,51 @@ public class SalesOrderService {
         return priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null);
     }
 
+    /**
+     * Prices a page of documents with one read of the catalogue, of the two
+     * tier tables and of the delivery rows, and one read per customer and
+     * country, in the order they were given.
+     */
+    public List<PricedOrder> priceAll(List<SalesOrder> orders) {
+        if (orders == null || orders.isEmpty()) return List.of();
+        PageLookups page = new PageLookups(products.list().stream().collect(Collectors.toMap(Product::id, Function.identity())),
+                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>());
+        if (deliveries() != null) deliveries().preloadForRequest();
+        List<PricedOrder> priced = new java.util.ArrayList<>(orders.size());
+        for (SalesOrder order : orders)
+            priced.add(priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null, page));
+        return priced;
+    }
+
+    /** What every document of one page is priced with; customers and countries are read once each. */
+    private record PageLookups(Map<Long, Product> products, List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries) {}
+
     PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
+        return priceSplit(order, splitPricing, (PageLookups) null);
+    }
+
+    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page) {
         splitPricing = SalesSplits.activePricing(order, splitPricing);
-        Map<Long, Product> byId = products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity()));
-        Country country = countries.find(order.countryCode());
-        Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+        Map<Long, Product> byId = page != null ? page.products()
+                : products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
+        Country country = page == null ? countries.find(order.countryCode())
+                : page.countries().computeIfAbsent(String.valueOf(order.countryCode()),
+                        code -> Optional.ofNullable(countries.find(order.countryCode()))).orElse(null);
+        Customer customer = order.customerId() == null ? null
+                : page == null ? customers.get(order.customerId())
+                : page.customers().computeIfAbsent(order.customerId(), customers::get);
 
         be.enrosed.shipping.domain.Carrier carrier = order.freightCarrierId() == null
                 ? null : shippingCarriers.findById(order.freightCarrierId()).orElse(null);
 
         return pricing.price(order, byId, new SalesPricingCalculator.Context(
                 country,
-                customer,
+                /* A website order is delivered where the customer ordered it; VAT stays the record's. */
+                deliveries() == null ? customer : deliveries().pricingCustomer(order, customer),
                 settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
-                tiers.list(TierScope.LINE),
-                tiers.list(TierScope.ORDER),
+                page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
+                page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vat.determine(country, customer),
                 carrier, splitPricing));
     }
@@ -278,6 +322,8 @@ public class SalesOrderService {
             archive(quoteId);
             return existing;
         }
+        /* A website order is invoiced unsent only while it is what the customer ordered, or approved. */
+        if (webOrders() != null && webOrders().find(quoteId).isPresent()) webOrders().requireInvoiceable(source, price(source));
         if (source.isPartnerAdvance() && orders.findAll().stream().anyMatch(order -> order.isInvoice()
                 && order.isPartnerAdvance() && PartnerFinancingService.live(order)
                 && Objects.equals(order.linkedPurchaseOrderId(), source.linkedPurchaseOrderId())))
@@ -831,9 +877,20 @@ public class SalesOrderService {
     }
 
     /** Partner financial workflows lock the purchase before the invoice, including draft deletion. */
-    void lockDocumentForMutation(long id) {
+    void lockDocumentForMutation(long id) { lockDocument(id, true); }
+
+    /** Customer-session writers and the token portal: the same row lock, never the staff gate. */
+    void lockDocumentForCustomer(long id) { lockDocument(id, false); }
+
+    /**
+     * The staff gate of a website order runs after the document lock: it
+     * refuses a screen the customer has since overtaken and takes the order
+     * into processing on the first staff mutation.
+     */
+    private void lockDocument(long id, boolean staffGate) {
         if (documentLocks != null && documentLocks.isResolvable()) {
             documentLocks.get().lock(id);
+            if (staffGate && webOrders != null && webOrders.isResolvable()) webOrders.get().afterStaffLock(id);
             return;
         }
         // Compatibility for isolated unit tests using in-memory repositories without a persistence context.
@@ -846,6 +903,25 @@ public class SalesOrderService {
         if (beforeLock.isPartnerDeal() != locked.isPartnerDeal()
                 || !Objects.equals(beforeLock.linkedPurchaseOrderId(), locked.linkedPurchaseOrderId()))
             throw new BusinessRuleException("De containerkoppeling is intussen gewijzigd; laad het document opnieuw");
+        if (staffGate && webOrders != null && webOrders.isResolvable()) webOrders.get().afterStaffLock(id);
+    }
+
+    /**
+     * "In verwerking nemen": from here the customer can no longer change or
+     * cancel the website order. Taking it twice changes nothing.
+     */
+    @Transactional
+    public SalesOrder takeIntoProcessing(long id) {
+        try {
+            if (staffRevision != null && staffRevision.isResolvable()) staffRevision.get().markExplicitTake();
+        } catch (RuntimeException outsideRequest) {
+            // Without a request the take is recorded as automatic.
+        }
+        lockDocumentForMutation(id);
+        WebOrders.Row row = webOrders() == null ? null : webOrders().find(id).orElse(null);
+        if (row == null) throw new BusinessRuleException("Dit document is geen websitebestelling van een ingelogde klant.");
+        if (row.customerCancelledAt() != null) throw new BusinessRuleException("De klant heeft deze bestelling geannuleerd.");
+        return get(id);
     }
 
     private boolean hasAdvanceContents(SalesOrder invoice) {
@@ -1052,8 +1128,12 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder setPartnerDeal(long id, PartnerDealRequest request) {
+        boolean linking = request != null && request.purchaseOrderId() != null;
+        /* Before the lock: the purchasing screens present no order revision, and this refusal must reach them as it is. */
+        if (linking && webOrders() != null) webOrders().requireNoPartnerDeal(get(id));
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
+        if (linking && webOrders() != null) webOrders().requireNoPartnerDeal(order);
         if (order.isCreditNote()) throw new BusinessRuleException("De partnerkoppeling van een creditnota volgt de factuur");
         if (advanceBilling() != null && (advanceBilling().hasBilling(order) || advanceBilling().hasLiveAdvances(order)))
             throw new BusinessRuleException("Een offerte met voorschotfacturen en haar voorschot- en slotfacturen worden geen partnerdocument");
@@ -1222,6 +1302,7 @@ public class SalesOrderService {
         } else {
             requireAdvanceBeforeSettlement(invoice);
             validatePartnerAdvanceReservation(invoice, null);
+            requireWebOrderIssuable(invoice);
         }
         validateInvoiceForSend(invoice);
         SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
@@ -1350,9 +1431,34 @@ public class SalesOrderService {
             else {
                 requireAdvanceBeforeSettlement(invoice);
                 validatePartnerAdvanceReservation(invoice, null);
+                requireWebOrderIssuable(invoice);
             }
         }
         validateInvoiceForSend(invoice);
+    }
+
+    /**
+     * A draft invoice made from a website order is compared once more when it
+     * stops being a draft: it leaves as what the customer ordered or approved.
+     * A slotfactuur compares with its advance deductions added back.
+     */
+    private void requireWebOrderIssuable(SalesOrder invoice) {
+        if (webOrders() == null) return;
+        /*
+         * A part of a split delivery carries its share only, and the later part has no source quote: the split
+         * needed the customer's approval and kept the approved total, so a part is compared with how it was split.
+         */
+        if (isSplitPart(invoice)) {
+            splitOrders.get().requireWebOrderPartIssuable(invoice);
+            return;
+        }
+        if (invoice.sourceQuoteId() == null || webOrders().find(invoice.sourceQuoteId()).isEmpty()) return;
+        SalesOrder sourceQuote = orders.findById(invoice.sourceQuoteId()).orElse(null);
+        var presentation = advanceBilling() == null ? null : advanceBilling().presentation(invoice);
+        BigDecimal deducted = presentation == null || presentation.deductions() == null ? BigDecimal.ZERO
+                : presentation.deductions().stream().map(SalesAdvanceBillingService.AdvanceDeduction::exclEur)
+                        .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        webOrders().requireIssuable(invoice, price(invoice), sourceQuote, deducted);
     }
 
     private static boolean isBlank(String value) {
@@ -1423,12 +1529,28 @@ public class SalesOrderService {
 
     @Transactional
     public SalesOrder update(long id, SalesOrder changes) {
+        return update(id, changes, false);
+    }
+
+    /**
+     * The customer replaces their own website order. The caller holds the
+     * idempotency transaction and has checked, after these locks, that the
+     * order is still theirs to change; the staff gate never runs here, and
+     * the customer's remark is replaced instead of guarded.
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public SalesOrder updateByCustomer(long id, SalesOrder changes) {
+        return update(id, changes, true);
+    }
+
+    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
-        lockDocumentForMutation(id);
+        if (byCustomer) lockDocumentForCustomer(id);
+        else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
-        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
+        if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
         if (hasAdvanceContents(beforeEdit) && (!sameCargoLines(beforeEdit.lines(), changes.lines())
                 || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())))
             throw new BusinessRuleException("De containerinhoud en bestemming van deze voorschotfactuur zijn vastgelegd; maak een nieuw concept vanuit de inkooporder voor gewijzigde goederen");
@@ -1539,6 +1661,7 @@ public class SalesOrderService {
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
+        if (byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().replace(saved);
         if (!saved.equals(current)) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved,
                     saved.isCreditNote() ? "Creditnota bijgewerkt" : saved.isInvoice() ? "Factuur bijgewerkt" : "Offerte bijgewerkt",
@@ -1871,6 +1994,7 @@ public class SalesOrderService {
         trashCatalogLock.acquire();
         lockDocumentForMutation(id);
         SalesOrder order = get(id);
+        if (webOrders() != null) webOrders().requireDeletable(order);
         if (order.isPartnerDeal() && purchaseOrders != null && purchaseOrders.isResolvable())
             purchaseOrders.get().lockForPartnerSettlement(order.linkedPurchaseOrderId());
         requireDeletable(order);
@@ -1945,11 +2069,21 @@ public class SalesOrderService {
     }
 
     /**
+     * Archiving is a staff mutation like any other: it waits for the document
+     * and passes the gate of a website order. Isolated unit tests have no
+     * document locks and nothing to wait for.
+     */
+    private void lockForArchive(long id) {
+        if (documentLocks != null && documentLocks.isResolvable()) lockDocumentForMutation(id);
+    }
+
+    /**
      * Puts a document away: it leaves the working list for the archive tab
      * and stays exactly as it was, links and history included.
      */
     @Transactional
     public SalesOrder archive(long id) {
+        lockForArchive(id);
         SalesOrder order = get(id);
         if (order.isArchived()) return order;
         orders.setArchivedAt(id, Instant.now());
@@ -1962,6 +2096,7 @@ public class SalesOrderService {
     /** Back on the working list, where it left off. */
     @Transactional
     public SalesOrder unarchive(long id) {
+        lockForArchive(id);
         SalesOrder order = get(id);
         if (!order.isArchived()) return order;
         orders.setArchivedAt(id, null);
@@ -1980,6 +2115,11 @@ public class SalesOrderService {
             throw new BusinessRuleException("Een gesplitste levering kan niet worden gekopieerd; maak een nieuwe bestelling om dubbele aantallen te voorkomen");
         if (source.isPartnerAdvance())
             throw new BusinessRuleException("Een partnervoorschot kan niet worden gekopieerd; beheer de conceptfacturen via het termijnplan van de inkooporder");
+        /* A copy has no source quote, so nothing would compare it with what the customer ordered or approved. */
+        if (source.isInvoice() && source.sourceQuoteId() != null && webOrders() != null
+                && webOrders().find(source.sourceQuoteId()).isPresent())
+            throw new BusinessRuleException("De factuur van een websitebestelling kopieer je niet. "
+                    + "Maak een nieuwe kopie van de offerte en verstuur die ter goedkeuring.");
         if (advanceBilling() != null && advanceBilling().hasBilling(source))
             throw new BusinessRuleException("Een voorschot- of slotfactuur kan niet worden gekopieerd; maak ze opnieuw vanuit de offerte");
         if (hasAdvanceAgreement(source))
@@ -2019,6 +2159,8 @@ public class SalesOrderService {
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
         SalesOrder created = orders.save(duplicate);
+        /* A copy of a website order is priced and shipped on the address the customer ordered for. */
+        if (deliveries() != null) deliveries().copy(source.id(), created.id());
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), actor.displayName(), false,
                 (created.isInvoice() ? "Factuur" : "Offerte")

@@ -33,6 +33,13 @@ public class SalesCustomerMessages {
         if (stored != null && !Objects.equals(Objects.toString(before.notes(), ""), Objects.toString(after.notes(), "")))
             throw new BusinessRuleException("Het bericht van de klant is alleen-lezen; voeg eigen uitleg toe bij de interne notities of voorwaarden");
     }
+    /** A customer who changes their own website order replaces their remark with it. */
+    void replace(SalesOrder saved) {
+        if (saved.id() == null) return;
+        var stored = entities.find(SalesCustomerMessageEntity.class, saved.id());
+        if (stored == null) { save(saved.id(), saved.notes()); return; }
+        stored.message = saved.notes(); stored.capturedAt = Instant.now();
+    }
     void copy(SalesOrder source, SalesOrder target) {
         Message message = find(source);
         if (message.readonly() && entities.find(SalesCustomerMessageEntity.class, target.id()) == null) save(target.id(), message.text());

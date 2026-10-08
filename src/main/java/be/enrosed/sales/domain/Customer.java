@@ -76,4 +76,18 @@ public record Customer(
     public Language language() {
         return language == null ? Language.NL : language;
     }
+
+    /** The same customer delivered at another address: what a website order's freight is priced on. */
+    public Customer withDeliveryAddress(String address, String postalCode, String city) {
+        return new Customer(id, company, contact, email, phone, vatNumber, countryCode, language, address,
+                postalCode, city, incoterm, paymentTerms, notes, createdAt, partner, partnerSharePct,
+                partnerCostPct, fiscalRepresentative, invoiceNote);
+    }
+
+    /** The delivery block of a packing slip for one order; a blank contact keeps the record's. */
+    public Customer withDelivery(String contact, String address, String postalCode, String city, String countryCode) {
+        return new Customer(id, company, contact == null || contact.isBlank() ? this.contact : contact, email, phone,
+                vatNumber, countryCode, language, address, postalCode, city, incoterm, paymentTerms, notes,
+                createdAt, partner, partnerSharePct, partnerCostPct, fiscalRepresentative, invoiceNote);
+    }
 }

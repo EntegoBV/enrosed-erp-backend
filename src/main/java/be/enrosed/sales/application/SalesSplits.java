@@ -66,6 +66,7 @@ public class SalesSplits {
     @Inject CatalogMutationLock catalogLock;
     @Inject ActivityLogService activity;
     @Inject jakarta.enterprise.inject.Instance<SalesAdvanceBillingService> advanceBilling;
+    @Inject jakarta.enterprise.inject.Instance<WebOrders> webOrders;
 
     public Eligibility eligibility(long id) {
         SalesOrder source = sales.get(id);
@@ -230,6 +231,33 @@ public class SalesSplits {
         if (sourcePart != null) savePart(invoice, sourcePart.group, sourcePart.partNumber, sourcePart.waitingForStock, pricing(source));
     }
 
+    /** The document is a website order, or the invoice of one. */
+    private boolean ofWebOrder(SalesOrder document) {
+        if (document == null || webOrders == null || !webOrders.isResolvable()) return false;
+        return document.id() != null && webOrders.get().find(document.id()).isPresent()
+                || document.sourceQuoteId() != null && webOrders.get().find(document.sourceQuoteId()).isPresent();
+    }
+
+    /**
+     * A part of a split website order leaves as it was split. The split kept
+     * the approved total, and lines and prices of a part are fixed, but its
+     * freight, its extra discount and a parked product stay editable: those
+     * are compared with the terms stored at the split.
+     */
+    void requireWebOrderPartIssuable(SalesOrder document) {
+        var own = document.id() == null ? null : part(document.id());
+        if (own == null || !ofWebOrder(orders.findById(own.group.rootOrderId).orElse(null))) return;
+        SalesSplitPricing agreed = read(own.pricingJson);
+        SalesSplitPricing now = activePricing(document, agreed);
+        if (same(now.freight(), agreed.freight()) && same(now.extraDiscountPercent(), agreed.extraDiscountPercent())
+                && same(now.goodsTotal(), agreed.goodsTotal())) return;
+        throw new BusinessRuleException("Deze deellevering wijkt af van de verdeling van de versie waarmee de klant akkoord ging: "
+                + "transport € " + Money.money(agreed.freight()).toPlainString() + " (nu € " + Money.money(now.freight()).toPlainString()
+                + "), goederen € " + Money.money(agreed.goodsTotal()).toPlainString() + " (nu € " + Money.money(now.goodsTotal()).toPlainString()
+                + "). Zet transport, extra korting en producten terug zoals bij de verdeling; "
+                + "een ander bedrag verstuur je eerst ter goedkeuring met een nieuwe kopie van de offerte.");
+    }
+
     void requireUpdate(SalesOrder before, SalesOrder after) {
         if (part(before.id()) == null) return;
         boolean changed = !Objects.equals(before.customerId(), after.customerId())
@@ -349,12 +377,19 @@ public class SalesSplits {
         if (excludedQuantity > 0) warnings.add(excludedQuantity + " aangevraagde stuks zijn tijdelijk niet bestelbaar en tellen niet mee in deze bedragen of leveringen.");
         if (delta.signum() != 0) warnings.add("Door de gekozen transportkosten, extra korting of uitgesloten producten verandert het totaal exclusief btw met € " + delta.toPlainString() + ".");
         if (deltaIncl.subtract(delta).signum() != 0) warnings.add("Btw wordt per document berekend; het gecombineerde btw-bedrag kan door afronding of gewijzigde bedragen verschillen.");
+        /* The customer approved one total, one freight amount and one discount: two deliveries may only divide them. */
+        if (ofWebOrder(source) && (delta.signum() != 0 || !same(currentPct, source.extraDiscountPct()) || !same(laterPct, source.extraDiscountPct())))
+            throw new BusinessRuleException("De twee leveringen van een websitebestelling blijven samen gelijk aan de versie waarmee de klant akkoord ging"
+                    + (delta.signum() == 0 ? "" : " (verschil excl. btw € " + delta.toPlainString() + ")")
+                    + ". Verdeel het afgesproken transport over de twee delen, laat de extra korting ongewijzigd en sluit geen product uit; "
+                    + "een ander bedrag verstuur je eerst ter goedkeuring met een nieuwe kopie van de offerte.");
         String token = hash(List.of(source, original, selection));
         return new Plan(source, current, later, firstTerms, lastTerms,
                 new Preview(token, source.id(), summary(original), summary(firstPriced), summary(laterPriced), List.copyOf(warnings), delta, deltaIncl, excludedQuantity), selection);
     }
 
     private void requireEligible(SalesOrder source) {
+        if (webOrders != null && webOrders.isResolvable()) webOrders.get().requireSplittable(source, source.sourceQuoteId() == null ? null : orders.findById(source.sourceQuoteId()).orElse(null));
         if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");

@@ -38,6 +38,10 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.SalesSplits splits;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesCustomerMessages customerMessages;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesAdvanceBillingService advanceBilling;
+    @jakarta.inject.Inject be.enrosed.sales.application.WebOrders webOrders;
+    @jakarta.inject.Inject be.enrosed.sales.application.WebOrderDeliveries deliveries;
+    @jakarta.inject.Inject be.enrosed.sales.application.WebOrderMails webOrderMails;
+    @jakarta.inject.Inject be.enrosed.sales.application.CustomerService customers;
 
     public SalesOrderResource(SalesOrderService salesOrders, QuoteService quotes) {
         this.salesOrders = salesOrders;
@@ -85,7 +89,42 @@ public class SalesOrderResource {
                             /** On a regular quote: its live advance invoices (empty when none); null on other documents. */
                             List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceInvoice> advanceInvoices,
                             /** On a slotfactuur: the advance invoices it deducted, with how they were paid; null otherwise. */
-                            List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction> advanceDeductions) {
+                            List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction> advanceDeductions,
+                            /** Only on the document that IS the website order of a logged-in customer; null otherwise. */
+                            WebOrderView webOrder,
+                            /** The delivery the customer typed for a website order, also on the documents derived from it. */
+                            DeliveryView delivery) {
+        /** The view as it stood before website orders of logged-in customers were added. */
+        public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
+                         be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
+                         be.enrosed.sales.domain.SalesPaymentSummary paymentSummary, be.enrosed.sales.domain.SalesAccounting accounting,
+                         be.enrosed.sales.application.PartnerSettlements.Snapshot settlement,
+                         be.enrosed.sales.application.PartnerAdvanceQuotes.Snapshot advanceAgreement,
+                         be.enrosed.sales.application.PartnerAdvanceContents.Snapshot advanceContents,
+                         be.enrosed.sales.application.SalesSplits.Fulfillment fulfillment,
+                         boolean customerRequestMessageReadonly, String customerRequestMessage,
+                         Long creditedInvoiceId, String creditedInvoiceNumber,
+                         be.enrosed.sales.domain.QuoteStatus creditedInvoiceStatus,
+                         List<CreditNoteLink> creditNotes, BigDecimal creditedEur,
+                         String partnerContainerName, String partnerContainerNumber,
+                         be.enrosed.sales.application.SalesAdvanceBillingService.Billing advanceBilling,
+                         List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceInvoice> advanceInvoices,
+                         List<be.enrosed.sales.application.SalesAdvanceBillingService.AdvanceDeduction> advanceDeductions) {
+            this(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions, null, null);
+        }
+        /** The same view with the website order state and its delivery filled in. */
+        OrderView withWebOrder(WebOrderView webOrder, DeliveryView delivery) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
+                    webOrder, delivery);
+        }
         /** The view as it stood before the advance billing of regular quotes was added. */
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -151,7 +190,8 @@ public class SalesOrderResource {
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
-                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions);
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
+                    webOrder, delivery);
         }
         /** The same view naming the container the document comes from; null leaves it unnamed. */
         OrderView withContainer(be.enrosed.sourcing.domain.PurchaseOrderName container) {
@@ -160,7 +200,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     container == null ? null : container.displayName(), container == null ? null : container.number(),
-                    advanceBilling, advanceInvoices, advanceDeductions);
+                    advanceBilling, advanceInvoices, advanceDeductions, webOrder, delivery);
         }
         /** The same view with the advance billing of regular quotes filled in. */
         OrderView withAdvanceBilling(be.enrosed.sales.application.SalesAdvanceBillingService.Views views) {
@@ -170,7 +210,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber,
-                    views.billing(order), views.advanceInvoices(order), views.deductions(order));
+                    views.billing(order), views.advanceInvoices(order), views.deductions(order), webOrder, delivery);
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -200,6 +240,30 @@ public class SalesOrderResource {
             this(order, priced, awaitingResend, null, null, null, null);
         }
     }
+
+    /**
+     * Where a website order of a logged-in customer stands: what the customer
+     * did, who took it into processing, how its figures compare with what was
+     * ordered, sent or approved, and the customer mails. The ordered totals
+     * and the differences need the stored order and are filled on one
+     * document only, never on the list.
+     */
+    public record WebOrderView(int revision, String accountEmail, java.time.Instant placedAt,
+                               /** The customer may still change or cancel: nobody at Enrosed touched the order. */
+                               boolean customerEditable,
+                               java.time.Instant customerChangedAt, String customerChangeSummary,
+                               java.time.Instant customerCancelledAt,
+                               java.time.Instant processingStartedAt, String processingStartedBy, String processingTrigger,
+                               be.enrosed.sales.application.WebOrders.TermsState termsState,
+                               BigDecimal orderedTotalExclVat, BigDecimal orderedTotalInclVat, List<String> differences,
+                               java.time.Instant receivedMailSentAt, java.time.Instant processingMailSentAt, String mailError,
+                               /** A customer mail is due and has not left for more than a minute. */
+                               boolean mailDue) {}
+
+    /** The delivery of a website order as the customer typed it; staff read it, they do not edit it. */
+    public record DeliveryView(String fulfillment, String address, String postalCode, String city, String countryCode,
+                               String pickupLabel, String pickupAddress, String contactName, String phone,
+                               boolean differsFromCustomerRecord) {}
 
     /** One credit note as seen from its invoice. */
     public record CreditNoteLink(long id, String number, be.enrosed.sales.domain.QuoteStatus status,
@@ -272,10 +336,17 @@ public class SalesOrderResource {
         var containers = salesOrders.containerNames(all.stream().map(SalesOrder::linkedPurchaseOrderId)
                 .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()));
         var advances = advanceBilling == null ? null : advanceBilling.views(all);
+        /* Two reads cover every website order and delivery address on the list; no document looks its own up. */
+        java.util.Map<Long, be.enrosed.sales.application.WebOrders.Row> webOrderRows =
+                webOrders == null ? java.util.Map.of() : webOrders.indexStates();
+        if (deliveries != null) deliveries.preloadForRequest();
+        java.util.Set<Long> invoicedQuoteIds = invoicedQuoteIds(all);
+        java.util.Map<Long, be.enrosed.sales.domain.Customer> customerRecords = new java.util.HashMap<>();
         return all.stream()
-                .map(order -> links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price)
+                .map(order -> webOrderBlocks(links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price)
                         .withContainer(order.linkedPurchaseOrderId() == null ? null : containers.get(order.linkedPurchaseOrderId()))
-                        .withAdvanceBilling(advances))
+                        .withAdvanceBilling(advances),
+                        order.id() == null ? null : webOrderRows.get(order.id()), false, invoicedQuoteIds, customerRecords))
                 .toList();
     }
 
@@ -285,9 +356,110 @@ public class SalesOrderResource {
         Links links = Links.of(all);
         Long containerId = order.linkedPurchaseOrderId();
         var container = containerId == null ? null : salesOrders.containerNames(List.of(containerId)).get(containerId);
-        return links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
+        OrderView view = links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
                 .withContainer(container)
                 .withAdvanceBilling(advanceBilling == null || order.id() == null ? null : advanceBilling.views(all));
+        return webOrderBlocks(view, webOrders == null || order.id() == null ? null : webOrders.find(order.id()).orElse(null),
+                true, invoicedQuoteIds(all), new java.util.HashMap<>());
+    }
+
+    /** Every quote an invoice was made from: such a website order is closed to its customer. */
+    private static java.util.Set<Long> invoicedQuoteIds(List<SalesOrder> all) {
+        return all.stream().filter(SalesOrder::isClaimDocument).map(SalesOrder::sourceQuoteId)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+    }
+
+    /**
+     * Adds the website order state and the delivery of this document. The
+     * state is computed with the same functions the server guards use, from
+     * the pricing the view already holds; only one document at a time also
+     * reads the stored order for its totals and differences.
+     */
+    private OrderView webOrderBlocks(OrderView view, be.enrosed.sales.application.WebOrders.Row row, boolean detail,
+                                     java.util.Set<Long> invoicedQuoteIds,
+                                     java.util.Map<Long, be.enrosed.sales.domain.Customer> customerRecords) {
+        SalesOrder order = view.order();
+        if (order.id() == null) return view;
+        WebOrderView webOrder = null;
+        if (row != null && !order.isClaimDocument()) {
+            var state = view.priced() == null ? null : be.enrosed.sales.application.WebOrders.termsState(order, row,
+                    be.enrosed.sales.application.WebOrderTerms.of(view.priced()));
+            BigDecimal orderedExcl = null, orderedIncl = null;
+            List<String> differences = List.of();
+            if (detail) {
+                var snapshot = be.enrosed.sales.application.WebOrderSnapshot.fromJson(row.orderSnapshot());
+                if (snapshot != null && snapshot.totals() != null) {
+                    orderedExcl = snapshot.totals().totalExclVat();
+                    orderedIncl = snapshot.totals().totalInclVat();
+                }
+                if (state == be.enrosed.sales.application.WebOrders.TermsState.ORDER_DIFFERENT)
+                    differences = be.enrosed.sales.application.WebOrderTerms.differences(snapshot, view.priced());
+            }
+            var due = be.enrosed.sales.application.WebOrderMails.due(order, row, java.time.Instant.now());
+            webOrder = new WebOrderView(row.revision(), row.accountEmail(), row.placedAt(),
+                    be.enrosed.sales.application.WebOrders.customerMayChange(order, row, invoicedQuoteIds.contains(order.id())),
+                    row.customerChangedAt(), row.customerChangeSummary(), row.customerCancelledAt(),
+                    row.processingStartedAt(), row.processingStartedBy(), row.processingTrigger(), state,
+                    orderedExcl, orderedIncl, differences,
+                    shownSentAt(order.id(), be.enrosed.sales.application.WebOrderMails.Kind.RECEIVED, row.receivedMailSentAt()),
+                    shownSentAt(order.id(), be.enrosed.sales.application.WebOrderMails.Kind.PROCESSING, row.processingMailSentAt()),
+                    row.mailError(), due != null && due.overdue());
+        }
+        var typed = deliveries == null ? null : deliveries.forDocument(order).orElse(null);
+        DeliveryView delivery = null;
+        if (typed != null) {
+            boolean differs = false;
+            if (be.enrosed.sales.application.WebOrderDeliveries.DELIVERY.equals(typed.fulfillment()) && order.customerId() != null && customers != null) {
+                be.enrosed.sales.domain.Customer record = customerRecords.get(order.customerId());
+                if (record == null) {
+                    /* The list reads the customer records once, for the first document that has a delivery to compare. */
+                    if (detail) customerRecords.put(order.customerId(), customers.get(order.customerId()));
+                    else for (var customer : customers.list()) customerRecords.put(customer.id(), customer);
+                    record = customerRecords.get(order.customerId());
+                }
+                differs = record != null && (!sameText(typed.address(), record.address())
+                        || !sameText(typed.postalCode(), record.postalCode()) || !sameText(typed.city(), record.city()));
+            }
+            delivery = new DeliveryView(typed.fulfillment(), typed.address(), typed.postalCode(), typed.city(),
+                    order.countryCode(), typed.pickupLabel(), typed.pickupAddress(), typed.contactName(),
+                    typed.contactPhone(), differs);
+        }
+        return webOrder == null && delivery == null ? view : view.withWebOrder(webOrder, delivery);
+    }
+
+    /** A moment that is only the claim of a mail still on its way to the provider is not shown as sent. */
+    private java.time.Instant shownSentAt(long orderId, be.enrosed.sales.application.WebOrderMails.Kind kind, java.time.Instant stored) {
+        return webOrderMails == null ? stored : webOrderMails.shownSentAt(orderId, kind, stored);
+    }
+
+    private static boolean sameText(String left, String right) {
+        return (left == null ? "" : left.strip()).equalsIgnoreCase(right == null ? "" : right.strip());
+    }
+
+    /**
+     * "In verwerking nemen": from here the customer can no longer change or
+     * cancel the website order; the customer is mailed after the commit.
+     * There is no body, so a call without a content type is as good as one with.
+     */
+    @POST
+    @Path("/{id}/take-into-processing")
+    @Consumes(MediaType.WILDCARD)
+    public OrderView takeIntoProcessing(@PathParam("id") long id) {
+        return view(salesOrders.takeIntoProcessing(id));
+    }
+
+    /**
+     * Sends the customer mail of a website order that is due and did not
+     * leave; with repeat the last one that is marked sent goes out once more.
+     */
+    @POST
+    @Path("/{id}/web-order/mails")
+    @Consumes(MediaType.WILDCARD)
+    public OrderView sendWebOrderMail(@PathParam("id") long id,
+                                      @QueryParam("repeat") @DefaultValue("false") boolean repeat) {
+        salesOrders.get(id);
+        webOrderMails.resend(id, repeat);
+        return view(salesOrders.get(id));
     }
 
     /* ------------------------------------------------------------ credit notes */

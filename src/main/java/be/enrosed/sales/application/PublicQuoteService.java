@@ -5,6 +5,8 @@ import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.StockLocation;
+import be.enrosed.sales.adapter.in.rest.AccountOrderDtos.OrderPreviewRequest;
+import be.enrosed.sales.adapter.in.rest.AccountOrderDtos.OrderRequest;
 import be.enrosed.sales.adapter.in.rest.PublicQuoteDtos;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Language;
@@ -15,6 +17,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -159,7 +162,12 @@ public class PublicQuoteService {
 
     /** Read-only validation of a logged-in customer's request; the identity fields of the body are not looked at. */
     public void validateSubmissionForCustomer(SubmitRequest request, long customerId) {
-        validateAndPrepareForCustomer(request, customers.get(customerId));
+        Prepared prepared = validateAndPrepareForCustomer(request, customers.get(customerId));
+        /* While customers can order, the old route holds the same minimum: a page from before
+           ordering, or a hand-made call, cannot send what an order would refuse. */
+        if (orderingEnabled() && !prepared.priced.validation().meetsMinimum()) {
+            throw new PublicQuoteValidationException(Map.of("items", "MINIMUM_NOT_MET"));
+        }
     }
 
     /**
@@ -185,6 +193,211 @@ public class PublicQuoteService {
                     + (phone == null ? "" : " · " + withoutBrackets(phone)));
         }
         return store(request, prepared, buyer.id(), notes).response;
+    }
+
+    /**
+     * The estimate of an order. It is priced as the ERP will price the stored order: on the
+     * customer record, delivered at the typed address. Products in {@code keptUnitPrices}
+     * (those already in the order being changed) keep that price.
+     */
+    public EstimateResponse previewOrder(OrderPreviewRequest request, long customerId,
+                                         Map<Long, BigDecimal> keptUnitPrices) {
+        if (request == null) throw new PublicQuoteValidationException(Map.of("request", "REQUIRED"));
+        return toResponse(prepareOrder(request.language(), request.fulfillment(),
+                request.pickupLocationId(), request.destination(), request.items(),
+                customers.get(customerId), keptUnitPrices));
+    }
+
+    /** Read-only validation of an order, the minimum order value included. */
+    public void validateOrder(OrderRequest request, long customerId,
+                              Map<Long, BigDecimal> keptUnitPrices) {
+        validateAndPrepareOrder(request, customers.get(customerId), keptUnitPrices);
+    }
+
+    /**
+     * What the caller needs beside the stored document to write the delivery row, the snapshot
+     * and the change summary. Validates as validateOrder does.
+     */
+    public OrderFacts orderFacts(OrderRequest request, long customerId,
+                                 Map<Long, BigDecimal> keptUnitPrices) {
+        Customer buyer = customers.get(customerId);
+        Prepared prepared = validateAndPrepareOrder(request, buyer, keptUnitPrices);
+        Map<Long, Integer> piecesPerCarton = new LinkedHashMap<>();
+        Map<Long, Integer> cartons = new LinkedHashMap<>();
+        Map<Long, String> skus = new LinkedHashMap<>();
+        Map<Long, BigDecimal> listPrices = new LinkedHashMap<>();
+        SalesOrder priceTemplate = draft(null, null, null, Fulfillment.DELIVERY,
+                List.of(), null, FreightState.TE_BEPALEN);
+        for (PreparedItem item : prepared.items) {
+            long productId = item.product.id();
+            piecesPerCarton.put(productId, item.piecesPerCarton);
+            cartons.put(productId, item.cartons);
+            skus.put(productId, item.product.sku());
+            if (keptUnitPrices != null && keptUnitPrices.get(productId) != null) {
+                BigDecimal today = pricing.unitPriceFor(item.product, priceTemplate, null);
+                if (today != null && today.signum() > 0) listPrices.put(productId, today);
+            }
+        }
+        boolean pickup = prepared.fulfillment == Fulfillment.PICKUP;
+        Destination destination = request.destination();
+        String contact = isBlank(request.contactName()) ? clean(buyer.contact())
+                : clean(request.contactName());
+        return new OrderFacts(prepared.language.name(), prepared.fulfillment.name(),
+                pickup || destination == null ? null : clean(destination.address()),
+                pickup || destination == null ? null : clean(destination.postalCode()),
+                pickup || destination == null ? null : clean(destination.city()),
+                prepared.pickupLocation == null ? null : prepared.pickupLocation.id(),
+                prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupLabel(),
+                prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupAddress(),
+                contact, isBlank(request.phone()) ? null : clean(request.phone()),
+                piecesPerCarton, cartons, skus, listPrices);
+    }
+
+    /**
+     * The order of a logged-in customer as an ERP document: the draft of a website request,
+     * filled through the customer entry of the sales core. The caller writes the delivery row
+     * and the order row and tells staff; nothing is announced here.
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public SalesOrder storeOrder(OrderRequest request, long customerId, String accountEmail) {
+        Customer buyer = customers.get(customerId);
+        Prepared prepared = validateAndPrepareOrder(request, buyer, Map.of());
+        SalesOrder created = salesOrders.createWebsiteRequest(customerId, prepared.country.code(),
+                prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP");
+        SalesOrder saved = salesOrders.updateByCustomer(created.id(),
+                orderDocument(created, request, prepared, buyer, accountEmail, Map.of()));
+        salesOrders.captureCustomerRequest(created.id());
+        return saved;
+    }
+
+    /**
+     * The customer's new version of their order. A product that stays keeps its line and the
+     * unit price it was ordered at; a new product gets today's price. Order date and validity
+     * stay those of the placement.
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public SalesOrder replaceOrder(SalesOrder stored, OrderRequest request, String accountEmail) {
+        Customer buyer = customers.get(stored.customerId());
+        Prepared prepared = validateAndPrepareOrder(request, buyer, keptUnitPrices(stored));
+        Map<Long, SalesOrderLine> storedLines = stored.lines().stream()
+                .filter(line -> line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(),
+                        (first, second) -> first));
+        return salesOrders.updateByCustomer(stored.id(),
+                orderDocument(stored, request, prepared, buyer, accountEmail, storedLines));
+    }
+
+    /** The unit prices a customer change keeps: those stored on the lines of the order. */
+    public static Map<Long, BigDecimal> keptUnitPrices(SalesOrder stored) {
+        Map<Long, BigDecimal> kept = new LinkedHashMap<>();
+        if (stored == null) return kept;
+        for (SalesOrderLine line : stored.lines()) {
+            if (line.productId() != null && line.unitPriceEur() != null) {
+                kept.putIfAbsent(line.productId(), line.unitPriceEur());
+            }
+        }
+        return kept;
+    }
+
+    /** The document of an order as the sales core stores it; {@code base} gives id, number and dates. */
+    private SalesOrder orderDocument(SalesOrder base, OrderRequest request, Prepared prepared,
+                                     Customer buyer, String accountEmail,
+                                     Map<Long, SalesOrderLine> storedLines) {
+        Map<Long, PricedOrder.Line> pricedLines = prepared.priced.lines().stream()
+                .collect(Collectors.toMap(PricedOrder.Line::productId, Function.identity()));
+        List<SalesOrderLine> lines = prepared.items.stream().map(item -> {
+            SalesOrderLine kept = storedLines.get(item.product.id());
+            PricedOrder.Line priced = pricedLines.get(item.product.id());
+            BigDecimal serverPrice = kept != null && kept.unitPriceEur() != null ? kept.unitPriceEur()
+                    : priced != null && priced.unitPrice().signum() > 0 ? priced.unitPrice() : null;
+            return new SalesOrderLine(kept == null ? null : kept.id(), item.product.id(),
+                    item.quantityPieces, serverPrice, null, null);
+        }).toList();
+        StringBuilder internal = new StringBuilder(SalesOrderService.WEBSITE_REQUEST_MARKER)
+                .append(' ').append(base.number())
+                .append("\nWebsitebestelling van een ingelogde klant; bindend na bevestiging door Enrosed.");
+        prepared.items.stream().filter(item -> item.piecesPerCarton <= 0)
+                .forEach(item -> internal.append('\n').append(SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER)
+                        .append(" productId=").append(item.product.id())
+                        .append("; sku=").append(item.product.sku())
+                        .append("; cartons=").append(item.cartons)
+                        .append("; quantityPieces=TE_BEPALEN"));
+        internal.append("\nBesteld via klantlogin ").append(accountEmail);
+        String contact = isBlank(request.contactName()) ? clean(buyer.contact())
+                : clean(request.contactName());
+        String phone = isBlank(request.phone()) ? null : clean(request.phone());
+        boolean otherContact = !isBlank(contact) && !contact.equals(clean(buyer.contact()));
+        boolean otherPhone = phone != null && !phone.equals(clean(buyer.phone()));
+        if (otherContact || otherPhone) {
+            /* Customer-typed text in a note where staff and code read bracket markers. */
+            internal.append("\nContact op bestelling: ").append(withoutBrackets(contact))
+                    .append(phone == null ? "" : " · " + withoutBrackets(phone));
+        }
+        return new SalesOrder(
+                base.id(), base.number(), buyer.id(), prepared.country.code(),
+                base.orderDate(), base.validUntil(), base.status(),
+                prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP",
+                base.paymentTerms(), clean(request.notes()), base.markupMode(),
+                base.orderMarkupPct(), null, null, null, null, null, 0,
+                null, null, null,
+                internal.toString(),
+                base.deliveryTerms(),
+                prepared.shippingAvailable ? FreightState.BEREKEND : FreightState.TE_BEPALEN,
+                null, LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                prepared.strategy, null,
+                prepared.carrier == null ? null : prepared.carrier.id(), null,
+                DocumentType.OFFERTE, null, null, null, null, lines, List.of(),
+                pickupSnapshot(prepared.pickupLocation));
+    }
+
+    /**
+     * The checks of an order, in one field map: the contact fields, the basket and delivery as
+     * prepareOrder judges them, and then the minimum order value of the delivery country.
+     */
+    private Prepared validateAndPrepareOrder(OrderRequest request, Customer customer,
+                                             Map<Long, BigDecimal> keptUnitPrices) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        if (request == null) {
+            errors.put("request", "REQUIRED");
+            throw new PublicQuoteValidationException(errors);
+        }
+        checkSingleLine(request.contactName(), 120, "contactName", errors);
+        checkSingleLine(request.phone(), 50, "phone", errors);
+        checkLength(request.notes(), 2000, "notes", errors);
+        if (!Boolean.TRUE.equals(request.privacyAccepted())) {
+            errors.put("privacyAccepted", "REQUIRED");
+        }
+        if (!isBlank(request.website())) errors.put("request", "INVALID");
+        Prepared prepared = null;
+        try {
+            prepared = prepareOrder(request.language(), request.fulfillment(),
+                    request.pickupLocationId(), request.destination(), request.items(),
+                    customer, keptUnitPrices);
+        } catch (PublicQuoteValidationException validation) {
+            validation.fieldErrors().forEach(errors::putIfAbsent);
+        }
+        if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
+        if (prepared == null) throw new IllegalStateException("Order preparation yielded no result");
+        /* Only what the ERP can price counts: a line still to be confirmed adds nothing. */
+        if (!prepared.priced.validation().meetsMinimum()) {
+            throw new PublicQuoteValidationException(Map.of("items", "MINIMUM_NOT_MET"));
+        }
+        return prepared;
+    }
+
+    /** The one preparation of every order call; the VAT number is the record's and is not judged. */
+    private Prepared prepareOrder(String language, String fulfillment, Long pickupLocationId,
+                                  Destination destination, List<ItemRequest> items,
+                                  Customer customer, Map<Long, BigDecimal> keptUnitPrices) {
+        return prepare(new PreviewRequest(language, fulfillment, customer.vatNumber(),
+                        destination, items, pickupLocationId), false,
+                new OrderPricing(customer, keptUnitPrices == null ? Map.of() : keptUnitPrices));
+    }
+
+    /** Whether customers can order on the website; read on every call, as AccountDocuments does. */
+    private static boolean orderingEnabled() {
+        return ConfigProvider.getConfig()
+                .getOptionalValue("enrosed.website.ordering.enabled", Boolean.class).orElse(true);
     }
 
     /** Turns a validated request into the ERP draft quote of one customer, with frozen public prices. */
@@ -294,13 +507,23 @@ public class PublicQuoteService {
     }
 
     private Prepared prepare(PreviewRequest request, boolean judgeVatNumber) {
+        return prepare(request, judgeVatNumber, null);
+    }
+
+    /**
+     * {@code order} is null for a quote request. For an order it carries the customer record
+     * and the unit prices to keep, and two rules are stricter: the delivery choice is read
+     * once and every address rule follows that reading, and the address is one line.
+     */
+    private Prepared prepare(PreviewRequest request, boolean judgeVatNumber, OrderPricing order) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
             errors.put("request", "REQUIRED");
             throw new PublicQuoteValidationException(errors);
         }
         Language language = requireLanguage(request.language(), errors);
-        Fulfillment fulfillment = fulfillment(request.fulfillment(), errors);
+        Fulfillment fulfillment = order == null ? fulfillment(request.fulfillment(), errors)
+                : orderFulfillment(request.fulfillment(), errors);
         StockLocation pickupLocation = fulfillment == Fulfillment.PICKUP
                 ? selectedPickupLocation(request.pickupLocationId(), errors) : null;
         Destination destination = request.destination();
@@ -317,8 +540,22 @@ public class PublicQuoteService {
                 "destination.postalCode", errors);
         checkSingleLine(destination == null ? null : destination.city(), 100,
                 "destination.city", errors);
-        checkLength(destination == null ? null : destination.address(), 200,
-                "destination.address", errors);
+        if (order == null) {
+            checkLength(destination == null ? null : destination.address(), 200,
+                    "destination.address", errors);
+        } else {
+            /* A line break here would end up in the packing slip and in the mails. */
+            checkSingleLine(destination == null ? null : destination.address(), 200,
+                    "destination.address", errors);
+            if (fulfillment == Fulfillment.DELIVERY) {
+                if (destination == null || isBlank(destination.address())) {
+                    errors.put("destination.address", "REQUIRED");
+                }
+                if (destination == null || isBlank(destination.city())) {
+                    errors.put("destination.city", "REQUIRED");
+                }
+            }
+        }
         if (judgeVatNumber) validateVat(request.vatNumber(), errors);
 
         List<ItemRequest> requested = request.items();
@@ -364,7 +601,14 @@ public class PublicQuoteService {
         if (totalCartons > MAX_TOTAL_CARTONS) errors.put("items", "TOO_MANY_CARTONS");
         if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
 
-        Customer estimateCustomer = new Customer(null, "Website preview", null, null, null,
+        /* An order is priced on the customer record, delivered where it was ordered: exactly
+           what the sales core does with the stored order and its delivery row. */
+        Customer estimateCustomer = order != null
+                ? fulfillment == Fulfillment.DELIVERY && destination != null
+                        ? order.customer.withDeliveryAddress(clean(destination.address()),
+                                clean(destination.postalCode()), clean(destination.city()))
+                        : order.customer
+                : new Customer(null, "Website preview", null, null, null,
                 normalizedVat(request.vatNumber()), country.code(), language,
                 destination == null ? null : clean(destination.address()),
                 destination == null ? null : clean(destination.postalCode()),
@@ -384,15 +628,17 @@ public class PublicQuoteService {
                 && carrier == null && !countryTariff ? FreightState.TE_BEPALEN : FreightState.BEREKEND;
         List<SalesOrderLine> lines = preparedItems.stream()
                 .map(item -> new SalesOrderLine(null, item.product.id(), item.quantityPieces,
-                        null, null, null))
+                        order == null ? null : order.keptUnitPrices.get(item.product.id()),
+                        null, null))
                 .toList();
-        SalesOrder order = draft(country.code(), carrier, strategy, fulfillment, lines,
+        SalesOrder estimate = draft(country.code(), carrier, strategy, fulfillment, lines,
                 estimateCustomer, freightState);
         Map<Long, Product> byId = preparedItems.stream()
                 .map(item -> item.product).collect(Collectors.toMap(Product::id, Function.identity()));
-        PricedOrder priced = pricing.price(order, byId, new SalesPricingCalculator.Context(
+        PricedOrder priced = pricing.price(estimate, byId, new SalesPricingCalculator.Context(
                 country, estimateCustomer, settings.pallet(), tiers.list(TierScope.LINE),
-                tiers.list(TierScope.ORDER), vat.determine(country, estimateCustomer), carrier));
+                tiers.list(TierScope.ORDER),
+                vat.determine(country, order == null ? estimateCustomer : order.customer), carrier));
         boolean hasAllCartonData = preparedItems.stream()
                 .allMatch(item -> item.piecesPerCarton > 0);
         boolean shippingAvailable = fulfillment == Fulfillment.PICKUP
@@ -631,6 +877,17 @@ public class PublicQuoteService {
         }
     }
 
+    /** Null or blank is a delivery; anything else must be one of the two, however it is padded. */
+    private static Fulfillment orderFulfillment(String value, Map<String, String> errors) {
+        try {
+            return isBlank(value) ? Fulfillment.DELIVERY
+                    : Fulfillment.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            errors.put("fulfillment", "INVALID");
+            return Fulfillment.DELIVERY;
+        }
+    }
+
     private static void required(String value, int max, String path, Map<String, String> errors) {
         if (isBlank(value)) errors.put(path, "REQUIRED");
         else checkLength(value, max, path, errors);
@@ -680,6 +937,21 @@ public class PublicQuoteService {
     }
 
     private enum Fulfillment { DELIVERY, PICKUP }
+
+    /** The customer record an order is priced on, and the unit prices its stored lines keep. */
+    private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices) {}
+
+    /**
+     * What an order request says beside its document. {@code fulfillment} is DELIVERY or
+     * PICKUP; the address is null for a collection. {@code piecesPerCarton} is 0 where the
+     * carton content is unknown. {@code listPrices} holds today's public price of the products
+     * whose price is kept, where there is one.
+     */
+    public record OrderFacts(String language, String fulfillment, String address, String postalCode,
+                             String city, Long pickupLocationId, String pickupLabel,
+                             String pickupAddress, String contactName, String phone,
+                             Map<Long, Integer> piecesPerCarton, Map<Long, Integer> cartons,
+                             Map<Long, String> skus, Map<Long, BigDecimal> listPrices) {}
 
     private record PreparedItem(Product product, int cartons, int quantityPieces,
                                 int piecesPerCarton) {}

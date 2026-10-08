@@ -476,6 +476,45 @@ class RailwayPreDeployMigrationContractTest {
                 "the new tables land after every earlier script");
         assertTrue(runner.contains("glass-box-thirteen-roses-postgresql.sql \\\n"),
                 "without the continuation backslash psql never sees the new file");
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName() + " \\\n"),
+                "the customer-account file is no longer last, so it needs the continuation backslash");
+    }
+
+    @Test
+    void webOrderSchemaIsTwoAdditiveTablesRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-08/sales-web-order-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists sales_web_order ("));
+        assertTrue(sql.contains("create table if not exists sales_order_delivery ("));
+        assertTrue(sql.contains("create index if not exists idx_sales_web_order_customer on sales_web_order (customer_id)"));
+        String block = sql.substring(sql.indexOf("do $migration$"), sql.lastIndexOf("$migration$"));
+        assertTrue(block.contains("to_regclass('sales_order') is not null"),
+                "a fresh update-managed database must leave initial table creation to Hibernate");
+        assertTrue(block.contains("create index if not exists idx_sales_order_customer on sales_order (customerid)"));
+        assertEquals(1, sql.split("idx_sales_order_customer", -1).length - 1,
+                "the index on sales_order exists only behind the table test");
+        String raw = Files.readString(migration).toLowerCase(Locale.ROOT);
+        for (String forbidden : new String[] {"check", "references", "alter table", "update ", "drop"}) {
+            assertFalse(raw.contains(forbidden), "no '" + forbidden + "' anywhere, comments included: "
+                    + "no constraint, no foreign key, no change to an existing table or row");
+        }
+        assertNonDestructive(sql);
+
+        String entities = "src/main/java/be/enrosed/sales/adapter/out/persistence/";
+        assertEntityNamesEveryColumn(sql, "sales_web_order", "SalesWebOrderEntity", 20, entities);
+        assertEntityNamesEveryColumn(sql, "sales_order_delivery", "SalesOrderDeliveryEntity", 13, entities);
+        String countByCustomer = Files.readString(Path.of(entities + "PanacheSalesRepositories.java"));
+        assertTrue(countByCustomer.contains("from sales_order where customerId = :id"),
+                "the indexed column carries the physical name the existing native query reads");
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/customer-account-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the new tables land after every earlier script");
+        assertTrue(runner.contains("customer-account-postgresql.sql \\\n"),
+                "without the continuation backslash psql never sees the new file");
         assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
     }
 
@@ -485,6 +524,11 @@ class RailwayPreDeployMigrationContractTest {
      */
     private static void assertEntityNamesEveryColumn(String sql, String table, String entityName,
                                                      int expectedColumns) throws IOException {
+        assertEntityNamesEveryColumn(sql, table, entityName, expectedColumns, "src/main/java/be/enrosed/account/");
+    }
+
+    private static void assertEntityNamesEveryColumn(String sql, String table, String entityName,
+                                                     int expectedColumns, String sourceDirectory) throws IOException {
         String opening = "create table if not exists " + table + " (";
         int start = sql.indexOf(opening) + opening.length();
         String body = sql.substring(start, sql.indexOf(");", start));
@@ -494,8 +538,7 @@ class RailwayPreDeployMigrationContractTest {
                 .map(definition -> definition.substring(0, definition.indexOf(' ')))
                 .toList();
         assertEquals(expectedColumns, columns.size(), table);
-        String entity = Files.readString(Path.of(
-                "src/main/java/be/enrosed/account/" + entityName + ".java"));
+        String entity = Files.readString(Path.of(sourceDirectory + entityName + ".java"));
         for (String column : columns) {
             assertTrue(entity.contains("@Column(name = \"" + column + "\""),
                     entityName + " names " + column + " explicitly, so validation finds the migrated column");

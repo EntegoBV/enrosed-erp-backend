@@ -7,5 +7,7 @@ public enum PublicFormPurpose {
     /** The three account forms of the website: login request, new link, log in. */
     ACCOUNT,
     /** Idempotency namespace of a logged-in quote request; its form token and challenge are QUOTE ones. */
-    ACCOUNT_QUOTE
+    ACCOUNT_QUOTE,
+    /** Idempotency namespace of the order writes of a logged-in customer; they verify as QUOTE too. */
+    ACCOUNT_ORDER
 }
