@@ -5,7 +5,9 @@ import be.enrosed.catalog.domain.StockMovement;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @ApplicationScoped
 public class PanacheStockLedger implements StockLedger, PanacheRepository<StockMovementEntity> {
@@ -42,6 +44,19 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
         return list("purchaseOrderId = ?1 order by at desc, id desc", purchaseOrderId).stream()
                 .map(PanacheStockLedger::toDomain)
                 .toList();
+    }
+
+    @Override
+    public List<StockMovement> between(Instant fromInclusive, Instant toExclusive) {
+        return list("at >= ?1 and at < ?2 order by at, id", fromInclusive, toExclusive).stream()
+                .map(PanacheStockLedger::toDomain)
+                .toList();
+    }
+
+    @Override
+    public Optional<StockMovement> lastBefore(long productId, long locationId, Instant before) {
+        return find("productId = ?1 and locationId = ?2 and at < ?3 order by at desc, id desc",
+                productId, locationId, before).firstResultOptional().map(PanacheStockLedger::toDomain);
     }
 
     private static StockMovement toDomain(StockMovementEntity entity) {
