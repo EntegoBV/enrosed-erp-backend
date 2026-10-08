@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.FamilyPhotoAltText;
 import be.enrosed.catalog.application.FamilyPhotoVariantResolver;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.application.ContentTranslationService;
+import be.enrosed.catalog.application.PublicColourText;
 import be.enrosed.catalog.application.PublicProductNameResolver;
 import be.enrosed.catalog.application.PublicFamilyPhotoProjection;
 import be.enrosed.catalog.application.SharedProductDimensions;
@@ -305,8 +306,9 @@ public class PublicFamilyCatalogResource {
         String availability = product.inventoryKnown
                 ? product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"
                 : "UNKNOWN";
-        LanguageFallback.Resolved<String> color = productText(
-                product, language, item -> item.colour, product.colour);
+        /* The variant's own colour text, else the colour dictionary for a standard colour
+           (exact in every language); anything else is a fallback the strict check refuses. */
+        LanguageFallback.Resolved<String> color = PublicColourText.resolve(product, language);
         /* The Maat is one language-neutral value: the base prints in every language and is
            therefore exact in each of them, like the unit. */
         String size = blank(product.variantSize) ? null : product.variantSize.strip();
@@ -499,13 +501,6 @@ public class PublicFamilyCatalogResource {
                 "familyId = ?1 order by variantPosition, id", family.id);
         boolean hasPhoto = publicPhotos.primary(family, product, members, channel) != null;
         return hasPhoto ? productId : null;
-    }
-
-    private static LanguageFallback.Resolved<String> productText(
-            ProductEntity product, Language requested,
-            Function<ProductTextEntity, String> field, String baseFallback) {
-        return LanguageFallback.text(product.texts, requested,
-                item -> item.language, field, baseFallback);
     }
 
     private static LanguageFallback.Resolved<String> familyText(

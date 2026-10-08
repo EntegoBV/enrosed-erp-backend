@@ -58,6 +58,8 @@ class FamilyPhotoAltTextTest {
     @Test
     void aBorrowedColourNeverJoinsAnExactName() {
         Fixture fixture = fixture();
+        /* Not a pick-list colour: only its own texts can translate it. */
+        fixture.red.colour = "Vintage rood";
         fixture.red.texts.removeIf(text -> text.language == Language.NL);
 
         LanguageFallback.Resolved<String> alt = FamilyPhotoAltText.resolve(
@@ -65,6 +67,27 @@ class FamilyPhotoAltTextTest {
 
         assertEquals("Bowl rozen met display", alt.value());
         assertEquals(Language.NL, alt.sourceLanguage());
+    }
+
+    @Test
+    void aStandardColourWithoutItsOwnTextJoinsTheNameThroughTheDictionary() {
+        Fixture fixture = fixture();
+        fixture.red.texts.removeIf(text -> text.language == Language.NL);
+
+        LanguageFallback.Resolved<String> dutch = FamilyPhotoAltText.resolve(
+                fixture.family, fixture.colourImage, List.of(fixture.red), List.of(), Language.NL);
+        LanguageFallback.Resolved<String> french = FamilyPhotoAltText.resolve(
+                fixture.family, fixture.colourImage, List.of(fixture.red), List.of(), Language.FR);
+        LanguageFallback.Resolved<String> english = FamilyPhotoAltText.resolve(
+                fixture.family, fixture.colourImage, List.of(fixture.red), List.of(), Language.EN);
+
+        assertEquals("Bowl rozen met display — Rood", dutch.value());
+        assertEquals(Language.NL, dutch.sourceLanguage());
+        assertEquals("Bol de roses avec présentoir — Rouge", french.value());
+        assertEquals(Language.FR, french.sourceLanguage());
+        assertEquals("Bowl roses with display — Red", english.value(),
+                "the variant's own English text is still the one that prints");
+        assertEquals(Language.EN, english.sourceLanguage());
     }
 
     @Test

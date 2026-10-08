@@ -336,9 +336,16 @@ public record Product(
     /**
      * Colour in the given language.
      *
-     * A product-specific translation wins; otherwise standard colours
-     * translate themselves through the shared dictionary, and anything
-     * unknown stays as typed.
+     * A product-specific translation wins, in this language or borrowed
+     * from the fallback languages, so a document prints the word it always
+     * printed. Without any such text a standard colour translates itself
+     * through the shared dictionary, and that word is exact in the language
+     * (the dictionary is reviewed and complete); anything unknown stays as
+     * typed and is not exact.
+     *
+     * The public catalogue is stricter on one point ({@code PublicColourText}):
+     * there a standard colour reads the dictionary before it borrows another
+     * language's text, and Dutch prints the dictionary's spelling.
      */
     public String colourIn(Language language) {
         return colourResolved(language).value();
@@ -349,7 +356,8 @@ public record Product(
                 texts(), language, ProductText::language, ProductText::colour, null);
         if (translated.value() != null) return translated;
         return new LanguageFallback.Resolved<>(
-                be.enrosed.shared.ColourNames.translate(colour, language), null);
+                be.enrosed.shared.ColourNames.translate(colour, language),
+                be.enrosed.shared.ColourNames.isStandard(colour) ? language : null);
     }
 
     /** Description in this language, falling back to the base description. */

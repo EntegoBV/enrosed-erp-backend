@@ -89,6 +89,60 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void aDictionaryColourIsInTheRevisionAndAVariantWithItsOwnColourTextsKeepsItsDigest() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().colour = "Bordeaux";
+        for (Language language : Language.values()) {
+            be.enrosed.catalog.adapter.out.persistence.ProductTextEntity text =
+                    new be.enrosed.catalog.adapter.out.persistence.ProductTextEntity();
+            text.product = graph.product();
+            text.language = language;
+            text.colour = "Bordeaux " + language.code();
+            graph.product().texts.add(text);
+        }
+        String ownTexts = service(graph).currentRevision();
+        /* The digest before the dictionary rule: every term the service wrote for this
+           variant, and no dictionary term. Pinned so existing data cannot start a rebuild. */
+        assertEquals("008151cd10d865e2d3a1b454a89afd007812a141d81faa686561149ee7bd1b93", ownTexts,
+                "a variant with a colour text of its own in every language keeps its digest");
+
+        graph.product().texts.forEach(text -> text.colour =
+                text.language == Language.DE ? null : text.colour);
+        String germanFromDictionary = service(graph).currentRevision();
+        graph.product().colour = "Rood";
+        String anotherStandardColour = service(graph).currentRevision();
+        graph.product().colour = "Vintage roze";
+        String notStandard = service(graph).currentRevision();
+        graph.product().colour = " vintage ROZE ";
+        String notStandardRespelled = service(graph).currentRevision();
+
+        assertNotEquals(ownTexts, germanFromDictionary);
+        assertNotEquals(germanFromDictionary, anotherStandardColour,
+                "German visitors read Rot instead of Bordeauxrot only after a rebuild");
+        assertNotEquals(anotherStandardColour, notStandard);
+        assertNotEquals(notStandard, notStandardRespelled, "the stored colour itself stays covered");
+    }
+
+    @Test
+    void theDictionaryWordsOfAVariantWithoutColourTextsAreTermsOfTheRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().colour = "Bordeaux";
+        graph.product().texts.clear();
+
+        /* The stored colour and the (absent) colour texts are the same before and after a
+           dictionary correction, so only the nine dictionaryColour terms can carry it. The
+           first digest is what the service wrote without those terms (previous release).
+           A corrected "Bordeaux" row in colour-names.csv changes the second digest: that is
+           the rebuild this term exists for, pin the new value then. */
+        String revision = service(graph).currentRevision();
+        assertNotEquals("7d4f886348e96056e6d5b01a606c3a3f1f1985559e74c4a850ac3d87110102c4", revision,
+                "a dictionary colour must add its words to the revision");
+        assertEquals("ffc0049a3b4eafd39d1cf7d09f59131924d4c792c749dd04b54fb70710130eba", revision);
+    }
+
+    @Test
     void withholdingPricesAltersTheRevisionAndShowingThemKeepsTheExistingOne() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
