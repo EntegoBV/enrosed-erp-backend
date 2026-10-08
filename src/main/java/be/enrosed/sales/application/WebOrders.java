@@ -295,8 +295,7 @@ public class WebOrders {
     public void requireAcceptable(SalesOrder quote, PricedOrder priced) {
         Row row = quote.id() == null ? null : find(quote.id()).orElse(null);
         if (row == null || row.sentTerms() == null || row.sentTerms().equals(WebOrderTerms.of(priced))) return;
-        throw new BusinessRuleException("Deze offerte wordt momenteel bijgewerkt. "
-                + "De nieuwe versie is pas zichtbaar nadat Enrosed ze opnieuw heeft verstuurd.");
+        throw PortalRefusal.beingUpdated();
     }
 
     /** Two deliveries with freight per part are a change the customer must approve first. */

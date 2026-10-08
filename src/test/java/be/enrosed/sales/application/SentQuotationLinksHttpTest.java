@@ -83,6 +83,9 @@ class SentQuotationLinksHttpTest {
         assertNotEquals(404, page.statusCode(), step + ": " + page.asString());
         assertNotEquals(200, page.statusCode(), step);
         assertTrue(page.asString().contains("wordt momenteel bijgewerkt"), step + ": " + page.asString());
+        assertEquals(409, page.statusCode(), step);
+        assertEquals("QUOTE_BEING_UPDATED", page.jsonPath().getString("code"), step);
+        assertNull(page.jsonPath().getString("cancellationMessage"), step);
     }
 
     @Test
