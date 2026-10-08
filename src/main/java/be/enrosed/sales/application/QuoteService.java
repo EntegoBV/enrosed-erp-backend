@@ -334,8 +334,12 @@ public class QuoteService {
                             + priced.validation().shortfall() + " EUR");
         }
 
-        /* The token survives a second sending: the customer already has the link. */
-        String token = order.portalToken() == null ? newToken() : order.portalToken();
+        /* The token survives a second sending: the customer already has the link.
+           A token on a document that never went out was handed to nobody by a
+           sending (an older cancellation mail left such tokens behind), so the
+           first sending always makes its own. */
+        String token = order.sentAt() == null || order.portalToken() == null || order.portalToken().isBlank()
+                ? newToken() : order.portalToken();
         String portalUrl = portalUrl(token);
 
         QuoteDocumentRenderer.Document document = renderer.render(order, priced, customer, portalUrl);
@@ -994,13 +998,15 @@ public class QuoteService {
            to the customer: they typed it themselves on the website. That mail
            carries no link and no token is made for it; only a quote that was
            sent keeps its link, which then shows it as cancelled. */
-        boolean wasSent = order.sentAt() != null;
+        /* Only a sending makes a token. A sent quote without one was re-linked
+           to another customer and not sent again: that customer is told
+           without a link too. */
         String token = order.portalToken();
+        boolean wasSent = order.sentAt() != null && token != null && !token.isBlank();
         String toldCustomer = null;
         if (notifyCustomer && order.customerId() != null) {
             Customer customer = customers.get(order.customerId());
             if (customer.email() != null && !customer.email().isBlank()) {
-                if (wasSent && (token == null || token.isBlank())) token = newToken();
                 mailer.sendCancellation(order, customer, wasSent ? portalUrl(token) : null, message);
                 toldCustomer = recipient(order, customer).to();
             }
@@ -1010,7 +1016,7 @@ public class QuoteService {
         record(order, QuoteEvent.Type.GEANNULEERD, false, actor.displayName(),
                 toldCustomer == null ? "Offerte geannuleerd" : "Offerte geannuleerd, klant verwittigd op " + toldCustomer,
                 message);
-        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, token,
+        SalesOrder cancelled = orders.save(withStatus(order, QuoteStatus.GEANNULEERD, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(), Instant.now(), null,
                 order.customerMessage()));
         recordActivity("CANCELLED", order, "Offerte geannuleerd");

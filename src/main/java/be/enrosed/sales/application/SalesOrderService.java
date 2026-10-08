@@ -1609,7 +1609,11 @@ public class SalesOrderService {
                 changes.markupMode() == null ? current.markupMode() : changes.markupMode(),
                 changes.orderMarkupPct() == null ? current.orderMarkupPct() : changes.orderMarkupPct(),
                 changes.extraDiscountPct(), changes.extraDiscountLabel(),
-                current.portalToken(), current.sentAt(), current.viewedAt(), current.viewCount(),
+                /* The portal link belongs to the customer the quote was sent to.
+                   Under another customer the document gets a link of its own
+                   at its next sending; the old one opens nothing any more. */
+                Objects.equals(current.customerId(), changes.customerId()) ? current.portalToken() : null,
+                current.sentAt(), current.viewedAt(), current.viewCount(),
                 current.decidedAt(), current.signedByName(), current.customerMessage(),
                 /* Internal notes DO come from the form. */
                 changes.internalNotes(),

@@ -138,6 +138,109 @@ class CancelledRequestPortalLinkTest {
     }
 
     @Test
+    void aTokenAnOlderCancellationMailLeftIsNotReusedWhenTheRequestIsSentAfterAll() {
+        long id = shop.legacyRequests(1).getFirst();
+        quotes.cancel(id, null, false);
+        String oldToken = "old-" + UUID.randomUUID();
+        shop.inTransaction(() -> {
+            entity(id).portalToken = oldToken;
+        });
+        em.clear();
+        long visitorId = order(id).customerId();
+        long productId = order(id).lines().getFirst().productId();
+        long otherId = shop.customer("Andere Klant NV", "Marktplein 1", "9000", "Gent");
+
+        /* Reopened, given to another customer and sent: the visitor's old link must not come to life. */
+        quotes.reopen(id);
+        sales.update(id, shop.relinked(order(id), otherId));
+        SalesOrder sent = quotes.send(id, null);
+
+        assertEquals(QuoteStatus.VERZONDEN, sent.status());
+        assertNotNull(sent.portalToken());
+        assertFalse(oldToken.equals(sent.portalToken()), "the sending makes its own link");
+        assertEquals(0, mailbox.getMailsSentTo(shop.recordEmail(visitorId)).size());
+        assertTrue(onlyMailTo(shop.recordEmail(otherId)).getHtml().contains("/offerte/" + sent.portalToken()));
+        everyRoute(oldToken, productId).forEach((route, answer) ->
+                assertEquals(404, answer.statusCode(), route + ": " + answer.asString()));
+        assertEquals(200, given().when().get(PORTAL + sent.portalToken()).statusCode());
+    }
+
+    @Test
+    void theSameHoldsWhenTheRequestStaysWithItsOwnCustomer() {
+        long id = shop.legacyRequests(1).getFirst();
+        quotes.cancel(id, null, false);
+        String oldToken = "old-" + UUID.randomUUID();
+        shop.inTransaction(() -> {
+            entity(id).portalToken = oldToken;
+        });
+        em.clear();
+
+        quotes.reopen(id);
+        SalesOrder sent = quotes.send(id, null);
+
+        assertFalse(oldToken.equals(sent.portalToken()), "a token no sending handed out is not kept");
+        assertEquals(404, given().when().get(PORTAL + oldToken).statusCode());
+        assertEquals(200, given().when().get(PORTAL + sent.portalToken()).statusCode());
+    }
+
+    @Test
+    void aSentQuotationGivenToAnotherCustomerLeavesTheFirstCustomersLinkBehind() {
+        long firstId = shop.customer("Bloemen Peeters BV", "Bloemenlaan 5", "2000", "Antwerpen");
+        long otherId = shop.customer("Andere Klant NV", "Marktplein 1", "9000", "Gent");
+        long productId = shop.product();
+        SalesOrder created = sales.create(firstId, "BE", "DAP");
+        long id = created.id();
+        sales.update(id, shop.edited(order(id), productId, 120, "10.00", "120.00"));
+        String firstToken = quotes.send(id, null).portalToken();
+        assertEquals(200, given().when().get(PORTAL + firstToken).statusCode());
+
+        /* Reopened and edited for the same customer, the link stays theirs. */
+        quotes.reopen(id);
+        sales.update(id, shop.edited(order(id), productId, 240, "9.00", "120.00"));
+        assertEquals(firstToken, order(id).portalToken());
+
+        /* Given to another customer: the first customer was not sent this document. */
+        sales.update(id, shop.relinked(order(id), otherId));
+        assertNull(entity(id).portalToken);
+        everyRoute(firstToken, productId).forEach((route, answer) ->
+                assertEquals(404, answer.statusCode(), route + ": " + answer.asString()));
+        mailbox.clear();
+
+        SalesOrder resent = quotes.send(id, null);
+
+        assertNotNull(resent.portalToken());
+        assertFalse(firstToken.equals(resent.portalToken()));
+        assertTrue(onlyMailTo(shop.recordEmail(otherId)).getHtml().contains("/offerte/" + resent.portalToken()));
+        everyRoute(firstToken, productId).forEach((route, answer) ->
+                assertEquals(404, answer.statusCode(), route + ": " + answer.asString()));
+        Response page = given().when().get(PORTAL + resent.portalToken());
+        assertEquals(200, page.statusCode(), page.asString());
+        assertTrue(page.asString().contains("Andere Klant NV"));
+    }
+
+    @Test
+    void aSentQuotationGivenToAnotherCustomerAndCancelledUnsentIsMailedWithoutALink() {
+        long firstId = shop.customer("Bloemen Peeters BV", "Bloemenlaan 5", "2000", "Antwerpen");
+        long otherId = shop.customer("Andere Klant NV", "Marktplein 1", "9000", "Gent");
+        SalesOrder created = sales.create(firstId, "BE", "DAP");
+        long id = created.id();
+        sales.update(id, shop.edited(order(id), shop.product(), 120, "10.00", "120.00"));
+        String firstToken = quotes.send(id, null).portalToken();
+        quotes.reopen(id);
+        sales.update(id, shop.relinked(order(id), otherId));
+        mailbox.clear();
+
+        SalesOrder cancelled = quotes.cancel(id, "Niet meer leverbaar", true);
+
+        assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
+        assertNull(entity(id).portalToken, "cancelling makes no token");
+        Mail mail = onlyMailTo(shop.recordEmail(otherId));
+        assertFalse(mail.getHtml().contains("/offerte/"), "nobody sent this customer the quotation");
+        assertEquals(0, mailbox.getMailsSentTo(shop.recordEmail(firstId)).size());
+        assertEquals(404, given().when().get(PORTAL + firstToken).statusCode());
+    }
+
+    @Test
     void aQuotationThatWasSentKeepsItsLinkWhenItIsCancelled() {
         long customerId = shop.customer("Bloemen Peeters BV", "Bloemenlaan 5", "2000", "Antwerpen");
         long productId = shop.product();

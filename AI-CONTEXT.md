@@ -66,7 +66,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   makes `QuoteService.byToken` answer the same 404 as an unknown token on
   every `/api/portal/{token}` route; this also kills the tokens the
   cancellation mail used to make for such requests. A reopened sent quote
-  keeps the "being updated" refusal.
+  keeps the "being updated" refusal. The link belongs to the customer the
+  quote was sent to: `send` only keeps a token when `sentAt` is set (a
+  first sending always makes its own), `SalesOrderService.update` drops the
+  token when the customer changes, and `cancel` never makes one.
 - `quote_event.detail` is varchar(4000): `EventAdapter.add` cuts a longer
   detail instead of failing the action that records it.
 - **Revisions**: the customer proposes quantity changes in the portal. We
