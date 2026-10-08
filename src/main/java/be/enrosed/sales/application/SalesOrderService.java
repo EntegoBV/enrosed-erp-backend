@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -186,29 +187,39 @@ public class SalesOrderService {
     }
 
     /**
-     * Prices a page of documents with one read of the catalogue and of the
-     * delivery rows, in the order they were given.
+     * Prices a page of documents with one read of the catalogue, of the two
+     * tier tables and of the delivery rows, and one read per customer and
+     * country, in the order they were given.
      */
     public List<PricedOrder> priceAll(List<SalesOrder> orders) {
         if (orders == null || orders.isEmpty()) return List.of();
-        Map<Long, Product> byId = products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity()));
+        PageLookups page = new PageLookups(products.list().stream().collect(Collectors.toMap(Product::id, Function.identity())),
+                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>());
         if (deliveries() != null) deliveries().preloadForRequest();
         List<PricedOrder> priced = new java.util.ArrayList<>(orders.size());
         for (SalesOrder order : orders)
-            priced.add(priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null, byId));
+            priced.add(priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null, page));
         return priced;
     }
 
+    /** What every document of one page is priced with; customers and countries are read once each. */
+    private record PageLookups(Map<Long, Product> products, List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries) {}
+
     PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
-        return priceSplit(order, splitPricing, products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity())));
+        return priceSplit(order, splitPricing, (PageLookups) null);
     }
 
-    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, Map<Long, Product> byId) {
+    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page) {
         splitPricing = SalesSplits.activePricing(order, splitPricing);
-        Country country = countries.find(order.countryCode());
-        Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
+        Map<Long, Product> byId = page != null ? page.products()
+                : products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
+        Country country = page == null ? countries.find(order.countryCode())
+                : page.countries().computeIfAbsent(String.valueOf(order.countryCode()),
+                        code -> Optional.ofNullable(countries.find(order.countryCode()))).orElse(null);
+        Customer customer = order.customerId() == null ? null
+                : page == null ? customers.get(order.customerId())
+                : page.customers().computeIfAbsent(order.customerId(), customers::get);
 
         be.enrosed.shipping.domain.Carrier carrier = order.freightCarrierId() == null
                 ? null : shippingCarriers.findById(order.freightCarrierId()).orElse(null);
@@ -218,8 +229,8 @@ public class SalesOrderService {
                 /* A website order is delivered where the customer ordered it; VAT stays the record's. */
                 deliveries() == null ? customer : deliveries().pricingCustomer(order, customer),
                 settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
-                tiers.list(TierScope.LINE),
-                tiers.list(TierScope.ORDER),
+                page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
+                page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vat.determine(country, customer),
                 carrier, splitPricing));
     }
@@ -1432,10 +1443,16 @@ public class SalesOrderService {
      * A slotfactuur compares with its advance deductions added back.
      */
     private void requireWebOrderIssuable(SalesOrder invoice) {
-        if (webOrders() == null || invoice.sourceQuoteId() == null
-                || webOrders().find(invoice.sourceQuoteId()).isEmpty()) return;
-        /* A part of a split delivery carries its share only; the split itself needed the customer's approval. */
-        if (isSplitPart(invoice)) return;
+        if (webOrders() == null) return;
+        /*
+         * A part of a split delivery carries its share only, and the later part has no source quote: the split
+         * needed the customer's approval and kept the approved total, so a part is compared with how it was split.
+         */
+        if (isSplitPart(invoice)) {
+            splitOrders.get().requireWebOrderPartIssuable(invoice);
+            return;
+        }
+        if (invoice.sourceQuoteId() == null || webOrders().find(invoice.sourceQuoteId()).isEmpty()) return;
         SalesOrder sourceQuote = orders.findById(invoice.sourceQuoteId()).orElse(null);
         var presentation = advanceBilling() == null ? null : advanceBilling().presentation(invoice);
         BigDecimal deducted = presentation == null || presentation.deductions() == null ? BigDecimal.ZERO
@@ -2098,6 +2115,11 @@ public class SalesOrderService {
             throw new BusinessRuleException("Een gesplitste levering kan niet worden gekopieerd; maak een nieuwe bestelling om dubbele aantallen te voorkomen");
         if (source.isPartnerAdvance())
             throw new BusinessRuleException("Een partnervoorschot kan niet worden gekopieerd; beheer de conceptfacturen via het termijnplan van de inkooporder");
+        /* A copy has no source quote, so nothing would compare it with what the customer ordered or approved. */
+        if (source.isInvoice() && source.sourceQuoteId() != null && webOrders() != null
+                && webOrders().find(source.sourceQuoteId()).isPresent())
+            throw new BusinessRuleException("De factuur van een websitebestelling kopieer je niet. "
+                    + "Maak een nieuwe kopie van de offerte en verstuur die ter goedkeuring.");
         if (advanceBilling() != null && advanceBilling().hasBilling(source))
             throw new BusinessRuleException("Een voorschot- of slotfactuur kan niet worden gekopieerd; maak ze opnieuw vanuit de offerte");
         if (hasAdvanceAgreement(source))

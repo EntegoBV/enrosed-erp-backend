@@ -307,6 +307,41 @@ class WebOrderMailsTest {
     }
 
     @Test
+    void aFailureGivesBackOnlyItsOwnClaim() {
+        Instant claimed = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+
+        /* The failing send still owns the moment: the mail is due again, with the reason. */
+        Fixture own = fixture("NL", true);
+        assertTrue(mails.claim(own.id, Kind.RECEIVED, claimed));
+        mails.release(own.id, Kind.RECEIVED, claimed, "maildienst antwoordde 500");
+        assertNull(stored(own.id).receivedMailSentAt);
+        assertEquals("maildienst antwoordde 500", stored(own.id).mailError);
+
+        /* Staff repeated the mail while the first send was hanging: that mail stays sent. */
+        Fixture repeated = fixture("NL", true);
+        assertTrue(mails.claim(repeated.id, Kind.RECEIVED, claimed));
+        Instant again = claimed.plusSeconds(5);
+        claimed(repeated.id, e -> e.receivedMailSentAt = again);
+        mails.release(repeated.id, Kind.RECEIVED, claimed, "maildienst antwoordde 500");
+        assertEquals(again, stored(repeated.id).receivedMailSentAt);
+        assertNull(stored(repeated.id).mailError);
+
+        /* The order was taken while "received" was failing: that mail is no longer due and leaves no error. */
+        Fixture taken = fixture("NL", true);
+        assertTrue(mails.claim(taken.id, Kind.RECEIVED, claimed));
+        claimed(taken.id, e -> e.processingStartedAt = claimed.plusSeconds(1));
+        mails.release(taken.id, Kind.RECEIVED, claimed, "maildienst antwoordde 500");
+        assertNull(stored(taken.id).mailError);
+
+        assertTrue(mails.claim(taken.id, Kind.PROCESSING, claimed));
+        mails.release(taken.id, Kind.PROCESSING, claimed.plusSeconds(9), "een andere poging");
+        assertEquals(claimed, stored(taken.id).processingMailSentAt, "not the claim of that attempt");
+        mails.release(taken.id, Kind.PROCESSING, claimed, "maildienst antwoordde 500");
+        assertNull(stored(taken.id).processingMailSentAt);
+        assertEquals("maildienst antwoordde 500", stored(taken.id).mailError);
+    }
+
+    @Test
     void aFailurePutsTheMomentBackAndLeavesTheReasonAndASuccessClearsIt() {
         Fixture f = fixture("NL", false);
         when(customers.findById(f.customerId)).thenReturn(Optional.of(customer(f.customerId, null)));

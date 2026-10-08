@@ -68,6 +68,9 @@ public class AccountDocuments {
     public static final String AS_ORDERED = "AS_ORDERED";
     public static final String CURRENT = "CURRENT";
 
+    /** The customer reads dates and "expired" by the Belgian day; the server's own zone is UTC. */
+    static final ZoneId BRUSSELS = ZoneId.of("Europe/Brussels");
+
     public static final int DEFAULT_PAGE = 20;
     public static final int MAX_PAGE = 50;
 
@@ -213,7 +216,7 @@ public class AccountDocuments {
         List<SalesOrder> live = documents.stream().filter(order -> !asOrdered(order, owned(order, rows, customerId))).toList();
         Map<Long, PricedOrder> priced = priceLive(live);
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(BRUSSELS);
         List<DocumentRow> items = new ArrayList<>();
         for (SalesOrder order : documents) {
             WebOrders.Row row = owned(order, rows, customerId);
@@ -274,7 +277,7 @@ public class AccountDocuments {
         WebOrders.Row row = WebOrders.owns(order, found, customerId) ? found : null;
         Derived invoices = derivedInvoices(List.of(id), customerId).getOrDefault(id, Derived.NONE);
         Status status = statusOf(order, row, invoices.issued(), invoices.any(),
-                LocalDate.now());
+                LocalDate.now(BRUSSELS));
         boolean changeable = row != null && WebOrders.customerMayChange(order, row, invoices.any());
         boolean ordered = asOrdered(order, row);
 
@@ -522,8 +525,8 @@ public class AccountDocuments {
         return "AWAITING_APPROVAL".equals(status.code()) || "EXPIRED".equals(status.code()) ? order.validUntil() : null;
     }
 
-    private static LocalDate date(Instant moment) {
-        return moment == null ? null : LocalDate.ofInstant(moment, ZoneId.systemDefault());
+    static LocalDate date(Instant moment) {
+        return moment == null ? null : LocalDate.ofInstant(moment, BRUSSELS);
     }
 
     private static boolean blank(String value) {

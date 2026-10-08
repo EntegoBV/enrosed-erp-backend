@@ -152,7 +152,7 @@ class AccountDocumentsVisibilityTest {
         assertEquals("ORDER", ordered.kind());
         assertEquals("IN_PROCESSING", ordered.status());
         assertEquals("AS_ORDERED", ordered.basis());
-        assertEquals(LocalDate.now(), ordered.basisDate());
+        assertEquals(LocalDate.now(AccountDocuments.BRUSSELS), ordered.basisDate());
         assertEquals(1, ordered.revision());
         assertEquals(1, ordered.lines().size());
         assertEquals(120, ordered.lines().getFirst().quantity(), "staff's unsent quantity never leaves");
@@ -187,7 +187,7 @@ class AccountDocumentsVisibilityTest {
         OrderDetail current = detail(order);
         assertEquals("AWAITING_APPROVAL", current.status());
         assertEquals("CURRENT", current.basis());
-        assertEquals(LocalDate.now(), current.basisDate());
+        assertEquals(LocalDate.now(AccountDocuments.BRUSSELS), current.basisDate());
         assertNotNull(current.validUntil());
         assertEquals(240, current.lines().getFirst().quantity());
         assertEquals(20, current.lines().getFirst().cartons());
@@ -535,6 +535,15 @@ class AccountDocumentsVisibilityTest {
         assertEquals(List.of("id", "number", "revision", "status"),
                 Arrays.stream(AccountOrderDtos.OrderReceipt.class.getRecordComponents()).map(c -> c.getName()).toList(),
                 "the receipt of a write is exactly what its replay stores");
+    }
+
+    @Test
+    void theCustomerReadsDatesByTheBelgianDayWhateverTheServersZone() {
+        /* 00:30 in Brussels (summer time) is still the day before in UTC, the zone of the server. */
+        assertEquals(LocalDate.of(2026, 10, 8), AccountDocuments.date(Instant.parse("2026-10-07T22:30:00Z")));
+        assertEquals(LocalDate.of(2026, 12, 1), AccountDocuments.date(Instant.parse("2026-11-30T23:30:00Z")));
+        assertEquals(LocalDate.of(2026, 10, 7), AccountDocuments.date(Instant.parse("2026-10-07T21:59:00Z")));
+        assertNull(AccountDocuments.date(null));
     }
 
     @Test

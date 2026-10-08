@@ -18,6 +18,7 @@ import jakarta.persistence.EntityManager;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -117,14 +118,16 @@ public class WebOrderMails {
         Prepared prepared = QuarkusTransaction.requiringNew().call(() -> prepare(orderId, repeat));
         if (prepared == null) return false;
         Kind kind = prepared.kind();
-        if (!prepared.again() && !claim(orderId, kind, Instant.now())) return false;
+        /* Microseconds, as the database keeps them: the release below finds its own claim by this value. */
+        Instant claimed = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        if (!prepared.again() && !claim(orderId, kind, claimed)) return false;
         try {
             send(kind, prepared.mail());
         } catch (RuntimeException failure) {
             String reason = reason(failure);
             LOG.errorf(failure, "Klantmail (%s) voor websitebestelling %s mislukt", kind, prepared.mail().number());
             /* A failed repeat writes nothing: the earlier mail keeps its moment. */
-            if (!prepared.again()) release(orderId, kind, reason);
+            if (!prepared.again()) release(orderId, kind, claimed, reason);
             throw new BusinessRuleException(reason);
         }
         if (prepared.again()) {
@@ -180,13 +183,21 @@ public class WebOrderMails {
                 .setParameter("now", now).setParameter("id", orderId).executeUpdate()) == 1;
     }
 
-    /** The mail did not leave: it is due again, and staff read why on the order. */
-    private void release(long orderId, Kind kind, String reason) {
-        String statement = "update SalesWebOrderEntity w set "
-                + (kind == Kind.RECEIVED ? "w.receivedMailSentAt" : "w.processingMailSentAt")
-                + " = null, w.mailError = :error where w.salesOrderId = :id";
+    /**
+     * The mail did not leave: it is due again, and staff read why on the
+     * order. Only the claim of this attempt is given back. A repeat by staff
+     * that succeeded while this send was hanging wrote its own moment, and
+     * that mail stays sent; a "received" mail that fails after the order was
+     * taken is no longer due, so it leaves no error behind either.
+     */
+    void release(long orderId, Kind kind, Instant claimed, String reason) {
+        String statement = kind == Kind.RECEIVED
+                ? "update SalesWebOrderEntity w set w.receivedMailSentAt = null, w.mailError = :error"
+                        + " where w.salesOrderId = :id and w.receivedMailSentAt = :claimed and w.processingStartedAt is null"
+                : "update SalesWebOrderEntity w set w.processingMailSentAt = null, w.mailError = :error"
+                        + " where w.salesOrderId = :id and w.processingMailSentAt = :claimed";
         QuarkusTransaction.requiringNew().run(() -> entities.createQuery(statement)
-                .setParameter("error", reason).setParameter("id", orderId).executeUpdate());
+                .setParameter("error", reason).setParameter("id", orderId).setParameter("claimed", claimed).executeUpdate());
     }
 
     /** Only one mail can be due, so an older error belongs to a mail that no longer is. */

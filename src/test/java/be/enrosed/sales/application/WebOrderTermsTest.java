@@ -72,6 +72,50 @@ class WebOrderTermsTest {
     }
 
     @Test
+    void aDiscountOnTheWholeOrderChangesTheTermsAlthoughEveryLineIsAsOrdered() {
+        List<PricedOrder.Line> lines = List.of(line(12, "ER-RED", 96, "1.85", "5", "168.72"));
+        String ordered = WebOrderTerms.of(ordered());
+        PricedOrder extraDiscount = discounted(lines, "42.00", "0", "10", "151.85");
+        PricedOrder orderTier = discounted(lines, "42.00", "5", "0", "160.28");
+        assertNotEquals(ordered, WebOrderTerms.of(extraDiscount));
+        assertNotEquals(ordered, WebOrderTerms.of(orderTier));
+        assertNotEquals(WebOrderTerms.of(extraDiscount), WebOrderTerms.of(orderTier));
+        assertEquals(ordered, WebOrderTerms.of(discounted(lines, "42.00", "0", "0.00", "168.72")));
+
+        assertEquals(List.of("Korting op de hele bestelling: besteld € 0,00, nu € 16,87 (extra korting 10 %)",
+                "Totaal excl. btw: besteld € 210,72, nu € 193,85"), WebOrderTerms.differences(snapshot(ordered()), extraDiscount));
+        assertEquals(List.of("Korting op de hele bestelling: besteld € 8,44, nu € 0,00",
+                "Totaal excl. btw: besteld € 202,28, nu € 210,72"), WebOrderTerms.differences(snapshot(orderTier), ordered()));
+        assertEquals(List.of("Korting op de hele bestelling: besteld € 0,00, nu € 25,31 (orderkorting 5 %, extra korting 10 %)",
+                        "Totaal excl. btw: besteld € 210,72, nu € 185,41"),
+                WebOrderTerms.differences(snapshot(ordered()), discounted(lines, "42.00", "5", "10", "143.41")));
+    }
+
+    @Test
+    void extraLinesAreComparedOneByOneAndOnlyTheDeductionsOfASlotfactuurAreLeftOut() {
+        List<PricedOrder.Line> lines = List.of(line(12, "ER-RED", 96, "1.85", "5", "168.72"));
+        PricedOrder cancelling = priced(lines, "42.00", "21", List.of(extra("Toeslag", "50.00"), extra("Korting", "-50.00")));
+        assertNotEquals(WebOrderTerms.of(ordered()), WebOrderTerms.of(cancelling));
+        assertEquals(List.of("Extra regels: niet besteld, nu 2 regels van samen € 0,00"),
+                WebOrderTerms.differences(snapshot(ordered()), cancelling));
+        assertEquals(WebOrderTerms.of(priced(lines, "42.00", "21", List.of(extra("Montage", "25.00")))),
+                WebOrderTerms.of(priced(lines, "42.00", "21", List.of(extra("Plaatsing", "25.00")))), "the wording is free");
+
+        /* A slotfactuur of an approved version with a free line: the line stays, the two deductions go. */
+        PricedOrder approved = priced(lines, "42.00", "21", List.of(extra("Montage", "25.00")));
+        PricedOrder slotfactuur = priced(lines, "42.00", "21", List.of(extra("Montage", "25.00"),
+                extra("Voorschotfactuur F-2026-0001", "-60.00"), extra("Voorschotfactuur F-2026-0002", "-40.50")));
+        assertEquals(WebOrderTerms.of(approved), WebOrderTerms.of(slotfactuur, new BigDecimal("100.50")));
+        /* A line staff add that only looks like a deduction is not one. */
+        PricedOrder withOwnDiscount = priced(lines, "42.00", "21", List.of(extra("Montage", "25.00"), extra("Korting", "-60.00"),
+                extra("Voorschotfactuur F-2026-0001", "-60.00"), extra("Voorschotfactuur F-2026-0002", "-40.50")));
+        assertNotEquals(WebOrderTerms.of(approved), WebOrderTerms.of(withOwnDiscount, new BigDecimal("100.50")));
+        /* Deductions that do not add up to the trailing lines never compare equal. */
+        assertNotEquals(WebOrderTerms.of(approved), WebOrderTerms.of(slotfactuur, new BigDecimal("125.50")));
+        assertNotEquals(WebOrderTerms.of(ordered()), WebOrderTerms.of(ordered(), new BigDecimal("10.00")));
+    }
+
+    @Test
     void theDifferencesNameEveryChangeInDutch() {
         WebOrderSnapshot snapshot = snapshot(priced(List.of(line(12, "ER-RED", 960, "1.85", "5", "1687.20"),
                 line(7, "ER-PINK", 48, "2.00", "0", "96.00")), "42.00", "21", List.of()));
@@ -269,6 +313,23 @@ class WebOrderTermsTest {
 
     static PricedOrder.ExtraLine extra(String description, String total) {
         return new PricedOrder.ExtraLine(description, BigDecimal.ONE, new BigDecimal(total), new BigDecimal(total));
+    }
+
+    /** The lines with a discount on the whole order: the tier percentage, the extra percentage and the goods amount they leave. */
+    static PricedOrder discounted(List<PricedOrder.Line> lines, String shipping, String orderDiscountPct, String extraDiscountPct,
+                                  String goodsTotal) {
+        PricedOrder plain = priced(lines, shipping, "21", List.of());
+        PricedOrder.Totals t = plain.totals();
+        BigDecimal goods = new BigDecimal(goodsTotal);
+        BigDecimal total = goods.add(t.shippingTotal());
+        BigDecimal vat = Money.money(Money.percentOf(total, t.vatRatePct()));
+        PricedOrder.Totals totals = new PricedOrder.Totals(t.pieces(), t.cartons(), t.palletsStrict(), t.palletsOptimised(),
+                t.palletsManual(), t.unassignedCartons(), t.palletBaseHeightCm(), t.palletMaxHeightCm(), t.cbm(), t.weightKg(),
+                t.gross(), t.lineDiscountTotal(), t.subtotal(), new BigDecimal(orderDiscountPct), BigDecimal.ZERO,
+                new BigDecimal(extraDiscountPct), null, BigDecimal.ZERO, goods, t.freight(), t.freightIsMinimum(), t.handling(),
+                t.shippingTotal(), total, t.vatRatePct(), vat, total.add(vat), t.vatTreatment(), t.vatLegalMention(),
+                t.vatReason(), t.costTotal(), t.marginEur(), t.marginPct(), t.marginAfterFreightEur(), t.extraLinesTotal());
+        return new PricedOrder(lines, totals, plain.validation(), List.of());
     }
 
     static PricedOrder priced(List<PricedOrder.Line> lines, String shipping, String vatRatePct, List<PricedOrder.ExtraLine> extras) {
