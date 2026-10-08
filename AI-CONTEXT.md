@@ -814,3 +814,82 @@ Public domain: enrosed-erp-backend-production.up.railway.app.
   edit can silently hit the wrong entity - target the exact class.
 - Tests are green at 19; the DocumentText parity test is the guard rail
   when touching i18n CSVs.
+
+## Jaarinventaris (2026-10-09)
+
+The yearly stock count and the year-end closing stock with value for the
+accountant, under Belgian rules. Module `be.enrosed.inventory`; the lot
+cost lives in `be.enrosed.sourcing` because it reads the reconciliation.
+Nothing existing changed behaviour: no existing table, endpoint or
+scheduled job was touched, and `StockLedger` only gained two readers.
+
+- **Schema**: fourteen additive tables in
+  `docs/migrations/2026-10-09/stock-inventory-postgresql.sql`, registered
+  after the web-order file. Entities are plain classes with public fields
+  in DDL order, IDENTITY ids, every other column nullable, no relations.
+  Money has scale 2, unit values 4, the three rates 8. The two unique
+  indexes exist on PostgreSQL only; H2 builds the tables from the
+  entities, so the services enforce both rules under row locks.
+- **Lot cost** (`LotCostCalculator`, `LotCostService`): the acquisition
+  value per piece of a receipt lot (one product on one container).
+  Supplier price net of price credits divided by the billed pieces, plus
+  the container costs divided by the received pieces. Never the Enrosed
+  kost, a margin, recoverable VAT or anything booked under "Bijkomende
+  kosten". A foreign payment up to the day ownership passed keeps its
+  bank euro, a later one counts at the container rate and the difference
+  is listed outside the value. An unpaid amount is taken at the Afspraak
+  and marked as estimated until an accrual decision confirms it.
+- **Count** (`StockCountService`, `/api/stock-counts`): one open session
+  per location, two phones under the session row lock, a reason for every
+  difference. Booking writes one `STOCKTAKE` row per counted line at
+  live level + difference, so a sale during the count survives. A
+  difference that an unshipped invoice or an unbooked container explains
+  is refused until that document is handled or the user confirms.
+  A booked count is never undone; a correction session replaces it per
+  product.
+- **Closing** (`StockClosingService`, `/api/stock-closings`): one row per
+  year and version, `CONCEPT` or `DEFINITIEF`. User input lives only in
+  `stock_closing_decision` and `stock_opening_layer`; every other closing
+  table is output that a compute deletes and rebuilds. Every write takes
+  the closing row with `requireConcept` first. The quantity is the booked
+  count rolled to the closing date (`StockRoll`), the value is FIFO per
+  receipt lot (`FifoValuer`), a later year carries the frozen layers of
+  the previous final closing and never recomputes them. Blockers and
+  warnings are `ClosingNotices`; the fingerprint of everything frozen is
+  `ClosingHash` (`data_sha256`).
+- **Definitief maken** (`StockClosingFinalizer.makeFinal`): locks the
+  row, computes once more, refuses `CIJFERS_GEWIJZIGD` when the hash is
+  not the one the screen sent and `GEBLOKKEERD` while a blocker stands,
+  then copies the company identity, renders the workbook and the PDF from
+  the stored rows, stores both through `PhotoStorage` with key, SHA-256
+  and size on the closing, and marks the version that was valid until
+  then as replaced. A final closing has no write path and no delete
+  path; its downloads are the stored bytes.
+- **Correction** (`newVersion`): only of the valid final version and only
+  while the year has no concept. The decisions are copied in id order
+  with who decided and when; the new concept is rebuilt from the data of
+  today and `ClosingVersionDiff` lists every product, lot, movement and
+  opening value that differs from the stored rows of the version it
+  replaces. A later year that was final on the old version is shown, not
+  repaired.
+- **Files** (`ClosingReportData`, `PdfStockClosingRenderer`,
+  `StockClosingWorkbook`): both are built from stored rows only; the one
+  live value is the company head of a concept file. The PDF sections and
+  their sheets take their tables from the same `ClosingReportData`
+  methods, so add a column there and both follow. Wording rules that the
+  tests guard: "Enrosed kost" only as "buiten waarde", "Bijkomende
+  kosten" never alone (it is the legal name of the costs that ARE in the
+  value), and the word is "waardevermindering", never "afwaardering".
+- **Retention**: nothing removes a closing, its rows, its decisions, a
+  booked count or the two stored files. A future cleanup that walks
+  `photo_blob` without a reference must learn `pdf_storage_key` and
+  `xlsx_storage_key` on `stock_closing`.
+- **Tests**: `LotCostCalculatorTest`, `StockRollTest` and `FifoValuerTest`
+  hold the worked examples to the cent; `StockClosingServiceTest` and
+  `StockClosingFlowTest` empty the book inside one rolled-back
+  transaction (`quiet()`), book receipts today and date them afterwards,
+  and use years in the past. `StockClosingHttpTest` commits a closing for
+  2001 and removes it. Not verified on PostgreSQL locally (none on the
+  build machine): the migration, the schema validation of the fourteen
+  pairs, the two unique indexes and the row locks first meet it on the
+  Railway TEST deploy.
