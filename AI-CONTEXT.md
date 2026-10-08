@@ -798,7 +798,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 ## Deployment (Railway)
 
 Dockerfile: maven:3-eclipse-temurin-25 build → eclipse-temurin:25-jre,
-Quarkus fast-jar. `railway.json` healthcheck: `/api/public/terms`.
+Quarkus fast-jar. The service settings (Dockerfile builder, pre-deploy
+migration command, healthcheck `/api/public/terms`, restart policy) are in
+`.railway/railway.ts`, which replaced `railway.json`. Railway never reads
+that file during a deploy: a setting reaches an environment only through
+`railway config apply`, run by hand per environment, and a deploy uses what
+was applied last. To change a setting: `railway config plan` and `apply` on
+test, push to test, then the same for production. Check `railway status`
+first; a checkout can be linked to production. The file declares the service
+whole and lists its variables by name (values stay in Railway), so add a new
+variable's name there before the next apply, or the plan proposes deleting
+it. Setup once: `npm ci` in `.railway/`, with a current Railway CLI (5.44
+cannot evaluate the file; checked with 5.63).
 Service env: PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE (from the
 Postgres service), `CORS_ORIGINS` + `PORTAL_BASE_URL` =
 https://enrosed-erp-frontend.vercel.app, `BREVO_API_KEY`, optional SMTP_*.

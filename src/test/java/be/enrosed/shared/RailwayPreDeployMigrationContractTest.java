@@ -1,12 +1,11 @@
 package be.enrosed.shared;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,12 +21,13 @@ class RailwayPreDeployMigrationContractTest {
 
     @Test
     void railwayRunsTheAdditiveScriptsBeforeStartingTheValidatedApplication() throws IOException {
-        JsonNode railway = new ObjectMapper().readTree(Path.of("railway.json").toFile());
-        JsonNode commands = railway.path("deploy").path("preDeployCommand");
-        assertTrue(commands.isArray());
-        assertEquals(1, commands.size());
-        assertEquals("/app/scripts/run-postgresql-schema-migrations.sh",
-                commands.get(0).asText());
+        RailwayServiceSettings railway = RailwayServiceSettings.read();
+        assertEquals(List.of("/app/scripts/run-postgresql-schema-migrations.sh"),
+                railway.list("deploy", "preDeployCommand"));
+        assertEquals("DOCKERFILE", railway.text("build", "builder"));
+        assertEquals("Dockerfile", railway.text("build", "dockerfilePath"));
+        assertFalse(Files.exists(Path.of("railway.json")) || Files.exists(Path.of("railway.toml")),
+                "the settings have one home, " + RailwayServiceSettings.FILE);
 
         String dockerfile = Files.readString(Path.of("Dockerfile"));
         assertTrue(dockerfile.contains("postgresql-client"));
