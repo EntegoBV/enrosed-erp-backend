@@ -108,9 +108,7 @@ final class SalesLifecycle {
      */
     static void requirePortalVisible(SalesOrder order) {
         if (!portalVisible(order)) {
-            throw new BusinessRuleException(
-                    "Deze offerte wordt momenteel bijgewerkt. De nieuwe versie is pas zichtbaar "
-                            + "nadat Enrosed ze opnieuw heeft verstuurd.");
+            throw PortalRefusal.beingUpdated();
         }
     }
 

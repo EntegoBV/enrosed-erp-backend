@@ -1,5 +1,6 @@
 package be.enrosed.shared.adapter.in.rest;
 
+import be.enrosed.sales.application.PortalRefusal;
 import be.enrosed.sales.application.WebOrderChangedException;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.LocalizationIncompleteException;
@@ -10,6 +11,7 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Provider
@@ -35,6 +37,19 @@ public class BusinessRuleMapper implements ExceptionMapper<BusinessRuleException
                             "webOrderRevision", changed.currentRevision(),
                             "timestamp", Instant.now().toString()))
                     .build();
+        }
+        /* The customer's quotation link: the page words these two in the customer's language by their code. */
+        if (exception instanceof PortalRefusal portal) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", 409);
+            body.put("code", portal.code());
+            body.put("message", portal.getMessage());
+            /* Only when staff wrote one: the sentence as typed, apart from the notice in the message. */
+            if (portal.cancellationMessage() != null) body.put("cancellationMessage", portal.cancellationMessage());
+            /* The page shows nothing of the quotation: the language of the customer's file is all it can go by. */
+            if (portal.language() != null) body.put("language", portal.language());
+            body.put("timestamp", Instant.now().toString());
+            return Response.status(409).type(MediaType.APPLICATION_JSON_TYPE).entity(body).build();
         }
         if (exception instanceof UnprocessableBusinessRuleException) {
             return Response.status(422)

@@ -9,6 +9,7 @@ import be.enrosed.sales.application.port.out.SalesPdfOptions;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.BusinessDays;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.ActorRef;
@@ -518,19 +519,32 @@ public class QuoteService {
         SalesOrder order = orders.findByPortalToken(token)
                 .filter(found -> !SalesLifecycle.neverSent(found))
                 .orElseThrow(() -> new NotFoundException("Offertelink", token));
-        SalesLifecycle.requirePortalVisible(order);
+        try {
+            SalesLifecycle.requirePortalVisible(order);
+        } catch (PortalRefusal beingUpdated) {
+            throw beingUpdated.in(customerLanguage(order));
+        }
         /* Cancelled while staff had it reopened: what the document holds now was
            never sent and no copy of the sent version exists, so the link says
            that it is cancelled and shows nothing else, on every portal route. */
         if (cancelledAsUnsentDraft(order)) {
-            throw new BusinessRuleException(cancellationMessage(order)
-                    .map(message -> CANCELLED_NOTICE + " " + message).orElse(CANCELLED_NOTICE));
+            throw PortalRefusal.cancelled(cancellationMessage(order).orElse(null)).in(customerLanguage(order));
         }
         return order;
     }
 
+    /** The language on the customer's file, for a refusal that shows nothing else; null when it cannot be read. */
+    private Language customerLanguage(SalesOrder order) {
+        if (order.customerId() == null) return null;
+        try {
+            return customers.get(order.customerId()).language();
+        } catch (RuntimeException unknownCustomer) {
+            return null;
+        }
+    }
+
     /** What the portal answers for a quotation that was cancelled as an unsent draft. */
-    static final String CANCELLED_NOTICE = "Deze offerte is geannuleerd.";
+    static final String CANCELLED_NOTICE = PortalRefusal.CANCELLED_NOTICE;
 
     /** The steps that put a sent quotation back on concept: a reopening, or a customer proposal we adopted. */
     private static final Set<QuoteEvent.Type> BACK_TO_DRAFT =

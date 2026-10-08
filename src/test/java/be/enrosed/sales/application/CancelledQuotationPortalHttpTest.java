@@ -53,6 +53,7 @@ class CancelledQuotationPortalHttpTest {
     private static final String PORTAL = "/api/portal/";
     private static final String STAFF = "/api/sales-orders/";
     private static final String CANCELLED = "Deze offerte is geannuleerd.";
+    private static final String BEING_UPDATED = "Deze offerte wordt momenteel bijgewerkt. De nieuwe versie is pas zichtbaar nadat Enrosed ze opnieuw heeft verstuurd.";
     private static final String ACCOUNT = "/api/v1/public/account/documents";
     private static final String UNSENT_NOTE = "ONVERZONDEN-NOTITIE";
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -62,6 +63,7 @@ class CancelledQuotationPortalHttpTest {
     @Inject SalesRepositories.Events events;
     @Inject MockMailbox mailbox;
     @Inject CustomerAccountService accounts;
+    @Inject CustomerService customers;
     @Inject EntityManager em;
 
     private final Shop shop = new Shop();
@@ -153,8 +155,19 @@ class CancelledQuotationPortalHttpTest {
         assertTrue(response.contentType() != null && response.contentType().startsWith("application/json"),
                 step + " answers " + response.contentType() + ": " + body);
         assertEquals(expected, response.jsonPath().getString("message"), step);
-        /* The refusal is the whole answer: status, message, timestamp. */
-        assertEquals(java.util.Set.of("status", "message", "timestamp"),
+        /* The page words the refusal in the customer's language by its code; the Dutch message stays as it was. */
+        boolean cancelled = expected.startsWith(CANCELLED);
+        assertEquals(cancelled ? "QUOTE_CANCELLED" : "QUOTE_BEING_UPDATED", response.jsonPath().getString("code"), step);
+        /* What staff wrote travels on its own too, exactly as typed, and is absent (not null, not "") without one. */
+        String staffMessage = cancelled && expected.length() > CANCELLED.length()
+                ? expected.substring(CANCELLED.length() + 1) : null;
+        assertEquals(staffMessage, response.jsonPath().getString("cancellationMessage"), step);
+        /* The language of the customer's file: all the page has to pick its words by. */
+        assertEquals("NL", response.jsonPath().getString("language"), step);
+        /* The refusal is the whole answer: status, code, message, language, timestamp, and the staff message when there is one. */
+        assertEquals(staffMessage == null
+                        ? java.util.Set.of("status", "code", "message", "language", "timestamp")
+                        : java.util.Set.of("status", "code", "message", "cancellationMessage", "language", "timestamp"),
                 response.jsonPath().getMap("$").keySet(), step);
         for (String leak : List.of("7.77", "10.0", "unitPrice", "lines", "totals", "KORTING", UNSENT_NOTE, "%PDF")) {
             if (expected.contains(leak)) continue;
@@ -383,6 +396,49 @@ class CancelledQuotationPortalHttpTest {
         hidden(token, CANCELLED + " Tweede reden", "cancelled, reopened, cancelled again");
     }
 
+    @Test
+    void theStaffMessageTravelsExactlyAsTypedAndALinkThatDoesNotExistCarriesNoCode() {
+        SalesOrder sent = sentQuote();
+        staffReopens(sent.id());
+        String typed = "Deze offerte is geannuleerd. Zie onze mail: 2 dozen i.p.v. 3, \"Lila\" is op.";
+
+        staffCancels(sent.id(), typed, false);
+
+        Response page = given().when().get(PORTAL + sent.portalToken());
+        assertEquals(409, page.statusCode(), page.asString());
+        assertEquals("QUOTE_CANCELLED", page.jsonPath().getString("code"));
+        /* A staff sentence that itself starts with the notice: only the field says where it begins. */
+        assertEquals(typed, page.jsonPath().getString("cancellationMessage"));
+        assertEquals(CANCELLED + " " + typed, page.jsonPath().getString("message"));
+
+        assertEquals("NL", page.jsonPath().getString("language"));
+
+        /* The language is the one on the customer's file, in Dutch words all the same: the page translates. */
+        var file = customers.get(customerId);
+        customers.update(customerId, new be.enrosed.sales.domain.Customer(file.id(), file.company(), file.contact(),
+                file.email(), file.phone(), file.vatNumber(), file.countryCode(), Language.FR, file.address(),
+                file.postalCode(), file.city(), file.incoterm(), file.paymentTerms(), file.notes(), file.createdAt()));
+        Response french = given().when().get(PORTAL + sent.portalToken() + "?language=EN");
+        assertEquals("FR", french.jsonPath().getString("language"), french.asString());
+        assertEquals(CANCELLED + " " + typed, french.jsonPath().getString("message"));
+
+        SalesOrder second = sales.create(customerId, "BE", "DAP");
+        sales.update(second.id(), shop.edited(order(second.id()), productId, 120, "10.00", "120.00"));
+        String secondToken = quotes.send(second.id(), null).portalToken();
+        staffReopens(second.id());
+        Response updating = given().when().get(PORTAL + secondToken);
+        assertEquals(409, updating.statusCode(), updating.asString());
+        assertEquals("QUOTE_BEING_UPDATED", updating.jsonPath().getString("code"));
+        assertEquals("FR", updating.jsonPath().getString("language"));
+        assertEquals(BEING_UPDATED, updating.jsonPath().getString("message"));
+        assertEquals(java.util.Set.of("status", "code", "message", "language", "timestamp"),
+                updating.jsonPath().getMap("$").keySet());
+
+        Response unknown = given().when().get(PORTAL + "bestaat-niet-" + UUID.randomUUID());
+        assertEquals(404, unknown.statusCode(), unknown.asString());
+        assertFalse(unknown.asString().contains("QUOTE_"), unknown.asString());
+    }
+
     /* ------------------------------------------------ unchanged behaviour */
 
     @Test
@@ -475,10 +531,8 @@ class CancelledQuotationPortalHttpTest {
         assertEquals(token, saved.jsonPath().getString("order.portalToken"));
         assertNotNull(saved.jsonPath().getString("order.sentAt"));
         assertEquals("CONCEPT", saved.jsonPath().getString("order.status"));
-        assertEquals(409, given().when().get(PORTAL + token).statusCode(), "still a draft");
-        refused(given().when().get(PORTAL + token + "/pdf"),
-                "Deze offerte wordt momenteel bijgewerkt. De nieuwe versie is pas zichtbaar nadat Enrosed ze opnieuw heeft verstuurd.",
-                "the PDF of a draft");
+        refused(given().when().get(PORTAL + token), BEING_UPDATED, "the page of a draft");
+        refused(given().when().get(PORTAL + token + "/pdf"), BEING_UPDATED, "the PDF of a draft");
         staffSends(id);
         SalesOrder resent = order(id);
         assertEquals(token, resent.portalToken());

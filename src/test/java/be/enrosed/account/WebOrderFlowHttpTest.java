@@ -321,7 +321,8 @@ class WebOrderFlowHttpTest {
         given().contentType("application/json").body(Map.of("signedByName", "Jan Besteller"))
                 .when().post("/api/portal/{token}/accept", token)
                 .then().statusCode(409)
-                .body("message", containsString("Deze offerte wordt momenteel bijgewerkt"));
+                .body("message", containsString("Deze offerte wordt momenteel bijgewerkt"))
+                .body("code", equalTo("QUOTE_BEING_UPDATED"));
         staff().when().get(STAFF + "/{id}", secondId).then().statusCode(200)
                 .body("order.status", equalTo("VERZONDEN"));
 

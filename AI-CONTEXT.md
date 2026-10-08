@@ -86,8 +86,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   such a step after its last sending stays visible. Whoever adds another
   way back to CONCEPT for a sent quote must record one of those events (or
   extend `BACK_TO_DRAFT`). A quote cancelled as it was sent is unchanged:
-  page, PDF and mail link. Every route answers the usual
-  `{status,message,timestamp}` as `application/json`: the photo and PDF
+  page, PDF and mail link. Both refusals of a customer's link are a
+  `PortalRefusal` (a `BusinessRuleException`, mapped in
+  `BusinessRuleMapper`): 409 `{status, code, message, language, timestamp}`
+  with `code` `QUOTE_BEING_UPDATED` (reopened or adopted, not sent again;
+  also the accept of a website order whose mailed terms changed, there
+  without `language`) or `QUOTE_CANCELLED` (cancelled as an unsent draft).
+  `message` is the Dutch sentence as before; `QUOTE_CANCELLED` adds
+  `cancellationMessage`, what staff wrote exactly as typed, only when
+  there is one (the key is absent otherwise, never null); `language` is the
+  code on the customer's file (absent when it cannot be read). The ERP
+  page `offerte/:token` words both by the code in that language; a 404 has
+  no code. Every route answers this as `application/json`: the photo and PDF
   routes catch the refusal of `byToken` themselves (`refusalAsJson`),
   because through the mapper it left as a printed map under
   `application/pdf`. The portal page (frontend) still shows its fixed "link
