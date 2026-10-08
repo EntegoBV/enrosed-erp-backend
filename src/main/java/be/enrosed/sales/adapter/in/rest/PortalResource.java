@@ -11,7 +11,9 @@ import be.enrosed.sales.application.QuoteService;
 import be.enrosed.sales.application.SalesOrderService;
 import be.enrosed.sales.application.port.out.QuoteDocumentRenderer;
 import be.enrosed.sales.domain.*;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.adapter.in.rest.BusinessRuleMapper;
 import jakarta.annotation.security.PermitAll;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -122,7 +124,11 @@ public class PortalResource {
     @Path("/{token}/products/{productId}/photo")
     @Produces(MediaType.WILDCARD)
     public Response photo(@PathParam("token") String token, @PathParam("productId") long productId) {
-        quotes.byToken(token);
+        try {
+            quotes.byToken(token);
+        } catch (BusinessRuleException refusal) {
+            return refusalAsJson(refusal);
+        }
         Product product = products.get(productId);
         if (!product.active()) return Response.status(Response.Status.NOT_FOUND).build();
         Photo photo = product.photoForSalesDocument();
@@ -146,11 +152,26 @@ public class PortalResource {
     @Path("/{token}/pdf")
     @Produces("application/pdf")
     public Response pdf(@PathParam("token") String token) {
-        SalesOrder order = quotes.byToken(token);
+        SalesOrder order;
+        try {
+            order = quotes.byToken(token);
+        } catch (BusinessRuleException refusal) {
+            return refusalAsJson(refusal);
+        }
         QuoteDocumentRenderer.Document document = quotes.document(order.id());
         return Response.ok(document.content())
                 .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /**
+     * The PDF and photo routes produce no JSON, so the mapper's refusal went
+     * out as a printed map under the type of the file. A link that only says
+     * "being updated" or "cancelled" answers the usual JSON error here too.
+     */
+    private static Response refusalAsJson(BusinessRuleException refusal) {
+        return Response.fromResponse(new BusinessRuleMapper().toResponse(refusal))
+                .type(MediaType.APPLICATION_JSON_TYPE).build();
     }
 
     /* -------------------------------------------------------- reageren */

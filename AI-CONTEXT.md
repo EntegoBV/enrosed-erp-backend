@@ -86,17 +86,33 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   such a step after its last sending stays visible. Whoever adds another
   way back to CONCEPT for a sent quote must record one of those events (or
   extend `BACK_TO_DRAFT`). A quote cancelled as it was sent is unchanged:
-  page, PDF and mail link. The JSON routes answer the usual
-  `{status,message,timestamp}`; the photo and PDF routes do not produce
-  JSON, so the same map arrives as text with status 409. The portal page
-  shows its fixed "link no longer valid" text for any failed load, not the
-  message of the refusal.
+  page, PDF and mail link. Every route answers the usual
+  `{status,message,timestamp}` as `application/json`: the photo and PDF
+  routes catch the refusal of `byToken` themselves (`refusalAsJson`),
+  because through the mapper it left as a printed map under
+  `application/pdf`. The portal page (frontend) still shows its fixed "link
+  no longer valid" text for any failed load, not the message of the
+  refusal: showing a 409's message there is a frontend change.
+- **The same rule in the customer's account** (`AccountDocuments`, routes
+  `/api/v1/public/account/documents`): its own rule is "sent and not a
+  concept", which the cancel makes true again. A plain quotation cancelled
+  as an unsent draft is in no list, has no detail and no PDF (404), as
+  while it was the reopened draft - also for the customer it was relinked
+  to. A website order of the customer stays listed as CANCELLED, shown
+  `AS_ORDERED` from its snapshot with the staff message, `hasPdf` false and
+  no PDF.
 - **Customer answers need an open quote**: accept, reject, propose and
   withdraw all pass `requireOpen` (open status, not past `validUntil`).
   Withdraw used to skip it and put a cancelled quote back on BEKEKEN.
   `cancel` closes a proposal that still lies open as AFGEWEZEN with a
   VOORSTEL_AFGEWEZEN event, because `requireReopenable` refuses a reopen
   while one is pending and handling it afterwards would move the status.
+  Staff handling a proposal obey the same: `rejectRevision` only puts a
+  quote back on VERZONDEN from WIJZIGING_GEVRAAGD, on any other status it
+  closes the proposal and leaves the document alone; `approveRevision`
+  refuses on GEANNULEERD, GEACCEPTEERD, AFGEWEZEN and BETAALD. That covers
+  proposals the cancel of before 2026-10-08 left open and ones the customer
+  left open when signing or refusing (accept and reject do not close them).
   `cancellationMessage` reads the newest GEANNULEERD event.
 - `quote_event.detail` is varchar(4000): `EventAdapter.add` cuts a longer
   detail instead of failing the action that records it.

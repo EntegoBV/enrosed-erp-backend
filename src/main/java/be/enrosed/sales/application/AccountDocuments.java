@@ -55,6 +55,13 @@ import java.util.Set;
  * snapshot, until Enrosed has sent a version: what staff are still working
  * on never leaves. Nothing here takes a lock, counts a view or says anything
  * about payments.
+ *
+ * A quotation cancelled while staff had it reopened holds edits nobody sent
+ * and no copy of the sent version exists ({@link QuoteService#cancelledAsUnsentDraft}).
+ * The cancel makes it "sent and not a concept" again, so it is taken out
+ * here: a quotation is not shown at all, as while it was the reopened draft,
+ * and a website order stays in the list as cancelled, as the customer
+ * ordered it and without a PDF.
  */
 @ApplicationScoped
 public class AccountDocuments {
@@ -179,9 +186,18 @@ public class AccountDocuments {
         return order.isClaimDocument() && !NOT_ISSUED.contains(order.status());
     }
 
-    /** A website order shows what was ordered until Enrosed sent a version; a quotation is always the sent document. */
-    private static boolean asOrdered(SalesOrder order, WebOrders.Row ownedRow) {
-        return ownedRow != null && !(order.sentAt() != null && order.status() != QuoteStatus.CONCEPT);
+    /**
+     * A website order shows what was ordered until Enrosed sent a version, and
+     * again when what it holds now was never sent; a quotation is always the
+     * sent document.
+     */
+    private static boolean asOrdered(SalesOrder order, WebOrders.Row ownedRow, boolean unsentAtCancel) {
+        return ownedRow != null && (unsentAtCancel || !(order.sentAt() != null && order.status() != QuoteStatus.CONCEPT));
+    }
+
+    /** Cancelled as a reopened draft that was not sent again: none of its current figures may leave. */
+    private boolean unsentAtCancel(SalesOrder order) {
+        return !order.isClaimDocument() && quotes.cancelledAsUnsentDraft(order);
     }
 
     /* ============================================================= list */
@@ -205,15 +221,22 @@ public class AccountDocuments {
 
         Map<Long, WebOrders.Row> rows = kind == ListKind.ORDERS ? webOrders.index(ids) : Map.of();
         List<SalesOrder> documents = new ArrayList<>();
+        Set<Long> unsent = new LinkedHashSet<>();
         for (long id : ids) {
             SalesOrder order = orders.findById(id).orElse(null);
-            if (visible(order, rows.get(id), customerId)) documents.add(order);
+            if (!visible(order, rows.get(id), customerId)) continue;
+            if (unsentAtCancel(order)) {
+                /* Only the customer's own order stays, from its snapshot. */
+                if (!WebOrders.owns(order, rows.get(id), customerId)) continue;
+                unsent.add(id);
+            }
+            documents.add(order);
         }
         Map<Long, Derived> derived = kind == ListKind.ORDERS ? derivedInvoices(documents.stream().map(SalesOrder::id).toList(),
                 customerId) : Map.of();
         Map<Long, String> related = kind == ListKind.INVOICES ? relatedNumbers(documents, customerId) : Map.of();
 
-        List<SalesOrder> live = documents.stream().filter(order -> !asOrdered(order, owned(order, rows, customerId))).toList();
+        List<SalesOrder> live = documents.stream().filter(order -> !asOrdered(order, owned(order, rows, customerId), unsent.contains(order.id()))).toList();
         Map<Long, PricedOrder> priced = priceLive(live);
 
         LocalDate today = LocalDate.now(BRUSSELS);
@@ -223,7 +246,7 @@ public class AccountDocuments {
             Derived invoices = derived.getOrDefault(order.id(), Derived.NONE);
             BigDecimal excl = null;
             BigDecimal incl = null;
-            if (asOrdered(order, row)) {
+            if (asOrdered(order, row, unsent.contains(order.id()))) {
                 WebOrderSnapshot snapshot = WebOrderSnapshot.fromJson(row.orderSnapshot());
                 if (snapshot != null && snapshot.totals() != null) {
                     excl = snapshot.totals().totalExclVat();
@@ -237,7 +260,7 @@ public class AccountDocuments {
             boolean changeable = row != null && WebOrders.customerMayChange(order, row, invoices.any());
             items.add(new DocumentRow(order.id(), kindOf(order, row, customerId), order.number(), order.orderDate(),
                     status.code(), status.cancelledBy(), excl, incl, "EUR", validUntil(order, status),
-                    changeable, changeable, !order.isClaimDocument(), hasPdf(order),
+                    changeable, changeable, !order.isClaimDocument(), hasPdf(order) && !unsent.contains(order.id()),
                     order.isClaimDocument() ? related.get(order.id()) : invoices.issuedNumber()));
         }
         return new DocumentPage(items, nextCursor);
@@ -275,11 +298,13 @@ public class AccountDocuments {
         WebOrders.Row found = order == null ? null : webOrders.find(id).orElse(null);
         if (!visible(order, found, customerId) || order.isClaimDocument()) return Optional.empty();
         WebOrders.Row row = WebOrders.owns(order, found, customerId) ? found : null;
+        boolean unsent = unsentAtCancel(order);
+        if (unsent && row == null) return Optional.empty();
         Derived invoices = derivedInvoices(List.of(id), customerId).getOrDefault(id, Derived.NONE);
         Status status = statusOf(order, row, invoices.issued(), invoices.any(),
                 LocalDate.now(BRUSSELS));
         boolean changeable = row != null && WebOrders.customerMayChange(order, row, invoices.any());
-        boolean ordered = asOrdered(order, row);
+        boolean ordered = asOrdered(order, row, unsent);
 
         String country;
         String notes;
@@ -337,7 +362,7 @@ public class AccountDocuments {
         String cancellation = "ENROSED".equals(status.cancelledBy()) ? quotes.cancellationMessage(order).orElse(null) : null;
         return Optional.of(new OrderDetail(order.id(), kindOf(order, row, customerId), order.number(), order.orderDate(),
                 status.code(), status.cancelledBy(), cancellation, row == null ? null : row.revision(),
-                changeable, changeable, hasPdf(order), ordered ? AS_ORDERED : CURRENT, basisDate,
+                changeable, changeable, hasPdf(order) && !unsent, ordered ? AS_ORDERED : CURRENT, basisDate,
                 validUntil(order, status), fulfillment, pickup, destination, contactName, phone,
                 notes == null || notes.isBlank() ? null : notes, lines, extraLines, totals, invoices.issuedNumber()));
     }
@@ -374,14 +399,15 @@ public class AccountDocuments {
      * The PDF of a sent version or of an issued invoice or credit note,
      * rendered from the very instance that passed the visibility test.
      * Without the signing link, and for a claim document without anything
-     * about payments.
+     * about payments. None for a quotation or order cancelled as an unsent
+     * draft: the only PDF there is shows what was never sent.
      *
      * @param language null for the language of the customer record
      */
     public Optional<QuoteDocumentRenderer.Document> pdf(long id, long customerId, Language language) {
         SalesOrder order = orders.findById(id).orElse(null);
         WebOrders.Row row = order == null ? null : webOrders.find(id).orElse(null);
-        if (!visible(order, row, customerId) || !hasPdf(order)) return Optional.empty();
+        if (!visible(order, row, customerId) || !hasPdf(order) || unsentAtCancel(order)) return Optional.empty();
         return Optional.of(quotes.documentForAccount(order, language));
     }
 

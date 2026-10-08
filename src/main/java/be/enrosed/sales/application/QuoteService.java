@@ -906,6 +906,14 @@ public class QuoteService {
         QuoteRevision revision = revision(revisionId);
         requirePending(revision);
         SalesOrder order = salesOrders.get(revision.salesOrderId());
+        /* Adopting puts the quote on concept. On one that was cancelled, signed
+           or refused that would wipe how it was closed; such a proposal can
+           only be closed as not adopted. */
+        if (order.status().isFinal() && order.status() != QuoteStatus.VERLOPEN) {
+            throw new BusinessRuleException("Offerte " + order.number() + " staat op "
+                    + order.status().name().toLowerCase() + "; dit voorstel kan niet meer overgenomen worden."
+                    + " Wijs het af, de offerte blijft dan zoals ze is.");
+        }
         requireUnchangedAdvanceAgreement(order, revision.lines());
 
         List<SalesOrderLine> updated = new ArrayList<>();
@@ -1143,7 +1151,15 @@ public class QuoteService {
                 .filter(detail -> detail != null && !detail.isBlank());
     }
 
-    /** We do not adopt the proposal; the quote stays as it was. */
+    /**
+     * We do not adopt the proposal; the quote stays as it was.
+     *
+     * Only a quote that waits on the proposal goes back to sent. A proposal
+     * that outlived its quote - cancelled by the cancel of before 2026-10-08,
+     * or signed or refused by the customer while it lay open - is closed and
+     * nothing else: putting that quote on sent would wipe the cancellation or
+     * the signature and let the customer answer again.
+     */
     @Transactional
     public SalesOrder rejectRevision(long revisionId, String handledBy, String responseMessage) {
         QuoteRevision revision = revision(revisionId);
@@ -1153,6 +1169,7 @@ public class QuoteService {
         revisions.save(handled(revision, RevisionStatus.AFGEWEZEN, handledBy, responseMessage));
         record(order, QuoteEvent.Type.VOORSTEL_AFGEWEZEN, false, handledBy,
                 "Voorstel van de klant niet overgenomen", responseMessage);
+        if (order.status() != QuoteStatus.WIJZIGING_GEVRAAGD) return order;
 
         return orders.save(withStatus(order, QuoteStatus.VERZONDEN, order.portalToken(),
                 order.sentAt(), order.viewedAt(), order.viewCount(), null, null,
