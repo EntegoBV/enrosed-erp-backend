@@ -328,6 +328,7 @@ public final class SalesEntities {
         @Column(length = 500)
         public String summary;
 
+        /* EventAdapter.DETAIL_LENGTH cuts to this length. */
         @Column(length = 4000)
         public String detail;
     }

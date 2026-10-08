@@ -55,6 +55,20 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - Lifecycle: CONCEPT → VERZONDEN (mail with PDF + portal link) → customer
   BEKEKEN → AKKOORD (digital signature, name recorded) or AFGEWEZEN
   (rejected quotes can be reopened).
+- **Portal link = a quotation that was sent.** The portal shows prices, a
+  priced PDF and the price list, so a token only opens a document staff
+  sent (`sentAt` set; `QuoteService.send` stores token and `sentAt` in one
+  save, and nothing else may make a token). `QuoteService.cancel` with
+  "Klant verwittigen": a sent quote is mailed with its link and the link
+  shows it as cancelled; a request that never went out (website request,
+  untaken web order) is mailed without a link and gets no token.
+  `SalesLifecycle.neverSent` (CONCEPT or GEANNULEERD without `sentAt`)
+  makes `QuoteService.byToken` answer the same 404 as an unknown token on
+  every `/api/portal/{token}` route; this also kills the tokens the
+  cancellation mail used to make for such requests. A reopened sent quote
+  keeps the "being updated" refusal.
+- `quote_event.detail` is varchar(4000): `EventAdapter.add` cuts a longer
+  detail instead of failing the action that records it.
 - **Revisions**: the customer proposes quantity changes in the portal. We
   answer with Wijzigen (take over, then adjust), Overnemen (take over as
   asked) or Afwijzen. The customer only sees "verwerkt" after we actually
@@ -582,7 +596,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   legacy `/api/v1/public/catalog`, for every channel. The families payload
   carries top-level `pricesVisible` so the build knows null is on purpose.
   Redaction happens at the HTTP boundary only: ERP calculations, staff
-  endpoints and the per-quote portal keep their prices. The hidden state
+  endpoints and the per-quote portal keep their prices (the portal only
+  opens a quotation that was sent, see Sales / quotes). The hidden state
   adds one term to the catalogue revision (the visible digest is unchanged)
   and a changed value queues the website rebuild in the same transaction;
   the static pages follow after the debounce and the Vercel build. Only

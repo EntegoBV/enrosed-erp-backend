@@ -259,7 +259,7 @@ class QuoteServiceSalesActivityTest {
     }
 
     @Test
-    void aRequestThatNeverWentOutStillTellsTheCustomerWithAFreshLink() {
+    void aRequestThatNeverWentOutIsToldWithoutALinkAndGetsNoToken() {
         SalesOrder concept = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, null);
         when(salesOrders.get(42L)).thenReturn(concept);
         when(currentActor.current()).thenReturn(new ActorRef("emre", "Emre"));
@@ -267,10 +267,63 @@ class QuoteServiceSalesActivityTest {
         SalesOrder cancelled = service.cancel(42L, "Per vergissing ingediend", true);
 
         assertEquals(QuoteStatus.GEANNULEERD, cancelled.status());
-        assertTrue(cancelled.portalToken() != null && !cancelled.portalToken().isBlank(), "the link needs a token");
-        ArgumentCaptor<String> portalUrl = ArgumentCaptor.forClass(String.class);
-        verify(mailer).sendCancellation(eq(concept), eq(customer()), portalUrl.capture(), eq("Per vergissing ingediend"));
-        assertTrue(portalUrl.getValue().contains(cancelled.portalToken()));
+        assertNull(cancelled.portalToken(), "nobody sent this customer a quotation, so no link is made");
+        assertNull(cancelled.sentAt());
+        /* The mail still leaves, with no link in it. */
+        verify(mailer).sendCancellation(eq(concept), eq(customer()), org.mockito.ArgumentMatchers.isNull(),
+                eq("Per vergissing ingediend"));
+        ArgumentCaptor<be.enrosed.sales.domain.QuoteEvent> event =
+                ArgumentCaptor.forClass(be.enrosed.sales.domain.QuoteEvent.class);
+        verify(history).add(event.capture());
+        assertTrue(event.getValue().summary().contains("private-buyer@example.test"), "the history still says who was told");
+    }
+
+    @Test
+    void aTokenOnADocumentThatNeverWentOutAnswersLikeAnUnknownLink() {
+        when(orders.findByPortalToken("unknown")).thenReturn(java.util.Optional.empty());
+        String unknown = assertThrows(be.enrosed.shared.NotFoundException.class, () -> service.byToken("unknown")).getMessage();
+
+        for (QuoteStatus status : List.of(QuoteStatus.GEANNULEERD, QuoteStatus.CONCEPT)) {
+            SalesOrder neverSent = neverSent(order(DocumentType.OFFERTE, status, "mailed-on-cancel"));
+            when(orders.findByPortalToken("mailed-on-cancel")).thenReturn(java.util.Optional.of(neverSent));
+            String refused = assertThrows(be.enrosed.shared.NotFoundException.class,
+                    () -> service.byToken("mailed-on-cancel")).getMessage();
+            assertEquals(unknown.replace("unknown", "mailed-on-cancel"), refused, status.name());
+            assertFalse(refused.contains(neverSent.number()));
+            assertThrows(be.enrosed.shared.NotFoundException.class, () -> service.openByToken("mailed-on-cancel"));
+            assertThrows(be.enrosed.shared.NotFoundException.class,
+                    () -> service.acceptByCustomer("mailed-on-cancel", "Private Signer", null));
+            assertThrows(be.enrosed.shared.NotFoundException.class, () -> service.rejectByCustomer("mailed-on-cancel", null));
+            assertThrows(be.enrosed.shared.NotFoundException.class,
+                    () -> service.proposeRevision("mailed-on-cancel", List.of(), "Private Signer", "requested changes"));
+            assertThrows(be.enrosed.shared.NotFoundException.class, () -> service.withdrawRevision("mailed-on-cancel"));
+            assertFalse(SalesLifecycle.portalVisible(neverSent));
+            assertTrue(service.activePortalUrl(neverSent).isEmpty());
+        }
+        verify(orders, never()).save(any());
+    }
+
+    @Test
+    void everyDocumentThatWentOutKeepsItsLink() {
+        /* Sent and then cancelled, decided through the portal, expired, still open. */
+        for (QuoteStatus status : List.of(QuoteStatus.GEANNULEERD, QuoteStatus.GEACCEPTEERD, QuoteStatus.AFGEWEZEN,
+                QuoteStatus.VERLOPEN, QuoteStatus.VERZONDEN, QuoteStatus.BEKEKEN, QuoteStatus.WIJZIGING_GEVRAAGD)) {
+            SalesOrder sent = order(DocumentType.OFFERTE, status, "customer-link");
+            when(orders.findByPortalToken("customer-link")).thenReturn(java.util.Optional.of(sent));
+            assertEquals(sent, service.byToken("customer-link"), status.name());
+            assertTrue(service.activePortalUrl(sent).isPresent(), status.name());
+        }
+        /* A reopened quote keeps the old answer: it exists, and it is being worked on. */
+        SalesOrder reopened = order(DocumentType.OFFERTE, QuoteStatus.CONCEPT, "customer-link");
+        when(orders.findByPortalToken("customer-link")).thenReturn(java.util.Optional.of(reopened));
+        assertThrows(be.enrosed.shared.BusinessRuleException.class, () -> service.byToken("customer-link"));
+        /* Only a draft and a cancelled document are judged by the missing timestamp. */
+        for (QuoteStatus status : List.of(QuoteStatus.VERZONDEN, QuoteStatus.BEKEKEN, QuoteStatus.WIJZIGING_GEVRAAGD,
+                QuoteStatus.GEACCEPTEERD, QuoteStatus.AFGEWEZEN, QuoteStatus.VERLOPEN)) {
+            SalesOrder odd = neverSent(order(DocumentType.OFFERTE, status, "customer-link"));
+            when(orders.findByPortalToken("customer-link")).thenReturn(java.util.Optional.of(odd));
+            assertEquals(odd, service.byToken("customer-link"), status.name());
+        }
     }
 
     @Test
@@ -294,6 +347,19 @@ class QuoteServiceSalesActivityTest {
         org.junit.jupiter.api.Assertions.assertThrows(be.enrosed.shared.BusinessRuleException.class,
                 () -> service.cancel(42L, null, false));
         verify(mailer, org.mockito.Mockito.never()).sendCancellation(any(), any(), any(), any());
+    }
+
+    /** The same document with a token but without a sent timestamp, as an old cancellation mail left it. */
+    private static SalesOrder neverSent(SalesOrder order) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(), order.orderDate(),
+                order.validUntil(), order.status(), order.incoterm(), order.paymentTerms(), order.notes(),
+                order.markupMode(), order.orderMarkupPct(), order.extraDiscountPct(), order.extraDiscountLabel(),
+                order.portalToken(), null, order.viewedAt(), order.viewCount(), order.decidedAt(),
+                order.signedByName(), order.customerMessage(), order.internalNotes(), order.deliveryTerms(),
+                order.freight(), order.manualFreightEur(), order.loadMode(), order.palletProfile(), order.maxPalletHeightCm(),
+                order.freightPricingStrategy(), order.freightRatePerCbmEur(), order.freightCarrierId(),
+                order.freightCarrierExtraEur(), order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
+                order.goodsShippedAt(), order.lines(), order.pallets());
     }
 
     private static PricedOrder pricedOrder() {

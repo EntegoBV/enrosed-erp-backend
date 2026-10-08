@@ -116,6 +116,21 @@ final class SalesLifecycle {
 
     /** Shared predicate for public lookup and the admin copy-link capability. */
     static boolean portalVisible(SalesOrder order) {
-        return order != null && order.status() != null && order.status() != QuoteStatus.CONCEPT;
+        return order != null && order.status() != null && order.status() != QuoteStatus.CONCEPT
+                && !neverSent(order);
+    }
+
+    /**
+     * A draft or a cancelled document that never went out to the customer:
+     * nobody was given a link to it, so a token on it opens nothing. Sending
+     * has always stored the token and the sent timestamp in one save, so every
+     * link a customer received has a timestamp. The only tokens without one
+     * are those an older cancellation mail made for a website request staff
+     * turned down; those must not show prices to somebody who was never
+     * sent a quotation.
+     */
+    static boolean neverSent(SalesOrder order) {
+        return order != null && order.sentAt() == null
+                && (order.status() == QuoteStatus.CONCEPT || order.status() == QuoteStatus.GEANNULEERD);
     }
 }

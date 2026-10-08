@@ -718,7 +718,7 @@ public class SalesOrderResource {
         return quotes.history(id);
     }
 
-    /** Withdraws an open quote; with notifyCustomer the customer gets a mail with the portal link. */
+    /** Withdraws an open quote; with notifyCustomer the customer gets a mail, with the portal link only when the quote was sent. */
     @POST
     @Path("/{id}/cancel")
     public OrderView cancel(@PathParam("id") long id, CancelRequest request) {

@@ -509,7 +509,10 @@ public class QuoteService {
     }
 
     public SalesOrder byToken(String token) {
+        /* A token on a document that never went out answers exactly like a
+           token that does not exist: no number, no state, no price. */
         SalesOrder order = orders.findByPortalToken(token)
+                .filter(found -> !SalesLifecycle.neverSent(found))
                 .orElseThrow(() -> new NotFoundException("Offertelink", token));
         SalesLifecycle.requirePortalVisible(order);
         return order;
@@ -961,10 +964,13 @@ public class QuoteService {
     }
 
     /**
-     * Withdraws a quote that is still open. The customer's link then shows
-     * it as cancelled, and when asked we tell them by mail with that link;
-     * a mail that cannot leave keeps the quote open, so nothing looks
-     * cancelled that the customer never heard of.
+     * Withdraws a quote that is still open. The link of a quote that was
+     * sent then shows it as cancelled, and when asked we tell the customer
+     * by mail with that link. A request that never went out is told by mail
+     * too, but without a link and without a token: the portal shows prices,
+     * and nobody sent this customer a quotation. A mail that cannot leave
+     * keeps the quote open, so nothing looks cancelled that the customer
+     * never heard of.
      */
     @Transactional
     public SalesOrder cancel(long orderId, String reason, boolean notifyCustomer) {
@@ -985,15 +991,17 @@ public class QuoteService {
         requireMessageLength(message);
 
         /* A request that never went out can still be withdrawn with a word
-           to the customer: they typed it themselves on the website. The mail
-           carries a link, so the token is made now when it does not exist. */
+           to the customer: they typed it themselves on the website. That mail
+           carries no link and no token is made for it; only a quote that was
+           sent keeps its link, which then shows it as cancelled. */
+        boolean wasSent = order.sentAt() != null;
         String token = order.portalToken();
         String toldCustomer = null;
         if (notifyCustomer && order.customerId() != null) {
             Customer customer = customers.get(order.customerId());
             if (customer.email() != null && !customer.email().isBlank()) {
-                if (token == null || token.isBlank()) token = newToken();
-                mailer.sendCancellation(order, customer, portalUrl(token), message);
+                if (wasSent && (token == null || token.isBlank())) token = newToken();
+                mailer.sendCancellation(order, customer, wasSent ? portalUrl(token) : null, message);
                 toldCustomer = recipient(order, customer).to();
             }
         }

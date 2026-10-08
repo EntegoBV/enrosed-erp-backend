@@ -289,6 +289,15 @@ public final class PanacheSalesRepositories {
                     .stream().map(SalesMapper::toDomain).toList();
         }
 
+        /** The length of {@code quote_event.detail}. */
+        static final int DETAIL_LENGTH = 4000;
+
+        /** The text as far as the column holds it, never ending on half a character. */
+        static String fitting(String text, int length) {
+            if (text == null || text.length() <= length) return text;
+            return text.substring(0, Character.isHighSurrogate(text.charAt(length - 1)) ? length - 1 : length);
+        }
+
         @Override
         public QuoteEvent add(QuoteEvent event) {
             SalesEntities.QuoteEventEntity entity = new SalesEntities.QuoteEventEntity();
@@ -298,7 +307,8 @@ public final class PanacheSalesRepositories {
             entity.actor = event.actor();
             entity.byCustomer = event.byCustomer();
             entity.summary = event.summary();
-            entity.detail = event.detail();
+            /* The history never fails the action it records: a detail longer than its column is cut. */
+            entity.detail = fitting(event.detail(), DETAIL_LENGTH);
             dao.persist(entity);
             dao.flush();
             return SalesMapper.toDomain(entity);
