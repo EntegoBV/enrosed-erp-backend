@@ -2,6 +2,8 @@ package be.enrosed.sales.adapter.in.rest;
 
 import be.enrosed.sales.adapter.out.persistence.SalesWebOrderEntity;
 import be.enrosed.sales.application.QuoteService;
+import be.enrosed.sales.application.WebOrderMails;
+import be.enrosed.sales.application.WebOrderMailsExecutor;
 import be.enrosed.sales.application.WebOrderStaffGateTest.Shop;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import io.quarkus.mailer.MockMailbox;
@@ -47,16 +49,19 @@ class WebOrderStaffHttpTest {
     @Inject QuoteService quotes;
     @Inject EntityManager em;
     @Inject MockMailbox mailbox;
+    @Inject WebOrderMails webOrderMails;
 
     private final Shop shop = new Shop();
 
     @BeforeEach
     void emptyMailbox() {
         mailbox.clear();
+        WebOrderMailsExecutor.direct(webOrderMails);
     }
 
     @AfterEach
     void removeRows() {
+        WebOrderMailsExecutor.direct(webOrderMails);
         shop.remove();
     }
 
@@ -273,6 +278,29 @@ class WebOrderStaffHttpTest {
         get(order.id()).body("webOrder.termsState", equalTo("APPROVED"));
         invoice(order.id()).statusCode(200).body("order.docType", equalTo("FACTUUR"))
                 .body("order.sourceQuoteId", equalTo((int) order.id()));
+    }
+
+    @Test
+    void takingAnOrderAnswersBeforeTheCustomerMailLeavesAndShowsItSentOnlyAfterwards() {
+        Shop.Placed order = shop.place("taker@login.example");
+        List<Runnable> handed = WebOrderMailsExecutor.capture(webOrderMails);
+
+        take(order.id(), 1).statusCode(200)
+                .body("webOrder.processingStartedAt", notNullValue())
+                .body("webOrder.processingMailSentAt", nullValue())
+                .body("webOrder.receivedMailSentAt", nullValue())
+                .body("webOrder.mailDue", equalTo(false))
+                .body("webOrder.mailError", nullValue());
+        assertEquals(1, handed.size(), "the answer left with the delivery still waiting");
+        assertEquals(0, mailbox.getMailsSentTo("taker@login.example").size());
+
+        handed.getFirst().run();
+
+        assertEquals(1, mailbox.getMailsSentTo("taker@login.example").size());
+        assertTrue(mailbox.getMailsSentTo("taker@login.example").getFirst().getSubject().contains("in verwerking"));
+        get(order.id()).body("webOrder.processingMailSentAt", notNullValue())
+                .body("webOrder.mailDue", equalTo(false))
+                .body("webOrder.mailError", nullValue());
     }
 
     @Test

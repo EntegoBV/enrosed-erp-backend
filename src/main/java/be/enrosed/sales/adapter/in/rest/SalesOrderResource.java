@@ -401,7 +401,9 @@ public class SalesOrderResource {
                     row.customerChangedAt(), row.customerChangeSummary(), row.customerCancelledAt(),
                     row.processingStartedAt(), row.processingStartedBy(), row.processingTrigger(), state,
                     orderedExcl, orderedIncl, differences,
-                    row.receivedMailSentAt(), row.processingMailSentAt(), row.mailError(), due != null && due.overdue());
+                    shownSentAt(order.id(), be.enrosed.sales.application.WebOrderMails.Kind.RECEIVED, row.receivedMailSentAt()),
+                    shownSentAt(order.id(), be.enrosed.sales.application.WebOrderMails.Kind.PROCESSING, row.processingMailSentAt()),
+                    row.mailError(), due != null && due.overdue());
         }
         var typed = deliveries == null ? null : deliveries.forDocument(order).orElse(null);
         DeliveryView delivery = null;
@@ -423,6 +425,11 @@ public class SalesOrderResource {
                     typed.contactPhone(), differs);
         }
         return webOrder == null && delivery == null ? view : view.withWebOrder(webOrder, delivery);
+    }
+
+    /** A moment that is only the claim of a mail still on its way to the provider is not shown as sent. */
+    private java.time.Instant shownSentAt(long orderId, be.enrosed.sales.application.WebOrderMails.Kind kind, java.time.Instant stored) {
+        return webOrderMails == null ? stored : webOrderMails.shownSentAt(orderId, kind, stored);
     }
 
     private static boolean sameText(String left, String right) {

@@ -19,6 +19,8 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.mockito.InjectSpy;
+import be.enrosed.shared.mail.CustomerOrderMailer;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -35,6 +37,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -48,6 +51,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 /**
@@ -55,7 +60,9 @@ import static org.mockito.Mockito.when;
  * and the mock mailbox: which mail is due, that it is claimed before it
  * leaves and so leaves once, what a failure leaves behind, and that an order
  * the same staff action sent, cancelled or moved to another customer gets
- * none. The document and the customer record are stubbed.
+ * none; and that the commit which asks for a mail hands it to the executor
+ * and never waits for it. The document and the customer record are stubbed.
+ * Unless a test captures the deliveries, they run on the committing thread.
  */
 @QuarkusTest
 class WebOrderMailsTest {
@@ -76,6 +83,8 @@ class WebOrderMailsTest {
     @InjectMock SalesRepositories.Customers customers;
     /** The team notice of a website order is another mail to another mailbox; this class counts the customer's. */
     @InjectMock WebsiteQuoteMailNotifier teamNotices;
+    /** The real mailer, except where a test looks at the order while a mail is leaving or makes the send fail. */
+    @InjectSpy CustomerOrderMailer mailer;
 
     private final List<Long> orderIds = new ArrayList<>();
     private final List<Long> loginIds = new ArrayList<>();
@@ -83,10 +92,12 @@ class WebOrderMailsTest {
     @BeforeEach
     void emptyMailbox() {
         mailbox.clear();
+        WebOrderMailsExecutor.direct(mails);
     }
 
     @AfterEach
     void removeRows() {
+        WebOrderMailsExecutor.direct(mails);
         QuarkusTransaction.requiringNew().run(() -> {
             for (long id : orderIds) {
                 em.createQuery("delete from SalesWebOrderEntity w where w.salesOrderId = :id").setParameter("id", id).executeUpdate();
@@ -253,6 +264,143 @@ class WebOrderMailsTest {
         assertNull(stored.mailError);
         assertEquals(WebOrderMails.NOTHING_DUE, assertThrows(BusinessRuleException.class, () -> mails.resend(f.id, false)).getMessage());
         assertEquals(WebOrderMails.NOTHING_DUE, assertThrows(BusinessRuleException.class, () -> mails.resend(f.id, true)).getMessage());
+    }
+
+    // ------------------------------------------------------------------------------------------ off the request thread
+
+    @Test
+    void theCommitHandsTheMailOverAndReturnsBeforeItIsSentAndTheTaskSendsItOnce() {
+        Fixture f = fixture("NL", true);
+        List<Runnable> handed = WebOrderMailsExecutor.capture(mails);
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            placed.fire(new WebOrderEvents.Placed(f.id, NUMBER));
+            assertTrue(handed.isEmpty(), "nothing is handed over before the commit");
+        });
+
+        assertEquals(1, handed.size(), "the commit returned with the delivery still waiting");
+        assertEquals(0, mailbox.getTotalMessagesSent());
+        SalesWebOrderEntity waiting = stored(f.id);
+        assertNull(waiting.receivedMailSentAt, "nothing is claimed, let alone marked sent, before the task runs");
+        assertNull(waiting.mailError);
+
+        handed.getFirst().run();
+
+        only(f.login);
+        Instant sentAt = stored(f.id).receivedMailSentAt;
+        assertNotNull(sentAt);
+        assertEquals(sentAt, mails.shownSentAt(f.id, Kind.RECEIVED, sentAt), "sent, and shown as sent");
+
+        /* The same task again, or a second one for the same order, finds nothing due. */
+        handed.getFirst().run();
+        mails.onPlaced(new WebOrderEvents.Placed(f.id, NUMBER));
+        handed.getLast().run();
+        only(f.login);
+        assertEquals(sentAt, stored(f.id).receivedMailSentAt);
+    }
+
+    @Test
+    void theDeliveryNeedsNeitherTheRequestNorTheTransactionOfTheCallerThatAskedForIt() throws Exception {
+        Fixture f = fixture("NL", true);
+        ExecutorService background = Executors.newSingleThreadExecutor();
+        try {
+            mails.useExecutor(background);
+            QuarkusTransaction.requiringNew().run(() -> placed.fire(new WebOrderEvents.Placed(f.id, NUMBER)));
+            background.shutdown();
+            assertTrue(background.awaitTermination(30, TimeUnit.SECONDS));
+        } finally {
+            background.shutdownNow();
+        }
+
+        only(f.login);
+        assertNotNull(stored(f.id).receivedMailSentAt);
+        assertNull(stored(f.id).mailError);
+    }
+
+    @Test
+    void whileTheMailIsWithTheProviderTheOrderShowsItNeitherSentNorOverdue() {
+        Fixture f = fixture("NL", true);
+        claimed(f.id, e -> {
+            e.processingStartedAt = Instant.now();
+            e.processingStartedBy = "Emre";
+            e.processingTrigger = WebOrders.TRIGGER_BUTTON;
+        });
+        List<Runnable> handed = WebOrderMailsExecutor.capture(mails);
+        List<String> seen = new ArrayList<>();
+        doAnswer(leaving -> {
+            SalesWebOrderEntity during = stored(f.id);
+            Row row = fresh(f.id);
+            seen.add("claimed=" + (during.processingMailSentAt != null)
+                    + " shown=" + mails.shownSentAt(f.id, Kind.PROCESSING, during.processingMailSentAt)
+                    + " received=" + mails.shownSentAt(f.id, Kind.RECEIVED, during.processingMailSentAt)
+                    + " due=" + WebOrderMails.due(order().id(f.id).customerId(f.customerId).build(), row, Instant.now()));
+            return leaving.callRealMethod();
+        }).when(mailer).sendOrderInProcessing(org.mockito.ArgumentMatchers.any());
+
+        QuarkusTransaction.requiringNew().run(() -> taken.fire(new WebOrderEvents.Taken(f.id, NUMBER)));
+
+        /* What the answer of "In verwerking nemen" is built from while the delivery waits: no moment, nothing overdue. */
+        SalesWebOrderEntity waiting = stored(f.id);
+        assertNull(waiting.processingMailSentAt);
+        assertEquals(new Due(Kind.PROCESSING, false),
+                WebOrderMails.due(order().id(f.id).customerId(f.customerId).build(), fresh(f.id), Instant.now()));
+
+        handed.getFirst().run();
+
+        assertEquals(List.of("claimed=true shown=null received=" + stored(f.id).processingMailSentAt + " due=null"), seen,
+                "the claim is in the row while the mail leaves, but staff are not told it was sent, nor that it failed");
+        only(f.login);
+        Instant sentAt = stored(f.id).processingMailSentAt;
+        assertEquals(sentAt, mails.shownSentAt(f.id, Kind.PROCESSING, sentAt), "once the provider answered it reads as sent");
+    }
+
+    @Test
+    void aSendThatFailsOnTheExecutorLeavesTheMailDueWithItsReason() {
+        Fixture f = fixture("NL", true);
+        List<Runnable> handed = WebOrderMailsExecutor.capture(mails);
+        doThrow(new BusinessRuleException("De mail kon niet verzonden worden via de maildienst: maildienst antwoordde 500"))
+                .when(mailer).sendOrderReceived(org.mockito.ArgumentMatchers.any());
+
+        QuarkusTransaction.requiringNew().run(() -> placed.fire(new WebOrderEvents.Placed(f.id, NUMBER)));
+        handed.getFirst().run();
+
+        assertEquals(0, mailbox.getTotalMessagesSent());
+        SalesWebOrderEntity failed = stored(f.id);
+        assertNull(failed.receivedMailSentAt, "never marked sent");
+        assertEquals("De mail kon niet verzonden worden via de maildienst: maildienst antwoordde 500", failed.mailError);
+        assertNull(mails.shownSentAt(f.id, Kind.RECEIVED, failed.receivedMailSentAt));
+        assertEquals(Kind.RECEIVED, WebOrderMails.due(order().id(f.id).customerId(f.customerId).build(),
+                fresh(f.id), Instant.now()).kind());
+
+        org.mockito.Mockito.reset(mailer);
+        mails.resend(f.id, false);
+        only(f.login);
+        assertNull(stored(f.id).mailError);
+    }
+
+    @Test
+    void aDeliveryTheExecutorRefusesLeavesTheMailDueForStaffToSend() {
+        Fixture f = fixture("NL", true);
+        mails.useExecutor(task -> {
+            throw new RejectedExecutionException("de wachtrij is gesloten");
+        });
+
+        /* The refusal stays with the mails: the commit that asked for one stands and its caller hears nothing. */
+        QuarkusTransaction.requiringNew().run(() -> placed.fire(new WebOrderEvents.Placed(f.id, NUMBER)));
+        mails.onTaken(new WebOrderEvents.Taken(f.id, NUMBER));
+
+        assertEquals(0, mailbox.getTotalMessagesSent());
+        SalesWebOrderEntity open = stored(f.id);
+        assertNull(open.receivedMailSentAt, "never marked sent");
+        assertNull(open.processingMailSentAt);
+        assertNull(open.mailError);
+        claimed(f.id, e -> e.placedAt = Instant.now().minusSeconds(120));
+        assertEquals(new Due(Kind.RECEIVED, true), WebOrderMails.due(order().id(f.id).customerId(f.customerId).build(),
+                fresh(f.id), Instant.now()), "after a minute the order offers it to staff");
+
+        mails.resend(f.id, false);
+        only(f.login);
+        assertNotNull(stored(f.id).receivedMailSentAt);
     }
 
     // ------------------------------------------------------------------------------------------ claim and failure
@@ -531,6 +679,11 @@ class WebOrderMailsTest {
     /** Writes the row as another transaction would have left it. */
     private void claimed(long id, Consumer<SalesWebOrderEntity> change) {
         QuarkusTransaction.requiringNew().run(() -> change.accept(em.find(SalesWebOrderEntity.class, id)));
+    }
+
+    /** The row as the staff view reads it, never a copy this thread already holds. */
+    private Row fresh(long id) {
+        return QuarkusTransaction.requiringNew().call(() -> webOrders.find(id).orElseThrow());
     }
 
     private SalesWebOrderEntity stored(long id) {

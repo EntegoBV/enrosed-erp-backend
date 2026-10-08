@@ -23,17 +23,26 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
 /**
  * The two mails a customer gets about a website order: "received" once the
  * order is safely stored, "in processing" once somebody at Enrosed took it.
  *
- * A mail never rolls back or delays the order or the staff action: it is
- * sent after the commit, outside any transaction. There is no job and no
- * outbox. The moment a mail is sent is claimed with one conditional update
- * before it leaves, so two callers can never send it twice; a failure puts
- * the moment back and leaves the reason on the order, where staff can send
- * it again.
+ * A mail never rolls back or delays the order or the staff action: after the
+ * commit the delivery is handed to an executor, so neither the customer's
+ * call nor the staff action waits for the mail provider. The executor's
+ * threads have neither a request context nor a transaction; every database
+ * access of a delivery sits in a transaction this class opens itself. There
+ * is no job and no outbox. The moment a mail is sent is claimed with one
+ * conditional update before it leaves, so two callers can never send it
+ * twice; a failure puts the moment back and leaves the reason on the order,
+ * where staff can send it again. A delivery that never starts (the executor
+ * refuses it, or the application stops first) claims nothing: the mail
+ * stays due and staff are offered it after a minute, like a failed one.
  */
 @ApplicationScoped
 public class WebOrderMails {
@@ -49,6 +58,21 @@ public class WebOrderMails {
     public record Due(Kind kind, boolean overdue) {}
 
     private record Prepared(Kind kind, boolean again, OrderMail mail) {}
+
+    /** A claimed moment whose mail is with the mail provider right now. */
+    private record UnderWay(long orderId, Kind kind, Instant claimed) {}
+
+    /** Tests set Runnable::run or a capturing one, through useExecutor. */
+    Executor executor = ForkJoinPool.commonPool();
+
+    /**
+     * The claims this process is still sending. A claim is written before
+     * the mail leaves, so until the provider answers the stored moment says
+     * "sent" about a mail that may yet fail; shownSentAt keeps it from staff
+     * for that long. Kept in memory: it covers the sends of this process,
+     * which is where the answer to the staff action that caused them is built.
+     */
+    private final Set<UnderWay> underWay = ConcurrentHashMap.newKeySet();
 
     @Inject WebOrders webOrders;
     @Inject WebOrderDeliveries deliveries;
@@ -68,7 +92,18 @@ public class WebOrderMails {
         afterCommit(taken.orderId(), taken.number());
     }
 
+    /** Reads nothing and sends nothing on the committing thread. */
     private void afterCommit(long orderId, String number) {
+        try {
+            executor.execute(() -> sendDue(orderId, number));
+        } catch (RuntimeException refused) {
+            /* Nothing was claimed: the mail is still due and staff can send it from the order. */
+            LOG.errorf(refused, "Klantmail voor websitebestelling %s kon niet ingepland worden en staat nog open", number);
+        }
+    }
+
+    /** Runs on the executor; whatever happens stays here, the commit that asked for it stands. */
+    private void sendDue(long orderId, String number) {
         try {
             deliver(orderId, false);
         } catch (BusinessRuleException notSent) {
@@ -120,22 +155,39 @@ public class WebOrderMails {
         Kind kind = prepared.kind();
         /* Microseconds, as the database keeps them: the release below finds its own claim by this value. */
         Instant claimed = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        if (!prepared.again() && !claim(orderId, kind, claimed)) return false;
+        /* Noted before the claim is written and dropped after it is settled, so no reader sees one without the other. */
+        UnderWay sending = new UnderWay(orderId, kind, claimed);
+        if (!prepared.again()) underWay.add(sending);
         try {
-            send(kind, prepared.mail());
-        } catch (RuntimeException failure) {
-            String reason = reason(failure);
-            LOG.errorf(failure, "Klantmail (%s) voor websitebestelling %s mislukt", kind, prepared.mail().number());
-            /* A failed repeat writes nothing: the earlier mail keeps its moment. */
-            if (!prepared.again()) release(orderId, kind, claimed, reason);
-            throw new BusinessRuleException(reason);
+            if (!prepared.again() && !claim(orderId, kind, claimed)) return false;
+            try {
+                send(kind, prepared.mail());
+            } catch (RuntimeException failure) {
+                String reason = reason(failure);
+                LOG.errorf(failure, "Klantmail (%s) voor websitebestelling %s mislukt", kind, prepared.mail().number());
+                /* A failed repeat writes nothing: the earlier mail keeps its moment. */
+                if (!prepared.again()) release(orderId, kind, claimed, reason);
+                throw new BusinessRuleException(reason);
+            }
+            if (prepared.again()) {
+                markRepeated(orderId, kind, Instant.now());
+            } else {
+                clearError(orderId);
+            }
+            return true;
+        } finally {
+            underWay.remove(sending);
         }
-        if (prepared.again()) {
-            markRepeated(orderId, kind, Instant.now());
-        } else {
-            clearError(orderId);
-        }
-        return true;
+    }
+
+    /**
+     * The sent moment of a mail as staff may read it: the stored one, except
+     * while it is only the claim of a send that is still under way. Then
+     * there is none yet, and the order shows neither "sent" nor "not left"
+     * until the provider answered.
+     */
+    public Instant shownSentAt(long orderId, Kind kind, Instant stored) {
+        return stored != null && underWay.contains(new UnderWay(orderId, kind, stored)) ? null : stored;
     }
 
     /** A fresh read of the row and the document, in its own short transaction; null when there is nothing to send. */
@@ -302,5 +354,10 @@ public class WebOrderMails {
             if (part != null && !part.isBlank()) filled.add(part.strip());
         }
         return String.join(separator, filled);
+    }
+
+    /** Tests run the deliveries on the test thread or capture them. */
+    void useExecutor(Executor executor) {
+        this.executor = executor;
     }
 }
