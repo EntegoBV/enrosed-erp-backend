@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -256,6 +257,16 @@ public class StockService {
     /** What was reported against one container after it was received, newest first. */
     public List<StockMovement> movementsForPurchaseOrder(long purchaseOrderId) {
         return ledger.forPurchaseOrder(purchaseOrderId);
+    }
+
+    /** Every line booked from one moment up to another, oldest first. */
+    public List<StockMovement> movementsBetween(Instant fromInclusive, Instant toExclusive) {
+        return ledger.between(fromInclusive, toExclusive);
+    }
+
+    /** The last line of a product at a location before a moment. */
+    public Optional<StockMovement> lastMovementBefore(long productId, long locationId, Instant before) {
+        return ledger.lastBefore(productId, locationId, before);
     }
 
     /**

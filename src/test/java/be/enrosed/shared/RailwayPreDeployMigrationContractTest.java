@@ -515,7 +515,63 @@ class RailwayPreDeployMigrationContractTest {
                 "the new tables land after every earlier script");
         assertTrue(runner.contains("customer-account-postgresql.sql \\\n"),
                 "without the continuation backslash psql never sees the new file");
-        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.contains("sales-web-order-postgresql.sql \\\n"),
+                "the website-order file is no longer last, so it needs the continuation backslash");
+    }
+
+    @Test
+    void stockInventorySchemaIsFourteenAdditiveTablesRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-09/stock-inventory-postgresql.sql");
+        String sql = normalizedSql(migration);
+        for (String table : new String[] {"stock_valuation_rule", "stock_count", "stock_count_line",
+                "stock_opening_layer", "stock_closing", "stock_closing_decision", "stock_closing_movement",
+                "stock_closing_container", "stock_closing_lot", "stock_closing_article", "stock_closing_layer",
+                "stock_closing_line", "stock_closing_separate", "stock_closing_write_down"}) {
+            assertTrue(sql.contains("create table if not exists " + table + " ("), table);
+        }
+        assertEquals(14, sql.split("create table if not exists ", -1).length - 1, "fourteen tables, no other");
+        assertTrue(sql.contains("create unique index if not exists uq_stock_count_line_product"
+                + " on stock_count_line (count_id, product_id);"), "a product is listed once per count session");
+        assertTrue(sql.contains("create unique index if not exists uq_stock_closing_year_version"
+                + " on stock_closing (closing_year, version_no);"), "one closing per year and version");
+        assertFalse(sql.contains("check"), "statuses, kinds and roles are plain strings");
+        assertFalse(sql.contains("alter table"), "no existing table gains a column");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
+        assertNonDestructive(sql);
+
+        /* The scale the entity declares: schema strategy "update" would otherwise alter every plain numeric column. */
+        java.util.regex.Matcher numeric = java.util.regex.Pattern.compile("numeric(\\(\\d+,\\s*\\d+\\))?").matcher(sql);
+        int amounts = 0;
+        while (numeric.find()) {
+            amounts++;
+            assertTrue(numeric.group().replace(" ", "").matches("numeric\\(19,(2|4|8)\\)"), "a money, unit or rate column: " + numeric.group());
+        }
+        assertEquals(102, amounts, "every numeric column of the fourteen tables");
+
+        String entities = "src/main/java/be/enrosed/inventory/adapter/out/persistence/";
+        assertEntityNamesEveryColumn(sql, "stock_valuation_rule", "StockValuationRuleEntity", 9, entities);
+        assertEntityNamesEveryColumn(sql, "stock_count", "StockCountEntity", 17, entities);
+        assertEntityNamesEveryColumn(sql, "stock_count_line", "StockCountLineEntity", 26, entities);
+        assertEntityNamesEveryColumn(sql, "stock_opening_layer", "StockOpeningLayerEntity", 14, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing", "StockClosingEntity", 52, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_decision", "StockClosingDecisionEntity", 22, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_movement", "StockClosingMovementEntity", 26, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_container", "StockClosingContainerEntity", 56, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_lot", "StockClosingLotEntity", 42, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_article", "StockClosingArticleEntity", 31, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_layer", "StockClosingLayerEntity", 28, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_line", "StockClosingLineEntity", 30, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_separate", "StockClosingSeparateEntity", 29, entities);
+        assertEntityNamesEveryColumn(sql, "stock_closing_write_down", "StockClosingWriteDownEntity", 16, entities);
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/sales-web-order-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the new tables land after every earlier script");
+        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/stock-inventory-postgresql.sql"));
     }
 
     /**
@@ -532,7 +588,8 @@ class RailwayPreDeployMigrationContractTest {
         String opening = "create table if not exists " + table + " (";
         int start = sql.indexOf(opening) + opening.length();
         String body = sql.substring(start, sql.indexOf(");", start));
-        java.util.List<String> columns = java.util.Arrays.stream(body.split(","))
+        /* A comma inside "numeric(19,2)" does not end a column. */
+        java.util.List<String> columns = java.util.Arrays.stream(body.split(",(?![^(]*\\))"))
                 .map(String::trim)
                 .filter(definition -> !definition.startsWith("constraint "))
                 .map(definition -> definition.substring(0, definition.indexOf(' ')))
