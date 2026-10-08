@@ -14,7 +14,10 @@ import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.sales.domain.SalesPurpose;
+import be.enrosed.catalog.application.StockService;
+import be.enrosed.catalog.domain.StockLocation;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.mockito.InjectSpy;
 import io.quarkus.test.security.TestSecurity;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -53,6 +56,8 @@ class AccountDocumentsVisibilityTest {
     @Inject WebOrderDeliveries deliveries;
     @Inject CountryService countries;
     @Inject EntityManager em;
+    /** Real, except where a test offers a collection point of its own. */
+    @InjectSpy StockService stock;
 
     private final Shop shop = new Shop();
 
@@ -512,9 +517,37 @@ class AccountDocumentsVisibilityTest {
         assertEquals("LAST_ORDER", pickup.source());
         assertNull(pickup.fulfillment());
         assertNull(pickup.pickupLocationId());
-        assertEquals("BE", pickup.destination().countryCode());
+        assertNull(pickup.destination(), "the last order was collected: there is no address to start from");
         assertNull(pickup.contactName(), "a control character in the name");
         assertNull(pickup.phone(), "a phone number of two lines");
+    }
+
+    @Test
+    void aCollectedOrderHasNoDestinationInTheDetailNorInThePrefill() {
+        Shop.Placed order = shop.place();
+        long point = 987_655L;
+        org.mockito.Mockito.doReturn(List.of(new StockLocation(point, "LOC-PICKUP", "Intern magazijn",
+                StockLocation.Kind.WAREHOUSE, "Intern adres", true, true, false, 0,
+                true, "Magazijn Tessenderlo", "Industrieweg 1, 3980 Tessenderlo", null, 0)))
+                .when(stock).publicPickupLocations();
+        shop.inTransaction(() -> deliveries.save(order.id(), new WebOrderDeliveries.Delivery(order.customerId(),
+                WebOrderDeliveries.PICKUP, null, null, null, point, "Magazijn Tessenderlo",
+                "Industrieweg 1, 3980 Tessenderlo", "Jan Besteller", "+32 13 00 00 00", null)));
+
+        OrderDetail detail = detail(order);
+        assertEquals("PICKUP", detail.fulfillment());
+        assertEquals(point, detail.pickupLocation().id());
+        assertEquals("Magazijn Tessenderlo", detail.pickupLocation().label());
+        assertNull(detail.destination(), "a collection goes nowhere: no country without an address");
+        assertEquals("Jan Besteller", detail.contactName());
+
+        DeliveryDefaults last = defaults(order.customerId());
+        assertEquals("LAST_ORDER", last.source());
+        assertEquals("PICKUP", last.fulfillment());
+        assertEquals(point, last.pickupLocationId());
+        assertNull(last.destination());
+        assertEquals("Jan Besteller", last.contactName());
+        assertEquals("+32 13 00 00 00", last.phone());
     }
 
     // ------------------------------------------------------------------------------------------ nothing internal

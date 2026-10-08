@@ -323,9 +323,11 @@ public class AccountDocuments {
                     .filter(typed -> typed.customerId() == null || typed.customerId() == customerId).orElse(null);
             if (delivery != null) {
                 fulfillment = delivery.fulfillment();
+                /* A collection goes nowhere: the pickup point is its place, and a country alone would read as an address. */
                 if (WebOrderDeliveries.PICKUP.equals(fulfillment))
                     pickup = new PickupView(delivery.pickupLocationId(), delivery.pickupLabel(), delivery.pickupAddress());
-                destination = new Destination(country, delivery.postalCode(), delivery.city(), delivery.address());
+                else
+                    destination = new Destination(country, delivery.postalCode(), delivery.city(), delivery.address());
                 contactName = delivery.contactName();
                 phone = delivery.contactPhone();
             } else {
@@ -407,13 +409,15 @@ public class AccountDocuments {
             String fulfillment = WebOrderDeliveries.DELIVERY.equals(delivery.fulfillment())
                     || WebOrderDeliveries.PICKUP.equals(delivery.fulfillment()) ? delivery.fulfillment() : null;
             Long pickupLocationId = null;
-            if (WebOrderDeliveries.PICKUP.equals(fulfillment)) {
+            /* The last order was collected: there is no address to start from, also when its pickup point is gone. */
+            boolean collected = WebOrderDeliveries.PICKUP.equals(fulfillment);
+            if (collected) {
                 pickupLocationId = publicPickup(delivery.pickupLocationId());
                 if (pickupLocationId == null) fulfillment = null;
             }
             return new DeliveryDefaults("LAST_ORDER", fulfillment, pickupLocationId,
-                    destination(snapshot == null ? null : snapshot.countryCode(), delivery.postalCode(), delivery.city(),
-                            delivery.address()),
+                    collected ? null : destination(snapshot == null ? null : snapshot.countryCode(),
+                            delivery.postalCode(), delivery.city(), delivery.address()),
                     singleLine(delivery.contactName(), 120), singleLine(delivery.contactPhone(), 50));
         }
         Customer customer = customers.get(customerId);
