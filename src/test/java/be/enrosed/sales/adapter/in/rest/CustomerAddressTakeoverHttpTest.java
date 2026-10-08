@@ -119,7 +119,8 @@ class CustomerAddressTakeoverHttpTest {
         Shop.Placed same = placedWithoutAddress();
         setAddress(same.customerId(), "industrieweg 1", null, null);
         get(same.id()).body("invoiceCustomer.missing", contains("POSTAL_CODE", "CITY"))
-                .body("invoiceCustomer.takeover.address", equalTo("Industrieweg 1"));
+                .body("invoiceCustomer.takeover.address", equalTo("industrieweg 1"))
+                .body("invoiceCustomer.takeover.city", equalTo("Tessenderlo"));
         takeOver(same.id(), TESSENDERLO).statusCode(200).body("invoiceCustomer", nullValue());
         JsonPath filled = record(same.customerId());
         assertEquals("industrieweg 1", filled.getString("address"), "the street staff typed stays as they typed it");
@@ -249,6 +250,40 @@ class CustomerAddressTakeoverHttpTest {
 
         issue(invoiceId).statusCode(200).body("order.status", not(equalTo("CONCEPT")))
                 .body("invoiceCustomer", nullValue());
+    }
+
+    @Test
+    void aRecordWithoutCountryGetsItsAddressAndNoCountry() {
+        Shop.Placed order = placedWithoutAddress();
+        shop.inTransaction(() -> em.find(CustomerEntity.class, order.customerId()).countryCode = null);
+        /* Staff can set any country on the document; it says nothing about where the customer is established. */
+        shop.inTransaction(() -> em.find(be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity.class,
+                order.id()).countryCode = "NL");
+
+        get(order.id()).body("order.countryCode", equalTo("NL"))
+                .body("invoiceCustomer.takeover.address", equalTo("Industrieweg 1"))
+                .body("invoiceCustomer.takeover.countryCode", nullValue())
+                .body("invoiceCustomer.takeoverBlockedBy", nullValue());
+        takeOver(order.id(), TESSENDERLO).statusCode(200).body("invoiceCustomer", nullValue());
+
+        JsonPath filled = record(order.customerId());
+        assertEquals("Industrieweg 1", filled.getString("address"));
+        assertEquals("Tessenderlo", filled.getString("city"));
+        assertNull(filled.getString("countryCode"), "the country stays for staff to set on the record");
+    }
+
+    @Test
+    void anIssuedInvoiceWhoseCustomerLostTheAddressIsRefusedItsSendingNotItsIssuing() {
+        Shop.Placed order = shop.place();
+        String company = record(order.customerId()).getString("company");
+        long invoiceId = ((Number) given().queryParam("webOrderRevision", 1).contentType("application/json")
+                .post(BASE + "/{id}/invoice", order.id()).then().statusCode(200).extract().path("order.id")).longValue();
+        issue(invoiceId).statusCode(200).body("order.status", equalTo("UITGEREIKT"));
+        setAddress(order.customerId(), null, null, null);
+
+        given().contentType("application/json").body("{}").post(BASE + "/{id}/mark-sent", invoiceId)
+                .then().statusCode(409).body("message", equalTo("De factuur kan niet verstuurd worden: bij klant " + company
+                        + " ontbreken straat en nummer, postcode en stad. Vul dit in bij de klantgegevens."));
     }
 
     // ------------------------------------------------------------------------------------------ helpers

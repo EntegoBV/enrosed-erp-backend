@@ -31,7 +31,12 @@ public final class CustomerInvoiceData {
     /** The delivery address lacks a missing field, or contradicts a field the record already has. */
     public static final String BLOCKED_INCOMPLETE = "INCOMPLETE";
 
-    /** The address as the record will read after the takeover; country is the record's own when it has one. */
+    /**
+     * The address as the record will read after the takeover: a field the
+     * record already has is shown in the record's own spelling, since it is
+     * not written. The country is the record's own and null when it has
+     * none: the takeover never writes a country, the delivery row has none.
+     */
     public record Takeover(String address, String postalCode, String city, String countryCode) {}
 
     /** Either the address that may be taken over, or why it may not. */
@@ -66,9 +71,19 @@ public final class CustomerInvoiceData {
 
     /** The sentence staff read when the document cannot be issued; null when nothing is missing. */
     public static String refusal(Customer customer, boolean creditNote) {
+        return refusal(customer, creditNote, false);
+    }
+
+    /**
+     * The same sentence for a document that may be issued already: the
+     * address of the record can be emptied afterwards, and then it is the
+     * sending that is refused, not the issuing.
+     */
+    public static String refusal(Customer customer, boolean creditNote, boolean alreadyIssued) {
         List<String> missing = missing(customer);
         if (missing.isEmpty()) return null;
-        return (creditNote ? "De creditnota" : "De factuur") + " kan niet uitgereikt worden: bij klant "
+        return (creditNote ? "De creditnota" : "De factuur") + " kan niet "
+                + (alreadyIssued ? "verstuurd" : "uitgereikt") + " worden: bij klant "
                 + customer.company() + (missing.size() == 1 ? " ontbreekt " : " ontbreken ") + missingText(missing)
                 + ". Vul dit in bij de klantgegevens.";
     }
@@ -100,10 +115,16 @@ public final class CustomerInvoiceData {
         if (!fits(customer.address(), delivery.address()) || !fits(customer.postalCode(), delivery.postalCode())
                 || !fits(customer.city(), delivery.city()))
             return new Offer(null, BLOCKED_INCOMPLETE);
-        String country = !blank(customer.countryCode()) ? customer.countryCode().strip()
-                : blank(orderCountry) ? null : orderCountry.strip().toUpperCase(java.util.Locale.ROOT);
-        return new Offer(new Takeover(delivery.address().strip(), delivery.postalCode().strip(), delivery.city().strip(),
+        /* The country of a document is staff's to change and no part of the delivery address: it is never taken over. */
+        String country = blank(customer.countryCode()) ? null : customer.countryCode().strip();
+        return new Offer(new Takeover(afterwards(customer.address(), delivery.address()),
+                afterwards(customer.postalCode(), delivery.postalCode()), afterwards(customer.city(), delivery.city()),
                 country), null);
+    }
+
+    /** What the record reads after the takeover: its own value where it has one, else the delivery's. */
+    private static String afterwards(String recorded, String delivered) {
+        return blank(recorded) ? delivered.strip() : recorded;
     }
 
     /** The notice of a document for this customer; null when the record is complete or the document asks nothing. */

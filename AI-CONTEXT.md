@@ -805,7 +805,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `CustomerInvoiceData` (pure, one place) names what is missing, writes
   the refusal ("De factuur kan niet uitgereikt worden: bij klant X
   ontbreken straat en nummer, postcode en stad. Vul dit in bij de
-  klantgegevens.", HTTP 409 without a code, as before) and decides the
+  klantgegevens.", HTTP 409 without a code, as before; "verstuurd" instead
+  of "uitgereikt" when the invoice is already issued and the record was
+  emptied afterwards - such a document shows no notice) and decides the
   offer. The staff view of ONE document (never the list) carries
   `invoiceCustomer` {customerId, company, missing[ADDRESS|POSTAL_CODE|CITY],
   takeover{address,postalCode,city,countryCode}|null,
@@ -815,15 +817,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   concept. The takeover is offered only when the document's delivery row
   (`WebOrderDeliveries.forDocument`, so also the invoice made from the
   order) is a DELIVERY that fills every empty field and agrees with every
-  field the record already has, in the record's country.
+  field the record already has, in the record's country. `takeover` reads
+  as the record will afterwards: a field the record already has in the
+  record's own spelling, `countryCode` the record's own or null.
   `POST /api/sales-orders/{id}/customer-address-from-delivery` with the
   address staff confirmed ({address, postalCode, city}) answers the fresh
   view. `CustomerAddressTakeover.take` locks the document with
   `lockDocumentForCustomer` (**never the staff gate**: no webOrderRevision,
   the order is not taken into processing and nobody is mailed), then the
   customer row, and calls `CustomerService.fillMissingAddress`, which
-  writes only empty fields (country too when the record has none), never
-  name, VAT number or contact data, and logs a CUSTOMER UPDATED activity
+  writes only empty street, postal code and city, **never the country**
+  (the delivery row has none; the document's country is staff's to
+  change), name, VAT number or contact data, and logs a CUSTOMER UPDATED activity
   "Adres overgenomen van het leveradres van <number>". A complete record
   answers 200 and writes nothing; a delivery that no longer reads as
   confirmed is 409 "Het leveradres is intussen gewijzigd. Controleer het

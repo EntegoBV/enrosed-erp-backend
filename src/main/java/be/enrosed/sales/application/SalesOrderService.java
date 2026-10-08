@@ -1407,7 +1407,8 @@ public class SalesOrderService {
         }
         Customer customer = customers.get(invoice.customerId());
         /* An invoice without the customer's address is not valid; the sentence names what is missing. */
-        String addressRefusal = CustomerInvoiceData.refusal(customer, invoice.isCreditNote());
+        String addressRefusal = CustomerInvoiceData.refusal(customer, invoice.isCreditNote(),
+                invoice.status() == QuoteStatus.UITGEREIKT || invoice.status() == QuoteStatus.BETAALD);
         if (addressRefusal != null) throw new BusinessRuleException(addressRefusal);
         Country country = countries.find(invoice.countryCode());
         boolean intraEu = country != null && country.euMember()

@@ -48,6 +48,12 @@ class CustomerInvoiceDataTest {
                         + " Vul dit in bij de klantgegevens.",
                 CustomerInvoiceData.refusal(customer("Kaai 1", "", "Gent", "BE"), true));
         assertNull(CustomerInvoiceData.refusal(customer("Kaai 1", "9000", "Gent", "BE"), false));
+        assertEquals("De factuur kan niet verstuurd worden: bij klant Bloemen Anna ontbreekt stad."
+                        + " Vul dit in bij de klantgegevens.",
+                CustomerInvoiceData.refusal(customer("Kaai 1", "9000", null, "BE"), false, true),
+                "an invoice that is issued already is not refused its issuing");
+        assertEquals(CustomerInvoiceData.refusal(customer(null, null, null, "BE"), true),
+                CustomerInvoiceData.refusal(customer(null, null, null, "BE"), true, false));
     }
 
     @Test
@@ -59,7 +65,8 @@ class CustomerInvoiceDataTest {
 
         Offer noCountry = CustomerInvoiceData.offer(customer(null, null, null, " "), order(QuoteStatus.CONCEPT, DocumentType.OFFERTE),
                 delivery(WebOrderDeliveries.DELIVERY, "Stationsstraat 9", "9000", "Gent"));
-        assertEquals("BE", noCountry.takeover().countryCode(), "a record without country gets the country the order is delivered in");
+        assertEquals(new Takeover("Stationsstraat 9", "9000", "Gent", null), noCountry.takeover(),
+                "the country of the document is no part of the delivery address: a record without country keeps none");
     }
 
     @Test
@@ -85,6 +92,7 @@ class CustomerInvoiceDataTest {
         Offer offer = CustomerInvoiceData.offer(customer(null, null, " gent", "be"), order(QuoteStatus.CONCEPT, DocumentType.OFFERTE),
                 delivery(WebOrderDeliveries.DELIVERY, "Stationsstraat 9", "9000", "Gent"));
         assertEquals("Stationsstraat 9", offer.takeover().address());
+        assertEquals(" gent", offer.takeover().city(), "a field that is not written is shown as the record has it");
         assertEquals("be", offer.takeover().countryCode(), "the record's own country stays as it is");
     }
 

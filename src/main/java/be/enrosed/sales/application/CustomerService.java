@@ -77,19 +77,18 @@ public class CustomerService {
     }
 
     /**
-     * Completes the address of a record: each of street, postal code, city
-     * and country is written only where the record has none. A field that
-     * holds a value keeps it, and name, VAT number and contact data are not
+     * Completes the address of a record: each of street, postal code and
+     * city is written only where the record has none. A field that holds a
+     * value keeps it, and country, name, VAT number and contact data are not
      * looked at, so a record that would not pass today's form still saves.
      * Logged like any other edit of the record, under the given summary;
      * nothing to fill means nothing saved and nothing logged.
      */
     @Transactional
-    public Customer fillMissingAddress(long id, String address, String postalCode, String city, String countryCode,
-                                       String summary) {
+    public Customer fillMissingAddress(long id, String address, String postalCode, String city, String summary) {
         Customer current = get(id);
         Customer filled = new Customer(current.id(), current.company(), current.contact(), current.email(),
-                current.phone(), current.vatNumber(), whenEmpty(current.countryCode(), countryCode),
+                current.phone(), current.vatNumber(), current.countryCode(),
                 current.language(), whenEmpty(current.address(), address),
                 whenEmpty(current.postalCode(), postalCode), whenEmpty(current.city(), city), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.createdAt(), current.partner(),

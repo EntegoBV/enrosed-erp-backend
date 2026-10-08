@@ -64,7 +64,7 @@ public class CustomerAddressTakeover {
                 || !CustomerInvoiceData.sameText(expectedCity, takeover.city()))
             throw new BusinessRuleException(CHANGED);
         customers.fillMissingAddress(customer.id(), takeover.address(), takeover.postalCode(), takeover.city(),
-                takeover.countryCode(), "Adres overgenomen van het leveradres van " + order.number());
+                "Adres overgenomen van het leveradres van " + order.number());
         return order;
     }
 
