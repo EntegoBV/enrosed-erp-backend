@@ -192,7 +192,7 @@ class PublicContentSeedValuesTest {
                     .stream().filter(candidate -> candidate.getFirst().equals(key)).findFirst().orElseThrow();
         }
         assertEquals(List.of("8 oktober 2026", "8 octobre 2026", "8 October 2026", "8. Oktober 2026",
-                "8 de octubre de 2026", "8 października 2026 r", "8 de outubro de 2026", "8 Ekim 2026",
+                "8 de octubre de 2026", "8 października 2026 r.", "8 de outubro de 2026", "8 Ekim 2026",
                 "8 Οκτωβρίου 2026"), row.subList(3, 12));
         // Literals, not read back from the seed: what production holds until this release.
         List<String> former = List.of("20 augustus 2026", "20 août 2026", "20 August 2026", "20. August 2026",

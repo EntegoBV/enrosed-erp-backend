@@ -461,7 +461,7 @@ class ContentTranslationContractTest {
         current.put(Language.EN, "8 October 2026");
         current.put(Language.DE, "8. Oktober 2026");
         current.put(Language.ES, "8 de octubre de 2026");
-        current.put(Language.PL, "8 października 2026 r");
+        current.put(Language.PL, "8 października 2026 r.");
         current.put(Language.PT, "8 de outubro de 2026");
         current.put(Language.TR, "8 Ekim 2026");
         current.put(Language.EL, "8 Οκτωβρίου 2026");
