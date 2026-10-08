@@ -336,12 +336,16 @@ public record Product(
     /**
      * Colour in the given language.
      *
-     * A product-specific translation in this language wins; otherwise a
-     * standard colour translates itself through the shared dictionary, and
-     * that word is exact in the language. Anything else borrows a
-     * product-specific text from the fallback languages or stays as typed,
-     * and is not exact. Same rule as the public catalogue
-     * ({@code PublicColourText}).
+     * A product-specific translation wins, in this language or borrowed
+     * from the fallback languages, so a document prints the word it always
+     * printed. Without any such text a standard colour translates itself
+     * through the shared dictionary, and that word is exact in the language
+     * (the dictionary is reviewed and complete); anything unknown stays as
+     * typed and is not exact.
+     *
+     * The public catalogue is stricter on one point ({@code PublicColourText}):
+     * there a standard colour reads the dictionary before it borrows another
+     * language's text, and Dutch prints the dictionary's spelling.
      */
     public String colourIn(Language language) {
         return colourResolved(language).value();
@@ -350,16 +354,10 @@ public record Product(
     public LanguageFallback.Resolved<String> colourResolved(Language language) {
         LanguageFallback.Resolved<String> translated = LanguageFallback.text(
                 texts(), language, ProductText::language, ProductText::colour, null);
-        if (translated.value() != null && translated.sourceLanguage() == language) {
-            return translated;
-        }
-        if (be.enrosed.shared.ColourNames.isStandard(colour)) {
-            return new LanguageFallback.Resolved<>(
-                    be.enrosed.shared.ColourNames.translate(colour, language), language);
-        }
         if (translated.value() != null) return translated;
         return new LanguageFallback.Resolved<>(
-                be.enrosed.shared.ColourNames.translate(colour, language), null);
+                be.enrosed.shared.ColourNames.translate(colour, language),
+                be.enrosed.shared.ColourNames.isStandard(colour) ? language : null);
     }
 
     /** Description in this language, falling back to the base description. */

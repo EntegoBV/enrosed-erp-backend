@@ -12,8 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * The colour a document prints and whether it is exact in a language: the
- * strict catalogue export reads the same rule as the public catalogue.
+ * The colour a document prints and whether it is exact in a language. The
+ * dictionary rule of the public catalogue changes no printed word here: only
+ * a standard colour without any text of its own now counts as exact.
  */
 class ProductColourTest {
 
@@ -30,7 +31,7 @@ class ProductColourTest {
     }
 
     @Test
-    void aColourTextOfTheProductItselfInTheLanguageWins() {
+    void aColourTextOfTheProductItselfWinsAlsoWhenBorrowed() {
         Product product = product("Bordeaux", List.of(
                 new ProductText(Language.EN, null, null, "Deep wine"),
                 new ProductText(Language.FR, null, null, "Lie de vin")));
@@ -39,9 +40,20 @@ class ProductColourTest {
                 product.colourResolved(Language.EN));
         assertEquals(new LanguageFallback.Resolved<>("Lie de vin", Language.FR),
                 product.colourResolved(Language.FR));
-        assertEquals(new LanguageFallback.Resolved<>("Bordeauxrot", Language.DE),
+        assertEquals(new LanguageFallback.Resolved<>("Deep wine", Language.EN),
                 product.colourResolved(Language.DE),
-                "a language without its own text reads the dictionary, not the English text");
+                "a document keeps borrowing the product's own text, as before the dictionary rule");
+    }
+
+    @Test
+    void aStandardColourStoredInAnotherSpellingPrintsAsTypedInDutch() {
+        Product product = product("  bORDEAUX ", List.of());
+
+        /* Documents never respelled the Dutch word; only the public catalogue prints "Bordeaux". */
+        assertEquals(new LanguageFallback.Resolved<>("  bORDEAUX ", Language.NL),
+                product.colourResolved(Language.NL));
+        assertEquals(new LanguageFallback.Resolved<>("Burgundy", Language.EN),
+                product.colourResolved(Language.EN));
     }
 
     @Test

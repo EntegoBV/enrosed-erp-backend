@@ -562,11 +562,16 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   dictionary's spelling in Dutch too) and is exact in that language, like a
   unit; any other colour borrows from the fallback chain or prints as typed
   and stays a localization hole. The strict family endpoint, the generated
-  alt, `PublicLocalizationCompletenessService` (both channels) and
-  `Product.colourResolved` (documents, strict PDF check, legacy public
-  catalogue) share the rule, so a new product with a pick-list colour never
-  blocks the website build. The website revision adds a `dictionaryColour`
-  term only for a variant whose colour comes from the dictionary.
+  alt and `PublicLocalizationCompletenessService` (both channels) share the
+  rule, so a new product with a pick-list colour never blocks the website
+  build. The website revision adds a `dictionaryColour` term only for a
+  variant whose colour comes from the dictionary (pinned digest in
+  `WebsiteCatalogRevisionServiceTest`; correcting colour-names.csv changes
+  it on purpose). Documents and the legacy public catalogue
+  (`Product.colourResolved`) print what they always printed - own or
+  borrowed product text first, then the dictionary, Dutch as stored - and
+  only count a pick-list colour without any product text as exact, so the
+  strict PDF check no longer reports it.
 - **Website price switch**: `PUT /api/website/quote-settings`
   `{"pricesVisible":bool}` (table `website_quote_settings`, one row; a
   missing row = visible) withholds prices on the whole public website, not

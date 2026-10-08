@@ -125,6 +125,24 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void theDictionaryWordsOfAVariantWithoutColourTextsAreTermsOfTheRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        graph.product().colour = "Bordeaux";
+        graph.product().texts.clear();
+
+        /* The stored colour and the (absent) colour texts are the same before and after a
+           dictionary correction, so only the nine dictionaryColour terms can carry it. The
+           first digest is what the service wrote without those terms (previous release).
+           A corrected "Bordeaux" row in colour-names.csv changes the second digest: that is
+           the rebuild this term exists for, pin the new value then. */
+        String revision = service(graph).currentRevision();
+        assertNotEquals("7d4f886348e96056e6d5b01a606c3a3f1f1985559e74c4a850ac3d87110102c4", revision,
+                "a dictionary colour must add its words to the revision");
+        assertEquals("ffc0049a3b4eafd39d1cf7d09f59131924d4c792c749dd04b54fb70710130eba", revision);
+    }
+
+    @Test
     void withholdingPricesAltersTheRevisionAndShowingThemKeepsTheExistingOne() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
