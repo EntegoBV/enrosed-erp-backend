@@ -519,22 +519,64 @@ public class QuoteService {
                 .filter(found -> !SalesLifecycle.neverSent(found))
                 .orElseThrow(() -> new NotFoundException("Offertelink", token));
         SalesLifecycle.requirePortalVisible(order);
+        /* Cancelled while staff had it reopened: what the document holds now was
+           never sent and no copy of the sent version exists, so the link says
+           that it is cancelled and shows nothing else, on every portal route. */
+        if (cancelledAsUnsentDraft(order)) {
+            throw new BusinessRuleException(cancellationMessage(order)
+                    .map(message -> CANCELLED_NOTICE + " " + message).orElse(CANCELLED_NOTICE));
+        }
         return order;
+    }
+
+    /** What the portal answers for a quotation that was cancelled as an unsent draft. */
+    static final String CANCELLED_NOTICE = "Deze offerte is geannuleerd.";
+
+    /** The steps that put a sent quotation back on concept: a reopening, or a customer proposal we adopted. */
+    private static final Set<QuoteEvent.Type> BACK_TO_DRAFT =
+            Set.of(QuoteEvent.Type.HEROPEND, QuoteEvent.Type.VOORSTEL_OVERGENOMEN);
+
+    /**
+     * Was this cancelled quotation a reopened draft, not sent again, at the
+     * moment of the cancel? Then its lines, prices, discount, notes and PDF
+     * are edits the customer was never sent.
+     *
+     * The history answers it, for a cancel of today and one of last year
+     * alike: of the steps that decide what the customer holds - a sending,
+     * a reopening, an adopted proposal - the latest is not a sending. Each of
+     * those steps is recorded in the transaction that makes it, and a
+     * cancelled document takes no further such step without leaving the
+     * cancelled status. A document whose history shows no step back to
+     * concept after its last sending was cancelled as it was sent.
+     */
+    public boolean cancelledAsUnsentDraft(SalesOrder order) {
+        if (order == null || order.id() == null || order.status() != QuoteStatus.GEANNULEERD
+                || order.sentAt() == null) {
+            return false;
+        }
+        /* Newest first. */
+        return events.findByOrder(order.id()).stream()
+                .map(QuoteEvent::type)
+                .filter(type -> type == QuoteEvent.Type.VERSTUURD || BACK_TO_DRAFT.contains(type))
+                .findFirst()
+                .filter(BACK_TO_DRAFT::contains)
+                .isPresent();
     }
 
     /**
      * Full, server-configured customer URL when a real sent portal is live.
      *
      * A reopened quote deliberately keeps its historical token, but that token
-     * must not become copyable while the aggregate contains unsent edits. The
-     * sent timestamp also prevents malformed or old draft data with a stray
+     * must not become copyable while the aggregate contains unsent edits, nor
+     * after it was cancelled in that state. The sent timestamp also prevents malformed or old draft data with a stray
      * token from being advertised as a customer link.
      */
     public Optional<String> activePortalUrl(SalesOrder order) {
         if (order == null
                 || order.portalToken() == null || order.portalToken().isBlank()
                 || order.sentAt() == null
-                || !SalesLifecycle.portalVisible(order)) {
+                || !SalesLifecycle.portalVisible(order)
+                || cancelledAsUnsentDraft(order)) {
             return Optional.empty();
         }
         return Optional.of(portalUrl(order.portalToken()));
@@ -773,10 +815,15 @@ public class QuoteService {
      * The proposal is not deleted but marked withdrawn: that it existed for a
      * while belongs to the story of this quote. The quote returns to viewed,
      * because it is back in the customer's court.
+     *
+     * Only on a quote that is still open, as for every other answer of the
+     * customer: withdrawing on a cancelled, accepted, rejected or expired
+     * quote would put it back on viewed and wipe how it was closed.
      */
     @Transactional
     public SalesOrder withdrawRevision(String token) {
         SalesOrder order = byToken(token);
+        requireOpen(order);
 
         QuoteRevision pending = revisions.findByOrder(order.id()).stream()
                 .filter(revision -> revision.status() == RevisionStatus.IN_AFWACHTING)
@@ -972,9 +1019,16 @@ public class QuoteService {
      * sent then shows it as cancelled, and when asked we tell the customer
      * by mail with that link. A request that never went out is told by mail
      * too, but without a link and without a token: the portal shows prices,
-     * and nobody sent this customer a quotation. A mail that cannot leave
-     * keeps the quote open, so nothing looks cancelled that the customer
-     * never heard of.
+     * and nobody sent this customer a quotation. A sent quote that is
+     * cancelled while it is reopened holds edits that were never sent: its
+     * mail carries no link either, and its link from then on only says that
+     * the quote is cancelled ({@link #cancelledAsUnsentDraft}). A mail that
+     * cannot leave keeps the quote open, so nothing looks cancelled that the
+     * customer never heard of.
+     *
+     * A proposal of the customer that still lies open is closed as not
+     * adopted: nothing can come of it any more, and left open it would keep
+     * the quote from being reopened.
      */
     @Transactional
     public SalesOrder cancel(long orderId, String reason, boolean notifyCustomer) {
@@ -1003,16 +1057,25 @@ public class QuoteService {
            without a link too. */
         String token = order.portalToken();
         boolean wasSent = order.sentAt() != null && token != null && !token.isBlank();
+        /* A reopened draft is cancelled with edits nobody sent: the link will
+           only say "cancelled", so the mail does not hand it out. */
+        boolean linkShowsTheQuote = wasSent && status != QuoteStatus.CONCEPT;
         String toldCustomer = null;
         if (notifyCustomer && order.customerId() != null) {
             Customer customer = customers.get(order.customerId());
             if (customer.email() != null && !customer.email().isBlank()) {
-                mailer.sendCancellation(order, customer, wasSent ? portalUrl(token) : null, message);
+                mailer.sendCancellation(order, customer, linkShowsTheQuote ? portalUrl(token) : null, message);
                 toldCustomer = recipient(order, customer).to();
             }
         }
 
         ActorRef actor = staffActor();
+        for (QuoteRevision pending : revisions.findByOrder(order.id())) {
+            if (pending.status() != RevisionStatus.IN_AFWACHTING) continue;
+            revisions.save(handled(pending, RevisionStatus.AFGEWEZEN, actor.displayName(), null));
+            record(order, QuoteEvent.Type.VOORSTEL_AFGEWEZEN, false, actor.displayName(),
+                    "Open voorstel van de klant vervalt door de annulering", null);
+        }
         record(order, QuoteEvent.Type.GEANNULEERD, false, actor.displayName(),
                 toldCustomer == null ? "Offerte geannuleerd" : "Offerte geannuleerd, klant verwittigd op " + toldCustomer,
                 message);
@@ -1072,9 +1135,10 @@ public class QuoteService {
     /** What we told the customer when cancelling, for the portal page. */
     public Optional<String> cancellationMessage(SalesOrder order) {
         if (order.status() != QuoteStatus.GEANNULEERD || order.id() == null) return Optional.empty();
-        return history(order.id()).stream()
+        /* Newest first: a quote cancelled, reopened and cancelled again says what the last cancel said. */
+        return events.findByOrder(order.id()).stream()
                 .filter(event -> event.type() == QuoteEvent.Type.GEANNULEERD)
-                .reduce((first, second) -> second)
+                .findFirst()
                 .map(QuoteEvent::detail)
                 .filter(detail -> detail != null && !detail.isBlank());
     }

@@ -70,6 +70,34 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   quote was sent to: `send` only keeps a token when `sentAt` is set (a
   first sending always makes its own), `SalesOrderService.update` drops the
   token when the customer changes, and `cancel` never makes one.
+- **Cancelled as an unsent draft shows nothing** (2026-10-08). There is no
+  stored copy of what was sent, so a sent quote that staff reopened (or an
+  adopted proposal: CONCEPT with `sentAt`) and cancelled before sending it
+  again holds edits the customer never got. From that cancel every
+  `/api/portal/{token}` route (page, products, photo, PDF, accept, reject,
+  propose, withdraw) answers 409 "Deze offerte is geannuleerd." plus the
+  message staff wrote, never a figure; the cancellation mail goes without
+  the portal link, `activePortalUrl` is empty (staff PDF, portal-link).
+  Staff keep the document in their own API. Also when nothing was edited:
+  the rule is the state at the cancel, not a diff. No column: the signal is
+  `QuoteService.cancelledAsUnsentDraft`, read from `quote_event` newest
+  first - of VERSTUURD / HEROPEND / VOORSTEL_OVERGENOMEN the latest is not
+  VERSTUURD. Rows cancelled earlier are read the same way; a row without
+  such a step after its last sending stays visible. Whoever adds another
+  way back to CONCEPT for a sent quote must record one of those events (or
+  extend `BACK_TO_DRAFT`). A quote cancelled as it was sent is unchanged:
+  page, PDF and mail link. The JSON routes answer the usual
+  `{status,message,timestamp}`; the photo and PDF routes do not produce
+  JSON, so the same map arrives as text with status 409. The portal page
+  shows its fixed "link no longer valid" text for any failed load, not the
+  message of the refusal.
+- **Customer answers need an open quote**: accept, reject, propose and
+  withdraw all pass `requireOpen` (open status, not past `validUntil`).
+  Withdraw used to skip it and put a cancelled quote back on BEKEKEN.
+  `cancel` closes a proposal that still lies open as AFGEWEZEN with a
+  VOORSTEL_AFGEWEZEN event, because `requireReopenable` refuses a reopen
+  while one is pending and handling it afterwards would move the status.
+  `cancellationMessage` reads the newest GEANNULEERD event.
 - `quote_event.detail` is varchar(4000): `EventAdapter.add` cuts a longer
   detail instead of failing the action that records it.
 - **Revisions**: the customer proposes quantity changes in the portal. We
