@@ -379,6 +379,34 @@ class WebOrderMailsTest {
     }
 
     @Test
+    void anOrderReadWhileTheMailWasLeavingIsNotShownAsSentAfterTheMailFailed() {
+        Fixture f = fixture("NL", true);
+        List<Runnable> handed = WebOrderMailsExecutor.capture(mails);
+        List<Instant> readDuring = new ArrayList<>();
+        doAnswer(leaving -> {
+            readDuring.add(stored(f.id).receivedMailSentAt);
+            throw new BusinessRuleException("De mail kon niet verzonden worden via de maildienst: maildienst antwoordde 500");
+        }).when(mailer).sendOrderReceived(org.mockito.ArgumentMatchers.any());
+
+        QuarkusTransaction.requiringNew().run(() -> placed.fire(new WebOrderEvents.Placed(f.id, NUMBER)));
+        handed.getFirst().run();
+
+        assertEquals(1, readDuring.size());
+        assertNotNull(readDuring.getFirst(), "the answer being built read the claim");
+        assertNull(stored(f.id).receivedMailSentAt, "the claim was given back");
+        assertEquals(0, mailbox.getTotalMessagesSent());
+        assertNull(mails.shownSentAt(f.id, Kind.RECEIVED, readDuring.getFirst()), "a failed mail is not shown as sent");
+
+        /* The mail that does leave afterwards has its own moment, and that one is shown. */
+        org.mockito.Mockito.reset(mailer);
+        mails.resend(f.id, false);
+        Instant sentAt = stored(f.id).receivedMailSentAt;
+        assertNotNull(sentAt);
+        assertEquals(sentAt, mails.shownSentAt(f.id, Kind.RECEIVED, sentAt));
+        assertNull(mails.shownSentAt(f.id, Kind.RECEIVED, readDuring.getFirst()));
+    }
+
+    @Test
     void aDeliveryTheExecutorRefusesLeavesTheMailDueForStaffToSend() {
         Fixture f = fixture("NL", true);
         mails.useExecutor(task -> {

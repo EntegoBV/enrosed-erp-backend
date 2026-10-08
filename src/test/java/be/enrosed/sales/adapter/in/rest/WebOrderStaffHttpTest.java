@@ -5,9 +5,11 @@ import be.enrosed.sales.application.QuoteService;
 import be.enrosed.sales.application.WebOrderMails;
 import be.enrosed.sales.application.WebOrderMailsExecutor;
 import be.enrosed.sales.application.WebOrderStaffGateTest.Shop;
+import be.enrosed.shared.mail.CustomerOrderMailer;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import io.quarkus.mailer.MockMailbox;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.mockito.InjectSpy;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.response.ValidatableResponse;
 import jakarta.inject.Inject;
@@ -19,9 +21,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.allOf;
@@ -33,7 +37,11 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * The staff endpoints of a website order as the ERP calls them: the revision
@@ -50,6 +58,8 @@ class WebOrderStaffHttpTest {
     @Inject EntityManager em;
     @Inject MockMailbox mailbox;
     @Inject WebOrderMails webOrderMails;
+    /** The real mailer; two tests look at the order, or at the thread, while a mail is leaving. */
+    @InjectSpy CustomerOrderMailer mailer;
 
     private final Shop shop = new Shop();
 
@@ -301,6 +311,64 @@ class WebOrderStaffHttpTest {
         get(order.id()).body("webOrder.processingMailSentAt", notNullValue())
                 .body("webOrder.mailDue", equalTo(false))
                 .body("webOrder.mailError", nullValue());
+    }
+
+    @Test
+    void anOrderOpenedWhileItsMailIsWithTheProviderShowsItNeitherSentNorDue() {
+        Shop.Placed order = shop.place("flight@login.example");
+        List<Runnable> handed = WebOrderMailsExecutor.capture(webOrderMails);
+        take(order.id(), 1).statusCode(200);
+        List<Instant> claimed = new ArrayList<>();
+        List<Map<String, Object>> shown = new ArrayList<>();
+        doAnswer(leaving -> {
+            claimed.add(shop.inTransaction(() -> em.find(SalesWebOrderEntity.class, order.id()).processingMailSentAt));
+            shown.add(get(order.id()).extract().jsonPath().getMap("webOrder"));
+            shown.add(given().get(BASE).then().statusCode(200).extract().jsonPath()
+                    .getMap("find { it.order.id == " + order.id() + " }.webOrder"));
+            return leaving.callRealMethod();
+        }).when(mailer).sendOrderInProcessing(any());
+
+        handed.getFirst().run();
+
+        assertEquals(1, claimed.size());
+        assertNotNull(claimed.getFirst(), "the row says sent while the mail is leaving");
+        assertEquals(2, shown.size());
+        for (Map<String, Object> view : shown) {
+            assertNotNull(view.get("processingStartedAt"));
+            assertNull(view.get("processingMailSentAt"), "the ERP is not told it was sent before the provider answered");
+            assertEquals(false, view.get("mailDue"));
+            assertNull(view.get("mailError"));
+        }
+        assertEquals(1, mailbox.getMailsSentTo("flight@login.example").size());
+        get(order.id()).body("webOrder.processingMailSentAt", notNullValue());
+    }
+
+    @Test
+    void onTheProductionPoolTheMailOfATakenOrderLeavesOnABackgroundThread() throws Exception {
+        Shop.Placed order = shop.place("pool@login.example");
+        List<String> threads = new CopyOnWriteArrayList<>();
+        doAnswer(leaving -> {
+            threads.add(Thread.currentThread().getName());
+            return leaving.callRealMethod();
+        }).when(mailer).sendOrderInProcessing(any());
+        WebOrderMailsExecutor.background(webOrderMails);
+
+        take(order.id(), 1).statusCode(200).body("webOrder.processingStartedAt", notNullValue());
+
+        /* Shown as sent once the pool thread is done with it: the mail left and its claim is settled. */
+        String sentAt = null;
+        for (long end = System.nanoTime() + 30_000_000_000L; sentAt == null && System.nanoTime() < end; ) {
+            sentAt = get(order.id()).extract().path("webOrder.processingMailSentAt");
+            if (sentAt == null) Thread.sleep(50);
+        }
+        WebOrderMailsExecutor.direct(webOrderMails);
+
+        assertNotNull(sentAt, "the mail left within thirty seconds");
+        assertEquals(1, threads.size());
+        assertTrue(threads.getFirst().startsWith("ForkJoinPool.commonPool"), "sent on " + threads.getFirst());
+        assertEquals(1, mailbox.getMailsSentTo("pool@login.example").size());
+        assertTrue(mailbox.getMailsSentTo("pool@login.example").getFirst().getSubject().contains(order.number()));
+        get(order.id()).body("webOrder.mailError", nullValue()).body("webOrder.mailDue", equalTo(false));
     }
 
     @Test

@@ -22,6 +22,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +52,8 @@ public class WebOrderMails {
     /** A due mail younger than this is still on its way; staff are not shown it yet. */
     private static final long OVERDUE_SECONDS = 60;
     private static final int MAX_ERROR = 300;
+    /** How long a failed claim is remembered for the answers that read it while it stood. */
+    private static final long GIVEN_BACK_SECONDS = 600;
 
     public enum Kind { RECEIVED, PROCESSING }
 
@@ -73,6 +76,16 @@ public class WebOrderMails {
      * which is where the answer to the staff action that caused them is built.
      */
     private final Set<UnderWay> underWay = ConcurrentHashMap.newKeySet();
+
+    /**
+     * The claims this process gave back because the mail failed, with the
+     * moment they failed. An answer that read the order while the mail was
+     * leaving still holds the claimed moment after the failure; without
+     * this it would read as sent. A claimed moment belongs to one attempt,
+     * so it never is the moment of a mail that did leave. Kept for a few
+     * minutes, far longer than an answer takes to build.
+     */
+    private final Map<UnderWay, Instant> givenBack = new ConcurrentHashMap<>();
 
     @Inject WebOrders webOrders;
     @Inject WebOrderDeliveries deliveries;
@@ -166,7 +179,11 @@ public class WebOrderMails {
                 String reason = reason(failure);
                 LOG.errorf(failure, "Klantmail (%s) voor websitebestelling %s mislukt", kind, prepared.mail().number());
                 /* A failed repeat writes nothing: the earlier mail keeps its moment. */
-                if (!prepared.again()) release(orderId, kind, claimed, reason);
+                if (!prepared.again()) {
+                    /* Noted before the claim is given back and before the send stops being under way. */
+                    noteGivenBack(sending);
+                    release(orderId, kind, claimed, reason);
+                }
                 throw new BusinessRuleException(reason);
             }
             if (prepared.again()) {
@@ -182,12 +199,23 @@ public class WebOrderMails {
 
     /**
      * The sent moment of a mail as staff may read it: the stored one, except
-     * while it is only the claim of a send that is still under way. Then
-     * there is none yet, and the order shows neither "sent" nor "not left"
-     * until the provider answered.
+     * while it is only the claim of a send that is still under way, or of
+     * one that failed after the caller read the order. Then there is none:
+     * the order shows neither "sent" nor "not left" until the provider
+     * answered, and a caller that read it during a send that then failed
+     * shows the same until it reads the order again.
      */
     public Instant shownSentAt(long orderId, Kind kind, Instant stored) {
-        return stored != null && underWay.contains(new UnderWay(orderId, kind, stored)) ? null : stored;
+        if (stored == null) return null;
+        UnderWay claim = new UnderWay(orderId, kind, stored);
+        /* A failing send is noted as given back before it stops being under way, so one of the two always holds. */
+        return underWay.contains(claim) || givenBack.containsKey(claim) ? null : stored;
+    }
+
+    private void noteGivenBack(UnderWay failed) {
+        Instant now = Instant.now();
+        givenBack.values().removeIf(at -> at.plusSeconds(GIVEN_BACK_SECONDS).isBefore(now));
+        givenBack.put(failed, now);
     }
 
     /** A fresh read of the row and the document, in its own short transaction; null when there is nothing to send. */
