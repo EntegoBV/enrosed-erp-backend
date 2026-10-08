@@ -44,9 +44,9 @@ class PublicContentSeedValuesTest {
     void supersededWebsiteCopyMatchesOnlyTheListedExactValuesPerKeyAndLanguage() throws Exception {
         JsonNode superseded = supersededWebsiteCopy();
         assertEquals(List.of("products.hero.title", "meta.products.title", "meta.products.description",
-                        "legal.notice.purpose.p1"),
+                        "legal.notice.purpose.p1", "legal.notice.updated"),
                 fieldNames(superseded),
-                "only the reviewed products-page copy and the legal notice purpose are swapped");
+                "only the reviewed products-page copy, the legal notice purpose and its date are swapped");
         int values = 0;
         for (String key : fieldNames(superseded)) {
             JsonNode byLanguage = superseded.path(key);
@@ -82,8 +82,9 @@ class PublicContentSeedValuesTest {
                         ContentScope.WEBSITE, key, language, ""));
             }
         }
-        assertEquals(44, values, "products page: live production value per language plus the earlier"
-                + " bestseller seed (35); legal notice purpose: the one value every database held (9)");
+        assertEquals(53, values, "products page: live production value per language plus the earlier"
+                + " bestseller seed (35); legal notice purpose: the one value every database held (9);"
+                + " legal notice date: the one value every database held (9)");
     }
 
     @Test
@@ -168,6 +169,49 @@ class PublicContentSeedValuesTest {
                 .endsWith("het is geen online groothandelswebshop en brengt zelf geen verkoopovereenkomst tot stand."));
         assertFalse(row.get(5).contains("not an online wholesale checkout"));
         assertFalse(row.get(3).contains("geen online groothandelswebshop"));
+        // The trade terms on the same site call these customers "empresariales" / "empresariais".
+        assertTrue(row.get(7).endsWith(" Permite comparar productos y solicitar presupuestos; los clientes"
+                + " empresariales con cuenta también pueden hacer pedidos, que solo son vinculantes una vez"
+                + " confirmados por Enrosed. El sitio web no formaliza por sí mismo ninguna venta."), row.get(7));
+        assertTrue(row.get(8).endsWith(" Umożliwia porównanie produktów i składanie zapytań ofertowych;"
+                + " klienci biznesowi posiadający konto mogą także składać zamówienia, które stają się wiążące"
+                + " dopiero po potwierdzeniu przez Enrosed. Sama strona internetowa nie prowadzi do zawarcia"
+                + " umowy sprzedaży."), row.get(8));
+        assertTrue(row.get(9).endsWith(" Permite comparar produtos e pedir orçamentos; os clientes"
+                + " empresariais com conta podem também fazer encomendas, que só se tornam vinculativas depois"
+                + " de confirmadas pela Enrosed. O website não conclui, por si só, qualquer venda."), row.get(9));
+    }
+
+    @Test
+    void legalNoticeDateIsTheDayTheOrderingTextWasPublishedAndTheFormerDateIsSuperseded() throws Exception {
+        String key = "legal.notice.updated";
+        List<String> row;
+        try (var input = getClass().getResourceAsStream("/i18n/website-content.csv")) {
+            row = be.enrosed.shared.Csv.parseRows(
+                            new java.io.InputStreamReader(input, java.nio.charset.StandardCharsets.UTF_8))
+                    .stream().filter(candidate -> candidate.getFirst().equals(key)).findFirst().orElseThrow();
+        }
+        assertEquals(List.of("8 oktober 2026", "8 octobre 2026", "8 October 2026", "8. Oktober 2026",
+                "8 de octubre de 2026", "8 października 2026 r", "8 de outubro de 2026", "8 Ekim 2026",
+                "8 Οκτωβρίου 2026"), row.subList(3, 12));
+        // Literals, not read back from the seed: what production holds until this release.
+        List<String> former = List.of("20 augustus 2026", "20 août 2026", "20 August 2026", "20. August 2026",
+                "20 de agosto de 2026", "20 sierpnia 2026 r", "20 de agosto de 2026", "20 Ağustos 2026",
+                "20 Αυγούστου 2026");
+        JsonNode superseded = supersededWebsiteCopy();
+        List<Language> columns = List.of(Language.NL, Language.FR, Language.EN, Language.DE,
+                Language.ES, Language.PL, Language.PT, Language.TR, Language.EL);
+        for (int index = 0; index < columns.size(); index++) {
+            Language language = columns.get(index);
+            JsonNode previous = previous(superseded, key, language);
+            assertEquals(1, previous.size(), "one former value: the seed every database held " + language);
+            assertEquals(former.get(index), previous.get(0).asText(), language.name());
+            assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                    ContentScope.WEBSITE, key, language, former.get(index)), language.name());
+            // The other legal pages keep their own dates; this list must not reach them.
+            assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                    ContentScope.WEBSITE, "legal.privacy.updated", language, former.get(index)), language.name());
+        }
     }
 
     private JsonNode supersededWebsiteCopy() throws Exception {

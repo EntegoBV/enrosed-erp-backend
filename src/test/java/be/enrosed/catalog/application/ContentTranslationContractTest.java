@@ -440,6 +440,64 @@ class ContentTranslationContractTest {
 
     @Test
     @TestTransaction
+    void legalNoticeDateMovesFromTheFormerSeedToTheNewDateAndKeepsDashboardEdits() {
+        ContentTranslationEntity updated = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.WEBSITE,
+                "legal.notice.updated").firstResult();
+        // What production and test served until this release, as literals.
+        java.util.Map<Language, String> former = new java.util.EnumMap<>(Language.class);
+        former.put(Language.NL, "20 augustus 2026");
+        former.put(Language.FR, "20 août 2026");
+        former.put(Language.EN, "20 August 2026");
+        former.put(Language.DE, "20. August 2026");
+        former.put(Language.ES, "20 de agosto de 2026");
+        former.put(Language.PL, "20 sierpnia 2026 r");
+        former.put(Language.PT, "20 de agosto de 2026");
+        former.put(Language.TR, "20 Ağustos 2026");
+        former.put(Language.EL, "20 Αυγούστου 2026");
+        java.util.Map<Language, String> current = new java.util.EnumMap<>(Language.class);
+        current.put(Language.NL, "8 oktober 2026");
+        current.put(Language.FR, "8 octobre 2026");
+        current.put(Language.EN, "8 October 2026");
+        current.put(Language.DE, "8. Oktober 2026");
+        current.put(Language.ES, "8 de octubre de 2026");
+        current.put(Language.PL, "8 października 2026 r");
+        current.put(Language.PT, "8 de outubro de 2026");
+        current.put(Language.TR, "8 Ekim 2026");
+        current.put(Language.EL, "8 Οκτωβρίου 2026");
+        for (Language language : Language.values()) {
+            ContentTranslationTextEntity text = translation(updated, language);
+            assertEquals(current.get(language), text.value, "fresh database carries the new date " + language);
+            text.value = former.get(language);
+        }
+        // Two dashboard edits: an own date, and the former date written with the final dot.
+        ContentTranslationTextEntity french = translation(updated, Language.FR);
+        ContentTranslationTextEntity polish = translation(updated, Language.PL);
+        french.value = "1er septembre 2026";
+        polish.value = "20 sierpnia 2026 r.";
+        entityManager.flush();
+        long revisionBefore = updated.revision;
+        var revisionOfSiteBefore = catalogRevision.currentRevision();
+
+        seeds.onStart(null);
+        entityManager.flush();
+
+        for (Language language : Language.values()) {
+            if (language == Language.FR || language == Language.PL) continue;
+            assertEquals(current.get(language), translation(updated, language).value,
+                    "the former date must move to the new one " + language);
+        }
+        assertEquals("1er septembre 2026", french.value,
+                "a dashboard-authored date must never be overwritten");
+        assertEquals("20 sierpnia 2026 r.", polish.value, "a former date written differently is a dashboard edit");
+        assertTrue(updated.revision > revisionBefore,
+                "the swap must bump the revision so a stale dashboard page cannot overwrite it");
+        assertTrue(!revisionOfSiteBefore.equals(catalogRevision.currentRevision()),
+                "the swap must change the website revision so the rebuild is queued");
+    }
+
+    @Test
+    @TestTransaction
     void startupSeedDeltaQueuesAnExistingLiveWebsiteWithoutNoOpLoops() {
         ContentTranslationEntity entity = rows.find(
                 "scope = ?1 and key = ?2", ContentScope.WEBSITE,
