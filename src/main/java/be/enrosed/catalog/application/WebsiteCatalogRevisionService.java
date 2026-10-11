@@ -106,6 +106,13 @@ public class WebsiteCatalogRevisionService {
             add(out, text.eyebrow); add(out, text.mobileName); add(out, text.navigationName);
             add(out, text.footerName);
         });
+        /* The website shows the first photo only: its address, width and height. Only a
+           category with a photo adds a term: one without keeps the digest it always had. */
+        if (category.photos != null && !category.photos.isEmpty()) {
+            var photo = category.photos.getFirst();
+            add(out, "category-photo"); add(out, photo.id); add(out, photo.storageKey);
+            add(out, photo.widthPx); add(out, photo.heightPx);
+        }
     }
 
     private void family(StringBuilder out, ProductFamilyEntity family) {

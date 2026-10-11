@@ -5,6 +5,7 @@ import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ContentTranslationEntity;
 import be.enrosed.catalog.adapter.out.persistence.ContentTranslationTextEntity;
 import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
+import be.enrosed.catalog.adapter.out.persistence.CategoryPhotoEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductCollectionEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyCollectionEntity;
@@ -251,6 +252,37 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void theFirstCategoryPhotoIsPartOfTheWebsiteRevision() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        List<CategoryPhotoEntity> photos = graph.category().photos;
+        String withoutPhoto = service(graph).currentRevision();
+
+        CategoryPhotoEntity first = categoryPhoto(graph.category(), 41L, "category-first", 0);
+        photos.add(first);
+        String onePhoto = service(graph).currentRevision();
+        assertNotEquals(withoutPhoto, onePhoto,
+                "the website shows a new category photo only after a rebuild");
+
+        photos.set(0, categoryPhoto(graph.category(), 42L, "category-replacement", 0));
+        String replaced = service(graph).currentRevision();
+        assertNotEquals(onePhoto, replaced, "another first photo is another public address");
+
+        photos.set(0, first);
+        CategoryPhotoEntity second = categoryPhoto(graph.category(), 43L, "category-second", 1);
+        photos.add(second);
+        String secondBehind = service(graph).currentRevision();
+        assertEquals(onePhoto, secondBehind,
+                "the website shows only the first photo, so one behind it changes nothing public");
+
+        second.position = 0;
+        first.position = 1;
+        java.util.Collections.reverse(photos);
+        String swapped = service(graph).currentRevision();
+        assertNotEquals(secondBehind, swapped, "a reorder that changes the first photo is public");
+    }
+
+    @Test
     void homepageDraftIsExcludedButPublishedLayoutIsCoveredByTheWebsiteRevision()
             throws Exception {
         Graph graph = graph(10L, 20L, 30L,
@@ -305,6 +337,20 @@ class WebsiteCatalogRevisionServiceTest {
         return new WebsiteCatalogRevisionService(
                 content, families, products, categories,
                 homepageLayouts, names, photos, json);
+    }
+
+    private static CategoryPhotoEntity categoryPhoto(
+            CategoryEntity category, long id, String storageKey, int position) {
+        CategoryPhotoEntity photo = new CategoryPhotoEntity();
+        photo.id = id;
+        photo.category = category;
+        photo.storageKey = storageKey;
+        photo.originalFilename = storageKey + ".jpg";
+        photo.contentType = "image/jpeg";
+        photo.widthPx = 1600;
+        photo.heightPx = 900;
+        photo.position = position;
+        return photo;
     }
 
     private static Graph graph(
