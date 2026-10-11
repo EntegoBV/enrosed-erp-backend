@@ -2,14 +2,12 @@ package be.enrosed.inventory.adapter.out.document;
 
 import be.enrosed.inventory.adapter.out.persistence.StockClosingArticleEntity;
 import be.enrosed.inventory.adapter.out.persistence.StockClosingEntity;
-import be.enrosed.inventory.adapter.out.persistence.StockClosingLayerEntity;
+import be.enrosed.inventory.adapter.out.persistence.StockClosingSeparateEntity;
 import be.enrosed.inventory.application.ClosingNotices;
 import be.enrosed.inventory.application.ClosingReportData;
-import be.enrosed.inventory.application.ClosingReportData.Column;
-import be.enrosed.inventory.application.ClosingReportData.Kind;
-import be.enrosed.inventory.application.ClosingReportData.SummaryLine;
-import be.enrosed.inventory.application.ClosingReportData.Table;
+import be.enrosed.inventory.application.FifoValuer;
 import be.enrosed.inventory.application.StockClosingFinalizer;
+import be.enrosed.inventory.domain.WriteDownReason;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.PdfFonts;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -18,31 +16,16 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * The valued stock list of a closing for the accountant, with the sign-off
- * block: every section is printed from the stored rows of the closing.
- *
- * The paper names what the user decided and why, and what the ERP left out
- * of the value. It prints the fingerprint of the data and the hash of the
- * workbook, so a signed copy anchors the electronic record.
- */
+/** Compact accounting copy of the stored closing. Detailed supporting records remain in Excel. */
 @ApplicationScoped
 public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRenderer {
-
-    static final String CLOSING_SENTENCE = "Dit document geeft de getelde aantallen en de gebruikte waarderingsbasis weer."
-            + " Beslissingen over marktwaarde, waardevermindering, eigendom van goederen onderweg, tegoeden van leveranciers"
-            + " en geschatte bedragen zijn door de gebruiker ingevoerd en staan er met hun reden in. De boekhoudkundige"
-            + " verwerking is aan de boekhouder.";
-
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final String DOTS = "……………………";
-
     private final PdfFonts fonts;
     private final Brand brand;
 
@@ -58,342 +41,235 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
 
     String html(ClosingReportData data) {
         StockClosingEntity closing = data.closing();
-        String footer = "ENROSED / Jaarinventaris " + closing.closingYear + " versie " + closing.versionNo;
         StringBuilder html = new StringBuilder("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"/><style>");
-        html.append("@page { size: A4 landscape; margin: 11mm 8mm 13mm;\n")
-                .append("  @bottom-left { content: \"").append(footer).append("\"; font-size: 7pt; color: #63736c; }\n")
-                .append("  @bottom-right { content: counter(page) \" / \" counter(pages); font-size: 8pt; color: #63736c; }\n}\n")
+        html.append("@page { size: A4 portrait; margin: 14mm 12mm 15mm; ")
+                .append("@bottom-left { content: \"ENROSED / Jaarinventaris ").append(closing.closingYear)
+                .append(" versie ").append(closing.versionNo).append("\"; font-size: 7pt; color: #666; } ")
+                .append("@bottom-right { content: counter(page) \" / \" counter(pages); font-size: 7pt; color: #666; } }")
                 .append("""
-                        body { font-family: 'DejaVu Sans', sans-serif; font-size: 8pt; color: #17352a; line-height: 1.4; }
-                        h1 { font-size: 20pt; font-weight: 700; margin: 6pt 0 4pt; line-height: 1.15; }
-                        h2 { font-size: 11pt; margin: 16pt 0 5pt; page-break-after: avoid; }
-                        h3 { font-size: 8pt; margin: 9pt 0 3pt; page-break-after: avoid; }
+                        body { font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color: #222; line-height: 1.35; }
+                        h1 { font-size: 18pt; margin: 10pt 0 5pt; line-height: 1.2; }
+                        h2 { font-size: 11pt; margin: 14pt 0 5pt; page-break-after: avoid; }
                         p { margin: 3pt 0 5pt; }
+                        p.table-intro { page-break-after: avoid; }
                         .brand { font-size: 17pt; font-weight: 700; letter-spacing: 4pt; }
-                        .logo { width: 100pt; height: auto; }
-                        .muted { color: #63736c; font-size: 7pt; }
-                        .concept { color: #fff; background: #846c32; padding: 3pt 7pt; font-weight: 700; }
-                        table.data { width: 100%; border-collapse: collapse; -fs-table-paginate: paginate; font-size: 7pt; }
-                        .data th { background: #214939; color: white; padding: 4pt 3pt; text-align: left; font-weight: 700; }
-                        .data td { padding: 3pt 3pt; border-bottom: 0.5pt solid #dce4de; vertical-align: top; word-wrap: break-word; }
-                        .data tr { page-break-inside: avoid; }
-                        .data thead, .data thead tr { page-break-after: avoid; }
-                        .data tr.sum td { background: #eef3ef; font-weight: 700; }
-                        .data tr.group td { background: #f6f3ea; font-weight: 700; }
-                        .data tr.group { page-break-after: avoid; }
-                        .data tbody.product { page-break-inside: avoid; }
-                        .data tr.parent td { border-bottom: none; }
-                        .data tr.layer { page-break-before: avoid; }
-                        .data tr.layer td { font-size: 6pt; color: #4c5f57; border-bottom: none; padding: 1pt 3pt; }
-                        .data tr.last td { border-bottom: 0.5pt solid #dce4de; padding-bottom: 3pt; }
-                        .data .num { text-align: right; }
-                        .data td.num, .data td.nw, .data span.nw { white-space: nowrap; }
-                        table.fixed { table-layout: fixed; }
-                        table.summary { width: 62%; border-collapse: collapse; }
-                        .summary td { padding: 3pt 4pt; border-bottom: 0.5pt solid #dce4de; }
+                        .logo { width: 90pt; height: auto; }
+                        .muted { color: #666; font-size: 7.5pt; }
+                        .concept { background: #eee; padding: 2pt 5pt; font-weight: 700; }
+                        table.data { width: 100%; border-collapse: collapse; table-layout: fixed; -fs-table-paginate: paginate; font-size: 8pt; }
+                        .data th { background: #eee; padding: 5pt 3pt; text-align: left; font-weight: 700; vertical-align: bottom; }
+                        .data td { padding: 4pt 3pt; border-bottom: 0.5pt solid #ddd; vertical-align: top; word-wrap: break-word; }
+                        .data tr, .data tbody.product { page-break-inside: avoid; }
+                        .data thead, .data thead tr, .data tr.group { page-break-after: avoid; }
+                        .data tr.group td { background: #f7f7f7; font-weight: 700; }
+                        .data tr.sum td { border-top: 1pt solid #888; font-weight: 700; }
+                        .data .num { text-align: right; white-space: nowrap; }
+                        .data th.num { white-space: normal; }
+                        table.summary { width: 100%; border-collapse: collapse; }
+                        .summary td { padding: 4pt 5pt; border-bottom: 0.5pt solid #ddd; }
                         .summary td.num { text-align: right; white-space: nowrap; }
-                        .summary tr.sum td { background: #eef3ef; font-weight: 700; }
-                        .note { padding: 6pt 9pt; background: #f6f3ea; margin: 6pt 0; }
-                        .rule { text-align: justify; }
-                        .hash { font-size: 7pt; word-wrap: break-word; }
-                        .sign { margin-top: 14pt; page-break-inside: avoid; }
-                        .sign p { border-bottom: 0.5pt solid #17352a; padding: 14pt 0 4pt; margin: 0; }
+                        .summary tr.sum td { background: #eee; font-weight: 700; font-size: 11pt; }
+                        .note { font-size: 8pt; }
+                        .sign { margin-top: 12pt; page-break-inside: avoid; font-size: 8pt; }
+                        .sign p { padding: 5pt 0; }
+                        .hashes { margin-top: 9pt; page-break-inside: avoid; }
+                        .hash { font-size: 6.5pt; color: #666; }
                         """);
         html.append("</style></head><body>");
         head(html, data);
         summary(html, data);
-        valuedList(html, data, "Gewaardeerde voorraadlijst", data.valuedArticles(), true);
-        valuedList(html, data, "Demostukken (begrepen in de lijst hierboven)",
-                data.valuedArticles().stream().filter(article -> Boolean.TRUE.equals(article.demo)).toList(), false);
-        section(html, data.writeDownTable());
-        section(html, data.estimatedTable());
-        section(html, data.partnerTable());
-        section(html, data.transitTable());
-        if (!data.kind(be.enrosed.inventory.application.FifoValuer.KIND_TRANSIT).isEmpty()) {
-            html.append("<p class=\"muted\">").append(escape(ClosingReportData.TRANSIT_NOTE)).append("</p>");
-        }
-        section(html, data.invoicedTable());
-        if (data.olderInvoiceLine() != null) html.append("<p>").append(escape(data.olderInvoiceLine())).append("</p>");
-        section(html, data.thirdPartyTable());
-        section(html, data.notInValueTable());
-        section(html, data.creditTable());
-        section(html, data.countDifferenceTable());
-        section(html, data.movementTable());
+        valuedList(html, data.valuedArticles());
+        included(html, "Opgenomen partnergoederen", data.kind(FifoValuer.KIND_PARTNER));
+        included(html, "Opgenomen goederen onderweg", data.kind(FifoValuer.KIND_TRANSIT));
+        writeDowns(html, data);
+        excluded(html, data);
         if (data.correction()) changes(html, data);
         notices(html, data);
-        html.append("<h2>Verklaringen van de gebruiker</h2>");
-        for (String statement : data.statements()) html.append("<p>").append(escape(statement)).append("</p>");
-        html.append("<h2>Waarderingsregel</h2><p class=\"rule\">").append(escape(closing.ruleText)).append("</p>");
-        html.append("<h2>Controle</h2><p class=\"hash\">Gegevens: ").append(escape(closing.dataSha256)).append("</p>")
+        html.append("<h2>Waardering en bevestiging</h2><p class=\"note\">Aanschafwaarde, verminderd met de ingevoerde waardeverminderingen. ")
+                .append("De volledige waarderingsregel en onderbouwing staan in de bijbehorende Excel-export.</p>");
+        for (String statement : data.statements()) html.append("<p class=\"note\">").append(escape(statement)).append("</p>");
+        html.append("<div class=\"sign\"><p>Opgemaakt door: ")
+                .append(escape(closing.signerName == null ? DOTS : closing.signerName))
+                .append("<br/>Datum: ").append(DOTS).append(" · Handtekening: ").append(DOTS).append("</p>")
+                .append("<p>Nagezien door (boekhouder): ").append(DOTS)
+                .append("<br/>Datum: ").append(DOTS).append(" · Handtekening: ").append(DOTS).append("</p></div>")
+                .append("<div class=\"hashes\"><p class=\"hash\">Gegevens: ").append(escape(closing.dataSha256)).append("</p>")
                 .append("<p class=\"hash\">Excel: ").append(escape(closing.xlsxSha256 != null ? closing.xlsxSha256
-                        : "wordt vastgelegd bij het definitief maken")).append("</p>");
-        html.append("<div class=\"sign\"><p>Opgemaakt door: ").append(escape(closing.signerName == null ? DOTS : closing.signerName))
-                .append(" · Datum: ").append(DOTS).append(" · Handtekening: ").append(DOTS).append("</p>")
-                .append("<p>Nagezien door (boekhouder): ").append(DOTS).append(" · Datum: ").append(DOTS)
-                .append(" · Handtekening: ").append(DOTS).append("</p></div>");
-        html.append("<p class=\"muted\" style=\"margin-top:12pt\">").append(escape(CLOSING_SENTENCE)).append("</p>");
+                        : "wordt vastgelegd bij het definitief maken")).append("</p></div>");
         return html.append("</body></html>").toString();
     }
-
-    /* -------------------------------------------------------------- sections */
 
     private void head(StringBuilder html, ClosingReportData data) {
         StockClosingEntity closing = data.closing();
         if (brand.logoDataUri() != null) html.append("<img class=\"logo\" src=\"").append(brand.logoDataUri()).append("\"/>");
         else html.append("<div class=\"brand\">ENROSED</div>");
         html.append("<p><b>").append(escape(data.company().name())).append("</b><br/>").append(escape(data.company().vat()))
-                .append("<br/>").append(escape(data.company().address())).append("</p>");
-        html.append("<h1>Voorraadinventaris per ").append(day(closing.closingDate)).append("</h1>");
-        html.append("<p>Boekjaar ").append(closing.closingYear).append(" · versie ").append(closing.versionNo).append(" · ");
+                .append("<br/>").append(escape(data.company().address())).append("</p>")
+                .append("<h1>Voorraadinventaris per ").append(day(closing.closingDate)).append("</h1>")
+                .append("<p>Boekjaar ").append(closing.closingYear).append(" · versie ").append(closing.versionNo).append(" · ");
         if (data.concept()) html.append("<span class=\"concept\">").append(escape(data.statusLabel())).append("</span>");
         else html.append(escape(data.statusLabel()));
-        html.append("</p><p>Waarderingsmethode: ").append(escape(closing.ruleMethodLabel))
+        html.append("</p><p class=\"muted\">Waarderingsmethode: ").append(escape(closing.ruleMethodLabel))
                 .append(", van toepassing sinds boekjaar ").append(closing.ruleEffectiveFromYear).append("</p>");
-        if (data.correction()) {
-            html.append("<p>Vervangt versie ").append(data.changes() == null ? closing.versionNo - 1 : data.changes().againstVersionNo())
-                    .append(": ").append(escape(closing.correctionReason)).append("</p>");
-        }
-        if (!data.concept()) {
-            html.append("<p>Definitief gemaakt door ").append(escape(closing.finalizedByName)).append(" op ")
-                    .append(escape(ClosingReportData.moment(closing.finalizedAt))).append("</p>");
-        }
+        if (data.correction()) html.append("<p class=\"note\">Vervangt versie ")
+                .append(data.changes() == null ? closing.versionNo - 1 : data.changes().againstVersionNo())
+                .append(": ").append(escape(closing.correctionReason)).append("</p>");
+        if (!data.concept()) html.append("<p class=\"muted\">Definitief gemaakt door ").append(escape(closing.finalizedByName))
+                .append(" op ").append(escape(ClosingReportData.moment(closing.finalizedAt))).append("</p>");
     }
 
     private static void summary(StringBuilder html, ClosingReportData data) {
-        html.append("<h2>Samenvatting</h2><table class=\"summary\">");
-        for (SummaryLine line : data.summary()) {
-            html.append(line.total() ? "<tr class=\"sum\">" : "<tr>").append("<td>").append(escape(line.label()))
-                    .append("</td><td class=\"num\">").append(line.quantity() != null ? String.valueOf(line.quantity())
-                            : money(line.amountEur())).append("</td></tr>");
+        StockClosingEntity c = data.closing();
+        html.append("<h2>Voorraadwaarde</h2><table class=\"summary\">");
+        if (nonzero(c.writeDownEur)) {
+            amountLine(html, "Aanschafwaarde eigen voorraad", c.costValueEur, false);
+            amountLine(html, "Waardeverminderingen", c.writeDownEur.negate(), false);
         }
+        amountLine(html, "Eigen voorraad", c.ownValueEur, false);
+        if (nonzero(c.partnerIncludedEur)) amountLine(html, "Partnergoederen opgenomen", c.partnerIncludedEur, false);
+        if (nonzero(c.transitIncludedEur)) amountLine(html, "Goederen onderweg opgenomen", c.transitIncludedEur, false);
+        amountLine(html, "Totaal voorraadwaarde", c.totalValueEur, true);
         html.append("</table>");
+        if (nonzero(c.estimatedEur)) html.append("<p class=\"note\">Waarvan geschat: ").append(money(c.estimatedEur)).append(".</p>");
         if (data.marketNote() != null) html.append("<p class=\"note\">").append(escape(data.marketNote())).append("</p>");
     }
 
-    /** The own stock per category with a subtotal, each product followed by the lots it is built from. */
-    private static void valuedList(StringBuilder html, ClosingReportData data, String title,
-                                   List<StockClosingArticleEntity> articles, boolean byCategory) {
-        html.append("<h2>").append(escape(title)).append("</h2>");
+    private static void amountLine(StringBuilder html, String label, BigDecimal value, boolean total) {
+        html.append(total ? "<tr class=\"sum\">" : "<tr>").append("<td>").append(escape(label))
+                .append("</td><td class=\"num\">").append(money(nz(value))).append("</td></tr>");
+    }
+
+    private static void valuedList(StringBuilder html, List<StockClosingArticleEntity> articles) {
+        html.append("<h2>Eigen voorraad per artikel</h2>");
         if (articles.isEmpty()) {
-            html.append("<p class=\"muted\">Geen.</p>");
+            html.append("<p class=\"muted\">Geen eigen voorraad.</p>");
             return;
         }
-        html.append("<table class=\"data\"><thead><tr><th style=\"width:13%\">SKU</th><th style=\"width:31%\">Product</th>")
-                .append("<th>Eenheid</th><th class=\"num\">Aantal</th><th class=\"num\">Waarde per stuk (gem.)</th>")
-                .append("<th class=\"num\">Aanschafwaarde</th><th class=\"num\">Waardevermindering</th><th class=\"num\">Waarde</th>")
-                .append("</tr></thead>");
-        Sum all = new Sum(), group = new Sum();
+        boolean reductions = articles.stream().anyMatch(a -> nonzero(a.writeDownEur));
+        html.append("<p class=\"muted table-intro\">Aantallen in stuks. Bedragen in EUR. Kost/stuk is de gemiddelde aanschafwaarde.</p>");
+        tableStart(html, reductions);
+        int quantity = 0;
+        BigDecimal cost = BigDecimal.ZERO, down = BigDecimal.ZERO, value = BigDecimal.ZERO;
         String category = null;
-        for (StockClosingArticleEntity article : articles) {
-            String own = article.categoryName == null || article.categoryName.isBlank() ? "Zonder categorie" : article.categoryName;
-            if (byCategory && !own.equals(category)) {
-                if (category != null) group.row(html, "Subtotaal " + category);
-                group = new Sum();
-                category = own;
-            }
-            /* A product and the lots under it are one block: a page never breaks between them, and the
-               heading of a category stays with its first product. */
-            List<StockClosingLayerEntity> layers = data.ownLayers(article.productId);
-            boolean unvalued = count(article.unvaluedQuantity) > 0;
-            boolean heading = byCategory && group.products == 0;
+        for (int index = 0; index < articles.size(); index++) {
+            StockClosingArticleEntity a = articles.get(index);
+            String nextCategory = a.categoryName == null || a.categoryName.isBlank() ? "Zonder categorie" : a.categoryName;
             html.append("<tbody class=\"product\">");
-            if (heading) html.append("<tr class=\"group\"><td colspan=\"8\">").append(escape(own)).append("</td></tr>");
-            html.append(layers.isEmpty() && !unvalued ? "<tr>" : "<tr class=\"parent\">").append("<td>").append(escape(article.sku)).append("</td><td>").append(escape(article.productName))
-                    .append("</td><td>").append(escape(article.unitKey)).append("</td><td class=\"num\">")
-                    .append(count(article.ownQuantity)).append("</td><td class=\"num\">").append(unit(article.averageUnitEur))
-                    .append("</td><td class=\"num\">").append(money(article.costValueEur)).append("</td><td class=\"num\">")
-                    .append(money(article.writeDownEur)).append("</td><td class=\"num\">").append(money(article.ownValueEur))
-                    .append("</td></tr>");
-            for (int index = 0; index < layers.size(); index++) {
-                StockClosingLayerEntity layer = layers.get(index);
-                boolean estimated = layer.estimatedEur != null && layer.estimatedEur.signum() > 0;
-                html.append(index == layers.size() - 1 && !unvalued ? "<tr class=\"layer last\">" : "<tr class=\"layer\">")
-                        .append("<td></td><td>").append(escape(data.layerLabel(layer)))
-                        .append(estimated ? " · geschat" : "").append("</td><td></td><td class=\"num\">").append(count(layer.quantity))
-                        .append("</td><td class=\"num\">").append(unit(layer.unitValueEur)).append("</td><td class=\"num\">")
-                        .append(money(layer.valueEur)).append("</td><td></td><td></td></tr>");
+            if (!nextCategory.equals(category)) {
+                html.append("<tr class=\"group\"><td colspan=\"").append(reductions ? 6 : 4).append("\">")
+                        .append(escape(nextCategory)).append("</td></tr>");
+                category = nextCategory;
             }
-            if (unvalued) {
-                html.append("<tr class=\"layer last\"><td></td><td>Zonder gewaardeerde partij</td><td></td><td class=\"num\">")
-                        .append(count(article.unvaluedQuantity)).append("</td><td></td><td></td><td></td><td></td></tr>");
-            }
-            html.append("</tbody>");
-            all.add(article);
-            group.add(article);
+            html.append("<tr><td>").append(escape(a.productName)).append("<br/><span class=\"muted\">").append(escape(a.sku))
+                    .append(Boolean.TRUE.equals(a.demo) ? " · Demo" : "").append("</span>");
+            if (count(a.unvaluedQuantity) > 0) html.append("<br/><b>").append(count(a.unvaluedQuantity)).append(" stuks zonder waarde</b>");
+            html.append("</td><td class=\"num\">").append(count(a.ownQuantity)).append("</td>");
+            number(html, a.averageUnitEur, 4);
+            if (reductions) { number(html, a.costValueEur, 2); number(html, a.writeDownEur, 2); }
+            number(html, a.ownValueEur, 2);
+            html.append("</tr>");
+            // Keep the total in the last product's unbroken group, including its repeated table header.
+            if (index < articles.size() - 1) html.append("</tbody>");
+            quantity += count(a.ownQuantity);
+            cost = cost.add(nz(a.costValueEur));
+            down = down.add(nz(a.writeDownEur));
+            value = value.add(nz(a.ownValueEur));
         }
-        if (byCategory && category != null) group.row(html, "Subtotaal " + category);
-        all.row(html, byCategory ? "Totaal eigen voorraad" : "Subtotaal demostukken");
-        html.append("</table>");
+        html.append("<tr class=\"sum\"><td>Totaal eigen voorraad</td><td class=\"num\">").append(quantity).append("</td><td></td>");
+        if (reductions) { number(html, cost, 2); number(html, down, 2); }
+        number(html, value, 2);
+        html.append("</tr></tbody></table>");
     }
 
-    /** The running totals of the valued list. */
-    private static final class Sum {
-        private int quantity, products;
-        private BigDecimal cost = BigDecimal.ZERO, writeDown = BigDecimal.ZERO, value = BigDecimal.ZERO;
-
-        void add(StockClosingArticleEntity article) {
-            products++;
-            quantity += count(article.ownQuantity);
-            cost = cost.add(nz(article.costValueEur));
-            writeDown = writeDown.add(nz(article.writeDownEur));
-            value = value.add(nz(article.ownValueEur));
+    private static void tableStart(StringBuilder html, boolean reductions) {
+        html.append("<table class=\"data\"><colgroup>");
+        for (int width : reductions ? new int[]{31, 9, 15, 15, 14, 16} : new int[]{48, 10, 20, 22}) {
+            html.append("<col style=\"width:").append(width).append("%\"/>");
         }
+        html.append("</colgroup><thead><tr><th>Artikel</th><th class=\"num\">Aantal</th><th class=\"num\">Kost/stuk</th>");
+        if (reductions) html.append("<th class=\"num\">Aanschaf-<br/>waarde</th><th class=\"num\">Waarde-<br/>vermindering</th>");
+        html.append("<th class=\"num\">Voorraad-<br/>waarde</th></tr></thead>");
+    }
 
-        void row(StringBuilder html, String label) {
-            html.append("<tbody><tr class=\"sum\"><td colspan=\"3\">").append(escape(label)).append("</td><td class=\"num\">").append(quantity)
-                    .append("</td><td></td><td class=\"num\">").append(money(cost)).append("</td><td class=\"num\">")
-                    .append(money(writeDown)).append("</td><td class=\"num\">").append(money(value)).append("</td></tr></tbody>");
+    private static void included(StringBuilder html, String title, List<StockClosingSeparateEntity> all) {
+        List<StockClosingSeparateEntity> rows = all.stream().filter(row -> Boolean.TRUE.equals(row.included)).toList();
+        if (rows.isEmpty()) return;
+        html.append("<h2>").append(escape(title)).append("</h2><p class=\"muted table-intro\">Aantallen in stuks. Bedragen in EUR.</p>");
+        tableStart(html, false);
+        BigDecimal total = BigDecimal.ZERO;
+        int quantity = 0;
+        for (int index = 0; index < rows.size(); index++) {
+            StockClosingSeparateEntity row = rows.get(index);
+            html.append("<tbody class=\"product\"><tr><td>").append(escape(row.productName)).append("<br/><span class=\"muted\">").append(escape(row.sku));
+            if (row.documentNumber != null) html.append(" · ").append(escape(row.documentNumber));
+            if (row.ownershipDate != null) html.append(" · Eigendom of risico vanaf ").append(day(row.ownershipDate));
+            if (row.reason != null && !row.reason.isBlank()) html.append("<br/>").append(escape(row.reason));
+            html.append("</span></td><td class=\"num\">").append(count(row.quantity)).append("</td>");
+            number(html, row.unitValueEur, 4);
+            number(html, row.valueEur, 2);
+            html.append("</tr>");
+            if (index < rows.size() - 1) html.append("</tbody>");
+            quantity += count(row.quantity);
+            total = total.add(nz(row.valueEur));
+        }
+        html.append("<tr class=\"sum\"><td>Subtotaal</td><td class=\"num\">").append(quantity).append("</td><td></td>");
+        number(html, total, 2);
+        html.append("</tr></tbody></table>");
+    }
+
+    private static void writeDowns(StringBuilder html, ClosingReportData data) {
+        if (data.writeDowns().isEmpty()) return;
+        html.append("<h2>Toelichting waardeverminderingen</h2>");
+        for (var down : data.writeDowns()) {
+            html.append("<p class=\"note\"><b>").append(escape(down.sku)).append(" · ").append(escape(down.productName))
+                    .append(": ").append(money(down.amountEur)).append("</b> (").append(count(down.quantity)).append(" stuks). ")
+                    .append(escape(WriteDownReason.labelOf(down.reasonCode)));
+            if (down.reason != null && !down.reason.isBlank()) html.append(" · ").append(escape(down.reason));
+            html.append("</p>");
         }
     }
 
-    /** One table of the report under its title; an empty one says so in a line. */
-    private static void section(StringBuilder html, Table table) {
-        html.append("<h2>").append(escape(table.title())).append("</h2>");
-        table(html, table);
-    }
-
-    private static void table(StringBuilder html, Table table) {
-        if (table.rows().isEmpty()) {
-            html.append("<p class=\"muted\">Geen.</p>");
-            return;
-        }
-        /* Fixed widths by the kind of each column: a long name or reason never squeezes a date or an amount. */
-        html.append("<table class=\"data fixed\"><colgroup>");
-        for (double width : widths(table.columns())) {
-            html.append("<col style=\"width:").append(String.format(java.util.Locale.ROOT, "%.2f", width)).append("%\"/>");
-        }
-        html.append("</colgroup><thead><tr>");
-        for (Column column : table.columns()) {
-            html.append(numeric(column.kind()) ? "<th class=\"num\">" : "<th>").append(escape(column.title())).append("</th>");
-        }
-        html.append("</tr></thead><tbody>");
-        for (List<Object> row : table.rows()) row(html, table.columns(), row, false);
-        if (table.totals() != null) row(html, table.columns(), table.totals(), true);
-        html.append("</tbody></table>");
-    }
-
-    private static void row(StringBuilder html, List<Column> columns, List<Object> values, boolean total) {
-        html.append(total ? "<tr class=\"sum\">" : "<tr>");
-        for (int index = 0; index < columns.size(); index++) {
-            Object value = index < values.size() ? values.get(index) : null;
-            boolean right = value instanceof Number;
-            boolean whole = value instanceof LocalDate || value instanceof Instant;
-            html.append(right ? "<td class=\"num\">" : whole ? "<td class=\"nw\">" : "<td>")
-                    .append(whole ? escape(print(value, columns.get(index).kind()))
-                            : whole(escape(print(value, columns.get(index).kind())))).append("</td>");
-        }
-        html.append("</tr>");
-    }
-
-    /**
-     * The width of each column in percent. A date, a moment, a count and an amount get what their content
-     * needs; the text columns share the rest, the ones that carry sentences taking twice the share of a label.
-     */
-    static double[] widths(List<Column> columns) {
-        double[] widths = new double[columns.size()];
-        double fixed = 0, shares = 0;
-        for (int index = 0; index < widths.length; index++) {
-            Column column = columns.get(index);
-            double width = switch (column.kind()) {
-                case DAY -> 7;
-                case MOMENT -> 10;
-                case COUNT, YES_NO -> 6;
-                case MONEY, RATE -> 9;
-                case UNIT -> 8;
-                default -> 0;
-            };
-            if (width > 0) {
-                widths[index] = Math.max(width, heading(column));
-                fixed += widths[index];
-            } else {
-                shares += share(column);
-            }
-        }
-        double sum = fixed;
-        for (int index = 0; index < widths.length; index++) {
-            if (widths[index] > 0) continue;
-            Column column = columns.get(index);
-            widths[index] = Math.max(Math.max(6, heading(column)), (100 - fixed) * share(column) / shares);
-            sum += widths[index];
-        }
-        /* More than the page holds, or less: every column gives or takes in proportion. */
-        for (int index = 0; index < widths.length; index++) widths[index] = widths[index] * 100 / sum;
-        return widths;
-    }
-
-    /** What the longest word of a heading needs, so a title never runs into its neighbour. */
-    private static double heading(Column column) {
-        int longest = 0;
-        for (String word : column.title().split("\\s+")) longest = Math.max(longest, word.length());
-        /* A long title may wrap onto three lines, not onto seven. */
-        return Math.max(longest, Math.min(28, column.title().length() / 3.0)) * 0.6 + 1.2;
-    }
-
-    private static double share(Column column) {
-        return switch (column.title()) {
-            case "Product", "Partij", "Toelichting", "Reden", "Basis", "Tekst", "Onderwerp", "Referentie",
-                 "Reden van de beslissing" -> 2;
-            case "Munt", "Soort", "Door", "Keuze", "Meegerekend" -> 0.8;
-            default -> 1;
-        };
+    private static void excluded(StringBuilder html, ClosingReportData data) {
+        StockClosingEntity c = data.closing();
+        int thirdParty = data.kind(FifoValuer.KIND_THIRD_PARTY).stream().mapToInt(row -> count(row.quantity)).sum();
+        if (!nonzero(c.partnerExcludedEur) && !nonzero(c.transitExcludedEur) && !nonzero(c.invoicedOutEur)
+                && thirdParty == 0 && data.olderInvoiceLine() == null) return;
+        html.append("<h2>Afzonderlijk vermeld</h2>");
+        if (nonzero(c.partnerExcludedEur)) html.append("<p class=\"note\">Partnergoederen niet opgenomen: ").append(money(c.partnerExcludedEur)).append(".</p>");
+        if (nonzero(c.transitExcludedEur)) html.append("<p class=\"note\">Goederen onderweg niet opgenomen: ").append(money(c.transitExcludedEur)).append(".</p>");
+        if (nonzero(c.invoicedOutEur)) html.append("<p class=\"note\">Gefactureerde, nog niet geleverde goederen buiten de voorraadwaarde: ").append(money(c.invoicedOutEur)).append(".</p>");
+        if (thirdParty > 0) html.append("<p class=\"note\">Goederen van derden: ").append(thirdParty).append(" stuks, zonder voorraadwaarde.</p>");
+        if (data.olderInvoiceLine() != null) html.append("<p class=\"note\">").append(escape(data.olderInvoiceLine())).append("</p>");
     }
 
     private static void changes(StringBuilder html, ClosingReportData data) {
-        html.append("<h2>").append(escape(data.changesTitle() == null ? "Wijzigingen tegenover de vorige versie" : data.changesTitle()))
-                .append("</h2>");
+        html.append("<h2>").append(escape(data.changesTitle() == null ? "Wijzigingen tegenover de vorige versie" : data.changesTitle())).append("</h2>");
         if (data.changes() == null || data.changes().isEmpty()) {
-            html.append("<p>Geen verschillen.</p>");
+            html.append("<p class=\"note\">Geen verschillen.</p>");
             return;
         }
-        table(html, data.changeTable());
+        html.append("<p class=\"note\">Voorraadwaarde vorige versie: ").append(money(data.changes().totalBeforeEur()))
+                .append(". Nieuwe voorraadwaarde: ").append(money(data.changes().totalAfterEur()))
+                .append(". Verschil: ").append(money(nz(data.changes().totalAfterEur()).subtract(nz(data.changes().totalBeforeEur()))))
+                .append(". De afzonderlijke wijzigingen staan in Excel.</p>");
     }
 
     private static void notices(StringBuilder html, ClosingReportData data) {
+        if ((!data.concept() || data.blockers().isEmpty()) && data.warnings().isEmpty()) return;
         html.append("<h2>Aandachtspunten</h2>");
-        if (data.concept()) {
-            for (ClosingNotices.Notice blocker : data.blockers()) {
-                html.append("<p><b>Blokkeert:</b> ").append(escape(blocker.message())).append("</p>");
-            }
+        if (data.concept()) for (ClosingNotices.Notice blocker : data.blockers()) {
+            html.append("<p class=\"note\"><b>Blokkeert:</b> ").append(escape(ClosingNotices.reportText(blocker.message()))).append("</p>");
         }
-        if (data.warnings().isEmpty()) html.append("<p class=\"muted\">Geen.</p>");
-        for (ClosingNotices.Notice warning : data.warnings()) html.append("<p>").append(escape(ClosingNotices.reportText(warning.message()))).append("</p>");
+        for (ClosingNotices.Notice warning : data.warnings()) html.append("<p class=\"note\">")
+                .append(escape(ClosingNotices.reportText(warning.message()))).append("</p>");
     }
 
-    /* --------------------------------------------------------------- printing */
-
-    private static final java.util.regex.Pattern DATE = java.util.regex.Pattern.compile("\\d{2}/\\d{2}/\\d{4}( \\d{2}:\\d{2})?");
-
-    /** A date inside a sentence stays in one piece when the line wraps. */
-    private static String whole(String escaped) {
-        return DATE.matcher(escaped).replaceAll("<span class=\"nw\">$0</span>");
+    private static void number(StringBuilder html, BigDecimal value, int scale) {
+        html.append("<td class=\"num\">").append(value == null ? "" : decimals(value, scale)).append("</td>");
     }
 
-    private static boolean numeric(Kind kind) {
-        return kind == Kind.COUNT || kind == Kind.MONEY || kind == Kind.UNIT || kind == Kind.RATE;
-    }
+    private static String money(BigDecimal value) { return value == null ? "" : "€ " + decimals(value, 2); }
 
-    /** A cell as the paper prints it: money with two decimals, a unit value with four, a day as dd/MM/yyyy. */
-    private static String print(Object value, Kind kind) {
-        return switch (value) {
-            case null -> "";
-            case BigDecimal number -> kind == Kind.RATE ? decimals(number, 8)
-                    : kind == Kind.UNIT || kind == Kind.ANY && number.scale() > 2 ? decimals(number, 4) : decimals(number, 2);
-            case LocalDate day -> DAY.format(day);
-            case Instant moment -> ClosingReportData.moment(moment);
-            case Boolean yes -> yes ? "ja" : "nee";
-            default -> value.toString();
-        };
-    }
-
-    private static String money(BigDecimal value) {
-        return value == null ? "" : "€ " + decimals(value, 2);
-    }
-
-    private static String unit(BigDecimal value) {
-        return value == null ? "" : "€ " + decimals(value, 4);
-    }
-
-    /** Belgian notation: a point per thousand, a comma before the decimals. */
     private static String decimals(BigDecimal value, int scale) {
         DecimalFormatSymbols symbols = new DecimalFormatSymbols();
         symbols.setGroupingSeparator('.');
@@ -404,18 +280,10 @@ public class PdfStockClosingRenderer implements StockClosingFinalizer.PdfRendere
         return format.format(value);
     }
 
-    private static String day(LocalDate day) {
-        return day == null ? "-" : DAY.format(day);
-    }
-
-    private static BigDecimal nz(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
-    }
-
-    private static int count(Integer value) {
-        return value == null ? 0 : value;
-    }
-
+    private static String day(LocalDate day) { return day == null ? "-" : DAY.format(day); }
+    private static BigDecimal nz(BigDecimal value) { return value == null ? BigDecimal.ZERO : value; }
+    private static boolean nonzero(BigDecimal value) { return nz(value).signum() != 0; }
+    private static int count(Integer value) { return value == null ? 0 : value; }
     private static String escape(String value) {
         return Objects.requireNonNullElse(value, "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 .replace("\"", "&quot;").replace("'", "&#39;");
