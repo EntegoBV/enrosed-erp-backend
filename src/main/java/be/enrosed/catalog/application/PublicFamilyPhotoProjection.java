@@ -73,7 +73,13 @@ public class PublicFamilyPhotoProjection {
 
     public ProductFamilyPhotoEntity primary(ProductFamilyEntity family, ProductEntity product,
                                             List<ProductEntity> members, CatalogChannel channel) {
-        return images(family, members, channel).stream()
+        return primary(images(family, members, channel), product, members, channel);
+    }
+
+    /** Callers that already projected the channel's gallery pass it to avoid a second projection. */
+    public ProductFamilyPhotoEntity primary(List<ProductFamilyPhotoEntity> images, ProductEntity product,
+                                            List<ProductEntity> members, CatalogChannel channel) {
+        return images.stream()
                 .filter(image -> publication.isUsableBy(image, product, members, channel))
                 .min(Comparator.comparingInt((ProductFamilyPhotoEntity image) ->
                                 explicitlyLeads(image, product, channel) ? 0 : 1)

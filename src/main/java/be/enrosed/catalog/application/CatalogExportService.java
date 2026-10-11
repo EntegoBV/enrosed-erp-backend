@@ -193,15 +193,16 @@ public class CatalogExportService {
     }
 
     public CatalogDocumentRenderer.Document export(Request incoming) {
-        return renderer.render(prepare(incoming));
+        return renderer.render(model(incoming));
     }
 
     public Preflight preflight(Request incoming) {
-        List<String> missingPaths = renderer.missingTranslations(prepare(incoming));
+        List<String> missingPaths = renderer.missingTranslations(model(incoming));
         return new Preflight(missingPaths.isEmpty(), missingPaths);
     }
 
-    private Model prepare(Request incoming) {
+    /** The selected products grouped per series, exactly as the renderer receives them. */
+    public Model model(Request incoming) {
         Request request = incoming == null ? Request.defaults() : incoming;
         if (request.productIds() != null && request.productIds().isEmpty()) {
             throw new BusinessRuleException("Selecteer minstens een product voor de catalogus");

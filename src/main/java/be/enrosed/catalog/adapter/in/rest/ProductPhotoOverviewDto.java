@@ -28,7 +28,16 @@ public record ProductPhotoOverviewDto(
         RoleChoiceDto catalogueVariant,
         RoleChoiceDto catalogueOverview,
         RoleChoiceDto catalogueDetail,
-        String catalogueDetailSize
+        String catalogueDetailSize,
+        /** What every place really shows now; the fields above keep reporting the stored roles. */
+        PlacesDto places,
+        /** Photos a place refers to that are not in {@code photos}: another colour's own photo. */
+        List<OtherPhotoDto> otherPhotos,
+        /** The series is active, published on the website and has at least one website photo. */
+        boolean seriesLiveOnWebsite,
+        boolean colourOnWebsite,
+        /** The one export the three brochure places are computed for. */
+        CatalogueAssumptionDto catalogueAssumption
 ) {
     public enum Kind { SERIES, OWN }
 
@@ -74,10 +83,75 @@ public record ProductPhotoOverviewDto(
              * {@code visibility} when the projection hides a selected photo; a channel switch
              * starts from this list so no stored channel is dropped. Null for own photos.
              */
-            List<CatalogChannel> publishedChannels) {}
+            List<CatalogChannel> publishedChannels,
+            /** Every colour of the series that stored this photo as its website or catalogue choice. */
+            List<ChosenForDto> chosenFor) {}
 
     public record VisibilityDto(boolean website, boolean catalogue, boolean orderApp) {}
 
     /** {@code explicit} is false while the automatic rule chose the photo. */
     public record RoleChoiceDto(String key, boolean explicit) {}
+
+    /**
+     * CHOSEN: the stored choice is the photo shown. AUTOMATIC: nothing stored, something is
+     * shown. CHOSEN_NOT_SHOWN: a choice is stored, the place shows another photo or nothing.
+     * NONE: nothing stored, nothing shown.
+     */
+    public enum PlaceState { CHOSEN, AUTOMATIC, CHOSEN_NOT_SHOWN, NONE }
+
+    /** Why a place shows what it shows; null only for CHOSEN. */
+    public enum PlaceReason {
+        NO_SERIES, NO_PHOTO, COLOUR_NOT_ACTIVE, SERIES_NOT_ACTIVE,
+        OWN_COLOUR_SERIES_PHOTO, ALL_COLOURS_SERIES_PHOTO, OWN_PHOTO_FALLBACK,
+        FIRST_IN_SERIES_ORDER, FIRST_SERIES_PHOTO, FIRST_OWN_PHOTO,
+        FIRST_COLOUR_WEBSITE_PHOTO, OWN_PHOTO_FIRST,
+        THIS_COLOUR_LEAD, OTHER_COLOUR_LEAD_OVERRIDES, OWN_PHOTO_FILLER,
+        SAME_AS_LARGE_PHOTO,
+        NOT_PUBLISHED_FOR_WEBSITE, NOT_PUBLISHED_FOR_CATALOGUE, NOT_PUBLISHABLE,
+        ALL_COLOURS_PHOTO_NOT_USED_PER_COLOUR, SINGLE_COLOUR_SERIES,
+        CHOICE_NOT_AVAILABLE, PHOTO_UNREADABLE }
+
+    /** COLOUR: the choice is for this colour only. SERIES: for every colour of the series. */
+    public enum PlaceScope { COLOUR, SERIES }
+
+    /**
+     * One place a photo is shown. {@code shownKey} is the photo really shown now, {@code
+     * chosenKey} the stored choice even when it is not shown; both resolve in {@code photos}
+     * or {@code otherPhotos}. {@code role} is the role to send to change this place, null when
+     * it cannot be chosen. {@code relatedProductId} is the colour the shown photo belongs to,
+     * or whose choice decides; null for a photo of all colours.
+     */
+    public record PlaceDto(String shownKey, String chosenKey, PlaceState state, PlaceReason reason,
+                           Role role, PlaceScope scope, Long relatedProductId, String relatedLabel,
+                           boolean thisColour) {}
+
+    public record PlacesDto(
+            /** Product page with this colour selected; this colour's row on the quote page. */
+            PlaceDto websiteColour,
+            /** The photo the series' product page opens with: first in series order. */
+            PlaceDto websiteOpening,
+            /** Quotes, invoices, customer portal and ERP lists. */
+            PlaceDto documents,
+            PlaceDto websiteQuote,
+            /** Brochure: this colour's picture in the colour strip. */
+            PlaceDto catalogueColour,
+            /** Brochure: the series' large photo. */
+            PlaceDto catalogueDetail,
+            /** Brochure: the thumbnail in the range table. */
+            PlaceDto catalogueOverview,
+            /** Compact catalogue: this colour's row picture. */
+            PlaceDto catalogueCompactRow) {}
+
+    public record OtherPhotoDto(String key, long productId, String variantLabel,
+                                String originalFilename, Integer widthPx, Integer heightPx,
+                                String smallUrl, String mediumUrl, String largeUrl) {}
+
+    public record ChosenForDto(long productId, String variantLabel, Role role) {}
+
+    /**
+     * The brochure with photos on, one photo per series and every active colour in variant
+     * order. An export of fewer colours, another order or more photos can print otherwise.
+     */
+    public record CatalogueAssumptionDto(String layout, int photosPerSeries,
+                                         List<Long> productIds, boolean includesThisColour) {}
 }

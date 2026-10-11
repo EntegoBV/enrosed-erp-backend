@@ -1,8 +1,16 @@
 package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.CatalogueAssumptionDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.ChosenForDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Kind;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.OtherPhotoDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PhotoDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceReason;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceScope;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceState;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlacesDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Role;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.RoleChoiceDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Scope;
@@ -26,13 +34,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Read model behind the ERP photo section: one list of own and series photos per product and
@@ -113,6 +124,7 @@ public class ProductPhotoOverviewService {
                 "familyId = ?1 order by variantPosition, id", family.id);
 
         Map<CatalogChannel, Set<Long>> publicIds = new EnumMap<>(CatalogChannel.class);
+        List<ProductFamilyPhotoEntity> catalogueImages = List.of();
         List<ProductFamilyPhotoEntity> websiteImages = family == null
                 ? List.of() : publicPhotos.images(family, members, CatalogChannel.WEBSITE);
         for (CatalogChannel channel : CatalogChannel.values()) {
@@ -120,16 +132,20 @@ public class ProductPhotoOverviewService {
                     : channel == CatalogChannel.WEBSITE ? websiteImages
                     : publicPhotos.images(family, members, channel);
             publicIds.put(channel, images.stream().map(image -> image.id).collect(Collectors.toSet()));
+            if (channel == CatalogChannel.CATALOGUE) catalogueImages = images;
         }
 
         Map<Role, RoleChoiceDto> roles = new EnumMap<>(Role.class);
         put(roles, Role.MAIN, main(product));
+        Long quote = null;
+        List<CataloguePhotoChoices.Choice> availableChoices = List.of();
         if (family != null) {
             if (family.active) {
-                Long quote = WebsiteQuotePhotoChoice.resolve(family, members, publicPhotos, websiteImages);
+                quote = WebsiteQuotePhotoChoice.resolve(family, members, publicPhotos, websiteImages);
                 put(roles, Role.QUOTE, choice(quote, Objects.equals(family.websiteQuotePhotoId, quote)));
             }
-            Set<Long> catalogueChoices = CataloguePhotoChoices.available(family, members, json).stream()
+            availableChoices = CataloguePhotoChoices.available(family, members, json);
+            Set<Long> catalogueChoices = availableChoices.stream()
                     .map(CataloguePhotoChoices.Choice::id).collect(Collectors.toSet());
             put(roles, Role.CATALOGUE_OVERVIEW,
                     storedChoice(family.catalogueOverviewPhotoId, catalogueChoices));
@@ -155,6 +171,13 @@ public class ProductPhotoOverviewService {
                     .forEach(image -> photos.add(series(product, family, members, image, publicIds, roles)));
         }
 
+        Places resolved = new Places(product, family, members, websiteImages, catalogueImages,
+                availableChoices, quote);
+        PlacesDto places = resolved.all();
+        boolean seriesLive = family != null && family.active
+                && family.websiteStatus == be.enrosed.catalog.domain.PublicationState.PUBLISHED
+                && !websiteImages.isEmpty();
+
         return new ProductPhotoOverviewDto(
                 product.id,
                 family == null ? null : family.id,
@@ -167,7 +190,14 @@ public class ProductPhotoOverviewService {
                 roles.get(Role.CATALOGUE_VARIANT),
                 roles.get(Role.CATALOGUE_OVERVIEW),
                 roles.get(Role.CATALOGUE_DETAIL),
-                family == null ? null : "LARGE".equals(family.catalogueDetailSize) ? "LARGE" : "STANDARD");
+                family == null ? null : "LARGE".equals(family.catalogueDetailSize) ? "LARGE" : "STANDARD",
+                places,
+                otherPhotos(places, photos, members),
+                seriesLive,
+                seriesLive && product.active && !product.demo,
+                new CatalogueAssumptionDto("BROCHURE", 1,
+                        resolved.selection.stream().map(member -> member.id).toList(),
+                        resolved.inSelection()));
     }
 
     /**
@@ -199,7 +229,8 @@ public class ProductPhotoOverviewService {
                 photo.originalFilename, photo.contentType, photo.widthPx, photo.heightPx, photo.sizeBytes,
                 base + "/renditions/small", base + "/renditions/medium", base, base + "/download",
                 visibility, reason, false, rolesOf(key, roles),
-                duplicateOf(product, family, members, photo), null, photo.position, null);
+                duplicateOf(product, family, members, photo), null, photo.position, null,
+                chosenFor(product, members, photo));
     }
 
     private PhotoDto series(ProductEntity product, ProductFamilyEntity family, List<ProductEntity> members,
@@ -225,7 +256,355 @@ public class ProductPhotoOverviewService {
                 base + "/small", base + "/medium", base + "/large", base + "/original",
                 visibility, visibility.website() ? WebsiteReason.PUBLISHED : null,
                 publication.isEligible(image, members), rolesOf(key, roles), null, image.position, null,
-                publication.publishedChannels(image));
+                publication.publishedChannels(image),
+                members.stream().flatMap(member -> member.photos.stream()
+                                .filter(photo -> Objects.equals(photo.familyPhotoId, image.id))
+                                .flatMap(photo -> chosenFor(member, members, photo).stream()))
+                        .toList());
+    }
+
+    /** The colour whose row this is, once per stored choice: website first, then catalogue. */
+    private static List<ChosenForDto> chosenFor(ProductEntity owner, List<ProductEntity> members,
+                                                ProductPhotoEntity row) {
+        List<ChosenForDto> chosen = new ArrayList<>();
+        if (leads(row, PhotoRole.WEBSITE)) {
+            chosen.add(new ChosenForDto(owner.id, shortLabel(owner, members), Role.MAIN));
+        }
+        if (leads(row, PhotoRole.CATALOGUE)) {
+            chosen.add(new ChosenForDto(owner.id, shortLabel(owner, members), Role.CATALOGUE_VARIANT));
+        }
+        return List.copyOf(chosen);
+    }
+
+    /** Another colour's own photo that a place names; this product's list never holds it. */
+    private static List<OtherPhotoDto> otherPhotos(PlacesDto places, List<PhotoDto> photos,
+                                                   List<ProductEntity> members) {
+        Set<String> listed = photos.stream().map(PhotoDto::key).collect(Collectors.toSet());
+        Set<String> named = new LinkedHashSet<>();
+        for (PlaceDto place : List.of(places.websiteColour(), places.websiteOpening(), places.documents(),
+                places.websiteQuote(), places.catalogueColour(), places.catalogueDetail(),
+                places.catalogueOverview(), places.catalogueCompactRow())) {
+            Stream.of(place.shownKey(), place.chosenKey())
+                    .filter(key -> key != null && !listed.contains(key)).forEach(named::add);
+        }
+        List<OtherPhotoDto> other = new ArrayList<>();
+        for (String key : named) {
+            long id = PhotoKey.parse(key).id();
+            for (ProductEntity member : members) {
+                member.photos.stream()
+                        .filter(photo -> photo.familyPhotoId == null && Objects.equals(photo.id, id))
+                        .findFirst().ifPresent(photo -> {
+                            String base = "/api/products/" + member.id + "/photos/" + photo.id;
+                            other.add(new OtherPhotoDto(key, member.id, shortLabel(member, members),
+                                    photo.originalFilename, photo.widthPx, photo.heightPx,
+                                    base + "/renditions/small", base + "/renditions/medium", base));
+                        });
+            }
+        }
+        return List.copyOf(other);
+    }
+
+    /**
+     * What every place really shows, from the rows already loaded: no query and no blob read.
+     * The website places follow the public projection, the catalogue places the plan the PDF
+     * renderer prints from, for one assumed export: the brochure with one photo per series and
+     * every active colour in variant order.
+     */
+    private final class Places {
+        private final ProductEntity product;
+        private final ProductFamilyEntity family;
+        private final List<ProductEntity> members;
+        private final List<ProductFamilyPhotoEntity> websiteImages;
+        private final Long quote;
+        /** The colours of the assumed catalogue. */
+        private final List<ProductEntity> selection;
+        private final List<CataloguePhotoPlan.GalleryPhoto> gallery;
+        private final Map<String, Long> sizes = new HashMap<>();
+        private final CataloguePhotoPlan.FamilySelection brochure;
+
+        Places(ProductEntity product, ProductFamilyEntity family, List<ProductEntity> members,
+               List<ProductFamilyPhotoEntity> websiteImages, List<ProductFamilyPhotoEntity> catalogueImages,
+               List<CataloguePhotoChoices.Choice> choices, Long quote) {
+            this.product = product;
+            this.family = family;
+            this.members = members;
+            this.websiteImages = websiteImages;
+            this.quote = quote;
+            this.selection = members.stream().filter(member -> member.active && !member.demo)
+                    .sorted(Comparator.comparingInt((ProductEntity member) -> member.variantPosition)
+                            .thenComparing(member -> member.id, Comparator.nullsLast(Long::compareTo)))
+                    .toList();
+            /* Same shapes as the catalogue export reads (PanacheCatalogFamilyReader). */
+            this.gallery = catalogueImages.stream().map(image -> new CataloguePhotoPlan.GalleryPhoto(
+                    image.id, image.largeStorageKey, image.position,
+                    image.variantProduct == null ? null : image.variantProduct.id)).toList();
+            if (family != null) {
+                family.photos.forEach(image -> size(image.largeStorageKey, image.largeSizeBytes));
+            }
+            catalogueImages.forEach(image -> size(image.largeStorageKey, image.largeSizeBytes));
+            members.forEach(member -> member.photos.forEach(
+                    photo -> size(photo.storageKey, photo.sizeBytes)));
+            this.brochure = CataloguePhotoPlan.family(family != null, gallery,
+                    family == null ? null : manual(choices, family.catalogueDetailPhotoId),
+                    family == null ? null : manual(choices, family.catalogueOverviewPhotoId),
+                    selection.stream().map(Places::variant).toList(), 1, this::usable);
+        }
+
+        PlacesDto all() {
+            return new PlacesDto(websiteColour(), websiteOpening(), documents(), websiteQuote(),
+                    catalogueColour(), catalogueDetail(), catalogueOverview(), catalogueCompactRow());
+        }
+
+        boolean inSelection() {
+            return selection.stream().anyMatch(member -> Objects.equals(member.id, product.id));
+        }
+
+        private PlaceDto websiteColour() {
+            ProductPhotoEntity lead = leadRow(product, PhotoRole.WEBSITE);
+            Long chosen = signed(lead);
+            if (family == null) {
+                return place(null, chosen, PlaceReason.NO_SERIES, Role.MAIN, PlaceScope.COLOUR, null);
+            }
+            if (!product.active || product.demo) {
+                return place(null, chosen, PlaceReason.COLOUR_NOT_ACTIVE, Role.MAIN, PlaceScope.COLOUR, null);
+            }
+            ProductFamilyPhotoEntity primary = publicPhotos.primary(
+                    websiteImages, product, members, CatalogChannel.WEBSITE);
+            PlaceReason reason;
+            if (chosen != null) {
+                ProductFamilyPhotoEntity source = seriesPhoto(lead.familyPhotoId);
+                reason = source != null && !publication.isSelectedFor(source, CatalogChannel.WEBSITE)
+                        ? PlaceReason.NOT_PUBLISHED_FOR_WEBSITE : PlaceReason.NOT_PUBLISHABLE;
+            } else if (primary == null) {
+                reason = PlaceReason.NO_PHOTO;
+            } else if (primary.id < 0) {
+                reason = PlaceReason.OWN_PHOTO_FALLBACK;
+            } else {
+                reason = variants.rank(primary, product, members) == 0
+                        ? PlaceReason.OWN_COLOUR_SERIES_PHOTO : PlaceReason.ALL_COLOURS_SERIES_PHOTO;
+            }
+            Long shown = primary == null ? null : primary.id;
+            return place(shown, chosen, reason, Role.MAIN, PlaceScope.COLOUR, colourOf(shown));
+        }
+
+        /** The series order decides this photo; no colour's Hoofdfoto does. */
+        private PlaceDto websiteOpening() {
+            if (family == null || websiteImages.isEmpty()) {
+                return place(null, null, family == null ? PlaceReason.NO_SERIES : PlaceReason.NO_PHOTO,
+                        null, PlaceScope.SERIES, null);
+            }
+            Long shown = websiteImages.getFirst().id;
+            return place(shown, null, PlaceReason.FIRST_IN_SERIES_ORDER, null, PlaceScope.SERIES,
+                    colourOf(shown));
+        }
+
+        /** Same rule as {@link #main}: documents print a chosen photo whether published or not. */
+        private PlaceDto documents() {
+            Long chosen = signed(leadRow(product, PhotoRole.WEBSITE));
+            if (chosen != null) {
+                return place(chosen, chosen, null, Role.MAIN, PlaceScope.COLOUR, colourOf(chosen));
+            }
+            List<ProductPhotoEntity> rows = product.photos.stream().sorted(ROW_ORDER).toList();
+            ProductPhotoEntity inherited = rows.stream().filter(photo -> photo.familyPhotoId != null)
+                    .findFirst().orElse(null);
+            Long shown = signed(inherited != null ? inherited : rows.isEmpty() ? null : rows.getFirst());
+            return place(shown, null, shown == null ? PlaceReason.NO_PHOTO
+                            : inherited != null ? PlaceReason.FIRST_SERIES_PHOTO : PlaceReason.FIRST_OWN_PHOTO,
+                    Role.MAIN, PlaceScope.COLOUR, colourOf(shown));
+        }
+
+        private PlaceDto websiteQuote() {
+            if (family == null) {
+                return place(null, null, PlaceReason.NO_SERIES, Role.QUOTE, PlaceScope.SERIES, null);
+            }
+            Long chosen = existing(family.websiteQuotePhotoId);
+            if (!family.active || websiteImages.isEmpty()) {
+                return place(null, chosen, family.active ? PlaceReason.NO_PHOTO : PlaceReason.SERIES_NOT_ACTIVE,
+                        Role.QUOTE, PlaceScope.SERIES, null);
+            }
+            PlaceReason reason = PlaceReason.NOT_PUBLISHED_FOR_WEBSITE;
+            if (chosen == null) {
+                Long firstColour = selection.stream()
+                        .map(member -> publicPhotos.primary(
+                                websiteImages, member, members, CatalogChannel.WEBSITE))
+                        .filter(Objects::nonNull).map(image -> image.id).findFirst().orElse(null);
+                reason = Objects.equals(firstColour, quote)
+                        ? PlaceReason.FIRST_COLOUR_WEBSITE_PHOTO : PlaceReason.FIRST_IN_SERIES_ORDER;
+            }
+            return place(quote, chosen, reason, Role.QUOTE, PlaceScope.SERIES, colourOf(quote));
+        }
+
+        /** The colour strip is printed for a series with at least two colours in the export. */
+        private PlaceDto catalogueColour() {
+            ProductPhotoEntity lead = leadRow(product, PhotoRole.CATALOGUE);
+            Long chosen = signed(lead);
+            if (!inSelection() || family == null || selection.size() < 2) {
+                return place(null, chosen, inSelection() ? PlaceReason.SINGLE_COLOUR_SERIES
+                                : PlaceReason.COLOUR_NOT_ACTIVE,
+                        Role.CATALOGUE_VARIANT, PlaceScope.COLOUR, null);
+            }
+            CataloguePhotoPlan.Ref shown = CataloguePhotoPlan.variantCandidates(variant(product), true, gallery)
+                    .stream().filter(this::usable).findFirst().orElse(null);
+            PlaceReason reason;
+            if (chosen != null) {
+                reason = notInTheStrip(lead);
+            } else if (shown == null) {
+                reason = PlaceReason.NO_PHOTO;
+            } else {
+                reason = shown.origin() == CataloguePhotoPlan.Origin.PRODUCT
+                        ? PlaceReason.OWN_PHOTO_FIRST : PlaceReason.OWN_COLOUR_SERIES_PHOTO;
+            }
+            return place(shown == null ? null : shown.signedId(), chosen, reason,
+                    Role.CATALOGUE_VARIANT, PlaceScope.COLOUR, shown == null ? null : product);
+        }
+
+        private PlaceReason notInTheStrip(ProductPhotoEntity lead) {
+            ProductFamilyPhotoEntity source = seriesPhoto(lead.familyPhotoId);
+            if (source != null) {
+                if (!publication.isSelectedFor(source, CatalogChannel.CATALOGUE)) {
+                    return PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE;
+                }
+                if (!publication.isEligible(source, members)) return PlaceReason.NOT_PUBLISHABLE;
+                if (source.variantProduct == null) return PlaceReason.ALL_COLOURS_PHOTO_NOT_USED_PER_COLOUR;
+            }
+            return PlaceReason.PHOTO_UNREADABLE;
+        }
+
+        private PlaceDto catalogueDetail() {
+            Long chosen = family == null ? null : existing(family.catalogueDetailPhotoId);
+            CataloguePhotoPlan.DetailEntry first = brochure.detail().isEmpty()
+                    ? null : brochure.detail().getFirst();
+            PlaceReason reason;
+            if (chosen != null) {
+                reason = PlaceReason.CHOICE_NOT_AVAILABLE;
+            } else if (first == null) {
+                reason = PlaceReason.NO_PHOTO;
+            } else {
+                reason = switch (first.basis()) {
+                    case VARIANT_LEAD -> Objects.equals(first.productId(), product.id)
+                            ? PlaceReason.THIS_COLOUR_LEAD : PlaceReason.OTHER_COLOUR_LEAD_OVERRIDES;
+                    case OWN_FILLER -> PlaceReason.OWN_PHOTO_FILLER;
+                    case MANUAL_DETAIL, GALLERY -> PlaceReason.FIRST_IN_SERIES_ORDER;
+                };
+            }
+            return place(first == null ? null : first.ref().signedId(), chosen, reason,
+                    Role.CATALOGUE_DETAIL, PlaceScope.SERIES, first == null ? null : member(first.productId()));
+        }
+
+        private PlaceDto catalogueOverview() {
+            Long chosen = family == null ? null : existing(family.catalogueOverviewPhotoId);
+            CataloguePhotoPlan.DetailEntry first = brochure.detail().isEmpty()
+                    ? null : brochure.detail().getFirst();
+            CataloguePhotoPlan.Ref manual = brochure.manualOverview();
+            Long shown = manual != null ? manual.signedId() : first == null ? null : first.ref().signedId();
+            return place(shown, chosen, chosen != null ? PlaceReason.CHOICE_NOT_AVAILABLE
+                            : shown == null ? PlaceReason.NO_PHOTO : PlaceReason.SAME_AS_LARGE_PHOTO,
+                    Role.CATALOGUE_OVERVIEW, PlaceScope.SERIES,
+                    manual != null ? colourOf(shown) : first == null ? null : member(first.productId()));
+        }
+
+        /** The compact layout prints an inactive colour too when it is selected; never a demo. */
+        private PlaceDto catalogueCompactRow() {
+            ProductPhotoEntity lead = leadRow(product, PhotoRole.CATALOGUE);
+            Long chosen = signed(lead);
+            if (product.demo) {
+                return place(null, chosen, PlaceReason.COLOUR_NOT_ACTIVE,
+                        Role.CATALOGUE_VARIANT, PlaceScope.COLOUR, null);
+            }
+            Set<Long> galleryIds = gallery.stream().map(CataloguePhotoPlan.GalleryPhoto::signedId)
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            Long shown = CataloguePhotoPlan.compactRow(variant(product), galleryIds, 1, this::usable)
+                    .stream().map(CataloguePhotoPlan.Ref::signedId).findFirst().orElse(null);
+            PlaceReason reason;
+            if (chosen != null) {
+                reason = lead.familyPhotoId != null && !galleryIds.contains(lead.familyPhotoId)
+                        ? PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE : PlaceReason.PHOTO_UNREADABLE;
+            } else if (shown == null) {
+                reason = PlaceReason.NO_PHOTO;
+            } else {
+                reason = shown < 0 ? PlaceReason.OWN_PHOTO_FIRST : PlaceReason.FIRST_SERIES_PHOTO;
+            }
+            return place(shown, chosen, reason, Role.CATALOGUE_VARIANT, PlaceScope.COLOUR, colourOf(shown));
+        }
+
+        /** The state follows from the two photos; a reason is kept for everything but CHOSEN. */
+        private PlaceDto place(Long shownId, Long chosenId, PlaceReason reason, Role role,
+                               PlaceScope scope, ProductEntity related) {
+            Long shown = existing(shownId);
+            Long chosen = existing(chosenId);
+            PlaceState state = chosen != null
+                    ? chosen.equals(shown) ? PlaceState.CHOSEN : PlaceState.CHOSEN_NOT_SHOWN
+                    : shown != null ? PlaceState.AUTOMATIC : PlaceState.NONE;
+            return new PlaceDto(
+                    shown == null ? null : PhotoKey.ofSigned(shown).value(),
+                    chosen == null ? null : PhotoKey.ofSigned(chosen).value(),
+                    state, state == PlaceState.CHOSEN ? null : reason, role, scope,
+                    related == null ? null : related.id,
+                    related == null ? null : shortLabel(related, members),
+                    related != null && Objects.equals(related.id, product.id));
+        }
+
+        /** Null for a stored id whose photo is gone, so no place ever names a missing photo. */
+        private Long existing(Long signedId) {
+            if (signedId == null || signedId == 0) return null;
+            return (signedId > 0 ? seriesPhoto(signedId) != null : owner(signedId) != null) ? signedId : null;
+        }
+
+        private Long signed(ProductPhotoEntity row) {
+            return row == null || row.id == null ? null : existing(PhotoKey.ofRow(row).signedId());
+        }
+
+        private ProductFamilyPhotoEntity seriesPhoto(Long id) {
+            return family == null || id == null ? null : family.photos.stream()
+                    .filter(image -> id.equals(image.id)).findFirst().orElse(null);
+        }
+
+        /** The colour that owns an own photo, addressed by its negative id. */
+        private ProductEntity owner(Long signedId) {
+            return members.stream().filter(member -> member.photos.stream().anyMatch(
+                            photo -> photo.familyPhotoId == null && photo.id != null && photo.id == -signedId))
+                    .findFirst().orElse(null);
+        }
+
+        /** The colour a photo belongs to; null for a series photo of all colours. */
+        private ProductEntity colourOf(Long signedId) {
+            if (signedId == null) return null;
+            if (signedId < 0) return owner(signedId);
+            ProductFamilyPhotoEntity image = seriesPhoto(signedId);
+            return image == null ? null : variants.resolve(image, members);
+        }
+
+        private ProductEntity member(Long productId) {
+            return productId == null ? null : members.stream()
+                    .filter(member -> productId.equals(member.id)).findFirst().orElse(null);
+        }
+
+        private void size(String storageKey, long sizeBytes) {
+            if (storageKey != null) sizes.merge(storageKey, sizeBytes, Math::max);
+        }
+
+        /** Stands in for the renderer's decode: a stored key with bytes. No blob is read here. */
+        private boolean usable(CataloguePhotoPlan.Ref ref) {
+            return ref != null && ref.storageKey() != null && !ref.storageKey().isBlank()
+                    && sizes.getOrDefault(ref.storageKey(), 0L) > 0;
+        }
+
+        private static CataloguePhotoPlan.GalleryPhoto manual(
+                List<CataloguePhotoChoices.Choice> choices, Long id) {
+            return id == null ? null : choices.stream().filter(choice -> id.equals(choice.id()))
+                    .map(choice -> new CataloguePhotoPlan.GalleryPhoto(
+                            choice.id(), choice.storageKey(), -1, choice.productId()))
+                    .findFirst().orElse(null);
+        }
+
+        /** The photos in the order the catalogue export reads them: by position, ties as stored. */
+        private static CataloguePhotoPlan.Variant variant(ProductEntity member) {
+            return new CataloguePhotoPlan.Variant(member.id, member.photos.stream()
+                    .sorted(Comparator.comparingInt((ProductPhotoEntity photo) -> photo.position))
+                    .map(photo -> new CataloguePhotoPlan.VariantPhoto(
+                            photo.id, photo.storageKey, photo.position, photo.familyPhotoId,
+                            leads(photo, PhotoRole.CATALOGUE))).toList());
+        }
     }
 
     /** Same original bytes are cheap to suspect: equal size, dimensions and type. */
@@ -281,7 +660,7 @@ public class ProductPhotoOverviewService {
 
     /** "Rood · 5.5*6cm": the Dutch colour and size, else the SKU. */
     static String fullLabel(ProductEntity product) {
-        String label = java.util.stream.Stream.of(product.colour, product.variantSize)
+        String label = Stream.of(product.colour, product.variantSize)
                 .filter(value -> value != null && !value.isBlank()).map(String::strip)
                 .collect(Collectors.joining(" · "));
         if (!label.isEmpty()) return label;

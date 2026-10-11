@@ -3,8 +3,14 @@ package be.enrosed.catalog.application;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyDto;
 import be.enrosed.catalog.adapter.in.rest.ProductFamilyResource;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.ChosenForDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Kind;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.OtherPhotoDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PhotoDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceDto;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceReason;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceScope;
+import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.PlaceState;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Role;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.RoleChoiceDto;
 import be.enrosed.catalog.adapter.in.rest.ProductPhotoOverviewDto.Scope;
@@ -320,6 +326,458 @@ class ProductPhotoOverviewPersistenceTest {
                 "catalogueDetail", "catalogueDetailSize", "familyId", "familyName", "variantLabel")) {
             assertTrue(tree.has(field), field);
         }
+        assertTrue(first.has("chosenFor"));
+        for (String field : List.of("places", "otherPhotos", "seriesLiveOnWebsite", "colourOnWebsite",
+                "catalogueAssumption")) {
+            assertTrue(tree.has(field), field);
+        }
+        for (String place : List.of("websiteColour", "websiteOpening", "documents", "websiteQuote",
+                "catalogueColour", "catalogueDetail", "catalogueOverview", "catalogueCompactRow")) {
+            for (String field : List.of("shownKey", "chosenKey", "state", "reason", "role", "scope",
+                    "relatedProductId", "relatedLabel", "thisColour")) {
+                assertTrue(tree.path("places").path(place).has(field), place + "." + field);
+            }
+        }
+        assertEquals("AUTOMATIC", tree.path("places").path("websiteOpening").path("state").asText());
+        assertTrue(tree.path("places").path("websiteOpening").path("role").isNull());
+        assertEquals("COLOUR", tree.path("places").path("documents").path("scope").asText());
+        for (String field : List.of("layout", "photosPerSeries", "productIds", "includesThisColour")) {
+            assertTrue(tree.path("catalogueAssumption").has(field), field);
+        }
+        assertEquals("BROCHURE", tree.path("catalogueAssumption").path("layout").asText());
+    }
+
+    @Test
+    @TestTransaction
+    void placesNameTheWebsitePhotoNotTheDocumentPhoto() {
+        Fixture f = fixture("places-documents");
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.blue().id);
+
+        /* Blue's own series photo is internal: documents print it, the website cannot. */
+        PlaceDto documents = overview.places().documents();
+        assertEquals("F" + f.blueImage().id, documents.shownKey());
+        assertNull(documents.chosenKey());
+        assertEquals(PlaceState.AUTOMATIC, documents.state());
+        assertEquals(PlaceReason.FIRST_SERIES_PHOTO, documents.reason());
+        assertEquals(Role.MAIN, documents.role());
+        assertEquals(PlaceScope.COLOUR, documents.scope());
+        assertEquals(f.blue().id, documents.relatedProductId());
+        assertEquals("Blue", documents.relatedLabel());
+        assertTrue(documents.thisColour());
+        PlaceDto website = overview.places().websiteColour();
+        assertEquals("F" + f.global().id, website.shownKey());
+        assertEquals(PlaceState.AUTOMATIC, website.state());
+        assertEquals(PlaceReason.ALL_COLOURS_SERIES_PHOTO, website.reason());
+        assertNull(website.relatedProductId(), "a photo for all colours belongs to no colour");
+        assertFalse(website.thisColour());
+        assertEquals(new RoleChoiceDto("F" + f.blueImage().id, false), overview.main(),
+                "the legacy field keeps naming the document photo");
+
+        PlaceDto red = overviews.overview(f.red().id).places().websiteColour();
+        assertEquals("F" + f.redImage().id, red.shownKey());
+        assertEquals(PlaceReason.OWN_COLOUR_SERIES_PHOTO, red.reason());
+        assertTrue(red.thisColour());
+    }
+
+    @Test
+    @TestTransaction
+    void openingPhotoIsTheFirstWebsiteSeriesPhotoAndSaysWhoseItIs() {
+        Fixture f = fixture("places-opening");
+        commands.setRole(f.blue().id, Role.MAIN, "F" + f.global().id);
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.blue().id);
+
+        PlaceDto opening = overview.places().websiteOpening();
+        assertEquals("F" + f.redImage().id, opening.shownKey(), "series order, not blue's Hoofdfoto");
+        assertNull(opening.chosenKey());
+        assertEquals(PlaceState.AUTOMATIC, opening.state());
+        assertEquals(PlaceReason.FIRST_IN_SERIES_ORDER, opening.reason());
+        assertNull(opening.role());
+        assertEquals(PlaceScope.SERIES, opening.scope());
+        assertEquals(f.red().id, opening.relatedProductId());
+        assertEquals("Red", opening.relatedLabel());
+        assertFalse(opening.thisColour());
+        assertEquals(PlaceState.CHOSEN, overview.places().websiteColour().state());
+        assertEquals("F" + f.global().id, overview.places().websiteColour().shownKey());
+        assertTrue(overviews.overview(f.red().id).places().websiteOpening().thisColour());
+        assertTrue(overview.seriesLiveOnWebsite());
+        assertTrue(overview.colourOnWebsite());
+
+        PlaceDto quote = overview.places().websiteQuote();
+        assertEquals("F" + f.redImage().id, quote.shownKey());
+        assertEquals(PlaceState.AUTOMATIC, quote.state());
+        assertEquals(PlaceReason.FIRST_COLOUR_WEBSITE_PHOTO, quote.reason());
+        assertEquals(Role.QUOTE, quote.role());
+        assertEquals(f.red().id, quote.relatedProductId());
+    }
+
+    @Test
+    @TestTransaction
+    void aChoiceWhoseChannelWasSwitchedOffIsChosenNotShown() {
+        Fixture f = fixture("places-switched-off");
+        readable(f.redImage(), f.global(), f.blueImage());
+        commands.setRole(f.red().id, Role.MAIN, "F" + f.redImage().id);
+        commands.setRole(f.red().id, Role.QUOTE, "F" + f.redImage().id);
+        ProductPhotoOverviewDto chosen = commands.setRole(
+                f.red().id, Role.CATALOGUE_VARIANT, "F" + f.redImage().id);
+        String key = "F" + f.redImage().id;
+        for (PlaceDto place : List.of(chosen.places().websiteColour(), chosen.places().documents(),
+                chosen.places().websiteQuote(), chosen.places().catalogueColour(),
+                chosen.places().catalogueCompactRow())) {
+            assertEquals(PlaceState.CHOSEN, place.state());
+            assertEquals(key, place.shownKey());
+            assertEquals(key, place.chosenKey());
+            assertNull(place.reason());
+        }
+        assertEquals(PlaceReason.THIS_COLOUR_LEAD, chosen.places().catalogueDetail().reason(),
+                "a colour's catalogue choice also becomes the series' large photo");
+
+        f.redImage().publishedChannelsJson = "[]";
+        entityManager.flush();
+        ProductPhotoOverviewDto stale = overviews.overview(f.red().id);
+
+        PlaceDto website = stale.places().websiteColour();
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, website.state());
+        assertEquals(PlaceReason.NOT_PUBLISHED_FOR_WEBSITE, website.reason());
+        assertEquals(key, website.chosenKey());
+        assertEquals("F" + f.global().id, website.shownKey(), "the photo the website shows instead");
+        assertEquals(PlaceState.CHOSEN, stale.places().documents().state(), "documents keep printing it");
+        assertEquals(key, stale.places().documents().shownKey());
+        PlaceDto quote = stale.places().websiteQuote();
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, quote.state());
+        assertEquals(PlaceReason.NOT_PUBLISHED_FOR_WEBSITE, quote.reason());
+        assertEquals(key, quote.chosenKey());
+        assertEquals("F" + f.global().id, quote.shownKey());
+        for (PlaceDto place : List.of(stale.places().catalogueColour(), stale.places().catalogueCompactRow())) {
+            assertEquals(PlaceState.CHOSEN_NOT_SHOWN, place.state());
+            assertEquals(PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE, place.reason());
+            assertEquals(key, place.chosenKey());
+            assertNull(place.shownKey());
+        }
+        assertEquals(new RoleChoiceDto(key, true), stale.main(), "the legacy fields keep the stored choice");
+        assertEquals(new RoleChoiceDto(key, true), stale.catalogueVariant());
+    }
+
+    @Test
+    @TestTransaction
+    void automaticCatalogueColourPrintsTheOwnPhotoAheadOfAPublishedSeriesPhoto() {
+        Fixture f = fixture("places-own-first");
+        readable(f.redImage(), f.global(), f.blueImage());
+        f.redImage().publishedChannelsJson = "[\"WEBSITE\",\"CATALOGUE\"]";
+        ProductPhotoEntity own = ownPhoto(f.red(), "places-own-first-own", 0);
+        entityManager.flush();
+        familyPhotoCompatibility.sync(f.family());
+        entityManager.flush();
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        PlaceDto strip = overview.places().catalogueColour();
+        assertEquals("P" + own.id, strip.shownKey());
+        assertNull(strip.chosenKey());
+        assertEquals(PlaceState.AUTOMATIC, strip.state());
+        assertEquals(PlaceReason.OWN_PHOTO_FIRST, strip.reason());
+        assertEquals(Role.CATALOGUE_VARIANT, strip.role());
+        assertTrue(strip.thisColour());
+        assertFalse(photo(overview, "P" + own.id).visibility().catalogue(),
+                "the public catalogue feed does not list the photo the brochure prints");
+        PlaceDto row = overview.places().catalogueCompactRow();
+        assertEquals("P" + own.id, row.shownKey());
+        assertEquals(PlaceReason.OWN_PHOTO_FIRST, row.reason());
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertEquals("F" + f.redImage().id, detail.shownKey());
+        assertEquals(PlaceState.AUTOMATIC, detail.state());
+        assertEquals(PlaceReason.FIRST_IN_SERIES_ORDER, detail.reason());
+        assertEquals(Role.CATALOGUE_DETAIL, detail.role());
+        assertEquals(PlaceScope.SERIES, detail.scope());
+        PlaceDto thumbnail = overview.places().catalogueOverview();
+        assertEquals("F" + f.redImage().id, thumbnail.shownKey());
+        assertEquals(PlaceReason.SAME_AS_LARGE_PHOTO, thumbnail.reason());
+        assertEquals(Role.CATALOGUE_OVERVIEW, thumbnail.role());
+        assertNull(overview.catalogueVariant(), "the legacy fields stay null while automatic");
+        assertNull(overview.catalogueDetail());
+        assertNull(overview.catalogueOverview());
+
+        PlaceDto blue = overviews.overview(f.blue().id).places().catalogueColour();
+        assertNull(blue.shownKey(), "blue has no catalogue photo of its own colour");
+        assertEquals(PlaceState.NONE, blue.state());
+        assertEquals(PlaceReason.NO_PHOTO, blue.reason());
+    }
+
+    @Test
+    @TestTransaction
+    void catalogueColourChoiceOnAnAllColoursPhotoIsNotShownInTheStrip() {
+        Fixture f = fixture("places-all-colours");
+        readable(f.redImage(), f.global(), f.blueImage());
+
+        ProductPhotoOverviewDto overview = commands.setRole(
+                f.red().id, Role.CATALOGUE_VARIANT, "F" + f.global().id);
+
+        PlaceDto strip = overview.places().catalogueColour();
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, strip.state());
+        assertEquals(PlaceReason.ALL_COLOURS_PHOTO_NOT_USED_PER_COLOUR, strip.reason());
+        assertEquals("F" + f.global().id, strip.chosenKey());
+        assertNull(strip.shownKey());
+        assertEquals(new RoleChoiceDto("F" + f.global().id, true), overview.catalogueVariant());
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertEquals("F" + f.global().id, detail.shownKey(), "it does open the series");
+        assertEquals(PlaceReason.THIS_COLOUR_LEAD, detail.reason());
+        assertEquals(f.red().id, detail.relatedProductId());
+        assertTrue(detail.thisColour());
+        assertEquals(PlaceState.CHOSEN, overview.places().catalogueCompactRow().state());
+        assertEquals("F" + f.global().id, overview.places().catalogueCompactRow().shownKey());
+    }
+
+    @Test
+    @TestTransaction
+    void anotherColoursCatalogueChoiceDecidesTheSeriesPhotos() {
+        Fixture f = fixture("places-other-lead");
+        readable(f.redImage(), f.global(), f.blueImage());
+        f.redImage().publishedChannelsJson = "[\"WEBSITE\",\"CATALOGUE\"]";
+        ProductPhotoEntity blueOwn = ownPhoto(f.blue(), "places-other-lead-own", 0);
+        blueOwn.widthPx = 640;
+        blueOwn.heightPx = 480;
+        entityManager.flush();
+        familyPhotoCompatibility.sync(f.family());
+        commands.setRole(f.blue().id, Role.CATALOGUE_VARIANT, "P" + blueOwn.id);
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertEquals("P" + blueOwn.id, detail.shownKey());
+        assertNull(detail.chosenKey());
+        assertEquals(PlaceState.AUTOMATIC, detail.state());
+        assertEquals(PlaceReason.OTHER_COLOUR_LEAD_OVERRIDES, detail.reason());
+        assertEquals(f.blue().id, detail.relatedProductId());
+        assertEquals("Blue", detail.relatedLabel());
+        assertFalse(detail.thisColour());
+        PlaceDto thumbnail = overview.places().catalogueOverview();
+        assertEquals("P" + blueOwn.id, thumbnail.shownKey());
+        assertEquals(PlaceReason.SAME_AS_LARGE_PHOTO, thumbnail.reason());
+        assertEquals(f.blue().id, thumbnail.relatedProductId());
+        assertTrue(overview.photos().stream().noneMatch(photo -> photo.key().equals("P" + blueOwn.id)),
+                "another colour's own photo is never one of this product's tiles");
+        String base = "/api/products/" + f.blue().id + "/photos/" + blueOwn.id;
+        assertEquals(List.of(new OtherPhotoDto("P" + blueOwn.id, f.blue().id, "Blue",
+                        "places-other-lead-own.jpg", 640, 480,
+                        base + "/renditions/small", base + "/renditions/medium", base)),
+                overview.otherPhotos());
+        assertEquals("F" + f.redImage().id, overview.places().catalogueColour().shownKey());
+        assertEquals(PlaceReason.OWN_COLOUR_SERIES_PHOTO, overview.places().catalogueColour().reason());
+
+        ProductPhotoOverviewDto blue = overviews.overview(f.blue().id);
+        assertEquals(PlaceReason.THIS_COLOUR_LEAD, blue.places().catalogueDetail().reason());
+        assertEquals(PlaceState.CHOSEN, blue.places().catalogueColour().state());
+        assertEquals(List.of(), blue.otherPhotos());
+        assertEquals(List.of(new ChosenForDto(f.blue().id, "Blue", Role.CATALOGUE_VARIANT)),
+                photo(blue, "P" + blueOwn.id).chosenFor());
+
+        /* A series-level choice outranks the colour's choice and is reported as chosen. */
+        ProductPhotoOverviewDto manual = commands.setRole(
+                f.red().id, Role.CATALOGUE_DETAIL, "F" + f.redImage().id);
+        assertEquals(PlaceState.CHOSEN, manual.places().catalogueDetail().state());
+        assertEquals("F" + f.redImage().id, manual.places().catalogueDetail().shownKey());
+        assertEquals(PlaceState.AUTOMATIC, manual.places().catalogueOverview().state());
+        assertEquals("F" + f.redImage().id, manual.places().catalogueOverview().shownKey());
+
+        /* Taken off the catalogue behind the choice's back: stored, but no longer printed. */
+        f.redImage().publishedChannelsJson = "[\"WEBSITE\"]";
+        entityManager.flush();
+        PlaceDto unavailable = overviews.overview(f.red().id).places().catalogueDetail();
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, unavailable.state());
+        assertEquals(PlaceReason.CHOICE_NOT_AVAILABLE, unavailable.reason());
+        assertEquals("F" + f.redImage().id, unavailable.chosenKey());
+        assertEquals("P" + blueOwn.id, unavailable.shownKey());
+        assertNull(overviews.overview(f.red().id).catalogueDetail(), "the legacy field stays null");
+    }
+
+    @Test
+    @TestTransaction
+    void quoteChoiceOnAnotherColoursOwnPhotoResolvesInOtherPhotos() {
+        Fixture f = fixture("places-quote-own");
+        ProductPhotoEntity blueOwn = ownPhoto(f.blue(), "places-quote-own", 0);
+        entityManager.flush();
+        productService.setPhotoLead(f.blue().id, blueOwn.id, PhotoRole.WEBSITE, true);
+        commands.setRole(f.blue().id, Role.QUOTE, "P" + blueOwn.id);
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        assertEquals(new RoleChoiceDto("P" + blueOwn.id, true), overview.quote());
+        PlaceDto quote = overview.places().websiteQuote();
+        assertEquals(PlaceState.CHOSEN, quote.state());
+        assertEquals("P" + blueOwn.id, quote.shownKey());
+        assertEquals("P" + blueOwn.id, quote.chosenKey());
+        assertNull(quote.reason());
+        assertEquals(PlaceScope.SERIES, quote.scope());
+        assertEquals(f.blue().id, quote.relatedProductId());
+        assertFalse(quote.thisColour());
+        assertEquals(List.of("P" + blueOwn.id),
+                overview.otherPhotos().stream().map(OtherPhotoDto::key).toList());
+        assertEquals(f.blue().id, overview.otherPhotos().getFirst().productId());
+
+        ProductPhotoOverviewDto blue = overviews.overview(f.blue().id);
+        assertEquals(List.of(), blue.otherPhotos(), "blue lists the photo itself");
+        assertEquals(PlaceState.CHOSEN, blue.places().websiteColour().state());
+        assertEquals("P" + blueOwn.id, blue.places().websiteColour().shownKey());
+        assertTrue(blue.places().websiteQuote().thisColour());
+    }
+
+    @Test
+    @TestTransaction
+    void singleColourSeriesHasNoColourStrip() {
+        Fixture f = fixture("places-single");
+        readable(f.redImage(), f.global(), f.blueImage());
+        f.redImage().publishedChannelsJson = "[\"WEBSITE\",\"CATALOGUE\"]";
+        f.blue().active = false;
+        entityManager.flush();
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        PlaceDto strip = overview.places().catalogueColour();
+        assertNull(strip.shownKey());
+        assertEquals(PlaceState.NONE, strip.state());
+        assertEquals(PlaceReason.SINGLE_COLOUR_SERIES, strip.reason());
+        assertEquals("F" + f.redImage().id, overview.places().catalogueDetail().shownKey());
+        assertEquals(List.of(f.red().id), overview.catalogueAssumption().productIds());
+        assertTrue(overview.catalogueAssumption().includesThisColour());
+        assertEquals("BROCHURE", overview.catalogueAssumption().layout());
+        assertEquals(1, overview.catalogueAssumption().photosPerSeries());
+    }
+
+    @Test
+    @TestTransaction
+    void inactiveColourIsNotInTheAssumedCatalogue() {
+        Fixture f = fixture("places-inactive");
+        readable(f.redImage(), f.global(), f.blueImage());
+        commands.setRole(f.blue().id, Role.MAIN, "F" + f.global().id);
+        commands.setRole(f.blue().id, Role.CATALOGUE_VARIANT, "F" + f.global().id);
+        f.blue().active = false;
+        entityManager.flush();
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.blue().id);
+
+        assertEquals(List.of(f.red().id), overview.catalogueAssumption().productIds());
+        assertFalse(overview.catalogueAssumption().includesThisColour());
+        assertTrue(overview.seriesLiveOnWebsite());
+        assertFalse(overview.colourOnWebsite());
+        for (PlaceDto place : List.of(overview.places().websiteColour(), overview.places().catalogueColour())) {
+            assertEquals(PlaceState.CHOSEN_NOT_SHOWN, place.state());
+            assertEquals(PlaceReason.COLOUR_NOT_ACTIVE, place.reason());
+            assertEquals("F" + f.global().id, place.chosenKey());
+            assertNull(place.shownKey());
+        }
+        assertEquals(PlaceState.CHOSEN, overview.places().documents().state());
+        assertEquals(PlaceState.CHOSEN, overview.places().catalogueCompactRow().state(),
+                "a compact catalogue that selects the inactive colour still prints its choice");
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertEquals("F" + f.global().id, detail.shownKey(), "the series is described without blue's choice");
+        assertEquals(PlaceReason.FIRST_IN_SERIES_ORDER, detail.reason());
+        assertNull(detail.relatedProductId());
+    }
+
+    @Test
+    @TestTransaction
+    void aSeriesThatIsNotLiveStillSaysWhatItWouldShow() {
+        Fixture f = fixture("places-not-live");
+        f.family().websiteStatus = PublicationState.DRAFT;
+        entityManager.flush();
+
+        ProductPhotoOverviewDto draft = overviews.overview(f.red().id);
+
+        assertFalse(draft.seriesLiveOnWebsite());
+        assertFalse(draft.colourOnWebsite());
+        assertEquals("F" + f.redImage().id, draft.places().websiteColour().shownKey());
+        assertEquals(PlaceState.AUTOMATIC, draft.places().websiteQuote().state());
+
+        f.family().websiteStatus = PublicationState.PUBLISHED;
+        f.family().websiteQuotePhotoId = f.global().id;
+        f.family().active = false;
+        entityManager.flush();
+        ProductPhotoOverviewDto inactive = overviews.overview(f.red().id);
+
+        assertFalse(inactive.seriesLiveOnWebsite());
+        PlaceDto quote = inactive.places().websiteQuote();
+        assertNull(quote.shownKey());
+        assertEquals("F" + f.global().id, quote.chosenKey());
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, quote.state());
+        assertEquals(PlaceReason.SERIES_NOT_ACTIVE, quote.reason());
+        assertNull(inactive.quote());
+    }
+
+    @Test
+    @TestTransaction
+    void productWithoutASeriesStillHasAllPlaces() {
+        ProductEntity loose = product(null, "SKU-LOOSE-PLACES", "Groen", 0);
+        entityManager.persist(loose);
+        ProductPhotoEntity own = ownPhoto(loose, "loose-places", 0);
+        entityManager.flush();
+
+        ProductPhotoOverviewDto overview = overviews.overview(loose.id);
+
+        for (PlaceDto place : List.of(overview.places().websiteColour(), overview.places().websiteOpening(),
+                overview.places().websiteQuote())) {
+            assertNull(place.shownKey());
+            assertEquals(PlaceState.NONE, place.state());
+            assertEquals(PlaceReason.NO_SERIES, place.reason());
+        }
+        assertEquals("P" + own.id, overview.places().documents().shownKey());
+        assertEquals(PlaceReason.FIRST_OWN_PHOTO, overview.places().documents().reason());
+        assertEquals(PlaceState.NONE, overview.places().catalogueColour().state());
+        assertEquals(PlaceReason.SINGLE_COLOUR_SERIES, overview.places().catalogueColour().reason());
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertEquals("P" + own.id, detail.shownKey());
+        assertEquals(PlaceState.AUTOMATIC, detail.state());
+        assertEquals(PlaceReason.OWN_PHOTO_FILLER, detail.reason());
+        assertTrue(detail.thisColour());
+        assertEquals("P" + own.id, overview.places().catalogueOverview().shownKey());
+        assertEquals(PlaceReason.SAME_AS_LARGE_PHOTO, overview.places().catalogueOverview().reason());
+        assertEquals("P" + own.id, overview.places().catalogueCompactRow().shownKey());
+        assertEquals(PlaceReason.OWN_PHOTO_FIRST, overview.places().catalogueCompactRow().reason());
+        assertEquals(List.of(), overview.otherPhotos());
+        assertFalse(overview.seriesLiveOnWebsite());
+        assertFalse(overview.colourOnWebsite());
+        assertEquals(List.of(loose.id), overview.catalogueAssumption().productIds());
+        assertTrue(overview.catalogueAssumption().includesThisColour());
+
+        ProductEntity empty = product(null, "SKU-LOOSE-EMPTY", "Geel", 0);
+        entityManager.persist(empty);
+        entityManager.flush();
+        ProductPhotoOverviewDto nothing = overviews.overview(empty.id);
+        for (PlaceDto place : List.of(nothing.places().documents(), nothing.places().catalogueDetail(),
+                nothing.places().catalogueOverview(), nothing.places().catalogueCompactRow())) {
+            assertNull(place.shownKey());
+            assertEquals(PlaceState.NONE, place.state());
+            assertEquals(PlaceReason.NO_PHOTO, place.reason());
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void chosenForListsEveryColourThatChoseTheSeriesPhoto() {
+        Fixture f = fixture("places-chosen-for");
+        ProductPhotoEntity own = ownPhoto(f.red(), "places-chosen-for-own", 0);
+        entityManager.flush();
+        familyPhotoCompatibility.sync(f.family());
+        commands.setRole(f.red().id, Role.MAIN, "F" + f.global().id);
+        commands.setRole(f.blue().id, Role.MAIN, "F" + f.global().id);
+        commands.setRole(f.blue().id, Role.CATALOGUE_VARIANT, "F" + f.global().id);
+        commands.setRole(f.red().id, Role.CATALOGUE_VARIANT, "P" + own.id);
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        assertEquals(List.of(new ChosenForDto(f.red().id, "Red", Role.MAIN),
+                        new ChosenForDto(f.blue().id, "Blue", Role.MAIN),
+                        new ChosenForDto(f.blue().id, "Blue", Role.CATALOGUE_VARIANT)),
+                photo(overview, "F" + f.global().id).chosenFor());
+        assertEquals(List.of(new ChosenForDto(f.red().id, "Red", Role.CATALOGUE_VARIANT)),
+                photo(overview, "P" + own.id).chosenFor());
+        assertEquals(List.of(), photo(overview, "F" + f.redImage().id).chosenFor());
+        assertEquals(List.of(), photo(overview, "F" + f.blueImage().id).chosenFor());
+    }
+
+    /** The overview reads no blob: a series photo counts as printable once it has bytes on record. */
+    private static void readable(ProductFamilyPhotoEntity... images) {
+        for (ProductFamilyPhotoEntity image : images) image.largeSizeBytes = 2048;
     }
 
     @Test
