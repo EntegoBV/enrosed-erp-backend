@@ -29,6 +29,7 @@ import be.enrosed.shared.NotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,6 +62,7 @@ public class ProductPhotoOverviewService {
     private final FamilyPhotoPublicationPolicy publication;
     private final FamilyPhotoVariantResolver variants;
     private final ObjectMapper json;
+    private final String websiteBaseUrl;
 
     public ProductPhotoOverviewService(
             CatalogDaos.Products products,
@@ -68,7 +70,10 @@ public class ProductPhotoOverviewService {
             PublicFamilyPhotoProjection publicPhotos,
             FamilyPhotoPublicationPolicy publication,
             FamilyPhotoVariantResolver variants,
-            ObjectMapper json) {
+            ObjectMapper json,
+            @ConfigProperty(name = "enrosed.website.base-url", defaultValue = "https://enrosed.com")
+            String websiteBaseUrl) {
+        this.websiteBaseUrl = websiteBaseUrl;
         this.products = products;
         this.families = families;
         this.publicPhotos = publicPhotos;
@@ -177,7 +182,7 @@ public class ProductPhotoOverviewService {
         /* The public feed drops a series without a photo and one without a colour to sell. */
         boolean seriesLive = family != null && family.active
                 && family.websiteStatus == be.enrosed.catalog.domain.PublicationState.PUBLISHED
-                && !websiteImages.isEmpty() && !resolved.selection.isEmpty();
+                && !websiteImages.isEmpty() && !resolved.sold.isEmpty();
 
         return new ProductPhotoOverviewDto(
                 product.id,
@@ -196,6 +201,7 @@ public class ProductPhotoOverviewService {
                 otherPhotos(places, photos, members),
                 seriesLive,
                 seriesLive && product.active && !product.demo,
+                seriesLive ? websitePage(family.publicHandle) : null,
                 new CatalogueAssumptionDto("BROCHURE", 1,
                         resolved.selection.stream().map(member -> member.id).toList(),
                         resolved.inSelection()));
@@ -264,6 +270,16 @@ public class ProductPhotoOverviewService {
                         .toList());
     }
 
+    /**
+     * The series' Dutch product page on the public website (the owner reads Dutch); the other
+     * languages live under their own code, English at the root. Null without a handle.
+     */
+    private String websitePage(String handle) {
+        if (handle == null || handle.isBlank()) return null;
+        String base = websiteBaseUrl == null ? "" : websiteBaseUrl.strip().replaceAll("/+$", "");
+        return base + "/nl/products/" + handle.strip() + "/";
+    }
+
     /** The colour whose row this is, once per stored choice: website first, then catalogue. */
     private static List<ChosenForDto> chosenFor(ProductEntity owner, List<ProductEntity> members,
                                                 ProductPhotoEntity row) {
@@ -309,7 +325,8 @@ public class ProductPhotoOverviewService {
      * What every place really shows, from the rows already loaded: no query and no blob read.
      * The website places follow the public projection, the catalogue places the plan the PDF
      * renderer prints from, for one assumed export: the brochure with one photo per series and
-     * every active colour in variant order.
+     * every colour that is not a demo piece, inactive ones included, in variant order. That is
+     * what the catalogue builder selects by default; the export itself only drops demo products.
      */
     private final class Places {
         private final ProductEntity product;
@@ -317,8 +334,10 @@ public class ProductPhotoOverviewService {
         private final List<ProductEntity> members;
         private final List<ProductFamilyPhotoEntity> websiteImages;
         private final Long quote;
-        /** The colours of the assumed catalogue. */
+        /** The colours of the assumed catalogue: every colour but the demo pieces. */
         private final List<ProductEntity> selection;
+        /** The colours the website sells: active and not a demo piece. */
+        private final List<ProductEntity> sold;
         private final List<CataloguePhotoPlan.GalleryPhoto> gallery;
         private final Map<String, Long> sizes = new HashMap<>();
         private final CataloguePhotoPlan.FamilySelection brochure;
@@ -331,10 +350,11 @@ public class ProductPhotoOverviewService {
             this.members = members;
             this.websiteImages = websiteImages;
             this.quote = quote;
-            this.selection = members.stream().filter(member -> member.active && !member.demo)
+            this.selection = members.stream().filter(member -> !member.demo)
                     .sorted(Comparator.comparingInt((ProductEntity member) -> member.variantPosition)
                             .thenComparing(member -> member.id, Comparator.nullsLast(Long::compareTo)))
                     .toList();
+            this.sold = selection.stream().filter(member -> member.active).toList();
             /* Same shapes as the catalogue export reads (PanacheCatalogFamilyReader). */
             this.gallery = catalogueImages.stream().map(image -> new CataloguePhotoPlan.GalleryPhoto(
                     image.id, image.largeStorageKey, image.position,
@@ -423,19 +443,28 @@ public class ProductPhotoOverviewService {
                 return place(null, chosen, family.active ? PlaceReason.NO_PHOTO : PlaceReason.SERIES_NOT_ACTIVE,
                         Role.QUOTE, PlaceScope.SERIES, null);
             }
-            PlaceReason reason = PlaceReason.NOT_PUBLISHED_FOR_WEBSITE;
-            if (chosen == null) {
-                Long firstColour = selection.stream()
-                        .map(member -> publicPhotos.primary(
-                                websiteImages, member, members, CatalogChannel.WEBSITE))
-                        .filter(Objects::nonNull).map(image -> image.id).findFirst().orElse(null);
-                reason = Objects.equals(firstColour, quote)
-                        ? PlaceReason.FIRST_COLOUR_WEBSITE_PHOTO : PlaceReason.FIRST_IN_SERIES_ORDER;
+            if (chosen != null) {
+                return place(quote, chosen, PlaceReason.NOT_PUBLISHED_FOR_WEBSITE,
+                        Role.QUOTE, PlaceScope.SERIES, colourOf(quote));
             }
-            return place(quote, chosen, reason, Role.QUOTE, PlaceScope.SERIES, colourOf(quote));
+            /* The automatic rule (WebsiteQuotePhotoChoice.automatic): the first sold colour that
+               has a website photo decides, also when that photo is one for all colours. */
+            ProductEntity deciding = sold.stream()
+                    .filter(member -> publicPhotos.primary(
+                            websiteImages, member, members, CatalogChannel.WEBSITE) != null)
+                    .findFirst().orElse(null);
+            return deciding != null
+                    ? place(quote, null, PlaceReason.FIRST_COLOUR_WEBSITE_PHOTO,
+                            Role.QUOTE, PlaceScope.SERIES, deciding)
+                    : place(quote, null, PlaceReason.FIRST_IN_SERIES_ORDER,
+                            Role.QUOTE, PlaceScope.SERIES, colourOf(quote));
         }
 
-        /** The colour strip is printed for a series with at least two colours in the export. */
+        /**
+         * The colour strip is printed for a series with at least two colours in the export. In
+         * a series of one colour the large photo is that colour's picture: its catalogue choice
+         * then arrives as {@code catalogueDetail} AUTOMATIC / THIS_COLOUR_LEAD.
+         */
         private PlaceDto catalogueColour() {
             ProductPhotoEntity lead = leadRow(product, PhotoRole.CATALOGUE);
             Long chosen = signed(lead);
@@ -462,18 +491,19 @@ public class ProductPhotoOverviewService {
         private PlaceReason notInTheStrip(ProductPhotoEntity lead) {
             ProductFamilyPhotoEntity source = seriesPhoto(lead.familyPhotoId);
             if (source != null) {
+                /* First, because publishing such a photo for the catalogue would not help. */
+                if (variants.isFamilyWide(source)) return PlaceReason.ALL_COLOURS_PHOTO_NOT_USED_PER_COLOUR;
                 if (!publication.isSelectedFor(source, CatalogChannel.CATALOGUE)) {
                     return PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE;
                 }
                 if (!publication.isEligible(source, members)) return PlaceReason.NOT_PUBLISHABLE;
-                if (source.variantProduct == null) return PlaceReason.ALL_COLOURS_PHOTO_NOT_USED_PER_COLOUR;
             }
             return PlaceReason.PHOTO_UNREADABLE;
         }
 
         private PlaceDto catalogueDetail() {
             Long chosen = family == null ? null : existing(family.catalogueDetailPhotoId);
-            /* Without a colour the export refuses, so no photo of the series is printed. */
+            /* Every colour is a demo piece: the export refuses, no photo of the series is printed. */
             if (selection.isEmpty()) {
                 return place(null, chosen, PlaceReason.COLOUR_NOT_ACTIVE,
                         Role.CATALOGUE_DETAIL, PlaceScope.SERIES, null);
@@ -527,8 +557,10 @@ public class ProductPhotoOverviewService {
                     .stream().map(CataloguePhotoPlan.Ref::signedId).findFirst().orElse(null);
             PlaceReason reason;
             if (chosen != null) {
-                reason = lead.familyPhotoId != null && !galleryIds.contains(lead.familyPhotoId)
-                        ? PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE : PlaceReason.PHOTO_UNREADABLE;
+                ProductFamilyPhotoEntity source = seriesPhoto(lead.familyPhotoId);
+                reason = source == null || galleryIds.contains(source.id) ? PlaceReason.PHOTO_UNREADABLE
+                        : publication.isSelectedFor(source, CatalogChannel.CATALOGUE)
+                        ? PlaceReason.NOT_PUBLISHABLE : PlaceReason.NOT_PUBLISHED_FOR_CATALOGUE;
             } else if (shown == null) {
                 reason = PlaceReason.NO_PHOTO;
             } else {

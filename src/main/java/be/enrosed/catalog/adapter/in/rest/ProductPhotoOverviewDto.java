@@ -39,6 +39,11 @@ public record ProductPhotoOverviewDto(
          */
         boolean seriesLiveOnWebsite,
         boolean colourOnWebsite,
+        /**
+         * Public address of the series' Dutch product page; null while the series is not live
+         * or has no handle. It is the series' page, not a link to this colour.
+         */
+        String websitePageUrl,
         /** The one export the three brochure places are computed for. */
         CatalogueAssumptionDto catalogueAssumption
 ) {
@@ -152,8 +157,10 @@ public record ProductPhotoOverviewDto(
     public record ChosenForDto(long productId, String variantLabel, Role role) {}
 
     /**
-     * The brochure with photos on, one photo per series and every active colour in variant
-     * order. An export of fewer colours, another order or more photos can print otherwise.
+     * The brochure with photos on, one photo per series and every colour that is not a demo
+     * piece, inactive ones included, in variant order: the catalogue builder's default. An
+     * export of fewer colours, another order or more photos can print otherwise.
+     * {@code includesThisColour} is false for a demo product.
      */
     public record CatalogueAssumptionDto(String layout, int photosPerSeries,
                                          List<Long> productIds, boolean includesThisColour) {}

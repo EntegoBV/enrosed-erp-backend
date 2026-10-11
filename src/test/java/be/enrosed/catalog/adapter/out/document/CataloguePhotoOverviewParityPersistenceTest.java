@@ -48,7 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * The photo overview and the catalogue export read the same rows through two adapters. For
  * persisted series this renders the real export the overview describes (brochure, photos on,
- * one photo per series, every active colour in variant order; then the compact layout) and
+ * one photo per series, every colour that is not a demo piece in variant order, inactive ones
+ * included, as the catalogue builder selects by default; then the compact layout) and
  * requires every printed picture to be the photo the overview names for that place.
  */
 @QuarkusTest
@@ -200,29 +201,27 @@ class CataloguePhotoOverviewParityPersistenceTest {
         assertEquals(List.of("P" + pinkOwn.id), chosen.get(red.id).otherPhotos().stream()
                 .map(ProductPhotoOverviewDto.OtherPhotoDto::key).toList());
 
-        /* The choice belongs to a colour that left the catalogue. */
+        /* The choice is a series photo of a colour that is no longer active: the colour is
+           still printed, its series photos are not. */
         managed(series).catalogueDetailPhotoId = whitePhoto.id;
         managed(series).catalogueOverviewPhotoId = null;
         managed(white).active = false;
-        Map<Long, ProductPhotoOverviewDto> gone = assertParity(red, pink);
+        Map<Long, ProductPhotoOverviewDto> gone = assertParity(red, pink, white);
         assertEquals(PlaceState.CHOSEN_NOT_SHOWN, gone.get(red.id).places().catalogueDetail().state());
         assertEquals(PlaceReason.CHOICE_NOT_AVAILABLE, gone.get(red.id).places().catalogueDetail().reason());
     }
 
-    /* (j), an inactive colour with photos and a demo colour */
+    /* (j) one selected colour; the demo colour and its choice are never printed */
     @Test
     @TestTransaction
-    void onlyActiveColoursThatAreNotDemoArePartOfTheAssumedCatalogue() {
+    void aSeriesOfOneColourBesidesADemoPieceHasNoColourStrip() {
         ProductFamilyEntity series = series("parity-single");
         ProductEntity red = colour(series, "RED", 0);
-        ProductEntity pink = colour(series, "PINK", 1);
-        ProductEntity demo = colour(series, "DEMO", 2);
-        pink.active = false;
+        ProductEntity demo = colour(series, "DEMO", 1);
         demo.demo = true;
-        seriesPhoto(series, "pink", 0, pink, CATALOGUE);
-        seriesPhoto(series, "demo", 1, demo, CATALOGUE);
-        ProductFamilyPhotoEntity redPhoto = seriesPhoto(series, "red", 2, red, CATALOGUE);
-        ownPhoto(pink, "pink-own", 0);
+        seriesPhoto(series, "demo", 0, demo, CATALOGUE);
+        ProductFamilyPhotoEntity redPhoto = seriesPhoto(series, "red", 1, red, CATALOGUE);
+        ProductFamilyPhotoEntity all = seriesPhoto(series, "all", 2, null, CATALOGUE);
         ownPhoto(demo, "demo-own", 0);
         sync(series);
         lead(demo, seriesPhotoOf(series, "demo"));
@@ -232,6 +231,56 @@ class CataloguePhotoOverviewParityPersistenceTest {
         assertEquals(List.of(red.id), overview.get(red.id).catalogueAssumption().productIds());
         assertEquals(PlaceReason.SINGLE_COLOUR_SERIES, overview.get(red.id).places().catalogueColour().reason());
         assertEquals("F" + redPhoto.id, overview.get(red.id).places().catalogueDetail().shownKey());
+
+        /* With one colour its catalogue choice is the large photo, also a photo for all colours. */
+        lead(red, all);
+        Map<Long, ProductPhotoOverviewDto> chosen = assertParity(red);
+        assertEquals("F" + all.id, chosen.get(red.id).places().catalogueDetail().shownKey());
+        assertEquals(PlaceReason.THIS_COLOUR_LEAD, chosen.get(red.id).places().catalogueDetail().reason());
+        assertEquals(PlaceState.AUTOMATIC, chosen.get(red.id).places().catalogueDetail().state());
+    }
+
+    /* An inactive colour, first in variant order, with an own photo and a catalogue choice; an
+       inactive colour with only series photos; a demo colour. */
+    @Test
+    @TestTransaction
+    void inactiveColoursArePrintedLikeTheCatalogueBuilderSelectsThem() {
+        ProductFamilyEntity series = series("parity-inactive");
+        ProductEntity pink = colour(series, "PINK", 0);
+        ProductEntity red = colour(series, "RED", 1);
+        ProductEntity white = colour(series, "WHITE", 2);
+        ProductEntity demo = colour(series, "DEMO", 3);
+        pink.active = false;
+        white.active = false;
+        demo.demo = true;
+        seriesPhoto(series, "all", 0, null, CATALOGUE);
+        ProductFamilyPhotoEntity redPhoto = seriesPhoto(series, "red", 1, red, CATALOGUE);
+        ProductFamilyPhotoEntity whitePhoto = seriesPhoto(series, "white", 2, white, CATALOGUE);
+        seriesPhoto(series, "demo", 3, demo, CATALOGUE);
+        ProductPhotoEntity pinkOwn = ownPhoto(pink, "pink-own", 0);
+        ownPhoto(demo, "demo-own", 0);
+        sync(series);
+        pinkOwn.leadRoles = "CATALOGUE";
+        lead(white, whitePhoto);
+        lead(demo, seriesPhotoOf(series, "demo"));
+
+        Map<Long, ProductPhotoOverviewDto> overview = assertParity(pink, red, white);
+
+        ProductPhotoOverviewDto redOverview = overview.get(red.id);
+        assertEquals(List.of(pink.id, red.id, white.id), redOverview.catalogueAssumption().productIds());
+        assertEquals("P" + pinkOwn.id, redOverview.places().catalogueDetail().shownKey(),
+                "the inactive first colour's choice opens the series");
+        assertEquals(PlaceReason.OTHER_COLOUR_LEAD_OVERRIDES, redOverview.places().catalogueDetail().reason());
+        assertEquals(pink.id, redOverview.places().catalogueDetail().relatedProductId());
+        assertEquals("F" + redPhoto.id, redOverview.places().catalogueColour().shownKey());
+        assertEquals(PlaceState.CHOSEN, overview.get(pink.id).places().catalogueColour().state());
+        assertEquals("P" + pinkOwn.id, overview.get(pink.id).places().catalogueColour().shownKey());
+        ProductPhotoOverviewDto.PlaceDto whiteStrip = overview.get(white.id).places().catalogueColour();
+        assertNull(whiteStrip.shownKey(), "a series photo of an inactive colour is not in the catalogue");
+        assertEquals("F" + whitePhoto.id, whiteStrip.chosenKey());
+        assertEquals(PlaceReason.NOT_PUBLISHABLE, whiteStrip.reason());
+        assertEquals(PlaceReason.NOT_PUBLISHABLE, overview.get(white.id).places().catalogueCompactRow().reason());
+        assertEquals(true, overview.get(white.id).catalogueAssumption().includesThisColour());
     }
 
     /* (k) */
@@ -294,11 +343,11 @@ class CataloguePhotoOverviewParityPersistenceTest {
     /* (n) no colour left: the export refuses, so the overview names no brochure photo */
     @Test
     @TestTransaction
-    void aSeriesWithoutAnActiveColourPrintsNoBrochureAndIsNotOnTheWebsite() {
+    void aSeriesOfDemoPiecesPrintsNoBrochureAndIsNotOnTheWebsite() {
         ProductFamilyEntity series = series("parity-no-colour");
         ProductEntity red = colour(series, "RED", 0);
         ProductEntity demo = colour(series, "DEMO", 1);
-        red.active = false;
+        red.demo = true;
         demo.demo = true;
         ProductFamilyPhotoEntity all = seriesPhoto(series, "all", 0, null, "[\"CATALOGUE\",\"WEBSITE\"]");
         sync(series);
@@ -329,7 +378,7 @@ class CataloguePhotoOverviewParityPersistenceTest {
     /**
      * Renders the export the overview assumes and compares it place by place.
      *
-     * @param colours the active colours in variant order
+     * @param colours every colour that is not a demo piece, in variant order
      */
     private Map<Long, ProductPhotoOverviewDto> assertParity(ProductEntity... colours) {
         entityManager.flush();

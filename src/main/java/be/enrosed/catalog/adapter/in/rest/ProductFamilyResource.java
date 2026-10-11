@@ -505,12 +505,10 @@ public class ProductFamilyResource {
                 .available(family, members, json).stream()
                 .map(be.enrosed.catalog.application.CataloguePhotoChoices.Choice::id)
                 .collect(java.util.stream.Collectors.toSet());
-        for (Long choice : Arrays.asList(request.catalogueOverviewPhotoId(), request.catalogueDetailPhotoId())) {
-            if (choice != null && !allowed.contains(choice)) {
-                throw new BusinessRuleException("Kies een eigen foto van een actieve variant in deze reeks "
-                        + "of een reeksfoto die voor de catalogus gepubliceerd is");
-            }
-        }
+        /* Only a choice that changes is checked: a stored choice that is no longer available
+           (it is simply not printed) must not block a change of the size or of the other choice. */
+        requireAvailableWhenChanged(request.catalogueOverviewPhotoId(), family.catalogueOverviewPhotoId, allowed);
+        requireAvailableWhenChanged(request.catalogueDetailPhotoId(), family.catalogueDetailPhotoId, allowed);
         String detailSize = request.catalogueDetailSize() == null ? "STANDARD" : request.catalogueDetailSize();
         if (!Set.of("STANDARD", "LARGE").contains(detailSize)) {
             throw new BusinessRuleException("Kies STANDARD of LARGE voor het detailbeeld");
@@ -529,6 +527,13 @@ public class ProductFamilyResource {
         recordFamilyActivity(ActivityLogService.ACTION_UPDATED, family,
                 "Catalogusfoto’s gekozen", changes);
         return dto(family);
+    }
+
+    private static void requireAvailableWhenChanged(Long choice, Long stored, Set<Long> allowed) {
+        if (choice != null && !Objects.equals(choice, stored) && !allowed.contains(choice)) {
+            throw new BusinessRuleException("Kies een eigen foto van een actieve variant in deze reeks "
+                    + "of een reeksfoto die voor de catalogus gepubliceerd is");
+        }
     }
 
     @POST @Path("/{id}/images") @Consumes(MediaType.MULTIPART_FORM_DATA) @Transactional
