@@ -21,6 +21,7 @@ import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfile;
 import be.enrosed.shared.company.CompanyProfileService;
+import be.enrosed.shared.security.StaffContactService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -75,6 +76,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private final PdfImageEncoder imageEncoder;
     private final CatalogEditorialAssets editorial;
     private final ContentTranslationService content;
+    private final StaffContactService staffContacts;
 
     public PdfCatalogRenderer(@Location("catalog.html") Template simpleTemplate,
                               @Location("catalog-brochure.html") Template brochureTemplate,
@@ -85,7 +87,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                               CatalogPdfFonts fonts,
                               PdfImageEncoder imageEncoder,
                               CatalogEditorialAssets editorial,
-                              ContentTranslationService content) {
+                              ContentTranslationService content,
+                              StaffContactService staffContacts) {
         this.simpleTemplate = simpleTemplate;
         this.brochureTemplate = brochureTemplate;
         this.products = products;
@@ -96,6 +99,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.imageEncoder = imageEncoder;
         this.editorial = editorial;
         this.content = content;
+        this.staffContacts = staffContacts;
     }
 
     /** One complete SKU-level row in the compact catalogue. */
@@ -517,6 +521,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("languageCode", language.code())
                 .data("logo", editorial.image("logo-gold.png"))
                 .data("company", profile)
+                .data("catalogContacts", staffContacts.catalogContacts())
                 .data("copy", copy)
                 .render();
     }
@@ -673,6 +678,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("namedUnits", catalog.products().stream().anyMatch(PdfCatalogRenderer::namedUnit))
                 .data("copy", copy)
                 .data("company", profile)
+                .data("catalogContacts", staffContacts.catalogContacts())
                 .data("logo", editorial.image("logo-gold-print.png"))
                 .data("privateLabelMinimum", privateLabelMinimum(language))
                 .data("paletteRows", paletteRows(copy))

@@ -17,6 +17,7 @@ import be.enrosed.shared.LocalizationIncompleteException;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfile;
 import be.enrosed.shared.company.CompanyProfileService;
+import be.enrosed.shared.security.StaffContactService;
 import io.quarkus.qute.Engine;
 import io.quarkus.qute.HtmlEscaper;
 import io.quarkus.qute.ReflectionValueResolver;
@@ -55,6 +56,47 @@ import static be.enrosed.catalog.application.CatalogExportServiceTest.product;
 
 /** Generates delivery PDFs for every supported locale without starting Quarkus or an HTTP listener. */
 class PdfCatalogStandaloneQaTest {
+
+    @Test
+    void accountPhonesAppearOnBothContactPagesInEveryLanguageAndInTheCompactCatalog() throws Exception {
+        byte[] image = resource("catalog-assets/counter-bowl-retail.jpg");
+        List<StaffContactService.Contact> contacts = List.of(
+                new StaffContactService.Contact("emre", "Emre", "+32 470 00 00 01"),
+                new StaffContactService.Contact("berat", "Berat", "+32 456 00 00 02"));
+        PdfCatalogRenderer renderer = renderer(ignored -> image, contacts);
+        Photo photo = new Photo(90L, "qa-counter.jpg", "qa-counter.jpg", "image/jpeg",
+                image.length, 1536, 1024, 0);
+        for (Language language : Language.values()) {
+            var document = renderer.render(PdfCatalogRendererTest.localizedQaModel(
+                    language, CatalogExportService.Layout.BROCHURE, photo));
+            try (PDDocument pdf = Loader.loadPDF(document.content())) {
+                assertEquals(8, pdf.getNumberOfPages(), language.code());
+                for (int page = 7; page <= 8; page++) {
+                    PDFTextStripper text = new PDFTextStripper();
+                    text.setStartPage(page);
+                    text.setEndPage(page);
+                    String extracted = text.getText(pdf);
+                    for (var contact : contacts) {
+                        assertTrue(extracted.contains(contact.displayName() + ": " + contact.phone()),
+                                language.code() + " page " + page + " must name both staff phone numbers");
+                    }
+                }
+            }
+            String output = System.getProperty("catalog.contacts.qa.output");
+            if (output != null && !output.isBlank()) {
+                Files.createDirectories(Path.of(output));
+                Files.write(Path.of(output, "account-phones-" + language.code() + ".pdf"), document.content());
+            }
+        }
+        var compact = renderer.render(PdfCatalogRendererTest.localizedQaModel(
+                Language.NL, CatalogExportService.Layout.SIMPLE, photo));
+        try (PDDocument pdf = Loader.loadPDF(compact.content())) {
+            String extracted = new PDFTextStripper().getText(pdf);
+            for (var contact : contacts) {
+                assertTrue(extracted.contains(contact.displayName() + ": " + contact.phone()));
+            }
+        }
+    }
 
     @Test
     void writesAndValidatesSimpleAndBrochureForEverySupportedLocale() throws Exception {
@@ -339,6 +381,12 @@ class PdfCatalogStandaloneQaTest {
 
     private static PdfCatalogRenderer renderer(java.util.function.Function<String, byte[]> images)
             throws Exception {
+        return renderer(images, List.of());
+    }
+
+    private static PdfCatalogRenderer renderer(java.util.function.Function<String, byte[]> images,
+                                               List<StaffContactService.Contact> contacts)
+            throws Exception {
         ProductService productService = mock(ProductService.class);
         when(productService.photoData(anyString())).thenAnswer(call ->
                 new ByteArrayInputStream(images.apply(call.getArgument(0))));
@@ -346,7 +394,12 @@ class PdfCatalogStandaloneQaTest {
         when(photoStorage.read(anyString())).thenAnswer(call ->
                 new ByteArrayInputStream(images.apply(call.getArgument(0))));
         CompanyProfileService company = mock(CompanyProfileService.class);
-        when(company.get()).thenReturn(CompanyProfile.empty());
+        when(company.get()).thenReturn(contacts.isEmpty() ? CompanyProfile.empty() :
+                new CompanyProfile("Enrosed", "Enrosed BV", null, null,
+                        null, null, null, null, "hello@example.com", "+32 470 00 00 01", "ENROSED.COM",
+                        null, null, null, null, null, null, null, null));
+        StaffContactService staffContacts = mock(StaffContactService.class);
+        when(staffContacts.catalogContacts()).thenReturn(contacts);
         ContentTranslationService content = mock(ContentTranslationService.class);
         Map<Language, Map<String, String>> localizedCopy = catalogCopy();
         when(content.values(eq(ContentScope.CATALOG), any(Language.class))).thenAnswer(call ->
@@ -367,7 +420,7 @@ class PdfCatalogStandaloneQaTest {
                         Variant.forContentType(Variant.TEXT_HTML)),
                 productService, photoStorage, new Brand(), company,
                 new CatalogPdfFonts(new PdfFonts()), encoder,
-                new CatalogEditorialAssets(encoder), content);
+                new CatalogEditorialAssets(encoder), content, staffContacts);
     }
 
     private static byte[] resource(String name) throws Exception {

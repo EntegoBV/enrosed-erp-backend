@@ -301,8 +301,8 @@
     .lang-el .family-page--foam-roses .variants td { padding: 1.1mm 1.2mm; font-size: 7pt; line-height: 1.12; }
     /* The Greek call to action needs three heading lines in the wider fallback
        face. A slightly smaller quote code keeps the ordering note clear of the
-       footer once the company e-mail and phone are printed below it. */
-    .lang-el .quote-qr { width: 30mm; height: 30mm; margin: 3mm auto 2mm; }
+       footer once the company e-mail and both staff phone numbers are printed below it. */
+    .lang-el .quote-qr { width: 28mm; height: 28mm; margin: 3mm auto 2mm; }
   </style>
 </head>
 <body data-page-count="{lastPage}" class="lang-{languageCode}">
@@ -466,7 +466,7 @@
     </table></td>
     <td class="order-action"><h3><a href="{quoteUrl}">{copy['catalog.brochure.buying.cta']}</a></h3><p>{copy['catalog.brochure.buying.ctaNote']}</p>
       {#if quoteQr}<a href="{quoteUrl}"><img class="quote-qr" src="{quoteQr}" alt="{copy['catalog.brochure.buying.cta']}"/></a>{/if}
-      <p class="contact-line">{#if company.email}<a href="mailto:{company.email}">{company.email}</a><br/>{/if}{#if company.phone}{company.phone}{/if}</p>
+      <p class="contact-line">{#if company.email}<a href="mailto:{company.email}">{company.email}</a><br/>{/if}{#for contact in catalogContacts}{contact.displayName}: {contact.phone}{#if contact_hasNext}<br/>{/if}{#else}{#if company.phone}{company.phone}{/if}{/for}</p>
     </td>
   </tr></tbody></table>
   <div class="care-note">{copy['catalog.brochure.order.note']}</div>
@@ -489,7 +489,7 @@
       <a class="back-quote-url" href="{quoteUrl}">{quoteLabel}</a>
     </div></div>{/if}
   </div>
-  <div class="back-contact">{company.name}<br/>{#if company.email}{company.email}<br/>{/if}{#if company.phone}{company.phone}<br/>{/if}{#if company.website}{company.website}{/if}</div>
+  <div class="back-contact">{company.name}<br/>{#if company.email}{company.email}<br/>{/if}{#for contact in catalogContacts}{contact.displayName}: {contact.phone}<br/>{#else}{#if company.phone}{company.phone}<br/>{/if}{/for}{#if company.website}{company.website}{/if}</div>
 </section>
 {/if}
 

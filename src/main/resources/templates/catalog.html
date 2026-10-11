@@ -86,7 +86,7 @@
       <strong>{company.name}</strong><br/>
       {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
       {#if company.vatNumber}{copy['catalog.simple.vatnumber']} {company.vatNumber}<br/>{/if}
-      {#if company.email}{company.email}{/if}{#if company.phone}<br/>{company.phone}{/if}
+      {#if company.email}{company.email}{/if}{#for contact in catalogContacts}<br/>{contact.displayName}: {contact.phone}{#else}{#if company.phone}<br/>{company.phone}{/if}{/for}
       {#if company.website}<br/>{company.website}{/if}
     </td>
   </tr></table>
