@@ -502,6 +502,72 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   series projection). Series photos carry `publishedChannels` (stored choice)
   next to the effective `visibility`; channel switches start from the former.
 
+### What each place really shows (2026-10-12)
+- The photo overview (and so the answers of `PUT photo-roles` and
+  `POST photos/promote`) also carries `places`: eight places, always present,
+  each `{shownKey, chosenKey, state, reason, role, scope, relatedProductId,
+  relatedLabel, thisColour}`: `websiteColour`, `websiteOpening` (first photo
+  in series order, no role, no Hoofdfoto decides it), `documents`,
+  `websiteQuote`, `catalogueColour` (brochure colour strip),
+  `catalogueDetail`, `catalogueOverview`, `catalogueCompactRow`. State is
+  CHOSEN / AUTOMATIC / CHOSEN_NOT_SHOWN / NONE; `reason` (enum
+  `ProductPhotoOverviewDto.PlaceReason`) is null only for CHOSEN. The legacy
+  fields (`main`, `quote`, `catalogueVariant`, `catalogueOverview`,
+  `catalogueDetail`, `photos[].roles`, `visibility`) keep their old values
+  and their null-when-automatic contract; never change them.
+- Next to it: `otherPhotos` (another colour's own photo a place names; never
+  mixed into `photos`), `photos[].chosenFor` (every colour that stored the
+  photo as website or catalogue choice), `seriesLiveOnWebsite` (series
+  active + PUBLISHED + a website photo + one colour that is active and not
+  demo: "the feed carries it", not "the rebuild succeeded"),
+  `colourOnWebsite`, `websitePageUrl` (`enrosed.website.base-url` +
+  `/nl/products/<publicHandle>/`, null when not live or no handle) and
+  `catalogueAssumption`. Rebuild state is not in the overview: the screen
+  reads `GET /api/website-rebuild`.
+- The three brochure places describe ONE assumed export
+  (`catalogueAssumption`): BROCHURE, photos on, one photo per series, every
+  colour of the series that is not demo, inactive ones included, by
+  `variantPosition, id`. That is the Catalogusstudio default (the export only
+  drops demo products). An inactive colour therefore counts for the colour
+  strip and its own photos and catalogue choice count; only its series
+  photos fall out (not eligible). The website side uses the stricter "active
+  and not demo" list. A real export of a subset, the studio's saved order or
+  more photos per series can print otherwise.
+- A series with one colour in that selection (or a product without a series)
+  prints no colour strip: `catalogueColour` is `SINGLE_COLOUR_SERIES` and the
+  colour's catalogue choice arrives as `catalogueDetail` AUTOMATIC /
+  `THIS_COLOUR_LEAD`. For an automatic `websiteQuote` with reason
+  `FIRST_COLOUR_WEBSITE_PHOTO`, `relatedProductId` is the deciding colour
+  (first sold colour with a website photo), also for an all-colours photo.
+- The selection rules live once, in the pure class `CataloguePhotoPlan`
+  (`family`, `variantCandidates`, `compactRow`; no CDI, entities or I/O).
+  `PdfCatalogRenderer` prints from it and `ProductPhotoOverviewService`
+  describes from it, so the two cannot drift; the overview reads no blob
+  ("usable" = storage key + `sizeBytes > 0`). Guards:
+  `PdfCatalogPhotoSelectionGoldenTest` (pins what the PDF prints; do not
+  edit it to make a change pass), `CataloguePhotoPlanTest`, and
+  `CataloguePhotoOverviewParityPersistenceTest` (renders the assumed export
+  and compares every printed picture with the overview's `shownKey`).
+  `CatalogExportService.model(Request)` is public for that test.
+- `PUT /api/product-families/{id}/catalogue-photos` checks a series choice
+  against `CataloguePhotoChoices.available` only when the id differs from
+  the stored one, so "Formaat" (or the other choice) can be saved while a
+  stored choice is no longer available; that choice stays stored, is not
+  printed and shows as CHOSEN_NOT_SHOWN / `CHOICE_NOT_AVAILABLE`.
+- The start-up foam backfill is create-only for the seed photo
+  (`CatalogFoamPhotoBackfillService.ensurePrimaryPhoto`): an existing
+  `catalog-primary-red` series photo is never moved, re-bound or
+  re-published, and a missing one is created only for a series without any
+  series photo. A seed photo the owner deletes stays deleted. The rest of
+  the backfill (key canonicalisation, the "Mixed" bear colour) is unchanged.
+- The website revision digest (`WebsiteCatalogRevisionService.category`)
+  ends a category block with the term `category-photo` + the first photo's
+  id, storage key, width and height, only when the category has a photo
+  (pinned digests of photo-less fixtures stay valid). Adding, removing or
+  reordering the first category photo now really starts a rebuild; the first
+  start after this deploy queues one rebuild on a database with category
+  photos.
+
 ### The Maat is one language-neutral value (2026-09-28)
 - Owner decision after the diamond displays printed 4.5*4.5cm in every
   language while their Maat said 4.8*4.8cm (stale per-language copies left
