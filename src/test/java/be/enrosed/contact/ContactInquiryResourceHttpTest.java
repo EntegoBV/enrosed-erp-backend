@@ -24,6 +24,8 @@ class ContactInquiryResourceHttpTest {
     void staffEndpointsAreClosedToAnonymousUsers() {
         given().when().get("/api/contact-inquiries")
                 .then().statusCode(anyOf(equalTo(401), equalTo(403)));
+        given().when().get("/api/contact-inquiries/42")
+                .then().statusCode(anyOf(equalTo(401), equalTo(403)));
         given().contentType("application/json").body("{\"status\":\"READ\"}")
                 .when().patch("/api/contact-inquiries/42/status")
                 .then().statusCode(anyOf(equalTo(401), equalTo(403)));
@@ -41,6 +43,24 @@ class ContactInquiryResourceHttpTest {
                 .body("[0].reference", equalTo("CNT-0123456789ABCDEF0123"))
                 .body("[0].notificationStatus", equalTo("PENDING"));
         verify(contacts).list("NEW", 1, 25);
+    }
+
+    @Test
+    @TestSecurity(user = "staff", roles = AdminIdentityProvider.ADMIN_ROLE)
+    void adminCanOpenPushDestinationWithoutDependingOnTheCurrentListPage() {
+        when(contacts.get(42L)).thenReturn(view("NEW"));
+        given().when().get("/api/contact-inquiries/42")
+                .then().statusCode(200)
+                .header("Cache-Control", "no-store")
+                .body("id", equalTo(42))
+                .body("message", equalTo("A useful message"));
+    }
+
+    @Test
+    @TestSecurity(user = "staff", roles = AdminIdentityProvider.ADMIN_ROLE)
+    void missingInquiryReturnsNotFound() {
+        when(contacts.get(42L)).thenThrow(new jakarta.ws.rs.NotFoundException());
+        given().when().get("/api/contact-inquiries/42").then().statusCode(404);
     }
 
     @Test

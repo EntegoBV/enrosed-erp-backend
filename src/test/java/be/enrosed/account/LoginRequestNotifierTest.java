@@ -99,7 +99,7 @@ class LoginRequestNotifierTest {
         captured.getFirst().run();
 
         verify(push).notifyAll("login-request", "Nieuwe login-aanvraag",
-                "Wacht op goedkeuring bij Login-aanvragen", "/klantlogins");
+                "Wacht op goedkeuring bij Login-aanvragen", "/klantlogins?open=" + id);
         TeamNotice notice = onlyNotice();
         String reference = reference(id);
         assertEquals("Nieuwe login-aanvraag " + reference + " · Bloemen Peeters BV", notice.subject());
@@ -159,7 +159,7 @@ class LoginRequestNotifierTest {
         notifier.process(id, false);
 
         verify(push).notifyAll("login-request", "Nieuwe loginlink gevraagd",
-                "Stuur de link vanuit Login-aanvragen", "/klantlogins");
+                "Stuur de link vanuit Login-aanvragen", "/klantlogins?open=" + id);
         TeamNotice notice = onlyNotice();
         assertEquals("Nieuwe loginlink gevraagd · Bloemen Peeters BV", notice.subject());
         assertEquals("Website · wachtwoord vergeten", notice.kicker());
@@ -189,7 +189,7 @@ class LoginRequestNotifierTest {
         notifier.process(id, true);
 
         verify(push).notifyAll("login-request", "Login-aanvraag opnieuw ingediend",
-                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins");
+                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins?open=" + id);
         TeamNotice notice = onlyNotice();
         assertEquals("Login-aanvraag " + reference(id) + " opnieuw ingediend met andere gegevens",
                 notice.subject());
@@ -219,7 +219,7 @@ class LoginRequestNotifierTest {
         notifier.process(id, true);
 
         verify(push).notifyAll("login-request", "Login-aanvraag opnieuw ingediend",
-                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins");
+                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins?open=" + id);
         TeamNotice notice = onlyNotice();
         assertEquals(new TeamFact("Bedrijf", "Tweede BV"), notice.facts().getFirst());
         assertEquals(new TeamFact("Bron", "Loginformulier"), notice.facts().getLast());
@@ -238,7 +238,7 @@ class LoginRequestNotifierTest {
         notifier.process(id, true);
 
         verify(push).notifyAll("login-request", "Nieuwe loginlink gevraagd",
-                "Bij een open login-aanvraag. Bekijk ze bij Login-aanvragen", "/klantlogins");
+                "Bij een open login-aanvraag. Bekijk ze bij Login-aanvragen", "/klantlogins?open=" + id);
         TeamNotice notice = onlyNotice();
         assertEquals("Nieuwe loginlink gevraagd · " + email, notice.subject());
         assertEquals("Website · wachtwoord vergeten", notice.kicker());
@@ -363,7 +363,7 @@ class LoginRequestNotifierTest {
 
         assertEquals(1, count(email));
         verify(push).notifyAll("login-request", "Login-aanvraag opnieuw ingediend",
-                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins");
+                "Met andere gegevens. Bekijk ze bij Login-aanvragen", "/klantlogins?open=" + row.id);
         assertEquals(new TeamFact("Bron", "Offerteaanvraag ENR-2026-0022"), onlyNotice().facts().getLast());
 
         /* An address that cannot be used is logged and dropped; nothing is thrown at the quote. */
@@ -389,7 +389,7 @@ class LoginRequestNotifierTest {
         assertEquals("NEW_LINK", row.source);
         assertEquals(customerId, row.customerId);
         verify(push).notifyAll("login-request", "Nieuwe loginlink gevraagd",
-                "Stuur de link vanuit Login-aanvragen", "/klantlogins");
+                "Stuur de link vanuit Login-aanvragen", "/klantlogins?open=" + row.id);
         assertEquals("Nieuwe loginlink gevraagd · Bloemen Peeters BV", onlyNotice().subject());
         verify(housekeeping, times(1)).purge();
     }

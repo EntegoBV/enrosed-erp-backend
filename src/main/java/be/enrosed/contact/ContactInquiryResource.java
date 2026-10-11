@@ -34,6 +34,13 @@ public class ContactInquiryResource {
                 .header("Cache-Control", "no-store").build();
     }
 
+    @GET
+    @Path("/{id}")
+    public Response get(@PathParam("id") long id) {
+        return Response.ok(inquiries.get(id))
+                .header("Cache-Control", "no-store").build();
+    }
+
     @PATCH
     @Path("/{id}/status")
     public Response status(@PathParam("id") long id,

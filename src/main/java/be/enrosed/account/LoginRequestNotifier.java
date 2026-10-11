@@ -110,7 +110,7 @@ public class LoginRequestNotifier {
                 /* notifyAll reads the devices without a transaction of its own; on this thread
                    a bare call would throw and no push would ever leave. */
                 QuarkusTransaction.requiringNew().run(() ->
-                        push.notifyAll(PUSH_KIND, notice.pushTitle(), notice.pushBody(), ERP_PATH));
+                        push.notifyAll(PUSH_KIND, notice.pushTitle(), notice.pushBody(), ERP_PATH + "?open=" + requestId));
             } catch (RuntimeException exception) {
                 LOG.errorf("Login-aanvraag %d: pushmelding kon niet vertrekken (%s)",
                         requestId, exception.getClass().getSimpleName());

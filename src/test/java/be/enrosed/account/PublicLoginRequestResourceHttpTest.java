@@ -3,14 +3,17 @@ package be.enrosed.account;
 import be.enrosed.publicform.PublicFormAction;
 import be.enrosed.publicform.PublicFormIdempotencyService;
 import be.enrosed.publicform.PublicFormPurpose;
+import be.enrosed.publicform.PublicFormRateBucketEntity;
 import be.enrosed.publicform.PublicFormRateLimitException;
 import be.enrosed.publicform.PublicFormRateLimiter;
 import be.enrosed.publicform.PublicFormSecurityService;
 import be.enrosed.publicform.PublicFormServiceUnavailableException;
 import be.enrosed.publicform.PublicFormValidationException;
+import be.enrosed.push.WebPushNotifier;
 import be.enrosed.sales.application.CustomerService;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.mail.InternalMessageSender;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -50,6 +53,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 /**
  * The two request forms through the real HTTP pipeline, with the real idempotency store and
@@ -72,6 +76,8 @@ class PublicLoginRequestResourceHttpTest {
     @InjectSpy PublicFormRateLimiter rateLimiter;
     @InjectSpy PublicFormIdempotencyService idempotency;
     @InjectMock PublicFormSecurityService security;
+    @InjectMock WebPushNotifier push;
+    @InjectMock InternalMessageSender sender;
 
     private final List<Runnable> captured = new ArrayList<>();
     private final List<Long> createdCustomers = new ArrayList<>();
@@ -117,6 +123,30 @@ class PublicLoginRequestResourceHttpTest {
         verify(idempotency).executeAccepted(eq(PublicFormPurpose.ACCOUNT), any(), any(),
                 eq(PublicFormAction.ACCOUNT_REQUEST_SUBMIT), eq(email), any(), any());
         assertEquals(1, captured.size(), "the notice waits in the background");
+    }
+
+    @Test
+    void aCommittedPublicRequestSendsOnePushOpeningItsDetailsAndAReplayDoesNotResend() {
+        String email = email();
+        String idempotencyKey = "login-notice-" + UUID.randomUUID();
+        Map<String, Object> request = body(email);
+
+        Response accepted = submit(request, idempotencyKey);
+        accepted.then().statusCode(202);
+        CustomerLoginRequestEntity row = only(email);
+        assertEquals(1, captured.size());
+        verifyNoInteractions(push, sender);
+
+        captured.removeFirst().run();
+
+        verify(push).notifyAll("login-request", "Nieuwe login-aanvraag",
+                "Wacht op goedkeuring bij Login-aanvragen", "/klantlogins?open=" + row.id);
+        verify(sender).sendTeamNotice(any());
+        Response replay = submit(request, idempotencyKey);
+        assertEquals(accepted.asString(), replay.asString());
+        replay.then().statusCode(202);
+        assertTrue(captured.isEmpty(), "an idempotent replay must not enqueue another notification");
+        verifyNoMoreInteractions(push, sender);
     }
 
     @Test
@@ -494,7 +524,11 @@ class PublicLoginRequestResourceHttpTest {
     }
 
     private static void clearRequests() {
-        QuarkusTransaction.requiringNew().run(() -> CustomerLoginRequestEntity.deleteAll());
+        QuarkusTransaction.requiringNew().run(() -> {
+            CustomerLoginRequestEntity.deleteAll();
+            PublicFormRateBucketEntity.delete("action in ?1", List.of(
+                    PublicFormAction.ACCOUNT_NOTICE_HOUR.name(), PublicFormAction.ACCOUNT_NOTICE_DAY.name()));
+        });
     }
 
     private static String email() {

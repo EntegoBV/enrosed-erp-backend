@@ -3,6 +3,8 @@ package be.enrosed.contact;
 import be.enrosed.publicform.PublicFormValidationException;
 import be.enrosed.shared.Language;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.time.Instant;
@@ -15,6 +17,8 @@ import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class ContactInquiryService {
+    @Inject Event<ContactInquiryReceived> received;
+
     private static final Pattern EMAIL = Pattern.compile(
             "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
             Pattern.CASE_INSENSITIVE);
@@ -70,6 +74,7 @@ public class ContactInquiryService {
         outbox.status = ContactOutboxStatus.PENDING;
         outbox.nextAttemptAt = now;
         outbox.persist();
+        received.fire(new ContactInquiryReceived(inquiry.id));
         return new ContactDtos.Response(inquiry.reference, "RECEIVED");
     }
 
@@ -92,6 +97,12 @@ public class ContactInquiryService {
         }
         return query.page(page, size).list().stream()
                 .map(ContactInquiryService::view).toList();
+    }
+
+    public ContactDtos.View get(long id) {
+        ContactInquiryEntity inquiry = ContactInquiryEntity.findById(id);
+        if (inquiry == null) throw new jakarta.ws.rs.NotFoundException();
+        return view(inquiry);
     }
 
     @Transactional
