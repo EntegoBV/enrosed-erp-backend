@@ -1,6 +1,7 @@
 package be.enrosed.catalog.adapter.out.document;
 
 import be.enrosed.catalog.application.CatalogExportService;
+import be.enrosed.catalog.application.CataloguePhotoPlan;
 import be.enrosed.catalog.application.ContentTranslationService;
 import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
@@ -785,26 +786,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                             CatalogExportService.Request request, PhotoResolver photos,
                             Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         int allowed = request.resolvedPhotosPerProduct(product.familyId());
-        List<PhotoRef> imageRefs = new ArrayList<>();
-        Set<String> imageKeys = new LinkedHashSet<>();
-        /* Inherited photos remain channel-filtered. Once a usable catalogue choice exists,
-           the requested count caps that selection; it does not refill it with old originals. */
-        List<Photo> eligiblePhotos = product.photos().stream()
-                .filter(photo -> !photo.inherited()
-                        || catalogueFamilyPhotoIds.contains(photo.familyPhotoId())).toList();
-        List<Photo> catalogueLeads = allowed <= 0 ? List.of() : eligiblePhotos.stream()
-                .filter(photo -> photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE))
-                .filter(photo -> {
-                    PhotoRef ref = photos.productRef(photo);
-                    return ref != null && photos.usable(ref);
-                }).toList();
-        for (Photo photo : catalogueLeads.isEmpty() ? eligiblePhotos : catalogueLeads) {
-            if (imageRefs.size() >= allowed) break;
-            PhotoRef ref = photos.productRef(photo);
-            if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
-                imageRefs.add(ref);
-            }
-        }
+        List<PhotoRef> imageRefs = CataloguePhotoPlan.compactRow(
+                        planVariant(product), catalogueFamilyPhotoIds, allowed, photos::usablePlan)
+                .stream().map(PdfCatalogRenderer::photoRef).toList();
         return new Item(
                 product.sku(), product.nameIn(language), dimensionLabel(product.dimensions()),
                 product.colourIn(language), product.variantSize(),
@@ -847,71 +831,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
         int allowed = request.resolvedPhotosPerProduct(
                 family != null && family.id() != null ? family.id() : first.familyId());
-        List<PhotoRef> imageRefs = new ArrayList<>();
-        Set<String> imageKeys = new LinkedHashSet<>();
-        Set<Long> selectedIds = group.variants().stream().map(Product::id)
-                .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
-        Set<Long> allowedFamilyPhotoIds = family == null ? Set.of() : family.photos().stream()
-                .filter(photo -> photo.variantProductId() == null
-                        || selectedIds.contains(photo.variantProductId()))
-                .map(CatalogFamilyReader.GalleryPhoto::id)
-                .collect(java.util.stream.Collectors.toSet());
-        PhotoRef manualDetail = allowed > 0 && family != null
-                ? photos.selectedFamilyPhoto(family.catalogueDetailPhoto(), selectedIds) : null;
-        if (manualDetail != null) {
-            imageRefs.add(manualDetail);
-            imageKeys.add(manualDetail.storageKey());
-        }
-        /* A photo the buyer chose to open the catalogue with goes first. An inherited
-           lead still has to belong to this channel and the selected variants. */
-        if (allowed > 0) {
-            for (Product variant : group.variants()) {
-                if (imageRefs.size() >= allowed) break;
-                for (Photo photo : variant.photos()) {
-                    if (imageRefs.size() >= allowed) break;
-                    if (!photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE)) continue;
-                    if (photo.inherited() && !allowedFamilyPhotoIds.contains(photo.familyPhotoId())) continue;
-                    PhotoRef ref = photos.productRef(photo);
-                    if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
-                        imageRefs.add(ref);
-                    }
-                }
-            }
-        }
-        // A usable manual detail or variant catalogue lead is an authoritative selection.
-        // Larger photo limits must not bring older unselected backgrounds back into the PDF.
-        boolean explicitSelection = !imageRefs.isEmpty();
-        if (!explicitSelection && allowed > 0 && family != null) {
-            for (CatalogFamilyReader.GalleryPhoto photo : family.photos()) {
-                if (imageRefs.size() >= allowed) break;
-                if (photo.variantProductId() != null && !selectedIds.contains(photo.variantProductId())) {
-                    continue;
-                }
-                PhotoRef ref = photos.familyRef(photo);
-                if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
-                    imageRefs.add(ref);
-                }
-            }
-        }
-        if (!explicitSelection && allowed > 0 && imageRefs.size() < allowed) {
-            for (Product variant : group.variants()) {
-                for (Photo photo : variant.photos()) {
-                    /* Inherited photos may be internal or selected for another channel.
-                       Catalogue-family photos were already resolved through the channel-safe
-                       family projection above. */
-                    if (photo.inherited()) continue;
-                    PhotoRef ref = photos.productRef(photo);
-                    if (ref != null && imageKeys.add(ref.storageKey()) && photos.usable(ref)) {
-                        imageRefs.add(ref);
-                    }
-                    if (imageRefs.size() >= allowed) break;
-                }
-                if (imageRefs.size() >= allowed) break;
-            }
-        }
+        /* Which photos, and in which order, is decided by the plan the photo overview reads too. */
+        CataloguePhotoPlan.FamilySelection selection = CataloguePhotoPlan.family(
+                family != null, family == null ? List.of() : planGallery(family.photos()),
+                family == null ? null : planGallery(family.catalogueDetailPhoto()),
+                family == null ? null : planGallery(family.catalogueOverviewPhoto()),
+                group.variants().stream().map(PdfCatalogRenderer::planVariant).toList(),
+                allowed, photos::usablePlan);
+        List<PhotoRef> imageRefs = selection.detail().stream()
+                .map(entry -> photoRef(entry.ref())).toList();
         List<PhotoRef> detailOrder = photos.preferLargeLead(imageRefs);
-        PhotoRef manualOverview = allowed > 0 && family != null
-                ? photos.selectedFamilyPhoto(family.catalogueOverviewPhoto(), selectedIds) : null;
+        PhotoRef manualOverview = photoRef(selection.manualOverview());
         String overviewImage = manualOverview != null ? photos.overview(manualOverview)
                 : detailOrder.isEmpty() ? null : photos.overview(detailOrder.getFirst());
         boolean largeDetail = family != null && "LARGE".equals(family.catalogueDetailSize())
@@ -1685,6 +1615,29 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private record FamilyRenderData(BrochureFamily family, List<PhotoRef> sourcePhotos) {}
 
+    private static PhotoRef photoRef(CataloguePhotoPlan.Ref ref) {
+        return ref == null ? null : new PhotoRef(ref.storageKey(),
+                ref.origin() == CataloguePhotoPlan.Origin.GALLERY ? PhotoOwner.FAMILY : PhotoOwner.PRODUCT,
+                ref.catalogueLead());
+    }
+
+    private static CataloguePhotoPlan.Variant planVariant(Product product) {
+        return new CataloguePhotoPlan.Variant(product.id(), product.photos().stream()
+                .map(photo -> new CataloguePhotoPlan.VariantPhoto(
+                        photo.id(), photo.storageKey(), photo.position(), photo.familyPhotoId(),
+                        photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE))).toList());
+    }
+
+    private static CataloguePhotoPlan.GalleryPhoto planGallery(CatalogFamilyReader.GalleryPhoto photo) {
+        return photo == null ? null : new CataloguePhotoPlan.GalleryPhoto(
+                photo.id(), photo.storageKey(), photo.position(), photo.variantProductId());
+    }
+
+    private static List<CataloguePhotoPlan.GalleryPhoto> planGallery(
+            List<CatalogFamilyReader.GalleryPhoto> photos) {
+        return photos.stream().map(PdfCatalogRenderer::planGallery).toList();
+    }
+
     /** One render-local cache keeps all-collection exports from decoding the same blob repeatedly. */
     private final class PhotoResolver {
         private final Map<String, byte[]> sourceCache = new HashMap<>();
@@ -1698,49 +1651,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                             photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE));
         }
 
-        PhotoRef familyRef(CatalogFamilyReader.GalleryPhoto photo) {
-            return photo == null || !present(photo.storageKey())
-                    ? null : new PhotoRef(photo.storageKey(), PhotoOwner.FAMILY, false);
-        }
-
-        PhotoRef selectedFamilyPhoto(CatalogFamilyReader.GalleryPhoto photo, Set<Long> selectedIds) {
-            if (photo == null || (photo.variantProductId() != null
-                    && !selectedIds.contains(photo.variantProductId()))) return null;
-            PhotoRef ref = familyRef(photo);
-            return ref != null && usable(ref) ? new PhotoRef(ref.storageKey(), ref.owner(), true) : null;
-        }
-
         /** Never borrow a generic family photograph to illustrate a particular colour. */
         String variantImage(Product product, CatalogFamilyReader.Family family) {
-            List<CatalogFamilyReader.GalleryPhoto> exactPhotos = family == null || product.id() == null
-                    ? List.of() : family.photos().stream()
-                    .filter(photo -> product.id().equals(photo.variantProductId()))
-                    .sorted(Comparator.comparingInt(CatalogFamilyReader.GalleryPhoto::position))
-                    .toList();
-            List<PhotoRef> candidates = new ArrayList<>();
-            List<Photo> productPhotos = product.photos().stream()
-                    .sorted(Comparator.comparingInt(Photo::position)).toList();
-            /* An explicitly chosen catalogue image replaces an older original in the
-               colour strip too. Inherited leads must still match this exact variant
-               and the canonical image published for the catalogue channel. */
-            for (Photo photo : productPhotos) {
-                if (!photo.leads(be.enrosed.catalog.domain.PhotoRole.CATALOGUE)) continue;
-                if (!photo.inherited()) {
-                    candidates.add(productRef(photo));
-                    continue;
-                }
-                /* The projection can carry a lead from another colour or an internal channel.
-                   Both canonical row identity and the exact published blob must agree. */
-                exactPhotos.stream().filter(published ->
-                                photo.familyPhotoId().equals(published.id())
-                                        && Objects.equals(photo.storageKey(), published.storageKey()))
-                        .findFirst().ifPresent(published -> candidates.add(new PhotoRef(
-                                published.storageKey(), PhotoOwner.FAMILY, true)));
-            }
-            productPhotos.stream().filter(photo -> !photo.inherited())
-                    .forEach(photo -> candidates.add(productRef(photo)));
-            exactPhotos.forEach(photo -> candidates.add(familyRef(photo)));
-            for (PhotoRef candidate : uniquePhotos(candidates)) {
+            List<CataloguePhotoPlan.Ref> candidates = CataloguePhotoPlan.variantCandidates(
+                    planVariant(product), family != null,
+                    family == null ? List.of() : planGallery(family.photos()));
+            for (CataloguePhotoPlan.Ref planned : candidates) {
+                PhotoRef candidate = photoRef(planned);
                 if (!usable(candidate)) continue;
                 String image = contained(candidate, "variant-colour", 40, 26, 720);
                 if (present(image)) return image;
@@ -1867,6 +1784,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         boolean usable(PhotoRef ref) {
             PdfImageEncoder.ImageSize size = dimensions(ref);
             return size.width() > 0 && size.height() > 0;
+        }
+
+        boolean usablePlan(CataloguePhotoPlan.Ref ref) {
+            return usable(photoRef(ref));
         }
 
         private int bestLeadIndex(List<PhotoRef> refs, double targetAspect) {
