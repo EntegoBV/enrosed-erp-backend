@@ -174,9 +174,10 @@ public class ProductPhotoOverviewService {
         Places resolved = new Places(product, family, members, websiteImages, catalogueImages,
                 availableChoices, quote);
         PlacesDto places = resolved.all();
+        /* The public feed drops a series without a photo and one without a colour to sell. */
         boolean seriesLive = family != null && family.active
                 && family.websiteStatus == be.enrosed.catalog.domain.PublicationState.PUBLISHED
-                && !websiteImages.isEmpty();
+                && !websiteImages.isEmpty() && !resolved.selection.isEmpty();
 
         return new ProductPhotoOverviewDto(
                 product.id,
@@ -472,6 +473,11 @@ public class ProductPhotoOverviewService {
 
         private PlaceDto catalogueDetail() {
             Long chosen = family == null ? null : existing(family.catalogueDetailPhotoId);
+            /* Without a colour the export refuses, so no photo of the series is printed. */
+            if (selection.isEmpty()) {
+                return place(null, chosen, PlaceReason.COLOUR_NOT_ACTIVE,
+                        Role.CATALOGUE_DETAIL, PlaceScope.SERIES, null);
+            }
             CataloguePhotoPlan.DetailEntry first = brochure.detail().isEmpty()
                     ? null : brochure.detail().getFirst();
             PlaceReason reason;
@@ -493,6 +499,10 @@ public class ProductPhotoOverviewService {
 
         private PlaceDto catalogueOverview() {
             Long chosen = family == null ? null : existing(family.catalogueOverviewPhotoId);
+            if (selection.isEmpty()) {
+                return place(null, chosen, PlaceReason.COLOUR_NOT_ACTIVE,
+                        Role.CATALOGUE_OVERVIEW, PlaceScope.SERIES, null);
+            }
             CataloguePhotoPlan.DetailEntry first = brochure.detail().isEmpty()
                     ? null : brochure.detail().getFirst();
             CataloguePhotoPlan.Ref manual = brochure.manualOverview();

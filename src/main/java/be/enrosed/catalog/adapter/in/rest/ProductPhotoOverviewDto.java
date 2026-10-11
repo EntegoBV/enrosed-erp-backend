@@ -33,7 +33,10 @@ public record ProductPhotoOverviewDto(
         PlacesDto places,
         /** Photos a place refers to that are not in {@code photos}: another colour's own photo. */
         List<OtherPhotoDto> otherPhotos,
-        /** The series is active, published on the website and has at least one website photo. */
+        /**
+         * The series is active, published on the website, has at least one website photo and at
+         * least one active colour that is not a demo piece.
+         */
         boolean seriesLiveOnWebsite,
         boolean colourOnWebsite,
         /** The one export the three brochure places are computed for. */

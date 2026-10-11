@@ -677,6 +677,37 @@ class ProductPhotoOverviewPersistenceTest {
 
     @Test
     @TestTransaction
+    void aSeriesWithoutAnActiveColourIsNotLiveAndHasNoBrochurePhoto() {
+        Fixture f = fixture("places-no-colour");
+        readable(f.redImage(), f.global(), f.blueImage());
+        f.global().publishedChannelsJson = "[\"WEBSITE\",\"CATALOGUE\"]";
+        f.family().catalogueOverviewPhotoId = f.global().id;
+        f.red().active = false;
+        f.blue().demo = true;
+        entityManager.flush();
+
+        ProductPhotoOverviewDto overview = overviews.overview(f.red().id);
+
+        assertTrue(overview.photos().stream().anyMatch(photo -> photo.visibility().website()),
+                "the photo for all colours stays published");
+        assertFalse(overview.seriesLiveOnWebsite(), "the website drops a series without a colour to sell");
+        assertFalse(overview.colourOnWebsite());
+        assertEquals(List.of(), overview.catalogueAssumption().productIds());
+        assertFalse(overview.catalogueAssumption().includesThisColour());
+        PlaceDto detail = overview.places().catalogueDetail();
+        assertNull(detail.shownKey(), "a catalogue without a colour cannot be made");
+        assertEquals(PlaceState.NONE, detail.state());
+        assertEquals(PlaceReason.COLOUR_NOT_ACTIVE, detail.reason());
+        PlaceDto range = overview.places().catalogueOverview();
+        assertNull(range.shownKey());
+        assertEquals("F" + f.global().id, range.chosenKey());
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, range.state());
+        assertEquals(PlaceReason.COLOUR_NOT_ACTIVE, range.reason());
+        assertEquals("F" + f.global().id, overview.catalogueOverview().key(), "the stored choice is kept");
+    }
+
+    @Test
+    @TestTransaction
     void aSeriesThatIsNotLiveStillSaysWhatItWouldShow() {
         Fixture f = fixture("places-not-live");
         f.family().websiteStatus = PublicationState.DRAFT;

@@ -15,6 +15,7 @@ import be.enrosed.catalog.application.FamilyPhotoCompatibilityService;
 import be.enrosed.catalog.application.ProductPhotoOverviewService;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
@@ -42,6 +43,7 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The photo overview and the catalogue export read the same rows through two adapters. For
@@ -287,6 +289,39 @@ class CataloguePhotoOverviewParityPersistenceTest {
         assertEquals("P" + lost.id, strip.chosenKey());
         assertEquals("P" + second.id, strip.shownKey());
         assertEquals(PlaceReason.PHOTO_UNREADABLE, strip.reason());
+    }
+
+    /* (n) no colour left: the export refuses, so the overview names no brochure photo */
+    @Test
+    @TestTransaction
+    void aSeriesWithoutAnActiveColourPrintsNoBrochureAndIsNotOnTheWebsite() {
+        ProductFamilyEntity series = series("parity-no-colour");
+        ProductEntity red = colour(series, "RED", 0);
+        ProductEntity demo = colour(series, "DEMO", 1);
+        red.active = false;
+        demo.demo = true;
+        ProductFamilyPhotoEntity all = seriesPhoto(series, "all", 0, null, "[\"CATALOGUE\",\"WEBSITE\"]");
+        sync(series);
+        series.catalogueOverviewPhotoId = all.id;
+        entityManager.flush();
+        entityManager.clear();
+
+        ProductPhotoOverviewDto overview = overviews.overview(red.id);
+
+        List<Long> assumed = overview.catalogueAssumption().productIds();
+        assertEquals(List.of(), assumed);
+        assertThrows(BusinessRuleException.class,
+                () -> exports.model(request(assumed, CatalogExportService.Layout.BROCHURE)));
+        assertNull(overview.places().catalogueDetail().shownKey(), "large photo");
+        assertEquals(PlaceReason.COLOUR_NOT_ACTIVE, overview.places().catalogueDetail().reason());
+        assertNull(overview.places().catalogueOverview().shownKey(), "range thumbnail");
+        assertEquals("F" + all.id, overview.places().catalogueOverview().chosenKey());
+        assertEquals(PlaceState.CHOSEN_NOT_SHOWN, overview.places().catalogueOverview().state());
+        assertEquals(PlaceReason.COLOUR_NOT_ACTIVE, overview.places().catalogueOverview().reason());
+        assertNull(overview.places().catalogueColour().shownKey(), "colour strip");
+        assertEquals("F" + all.id, overview.places().websiteOpening().shownKey(),
+                "the photo is still published for the website");
+        assertEquals(false, overview.seriesLiveOnWebsite(), "the website drops a series without a colour");
     }
 
     /* ------------------------------------------------------------- parity */
