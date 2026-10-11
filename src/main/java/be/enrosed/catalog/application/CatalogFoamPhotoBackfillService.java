@@ -34,8 +34,8 @@ import java.util.Set;
  * One-time-safe bridge from the five existing Foam product photos to canonical family galleries.
  *
  * The source product photo remains untouched. A deterministic small rendition and a family-photo
- * row are added only when they are missing, so production and test can use their own existing red
- * source image while sharing the same canonical catalogue identity.
+ * row are added only for a series that has no series photo yet, so production and test can use
+ * their own existing red source image while sharing the same canonical catalogue identity.
  */
 @ApplicationScoped
 public class CatalogFoamPhotoBackfillService {
@@ -291,22 +291,19 @@ public class CatalogFoamPhotoBackfillService {
                 .mapToInt(family -> family.productPosition).max().orElse(-1) + 1;
     }
 
+    /**
+     * Create-only. An existing seed photo is never moved, bound to the red colour or published
+     * again: its place, colour and channels are the administrator's from then on. A missing one
+     * is created only for a series without any series photo, so a deleted seed stays deleted.
+     */
     private boolean ensurePrimaryPhoto(ProductFamilyEntity family, ProductEntity red) {
-        ProductFamilyPhotoEntity existing = family.photos.stream()
-                .filter(photo -> PRIMARY_SOURCE_KEY.equals(photo.sourceKey)).findFirst().orElse(null);
-        if (existing != null) {
-            List<CatalogChannel> currentChannels = publication.publishedChannels(existing);
-            List<CatalogChannel> requiredChannels = withCatalogueChannel(currentChannels);
-            boolean changed = existing.position != 0
-                    || existing.variantProduct == null
-                    || !Objects.equals(existing.variantProduct.id, red.id)
-                    || !currentChannels.equals(requiredChannels);
-            makePrimary(family, existing);
-            imageVariants.assign(existing, red);
-            if (!currentChannels.equals(requiredChannels)) {
-                publication.replacePublishedChannels(existing, requiredChannels);
-            }
-            return changed;
+        if (family.photos.stream().anyMatch(photo -> PRIMARY_SOURCE_KEY.equals(photo.sourceKey))) {
+            return false;
+        }
+        if (!family.photos.isEmpty()) {
+            LOG.debugf("Foam-catalogusfoto niet aangemaakt voor %s: de reeks heeft al reeksfoto's",
+                    family.familyKey);
+            return false;
         }
 
         ProductPhotoEntity source = red.photos.stream()
@@ -369,22 +366,6 @@ public class CatalogFoamPhotoBackfillService {
         family.photos.sort(Comparator.comparingInt(item -> item.position));
         families.flush();
         return true;
-    }
-
-    /** Keep an administrator's public-channel choices while retaining the catalogue seed. */
-    private static List<CatalogChannel> withCatalogueChannel(List<CatalogChannel> channels) {
-        if (channels.contains(CatalogChannel.CATALOGUE)) return channels;
-        LinkedHashSet<CatalogChannel> selected = new LinkedHashSet<>(channels);
-        selected.add(CatalogChannel.CATALOGUE);
-        return List.of(CatalogChannel.values()).stream().filter(selected::contains).toList();
-    }
-
-    private static void makePrimary(ProductFamilyEntity family, ProductFamilyPhotoEntity primary) {
-        if (primary.position == 0) return;
-        family.photos.stream().filter(photo -> photo != primary && photo.position < primary.position)
-                .forEach(photo -> photo.position++);
-        primary.position = 0;
-        family.photos.sort(Comparator.comparingInt(photo -> photo.position));
     }
 
     private String writeAlts(String alt) {
