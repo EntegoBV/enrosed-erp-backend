@@ -571,7 +571,43 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(runner.indexOf("--file=/app/migrations/sales-web-order-postgresql.sql")
                         < runner.indexOf(migration.getFileName().toString()),
                 "the new tables land after every earlier script");
-        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/stock-inventory-postgresql.sql"));
+        assertTrue(runner.indexOf(migration.getFileName().toString())
+                        < runner.indexOf("--file=/app/migrations/staff-contact-postgresql.sql"),
+                "the scripts that came later follow it");
+    }
+
+    @Test
+    void costPartiesFairsAndInclusiveAmountAreAdditiveAndRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-12/cost-parties-fairs-and-incl-amount-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("alter table company_cost add column if not exists amount_incl_eur numeric(19,2)"));
+        assertTrue(sql.contains("create table if not exists cost_party ("));
+        assertTrue(sql.contains("name_key varchar(200) not null unique"), "one party per matching key");
+        assertTrue(sql.contains("iban varchar(34)"));
+        assertTrue(sql.contains("create table if not exists fair ("));
+        assertTrue(sql.contains("code varchar(40) not null unique"), "a fair is its channel code");
+        assertTrue(sql.contains("insert into fair (code, label, active, created_at) values"));
+        assertTrue(sql.contains("('tica', 'tica', true, now())"));
+        assertTrue(sql.contains("('ede', 'ede', true, now())"));
+        assertTrue(sql.contains("on conflict (code) do nothing"), "the seed reruns without a second TICA");
+        assertEquals(2, sql.split("create table if not exists ", -1).length - 1, "two tables, no other");
+        assertEquals(1, sql.split("alter table ", -1).length - 1, "one column on the cost, nothing else changes");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
+        assertNonDestructive(sql);
+
+        String entity = Files.readString(Path.of(
+                "src/main/java/be/enrosed/finance/adapter/out/persistence/CompanyCostEntity.java"));
+        assertTrue(entity.contains("@Column(name = \"amount_incl_eur\", precision = 19, scale = 2)"),
+                "the column stays nullable: dev H2 adds it to a filled table through schema update");
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/staff-contact-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the cost lists land after every earlier script");
+        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
     }
 
     /**

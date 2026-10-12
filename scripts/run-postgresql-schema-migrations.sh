@@ -137,4 +137,5 @@ exec psql \
     --file=/app/migrations/customer-account-postgresql.sql \
     --file=/app/migrations/sales-web-order-postgresql.sql \
     --file=/app/migrations/stock-inventory-postgresql.sql \
-    --file=/app/migrations/staff-contact-postgresql.sql
+    --file=/app/migrations/staff-contact-postgresql.sql \
+    --file=/app/migrations/cost-parties-fairs-and-incl-amount-postgresql.sql

@@ -38,6 +38,10 @@ public class RecurringCostService {
     @Inject
     Instance<ActivityLogService> activity;
 
+    /** The list "Aan wie" learns the party of every definition; absent in the unit tests, which build the service by hand. */
+    @Inject
+    Instance<CostPartyService> parties;
+
     public RecurringCostService(RecurringCosts definitions, CompanyCosts costs) {
         this.definitions = definitions;
         this.costs = costs;
@@ -55,6 +59,7 @@ public class RecurringCostService {
     public RecurringCost create(RecurringCost definition) {
         RecurringCost clean = validated(definition, null, Instant.now(), null);
         RecurringCost saved = definitions.save(clean);
+        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Vaste kost ingesteld · " + saved.interval().label().toLowerCase());
         return saved;
     }
@@ -63,6 +68,7 @@ public class RecurringCostService {
     public RecurringCost update(long id, RecurringCost changes) {
         RecurringCost current = get(id);
         RecurringCost saved = definitions.save(validated(changes, current.id(), current.createdAt(), current.lastBookedOn()));
+        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Vaste kost bijgewerkt");
         return saved;
     }
@@ -147,6 +153,11 @@ public class RecurringCostService {
         if (value == null) return null;
         String trimmed = value.strip();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void learnParty(RecurringCost definition) {
+        if (parties == null || !parties.isResolvable()) return;
+        parties.get().learn(definition.party(), definition.category(), definition.vatPct(), definition.salesChannel());
     }
 
     private void recordActivity(String action, RecurringCost definition, String summary) {

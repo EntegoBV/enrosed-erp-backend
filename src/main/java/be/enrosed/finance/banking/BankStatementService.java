@@ -1,5 +1,6 @@
 package be.enrosed.finance.banking;
 
+import be.enrosed.finance.application.CostPartyService;
 import be.enrosed.sales.application.*;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
@@ -7,6 +8,7 @@ import be.enrosed.shared.*;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.persistence.*;
 import jakarta.transaction.Transactional;
@@ -24,6 +26,8 @@ public class BankStatementService {
     @Inject IncomingPaymentService incoming;
     @Inject CurrentActor actor;
     @Inject ActivityLogService activity;
+    /** The list "Aan wie" learns the counterparty of an outgoing movement; incoming money comes from customers, who are no payees. */
+    @Inject Instance<CostPartyService> parties;
 
     public enum Direction { INCOMING, OUTGOING }
     public record ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
@@ -68,6 +72,7 @@ public class BankStatementService {
         row.bookedAt=request.bookedAt();row.timeZone=zone;row.reference=reference;row.counterparty=counterparty;
         row.recordedAt=Instant.now();row.actor=actor.current().displayName();em.persist(row);em.flush();
         audit(row,"Bankbeweging handmatig geregistreerd: "+row.bookedAt+" · "+row.amountEur+" · "+reference);
+        if(request.direction()==Direction.OUTGOING&&!counterparty.isEmpty()&&parties!=null&&parties.isResolvable())parties.get().learn(counterparty,null,null,null);
         return row;
     }
 

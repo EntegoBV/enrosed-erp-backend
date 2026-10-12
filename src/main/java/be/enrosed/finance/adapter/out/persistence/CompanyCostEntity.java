@@ -22,6 +22,8 @@ public class CompanyCostEntity {
     @Column(nullable = false, length = 300) public String description;
     @Column(length = 200) public String party;
     @Column(name = "amount_excl_eur", nullable = false, precision = 19, scale = 2) public BigDecimal amountExclEur;
+    /** The total as entered incl. VAT; null for a cost entered excl. Nullable: the dev database adds it to a filled table. */
+    @Column(name = "amount_incl_eur", precision = 19, scale = 2) public BigDecimal amountInclEur;
     @Column(name = "vat_pct", precision = 5, scale = 2) public BigDecimal vatPct;
     @Column(length = 120) public String reference;
     @Column(name = "paid_on") public LocalDate paidOn;
@@ -31,7 +33,7 @@ public class CompanyCostEntity {
     @Column(name = "recurring_cost_id") public Long recurringCostId;
 
     public CompanyCost toDomain() {
-        return new CompanyCost(id, date, category, description, party, amountExclEur, vatPct,
+        return new CompanyCost(id, date, category, description, party, amountExclEur, amountInclEur, vatPct,
                 reference, paidOn, salesChannel, notes, createdAt, recurringCostId);
     }
 
@@ -41,6 +43,7 @@ public class CompanyCostEntity {
         description = cost.description();
         party = cost.party();
         amountExclEur = cost.amountExclEur();
+        amountInclEur = cost.amountInclEur();
         vatPct = cost.vatPct();
         reference = cost.reference();
         paidOn = cost.paidOn();

@@ -1123,3 +1123,42 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   build machine): the migration, the schema validation of the fourteen
   pairs, the two unique indexes and the row locks first meet it on the
   Railway TEST deploy.
+
+## Uitgaven: Aan wie, beurzen en het bedrag incl. btw (2026-10-12)
+
+- **Aan wie** is a stored list (`cost_party`, `/api/cost-parties`,
+  `CostPartyService`): the name (unique on `name_key`, the lower-cased,
+  space-collapsed name), the defaults a cost to that party usually takes
+  (category, VAT rate, channel or fair), the IBAN (stored without spaces,
+  upper-case, shape-checked) and notes. The bookings teach it: creating or
+  updating a company cost or a recurring cost, and recording an OUTGOING
+  bank movement, call `learn(name, …)`, which adds an unknown name with
+  that booking's defaults and never changes a known one (incoming money
+  comes from customers, who are no payees). Renaming a party renames the
+  string on company costs, recurring costs and bank lines (case-insensitive
+  exact match, bulk JPQL in `PanacheCostParties.renameEverywhere`);
+  deleting one never touches a booking. The three services reach the
+  learner through `Instance<CostPartyService>` behind an `isResolvable()`
+  guard, so the Mockito tests that build them by hand keep working.
+- **Beurzen** (`fair`, `/api/fairs`, `FairService`): a fair is a sales
+  channel code the costs share with the sales side, so a cost on it lands
+  under "Per kanaal"; the cost keeps it in its existing `salesChannel`.
+  The code is derived from the label once (diacritics stripped, upper-case
+  ASCII, other runs become `_`, at most 40: "Trends & Trade Ede" becomes
+  `TRENDS_TRADE_EDE`), may not be DIRECT, WEBSITE, PARTNER or FAIR, and
+  never changes; a fair is switched off rather than deleted while a
+  company cost or a recurring cost carries its code. `FairSeed` inserts
+  TICA and EDE at start-up when missing, and the PostgreSQL migration
+  inserts the same two with `on conflict (code) do nothing`.
+- **Bedrag incl. btw**: `CompanyCost.amountInclEur` is the inclusive total
+  as it was typed in and null for a cost entered excl.
+  (`company_cost.amount_incl_eur`, nullable). `vatEur()` is incl − excl
+  when a total is stored, else excl × rate; `totalInclEur()` is the entered
+  total or excl + VAT. The record accessor `amountInclEur()` deliberately
+  stays the raw value: Jackson serializes a record through its accessors,
+  so the JSON tells the screen whether the cost was entered incl. (a
+  number) or excl. (null). The service scales the total to cents, refuses
+  one below excl., and requires it to match the rate within two cents
+  (equal to excl. without VAT). Recurring costs stay excl.-only. Migration
+  `docs/migrations/2026-10-12/cost-parties-fairs-and-incl-amount-postgresql.sql`
+  is registered in the Dockerfile and as the last script of the runner.

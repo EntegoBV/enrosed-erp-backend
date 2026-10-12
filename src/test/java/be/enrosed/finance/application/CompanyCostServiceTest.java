@@ -2,6 +2,7 @@ package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.CompanyCost;
 import be.enrosed.shared.BusinessRuleException;
+import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +41,8 @@ class CompanyCostServiceTest {
         assertEquals("TICA Trends & Trade", saved.party());
         assertEquals(new BigDecimal("1250.01"), saved.amountExclEur());
         assertEquals(new BigDecimal("262.50"), saved.vatEur());
-        assertEquals(new BigDecimal("1512.51"), saved.amountInclEur());
+        assertEquals(new BigDecimal("1512.51"), saved.totalInclEur());
+        assertNull(saved.amountInclEur(), "entered excl.: no inclusive total is stored");
         assertEquals("TICA", saved.salesChannel());
         assertNull(saved.notes(), "blank notes are stored as nothing");
         assertNotNull(saved.createdAt());
@@ -94,5 +96,64 @@ class CompanyCostServiceTest {
         CompanyCost edited = service.update(12L, new CompanyCost(null, LocalDate.of(2026, 9, 1), "HUUR", "Huur magazijn september",
                 "Immo Ham", new BigDecimal("850"), new BigDecimal("21"), null, null, null, null, null, null));
         assertEquals(3L, edited.recurringCostId(), "editing the text does not cut the cost loose from its definition");
+    }
+
+    @Test
+    void aCostEnteredInclusiveKeepsItsTotalAndTakesTheVatFromIt() {
+        CompanyCost saved = service.create(cost("82.64", "100", "21"));
+
+        assertEquals(new BigDecimal("100.00"), saved.amountInclEur());
+        assertEquals(new BigDecimal("82.64"), saved.amountExclEur());
+        assertEquals(new BigDecimal("17.36"), saved.vatEur(), "what the invoice shows, not 82.64 × 21 % = 17.35");
+        assertEquals(new BigDecimal("100.00"), saved.totalInclEur());
+
+        CompanyCost existing = new CompanyCost(4L, LocalDate.of(2026, 10, 1), "HUUR", "Magazijn", "Immo",
+                new BigDecimal("50.00"), null, null, null, null, null, null, Instant.parse("2026-10-01T06:00:00Z"), null);
+        when(costs.findById(4L)).thenReturn(Optional.of(existing));
+        CompanyCost updated = service.update(4L, cost("82.64", "100", "21"));
+        assertEquals(new BigDecimal("100.00"), updated.amountInclEur(), "an edit carries the entered total through");
+        when(costs.findById(4L)).thenReturn(Optional.of(updated));
+        assertEquals(new BigDecimal("100.00"), service.markPaid(4L, LocalDate.of(2026, 10, 12)).amountInclEur(),
+                "settling the cost keeps the entered total");
+    }
+
+    @Test
+    void anInclusiveTotalSitsAboveExclAndMatchesTheRate() {
+        assertThrows(BusinessRuleException.class, () -> service.create(cost("100", "90", "21")), "below excl.");
+        assertThrows(BusinessRuleException.class, () -> service.create(cost("82.64", "110", "21")), "far from excl. × 21 %");
+        assertThrows(BusinessRuleException.class, () -> service.create(cost("82.64", "82.65", null)), "without VAT incl. equals excl.");
+        assertThrows(BusinessRuleException.class, () -> service.create(cost("82.64", "82.65", "0")), "at 0 % incl. equals excl.");
+        assertEquals(new BigDecimal("82.64"), service.create(cost("82.64", "82.64", null)).amountInclEur());
+        assertEquals(new BigDecimal("100.01"), service.create(cost("82.65", "100.01", "21")).amountInclEur(), "a cent of rounding fits");
+        assertEquals(new BigDecimal("100.00"), service.create(cost("82.64", "99.995", "21")).amountInclEur(), "scaled to cents");
+    }
+
+    @Test
+    void aCostEnteredExclusiveStaysWithoutAStoredTotal() {
+        CompanyCost saved = service.create(cost("82.64", null, "21"));
+
+        assertNull(saved.amountInclEur());
+        assertEquals(new BigDecimal("17.35"), saved.vatEur());
+        assertEquals(new BigDecimal("99.99"), saved.totalInclEur());
+    }
+
+    @Test
+    void bookingACostTeachesTheListAanWieTheNameAndItsDefaults() {
+        CostPartyService learner = mock(CostPartyService.class);
+        @SuppressWarnings("unchecked") Instance<CostPartyService> parties = mock(Instance.class);
+        when(parties.isResolvable()).thenReturn(true);
+        when(parties.get()).thenReturn(learner);
+        service.parties = parties;
+
+        service.create(new CompanyCost(null, LocalDate.of(2026, 10, 3), " beurs ", "Stand TICA oktober",
+                " TICA Trends & Trade ", BigDecimal.TEN, new BigDecimal("21"), null, null, "tica", null, null));
+
+        verify(learner).learn("TICA Trends & Trade", "BEURS", new BigDecimal("21"), "TICA");
+    }
+
+    private static CompanyCost cost(String excl, String incl, String vat) {
+        return new CompanyCost(null, LocalDate.of(2026, 10, 12), "HUUR", "Magazijn", "Immo", new BigDecimal(excl),
+                incl == null ? null : new BigDecimal(incl), vat == null ? null : new BigDecimal(vat),
+                null, null, null, null, null, null);
     }
 }
