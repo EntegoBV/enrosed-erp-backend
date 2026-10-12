@@ -191,6 +191,11 @@ public final class PanacheSalesRepositories {
         }
 
         @Override
+        public long countBySalesChannel(String code) {
+            return code == null ? 0 : dao.count("upper(salesChannel) = ?1", code.toUpperCase(java.util.Locale.ROOT));
+        }
+
+        @Override
         public boolean existsBySourceQuoteId(long sourceQuoteId) {
             return dao.count("sourceQuoteId", sourceQuoteId) > 0;
         }

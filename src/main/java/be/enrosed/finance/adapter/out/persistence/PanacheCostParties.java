@@ -53,17 +53,30 @@ public class PanacheCostParties implements CostParties {
         dao.deleteById(id);
     }
 
+    /**
+     * The database only strips the ends of a name; the list collapses inner
+     * spaces too. So the match is made here, in Java, on the distinct stored
+     * spellings: every spelling with the old key is renamed, by id.
+     */
     @Override
-    public int renameEverywhere(String oldName, String newName) {
-        int touched = 0;
-        touched += rename("update CompanyCostEntity c set c.party = :name where lower(c.party) = lower(:old)", oldName, newName);
-        touched += rename("update RecurringCostEntity r set r.party = :name where lower(r.party) = lower(:old)", oldName, newName);
-        touched += rename("update BankStatementLineEntity b set b.counterparty = :name where lower(b.counterparty) = lower(:old)",
-                oldName, newName);
-        return touched;
+    public Renamed renameEverywhere(String oldName, String newName) {
+        String key = CostParty.keyOf(oldName);
+        if (key == null) return Renamed.NONE;
+        return new Renamed(rename("CompanyCostEntity", "party", key, newName),
+                rename("RecurringCostEntity", "party", key, newName),
+                rename("BankStatementLineEntity", "counterparty", key, newName));
     }
 
-    private int rename(String jpql, String oldName, String newName) {
-        return entityManager.createQuery(jpql).setParameter("name", newName).setParameter("old", oldName).executeUpdate();
+    private int rename(String entity, String column, String key, String newName) {
+        List<String> spellings = entityManager
+                .createQuery("select distinct e." + column + " from " + entity + " e where e." + column + " is not null", String.class)
+                .getResultList().stream().filter(value -> key.equals(CostParty.keyOf(value))).toList();
+        if (spellings.isEmpty()) return 0;
+        List<Long> ids = entityManager
+                .createQuery("select e.id from " + entity + " e where e." + column + " in :spellings", Long.class)
+                .setParameter("spellings", spellings).getResultList();
+        if (ids.isEmpty()) return 0;
+        return entityManager.createQuery("update " + entity + " e set e." + column + " = :name where e.id in :ids")
+                .setParameter("name", newName).setParameter("ids", ids).executeUpdate();
     }
 }

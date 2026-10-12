@@ -37,6 +37,11 @@ class CostPartyResourceTest {
                 .body("amountExclEur", equalTo(82.64f))
                 .body("amountInclEur", equalTo(100.0f))
                 .extract().jsonPath().getLong("id");
+        /* The same payee typed with two spaces: one party to the list, and the rename must reach this row too. */
+        long spacedCostId = json().body(Map.of("date", "2026-10-13", "category", "boekhouder", "description", "Btw-aangifte " + stamp,
+                        "party", "Accountant  " + stamp, "amountExclEur", 50))
+                .post(COSTS).then().statusCode(201).body("party", equalTo("Accountant  " + stamp))
+                .extract().jsonPath().getLong("id");
         try {
             String learned = "find { it.name == '" + name + "' }";
             long partyId = json().get(PARTIES).then().statusCode(200)
@@ -49,14 +54,15 @@ class CostPartyResourceTest {
             json().body(Map.of("name", " accountant  " + stamp)).post(PARTIES).then().statusCode(409);
 
             String renamed = "Accountant & Co " + stamp;
-            json().body(Map.of("name", renamed, "category", "BOEKHOUDER", "vatPct", 21, "iban", "be68 5390 0754 7034",
-                            "notes", "Jaarrekening"))
+            json().body(Map.of("name", renamed, "category", "BOEKHOUDER", "vatPct", 21, "iban", "be68 5390 0754 7034"))
                     .put(PARTIES + "/" + partyId).then().statusCode(200)
                     .body("id", equalTo((int) partyId))
                     .body("name", equalTo(renamed))
-                    .body("iban", equalTo("BE68539007547034"))
-                    .body("notes", equalTo("Jaarrekening"));
+                    .body("iban", equalTo("BE68539007547034"));
             json().get(COSTS + "/" + costId).then().statusCode(200).body("party", equalTo(renamed));
+            json().get(COSTS + "/" + spacedCostId).then().statusCode(200).body("party", equalTo(renamed));
+            /* The old spelling does not resurface as a second party. */
+            json().get(PARTIES).then().statusCode(200).body("findAll { it.name.startsWith('Accountant') && it.name.endsWith('" + stamp + "') }.size()", equalTo(1));
             json().body(Map.of("name", renamed, "iban", "1234")).put(PARTIES + "/" + partyId).then().statusCode(409);
 
             json().delete(PARTIES + "/" + partyId).then().statusCode(204);
@@ -64,6 +70,7 @@ class CostPartyResourceTest {
             json().get(COSTS + "/" + costId).then().statusCode(200).body("party", equalTo(renamed));
         } finally {
             json().delete(COSTS + "/" + costId);
+            json().delete(COSTS + "/" + spacedCostId);
         }
     }
 

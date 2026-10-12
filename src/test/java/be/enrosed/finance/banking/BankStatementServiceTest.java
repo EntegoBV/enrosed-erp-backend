@@ -1,6 +1,7 @@
 package be.enrosed.finance.banking;
 
 import be.enrosed.finance.application.CompanyCostService;
+import be.enrosed.finance.application.CostPartyService;
 import be.enrosed.finance.domain.CompanyCost;
 import be.enrosed.sales.application.*;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity;
@@ -28,6 +29,7 @@ class BankStatementServiceTest {
     @Inject PurchaseOrderService purchases;
     @Inject SupplierService suppliers;
     @Inject CompanyCostService costs;
+    @Inject CostPartyService parties;
     @Inject EntityManager em;
     private static final Instant AT=Instant.parse("2026-09-08T10:00:00Z");
 
@@ -172,6 +174,11 @@ class BankStatementServiceTest {
         assertTrue(purchases.payments(order.id()).stream().allMatch(payment->payment.bankStatementLineId()==null),"the line goes, the payments are open again");
         assertNull(costs.get(cost.id()).bankStatementLineId());
         assertEquals(2,purchases.payments(order.id()).size(),"the payments themselves stay");
+    }
+
+    @Test @TestTransaction void incomingMoneyTeachesTheListAanWieNoName() {
+        bank.create(new BankStatementService.ManualRequest("KBC",new BigDecimal("250"),BankStatementService.Direction.INCOMING,AT,"Europe/Brussels","Factuur 2026-012","Bloemen BV","incoming-bloemen"));
+        assertTrue(parties.list().stream().noneMatch(party->"Bloemen BV".equals(party.name())),"a customer who pays is no payee");
     }
 
     private BankStatementService.ManualRequest linked(String requestId,java.util.List<Long> paymentIds,Long costId) {

@@ -1,7 +1,9 @@
 -- The list "Aan wie" (cost_party), the fairs behind the costs (fair) and the
 -- inclusive total a cost was entered with (company_cost.amount_incl_eur).
 -- Additive and rerunnable: the column is added when missing, the tables are
--- created when missing, the two known fairs are inserted once.
+-- created when missing, the two known fairs are inserted once, the costs on
+-- the retired category TICA are moved once, and every name the bookings
+-- already carry joins the list once.
 begin;
 
 alter table company_cost add column if not exists amount_incl_eur numeric(19,2);
@@ -14,7 +16,6 @@ create table if not exists cost_party (
     vat_pct numeric(5,2),
     sales_channel varchar(40),
     iban varchar(34),
-    notes varchar(2000),
     created_at timestamp(6) with time zone not null,
     updated_at timestamp(6) with time zone
 );
@@ -31,5 +32,36 @@ insert into fair (code, label, active, created_at) values
     ('TICA', 'TICA', true, now()),
     ('EDE', 'Ede', true, now())
 on conflict (code) do nothing;
+
+-- The category TICA is retired: those costs are fair costs ("Beurs & stand")
+-- with TICA as their fair, unless they already named another channel.
+update company_cost set sales_channel = 'TICA' where upper(category) = 'TICA' and sales_channel is null;
+update company_cost set category = 'BEURS' where upper(category) = 'TICA';
+update recurring_cost set sales_channel = 'TICA' where upper(category) = 'TICA' and sales_channel is null;
+update recurring_cost set category = 'BEURS' where upper(category) = 'TICA';
+
+-- Every name the costs, recurring costs and outgoing bank lines already carry
+-- joins the list once, with the newest booking's category and VAT rate, and
+-- its channel only when that booking was a fair cost. A name the list already
+-- has (same key: trimmed, inner spaces collapsed, lower-cased) is left alone.
+insert into cost_party (name, name_key, category, vat_pct, sales_channel, created_at)
+select distinct on (name_key) name, name_key, category, vat_pct,
+       case when category = 'BEURS' then sales_channel end, now()
+from (
+    select btrim(party) as name, lower(regexp_replace(btrim(party), '\s+', ' ', 'g')) as name_key,
+           category, vat_pct, sales_channel, cost_date::timestamp as booked_on, id
+    from company_cost where btrim(coalesce(party, '')) <> ''
+    union all
+    select btrim(party), lower(regexp_replace(btrim(party), '\s+', ' ', 'g')),
+           category, vat_pct, sales_channel, start_date::timestamp, id
+    from recurring_cost where btrim(coalesce(party, '')) <> ''
+    union all
+    select btrim(counterparty), lower(regexp_replace(btrim(counterparty), '\s+', ' ', 'g')),
+           null, null, null, (booked_at at time zone 'Europe/Brussels'), id
+    from bank_statement_line where amount_eur < 0 and btrim(coalesce(counterparty, '')) <> ''
+) bookings
+where length(name) <= 200
+order by name_key, booked_on desc, id desc
+on conflict (name_key) do nothing;
 
 commit;

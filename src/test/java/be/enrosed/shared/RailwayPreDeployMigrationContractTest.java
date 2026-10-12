@@ -590,9 +590,28 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(sql.contains("('tica', 'tica', true, now())"));
         assertTrue(sql.contains("('ede', 'ede', true, now())"));
         assertTrue(sql.contains("on conflict (code) do nothing"), "the seed reruns without a second TICA");
+        assertFalse(sql.contains("notes"), "a party carries no notes");
         assertEquals(2, sql.split("create table if not exists ", -1).length - 1, "two tables, no other");
         assertEquals(1, sql.split("alter table ", -1).length - 1, "one column on the cost, nothing else changes");
-        assertFalse(sql.contains("update "), "no existing row is rewritten");
+
+        /* The retired category TICA: those rows become fair costs with TICA as their fair, on both cost tables. */
+        for (String table : List.of("company_cost", "recurring_cost")) {
+            assertTrue(sql.contains("update " + table + " set sales_channel = 'tica' where upper(category) = 'tica' and sales_channel is null;"),
+                    table + ": the fair follows from the category unless a channel was named");
+            assertTrue(sql.contains("update " + table + " set category = 'beurs' where upper(category) = 'tica';"), table);
+        }
+        assertEquals(4, sql.split("update ", -1).length - 1, "the four TICA moves rewrite rows, nothing else does");
+
+        /* The names the bookings already carry join the list once, newest booking first, channel only for a fair cost. */
+        assertTrue(sql.contains("insert into cost_party (name, name_key, category, vat_pct, sales_channel, created_at) select distinct on (name_key)"));
+        assertTrue(sql.contains("case when category = 'beurs' then sales_channel end"), "a rent under WEBSITE teaches no channel");
+        assertTrue(sql.contains("lower(regexp_replace(btrim(party), '\\s+', ' ', 'g')) as name_key"), "the key CostParty.keyOf computes");
+        assertTrue(sql.contains("from company_cost where btrim(coalesce(party, '')) <> ''"));
+        assertTrue(sql.contains("from recurring_cost where btrim(coalesce(party, '')) <> ''"));
+        assertTrue(sql.contains("from bank_statement_line where amount_eur < 0 and btrim(coalesce(counterparty, '')) <> ''"),
+                "only outgoing counterparties: incoming money comes from customers");
+        assertTrue(sql.contains("where length(name) <= 200 order by name_key, booked_on desc, id desc on conflict (name_key) do nothing;"),
+                "the newest booking wins, a name already in the list is left alone");
         assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
         assertNonDestructive(sql);
 

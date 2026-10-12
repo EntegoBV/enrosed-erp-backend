@@ -7,7 +7,9 @@ import be.enrosed.shared.audit.ActivityLogService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -25,8 +27,10 @@ import java.util.regex.Pattern;
 public class CostPartyService {
 
     public static final String ACTIVITY_ENTITY = "COST_PARTY";
+    /** The one category whose channel is a default worth remembering: the fair itself. */
+    public static final String FAIR_CATEGORY = "BEURS";
+    private static final Logger LOG = Logger.getLogger(CostPartyService.class);
     private static final int NAME_LENGTH = 200;
-    private static final int NOTES_LENGTH = 2000;
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final Pattern IBAN = Pattern.compile("^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$");
 
@@ -56,6 +60,7 @@ public class CostPartyService {
         return saved;
     }
 
+    /** A rename runs through every booking whose spelling has the old name's key, and says how many of each kind followed. */
     @Transactional
     public CostParty update(long id, CostParty changes) {
         CostParty current = get(id);
@@ -65,9 +70,9 @@ public class CostPartyService {
         if (saved.name().equals(current.name())) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Aan wie bijgewerkt");
         } else {
-            int touched = parties.renameEverywhere(current.name(), saved.name());
-            recordActivity(ActivityLogService.ACTION_UPDATED, saved,
-                    "Hernoemd van " + current.name() + " · " + touched + " boeking(en) mee aangepast");
+            CostParties.Renamed renamed = parties.renameEverywhere(current.name(), saved.name());
+            recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Aan wie hernoemd: " + current.name() + " → " + saved.name()
+                    + " · " + renamed.costs() + " kosten · " + renamed.recurringCosts() + " vaste kosten · " + renamed.bankLines() + " bankbewegingen");
         }
         return saved;
     }
@@ -81,13 +86,23 @@ public class CostPartyService {
 
     /**
      * Notes the name a booking used: an unknown name joins the list with
-     * that booking's defaults, a known one is left exactly as it is.
+     * that booking's defaults, a known one is left exactly as it is. Runs in
+     * a transaction of its own and swallows the race of two first bookings
+     * of one name, so the booking that called it never fails over the list.
+     * A name the list cannot hold (blank, over 200 characters) is let go.
      */
-    @Transactional
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void learn(String name, String category, BigDecimal vatPct, String salesChannel) {
-        String key = CostParty.keyOf(name);
-        if (key == null || key.length() > NAME_LENGTH || parties.findByKey(key).isPresent()) return;
-        parties.save(validated(new CostParty(null, name, category, vatPct, salesChannel, null, null, null), null, Instant.now()));
+        String cleaned = clean(name);
+        if (cleaned == null || cleaned.length() > NAME_LENGTH) return;
+        String key = CostParty.keyOf(cleaned);
+        if (key == null || parties.findByKey(key).isPresent()) return;
+        try {
+            parties.save(validated(new CostParty(null, cleaned, category, vatPct, salesChannel, null, null), null, Instant.now()));
+        } catch (PersistenceException race) {
+            /* Another booking of the same new name got there first; the list has it either way. */
+            LOG.debugf(race, "Aan wie %s was intussen al toegevoegd", cleaned);
+        }
     }
 
     private void refuseDuplicate(CostParty clean, Long ownId) {
@@ -106,10 +121,8 @@ public class CostPartyService {
         if (party.vatPct() != null && (party.vatPct().signum() < 0 || party.vatPct().compareTo(HUNDRED) > 0)) {
             throw new BusinessRuleException("Het btw-percentage ligt tussen 0 en 100");
         }
-        String notes = clean(party.notes());
-        if (notes != null && notes.length() > NOTES_LENGTH) throw new BusinessRuleException("De notities zijn maximaal 2000 tekens");
         return new CostParty(id, name, upper(party.category()), party.vatPct(), upper(party.salesChannel()),
-                iban(party.iban()), notes, createdAt == null ? Instant.now() : createdAt);
+                iban(party.iban()), createdAt == null ? Instant.now() : createdAt);
     }
 
     /** Spaces out, upper-case, and the shape of an IBAN: two letters, two check digits, the national part. */

@@ -6,6 +6,7 @@ import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -41,5 +42,10 @@ public class PanacheRecurringCosts implements RecurringCosts {
     @Override
     public void deleteById(long id) {
         dao.deleteById(id);
+    }
+
+    @Override
+    public long countBySalesChannel(String code) {
+        return code == null ? 0 : dao.count("upper(salesChannel) = ?1", code.toUpperCase(Locale.ROOT));
     }
 }

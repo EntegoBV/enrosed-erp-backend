@@ -23,12 +23,11 @@ public class CostPartyEntity {
     @Column(name = "vat_pct", precision = 5, scale = 2) public BigDecimal vatPct;
     @Column(name = "sales_channel", length = 40) public String salesChannel;
     @Column(length = 34) public String iban;
-    @Column(length = 2000) public String notes;
     @Column(name = "created_at", nullable = false) public Instant createdAt;
     @Column(name = "updated_at") public Instant updatedAt;
 
     public CostParty toDomain() {
-        return new CostParty(id, name, category, vatPct, salesChannel, iban, notes, createdAt);
+        return new CostParty(id, name, category, vatPct, salesChannel, iban, createdAt);
     }
 
     public void apply(CostParty party) {
@@ -38,7 +37,6 @@ public class CostPartyEntity {
         vatPct = party.vatPct();
         salesChannel = party.salesChannel();
         iban = party.iban();
-        notes = party.notes();
         createdAt = party.createdAt();
     }
 }

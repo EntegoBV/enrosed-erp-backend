@@ -15,4 +15,6 @@ public interface CompanyCosts {
     List<CompanyCost> findByRecurringCost(long recurringCostId);
     CompanyCost save(CompanyCost cost);
     void deleteById(long id);
+    /** How many costs carry the channel or fair code, regardless of case. */
+    long countBySalesChannel(String code);
 }

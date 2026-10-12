@@ -1129,17 +1129,27 @@ scheduled job was touched, and `StockLedger` only gained two readers.
 - **Aan wie** is a stored list (`cost_party`, `/api/cost-parties`,
   `CostPartyService`): the name (unique on `name_key`, the lower-cased,
   space-collapsed name), the defaults a cost to that party usually takes
-  (category, VAT rate, channel or fair), the IBAN (stored without spaces,
-  upper-case, shape-checked) and notes. The bookings teach it: creating or
-  updating a company cost or a recurring cost, and recording an OUTGOING
-  bank movement, call `learn(name, …)`, which adds an unknown name with
-  that booking's defaults and never changes a known one (incoming money
-  comes from customers, who are no payees). Renaming a party renames the
-  string on company costs, recurring costs and bank lines (case-insensitive
-  exact match, bulk JPQL in `PanacheCostParties.renameEverywhere`);
-  deleting one never touches a booking. The three services reach the
-  learner through `Instance<CostPartyService>` behind an `isResolvable()`
-  guard, so the Mockito tests that build them by hand keep working.
+  (category, VAT rate, channel or fair) and the IBAN (stored without
+  spaces, upper-case, shape-checked); no notes. The bookings teach it:
+  creating or updating a company cost or a recurring cost, and recording
+  an OUTGOING bank movement, call `learn(name, category, vat, channel)`
+  after their own `recordActivity`, which adds an unknown name with that
+  booking's defaults and never changes a known one (incoming money comes
+  from customers, who are no payees). The channel is taught ONLY when the
+  category is BEURS, else null: a rent paid under WEBSITE says nothing
+  about the landlord. `learn()` is fail-safe: `REQUIRES_NEW`, returns
+  early for a blank name or one over 200 characters, catches the
+  unique-violation race of two first bookings of one name, and every hook
+  wraps it in try/catch, so the list can never cost the user the booking.
+  Renaming a party renames the string on company costs, recurring costs
+  and bank lines by the same key the list uses (the distinct stored
+  spellings are matched in Java in `PanacheCostParties.renameEverywhere`,
+  then updated by id, so 'Immo  Ham' follows 'Immo Ham'); the activity
+  reads 'Aan wie hernoemd: X → Y · n kosten · m vaste kosten · k
+  bankbewegingen'. Deleting one never touches a booking. The three
+  services reach the learner through `Instance<CostPartyService>` behind
+  an `isResolvable()` guard, so the Mockito tests that build them by hand
+  keep working.
 - **Beurzen** (`fair`, `/api/fairs`, `FairService`): a fair is a sales
   channel code the costs share with the sales side, so a cost on it lands
   under "Per kanaal"; the cost keeps it in its existing `salesChannel`.
@@ -1147,9 +1157,19 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   ASCII, other runs become `_`, at most 40: "Trends & Trade Ede" becomes
   `TRENDS_TRADE_EDE`), may not be DIRECT, WEBSITE, PARTNER or FAIR, and
   never changes; a fair is switched off rather than deleted while a
-  company cost or a recurring cost carries its code. `FairSeed` inserts
-  TICA and EDE at start-up when missing, and the PostgreSQL migration
-  inserts the same two with `on conflict (code) do nothing`.
+  company cost, a recurring cost or a sales document carries its code
+  (`countBySalesChannel` on `CompanyCosts`, `RecurringCosts` and
+  `SalesRepositories.Orders`, injected into `FairService`). `FairSeed`
+  runs at every start-up without effect the second time: it inserts TICA
+  and EDE when missing, moves the costs and recurring costs on the retired
+  category TICA to BEURS with TICA as their fair (unless they named a
+  channel), and backfills `cost_party` from every distinct party of the
+  costs and recurring costs and every outgoing bank counterparty, with the
+  newest booking's category and VAT and the channel only for a BEURS
+  booking. The PostgreSQL migration does the same three things in SQL
+  (`on conflict (code) do nothing`, the four `update` statements, and
+  `insert into cost_party … select distinct on (name_key) … on conflict
+  (name_key) do nothing`), so dev H2 and Railway agree.
 - **Bedrag incl. btw**: `CompanyCost.amountInclEur` is the inclusive total
   as it was typed in and null for a cost entered excl.
   (`company_cost.amount_incl_eur`, nullable). `vatEur()` is incl − excl

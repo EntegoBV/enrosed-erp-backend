@@ -1,6 +1,7 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.Fair;
+import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.shared.BusinessRuleException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,18 +26,24 @@ import static org.mockito.Mockito.when;
 class FairServiceTest {
 
     private Fairs fairs;
+    private CompanyCosts costs;
+    private RecurringCosts recurringCosts;
+    private SalesRepositories.Orders orders;
     private FairService service;
 
     @BeforeEach
     void setUp() {
         fairs = mock(Fairs.class);
+        costs = mock(CompanyCosts.class);
+        recurringCosts = mock(RecurringCosts.class);
+        orders = mock(SalesRepositories.Orders.class);
         AtomicLong ids = new AtomicLong(20);
         when(fairs.save(any(Fair.class))).thenAnswer(call -> {
             Fair fair = call.getArgument(0);
             return fair.id() != null ? fair : new Fair(ids.incrementAndGet(), fair.code(), fair.label(), fair.active(), fair.createdAt());
         });
         when(fairs.findByCode(any())).thenReturn(Optional.empty());
-        service = new FairService(fairs);
+        service = new FairService(fairs, costs, recurringCosts, orders);
     }
 
     @Test
@@ -88,12 +95,18 @@ class FairServiceTest {
         assertTrue(service.update(2L, "Ede", null).active(), "a missing switch keeps the current one");
         assertThrows(BusinessRuleException.class, () -> service.update(2L, " ", true));
 
-        when(fairs.inUse("EDE")).thenReturn(true);
+        when(costs.countBySalesChannel("EDE")).thenReturn(1L);
         BusinessRuleException used = assertThrows(BusinessRuleException.class, () -> service.delete(2L));
         assertEquals("Deze beurs wordt nog gebruikt; zet ze uit in plaats van ze te verwijderen.", used.getMessage());
+        when(costs.countBySalesChannel("EDE")).thenReturn(0L);
+        when(recurringCosts.countBySalesChannel("EDE")).thenReturn(1L);
+        assertThrows(BusinessRuleException.class, () -> service.delete(2L), "a recurring cost on the code blocks too");
+        when(recurringCosts.countBySalesChannel("EDE")).thenReturn(0L);
+        when(orders.countBySalesChannel("EDE")).thenReturn(1L);
+        assertThrows(BusinessRuleException.class, () -> service.delete(2L), "so does a sales document from the stand");
         verify(fairs, never()).deleteById(anyLong());
 
-        when(fairs.inUse("EDE")).thenReturn(false);
+        when(orders.countBySalesChannel("EDE")).thenReturn(0L);
         service.delete(2L);
         verify(fairs).deleteById(2L);
     }

@@ -84,7 +84,7 @@ class CompanyCostServiceTest {
     @Test
     void markingPaidKeepsEverythingElseIncludingTheRecurringLink() {
         CompanyCost booked = new CompanyCost(12L, LocalDate.of(2026, 9, 1), "HUUR", "Huur magazijn", "Immo Ham",
-                new BigDecimal("850.00"), new BigDecimal("21"), null, null, null, "Automatisch geboekt", Instant.parse("2026-09-01T06:00:00Z"), 3L);
+                new BigDecimal("850.00"), null, new BigDecimal("21"), null, null, null, "Automatisch geboekt", Instant.parse("2026-09-01T06:00:00Z"), 3L, null);
         when(costs.findById(12L)).thenReturn(Optional.of(booked));
 
         CompanyCost paid = service.markPaid(12L, LocalDate.of(2026, 9, 4));
@@ -94,7 +94,7 @@ class CompanyCostServiceTest {
         assertEquals(booked.createdAt(), paid.createdAt());
 
         CompanyCost edited = service.update(12L, new CompanyCost(null, LocalDate.of(2026, 9, 1), "HUUR", "Huur magazijn september",
-                "Immo Ham", new BigDecimal("850"), new BigDecimal("21"), null, null, null, null, null, null));
+                "Immo Ham", new BigDecimal("850"), null, new BigDecimal("21"), null, null, null, null, null, null, null));
         assertEquals(3L, edited.recurringCostId(), "editing the text does not cut the cost loose from its definition");
     }
 
@@ -126,6 +126,20 @@ class CompanyCostServiceTest {
         assertEquals(new BigDecimal("82.64"), service.create(cost("82.64", "82.64", null)).amountInclEur());
         assertEquals(new BigDecimal("100.01"), service.create(cost("82.65", "100.01", "21")).amountInclEur(), "a cent of rounding fits");
         assertEquals(new BigDecimal("100.00"), service.create(cost("82.64", "99.995", "21")).amountInclEur(), "scaled to cents");
+    }
+
+    @Test
+    void anUpdateWithoutAnInclusiveTotalClearsTheStoredOne() {
+        CompanyCost entered = new CompanyCost(5L, LocalDate.of(2026, 10, 1), "HUUR", "Magazijn", "Immo",
+                new BigDecimal("82.64"), new BigDecimal("100.00"), new BigDecimal("21"), null, null, null, null,
+                Instant.parse("2026-10-01T06:00:00Z"), null, null);
+        when(costs.findById(5L)).thenReturn(Optional.of(entered));
+
+        CompanyCost updated = service.update(5L, cost("82.64", null, "21"));
+
+        assertNull(updated.amountInclEur(), "the form said excl.: the entered total goes");
+        assertEquals(new BigDecimal("17.35"), updated.vatEur(), "the VAT follows the rate again");
+        assertEquals(new BigDecimal("99.99"), updated.totalInclEur());
     }
 
     @Test
@@ -167,6 +181,24 @@ class CompanyCostServiceTest {
                 " TICA Trends & Trade ", BigDecimal.TEN, new BigDecimal("21"), null, null, "tica", null, null));
 
         verify(learner).learn("TICA Trends & Trade", "BEURS", new BigDecimal("21"), "TICA");
+    }
+
+    @Test
+    void onlyAFairCostTeachesItsChannelAndAFailingListNeverUndoesTheBooking() {
+        CostPartyService learner = mock(CostPartyService.class);
+        @SuppressWarnings("unchecked") Instance<CostPartyService> parties = mock(Instance.class);
+        when(parties.isResolvable()).thenReturn(true);
+        when(parties.get()).thenReturn(learner);
+        service.parties = parties;
+
+        service.create(new CompanyCost(null, LocalDate.of(2026, 10, 3), "HUUR", "Magazijn oktober", "Immo Ham",
+                new BigDecimal("850"), new BigDecimal("21"), null, null, "WEBSITE", null, null));
+        verify(learner).learn("Immo Ham", "HUUR", new BigDecimal("21"), null);
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("lijst stuk")).when(learner).learn(any(), any(), any(), any());
+        CompanyCost booked = service.create(new CompanyCost(null, LocalDate.of(2026, 10, 4), "HUUR", "Magazijn november", "Immo Ham",
+                new BigDecimal("850"), new BigDecimal("21"), null, null, null, null, null));
+        assertEquals("Magazijn november", booked.description(), "the booking stands whatever the list does");
     }
 
     private static CompanyCost cost(String excl, String incl, String vat) {

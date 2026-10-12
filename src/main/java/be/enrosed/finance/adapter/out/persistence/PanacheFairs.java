@@ -3,7 +3,6 @@ package be.enrosed.finance.adapter.out.persistence;
 import be.enrosed.finance.application.Fairs;
 import be.enrosed.finance.domain.Fair;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.persistence.EntityManager;
 
 import java.util.Comparator;
 import java.util.List;
@@ -13,11 +12,9 @@ import java.util.Optional;
 public class PanacheFairs implements Fairs {
 
     private final FairDao dao;
-    private final EntityManager entityManager;
 
-    public PanacheFairs(FairDao dao, EntityManager entityManager) {
+    public PanacheFairs(FairDao dao) {
         this.dao = dao;
-        this.entityManager = entityManager;
     }
 
     @Override
@@ -51,15 +48,5 @@ public class PanacheFairs implements Fairs {
     @Override
     public void deleteById(long id) {
         dao.deleteById(id);
-    }
-
-    @Override
-    public boolean inUse(String code) {
-        return count("select count(c) from CompanyCostEntity c where upper(c.salesChannel) = :code", code) > 0
-                || count("select count(r) from RecurringCostEntity r where upper(r.salesChannel) = :code", code) > 0;
-    }
-
-    private long count(String jpql, String code) {
-        return entityManager.createQuery(jpql, Long.class).setParameter("code", code).getSingleResult();
     }
 }

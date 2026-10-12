@@ -1,6 +1,7 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.Fair;
+import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
@@ -24,12 +25,18 @@ public class FairService {
     private static final int LABEL_LENGTH = 120;
 
     private final Fairs fairs;
+    private final CompanyCosts costs;
+    private final RecurringCosts recurringCosts;
+    private final SalesRepositories.Orders orders;
 
     @Inject
     Instance<ActivityLogService> activity;
 
-    public FairService(Fairs fairs) {
+    public FairService(Fairs fairs, CompanyCosts costs, RecurringCosts recurringCosts, SalesRepositories.Orders orders) {
         this.fairs = fairs;
+        this.costs = costs;
+        this.recurringCosts = recurringCosts;
+        this.orders = orders;
     }
 
     public List<Fair> list() {
@@ -63,10 +70,13 @@ public class FairService {
         return saved;
     }
 
+    /** Only a code nothing carries any more: no cost, no recurring cost, no sales document from the stand. */
     @Transactional
     public void delete(long id) {
         Fair fair = get(id);
-        if (fairs.inUse(fair.code())) {
+        long carried = costs.countBySalesChannel(fair.code()) + recurringCosts.countBySalesChannel(fair.code())
+                + orders.countBySalesChannel(fair.code());
+        if (carried > 0) {
             throw new BusinessRuleException("Deze beurs wordt nog gebruikt; zet ze uit in plaats van ze te verwijderen.");
         }
         fairs.deleteById(id);

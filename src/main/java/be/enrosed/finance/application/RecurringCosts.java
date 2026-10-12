@@ -12,4 +12,6 @@ public interface RecurringCosts {
     Optional<RecurringCost> findById(long id);
     RecurringCost save(RecurringCost definition);
     void deleteById(long id);
+    /** How many definitions carry the channel or fair code, regardless of case. */
+    long countBySalesChannel(String code);
 }

@@ -13,6 +13,4 @@ public interface Fairs {
     Optional<Fair> findByCode(String code);
     Fair save(Fair fair);
     void deleteById(long id);
-    /** Whether a company cost or a recurring cost still carries the code as its channel. */
-    boolean inUse(String code);
 }

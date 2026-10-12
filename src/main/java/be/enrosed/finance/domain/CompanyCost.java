@@ -42,19 +42,16 @@ public record CompanyCost(
 ) {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
 
-    /** A hand-booked cost, before recurring definitions existed. */
+    /**
+     * A hand-booked cost entered excl. VAT, before recurring definitions, the
+     * inclusive entry and the bank link existed. The only shorthand: every
+     * other caller names the inclusive total, so a dropped one is a compile error.
+     */
     public CompanyCost(Long id, LocalDate date, String category, String description, String party,
                        BigDecimal amountExclEur, BigDecimal vatPct, String reference, LocalDate paidOn,
                        String salesChannel, String notes, Instant createdAt) {
-        this(id, date, category, description, party, amountExclEur, vatPct, reference, paidOn, salesChannel, notes, createdAt, null);
-    }
-
-    /** A cost entered excl. VAT, as every cost was before the inclusive entry existed. */
-    public CompanyCost(Long id, LocalDate date, String category, String description, String party,
-                       BigDecimal amountExclEur, BigDecimal vatPct, String reference, LocalDate paidOn,
-                       String salesChannel, String notes, Instant createdAt, Long recurringCostId) {
         this(id, date, category, description, party, amountExclEur, null, vatPct, reference, paidOn, salesChannel, notes,
-                createdAt, recurringCostId, null);
+                createdAt, null, null);
     }
 
     public boolean recurring() {

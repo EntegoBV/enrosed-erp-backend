@@ -1,13 +1,22 @@
 package be.enrosed.finance.adapter.in.rest;
 
 import be.enrosed.finance.domain.Fair;
+import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity;
+import be.enrosed.sales.application.CustomerService;
+import be.enrosed.sales.application.SalesOrderService;
+import be.enrosed.sales.domain.Customer;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.security.AdminIdentityProvider;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 import io.restassured.specification.RequestSpecification;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,6 +31,10 @@ class FairResourceTest {
 
     private static final String FAIRS = "/api/fairs";
     private static final String COSTS = "/api/costs";
+
+    @Inject SalesOrderService sales;
+    @Inject CustomerService customers;
+    @Inject EntityManager em;
 
     @Test
     void theTwoKnownFairsAreSeededAndANewOneTakesItsCodeFromItsLabel() {
@@ -50,6 +63,15 @@ class FairResourceTest {
                     .body("label", equalTo(label + " (voorbij)"))
                     .body("active", equalTo(false));
             json().get(FAIRS).then().statusCode(200).body("find { it.id == " + id + " }.active", equalTo(false));
+
+            /* A quote from the stand carries the code too: the fair stays until that document is gone. */
+            var customer = customers.create(new Customer(null, "Standbezoeker " + stamp, "Bezoeker", null, null, "BE0000000000", "BE",
+                    Language.NL, "Markt 1", "2000", "Antwerpen", "DAP", null, null, LocalDate.now()));
+            long quoteId = sales.create(customer.id(), "BE", "DAP").id();
+            QuarkusTransaction.requiringNew().run(() -> em.find(SalesOrderEntity.class, quoteId).salesChannel = code);
+            json().delete(FAIRS + "/" + id).then().statusCode(409)
+                    .body("message", equalTo("Deze beurs wordt nog gebruikt; zet ze uit in plaats van ze te verwijderen."));
+            sales.delete(quoteId);
 
             long costId = json().body(Map.of("date", "2026-10-12", "category", "BEURS", "description", "Stand " + stamp,
                             "amountExclEur", 10, "salesChannel", code))

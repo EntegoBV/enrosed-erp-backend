@@ -15,8 +15,14 @@ public interface CostParties {
     CostParty save(CostParty party);
     void deleteById(long id);
     /**
-     * Renames the party on every cost, recurring cost and bank line that
-     * carries the old name, regardless of case; returns how many rows changed.
+     * Renames the party on every cost, recurring cost and bank line whose
+     * stored spelling has the old name's key (see {@link CostParty#keyOf(String)}),
+     * so 'Immo  Ham' follows 'Immo Ham'; says how many rows of each changed.
      */
-    int renameEverywhere(String oldName, String newName);
+    Renamed renameEverywhere(String oldName, String newName);
+
+    /** How many rows of each kind a rename touched. */
+    record Renamed(int costs, int recurringCosts, int bankLines) {
+        public static final Renamed NONE = new Renamed(0, 0, 0);
+    }
 }

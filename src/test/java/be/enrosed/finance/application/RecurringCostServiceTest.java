@@ -48,8 +48,8 @@ class RecurringCostServiceTest {
         when(costs.save(any(CompanyCost.class))).thenAnswer(call -> {
             CompanyCost cost = call.getArgument(0);
             CompanyCost saved = new CompanyCost(ids.incrementAndGet(), cost.date(), cost.category(), cost.description(), cost.party(),
-                    cost.amountExclEur(), cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(),
-                    cost.createdAt(), cost.recurringCostId());
+                    cost.amountExclEur(), null, cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(),
+                    cost.createdAt(), cost.recurringCostId(), null);
             booked.add(saved);
             return saved;
         });
@@ -119,7 +119,7 @@ class RecurringCostServiceTest {
         verify(costs, never()).save(any());
 
         when(costs.findByRecurringCost(5L)).thenReturn(List.of(new CompanyCost(9L, LocalDate.of(2026, 10, 1), "HUUR", "Huur magazijn",
-                null, new BigDecimal("850.00"), null, null, null, null, null, null, 5L)));
+                null, new BigDecimal("850.00"), null, null, null, null, null, null, null, 5L, null)));
         assertTrue(service.bookDue(LocalDate.of(2026, 10, 1)).isEmpty(), "the first of October is already in the books");
         ArgumentCaptor<RecurringCost> progress = ArgumentCaptor.forClass(RecurringCost.class);
         verify(definitions).save(progress.capture());

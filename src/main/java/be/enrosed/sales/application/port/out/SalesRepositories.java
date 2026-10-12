@@ -43,6 +43,8 @@ public interface SalesRepositories {
         default void lockById(long id) {}
         Optional<SalesOrder> findByPortalToken(String token);
         long countByCustomer(long customerId);
+        /** How many documents carry the sales channel or fair code, regardless of case; deleted ones do not count. */
+        long countBySalesChannel(String code);
         boolean existsBySourceQuoteId(long sourceQuoteId);
         SalesOrder save(SalesOrder order);
         void deleteById(long id);

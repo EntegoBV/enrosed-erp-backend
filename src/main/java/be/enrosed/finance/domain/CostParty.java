@@ -19,9 +19,8 @@ public record CostParty(
         BigDecimal vatPct,
         /** The usual channel or fair: TICA, EDE, ...; null when none. */
         String salesChannel,
-        /** Without spaces, upper-case; null when unknown. */
+        /** Without spaces, upper-case; null when unknown. Kept for the bank reconciliation to come. */
         String iban,
-        String notes,
         Instant createdAt
 ) {
     /** The name as the list matches it: trimmed, inner whitespace collapsed, lower-cased; null for a blank name. */

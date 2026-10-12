@@ -8,6 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -20,6 +21,7 @@ import java.util.List;
 public class CompanyCostService {
 
     public static final String ACTIVITY_ENTITY = "COMPANY_COST";
+    private static final Logger LOG = Logger.getLogger(CompanyCostService.class);
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     /** How far an entered inclusive total may sit from excl. plus the rate: the rounding of either side. */
     private static final BigDecimal TOLERANCE = new BigDecimal("0.02");
@@ -56,8 +58,8 @@ public class CompanyCostService {
         /* The bank link is the bank service's to set, never the form's. */
         CompanyCost clean = validated(cost, null, Instant.now(), null);
         CompanyCost saved = costs.save(clean);
-        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Kost geboekt");
+        learnParty(saved);
         return saved;
     }
 
@@ -69,8 +71,8 @@ public class CompanyCostService {
                 changes.amountExclEur(), changes.amountInclEur(), changes.vatPct(), changes.reference(), changes.paidOn(),
                 changes.salesChannel(), changes.notes(), null, current.recurringCostId(), null);
         CompanyCost saved = costs.save(validated(linked, current.id(), current.createdAt(), current.bankStatementLineId()));
-        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost bijgewerkt");
+        learnParty(saved);
         return saved;
     }
 
@@ -142,9 +144,20 @@ public class CompanyCostService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /**
+     * The list learns the name after the cost is in, in its own transaction:
+     * a failure of the list never undoes the booking. The channel is a
+     * default worth keeping only for a fair cost; a rent paid under WEBSITE
+     * says nothing about the landlord.
+     */
     private void learnParty(CompanyCost cost) {
         if (parties == null || !parties.isResolvable()) return;
-        parties.get().learn(cost.party(), cost.category(), cost.vatPct(), cost.salesChannel());
+        try {
+            parties.get().learn(cost.party(), cost.category(), cost.vatPct(),
+                    CostPartyService.FAIR_CATEGORY.equals(cost.category()) ? cost.salesChannel() : null);
+        } catch (RuntimeException failure) {
+            LOG.debug("De lijst Aan wie leerde de kost niet: " + failure.getMessage(), failure);
+        }
     }
 
     private void recordActivity(String action, CompanyCost cost, String summary) {

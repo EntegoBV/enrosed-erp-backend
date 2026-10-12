@@ -22,6 +22,7 @@ import java.util.*;
 
 @ApplicationScoped
 public class BankStatementService {
+    private static final org.jboss.logging.Logger LOG=org.jboss.logging.Logger.getLogger(BankStatementService.class);
     @Inject EntityManager em;
     @Inject SalesOrderService sales;
     @Inject SalesRepositories.Orders orders;
@@ -83,7 +84,7 @@ public class BankStatementService {
         row.recordedAt=Instant.now();row.actor=actor.current().displayName();em.persist(row);em.flush();
         link(row,request.purchasePaymentIds(),request.companyCostId());
         audit(row,"Bankbeweging handmatig geregistreerd: "+row.bookedAt+" · "+row.amountEur+" · "+reference);
-        if(request.direction()==Direction.OUTGOING&&!counterparty.isEmpty()&&parties!=null&&parties.isResolvable())parties.get().learn(counterparty,null,null,null);
+        if(request.direction()==Direction.OUTGOING&&!counterparty.isEmpty())learnParty(counterparty);
         return row;
     }
 
@@ -169,6 +170,12 @@ public class BankStatementService {
     private void unlink(long id) {
         for(var payment:em.createQuery("from PurchasePaymentEntity p where p.bankStatementLineId=:id",SourcingEntities.PurchasePaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
         for(var cost:em.createQuery("from CompanyCostEntity c where c.bankStatementLineId=:id",CompanyCostEntity.class).setParameter("id",id).getResultList())cost.bankStatementLineId=null;
+    }
+    /** The list learns an outgoing counterparty once the line is in; a failure of the list never undoes the line. */
+    private void learnParty(String counterparty) {
+        if(parties==null||!parties.isResolvable())return;
+        try { parties.get().learn(counterparty,null,null,null); }
+        catch(RuntimeException failure) { LOG.debug("De lijst Aan wie leerde de bankbeweging niet: "+failure.getMessage(),failure); }
     }
     private BankStatementLineEntity get(long id,boolean lock) {var row=lock?em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE):em.find(BankStatementLineEntity.class,id);if(row==null)throw new NotFoundException("Bankbeweging",id);return row;}
     private void audit(BankStatementLineEntity row,String text){activity.record(ActivityLogService.ACTION_UPDATED,"BANK_STATEMENT",row.id.toString(),row.account+" · "+row.amountEur,text);}

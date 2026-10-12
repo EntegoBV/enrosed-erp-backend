@@ -9,6 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 public class RecurringCostService {
 
     public static final String ACTIVITY_ENTITY = "RECURRING_COST";
+    private static final Logger LOG = Logger.getLogger(RecurringCostService.class);
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final int BOOKINGS_PER_RUN = 1_000;
 
@@ -59,8 +61,8 @@ public class RecurringCostService {
     public RecurringCost create(RecurringCost definition) {
         RecurringCost clean = validated(definition, null, Instant.now(), null);
         RecurringCost saved = definitions.save(clean);
-        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Vaste kost ingesteld · " + saved.interval().label().toLowerCase());
+        learnParty(saved);
         return saved;
     }
 
@@ -68,8 +70,8 @@ public class RecurringCostService {
     public RecurringCost update(long id, RecurringCost changes) {
         RecurringCost current = get(id);
         RecurringCost saved = definitions.save(validated(changes, current.id(), current.createdAt(), current.lastBookedOn()));
-        learnParty(saved);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Vaste kost bijgewerkt");
+        learnParty(saved);
         return saved;
     }
 
@@ -114,11 +116,12 @@ public class RecurringCostService {
     }
 
     private static CompanyCost costFor(RecurringCost definition, LocalDate date) {
+        /* Excl.-only: a recurring booking never carries an entered inclusive total, and the bank link is the bank's to set. */
         return new CompanyCost(null, date, definition.category(), definition.name(), definition.party(),
-                definition.amountExclEur(), definition.vatPct(), definition.reference(),
+                definition.amountExclEur(), null, definition.vatPct(), definition.reference(),
                 definition.autoPaid() ? date : null, definition.salesChannel(),
                 "Automatisch geboekt als vaste kost (" + definition.interval().label().toLowerCase() + ")",
-                Instant.now(), definition.id());
+                Instant.now(), definition.id(), null);
     }
 
     private RecurringCost validated(RecurringCost definition, Long id, Instant createdAt, LocalDate lastBookedOn) {
@@ -155,9 +158,15 @@ public class RecurringCostService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /** The list learns the name after the definition is in; a failure of the list never undoes the definition. */
     private void learnParty(RecurringCost definition) {
         if (parties == null || !parties.isResolvable()) return;
-        parties.get().learn(definition.party(), definition.category(), definition.vatPct(), definition.salesChannel());
+        try {
+            parties.get().learn(definition.party(), definition.category(), definition.vatPct(),
+                    CostPartyService.FAIR_CATEGORY.equals(definition.category()) ? definition.salesChannel() : null);
+        } catch (RuntimeException failure) {
+            LOG.debug("De lijst Aan wie leerde de vaste kost niet: " + failure.getMessage(), failure);
+        }
     }
 
     private void recordActivity(String action, RecurringCost definition, String summary) {
