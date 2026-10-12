@@ -1,6 +1,9 @@
 package be.enrosed.finance.adapter.out.persistence;
 
+import be.enrosed.finance.domain.CostKind;
+import be.enrosed.finance.domain.ExpenseType;
 import be.enrosed.finance.domain.RecurringCost;
+import be.enrosed.finance.domain.VatRegime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -34,11 +37,21 @@ public class RecurringCostEntity {
     @Column(length = 2000) public String notes;
     @Column(name = "last_booked_on") public LocalDate lastBookedOn;
     @Column(name = "created_at") public Instant createdAt;
+    /* The regime round: every column nullable, enums stored as plain text. */
+    @Column(name = "vat_regime", length = 24) public String vatRegime;
+    @Column(name = "vat_regime_confirmed") public Boolean vatRegimeConfirmed;
+    @Column(name = "supplier_country", length = 2) public String supplierCountry;
+    @Column(name = "cost_kind", length = 16) public String costKind;
+    @Column(name = "expense_type", length = 24) public String expenseType;
+    @Column(name = "vat_deductible_pct", precision = 5, scale = 2) public BigDecimal vatDeductiblePct;
+    @Column(name = "tax_deductible_pct", precision = 5, scale = 2) public BigDecimal taxDeductiblePct;
 
     public RecurringCost toDomain() {
         return new RecurringCost(id, name, category, party, amountExclEur, vatPct, salesChannel,
                 interval == null ? null : RecurringCost.Interval.valueOf(interval), startDate, endDate, nextDate,
-                Boolean.TRUE.equals(active), Boolean.TRUE.equals(autoPaid), reference, notes, lastBookedOn, createdAt);
+                Boolean.TRUE.equals(active), Boolean.TRUE.equals(autoPaid), reference, notes, lastBookedOn, createdAt,
+                VatRegime.parse(vatRegime), vatRegimeConfirmed, supplierCountry, CostKind.parse(costKind),
+                ExpenseType.parse(expenseType), vatDeductiblePct, taxDeductiblePct);
     }
 
     public void apply(RecurringCost definition) {
@@ -58,5 +71,12 @@ public class RecurringCostEntity {
         notes = definition.notes();
         lastBookedOn = definition.lastBookedOn();
         createdAt = definition.createdAt();
+        vatRegime = definition.vatRegime() == null ? null : definition.vatRegime().name();
+        vatRegimeConfirmed = definition.vatRegimeConfirmed();
+        supplierCountry = definition.supplierCountry();
+        costKind = definition.costKind() == null ? null : definition.costKind().name();
+        expenseType = definition.expenseType() == null ? null : definition.expenseType().name();
+        vatDeductiblePct = definition.vatDeductiblePct();
+        taxDeductiblePct = definition.taxDeductiblePct();
     }
 }

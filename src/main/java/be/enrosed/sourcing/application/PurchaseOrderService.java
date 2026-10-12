@@ -428,7 +428,9 @@ public class PurchaseOrderService {
                 .withPartner(current.partnerCustomerId(), current.partnerCostPct(), current.partnerSharePct())
                 .withSeparateAllocation(changes.allocSeparate())
                 .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived())
-                .withFreightViaSupplier(changes.freightViaSupplier()));
+                .withFreightViaSupplier(changes.freightViaSupplier())
+                /* Form-owned like the tracking reference: where the container is cleared, for the VAT return. */
+                .withClearance(changes.clearance()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);

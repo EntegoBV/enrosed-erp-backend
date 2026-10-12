@@ -31,7 +31,7 @@ class CostPartyResourceTest {
         String stamp = UUID.randomUUID().toString().substring(0, 8);
         String name = "Accountant " + stamp;
         long costId = json().body(Map.of("date", "2026-10-12", "category", "boekhouder", "description", "Jaarrekening " + stamp,
-                        "party", name, "amountExclEur", 82.64, "amountInclEur", 100, "vatPct", 21))
+                        "party", name, "amountExclEur", 82.64, "amountInclEur", 100, "vatPct", 21, "vatRegime", "BE", "vatRegimeConfirmed", true))
                 .post(COSTS).then().statusCode(201)
                 .body("party", equalTo(name))
                 .body("amountExclEur", equalTo(82.64f))
@@ -39,7 +39,7 @@ class CostPartyResourceTest {
                 .extract().jsonPath().getLong("id");
         /* The same payee typed with two spaces: one party to the list, and the rename must reach this row too. */
         long spacedCostId = json().body(Map.of("date", "2026-10-13", "category", "boekhouder", "description", "Btw-aangifte " + stamp,
-                        "party", "Accountant  " + stamp, "amountExclEur", 50))
+                        "party", "Accountant  " + stamp, "amountExclEur", 50, "vatRegime", "EXEMPT"))
                 .post(COSTS).then().statusCode(201).body("party", equalTo("Accountant  " + stamp))
                 .extract().jsonPath().getLong("id");
         try {
@@ -49,6 +49,8 @@ class CostPartyResourceTest {
                     .body(learned + ".vatPct", equalTo(21.0f))
                     .body(learned + ".salesChannel", nullValue())
                     .body(learned + ".iban", nullValue())
+                    .body(learned + ".country", equalTo("BE"))
+                    .body(learned + ".vatRegime", equalTo("BE"))
                     .extract().jsonPath().getLong(learned + ".id");
             json().get(PARTIES + "/" + partyId).then().statusCode(200).body("name", equalTo(name));
             json().body(Map.of("name", " accountant  " + stamp)).post(PARTIES).then().statusCode(409);
@@ -78,7 +80,7 @@ class CostPartyResourceTest {
     void aCostEnteredExclusiveComesBackWithoutAnInclusiveTotalAndAWrongTotalIsRefused() {
         String stamp = UUID.randomUUID().toString().substring(0, 8);
         long costId = json().body(Map.of("date", "2026-10-12", "category", "HUUR", "description", "Magazijn " + stamp,
-                        "amountExclEur", 82.64, "vatPct", 21))
+                        "amountExclEur", 82.64, "vatPct", 21, "vatRegime", "BE"))
                 .post(COSTS).then().statusCode(201)
                 .body("amountExclEur", equalTo(82.64f))
                 .body("amountInclEur", nullValue())
@@ -86,7 +88,7 @@ class CostPartyResourceTest {
         json().delete(COSTS + "/" + costId).then().statusCode(204);
 
         json().body(Map.of("date", "2026-10-12", "category", "HUUR", "description", "Magazijn " + stamp,
-                        "amountExclEur", 100, "amountInclEur", 90, "vatPct", 21))
+                        "amountExclEur", 100, "amountInclEur", 90, "vatPct", 21, "vatRegime", "BE"))
                 .post(COSTS).then().statusCode(409)
                 .body("message", equalTo("Het bedrag incl. btw kan niet kleiner zijn dan excl."));
     }

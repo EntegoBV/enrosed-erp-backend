@@ -1,6 +1,7 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.CostParty;
+import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.audit.ActivityLogService;
 import jakarta.enterprise.inject.Instance;
@@ -36,7 +37,8 @@ class CostPartyServiceTest {
         when(parties.save(any(CostParty.class))).thenAnswer(call -> {
             CostParty party = call.getArgument(0);
             return party.id() != null ? party : new CostParty(ids.incrementAndGet(), party.name(), party.category(),
-                    party.vatPct(), party.salesChannel(), party.iban(), party.createdAt());
+                    party.vatPct(), party.salesChannel(), party.iban(), party.country(), party.vatNumber(), party.vatRegime(),
+                    party.createdAt());
         });
         when(parties.findByKey(any())).thenReturn(Optional.empty());
         service = new CostPartyService(parties);
@@ -44,7 +46,7 @@ class CostPartyServiceTest {
 
     @Test
     void learningAddsAnUnknownNameOnceWithTheBookingsDefaultsAndNeverOverwrites() {
-        service.learn(" TICA Trends & Trade ", "BEURS", new BigDecimal("21"), "TICA");
+        service.learn(" TICA Trends & Trade ", "BEURS", new BigDecimal("21"), "TICA", "BE", VatRegime.BE);
 
         ArgumentCaptor<CostParty> learned = ArgumentCaptor.forClass(CostParty.class);
         verify(parties).save(learned.capture());
@@ -54,20 +56,65 @@ class CostPartyServiceTest {
         assertEquals(new BigDecimal("21"), learned.getValue().vatPct());
         assertEquals("TICA", learned.getValue().salesChannel());
         assertNull(learned.getValue().iban());
+        assertEquals("BE", learned.getValue().country());
+        assertEquals(VatRegime.BE, learned.getValue().vatRegime());
         assertNotNull(learned.getValue().createdAt());
 
-        CostParty known = new CostParty(11L, "TICA Trends & Trade", "BEURS", new BigDecimal("21"), "TICA", null, Instant.now());
+        CostParty known = new CostParty(11L, "TICA Trends & Trade", "BEURS", new BigDecimal("21"), "TICA", null, "BE", null, VatRegime.BE,
+                Instant.now());
         when(parties.findByKey("tica trends & trade")).thenReturn(Optional.of(known));
-        service.learn("tica   trends & TRADE", "HUUR", BigDecimal.ZERO, null);
-        service.learn("   ", "HUUR", null, null);
-        service.learn(null, "HUUR", null, null);
-        service.learn("x".repeat(201), "HUUR", null, null);
-        service.learn("x".repeat(99) + " ".repeat(30) + "y".repeat(100), "HUUR", null, null); // 229 characters, a key of 200
+        service.learn("tica   trends & TRADE", "HUUR", BigDecimal.ZERO, null, "NL", VatRegime.FOREIGN_VAT);
+        service.learn("   ", "HUUR", null, null, null, null);
+        service.learn(null, "HUUR", null, null, null, null);
+        service.learn("x".repeat(201), "HUUR", null, null, null, null);
+        service.learn("x".repeat(99) + " ".repeat(30) + "y".repeat(100), "HUUR", null, null, null, null); // 229 characters, a key of 200
         verify(parties, times(1)).save(any(CostParty.class));
 
         when(parties.save(any(CostParty.class))).thenThrow(new jakarta.persistence.PersistenceException("name_key"));
-        service.learn("Tegelijk BV", "HUUR", null, null);
+        service.learn("Tegelijk BV", "HUUR", null, null, null, null);
         verify(parties, times(2)).save(any(CostParty.class));
+    }
+
+    @Test
+    void learnFillsAMissingRegimeOnceAndNeverOverwrites() {
+        CostParty belgian = new CostParty(11L, "Immo Ham", "HUUR", new BigDecimal("21"), null, null, "BE", null, VatRegime.BE, Instant.now());
+        when(parties.findByKey("immo ham")).thenReturn(Optional.of(belgian));
+        service.learn("Immo Ham", "HUUR", new BigDecimal("21"), null, "IE", VatRegime.EU_SERVICES);
+        verify(parties, never()).save(any(CostParty.class));
+
+        CostParty unknown = new CostParty(12L, "Google Ireland", "SOFTWARE", new BigDecimal("21"), null, null, null, null, null, Instant.now());
+        when(parties.findByKey("google ireland")).thenReturn(Optional.of(unknown));
+        service.learn("Google Ireland", "SOFTWARE", new BigDecimal("21"), null, "IE", null);
+        verify(parties, never()).save(any(CostParty.class));
+
+        service.learn("google ireland", "HUUR", BigDecimal.ZERO, "WEBSITE", "IE", VatRegime.EU_SERVICES);
+        ArgumentCaptor<CostParty> filled = ArgumentCaptor.forClass(CostParty.class);
+        verify(parties).save(filled.capture());
+        assertEquals(12L, filled.getValue().id());
+        assertEquals("Google Ireland", filled.getValue().name());
+        assertEquals("SOFTWARE", filled.getValue().category(), "fill-only: the rest stays");
+        assertEquals(new BigDecimal("21"), filled.getValue().vatPct());
+        assertNull(filled.getValue().salesChannel());
+        assertEquals("IE", filled.getValue().country());
+        assertEquals(VatRegime.EU_SERVICES, filled.getValue().vatRegime());
+        assertEquals(unknown.createdAt(), filled.getValue().createdAt());
+    }
+
+    @Test
+    void vatNumberIsCleanedAndChecked() {
+        assertEquals("BE0123456749", service.create(new CostParty(null, "Accountant", null, null, null, null, "be", "be 0123.456.749", null, null)).vatNumber());
+        assertEquals("BE", service.create(new CostParty(null, "Accountant 2", null, null, null, null, "be", null, null, null)).country());
+        assertEquals("NL858617262B02", service.create(new CostParty(null, "24/7 Customs", null, null, null, null, "NL", "nl858617262b02",
+                VatRegime.EU_SERVICES, null)).vatNumber());
+        assertEquals(VatRegime.EU_SERVICES, service.create(new CostParty(null, "Google", null, null, null, null, "IE", "IE6388047V",
+                VatRegime.EU_SERVICES, null)).vatRegime());
+        assertNull(service.create(new CostParty(null, "Zonder nummer", null, null, null, null, null, "  ", null, null)).vatNumber());
+        BusinessRuleException refused = assertThrows(BusinessRuleException.class,
+                () -> service.create(new CostParty(null, "Fout", null, null, null, null, null, "BE2123456749", null, null)));
+        assertEquals("Dit is geen geldig btw-nummer", refused.getMessage());
+        assertThrows(BusinessRuleException.class, () -> service.create(new CostParty(null, "Te kort", null, null, null, null, null, "X", null, null)));
+        assertEquals("De landcode bestaat uit twee letters", assertThrows(BusinessRuleException.class,
+                () -> service.create(new CostParty(null, "Land", null, null, null, null, "BEL", null, null, null))).getMessage());
     }
 
     @Test

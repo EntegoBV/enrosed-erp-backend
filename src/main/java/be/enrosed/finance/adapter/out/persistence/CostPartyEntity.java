@@ -1,6 +1,7 @@
 package be.enrosed.finance.adapter.out.persistence;
 
 import be.enrosed.finance.domain.CostParty;
+import be.enrosed.finance.domain.VatRegime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -25,9 +26,13 @@ public class CostPartyEntity {
     @Column(length = 34) public String iban;
     @Column(name = "created_at", nullable = false) public Instant createdAt;
     @Column(name = "updated_at") public Instant updatedAt;
+    /* The regime round: nullable, the regime stored as plain text. */
+    @Column(length = 2) public String country;
+    @Column(name = "vat_number", length = 20) public String vatNumber;
+    @Column(name = "vat_regime", length = 24) public String vatRegime;
 
     public CostParty toDomain() {
-        return new CostParty(id, name, category, vatPct, salesChannel, iban, createdAt);
+        return new CostParty(id, name, category, vatPct, salesChannel, iban, country, vatNumber, VatRegime.parse(vatRegime), createdAt);
     }
 
     public void apply(CostParty party) {
@@ -37,6 +42,9 @@ public class CostPartyEntity {
         vatPct = party.vatPct();
         salesChannel = party.salesChannel();
         iban = party.iban();
+        country = party.country();
+        vatNumber = party.vatNumber();
+        vatRegime = party.vatRegime() == null ? null : party.vatRegime().name();
         createdAt = party.createdAt();
     }
 }

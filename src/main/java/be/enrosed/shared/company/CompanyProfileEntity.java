@@ -74,4 +74,8 @@ public class CompanyProfileEntity {
     /** The letters in front of credit note numbers: CN-2026-0001. */
     @Column(name = "credit_note_number_prefix", length = 12)
     public String creditNoteNumberPrefix;
+
+    /** The ET 14000 licence: import VAT self-assessed in the return; null reads as no. */
+    @Column(name = "import_vat_deferred")
+    public Boolean importVatDeferred;
 }

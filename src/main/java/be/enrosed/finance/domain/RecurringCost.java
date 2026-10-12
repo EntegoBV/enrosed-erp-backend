@@ -31,10 +31,29 @@ public record RecurringCost(
         String reference,
         String notes,
         LocalDate lastBookedOn,
-        Instant createdAt
+        Instant createdAt,
+        /** How the VAT of every booked cost is treated; null on definitions from before the regimes (booked unconfirmed). */
+        VatRegime vatRegime,
+        Boolean vatRegimeConfirmed,
+        /** ISO country code of the supplier: BE, IE, US. */
+        String supplierCountry,
+        /** Goods or services; an investment is never recurring. */
+        CostKind costKind,
+        ExpenseType expenseType,
+        BigDecimal vatDeductiblePct,
+        BigDecimal taxDeductiblePct
 ) {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final int OCCURRENCE_LIMIT = 20_000;
+
+    /** A definition from before the VAT regimes: regime unknown, fully deductible. */
+    public RecurringCost(Long id, String name, String category, String party, BigDecimal amountExclEur, BigDecimal vatPct,
+                         String salesChannel, Interval interval, LocalDate startDate, LocalDate endDate, LocalDate nextDate,
+                         boolean active, boolean autoPaid, String reference, String notes, LocalDate lastBookedOn,
+                         Instant createdAt) {
+        this(id, name, category, party, amountExclEur, vatPct, salesChannel, interval, startDate, endDate, nextDate, active,
+                autoPaid, reference, notes, lastBookedOn, createdAt, null, null, null, null, null, null, null);
+    }
 
     public enum Interval {
         WEEKLY("Wekelijks"), MONTHLY("Maandelijks"), QUARTERLY("Per kwartaal"), HALF_YEARLY("Halfjaarlijks"), YEARLY("Jaarlijks");
@@ -65,6 +84,11 @@ public record RecurringCost(
         return amountExclEur == null ? BigDecimal.ZERO : amountExclEur;
     }
 
+    /** Never null in the JSON: a backfilled regime reads false. */
+    public Boolean vatRegimeConfirmed() {
+        return Boolean.TRUE.equals(vatRegimeConfirmed);
+    }
+
     public BigDecimal vatEur() {
         if (vatPct == null || vatPct.signum() <= 0) return BigDecimal.ZERO;
         return amountExclEur().multiply(vatPct).divide(HUNDRED, 2, RoundingMode.HALF_UP);
@@ -92,6 +116,7 @@ public record RecurringCost(
 
     public RecurringCost withProgress(LocalDate next, LocalDate lastBooked, boolean stillActive) {
         return new RecurringCost(id, name, category, party, amountExclEur, vatPct, salesChannel, interval, startDate, endDate,
-                next, stillActive, autoPaid, reference, notes, lastBooked, createdAt);
+                next, stillActive, autoPaid, reference, notes, lastBooked, createdAt, vatRegime, vatRegimeConfirmed,
+                supplierCountry, costKind, expenseType, vatDeductiblePct, taxDeductiblePct);
     }
 }

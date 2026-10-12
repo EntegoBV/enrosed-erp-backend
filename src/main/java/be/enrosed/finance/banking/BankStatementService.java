@@ -1,6 +1,7 @@
 package be.enrosed.finance.banking;
 
 import be.enrosed.finance.adapter.out.persistence.CompanyCostEntity;
+import be.enrosed.finance.adapter.out.persistence.CostPaymentEntity;
 import be.enrosed.finance.application.CostPartyService;
 import be.enrosed.sales.application.*;
 import be.enrosed.sales.application.port.out.SalesRepositories;
@@ -33,14 +34,23 @@ public class BankStatementService {
     @Inject Instance<CostPartyService> parties;
 
     public enum Direction { INCOMING, OUTGOING }
-    /** The purchase payments and the company cost this movement settled, when it is noted from their forms; both optional. */
+    /**
+     * The purchase payments, the company cost and the cost payment this movement settled, when it is noted from
+     * their forms; all optional. A cost payment names the exact row; the cost alone resolves to its single payment.
+     */
     public record ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
                                 String timeZone, String reference, String counterparty, String requestId,
-                                List<Long> purchasePaymentIds, Long companyCostId) {
+                                List<Long> purchasePaymentIds, Long companyCostId, Long costPaymentId) {
         /** A movement noted on its own, linked to nothing. */
         public ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
                              String timeZone, String reference, String counterparty, String requestId) {
-            this(account, amountEur, direction, bookedAt, timeZone, reference, counterparty, requestId, null, null);
+            this(account, amountEur, direction, bookedAt, timeZone, reference, counterparty, requestId, null, null, null);
+        }
+        /** Compatibility for callers written before a cost had several payments. */
+        public ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
+                             String timeZone, String reference, String counterparty, String requestId,
+                             List<Long> purchasePaymentIds, Long companyCostId) {
+            this(account, amountEur, direction, bookedAt, timeZone, reference, counterparty, requestId, purchasePaymentIds, companyCostId, null);
         }
     }
     public record Match(long salesOrderId,String number,BigDecimal openEur,int score,Long existingPaymentId,String reason,Instant receivedAt,String reference) {}
@@ -82,7 +92,7 @@ public class BankStatementService {
         var row=new BankStatementLineEntity();row.account=account;row.fingerprint=fingerprint;row.amountEur=amount;
         row.bookedAt=request.bookedAt();row.timeZone=zone;row.reference=reference;row.counterparty=counterparty;
         row.recordedAt=Instant.now();row.actor=actor.current().displayName();em.persist(row);em.flush();
-        link(row,request.purchasePaymentIds(),request.companyCostId());
+        link(row,request.purchasePaymentIds(),request.companyCostId(),request.costPaymentId());
         audit(row,"Bankbeweging handmatig geregistreerd: "+row.bookedAt+" · "+row.amountEur+" · "+reference);
         if(request.direction()==Direction.OUTGOING&&!counterparty.isEmpty())learnParty(counterparty);
         return row;
@@ -149,32 +159,57 @@ public class BankStatementService {
         em.remove(row);
     }
     /**
-     * The purchase payments and the cost this line settled point back at it, in the line's own transaction:
-     * a refused link leaves no line, and a payment or a cost is on the bank once. A retried request returns
-     * the line above without coming here. Deleting a payment or a cost leaves the line: it is the bank's truth.
+     * The purchase payments and the cost payment this line settled point back at it, in the line's own transaction:
+     * a refused link leaves no line, and a payment is on the bank once. A cost payment is linked by its id; a cost
+     * named alone resolves to its single unlinked payment, or to the cost itself when it has no payment rows (from
+     * before the rows), and several open payments need the choice. The cost-level link is set too when the payment
+     * is the cost's only one: the link of a one-shot full payment. A retried request returns the line above without
+     * coming here. Deleting a payment or a cost leaves the line: it is the bank's truth.
      */
-    private void link(BankStatementLineEntity row,List<Long> paymentIds,Long costId) {
+    private void link(BankStatementLineEntity row,List<Long> paymentIds,Long costId,Long costPaymentId) {
         for(Long paymentId:paymentIds==null?List.<Long>of():paymentIds) {
             var payment=paymentId==null?null:em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
             if(payment.bankStatementLineId!=null)throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
             payment.bankStatementLineId=row.id;
         }
+        if(costPaymentId!=null) {
+            var payment=em.find(CostPaymentEntity.class,costPaymentId);
+            if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            if(payment.bankStatementLineId!=null)throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
+            payment.bankStatementLineId=row.id;
+            var cost=payment.companyCostId==null?null:em.find(CompanyCostEntity.class,payment.companyCostId);
+            if(cost!=null&&cost.bankStatementLineId==null&&costPayments(cost.id).size()==1)cost.bankStatementLineId=row.id;
+            return;
+        }
         if(costId==null)return;
         var cost=em.find(CompanyCostEntity.class,costId);
         if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
-        if(cost.bankStatementLineId!=null)throw new BusinessRuleException("Deze kost is al aan een bankbeweging gekoppeld");
-        cost.bankStatementLineId=row.id;
+        var payments=costPayments(costId);
+        if(payments.isEmpty()) {
+            if(cost.bankStatementLineId!=null)throw new BusinessRuleException("Deze kost is al aan een bankbeweging gekoppeld");
+            cost.bankStatementLineId=row.id;
+            return;
+        }
+        var open=payments.stream().filter(payment->payment.bankStatementLineId==null).toList();
+        if(open.isEmpty())throw new BusinessRuleException("Deze kost is al aan een bankbeweging gekoppeld");
+        if(open.size()>1)throw new BusinessRuleException("Kies de betaling die deze bankbeweging dekt");
+        open.getFirst().bankStatementLineId=row.id;
+        if(payments.size()==1&&cost.bankStatementLineId==null)cost.bankStatementLineId=row.id;
+    }
+    private List<CostPaymentEntity> costPayments(long costId) {
+        return em.createQuery("from CostPaymentEntity p where p.companyCostId=:id order by p.paidOn,p.id",CostPaymentEntity.class).setParameter("id",costId).getResultList();
     }
     /** What the line carried is open again once it goes; done on the managed rows so the session sees it at once. */
     private void unlink(long id) {
         for(var payment:em.createQuery("from PurchasePaymentEntity p where p.bankStatementLineId=:id",SourcingEntities.PurchasePaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
         for(var cost:em.createQuery("from CompanyCostEntity c where c.bankStatementLineId=:id",CompanyCostEntity.class).setParameter("id",id).getResultList())cost.bankStatementLineId=null;
+        for(var payment:em.createQuery("from CostPaymentEntity p where p.bankStatementLineId=:id",CostPaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
     }
     /** The list learns an outgoing counterparty once the line is in; a failure of the list never undoes the line. */
     private void learnParty(String counterparty) {
         if(parties==null||!parties.isResolvable())return;
-        try { parties.get().learn(counterparty,null,null,null); }
+        try { parties.get().learn(counterparty,null,null,null,null,null); }
         catch(RuntimeException failure) { LOG.debug("De lijst Aan wie leerde de bankbeweging niet: "+failure.getMessage(),failure); }
     }
     private BankStatementLineEntity get(long id,boolean lock) {var row=lock?em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE):em.find(BankStatementLineEntity.class,id);if(row==null)throw new NotFoundException("Bankbeweging",id);return row;}

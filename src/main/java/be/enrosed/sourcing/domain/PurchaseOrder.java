@@ -164,11 +164,58 @@ public record PurchaseOrder(
          * Chosen per container, never read from the supplier's incoterm on
          * paper. Null reads as no; ignored when every line is DDP.
          */
-        Boolean freightViaSupplier
+        Boolean freightViaSupplier,
+
+        /**
+         * Where the container is cleared, for the VAT return: at Belgian
+         * customs, or in the Netherlands through the fiscal representative
+         * and brought to Belgium or sold there. Null means "te bevestigen":
+         * the screen suggests one from the port of arrival, nothing stores
+         * the suggestion by itself.
+         */
+        Clearance clearance
 ) {
     public PurchaseOrder {
         otherCosts = otherCosts == null ? List.of()
                 : otherCosts.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compatibility for callers written before the clearance existed. */
+    public PurchaseOrder(
+            Long id, String number, String alias, Long supplierId, LocalDate orderDate,
+            PurchaseOrderStatus status, ContainerType containerType,
+            BigDecimal cnyToUsd, BigDecimal usdToEurGoods, BigDecimal usdToEurTransport,
+            BigDecimal freightUsd, BigDecimal originCosts, Currency originCurrency,
+            BigDecimal destinationCostsEur, BigDecimal defaultDutyRatePct, BigDecimal extraRevenueEur,
+            Allocation allocFreight, Allocation allocOrigin, Allocation allocDestination, Allocation allocExtra,
+            String departurePort, String destinationPort, Long receivingLocationId, Boolean groupVariants,
+            LocalDate expectedArrival, LocalDate receivedOn, BigDecimal paidTotalEur, Boolean stockBooked,
+            PaymentTerms paymentTerms, LocalDate shippedOn, String trackingReference,
+            ActorRef createdBy, Instant createdAt, String notes, List<PurchaseOrderLine> lines,
+            BigDecimal inspectionCostEur, List<OtherCost> otherCosts, Instant archivedAt,
+            Long partnerCustomerId, BigDecimal partnerCostPct, BigDecimal partnerSharePct,
+            Allocation allocSeparate, BigDecimal payPctOrdered, BigDecimal payPctShipped, BigDecimal payPctArrived,
+            Boolean freightViaSupplier) {
+        this(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd, usdToEurGoods,
+                usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
+                partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate,
+                payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, null);
+    }
+
+    /** The same container cleared this way; null means still to be confirmed. */
+    public PurchaseOrder withClearance(Clearance value) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
+                paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
+                partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate,
+                payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, value);
     }
 
     /** Compatibility for callers written before the container could be CIF. */
@@ -205,7 +252,7 @@ public record PurchaseOrder(
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
                 createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
                 partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate,
-                payPctOrdered, payPctShipped, payPctArrived, value);
+                payPctOrdered, payPctShipped, payPctArrived, value, clearance);
     }
 
     /** True when every product line is DDP: the supplier delivers duty paid and is owed everything. */
@@ -254,7 +301,7 @@ public record PurchaseOrder(
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
                 createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
                 partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, ordered, shipped, arrived,
-                freightViaSupplier);
+                freightViaSupplier, clearance);
     }
 
     /** True when the order carries percentages of its own. */
@@ -289,7 +336,7 @@ public record PurchaseOrder(
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
                 createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
                 partnerCustomerId, partnerCostPct, partnerSharePct, value, payPctOrdered, payPctShipped, payPctArrived,
-                freightViaSupplier);
+                freightViaSupplier, clearance);
     }
 
     /** SEPARATE unless a key was chosen: the inspection is not a product cost by default. */
@@ -331,7 +378,7 @@ public record PurchaseOrder(
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
                 createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt,
-                customerId, customerId == null ? null : costPct, customerId == null ? null : sharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                customerId, customerId == null ? null : costPct, customerId == null ? null : sharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     /**
@@ -386,7 +433,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, value, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, value, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     public boolean isArchived() {
@@ -441,7 +488,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, value, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                createdBy, createdAt, notes, lines, value, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     /** The same order with the other costs replaced; null or empty clears them. */
@@ -451,7 +498,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, value, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                createdBy, createdAt, notes, lines, inspectionCostEur, value, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     /** True when an inspection or another named cost is booked apart from the piece price. */
@@ -509,7 +556,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival, receivedOn,
                 paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                actor, at, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                actor, at, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     /** Compatibility for callers written before receipts had their own fields. */
@@ -542,7 +589,7 @@ public record PurchaseOrder(
                 defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
                 departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
                 receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
-                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier);
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance);
     }
 
     /** Compatibility for callers written before variant grouping existed. */

@@ -13,6 +13,7 @@ import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.CurrentActor;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.Allocation;
+import be.enrosed.sourcing.domain.Clearance;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.OtherCost;
@@ -726,6 +727,28 @@ class PurchaseOrderServiceTest {
                 "a container without a partner adopts the one on its first linked document");
     }
 
+    @Test
+    void clearanceIsKeptAndSuggested() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        assertNull(orders.current.clearance(), "null until someone confirms where the container is cleared");
+
+        PurchaseOrder cleared = service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6)
+                .withClearance(Clearance.NL_FISCAL_REP_TO_BE)).order();
+        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, cleared.clearance());
+        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, orders.current.clearance(), "a form save keeps the choice");
+        assertEquals(Clearance.BE_CUSTOMS, service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6)
+                .withClearance(Clearance.BE_CUSTOMS)).order().clearance());
+        assertNull(service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6)).order().clearance(),
+                "the form owns it: a save without one sets it back to 'te bevestigen'");
+
+        assertEquals(Clearance.BE_CUSTOMS, Clearance.suggestedFor("Antwerp"));
+        assertEquals(Clearance.BE_CUSTOMS, Clearance.suggestedFor("antwerpen"));
+        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, Clearance.suggestedFor("Rotterdam"));
+        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, Clearance.suggestedFor(null));
+        assertNull(Clearance.parse("SOMETHING_ELSE"), "unknown stored text reads as 'te bevestigen'");
+    }
+
     private static PurchaseOrderService service(InMemoryOrders orders, RecordingProducts products) {
         return new PurchaseOrderService(orders, new FixedSuppliers(true), products, null);
     }
@@ -941,7 +964,8 @@ class PurchaseOrderServiceTest {
                     order.groupVariants(), order.expectedArrival(), order.receivedOn(), order.paidTotalEur(),
                     order.stockBooked(), order.paymentTerms(), order.shippedOn(), order.trackingReference(),
                     order.createdBy(), order.createdAt(), order.notes(), order.lines())
-                    .withFreightViaSupplier(order.freightViaSupplier());
+                    .withFreightViaSupplier(order.freightViaSupplier())
+                    .withClearance(order.clearance());
         }
     }
 }

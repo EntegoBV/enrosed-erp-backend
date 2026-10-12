@@ -21,8 +21,19 @@ public record CostParty(
         String salesChannel,
         /** Without spaces, upper-case; null when unknown. Kept for the bank reconciliation to come. */
         String iban,
+        /** ISO country code of the party: BE, IE, US; null when unknown. */
+        String country,
+        /** The party's VAT number without spaces, upper-case: BE0123456749, IE6388047V; null when unknown. */
+        String vatNumber,
+        /** The VAT regime a cost to this party usually takes, learned from the first confirmed cost; null when none. */
+        VatRegime vatRegime,
         Instant createdAt
 ) {
+    /** A party from before the regimes: country, VAT number and regime unknown. */
+    public CostParty(Long id, String name, String category, BigDecimal vatPct, String salesChannel, String iban, Instant createdAt) {
+        this(id, name, category, vatPct, salesChannel, iban, null, null, null, createdAt);
+    }
+
     /** The name as the list matches it: trimmed, inner whitespace collapsed, lower-cased; null for a blank name. */
     public static String keyOf(String name) {
         if (name == null) return null;

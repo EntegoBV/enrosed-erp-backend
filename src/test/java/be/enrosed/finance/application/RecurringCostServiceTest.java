@@ -1,8 +1,12 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.CompanyCost;
+import be.enrosed.finance.domain.CostKind;
+import be.enrosed.finance.domain.CostPayment;
+import be.enrosed.finance.domain.ExpenseType;
 import be.enrosed.finance.domain.RecurringCost;
 import be.enrosed.finance.domain.RecurringCost.Interval;
+import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,8 +36,10 @@ class RecurringCostServiceTest {
 
     private RecurringCosts definitions;
     private CompanyCosts costs;
+    private CostPayments payments;
     private RecurringCostService service;
     private final List<CompanyCost> booked = new ArrayList<>();
+    private final List<CostPayment> paid = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -49,23 +55,39 @@ class RecurringCostServiceTest {
             CompanyCost cost = call.getArgument(0);
             CompanyCost saved = new CompanyCost(ids.incrementAndGet(), cost.date(), cost.category(), cost.description(), cost.party(),
                     cost.amountExclEur(), null, cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(),
-                    cost.createdAt(), cost.recurringCostId(), null);
+                    cost.createdAt(), cost.recurringCostId(), null, cost.vatRegime(), cost.vatRegimeConfirmed(), cost.supplierCountry(),
+                    cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(),
+                    cost.depreciationStart());
             booked.add(saved);
             return saved;
         });
         when(costs.findByRecurringCost(anyLong())).thenReturn(List.of());
-        service = new RecurringCostService(definitions, costs);
+        payments = mock(CostPayments.class);
+        when(payments.save(any(CostPayment.class))).thenAnswer(call -> {
+            CostPayment payment = call.getArgument(0);
+            paid.add(payment);
+            return payment;
+        });
+        service = new RecurringCostService(definitions, costs, payments);
     }
 
     private static RecurringCost rent(Long id, Interval interval, LocalDate start, LocalDate end, LocalDate next, LocalDate lastBooked, boolean autoPaid) {
         return new RecurringCost(id, "Huur magazijn", "HUUR", "Immo Ham", new BigDecimal("850.00"), new BigDecimal("21"), null,
-                interval, start, end, next, true, autoPaid, "HUUR-2026", null, lastBooked, Instant.parse("2026-01-01T09:00:00Z"));
+                interval, start, end, next, true, autoPaid, "HUUR-2026", null, lastBooked, Instant.parse("2026-01-01T09:00:00Z"),
+                VatRegime.BE, true, "BE", CostKind.SERVICES, ExpenseType.STANDARD, new BigDecimal("100"), new BigDecimal("100"));
+    }
+
+    /** A definition as the form sends it: the regime chosen, the rest at its defaults. */
+    private static RecurringCost form(String name, String category, BigDecimal amount, BigDecimal vatPct, Interval interval,
+                                      LocalDate start, LocalDate end, boolean autoPaid, String notes, VatRegime regime, String country) {
+        return new RecurringCost(null, name, category, "Immo Ham", amount, vatPct, null, interval, start, end, null, true, autoPaid,
+                null, notes, null, null, regime, true, country, null, null, null, null);
     }
 
     @Test
     void settingUpAMonthlyCostStartsItOnItsFirstDate() {
-        RecurringCost saved = service.create(new RecurringCost(null, " Huur magazijn ", "huur", "Immo Ham", new BigDecimal("850"),
-                new BigDecimal("21"), null, Interval.MONTHLY, LocalDate.of(2026, 1, 31), null, null, true, false, null, " ", null, null));
+        RecurringCost saved = service.create(form(" Huur magazijn ", "huur", new BigDecimal("850"), new BigDecimal("21"),
+                Interval.MONTHLY, LocalDate.of(2026, 1, 31), null, false, " ", VatRegime.BE, null));
 
         assertEquals("Huur magazijn", saved.name());
         assertEquals("HUUR", saved.category());
@@ -73,6 +95,72 @@ class RecurringCostServiceTest {
         assertEquals(LocalDate.of(2026, 1, 31), saved.nextDate());
         assertTrue(saved.active());
         assertNull(saved.notes());
+        assertEquals(VatRegime.BE, saved.vatRegime());
+        assertEquals("BE", saved.supplierCountry());
+        assertEquals(ExpenseType.STANDARD, saved.expenseType());
+        assertEquals(new BigDecimal("100"), saved.vatDeductiblePct());
+
+        assertEquals("Kies de btw-regeling", assertThrows(BusinessRuleException.class, () -> service.create(new RecurringCost(null,
+                "Huur", "HUUR", null, BigDecimal.TEN, null, null, Interval.MONTHLY, LocalDate.of(2026, 1, 1), null, null, true, false,
+                null, null, null, null))).getMessage());
+        RecurringCost google = service.create(form("Google Workspace", "SOFTWARE", new BigDecimal("12"), new BigDecimal("21"),
+                Interval.MONTHLY, LocalDate.of(2026, 1, 1), null, true, null, VatRegime.EU_SERVICES, "IE"));
+        assertEquals("IE", google.supplierCountry());
+        assertThrows(BusinessRuleException.class, () -> service.create(form("Google Workspace", "SOFTWARE", new BigDecimal("12"),
+                new BigDecimal("21"), Interval.MONTHLY, LocalDate.of(2026, 1, 1), null, true, null, VatRegime.EU_SERVICES, "BE")));
+    }
+
+    @Test
+    void autoPaidBookingWritesOnePayment() {
+        RecurringCost definition = rent(3L, Interval.MONTHLY, LocalDate.of(2026, 9, 1), null, LocalDate.of(2026, 9, 1), null, true);
+        when(definitions.findAll()).thenReturn(List.of(definition));
+
+        List<CompanyCost> result = service.bookDue(LocalDate.of(2026, 9, 8));
+
+        assertEquals(1, result.size());
+        assertEquals(1, paid.size());
+        CostPayment payment = paid.getFirst();
+        assertEquals(result.getFirst().id(), payment.companyCostId());
+        assertEquals(LocalDate.of(2026, 9, 1), payment.paidOn());
+        assertEquals(new BigDecimal("1028.50"), payment.amountEur(), "the cash total of the booking");
+        assertEquals("Domiciliëring", payment.note());
+        assertEquals("systeem", payment.actor());
+        assertNull(payment.bankStatementLineId());
+    }
+
+    @Test
+    void bookingInheritsTheRegimeConfirmed() {
+        RecurringCost definition = new RecurringCost(4L, "Google Workspace", "SOFTWARE", "Google Ireland", new BigDecimal("12.00"),
+                new BigDecimal("21"), null, Interval.MONTHLY, LocalDate.of(2026, 9, 1), null, LocalDate.of(2026, 9, 1), true, false,
+                null, null, null, Instant.parse("2026-01-01T09:00:00Z"), VatRegime.EU_SERVICES, false, "IE", CostKind.SERVICES,
+                ExpenseType.MIXED, new BigDecimal("75"), new BigDecimal("100"));
+        when(definitions.findAll()).thenReturn(List.of(definition));
+
+        CompanyCost cost = service.bookDue(LocalDate.of(2026, 9, 1)).getFirst();
+
+        assertEquals(VatRegime.EU_SERVICES, cost.vatRegime());
+        assertEquals(Boolean.TRUE, cost.vatRegimeConfirmed(), "a definition's regime is confirmed on its bookings");
+        assertEquals("IE", cost.supplierCountry());
+        assertEquals(CostKind.SERVICES, cost.costKind());
+        assertEquals(ExpenseType.MIXED, cost.expenseType());
+        assertEquals(new BigDecimal("75"), cost.vatDeductiblePct());
+        assertNull(cost.depreciationYears());
+        assertEquals(new BigDecimal("12.00"), cost.totalInclEur(), "reverse charged: nothing goes to Google but the net");
+        assertTrue(paid.isEmpty(), "not a direct debit");
+    }
+
+    @Test
+    void definitionWithoutRegimeBooksAnUnconfirmedCost() {
+        RecurringCost legacy = new RecurringCost(5L, "Huur magazijn", "HUUR", "Immo Ham", new BigDecimal("850.00"), new BigDecimal("21"),
+                null, Interval.MONTHLY, LocalDate.of(2026, 9, 1), null, LocalDate.of(2026, 9, 1), true, false, null, null, null,
+                Instant.parse("2026-01-01T09:00:00Z"));
+        when(definitions.findAll()).thenReturn(List.of(legacy));
+
+        CompanyCost cost = service.bookDue(LocalDate.of(2026, 9, 1)).getFirst();
+
+        assertNull(cost.vatRegime());
+        assertEquals(Boolean.FALSE, cost.vatRegimeConfirmed());
+        assertEquals(new BigDecimal("1028.50"), cost.totalInclEur(), "an unknown regime pays like a Belgian invoice");
     }
 
     @Test
@@ -162,6 +250,7 @@ class RecurringCostServiceTest {
                 null, null, null, null));
 
         assertEquals(6L, updated.id());
+        assertEquals(VatRegime.BE, updated.vatRegime(), "a body without a regime keeps the stored one");
         assertEquals(new BigDecimal("900.00"), updated.amountExclEur());
         assertEquals(LocalDate.of(2026, 4, 5), updated.nextDate(), "the form cannot rewind the schedule");
         assertEquals(LocalDate.of(2026, 3, 5), updated.lastBookedOn());

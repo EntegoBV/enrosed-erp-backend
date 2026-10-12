@@ -1,7 +1,10 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.CompanyCost;
+import be.enrosed.finance.domain.CostKind;
+import be.enrosed.finance.domain.CostPayment;
 import be.enrosed.finance.domain.RecurringCost;
+import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
@@ -36,6 +39,7 @@ public class RecurringCostService {
 
     private final RecurringCosts definitions;
     private final CompanyCosts costs;
+    private final CostPayments payments;
 
     @Inject
     Instance<ActivityLogService> activity;
@@ -44,9 +48,10 @@ public class RecurringCostService {
     @Inject
     Instance<CostPartyService> parties;
 
-    public RecurringCostService(RecurringCosts definitions, CompanyCosts costs) {
+    public RecurringCostService(RecurringCosts definitions, CompanyCosts costs, CostPayments payments) {
         this.definitions = definitions;
         this.costs = costs;
+        this.payments = payments;
     }
 
     public List<RecurringCost> list() {
@@ -59,7 +64,7 @@ public class RecurringCostService {
 
     @Transactional
     public RecurringCost create(RecurringCost definition) {
-        RecurringCost clean = validated(definition, null, Instant.now(), null);
+        RecurringCost clean = validated(definition, null, Instant.now(), null, null);
         RecurringCost saved = definitions.save(clean);
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Vaste kost ingesteld · " + saved.interval().label().toLowerCase());
         learnParty(saved);
@@ -69,7 +74,7 @@ public class RecurringCostService {
     @Transactional
     public RecurringCost update(long id, RecurringCost changes) {
         RecurringCost current = get(id);
-        RecurringCost saved = definitions.save(validated(changes, current.id(), current.createdAt(), current.lastBookedOn()));
+        RecurringCost saved = definitions.save(validated(changes, current.id(), current.createdAt(), current.lastBookedOn(), current));
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Vaste kost bijgewerkt");
         learnParty(saved);
         return saved;
@@ -100,6 +105,11 @@ public class RecurringCostService {
             while (next != null && !next.isAfter(today) && guard++ < BOOKINGS_PER_RUN) {
                 if (!already.contains(next)) {
                     CompanyCost cost = costs.save(costFor(definition, next));
+                    if (definition.autoPaid()) {
+                        /* A direct debit: the one payment that pays the booking, on its date. */
+                        payments.save(new CostPayment(null, cost.id(), next, cost.totalInclEur(), null, null, "Domiciliëring",
+                                Instant.now(), "systeem"));
+                    }
                     booked.add(cost);
                     recordBooked(definition, cost);
                 }
@@ -116,15 +126,19 @@ public class RecurringCostService {
     }
 
     private static CompanyCost costFor(RecurringCost definition, LocalDate date) {
-        /* Excl.-only: a recurring booking never carries an entered inclusive total, and the bank link is the bank's to set. */
+        /* Excl.-only: a recurring booking never carries an entered inclusive total, and the bank link is the bank's to set.
+           The booked cost inherits the regime confirmed; a definition without one books an unknown, unconfirmed regime. */
         return new CompanyCost(null, date, definition.category(), definition.name(), definition.party(),
                 definition.amountExclEur(), null, definition.vatPct(), definition.reference(),
                 definition.autoPaid() ? date : null, definition.salesChannel(),
                 "Automatisch geboekt als vaste kost (" + definition.interval().label().toLowerCase() + ")",
-                Instant.now(), definition.id(), null);
+                Instant.now(), definition.id(), null, definition.vatRegime(), definition.vatRegime() != null,
+                definition.supplierCountry(), definition.costKind(), definition.expenseType(), definition.vatDeductiblePct(),
+                definition.taxDeductiblePct(), null, null);
     }
 
-    private RecurringCost validated(RecurringCost definition, Long id, Instant createdAt, LocalDate lastBookedOn) {
+    /** The regime rules are the cost's; a body without a regime keeps the stored one on an update. */
+    private RecurringCost validated(RecurringCost definition, Long id, Instant createdAt, LocalDate lastBookedOn, RecurringCost current) {
         if (definition == null) throw new BusinessRuleException("Geen gegevens van de vaste kost meegestuurd");
         String name = clean(definition.name());
         if (name == null) throw new BusinessRuleException("Geef de vaste kost een naam");
@@ -142,11 +156,24 @@ public class RecurringCostService {
             throw new BusinessRuleException("De einddatum ligt voor de eerste datum");
         }
         String channel = clean(definition.salesChannel());
+        BigDecimal excl = definition.amountExclEur().setScale(2, RoundingMode.HALF_UP);
+        VatRegime regime = definition.vatRegime();
+        Boolean confirmed = definition.vatRegimeConfirmed();
+        if (regime == null) {
+            if (current == null) throw new BusinessRuleException("Kies de btw-regeling");
+            regime = current.vatRegime();
+            confirmed = current.vatRegimeConfirmed();
+        }
+        CompanyCostService.RegimeFields fields = CompanyCostService.regimeChecked(regime, confirmed, definition.supplierCountry(),
+                /* An investment is never recurring: the kind falls back to services. */
+                definition.costKind() == CostKind.INVESTMENT ? null : definition.costKind(),
+                definition.expenseType(), definition.vatDeductiblePct(), definition.taxDeductiblePct(), excl, null, definition.vatPct());
         RecurringCost base = new RecurringCost(id, name, category.toUpperCase(), clean(definition.party()),
-                definition.amountExclEur().setScale(2, RoundingMode.HALF_UP), definition.vatPct(),
+                excl, fields.vatPct(),
                 channel == null ? null : channel.toUpperCase(), definition.interval(), definition.startDate(), definition.endDate(),
                 null, definition.active(), definition.autoPaid(), clean(definition.reference()), clean(definition.notes()),
-                lastBookedOn, createdAt == null ? Instant.now() : createdAt);
+                lastBookedOn, createdAt == null ? Instant.now() : createdAt, fields.vatRegime(), fields.vatRegimeConfirmed(),
+                fields.supplierCountry(), fields.costKind(), fields.expenseType(), fields.vatDeductiblePct(), fields.taxDeductiblePct());
         /* Where the schedule stands follows from the rhythm and what was booked, never from the form. */
         LocalDate next = base.firstOccurrenceFrom(lastBookedOn == null ? base.startDate() : lastBookedOn.plusDays(1));
         return base.withProgress(next, lastBookedOn, definition.active() && next != null);
@@ -163,7 +190,8 @@ public class RecurringCostService {
         if (parties == null || !parties.isResolvable()) return;
         try {
             parties.get().learn(definition.party(), definition.category(), definition.vatPct(),
-                    CostPartyService.FAIR_CATEGORY.equals(definition.category()) ? definition.salesChannel() : null);
+                    CostPartyService.FAIR_CATEGORY.equals(definition.category()) ? definition.salesChannel() : null,
+                    definition.supplierCountry(), definition.vatRegimeConfirmed() ? definition.vatRegime() : null);
         } catch (RuntimeException failure) {
             LOG.debug("De lijst Aan wie leerde de vaste kost niet: " + failure.getMessage(), failure);
         }

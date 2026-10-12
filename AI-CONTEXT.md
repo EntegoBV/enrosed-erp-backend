@@ -1204,3 +1204,135 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   soft-link display of older lines. Migration
   `docs/migrations/2026-10-12/bank-links-postgresql.sql`, the last script of
   the runner.
+
+## Btw-regeling per kost, btw-aangifte, afschrijvingen en deelbetalingen (2026-10-12)
+
+- **Btw-regeling** (`VatRegime`, `company_cost.vat_regime`, plain text, nullable):
+  one regime per cost, nine values. `BE` (Belgian invoice, VAT deductible),
+  `EU_GOODS` / `EU_SERVICES` / `NON_EU_SERVICES` (reverse charge: we
+  self-assess the VAT in 55/56 and deduct it in 59; `reverseCharge()`),
+  `FOREIGN_VAT` (foreign VAT on the invoice, a cost here), `EXEMPT`
+  (insurance, post, the forwarder's sea freight: base in 82, no VAT),
+  `OUT_OF_SCOPE` (bank charges, fines, taxes, wages: not in the return),
+  `NO_INVOICE` (a till receipt: the gross amount is cost, no deduction),
+  `IMPORT_VAT_PAID` (VAT paid at customs on the import document: a deduction
+  with no base, `amountExclEur` 0 and `amountInclEur` = the VAT). There is no
+  `IMPORT_DEFERRED` regime: the ET 14000 licence is a company setting
+  (`company_profile.import_vat_deferred`, `CompanyProfile.importVatDeferred()`
+  reads null as false) that changes the container path only. A forwarder
+  invoice with exempt freight, 21 % fees and advanced import VAT is booked as
+  separate costs; no line-level VAT. `vatRegimeConfirmed` (`Boolean`, read
+  through `Boolean.TRUE.equals`) is false for a regime the backfill or the
+  supplier's country derived; `supplierCountry` is the ISO code; `costKind`
+  (`GOODS` → 81, `SERVICES` → 82, `INVESTMENT` → 83; null reads as services,
+  goods for MATERIAAL on the frontend); `expenseType` is the deductibility
+  preset (`STANDARD` 100/100, `RESTAURANT` 0/69, `RECEPTION` 0/50, `GIFT`
+  100/50, `CAR` 50/100, `MIXED` 75/100, `CUSTOM` keeps the typed
+  `vatDeductiblePct` / `taxDeductiblePct`, both 0–100, null reads 100);
+  `depreciationYears` 1–50 and `depreciationStart` (default the cost date)
+  only for an investment, nulled otherwise. The quarter of a cost is the
+  quarter of its `date`; a cost created after the quarter's filing date (the
+  25th of the month after) is badged 'na indiening' on screen, nothing moves.
+- **Money, once in Java and mirrored in `finance-metrics.ts`** (`CompanyCost`,
+  cents HALF_UP): `vatEur()` = BE/FOREIGN_VAT/null → incl − excl when a total
+  is stored, else excl × rate; reverse charge → excl × rate (the stored incl is
+  nulled on save); IMPORT_VAT_PAID → incl; the rest 0. `totalInclEur()` (what
+  leaves the bank) = BE/FOREIGN_VAT/null → incl ?? excl + VAT; reverse charge,
+  EXEMPT, OUT_OF_SCOPE, NO_INVOICE → excl; IMPORT_VAT_PAID → incl.
+  `returnVatEur()` (what the return shows) = BE, reverse charge,
+  IMPORT_VAT_PAID → `vatEur()`, else 0. `deductibleVatEur()` (grid 59) =
+  return VAT × `vatDeductiblePct` (import VAT always 100 %);
+  `nonDeductibleVatEur()` = the rest, which is cost and joins the base in
+  81/82/83 (Notice §161). `expenseEur()` (what the result analysis and the
+  cost totals count) = BE and reverse charge → excl + non-deductible VAT;
+  FOREIGN_VAT → the cash total; EXEMPT, OUT_OF_SCOPE, NO_INVOICE → excl;
+  IMPORT_VAT_PAID → 0 (own line 'Btw voorgeschoten op invoer').
+  `taxDeductiblePct` is reported and never changes a total. A null regime
+  (rows from before, unknown) pays like a Belgian invoice and is 'Nog te
+  bepalen' for the return.
+- **Validation** (`CompanyCostService.regimeChecked`, shared with the
+  recurring definitions): the regime is required on create ('Kies de
+  btw-regeling'); on an update a body without one keeps the stored regime
+  and its confirmed flag (legacy rows). The country is two letters; BE forces
+  'BE'; EU_GOODS/EU_SERVICES need an EU member other than Belgium (XI counts
+  for goods only); NON_EU_SERVICES a country outside the EU; FOREIGN_VAT a
+  country other than Belgium. Reverse charge needs a rate above zero and
+  stores no inclusive total; EXEMPT/OUT_OF_SCOPE/NO_INVOICE refuse a rate or
+  a total above excl. ('Deze regeling draagt geen btw') and store null for
+  both; IMPORT_VAT_PAID needs excl 0 and a positive total, deductibility
+  forced 100/100; BE/FOREIGN_VAT check the total against the rate as in round
+  one. A preset other than CUSTOM overwrites the two percentages.
+- **Betalingen** (`cost_payment`, `CostPayment`, `CostPayments` port,
+  `PanacheCostPayments`; no foreign key, the service deletes the payments
+  before the cost): several payments on one cost (a KBC invoice paid by
+  several transfers). `paidOn` is derived, never typed: `totalsOf(cost,
+  payments)` reads paid = Σ amounts, open = max(0, cash total − paid), paid
+  once Σ ≥ cash total − € 0,01 with `paidOn` = the last payment date, else
+  null; overpayment is allowed ('Te veel betaald'). A cost from before the
+  rows with `paidOn` and no payment rows reads as paid in full on that day
+  (the dev H2 database has no migration runner; the PostgreSQL backfill
+  writes those rows). `create()` with `paidOn` writes one full payment
+  ('Betaald gezet'); `update()` with `paidOn` and no rows writes it (carrying
+  the cost's bank link), with exactly one row not on the bank moves that
+  row's date (and its amount when it was the full payment and the cash total
+  changed), with other rows ignores the form's date; `paidOn` null with rows
+  is refused ('Verwijder eerst de betalingen'). `markPaid` pays the remainder
+  ('Deze kost is al volledig betaald' at 0). `addPayment` / `updatePayment` /
+  `deletePayment` (`POST/PUT/DELETE /api/costs/{id}/payments[/{paymentId}]`)
+  return the `CostView`; an amount above zero in cents, a day not in the
+  future, account ≤ 120, note ≤ 300; a payment on the bank keeps its amount
+  and date ('Deze betaling staat op de bank; maak de bankbeweging eerst los');
+  deleting a banked payment is allowed (the line stays, the link goes).
+  `RecurringCostService.bookDue` writes one payment 'Domiciliëring' (actor
+  'systeem') for an `autoPaid` definition.
+- **CostView JSON** (every `/api/costs` response): the `CompanyCost` fields at
+  the top level (`@JsonUnwrapped`) plus `payments` (each `{id, companyCostId,
+  paidOn, amountEur, account, bankStatementLineId, note, recordedAt, actor}`),
+  `paidEur`, `openEur`, `cashTotalEur`. `CompanyCost` is
+  `@JsonIgnoreProperties(ignoreUnknown = true)`, so a PUT of the view is
+  accepted; the service rebuilds the money from the stored cost.
+- **Bank**: a payment links to its bank line (`cost_payment.bank_statement_line_id`);
+  `BankStatementService.ManualRequest.costPaymentId` names it and `link()`
+  sets it (refusing an unknown or already linked payment), also setting
+  `company_cost.bank_statement_line_id` when that payment is the cost's only
+  one (the link of a one-shot full payment; `companyCostId` is ignored when
+  `costPaymentId` is present). A `companyCostId` alone resolves to the cost's
+  single unlinked payment, to the cost itself when it has no rows (legacy),
+  and refuses several open payments ('Kies de betaling die deze bankbeweging
+  dekt'). `delete()` clears the link on the payments too. The frontend marker
+  is `kostbetaling #id`.
+- **Aan wie** learns `country`, `vatNumber` (upper-case, no spaces or dots,
+  `^BE[01]\d{9}$` for Belgian numbers, `^[A-Z]{2}[A-Z0-9]{2,16}$` otherwise,
+  'Dit is geen geldig btw-nummer') and `vatRegime`.
+  `learn(name, category, vatPct, channel, country, regime)` gets the regime
+  only from a confirmed cost; the one exception to never-update: a known
+  party without a regime takes the regime (and, when it has none, the
+  country) of a confirmed booking, fill-only, nothing else changes.
+- **Recurring definitions** carry `vatRegime`, `vatRegimeConfirmed`,
+  `supplierCountry`, `costKind`, `expenseType`, `vatDeductiblePct`,
+  `taxDeductiblePct` (same rules, no investment); a booked cost inherits them
+  with `vatRegimeConfirmed = definition.vatRegime() != null`.
+- **Containers**: `purchase_order.clearance` (`Clearance`: `BE_CUSTOMS`,
+  `NL_FISCAL_REP_TO_BE`, `NL_FISCAL_REP_SOLD_IN_NL`; nullable = 'te
+  bevestigen', form-owned like the tracking reference, PUT
+  `/api/purchase-orders/{id}` carries it). `Clearance.suggestedFor(port)`
+  gives Antwerp → BE_CUSTOMS, else NL_FISCAL_REP_TO_BE; the suggestion is
+  shown, never stored by itself. The goods go to 81 at
+  `costing.totals.goodsEur` in the quarter of `receivedOn`; a Belgian
+  clearance's import VAT enters through an IMPORT_VAT_PAID cost or is
+  self-assessed (87/57/59 on `customsValueEur + dutyEur`) when the ET 14000
+  setting is on; a Dutch clearance brought to Belgium is an intra-EU
+  acquisition (86/55/59 on the same base).
+- **Backfill** (`docs/migrations/2026-10-12/vat-regimes-and-cost-payments-postgresql.sql`,
+  the last script of the runner, rerunnable): every nullable column above,
+  the `cost_payment` table with its two indexes; `vat_regime = 'BE',
+  vat_regime_confirmed = false` for costs and recurring costs with `vat_pct
+  > 0` (a Belgian rate means a Belgian invoice; 0 %/null rows stay unknown
+  and are listed under 'Nog te bepalen'); one payment row per paid cost
+  without rows (`paid_on`, the cash total, the bank link, note 'Overgenomen
+  uit Betaald op', actor 'migratie'). Parties, clearances and the setting
+  stay null.
+- **Out of scope, deliberately**: credit notes received on costs (a
+  correction is an edit of the cost), line-level VAT, foreign VAT refund
+  claims, the December advance (abolished), degressive depreciation, manual
+  61/62 regularisations, a bank-side 'Aan kost koppelen…' action.

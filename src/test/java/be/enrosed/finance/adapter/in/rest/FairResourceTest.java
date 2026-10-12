@@ -74,7 +74,7 @@ class FairResourceTest {
             sales.delete(quoteId);
 
             long costId = json().body(Map.of("date", "2026-10-12", "category", "BEURS", "description", "Stand " + stamp,
-                            "amountExclEur", 10, "salesChannel", code))
+                            "amountExclEur", 10, "salesChannel", code, "vatRegime", "EXEMPT"))
                     .post(COSTS).then().statusCode(201).body("salesChannel", equalTo(code))
                     .extract().jsonPath().getLong("id");
             json().delete(FAIRS + "/" + id).then().statusCode(409)

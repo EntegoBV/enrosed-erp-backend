@@ -1,6 +1,7 @@
 package be.enrosed.finance.application;
 
 import be.enrosed.finance.domain.CostParty;
+import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
@@ -33,6 +34,9 @@ public class CostPartyService {
     private static final int NAME_LENGTH = 200;
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final Pattern IBAN = Pattern.compile("^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$");
+    /** A Belgian VAT number: BE, the leading 0 or 1, nine digits; any other: two letters, then up to sixteen characters. */
+    private static final Pattern BELGIAN_VAT = Pattern.compile("^BE[01]\\d{9}$");
+    private static final Pattern FOREIGN_VAT = Pattern.compile("^[A-Z]{2}[A-Z0-9]{2,16}$");
 
     private final CostParties parties;
 
@@ -86,19 +90,31 @@ public class CostPartyService {
 
     /**
      * Notes the name a booking used: an unknown name joins the list with
-     * that booking's defaults, a known one is left exactly as it is. Runs in
-     * a transaction of its own and swallows the race of two first bookings
-     * of one name, so the booking that called it never fails over the list.
-     * A name the list cannot hold (blank, over 200 characters) is let go.
+     * that booking's defaults, a known one is left exactly as it is, with
+     * one exception: a known party without a VAT regime takes the regime
+     * (and, when it has none, the country) of a confirmed booking, once,
+     * so the next cost to it fills itself in. Runs in a transaction of its
+     * own and swallows the race of two first bookings of one name, so the
+     * booking that called it never fails over the list. A name the list
+     * cannot hold (blank, over 200 characters) is let go.
      */
     @Transactional(Transactional.TxType.REQUIRES_NEW)
-    public void learn(String name, String category, BigDecimal vatPct, String salesChannel) {
+    public void learn(String name, String category, BigDecimal vatPct, String salesChannel, String country, VatRegime vatRegime) {
         String cleaned = clean(name);
         if (cleaned == null || cleaned.length() > NAME_LENGTH) return;
         String key = CostParty.keyOf(cleaned);
-        if (key == null || parties.findByKey(key).isPresent()) return;
+        if (key == null) return;
+        CostParty known = parties.findByKey(key).orElse(null);
+        if (known != null) {
+            if (known.vatRegime() != null || vatRegime == null) return;
+            parties.save(validated(new CostParty(known.id(), known.name(), known.category(), known.vatPct(), known.salesChannel(),
+                    known.iban(), known.country() == null ? country : known.country(), known.vatNumber(), vatRegime,
+                    known.createdAt()), known.id(), known.createdAt()));
+            return;
+        }
         try {
-            parties.save(validated(new CostParty(null, cleaned, category, vatPct, salesChannel, null, null), null, Instant.now()));
+            parties.save(validated(new CostParty(null, cleaned, category, vatPct, salesChannel, null, country, null, vatRegime, null),
+                    null, Instant.now()));
         } catch (PersistenceException race) {
             /* Another booking of the same new name got there first; the list has it either way. */
             LOG.debugf(race, "Aan wie %s was intussen al toegevoegd", cleaned);
@@ -122,7 +138,26 @@ public class CostPartyService {
             throw new BusinessRuleException("Het btw-percentage ligt tussen 0 en 100");
         }
         return new CostParty(id, name, upper(party.category()), party.vatPct(), upper(party.salesChannel()),
-                iban(party.iban()), createdAt == null ? Instant.now() : createdAt);
+                iban(party.iban()), country(party.country()), vatNumber(party.vatNumber()), party.vatRegime(),
+                createdAt == null ? Instant.now() : createdAt);
+    }
+
+    /** Two upper-case letters, the ISO code; null for none. */
+    private static String country(String value) {
+        String code = upper(value);
+        if (code == null) return null;
+        if (!code.matches("[A-Z]{2}")) throw new BusinessRuleException("De landcode bestaat uit twee letters");
+        return code;
+    }
+
+    /** Spaces and dots out, upper-case, and the shape of a VAT number: BE0123456749, NL858617262B02, IE6388047V. */
+    private static String vatNumber(String value) {
+        if (value == null) return null;
+        String number = value.replaceAll("[\\s.]+", "").toUpperCase(Locale.ROOT);
+        if (number.isEmpty()) return null;
+        boolean valid = number.startsWith("BE") ? BELGIAN_VAT.matcher(number).matches() : FOREIGN_VAT.matcher(number).matches();
+        if (!valid || number.length() > 20) throw new BusinessRuleException("Dit is geen geldig btw-nummer");
+        return number;
     }
 
     /** Spaces out, upper-case, and the shape of an IBAN: two letters, two check digits, the national part. */

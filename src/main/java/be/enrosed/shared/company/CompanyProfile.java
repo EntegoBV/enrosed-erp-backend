@@ -61,8 +61,36 @@ public record CompanyProfile(
         /** The same for partner invoices. */
         Integer partnerInvoiceNextNumber,
         /** The letters in front of credit note numbers: CN gives CN-2026-0001; one series for standard and partner credit notes. */
-        String creditNoteNumberPrefix
+        String creditNoteNumberPrefix,
+        /**
+         * The ET 14000 licence: the import VAT of a container cleared in
+         * Belgium is self-assessed in the return (grids 87/57/59) instead of
+         * paid at customs. Null reads as no.
+         */
+        Boolean importVatDeferred
 ) {
+    /** Compatibility for callers written before the import VAT setting existed. */
+    public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
+                          String addressLine, String postalCode, String city, String countryCode,
+                          String email, String phone, String website, String iban, String bic,
+                          String documentFooter, String documentFooterEn, String termsAndConditions,
+                          String termsAndConditionsEn, String privacyPolicy, String privacyPolicyEn,
+                          String fiscalRepresentativeName, String fiscalRepresentativeVat,
+                          String quoteNumberPrefix, String invoiceNumberPrefix,
+                          String partnerQuoteNumberPattern, String partnerInvoiceNumberPattern,
+                          Integer partnerQuoteNextNumber, Integer partnerInvoiceNextNumber, String creditNoteNumberPrefix) {
+        this(name, legalName, vatNumber, registrationNumber, addressLine, postalCode, city, countryCode,
+                email, phone, website, iban, bic, documentFooter, documentFooterEn, termsAndConditions,
+                termsAndConditionsEn, privacyPolicy, privacyPolicyEn, fiscalRepresentativeName, fiscalRepresentativeVat,
+                quoteNumberPrefix, invoiceNumberPrefix, partnerQuoteNumberPattern, partnerInvoiceNumberPattern,
+                partnerQuoteNextNumber, partnerInvoiceNextNumber, creditNoteNumberPrefix, null);
+    }
+
+    /** Never null in the JSON: no licence until settings say so. */
+    public Boolean importVatDeferred() {
+        return Boolean.TRUE.equals(importVatDeferred);
+    }
+
     /** Compatibility for callers written before the credit note series existed. */
     public CompanyProfile(String name, String legalName, String vatNumber, String registrationNumber,
                           String addressLine, String postalCode, String city, String countryCode,
