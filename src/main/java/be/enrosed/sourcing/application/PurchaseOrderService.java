@@ -1067,6 +1067,10 @@ public class PurchaseOrderService {
             case USD -> recordedAmount.multiply(Money.nz(order.usdToEurGoods()));
             case CNY -> recordedAmount.multiply(Money.nz(order.cnyToUsd())).multiply(Money.nz(order.usdToEurGoods()));
         };
+        if (before.bankStatementLineId() != null && (eur.setScale(2, RoundingMode.HALF_UP).compareTo(before.amountEur()) != 0
+                || !unchangedMoney || paidOn != null && !paidOn.equals(before.paidOn()))) {
+            throw new BusinessRuleException("Deze betaling is aan een banktransactie gekoppeld; maak de koppeling eerst los");
+        }
         PurchasePayment after = payments.get().save(new PurchasePayment(before.id(), orderId,
                 paidOn != null ? paidOn : before.paidOn(),
                 recordedAmount, money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
@@ -1103,6 +1107,9 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        if (payment.bankStatementLineId() != null) {
+            throw new BusinessRuleException("Deze betaling is aan een banktransactie gekoppeld; maak de koppeling eerst los");
+        }
         PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
         /* The diary line the payment wrote goes with it. */

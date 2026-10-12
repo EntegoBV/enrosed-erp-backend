@@ -140,4 +140,5 @@ exec psql \
     --file=/app/migrations/staff-contact-postgresql.sql \
     --file=/app/migrations/cost-parties-fairs-and-incl-amount-postgresql.sql \
     --file=/app/migrations/bank-links-postgresql.sql \
-    --file=/app/migrations/vat-regimes-and-cost-payments-postgresql.sql
+    --file=/app/migrations/vat-regimes-and-cost-payments-postgresql.sql \
+    --file=/app/migrations/odoo-bank-source-postgresql.sql

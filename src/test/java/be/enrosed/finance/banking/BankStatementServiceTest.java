@@ -251,6 +251,147 @@ class BankStatementServiceTest {
                 VatRegime.OUT_OF_SCOPE,true,null,null,null,null,null,null,null);
     }
 
+    @Test @TestTransaction void externalImportIsIdempotentAndProviderReconciliationNeverAllocatesLocally() {
+        var request=external("bank-17","150",false);
+        var result=bank.importExternal(request);
+        assertEquals(BankStatementService.ImportOutcome.CREATED,result.outcome());
+        assertEquals(BankStatementService.ImportOutcome.UNCHANGED,bank.importExternal(request).outcome());
+        assertEquals(BankStatementService.ImportOutcome.UPDATED,bank.importExternal(external("bank-17","150",true)).outcome());
+        var line=bank.list().getFirst();
+        assertEquals("ODOO",line.source);assertTrue(line.sourceReconciled);assertFalse(line.allocated);
+        assertEquals(1,bank.list().size());
+        assertThrows(BusinessRuleException.class,()->bank.delete(line.id));
+    }
+
+    @Test @TestTransaction void allocatedImportChangesAreReportedWithoutChangingMoneyOrReceipt() {
+        var invoice=invoice("100");
+        var result=bank.importExternal(external("bank-receipt","121",false));
+        var allocated=bank.allocate(result.id(),new BankStatementService.Allocation(invoice.id(),null));
+        assertTrue(allocated.allocated);
+        assertEquals(allocated.id,bank.allocate(result.id(),new BankStatementService.Allocation(invoice.id(),null)).id);
+        assertEquals(1,incoming.forOrder(invoice.id()).size(),"retry after a lost response must not double-book");
+        assertEquals(BankStatementService.ImportOutcome.CONFLICT,bank.importExternal(external("bank-receipt","122",true)).outcome());
+        assertEquals(new BigDecimal("121.00"),bank.list().getFirst().amountEur);
+        assertEquals(new BigDecimal("121.00"),incoming.forOrder(invoice.id()).getFirst().amountEur());
+        bank.unallocate(result.id());
+        assertEquals(BankStatementService.ImportOutcome.UPDATED,bank.importExternal(external("bank-receipt","122",true)).outcome());
+    }
+
+    @Test @TestTransaction void importedTransferLinksPurchaseAndCostOnceAndUnlinkKeepsPayments() {
+        var order=container();
+        var purchase=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("90"),Currency.EUR,"Leverancier");
+        var cost=costs.create(cost("Bankkosten","10",null));
+        var payment=costs.addPayment(cost.id(),payment("10",LocalDate.of(2026,9,8))).payments().getFirst();
+        var line=bank.importExternal(external("combined","-100",false));
+        var request=new BankStatementService.OutgoingLinks(java.util.List.of(purchase.id()),cost.id(),payment.id());
+        assertTrue(bank.linkExisting(line.id(),request).allocated);
+        assertEquals(line.id(),bank.linkExisting(line.id(),request).id,"same selection may be retried");
+        assertEquals("Inkoop en kosten",bank.list().getFirst().allocationLabel);
+        assertEquals(line.id(),purchases.payments(order.id()).getFirst().bankStatementLineId());
+        assertEquals(BankStatementService.ImportOutcome.CONFLICT,bank.importExternal(external("combined","-101",true)).outcome());
+        bank.unlinkExisting(line.id());
+        assertFalse(bank.list().getFirst().allocated);
+        assertEquals(1,purchases.payments(order.id()).size());assertEquals(1,costs.paymentsOf(cost.id()).size());
+        assertNull(purchases.payments(order.id()).getFirst().bankStatementLineId());
+        assertNull(costs.paymentsOf(cost.id()).getFirst().bankStatementLineId());
+        assertNull(costs.get(cost.id()).bankStatementLineId());
+    }
+
+    @Test @TestTransaction void linkingRejectsWrongAmountWrongDirectionAndReuse() {
+        var order=container();
+        var first=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("90"),Currency.EUR,"Eerste");
+        var second=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("90"),Currency.EUR,"Tweede");
+        var outgoing=bank.importExternal(external("outgoing","-90",false));
+        var wrong=bank.importExternal(external("wrong","-80",false));
+        var receipt=bank.importExternal(external("incoming","90",false));
+        var request=new BankStatementService.OutgoingLinks(java.util.List.of(first.id()),null,null);
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(wrong.id(),request));
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(receipt.id(),request));
+        bank.linkExisting(outgoing.id(),request);
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(outgoing.id(),new BankStatementService.OutgoingLinks(java.util.List.of(second.id()),null,null)));
+        assertThrows(BusinessRuleException.class,()->bank.allocate(outgoing.id(),new BankStatementService.Allocation(invoice("-100").id(),null)));
+        assertNull(purchases.payments(order.id()).getLast().bankStatementLineId());
+    }
+
+    @Test @TestTransaction void deletingOnePartOfAPurchaseTransferRequiresUnlinkingFirst() {
+        var order=container();
+        var goods=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("70"),Currency.EUR,"Goederen");
+        var freight=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("30"),Currency.EUR,"Vracht");
+        var line=bank.importExternal(external("delete-transfer-part","-100",false));
+        bank.linkExisting(line.id(),new BankStatementService.OutgoingLinks(java.util.List.of(goods.id(),freight.id()),null,null));
+        assertThrows(BusinessRuleException.class,()->purchases.deletePayment(order.id(),freight.id()));
+        assertEquals(2,purchases.payments(order.id()).size());
+        assertTrue(purchases.payments(order.id()).stream().allMatch(payment->line.id().equals(payment.bankStatementLineId())));
+        bank.unlinkExisting(line.id());
+        purchases.deletePayment(order.id(),freight.id());
+        assertEquals(1,purchases.payments(order.id()).size());
+        assertFalse(bank.list().getFirst().allocated);
+    }
+
+    @Test @TestTransaction void deletingACostFromASharedTransferRequiresUnlinkingFirst() {
+        var order=container();
+        var goods=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("90"),Currency.EUR,"Goederen");
+        var cost=costs.create(cost("Bankkosten gedeelde overschrijving","10",null));
+        var paid=costs.addPayment(cost.id(),payment("10",LocalDate.of(2026,9,8))).payments().getFirst();
+        var line=bank.importExternal(external("delete-shared-cost","-100",false));
+        bank.linkExisting(line.id(),new BankStatementService.OutgoingLinks(java.util.List.of(goods.id()),cost.id(),paid.id()));
+        assertThrows(BusinessRuleException.class,()->costs.deletePayment(cost.id(),paid.id()));
+        assertThrows(BusinessRuleException.class,()->costs.delete(cost.id()));
+        assertEquals(line.id(),costs.paymentsOf(cost.id()).getFirst().bankStatementLineId());
+        assertEquals(line.id(),purchases.payments(order.id()).getFirst().bankStatementLineId());
+        bank.unlinkExisting(line.id());
+        costs.deletePayment(cost.id(),paid.id());
+        assertTrue(costs.paymentsOf(cost.id()).isEmpty());
+        assertFalse(bank.list().getFirst().allocated);
+    }
+
+    private static BankStatementService.ExternalRequest external(String id,String amount,boolean reconciled) {
+        return new BankStatementService.ExternalRequest(id,"KBC",new BigDecimal(amount),AT,"Europe/Brussels","Betaling","Leverancier",AT,reconciled);
+    }
+
+    @Test @TestTransaction void deletingLastLinkedCostPaymentFreesImportedMovementAndReopensCost() {
+        var cost=costs.create(cost("Abonnement","42",null));
+        var payment=costs.addPayment(cost.id(),payment("42",LocalDate.of(2026,9,8))).payments().getFirst();
+        var line=bank.importExternal(external("delete-cost-payment","-42",false));
+        assertTrue(bank.linkExisting(line.id(),new BankStatementService.OutgoingLinks(null,cost.id(),payment.id())).allocated);
+        assertEquals(line.id(),costs.get(cost.id()).bankStatementLineId());
+        var reopened=costs.deletePayment(cost.id(),payment.id());
+        assertEquals(new BigDecimal("42.00"),reopened.openEur());
+        assertNull(costs.get(cost.id()).paidOn());assertNull(costs.get(cost.id()).bankStatementLineId());
+        var retained=bank.list().stream().filter(row->row.id.equals(line.id())).findFirst().orElseThrow();
+        assertEquals("ODOO",retained.source);assertFalse(retained.allocated);
+    }
+
+    @Test @TestTransaction void existingSalesReceiptAccountLabelCanBeReplacedByActualIbanWithoutDoubleBooking() {
+        var invoice=invoice("100");
+        incoming.add(invoice.id(),new IncomingPaymentService.Request(new BigDecimal("121"),AT,"Europe/Brussels","Already noted",IncomingPaymentService.Direction.RECEIPT,"KBC"));
+        var receipt=incoming.forOrder(invoice.id()).getFirst();
+        var source=external("iban","121",false);
+        var imported=bank.importExternal(new BankStatementService.ExternalRequest(source.sourceId(),"BE12345678901234",source.amountEur(),source.bookedAt(),source.timeZone(),source.reference(),source.counterparty(),source.sourceUpdatedAt(),false));
+        assertTrue(bank.suggestions(imported.id()).stream().anyMatch(match->receipt.id().equals(match.existingPaymentId())));
+        bank.allocate(imported.id(),new BankStatementService.Allocation(invoice.id(),receipt.id()));
+        assertEquals(1,incoming.forOrder(invoice.id()).size());
+        var after=incoming.forOrder(invoice.id()).getFirst();assertEquals("BE12345678901234",after.bankAccount());
+        assertEquals(receipt.receivedAt(),after.receivedAt());assertEquals(receipt.reference(),after.reference());
+    }
+
+    @Test @TestTransaction void atomicCostPaymentRetryCannotCreateASecondPayment() {
+        var cost=costs.create(cost("Verzekering","100",null));
+        costs.addPayment(cost.id(),payment("10",LocalDate.of(2026,9,1)));
+        var imported=bank.importExternal(external("atomic-cost","-40",false));
+        var request=new BankStatementService.CostAllocation(cost.id());
+        assertTrue(bank.recordCostPayment(imported.id(),request).allocated);
+        assertEquals(imported.id(),bank.recordCostPayment(imported.id(),request).id);
+        var payments=costs.paymentsOf(cost.id());
+        assertEquals(2,payments.size());
+        var linked=payments.stream().filter(payment->imported.id().equals(payment.bankStatementLineId())).findFirst().orElseThrow();
+        assertEquals(new BigDecimal("40.00"),linked.amountEur());
+        assertEquals(new BigDecimal("50.00"),costs.view(costs.get(cost.id())).openEur());
+        var other=costs.create(cost("Andere kost","40",null));
+        assertThrows(BusinessRuleException.class,()->bank.recordCostPayment(imported.id(),new BankStatementService.CostAllocation(other.id())));
+        assertTrue(costs.paymentsOf(other.id()).isEmpty());
+    }
+
     private static CostPayment payment(String amount,LocalDate day) {
         return new CostPayment(null,null,day,new BigDecimal(amount),"KBC",null,null,null,null);
     }

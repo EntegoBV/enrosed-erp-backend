@@ -46,6 +46,7 @@ class CompanyCostServiceTest {
     @BeforeEach
     void setUp() {
         costs = mock(CompanyCosts.class);
+        when(costs.findByIdForUpdate(anyLong())).thenAnswer(call -> costs.findById(call.getArgument(0)));
         AtomicLong costIds = new AtomicLong(500);
         when(costs.save(any(CompanyCost.class))).thenAnswer(call -> {
             CompanyCost cost = call.getArgument(0);
@@ -557,7 +558,7 @@ class CompanyCostServiceTest {
     }
 
     @Test
-    void paymentOnTheBankCannotChangeAmountOrDate() {
+    void paymentOnTheBankCannotChangeAmountDateOrAccount() {
         CompanyCost saved = service.create(cost("42", null, null));
         when(costs.findById(saved.id())).thenReturn(Optional.of(saved));
         CostPayment noted = service.addPayment(saved.id(), payment("7", LocalDate.of(2026, 10, 1))).payments().getFirst();
@@ -568,14 +569,51 @@ class CompanyCostServiceTest {
                 () -> service.updatePayment(saved.id(), noted.id(), payment("8", LocalDate.of(2026, 10, 1)))).getMessage());
         assertThrows(BusinessRuleException.class,
                 () -> service.updatePayment(saved.id(), noted.id(), payment("7", LocalDate.of(2026, 10, 2))));
+        assertThrows(BusinessRuleException.class, () -> service.updatePayment(saved.id(), noted.id(),
+                new CostPayment(null, null, noted.paidOn(), new BigDecimal("7"), "ING", null, "Deel 1", null, null)));
         CompanyCostService.CostView renoted = service.updatePayment(saved.id(), noted.id(),
-                new CostPayment(null, null, LocalDate.of(2026, 10, 1), new BigDecimal("7"), "ING", 5L, "Deel 1", null, null));
-        assertEquals("ING", renoted.payments().getFirst().account(), "the account and the note may change");
+                new CostPayment(null, null, noted.paidOn(), new BigDecimal("7"), "KBC", 5L, "Deel 1", null, null));
+        assertEquals("KBC", renoted.payments().getFirst().account(), "the account remains the bank transaction's account");
         assertEquals("Deel 1", renoted.payments().getFirst().note());
         assertEquals(77L, renoted.payments().getFirst().bankStatementLineId(), "the bank link is the bank's, not the form's");
 
         CompanyCostService.CostView gone = service.deletePayment(saved.id(), noted.id());
         assertTrue(gone.payments().isEmpty(), "deleting a banked payment is allowed: the line stays, the link goes with the row");
+    }
+
+    @Test
+    void deletingTheLastPaymentReopensTheCostAndClearsItsOneShotBankLink() {
+        CompanyCost booked = new CompanyCost(9L, DAY, "BANK", "Rekeningkosten", "KBC", new BigDecimal("42.00"),
+                null, null, null, DAY, null, null, Instant.parse("2026-10-12T09:00:00Z"), null, 77L);
+        when(costs.findById(9L)).thenReturn(Optional.of(booked));
+        rows.add(new CostPayment(11L, 9L, DAY, new BigDecimal("42.00"), "BE12345678901234", 77L,
+                null, Instant.parse("2026-10-12T09:00:00Z"), "Emre"));
+
+        CompanyCostService.CostView reopened = service.deletePayment(9L, 11L);
+
+        assertTrue(reopened.payments().isEmpty());
+        assertNull(reopened.cost().paidOn(), "an explicitly deleted payment must not become a legacy paid cost");
+        assertNull(reopened.cost().bankStatementLineId(), "no stale reverse allocation remains on the bank transaction");
+        assertEquals(new BigDecimal("0.00"), reopened.paidEur());
+        assertEquals(new BigDecimal("42.00"), reopened.openEur());
+    }
+
+    @Test
+    void deletingABankedPaymentKeepsOtherPaymentsAndTheirBankLinks() {
+        CompanyCost booked = new CompanyCost(9L, DAY, "BANK", "Rekeningkosten", "KBC", new BigDecimal("42.00"),
+                null, null, null, DAY, null, null, Instant.parse("2026-10-12T09:00:00Z"), null, 77L);
+        when(costs.findById(9L)).thenReturn(Optional.of(booked));
+        rows.add(new CostPayment(11L, 9L, DAY, new BigDecimal("30.00"), "KBC", 77L, null, Instant.now(), "Emre"));
+        rows.add(new CostPayment(12L, 9L, DAY, new BigDecimal("12.00"), "KBC", 78L, null, Instant.now(), "Emre"));
+
+        CompanyCostService.CostView reopened = service.deletePayment(9L, 11L);
+
+        assertEquals(1, reopened.payments().size());
+        assertEquals(78L, reopened.payments().getFirst().bankStatementLineId());
+        assertNull(reopened.cost().bankStatementLineId());
+        assertNull(reopened.cost().paidOn());
+        assertEquals(new BigDecimal("12.00"), reopened.paidEur());
+        assertEquals(new BigDecimal("30.00"), reopened.openEur());
     }
 
     @Test

@@ -16,5 +16,8 @@ public class BankStatementResource {
     @GET @Path("/{id}/suggestions") public List<BankStatementService.Match> suggestions(@PathParam("id") long id){return service.suggestions(id);}
     @POST @Path("/{id}/allocation") public BankStatementLineEntity allocate(@PathParam("id") long id,BankStatementService.Allocation request){return service.allocate(id,request);}
     @DELETE @Path("/{id}/allocation") public void unallocate(@PathParam("id") long id){service.unallocate(id);}
+    @POST @Path("/{id}/links") public BankStatementLineEntity link(@PathParam("id") long id,BankStatementService.OutgoingLinks request){return service.linkExisting(id,request);}
+    @DELETE @Path("/{id}/links") public void unlink(@PathParam("id") long id){service.unlinkExisting(id);}
+    @POST @Path("/{id}/cost-payment") public BankStatementLineEntity costPayment(@PathParam("id") long id,BankStatementService.CostAllocation request){return service.recordCostPayment(id,request);}
     @DELETE @Path("/{id}") public void delete(@PathParam("id") long id){service.delete(id);}
 }

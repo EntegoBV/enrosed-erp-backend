@@ -11,6 +11,7 @@ public interface CompanyCosts {
     /** Newest date first; both bounds optional and inclusive. */
     List<CompanyCost> findBetween(LocalDate from, LocalDate to);
     Optional<CompanyCost> findById(long id);
+    default Optional<CompanyCost> findByIdForUpdate(long id) { return findById(id); }
     /** Every cost a recurring definition booked, any date. */
     List<CompanyCost> findByRecurringCost(long recurringCostId);
     CompanyCost save(CompanyCost cost);

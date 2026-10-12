@@ -36,6 +36,11 @@ public class PanacheCompanyCosts implements CompanyCosts {
     }
 
     @Override
+    public Optional<CompanyCost> findByIdForUpdate(long id) {
+        return Optional.ofNullable(dao.findById(id, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)).map(CompanyCostEntity::toDomain);
+    }
+
+    @Override
     public List<CompanyCost> findByRecurringCost(long recurringCostId) {
         return dao.list("recurringCostId = ?1", Sort.descending("date"), recurringCostId)
                 .stream().map(CompanyCostEntity::toDomain).toList();

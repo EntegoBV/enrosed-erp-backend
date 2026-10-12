@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-@Entity @Table(name="bank_statement_line", uniqueConstraints=@UniqueConstraint(name="bank_statement_account_fingerprint", columnNames={"account", "fingerprint"}))
+@Entity @Table(name="bank_statement_line", uniqueConstraints={@UniqueConstraint(name="bank_statement_account_fingerprint", columnNames={"account", "fingerprint"}), @UniqueConstraint(name="bank_statement_source_id", columnNames={"source", "source_id"})})
 public class BankStatementLineEntity {
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) public Long id;
     @Column(nullable=false, length=120) public String account;
@@ -20,4 +20,12 @@ public class BankStatementLineEntity {
     @Column(name="sales_order_id") public Long salesOrderId;
     @Column(name="allocated_at") public Instant allocatedAt;
     @Column(name="allocation_created_payment") public boolean allocationCreatedPayment;
+    /** Null on manually recorded movements. External identity is independent of account labels. */
+    @Column(length=24) public String source;
+    @Column(name="source_id", length=180) public String sourceId;
+    @Column(name="source_updated_at") public Instant sourceUpdatedAt;
+    @Column(name="source_reconciled") public Boolean sourceReconciled;
+    /** Local allocations, never inferred from the provider's reconciliation flag. */
+    @Transient public boolean allocated;
+    @Transient public String allocationLabel;
 }

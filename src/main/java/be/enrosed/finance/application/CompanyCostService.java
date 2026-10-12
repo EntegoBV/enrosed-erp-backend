@@ -64,6 +64,9 @@ public class CompanyCostService {
     @Inject
     Instance<CurrentActor> actor;
 
+    @Inject
+    Instance<be.enrosed.finance.banking.BankStatementService> banking;
+
     public CompanyCostService(CompanyCosts costs, CostPayments payments) {
         this.costs = costs;
         this.payments = payments;
@@ -153,7 +156,7 @@ public class CompanyCostService {
      */
     @Transactional
     public CompanyCost update(long id, CompanyCost changes) {
-        CompanyCost current = get(id);
+        CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         List<CostPayment> rows = payments.findByCost(id);
         if (changes != null && changes.paidOn() == null && !rows.isEmpty()) {
             throw new BusinessRuleException("Verwijder eerst de betalingen");
@@ -191,7 +194,7 @@ public class CompanyCostService {
     /** Settles what is still open on a day: the accountant's invoice was paid, the direct debit went through. */
     @Transactional
     public CompanyCost markPaid(long id, LocalDate paidOn) {
-        CompanyCost current = get(id);
+        CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         PaymentTotals totals = totalsOf(current, payments.findByCost(id));
         if (totals.openEur().signum() <= 0) throw new BusinessRuleException("Deze kost is al volledig betaald");
         LocalDate day = paidOn == null ? LocalDate.now() : paidOn;
@@ -203,7 +206,7 @@ public class CompanyCostService {
 
     @Transactional
     public CostView addPayment(long costId, CostPayment request) {
-        CompanyCost cost = get(costId);
+        CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment clean = paymentChecked(request);
         CostPayment saved = payments.save(new CostPayment(null, costId, clean.paidOn(), clean.amountEur(), clean.account(), null,
                 clean.note(), Instant.now(), actorName()));
@@ -212,13 +215,14 @@ public class CompanyCostService {
         return view(derived);
     }
 
-    /** A payment on the bank keeps its amount and date: the bank line is the truth, unlink it first. */
+    /** A payment on the bank keeps its amount, date and account: unlink it before correcting those facts. */
     @Transactional
     public CostView updatePayment(long costId, long paymentId, CostPayment request) {
-        CompanyCost cost = get(costId);
+        CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment current = paymentOf(costId, paymentId);
         CostPayment clean = paymentChecked(request);
-        if (current.onTheBank() && (clean.amountEur().compareTo(current.amountEur()) != 0 || !clean.paidOn().equals(current.paidOn()))) {
+        if (current.onTheBank() && (clean.amountEur().compareTo(current.amountEur()) != 0 || !clean.paidOn().equals(current.paidOn())
+                || !java.util.Objects.equals(clean.account(), current.account()))) {
             throw new BusinessRuleException("Deze betaling staat op de bank; maak de bankbeweging eerst los");
         }
         payments.save(new CostPayment(current.id(), costId, clean.paidOn(), clean.amountEur(), clean.account(),
@@ -228,25 +232,45 @@ public class CompanyCostService {
         return view(derived);
     }
 
-    /** Allowed also for a payment on the bank: the line stays (the bank's truth), the link goes with the row. */
+    /** A standalone banked payment may be removed; a shared transfer must first be explicitly unlinked. */
     @Transactional
     public CostView deletePayment(long costId, long paymentId) {
-        CompanyCost cost = get(costId);
-        paymentOf(costId, paymentId);
+        CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
+        CostPayment removed = paymentOf(costId, paymentId);
+        requireExclusiveBankLink(removed.bankStatementLineId(), costId, paymentId);
         payments.deleteById(paymentId);
-        CompanyCost derived = derivePaidOn(cost);
+        List<CostPayment> remaining = payments.findByCost(costId);
+        // An explicit deletion is not a historical cost without payment rows: reopen it when the last row goes.
+        LocalDate paidOn = remaining.isEmpty() ? null : totalsOf(cost, remaining).paidOn();
+        Long bankLine = cost.bankStatementLineId();
+        if (remaining.isEmpty() || bankLine != null && java.util.Objects.equals(bankLine, removed.bankStatementLineId())
+                && remaining.stream().noneMatch(payment -> java.util.Objects.equals(cost.bankStatementLineId(), payment.bankStatementLineId()))) {
+            bankLine = null;
+        }
+        CompanyCost derived = paymentState(cost, paidOn, bankLine);
         recordActivity(ActivityLogService.ACTION_UPDATED, derived, "Betaling verwijderd");
         return view(derived);
     }
 
     @Transactional
     public void delete(long id) {
-        CompanyCost cost = get(id);
+        CompanyCost cost = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
+        var bankIds = new java.util.HashSet<Long>();
+        if (cost.bankStatementLineId() != null) bankIds.add(cost.bankStatementLineId());
+        payments.findByCost(id).stream().map(CostPayment::bankStatementLineId)
+                .filter(java.util.Objects::nonNull).forEach(bankIds::add);
+        for (Long bankId : bankIds) requireExclusiveBankLink(bankId, id, null);
         /* The payments go first (no foreign key holds them); the invoice stays in the library, only its link to this cost goes. */
         payments.deleteByCost(id);
         if (media != null && media.isResolvable()) media.get().unlinkTarget(be.enrosed.media.MediaTargetType.COMPANY_COST, id);
         costs.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, cost, "Kost verwijderd");
+    }
+
+    private void requireExclusiveBankLink(Long bankId, long costId, Long paymentId) {
+        if (bankId != null && banking != null && banking.isResolvable()) {
+            banking.get().requireExclusiveCostLink(bankId, costId, paymentId);
+        }
     }
 
     /** "Betaald op" as the payments imply it; a cost from before the rows keeps its date until it gets rows. */
@@ -255,10 +279,15 @@ public class CompanyCostService {
         List<CostPayment> rows = payments.findByCost(cost.id());
         if (rows.isEmpty() && cost.paidOn() != null) return cost;
         LocalDate derived = totalsOf(cost, rows).paidOn();
-        if (java.util.Objects.equals(derived, cost.paidOn())) return cost;
+        return paymentState(cost, derived, cost.bankStatementLineId());
+    }
+
+    private CompanyCost paymentState(CompanyCost cost, LocalDate paidOn, Long bankStatementLineId) {
+        if (java.util.Objects.equals(paidOn, cost.paidOn())
+                && java.util.Objects.equals(bankStatementLineId, cost.bankStatementLineId())) return cost;
         return costs.save(new CompanyCost(cost.id(), cost.date(), cost.category(), cost.description(), cost.party(),
-                cost.amountExclEur(), cost.amountInclEur(), cost.vatPct(), cost.reference(), derived, cost.salesChannel(),
-                cost.notes(), cost.createdAt(), cost.recurringCostId(), cost.bankStatementLineId(), cost.vatRegime(),
+                cost.amountExclEur(), cost.amountInclEur(), cost.vatPct(), cost.reference(), paidOn, cost.salesChannel(),
+                cost.notes(), cost.createdAt(), cost.recurringCostId(), bankStatementLineId, cost.vatRegime(),
                 cost.vatRegimeConfirmed(), cost.supplierCountry(), cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(),
                 cost.taxDeductiblePct(), cost.depreciationYears(), cost.depreciationStart()));
     }
