@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,6 +40,11 @@ public class CompanyCostService {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     /** How far an entered inclusive total may sit from excl. plus the rate: the rounding of either side. */
     private static final BigDecimal TOLERANCE = new BigDecimal("0.02");
+
+    /** The company's calendar day: Brussels, not the server's UTC clock, so a payment typed just after midnight is not "tomorrow". */
+    private static LocalDate today() {
+        return LocalDate.now(ZoneId.of("Europe/Brussels"));
+    }
     /** A cost is paid once the payments reach its cash total within a cent. */
     private static final BigDecimal CENT = new BigDecimal("0.01");
     /** The 27 member states; XI (Northern Ireland) counts as EU for goods only. */
@@ -197,7 +203,7 @@ public class CompanyCostService {
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         PaymentTotals totals = totalsOf(current, payments.findByCost(id));
         if (totals.openEur().signum() <= 0) throw new BusinessRuleException("Deze kost is al volledig betaald");
-        LocalDate day = paidOn == null ? LocalDate.now() : paidOn;
+        LocalDate day = paidOn == null ? today() : paidOn;
         payments.save(new CostPayment(null, id, day, totals.openEur(), null, null, null, Instant.now(), actorName()));
         CompanyCost saved = derivePaidOn(current);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost betaald op " + day);
@@ -310,7 +316,7 @@ public class CompanyCostService {
             throw new BusinessRuleException("Gebruik maximaal twee decimalen");
         }
         if (request.paidOn() == null) throw new BusinessRuleException("Geef de dag van de betaling");
-        if (request.paidOn().isAfter(LocalDate.now())) throw new BusinessRuleException("Een betaling kan niet in de toekomst liggen");
+        if (request.paidOn().isAfter(today())) throw new BusinessRuleException("Een betaling kan niet in de toekomst liggen");
         String account = clean(request.account());
         if (account != null && account.length() > ACCOUNT_LENGTH) throw new BusinessRuleException("De rekening is maximaal 120 tekens");
         String note = clean(request.note());
