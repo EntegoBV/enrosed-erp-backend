@@ -108,7 +108,7 @@ class CompanyCostServiceTest {
         assertEquals(new BigDecimal("100.00"), saved.totalInclEur());
 
         CompanyCost existing = new CompanyCost(4L, LocalDate.of(2026, 10, 1), "HUUR", "Magazijn", "Immo",
-                new BigDecimal("50.00"), null, null, null, null, null, null, Instant.parse("2026-10-01T06:00:00Z"), null);
+                new BigDecimal("50.00"), null, null, null, null, null, null, Instant.parse("2026-10-01T06:00:00Z"), null, null);
         when(costs.findById(4L)).thenReturn(Optional.of(existing));
         CompanyCost updated = service.update(4L, cost("82.64", "100", "21"));
         assertEquals(new BigDecimal("100.00"), updated.amountInclEur(), "an edit carries the entered total through");
@@ -138,6 +138,24 @@ class CompanyCostServiceTest {
     }
 
     @Test
+    void theBankLineThatPaidACostIsTheBanksToSetAndSurvivesEveryEdit() {
+        CompanyCost onTheBank = new CompanyCost(7L, LocalDate.of(2026, 9, 8), "BANK", "Kosten overschrijving", "KBC",
+                new BigDecimal("12.50"), null, null, null, LocalDate.of(2026, 9, 8), null, null,
+                Instant.parse("2026-09-08T10:00:00Z"), null, 41L);
+        when(costs.findById(7L)).thenReturn(Optional.of(onTheBank));
+
+        CompanyCost edited = service.update(7L, new CompanyCost(null, LocalDate.of(2026, 9, 8), "BANK",
+                "Kosten overschrijving september", "KBC", new BigDecimal("12.50"), null, null, null,
+                LocalDate.of(2026, 9, 8), null, null, null, null, 99L));
+        assertEquals(41L, edited.bankStatementLineId(), "an edit keeps the stored link and ignores the form's");
+        assertEquals(41L, service.markPaid(7L, LocalDate.of(2026, 9, 9)).bankStatementLineId());
+
+        CompanyCost booked = service.create(new CompanyCost(null, LocalDate.of(2026, 9, 8), "BANK", "Kosten overschrijving",
+                "KBC", new BigDecimal("12.50"), null, null, null, null, null, null, null, null, 99L));
+        assertNull(booked.bankStatementLineId(), "a new cost is on the bank only once the bank service says so");
+    }
+
+    @Test
     void bookingACostTeachesTheListAanWieTheNameAndItsDefaults() {
         CostPartyService learner = mock(CostPartyService.class);
         @SuppressWarnings("unchecked") Instance<CostPartyService> parties = mock(Instance.class);
@@ -154,6 +172,6 @@ class CompanyCostServiceTest {
     private static CompanyCost cost(String excl, String incl, String vat) {
         return new CompanyCost(null, LocalDate.of(2026, 10, 12), "HUUR", "Magazijn", "Immo", new BigDecimal(excl),
                 incl == null ? null : new BigDecimal(incl), vat == null ? null : new BigDecimal(vat),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 }

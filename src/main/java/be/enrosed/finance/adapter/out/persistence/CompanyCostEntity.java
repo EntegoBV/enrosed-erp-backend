@@ -31,10 +31,12 @@ public class CompanyCostEntity {
     @Column(length = 2000) public String notes;
     @Column(name = "created_at") public Instant createdAt;
     @Column(name = "recurring_cost_id") public Long recurringCostId;
+    /** The bank line that paid this cost; the bank service sets and clears it. */
+    @Column(name = "bank_statement_line_id") public Long bankStatementLineId;
 
     public CompanyCost toDomain() {
         return new CompanyCost(id, date, category, description, party, amountExclEur, amountInclEur, vatPct,
-                reference, paidOn, salesChannel, notes, createdAt, recurringCostId);
+                reference, paidOn, salesChannel, notes, createdAt, recurringCostId, bankStatementLineId);
     }
 
     public void apply(CompanyCost cost) {
@@ -51,5 +53,6 @@ public class CompanyCostEntity {
         notes = cost.notes();
         createdAt = cost.createdAt();
         recurringCostId = cost.recurringCostId();
+        bankStatementLineId = cost.bankStatementLineId();
     }
 }

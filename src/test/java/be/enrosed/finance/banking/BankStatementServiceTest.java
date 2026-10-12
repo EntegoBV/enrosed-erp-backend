@@ -1,9 +1,15 @@
 package be.enrosed.finance.banking;
 
+import be.enrosed.finance.application.CompanyCostService;
+import be.enrosed.finance.domain.CompanyCost;
 import be.enrosed.sales.application.*;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.*;
+import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.SupplierService;
+import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.Supplier;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -19,6 +25,9 @@ class BankStatementServiceTest {
     @Inject IncomingPaymentService incoming;
     @Inject SalesOrderService sales;
     @Inject CustomerService customers;
+    @Inject PurchaseOrderService purchases;
+    @Inject SupplierService suppliers;
+    @Inject CompanyCostService costs;
     @Inject EntityManager em;
     private static final Instant AT=Instant.parse("2026-09-08T10:00:00Z");
 
@@ -136,6 +145,42 @@ class BankStatementServiceTest {
         var last=incoming.forOrder(invoice.id()).getLast();
         em.find(SalesOrderEntity.class,invoice.id()).status=QuoteStatus.GEANNULEERD;em.flush();em.clear();
         incoming.delete(invoice.id(),last.id());assertEquals(QuoteStatus.GEANNULEERD,sales.get(invoice.id()).status());
+    }
+
+    @Test @TestTransaction void anOutgoingLineCarriesThePaymentsAndTheCostItSettledOnce() {
+        var order=container();
+        var goods=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("900"),Currency.EUR,"Saldo");
+        var inspection=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("100"),Currency.EUR,"Inspectie",PurchasePayment.Payee.SEPARATE);
+        var cost=costs.create(new CompanyCost(null,LocalDate.of(2026,9,8),"BANK","Kosten overschrijving","KBC",new BigDecimal("12.50"),null,null,LocalDate.of(2026,9,8),null,null,null));
+        var request=new BankStatementService.ManualRequest("KBC",new BigDecimal("1012.50"),BankStatementService.Direction.OUTGOING,AT,"Europe/Brussels",
+                "Saldo · "+order.number()+" · containerbetaling #"+goods.id(),"Pay Co","transfer",java.util.List.of(goods.id(),inspection.id()),cost.id());
+        var line=bank.create(request);
+        assertEquals(java.util.List.of(line.id,line.id),purchases.payments(order.id()).stream().map(PurchasePayment::bankStatementLineId).toList(),
+                "one transfer, one line, every payment of it on the line");
+        assertEquals(line.id,purchases.paymentsSince(null).stream().filter(row->goods.id().equals(row.id())).findFirst().orElseThrow().bankStatementLineId());
+        assertEquals(line.id,costs.get(cost.id()).bankStatementLineId());
+        assertEquals(line.id,bank.create(request).id,"a retried request returns the line without linking again");
+        assertEquals(line.id,costs.get(cost.id()).bankStatementLineId());
+
+        assertThrows(BusinessRuleException.class,()->bank.create(linked("again",java.util.List.of(inspection.id()),null)),"a payment is on the bank once");
+        assertThrows(BusinessRuleException.class,()->bank.create(linked("cost-again",null,cost.id())),"so is a cost");
+        assertThrows(BusinessRuleException.class,()->bank.create(linked("no-payment",java.util.List.of(Long.MAX_VALUE),null)));
+        assertThrows(BusinessRuleException.class,()->bank.create(linked("no-cost",null,Long.MAX_VALUE)));
+        assertEquals(line.id,purchases.payments(order.id()).getLast().bankStatementLineId(),"a refused line links nothing");
+
+        bank.delete(line.id);
+        assertTrue(purchases.payments(order.id()).stream().allMatch(payment->payment.bankStatementLineId()==null),"the line goes, the payments are open again");
+        assertNull(costs.get(cost.id()).bankStatementLineId());
+        assertEquals(2,purchases.payments(order.id()).size(),"the payments themselves stay");
+    }
+
+    private BankStatementService.ManualRequest linked(String requestId,java.util.List<Long> paymentIds,Long costId) {
+        return new BankStatementService.ManualRequest("KBC",BigDecimal.ONE,BankStatementService.Direction.OUTGOING,AT,"Europe/Brussels","Nogmaals","Pay Co",requestId,paymentIds,costId);
+    }
+
+    private be.enrosed.sourcing.domain.PurchaseOrder container() {
+        var supplier=suppliers.save(new Supplier(null,"Pay Co","CN","Yiwu",null,null,null,Currency.USD,"FOB","Ningbo",30,null));
+        return purchases.create(supplier.id(),new BigDecimal("0.14"),new BigDecimal("0.90"),BigDecimal.ZERO);
     }
 
     private IncomingPaymentService.Request refund(String amount,Instant at){return new IncomingPaymentService.Request(new BigDecimal(amount),at,"Europe/Brussels","Refund",IncomingPaymentService.Direction.REFUND,"KBC");}

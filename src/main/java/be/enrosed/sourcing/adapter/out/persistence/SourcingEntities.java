@@ -168,8 +168,8 @@ public final class SourcingEntities {
         @Column(length = 500)
         public String issueNote;
     }
-    /** One amount paid on a purchase order, kept as it left the bank. */
-    @Entity
+    /** One amount paid on a purchase order, kept as it left the bank. Named so the bank service can query it in HQL. */
+    @Entity(name = "PurchasePaymentEntity")
     @Table(name = "purchase_payment", indexes = @Index(columnList = "orderId, paidOn"))
     public static class PurchasePaymentEntity {
         @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -187,6 +187,8 @@ public final class SourcingEntities {
         @Column(name = "settles_stream") public Boolean settles;
         @Enumerated(EnumType.STRING) @Column(name = "instalment_due", length = 16)
         public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
+        /** The bank line that carried this payment; the bank service sets and clears it. */
+        @Column(name = "bank_statement_line_id") public Long bankStatementLineId;
     }
 
     /**

@@ -607,6 +607,37 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(runner.indexOf("--file=/app/migrations/staff-contact-postgresql.sql")
                         < runner.indexOf(migration.getFileName().toString()),
                 "the cost lists land after every earlier script");
+        assertTrue(runner.indexOf(migration.getFileName().toString())
+                        < runner.indexOf("--file=/app/migrations/bank-links-postgresql.sql"),
+                "the bank links follow it");
+    }
+
+    @Test
+    void bankLinksAreTwoNullableIndexedColumnsRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-12/bank-links-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("alter table purchase_payment add column if not exists bank_statement_line_id bigint"));
+        assertTrue(sql.contains("alter table company_cost add column if not exists bank_statement_line_id bigint"));
+        assertTrue(sql.contains("create index if not exists ix_purchase_payment_bank_line on purchase_payment(bank_statement_line_id)"));
+        assertTrue(sql.contains("create index if not exists ix_company_cost_bank_line on company_cost(bank_statement_line_id)"));
+        assertEquals(2, sql.split("alter table ", -1).length - 1, "two columns, nothing else changes");
+        assertFalse(sql.contains("references"), "no foreign key: the line is the bank's truth and outlives what it carried");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertNonDestructive(sql);
+
+        String column = "@Column(name = \"bank_statement_line_id\") public Long bankStatementLineId;";
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/SourcingEntities.java")).contains(column),
+                "the payment names the migrated column, nullable: dev H2 adds it to a filled table");
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/finance/adapter/out/persistence/CompanyCostEntity.java")).contains(column));
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/cost-parties-fairs-and-incl-amount-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the bank links land after every earlier script");
         assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
     }
 

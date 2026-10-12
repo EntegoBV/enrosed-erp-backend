@@ -620,7 +620,9 @@ public class PurchaseOrderService {
 
     /** One payment that left the bank, with the container it went to. */
     public record PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
-                             BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee) {}
+                             BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee,
+                             /** The bank line that carried it; null while it is not on the bank yet. */
+                             Long bankStatementLineId) {}
 
     /** Every payment on every container from a day on, oldest first: the money side of the bank. */
     public List<PaymentRow> paymentsSince(LocalDate from) {
@@ -630,7 +632,8 @@ public class PurchaseOrderService {
         return payments.get().since(from).stream().map(payment -> {
             PurchaseOrder order = byId.get(payment.orderId());
             return new PaymentRow(payment.id(), payment.orderId(), order == null ? null : order.number(),
-                    order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee());
+                    order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee(),
+                    payment.bankStatementLineId());
         }).toList();
     }
 
@@ -1066,7 +1069,9 @@ public class PurchaseOrderService {
                 paidOn != null ? paidOn : before.paidOn(),
                 recordedAmount, money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
                 label == null || label.isBlank() ? null : label.strip(),
-                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles, due));
+                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles, due,
+                /* The bank line that carried it is the bank's to set; a correction keeps it. */
+                before.bankStatementLineId()));
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));

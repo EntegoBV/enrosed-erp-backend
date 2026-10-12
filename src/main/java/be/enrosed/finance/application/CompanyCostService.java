@@ -53,7 +53,8 @@ public class CompanyCostService {
 
     @Transactional
     public CompanyCost create(CompanyCost cost) {
-        CompanyCost clean = validated(cost, null, Instant.now());
+        /* The bank link is the bank service's to set, never the form's. */
+        CompanyCost clean = validated(cost, null, Instant.now(), null);
         CompanyCost saved = costs.save(clean);
         learnParty(saved);
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Kost geboekt");
@@ -66,8 +67,8 @@ public class CompanyCostService {
         /* The link to the recurring definition is the booking job's, not the form's. */
         CompanyCost linked = new CompanyCost(null, changes.date(), changes.category(), changes.description(), changes.party(),
                 changes.amountExclEur(), changes.amountInclEur(), changes.vatPct(), changes.reference(), changes.paidOn(),
-                changes.salesChannel(), changes.notes(), null, current.recurringCostId());
-        CompanyCost saved = costs.save(validated(linked, current.id(), current.createdAt()));
+                changes.salesChannel(), changes.notes(), null, current.recurringCostId(), null);
+        CompanyCost saved = costs.save(validated(linked, current.id(), current.createdAt(), current.bankStatementLineId()));
         learnParty(saved);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost bijgewerkt");
         return saved;
@@ -80,7 +81,8 @@ public class CompanyCostService {
         LocalDate day = paidOn == null ? LocalDate.now() : paidOn;
         CompanyCost saved = costs.save(new CompanyCost(current.id(), current.date(), current.category(), current.description(),
                 current.party(), current.amountExclEur(), current.amountInclEur(), current.vatPct(), current.reference(), day,
-                current.salesChannel(), current.notes(), current.createdAt(), current.recurringCostId()));
+                current.salesChannel(), current.notes(), current.createdAt(), current.recurringCostId(),
+                current.bankStatementLineId()));
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost betaald op " + day);
         return saved;
     }
@@ -94,7 +96,8 @@ public class CompanyCostService {
         recordActivity(ActivityLogService.ACTION_DELETED, cost, "Kost verwijderd");
     }
 
-    private static CompanyCost validated(CompanyCost cost, Long id, Instant createdAt) {
+    /** The bank line is the stored cost's or none: the bank service sets it, a form never does. */
+    private static CompanyCost validated(CompanyCost cost, Long id, Instant createdAt, Long bankStatementLineId) {
         if (cost == null) throw new BusinessRuleException("Geen kostgegevens meegestuurd");
         if (cost.date() == null) throw new BusinessRuleException("Geef de datum van de kost");
         String category = clean(cost.category());
@@ -113,7 +116,7 @@ public class CompanyCostService {
                 excl, inclusiveChecked(excl, cost.amountInclEur(), cost.vatPct()), cost.vatPct(),
                 clean(cost.reference()), cost.paidOn(),
                 channel == null ? null : channel.toUpperCase(), clean(cost.notes()),
-                createdAt == null ? Instant.now() : createdAt, cost.recurringCostId());
+                createdAt == null ? Instant.now() : createdAt, cost.recurringCostId(), bankStatementLineId);
     }
 
     /**

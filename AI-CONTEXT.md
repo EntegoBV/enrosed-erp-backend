@@ -1161,4 +1161,26 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   one below excl., and requires it to match the rate within two cents
   (equal to excl. without VAT). Recurring costs stay excl.-only. Migration
   `docs/migrations/2026-10-12/cost-parties-fairs-and-incl-amount-postgresql.sql`
-  is registered in the Dockerfile and as the last script of the runner.
+  is registered in the Dockerfile and the runner.
+- **Bankkoppeling**: a bank line carries what it settled through hard links,
+  `purchase_payment.bank_statement_line_id` and
+  `company_cost.bank_statement_line_id` (nullable, indexed, no foreign key),
+  exposed as `bankStatementLineId` on `PurchasePayment`, `PaymentRow` and
+  `CompanyCost`. `BankStatementService.ManualRequest` takes the optional
+  `purchasePaymentIds` and `companyCostId`; `create()` persists the line and
+  then links each payment and the cost in the same transaction, refusing an
+  unknown one ("Betaling niet gevonden", "Kost niet gevonden") or one that is
+  already on a line ("… is al aan een bankbeweging gekoppeld"), so a refused
+  link leaves no line and a payment or a cost is on the bank once; a retried
+  `requestId` returns the existing line without linking again. The screen
+  creates the line AFTER the payments and the cost, so a failed line never
+  leaves an orphan transfer, and one line carries every ledger payment of one
+  supplier transfer (goods, CIF freight, inspection). `delete()` clears both
+  link columns before the line goes; deleting a payment or a cost leaves the
+  line, which is the bank's truth. No service takes the link from a form:
+  `CompanyCostService.update()/markPaid()` carry it from the stored cost,
+  `PurchaseOrderService.updatePayment()` from the stored payment. The text
+  marker (`containerbetaling #id`, `kost #id`) stays in the reference for the
+  soft-link display of older lines. Migration
+  `docs/migrations/2026-10-12/bank-links-postgresql.sql`, the last script of
+  the runner.

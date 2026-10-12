@@ -1,5 +1,6 @@
 package be.enrosed.finance.banking;
 
+import be.enrosed.finance.adapter.out.persistence.CompanyCostEntity;
 import be.enrosed.finance.application.CostPartyService;
 import be.enrosed.sales.application.*;
 import be.enrosed.sales.application.port.out.SalesRepositories;
@@ -7,6 +8,7 @@ import be.enrosed.sales.domain.*;
 import be.enrosed.shared.*;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.shared.security.CurrentActor;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -30,8 +32,16 @@ public class BankStatementService {
     @Inject Instance<CostPartyService> parties;
 
     public enum Direction { INCOMING, OUTGOING }
+    /** The purchase payments and the company cost this movement settled, when it is noted from their forms; both optional. */
     public record ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
-                                String timeZone, String reference, String counterparty, String requestId) {}
+                                String timeZone, String reference, String counterparty, String requestId,
+                                List<Long> purchasePaymentIds, Long companyCostId) {
+        /** A movement noted on its own, linked to nothing. */
+        public ManualRequest(String account, BigDecimal amountEur, Direction direction, Instant bookedAt,
+                             String timeZone, String reference, String counterparty, String requestId) {
+            this(account, amountEur, direction, bookedAt, timeZone, reference, counterparty, requestId, null, null);
+        }
+    }
     public record Match(long salesOrderId,String number,BigDecimal openEur,int score,Long existingPaymentId,String reason,Instant receivedAt,String reference) {}
     public record Allocation(long salesOrderId,Long existingPaymentId) {}
 
@@ -71,6 +81,7 @@ public class BankStatementService {
         var row=new BankStatementLineEntity();row.account=account;row.fingerprint=fingerprint;row.amountEur=amount;
         row.bookedAt=request.bookedAt();row.timeZone=zone;row.reference=reference;row.counterparty=counterparty;
         row.recordedAt=Instant.now();row.actor=actor.current().displayName();em.persist(row);em.flush();
+        link(row,request.purchasePaymentIds(),request.companyCostId());
         audit(row,"Bankbeweging handmatig geregistreerd: "+row.bookedAt+" · "+row.amountEur+" · "+reference);
         if(request.direction()==Direction.OUTGOING&&!counterparty.isEmpty()&&parties!=null&&parties.isResolvable())parties.get().learn(counterparty,null,null,null);
         return row;
@@ -132,8 +143,32 @@ public class BankStatementService {
     public void delete(long id) {
         var row=get(id,true);
         if(row.salesPaymentId!=null)throw new BusinessRuleException("Maak eerst de factuurkoppeling ongedaan");
+        unlink(row.id);
         audit(row,"Bankbeweging ingetrokken: "+row.bookedAt+" · "+row.amountEur+" · "+row.reference);
         em.remove(row);
+    }
+    /**
+     * The purchase payments and the cost this line settled point back at it, in the line's own transaction:
+     * a refused link leaves no line, and a payment or a cost is on the bank once. A retried request returns
+     * the line above without coming here. Deleting a payment or a cost leaves the line: it is the bank's truth.
+     */
+    private void link(BankStatementLineEntity row,List<Long> paymentIds,Long costId) {
+        for(Long paymentId:paymentIds==null?List.<Long>of():paymentIds) {
+            var payment=paymentId==null?null:em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId);
+            if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            if(payment.bankStatementLineId!=null)throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
+            payment.bankStatementLineId=row.id;
+        }
+        if(costId==null)return;
+        var cost=em.find(CompanyCostEntity.class,costId);
+        if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
+        if(cost.bankStatementLineId!=null)throw new BusinessRuleException("Deze kost is al aan een bankbeweging gekoppeld");
+        cost.bankStatementLineId=row.id;
+    }
+    /** What the line carried is open again once it goes; done on the managed rows so the session sees it at once. */
+    private void unlink(long id) {
+        for(var payment:em.createQuery("from PurchasePaymentEntity p where p.bankStatementLineId=:id",SourcingEntities.PurchasePaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
+        for(var cost:em.createQuery("from CompanyCostEntity c where c.bankStatementLineId=:id",CompanyCostEntity.class).setParameter("id",id).getResultList())cost.bankStatementLineId=null;
     }
     private BankStatementLineEntity get(long id,boolean lock) {var row=lock?em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE):em.find(BankStatementLineEntity.class,id);if(row==null)throw new NotFoundException("Bankbeweging",id);return row;}
     private void audit(BankStatementLineEntity row,String text){activity.record(ActivityLogService.ACTION_UPDATED,"BANK_STATEMENT",row.id.toString(),row.account+" · "+row.amountEur,text);}

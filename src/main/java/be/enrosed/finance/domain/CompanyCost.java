@@ -36,7 +36,9 @@ public record CompanyCost(
         String notes,
         Instant createdAt,
         /** The recurring definition that booked this cost automatically; null for a hand-booked cost. */
-        Long recurringCostId
+        Long recurringCostId,
+        /** The bank line that paid this cost, set by the bank service when the movement is noted; null until then. */
+        Long bankStatementLineId
 ) {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
 
@@ -52,7 +54,7 @@ public record CompanyCost(
                        BigDecimal amountExclEur, BigDecimal vatPct, String reference, LocalDate paidOn,
                        String salesChannel, String notes, Instant createdAt, Long recurringCostId) {
         this(id, date, category, description, party, amountExclEur, null, vatPct, reference, paidOn, salesChannel, notes,
-                createdAt, recurringCostId);
+                createdAt, recurringCostId, null);
     }
 
     public boolean recurring() {

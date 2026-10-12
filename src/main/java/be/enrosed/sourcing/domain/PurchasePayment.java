@@ -35,8 +35,21 @@ public record PurchasePayment(
          */
         boolean settles,
         /** Supplier milestone; null keeps the historical whole-group meaning. */
-        PaymentTerms.Moment instalmentDue
+        PaymentTerms.Moment instalmentDue,
+        /**
+         * The bank line that carried this payment, set by the bank service when
+         * the movement is noted and null until then. One line carries every
+         * payment of one transfer: the goods, the CIF freight, the inspection.
+         */
+        Long bankStatementLineId
 ) {
+    /** Compatibility for payments recorded before a bank line could point at them. */
+    public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                           BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,
+                           boolean settles, PaymentTerms.Moment instalmentDue) {
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, settles, instalmentDue, null);
+    }
+
     /** Compatibility for whole-group payments recorded before milestone allocation. */
     public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                            BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,
