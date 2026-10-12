@@ -749,6 +749,29 @@ class ProductPhotoOverviewPersistenceTest {
 
     @Test
     @TestTransaction
+    void aSeriesPhotoOfADemoColourIsNotPublishableBecauseEverySeriesPlaceRefusesIt() {
+        Fixture f = fixture("demo-not-publishable");
+        readable(f.redImage(), f.global(), f.blueImage());
+        f.blue().demo = true;
+        entityManager.flush();
+
+        for (ProductEntity page : List.of(f.red(), f.blue())) {
+            ProductPhotoOverviewDto overview = overviews.overview(page.id);
+            assertFalse(photo(overview, "F" + f.blueImage().id).publishable(),
+                    "no public feed carries a demo piece, so nothing can be promised for its photo");
+            assertTrue(photo(overview, "F" + f.redImage().id).publishable());
+            assertTrue(photo(overview, "F" + f.global().id).publishable());
+        }
+
+        /* What the flag stands for: the server refuses that photo for every series place. */
+        for (Role role : List.of(Role.QUOTE, Role.CATALOGUE_DETAIL, Role.CATALOGUE_OVERVIEW)) {
+            assertThrows(BusinessRuleException.class,
+                    () -> commands.setRole(f.red().id, role, "F" + f.blueImage().id), role.name());
+        }
+    }
+
+    @Test
+    @TestTransaction
     void seriesWithoutAnActiveColourIsNotLive() {
         Fixture f = fixture("places-no-colour");
         readable(f.redImage(), f.global(), f.blueImage());

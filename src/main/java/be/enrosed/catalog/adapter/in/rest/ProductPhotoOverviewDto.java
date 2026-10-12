@@ -78,7 +78,11 @@ public record ProductPhotoOverviewDto(
             /** Effective public visibility under the projection rules, not the family status. */
             VisibilityDto visibility,
             WebsiteReason websiteReason,
-            /** Series: channels may be switched on. Own photos are never published directly. */
+            /**
+             * Series: channels may be switched on and a public place can show it (renditions
+             * present; bound to all colours or to an active colour that is not a demo piece).
+             * Own photos are never published directly.
+             */
             boolean publishable,
             List<Role> roles,
             /** Own only: the series photo with the same original (size, dimensions, type). */

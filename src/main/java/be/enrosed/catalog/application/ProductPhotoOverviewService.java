@@ -254,6 +254,10 @@ public class ProductPhotoOverviewService {
         ProductPhotoEntity projection = product.photos.stream()
                 .filter(photo -> Objects.equals(photo.familyPhotoId, image.id)).findFirst().orElse(null);
         VisibilityDto visibility = visibility(publicIds, image.id);
+        /* No public feed carries a demo piece (PublicFamilyPhotoProjection.images,
+           CataloguePhotoChoices.available): switching a channel on shows its photo nowhere and
+           every series place refuses it, exactly as for a photo of an inactive colour. */
+        boolean publishable = publication.isEligible(image, members) && (variant == null || !variant.demo);
         return new PhotoDto(
                 key.value(), Kind.SERIES, image.id, projection == null ? null : projection.id, scope,
                 variant == null ? null : variant.id,
@@ -262,7 +266,7 @@ public class ProductPhotoOverviewService {
                 image.largeSizeBytes,
                 base + "/small", base + "/medium", base + "/large", base + "/original",
                 visibility, visibility.website() ? WebsiteReason.PUBLISHED : null,
-                publication.isEligible(image, members), rolesOf(key, roles), null, image.position, null,
+                publishable, rolesOf(key, roles), null, image.position, null,
                 publication.publishedChannels(image),
                 members.stream().flatMap(member -> member.photos.stream()
                                 .filter(photo -> Objects.equals(photo.familyPhotoId, image.id))
