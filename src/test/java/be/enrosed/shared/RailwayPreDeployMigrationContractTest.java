@@ -665,7 +665,7 @@ class RailwayPreDeployMigrationContractTest {
     }
 
     @Test
-    void vatRegimesAndCostPaymentsAreAdditiveAndRegisteredLast() throws IOException {
+    void vatRegimesAndCostPaymentsAreAdditiveAndRunBeforeOdoo() throws IOException {
         Path migration = Path.of("docs/migrations/2026-10-12/vat-regimes-and-cost-payments-postgresql.sql");
         String sql = normalizedSql(migration);
         for (String column : new String[] {"vat_regime varchar(24)", "vat_regime_confirmed boolean", "supplier_country varchar(2)",
@@ -744,7 +744,12 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(runner.indexOf("--file=/app/migrations/bank-links-postgresql.sql")
                         < runner.indexOf(migration.getFileName().toString()),
                 "the regime round lands after every earlier script");
-        assertTrue(runner.stripTrailing().endsWith("--file=/app/migrations/" + migration.getFileName()));
+        Path odooMigration = Path.of("docs/migrations/2026-10-13/odoo-bank-source-postgresql.sql");
+        assertTrue(Files.exists(odooMigration));
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(odooMigration.toString()));
+        assertTrue(runner.indexOf("--file=/app/migrations/" + odooMigration.getFileName())
+                        > runner.indexOf("--file=/app/migrations/" + migration.getFileName()),
+                "Odoo bank allocations require the cost-payment schema first");
     }
 
     /**
