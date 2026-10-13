@@ -1393,3 +1393,9 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   allocation; never per split. `allocatedAmountEur`/`allocationDifferenceEur` are derived from
   real payment links and preserve both original bank and payment amounts.
 - Migration `2026-10-13/odoo-cost-import-postgresql.sql` runs after the bank-account registry.
+
+- Direct local bank-to-cost allocation accepts optional `confirmNewPayment` (default false).
+  It refuses bank amounts above signed remaining cost plus EUR 0.02, and asks for reuse
+  when an equal existing payment has no official imported bank link. Explicitly confirming
+  a genuinely new equal instalment bypasses only that ambiguity, never amount/direction
+  checks. Existing imported instalments and same-bank retries remain supported.

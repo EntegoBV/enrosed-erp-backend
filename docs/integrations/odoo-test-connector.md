@@ -135,3 +135,21 @@ signed allocation**, with consistent cash direction for every component. Origina
 are never rounded into agreement. DTO `allocatedAmountEur` and `allocationDifferenceEur`
 show the signed allocation and `bank - allocation` difference. A new payment closes the
 original remaining cost within this tolerance; existing payment amounts remain unchanged.
+
+
+## Ordinary local costs and invoices
+
+Bank allocation is not restricted to Odoo source documents. Existing endpoints also cover
+ordinary local documents: `/bank-statements/{id}/allocation` for sales,
+`/cost-payment` for a new local cost payment, `/links` for existing cost/purchase payments,
+and `/purchase-payment` for explicit purchase payment parts. The last endpoint requires
+original currency/amount and the actual EUR amount; a purchase reconciliation budget must
+not be presented as a separately registered supplier invoice or converted into fictional FX.
+
+The local cost-payment body is `{companyCostId,confirmNewPayment?:boolean}`. The optional
+flag defaults to false. A bank amount above the remaining cost plus EUR 0.02 is always
+refused. A matching existing payment which is unlinked or only on a historical manual bank
+movement requires reuse, or an explicit `confirmNewPayment:true` decision for a genuinely
+separate equal instalment. The flag does not bypass amount/direction/ownership checks.
+Earlier instalments already linked to official imported movements do not cause ambiguity.
+Partial payments remain supported; same-bank retries return the original payment/link.

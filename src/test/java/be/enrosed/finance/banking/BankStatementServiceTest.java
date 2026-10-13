@@ -531,6 +531,58 @@ class BankStatementServiceTest {
         assertTrue(costs.paymentsOf(other.id()).isEmpty());
     }
 
+    @Test @TestTransaction void directCostPaymentCannotOverpayOpenBalanceEvenWhenNewPaymentIsConfirmed() {
+        var cost=costs.create(cost("Open balance cap","100",null));
+        costs.addPayment(cost.id(),payment("40",LocalDate.of(2026,9,1)));
+        var row=bank.importExternal(external("cost-overpay","-60.03",false));
+        var refused=assertThrows(BusinessRuleException.class,()->bank.recordCostPayment(row.id(),new BankStatementService.CostAllocation(cost.id(),true)));
+        assertTrue(refused.getMessage().contains("openstaande kostbedrag"));
+        assertEquals(1,costs.paymentsOf(cost.id()).size());assertEquals(new BigDecimal("60.00"),costs.view(costs.get(cost.id())).openEur());
+        assertFalse(bank.list().stream().filter(line->line.id.equals(row.id())).findFirst().orElseThrow().allocated);
+    }
+
+    @Test @TestTransaction void matchingUnlinkedPartialPaymentRequiresReuseInsteadOfSilentSecondPayment() {
+        var cost=costs.create(cost("Two equal instalments","100",null));
+        var existing=costs.addPayment(cost.id(),payment("40",LocalDate.of(2026,9,1))).payments().getFirst();
+        var row=bank.importExternal(external("cost-ambiguous","-40.02",false));
+        var refused=assertThrows(BusinessRuleException.class,()->bank.recordCostPayment(row.id(),new BankStatementService.CostAllocation(cost.id())));
+        assertTrue(refused.getMessage().contains("passende betaling"));
+        assertEquals(1,costs.paymentsOf(cost.id()).size());assertNull(costs.paymentsOf(cost.id()).getFirst().bankStatementLineId());
+        var linked=bank.linkExisting(row.id(),new BankStatementService.OutgoingLinks(null,cost.id(),existing.id()));
+        assertTrue(linked.allocated);assertEquals(new BigDecimal("-0.02"),linked.allocationDifferenceEur);
+        assertEquals(1,costs.paymentsOf(cost.id()).size());
+    }
+
+    @Test @TestTransaction void explicitNewPaymentAllowsGenuineIdenticalInstalmentAndRetryKeepsItsId() {
+        var cost=costs.create(cost("Confirmed separate instalment","100",null));
+        var earlier=costs.addPayment(cost.id(),payment("40",LocalDate.of(2026,9,1))).payments().getFirst();
+        var row=bank.importExternal(external("cost-confirm-new","-40",false));
+        var request=new BankStatementService.CostAllocation(cost.id(),true);
+        var linked=bank.recordCostPayment(row.id(),request);assertTrue(linked.allocated);
+        long created=costs.paymentsOf(cost.id()).stream().filter(value->row.id().equals(value.bankStatementLineId())).findFirst().orElseThrow().id();
+        assertNotEquals(earlier.id(),created);assertEquals(linked.id,bank.recordCostPayment(row.id(),request).id);
+        assertEquals(2,costs.paymentsOf(cost.id()).size());assertEquals(new BigDecimal("20.00"),costs.view(costs.get(cost.id())).openEur());
+    }
+
+    @Test @TestTransaction void historicalManualPaymentStillRequiresExplicitReuseOrNewConfirmation() {
+        var cost=costs.create(cost("Historical instalment","100",null));
+        var payment=costs.addPayment(cost.id(),payment("40",LocalDate.of(2026,9,1))).payments().getFirst();
+        bank.create(paymentLine("old-manual-partial","40",payment.id()));
+        var row=bank.importExternal(external("new-real-partial","-40",false));
+        var refused=assertThrows(BusinessRuleException.class,()->bank.recordCostPayment(row.id(),new BankStatementService.CostAllocation(cost.id())));
+        assertTrue(refused.getMessage().contains("passende betaling"));assertEquals(1,costs.paymentsOf(cost.id()).size());
+    }
+
+    @Test @TestTransaction void earlierOfficiallyLinkedInstalmentDoesNotBlockNextEqualTransfer() {
+        var cost=costs.create(cost("Recurring transfers","100",null));
+        var first=bank.importExternal(external("first-official-instalment","-40",false));
+        bank.recordCostPayment(first.id(),new BankStatementService.CostAllocation(cost.id()));
+        var second=bank.importExternal(external("second-official-instalment","-40",false));
+        bank.recordCostPayment(second.id(),new BankStatementService.CostAllocation(cost.id()));
+        assertEquals(2,costs.paymentsOf(cost.id()).size());assertEquals(new BigDecimal("20.00"),costs.view(costs.get(cost.id())).openEur());
+        assertTrue(costs.paymentsOf(cost.id()).stream().allMatch(payment->payment.bankStatementLineId()!=null));
+    }
+
     private static CostPayment payment(String amount,LocalDate day) {
         return new CostPayment(null,null,day,new BigDecimal(amount),"KBC",null,null,null,null);
     }

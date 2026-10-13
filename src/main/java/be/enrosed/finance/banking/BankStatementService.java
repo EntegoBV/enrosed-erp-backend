@@ -58,7 +58,9 @@ public class BankStatementService {
     public record Match(long salesOrderId,String number,BigDecimal openEur,int score,Long existingPaymentId,String reason,Instant receivedAt,String reference) {}
     public record Allocation(long salesOrderId,Long existingPaymentId) {}
     public record OutgoingLinks(List<Long> purchasePaymentIds,Long companyCostId,Long costPaymentId) {}
-    public record CostAllocation(long companyCostId) {}
+    public record CostAllocation(long companyCostId,boolean confirmNewPayment) {
+        public CostAllocation(long companyCostId) {this(companyCostId,false);}
+    }
     public record ExternalRequest(String sourceId,String account,BigDecimal amountEur,Instant bookedAt,String timeZone,
                                   String reference,String counterparty,Instant sourceUpdatedAt,Boolean sourceReconciled) {}
     public enum ImportOutcome { CREATED, UPDATED, UNCHANGED, CONFLICT }
@@ -198,16 +200,29 @@ public class BankStatementService {
                     &&BankAmountMatch.matches(row.amountEur,linked.getFirst().amountEur.negate()))return row;
             throw new BusinessRuleException("Deze banktransactie is al gekoppeld aan een andere betaling");
         }
-        Set<Long> before=new HashSet<>(costPayments(cost.id).stream().map(payment->payment.id).toList());
+        var existing=costPayments(cost.id);
+        Set<Long> before=new HashSet<>(existing.stream().map(payment->payment.id).toList());
         BigDecimal remaining=costs.view(cost.toDomain()).openEur();
         if(remaining.signum()==0)throw new BusinessRuleException("Deze kost is al volledig betaald; koppel de bestaande betaling");
         if(remaining.signum()!=-row.amountEur.signum())throw new BusinessRuleException("De richting van de betaling komt niet overeen met de kost of creditnota");
+        if(row.amountEur.abs().subtract(remaining.abs()).compareTo(BankAmountMatch.MAX_DIFFERENCE)>0)
+            throw new BusinessRuleException("Het bankbedrag is groter dan het openstaande kostbedrag; maximaal € 0,02 verschil is toegestaan");
+        if(!request.confirmNewPayment()&&existing.stream().anyMatch(payment->BankAmountMatch.matches(row.amountEur,payment.amountEur.negate())
+                &&potentiallyUnmatched(payment)))
+            throw new BusinessRuleException("Er bestaat al een passende betaling op deze kost. Koppel die bestaande betaling, of bevestig expliciet dat dit een nieuwe betaling is");
         BigDecimal paymentAmount=BankAmountMatch.matches(row.amountEur,remaining.negate())?remaining:row.amountEur.negate();
         String note=row.reference==null?null:row.reference.substring(0,Math.min(300,row.reference.length()));
         var result=costs.addPayment(cost.id,new be.enrosed.finance.domain.CostPayment(null,cost.id,
                 row.bookedAt.atZone(ZoneId.of(row.timeZone)).toLocalDate(),paymentAmount,row.account,null,note,null,null));
         var added=result.payments().stream().filter(payment->!before.contains(payment.id())).findFirst().orElseThrow();
         return linkExisting(id,new OutgoingLinks(null,cost.id,added.id()));
+    }
+
+    /** A historical manual movement is not proof that the same payment reached an imported bank account. */
+    private boolean potentiallyUnmatched(CostPaymentEntity payment) {
+        if(payment.bankStatementLineId==null)return true;
+        var previous=em.find(BankStatementLineEntity.class,payment.bankStatementLineId);
+        return previous==null||previous.source==null;
     }
 
     private record AllocationAmounts(Map<Long,BigDecimal> purchases,Map<Long,BigDecimal> costs,Map<Long,BigDecimal> sales) {}
