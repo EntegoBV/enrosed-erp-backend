@@ -63,7 +63,7 @@ class CostPartyServiceTest {
         CostParty known = new CostParty(11L, "TICA Trends & Trade", "BEURS", new BigDecimal("21"), "TICA", null, "BE", null, VatRegime.BE,
                 Instant.now());
         when(parties.findByKey("tica trends & trade")).thenReturn(Optional.of(known));
-        service.learn("tica   trends & TRADE", "HUUR", BigDecimal.ZERO, null, "NL", VatRegime.FOREIGN_VAT);
+        service.learn("tica   trends & TRADE", "HUUR", BigDecimal.ZERO, null, "NL", VatRegime.EU_SERVICES);
         service.learn("   ", "HUUR", null, null, null, null);
         service.learn(null, "HUUR", null, null, null, null);
         service.learn("x".repeat(201), "HUUR", null, null, null, null);

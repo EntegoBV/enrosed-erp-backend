@@ -1357,7 +1357,7 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `NL_FISCAL_REP_TO_BE`, `NL_FISCAL_REP_SOLD_IN_NL`; nullable = 'te
   bevestigen', form-owned like the tracking reference, PUT
   `/api/purchase-orders/{id}` carries it). `Clearance.suggestedFor(port)`
-  gives Antwerp → BE_CUSTOMS, else NL_FISCAL_REP_SOLD_IN_NL (owner, 2026-10-13: 24/7 Customs clears in the Netherlands and the goods usually stay there, at the transport partner's, until sold); the suggestion is
+  gives Antwerp or Zeebrugge → BE_CUSTOMS, else NL_FISCAL_REP_SOLD_IN_NL (owner, 2026-10-13: 24/7 Customs clears in the Netherlands and the goods usually stay there, at the transport partner's, until sold); the suggestion is
   shown, never stored by itself. The goods go to 81 at
   `costing.totals.goodsEur` in the quarter of `receivedOn`; a Belgian
   clearance's import VAT enters through an IMPORT_VAT_PAID cost or is
