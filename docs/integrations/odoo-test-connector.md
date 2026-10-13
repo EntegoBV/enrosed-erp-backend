@@ -24,7 +24,7 @@ These map to `enrosed.odoo.enabled`, `.base-url`, `.database`, `.api-key`, `.com
 
 ## Production read-only API configuration
 
-Rollout status on 2026-10-13: the connector code is published to the ENROSED production backend. A real authenticated JSON-2 read returned HTTP 200 and confirmed the Odoo database and company below. The API key has been supplied and is staged securely; production server activation and live bank/document checks are still in progress. This company read does not yet verify a KBC import, document retrieval or Peppol delivery.
+Production was configured on 2026-10-13. The authenticated ENROSED connection check confirmed the Odoo company and bank journal. The first bank import created all 74 accessible posted nonzero rows; a repeat created zero and reported all 74 unchanged. The latest available source transaction was dated 2026-10-08, so this verifies the data available in Odoo rather than the freshness of the upstream bank connection. The live document view listed 25 incoming and 8 outgoing documents with their available attachments and Odoo statuses. Live Peppol submission remains disabled.
 
 Use the production backend service's Railway variables for the five required settings: `ENROSED_ODOO_ENABLED`, `ENROSED_ODOO_BASE_URL`, `ENROSED_ODOO_DATABASE`, `ENROSED_ODOO_API_KEY` and `ENROSED_ODOO_COMPANY_ID`. The verified non-secret values are base URL `https://enrosed.odoo.com`, database `enrosed` and company ID `1`; `res.company` identifies that company as `ENROSED`, VAT `BE1034273386`. These identifiers were confirmed through the API, not inferred from the URL or an assumed first company. A dedicated integration user should have only the company and accounting read access needed above. Keep the connector disabled until all settings are ready.
 
@@ -66,9 +66,11 @@ All routes require the ERP administrator role.
 
 Document pagination returns `nextAfterId` and `hasMore`. Pass the previous `nextAfterId` to fetch older IDs. Connection status may be ready while Peppol is not installed: the document result reports `peppolSupported:false`. It does not claim Peppol registration or bank-provider freshness.
 
-## Live API validation still required
+## Validation checklist
 
-The authenticated company read confirms API access and company identity; the production backend connection and bank/document flows still need verification after server activation. Check the bank journals, compare the imported count with the accessible Odoo statement-line count for the selected snapshot and journal scope, and verify available purchase and sales XML/PDF attachments. Exercise retries and exceptional cases against a dedicated Odoo test database: one reconciled and one unreconciled KBC line; multiple pages; duplicate sync; an EUR account paying a foreign invoice; a non-EUR journal; edits to an allocated line; a missing Peppol module; denied company/attachment permissions. Never alter production bank data to manufacture these test cases.
+After configuring a new environment, check the bank journals, compare the imported count with the accessible Odoo statement-line count for the selected snapshot and journal scope, and verify available purchase and sales XML/PDF attachments. Exercise retries and exceptional cases against a dedicated Odoo test database: one reconciled and one unreconciled KBC line; multiple pages; duplicate sync; an EUR account paying a foreign invoice; a non-EUR journal; edits to an allocated line; a missing Peppol module; denied company/attachment permissions. Never alter production bank data to manufacture these test cases.
+
+The enabled configuration has a real CDI injection and HTTP status regression test: immutable configuration beans use singleton scope because their fields are read directly. Live Odoo saas 19.3 exposes journal IBANs as `bank_account_number` and attachment contents as `raw` (a base64 JSON string). The connector discovers these fields and retains the older `bank_acc_number` and `datas` fallbacks.
 
 ## Outbound controls and remaining verification
 

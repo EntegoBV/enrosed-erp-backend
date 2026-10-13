@@ -86,10 +86,14 @@ public class OdooDocumentService {
         Attachment attachment=attachment(metadata.get(0));
         if(attachment.id()!=attachmentId||positiveId(metadata.get(0).path("res_id"))!=documentId)throw new OdooFailure("INVALID_RESPONSE");
         if(attachment.size()>MAX_ATTACHMENT_BYTES)throw new OdooFailure("ATTACHMENT_TOO_LARGE");
-        JsonNode data=client.search("ir.attachment",domain,List.of("id","res_id","datas"),1,"id asc");
+        Set<String> available=client.fields("ir.attachment");
+        // JSON-2 serializes both current raw and legacy datas binary fields as base64 strings.
+        String binaryField=available.contains("raw")?"raw":available.contains("datas")?"datas":null;
+        if(binaryField==null)throw new OdooFailure("UNSUPPORTED_SCHEMA");
+        JsonNode data=client.search("ir.attachment",domain,List.of("id","res_id",binaryField),1,"id asc");
         if(data.size()!=1||positiveId(data.get(0).path("id"))!=attachmentId
                 ||positiveId(data.get(0).path("res_id"))!=documentId)throw new OdooFailure("NOT_FOUND");
-        String encoded=text(data.get(0),"datas");
+        String encoded=text(data.get(0),binaryField);
         if(encoded.length()>(MAX_ATTACHMENT_BYTES+2L)/3*4)throw new OdooFailure("ATTACHMENT_TOO_LARGE");
         try {
             byte[] bytes=Base64.getDecoder().decode(encoded);
