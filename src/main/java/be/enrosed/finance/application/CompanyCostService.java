@@ -102,8 +102,9 @@ public class CompanyCostService {
             paid = paid.add(payment.amountEur() == null ? BigDecimal.ZERO : payment.amountEur());
             if (payment.paidOn() != null && (last == null || payment.paidOn().isAfter(last))) last = payment.paidOn();
         }
-        BigDecimal open = cash.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         boolean settled = paid.compareTo(cash.subtract(CENT)) >= 0;
+        /* Settled within a cent reads open 0.00: one "open" figure, so a cost paid a cent short never shows 'Deels' next to 'Betaald'. */
+        BigDecimal open = settled ? BigDecimal.ZERO.setScale(2) : cash.subtract(paid).setScale(2, RoundingMode.HALF_UP);
         return new PaymentTotals(paid.setScale(2, RoundingMode.HALF_UP), open, settled ? last : null);
     }
 
@@ -158,13 +159,15 @@ public class CompanyCostService {
      * The payment rows decide "Betaald op"; the form's date only counts
      * while there are none (the switch: one full payment) or while the one
      * payment is not on the bank yet (its date moves). Taking the date away
-     * with rows present is refused: the payments go first.
+     * from a settled cost with rows is refused: the payments go first. A cost
+     * the rows do not cover yet carries no date, so a body without one (the
+     * view as the screen holds it) changes nothing there: the rows decide.
      */
     @Transactional
     public CompanyCost update(long id, CompanyCost changes) {
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         List<CostPayment> rows = payments.findByCost(id);
-        if (changes != null && changes.paidOn() == null && !rows.isEmpty()) {
+        if (changes != null && changes.paidOn() == null && current.paidOn() != null && !rows.isEmpty()) {
             throw new BusinessRuleException("Verwijder eerst de betalingen");
         }
         /* The link to the recurring definition is the booking job's, not the form's. */

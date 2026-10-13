@@ -8,6 +8,7 @@ import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -69,13 +70,20 @@ class CompanyCostResourceTest {
 
             json().body("{}").post(COSTS + "/" + costId + "/paid").then().statusCode(200)
                     .body("openEur", equalTo(0.00f))
-                    .body("paidOn", equalTo(LocalDate.now().toString()))
+                    /* The server's day is the company's: Brussels. */
+                    .body("paidOn", equalTo(LocalDate.now(ZoneId.of("Europe/Brussels")).toString()))
                     .body("payments", hasSize(2))
                     .body("payments[1].amountEur", equalTo(60.00f));
             json().get(COSTS + "/" + costId).then().statusCode(200).body("payments", hasSize(2)).body("openEur", equalTo(0.00f));
             json().get(COSTS + "?from=2026-10-03&to=2026-10-03").then().statusCode(200)
                     .body("find { it.id == " + costId + " }.payments.size()", equalTo(2));
             json().get(COSTS + "/" + costId + "/payments").then().statusCode(200).body("size()", equalTo(2));
+
+            /* Settled: taking the date away with rows present is the switch-off, refused until the payments are gone. */
+            Map<String, Object> settled = json().get(COSTS + "/" + costId).then().extract().jsonPath().getMap("$");
+            settled.put("paidOn", null);
+            json().body(settled).put(COSTS + "/" + costId).then().statusCode(409)
+                    .body("message", equalTo("Verwijder eerst de betalingen"));
 
             long remainder = json().get(COSTS + "/" + costId).then().extract().jsonPath().getLong("payments[1].id");
             json().delete(COSTS + "/" + costId + "/payments/" + remainder).then().statusCode(200)
@@ -84,19 +92,29 @@ class CompanyCostResourceTest {
                     .body("paidOn", nullValue())
                     .body("payments", hasSize(1));
 
-            /* The view the screen holds, sent back as a PUT: the extra fields are ignored, the date null with rows is refused. */
+            /* Partly paid: the view the screen holds (no date, the extra fields) goes back as it came; the rows stay, the text changes. */
             Map<String, Object> view = json().get(COSTS + "/" + costId).then().extract().jsonPath().getMap("$");
-            view.put("paidOn", null);
-            json().body(view).put(COSTS + "/" + costId).then().statusCode(409)
-                    .body("message", equalTo("Verwijder eerst de betalingen"));
-            view.put("paidOn", "2026-10-09");
             view.put("description", "Google Workspace oktober " + stamp);
             json().body(view).put(COSTS + "/" + costId).then().statusCode(200)
                     .body("description", equalTo("Google Workspace oktober " + stamp))
+                    .body("payments[0].paidOn", equalTo("2026-10-05"))
+                    .body("paidOn", nullValue())
+                    .body("openEur", equalTo(60.00f));
+            view.put("paidOn", "2026-10-09");
+            json().body(view).put(COSTS + "/" + costId).then().statusCode(200)
                     /* The single payment, not on the bank, moves to the form's date. */
                     .body("payments[0].paidOn", equalTo("2026-10-09"))
                     .body("paidOn", nullValue())
                     .body("openEur", equalTo(60.00f));
+
+            /* The last payment goes: the cost is open again, not a cost paid before the rows existed. */
+            long only = json().get(COSTS + "/" + costId).then().extract().jsonPath().getLong("payments[0].id");
+            json().delete(COSTS + "/" + costId + "/payments/" + only).then().statusCode(200)
+                    .body("openEur", equalTo(100.00f))
+                    .body("paidEur", equalTo(0.00f))
+                    .body("paidOn", nullValue())
+                    .body("payments", empty());
+            json().get(COSTS + "/" + costId).then().statusCode(200).body("openEur", equalTo(100.00f)).body("paidOn", nullValue());
 
             json().body(Map.of("date", "2026-10-03", "category", "SOFTWARE", "description", "Zonder regeling " + stamp, "amountExclEur", 10))
                     .post(COSTS).then().statusCode(409).body("message", equalTo("Kies de btw-regeling"));

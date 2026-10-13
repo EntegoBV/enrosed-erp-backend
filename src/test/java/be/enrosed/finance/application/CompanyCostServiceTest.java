@@ -14,6 +14,7 @@ import org.mockito.InOrder;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -476,15 +477,80 @@ class CompanyCostServiceTest {
         assertEquals(List.of(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 3)), rows.stream().map(CostPayment::paidOn).toList());
     }
 
+    /** The switch-off: a settled cost (its date derived from the rows) loses its date only once the payments are gone. */
     @Test
     void putWithPaidOnNullAndPaymentsIsRefused() {
         CompanyCost saved = service.create(withPaidOn(cost("42", null, null), LocalDate.of(2026, 10, 5)));
+        assertEquals(LocalDate.of(2026, 10, 5), saved.paidOn());
         when(costs.findById(saved.id())).thenReturn(Optional.of(saved));
 
         BusinessRuleException refused = assertThrows(BusinessRuleException.class,
                 () -> service.update(saved.id(), cost("42", null, null)));
         assertEquals("Verwijder eerst de betalingen", refused.getMessage());
         assertEquals(1, rows.size());
+    }
+
+    /**
+     * The KBC invoice while the transfers come in: no derived date, so the view's null date is no change. The cost stays
+     * editable and 'Btw-regeling klopt' (the view back with the flag set) goes through, with one payment and with several.
+     */
+    @Test
+    void putOnAPartlyPaidCostKeepsItsPayments() {
+        CompanyCost saved = service.create(withRegime(cost("42", null, null), VatRegime.BE, false, "BE"));
+        assertEquals(Boolean.FALSE, saved.vatRegimeConfirmed());
+        when(costs.findById(saved.id())).thenReturn(Optional.of(saved));
+        CompanyCost partly = service.addPayment(saved.id(), payment("7", LocalDate.of(2026, 10, 1))).cost();
+        assertNull(partly.paidOn());
+        when(costs.findById(saved.id())).thenReturn(Optional.of(partly));
+
+        CompanyCost edited = service.update(saved.id(), withRegime(new CompanyCost(null, DAY, "BANK", "KBC oktober", "KBC",
+                new BigDecimal("42"), null, null, null, null, null, null, null, null, null), VatRegime.BE, true, "BE"));
+
+        assertEquals("KBC oktober", edited.description());
+        assertEquals(Boolean.TRUE, edited.vatRegimeConfirmed(), "the derived regime is confirmed while the cost is partly paid");
+        assertNull(edited.paidOn(), "still not covered by the rows");
+        assertEquals(1, rows.size(), "the payment stays as it was");
+        assertEquals(new BigDecimal("7.00"), rows.getFirst().amountEur());
+        assertEquals(LocalDate.of(2026, 10, 1), rows.getFirst().paidOn());
+        assertEquals(new BigDecimal("35.00"), service.view(edited).openEur());
+
+        when(costs.findById(saved.id())).thenReturn(Optional.of(edited));
+        service.addPayment(saved.id(), payment("7", LocalDate.of(2026, 10, 2)));
+        CompanyCost again = service.update(saved.id(), withRegime(new CompanyCost(null, DAY, "BANK", "KBC oktober", "KBC",
+                new BigDecimal("42"), null, null, "F-10", null, null, null, null, null, null), VatRegime.BE, true, "BE"));
+        assertEquals("F-10", again.reference(), "two of three transfers noted: still editable");
+        assertNull(again.paidOn());
+        assertEquals(2, rows.size());
+        assertEquals(new BigDecimal("28.00"), service.view(again).openEur());
+    }
+
+    /**
+     * 'Weer open zetten' on a cost paid by the switch, and 'Ongedaan maken' after 'Betaald zetten': the one payment goes
+     * and the cost is open again, not a cost paid before the rows existed.
+     */
+    @Test
+    void deletingTheOnlyPaymentOfASwitchedCostReopensIt() {
+        CompanyCost saved = service.create(withPaidOn(cost("82.64", "100", "21"), LocalDate.of(2026, 10, 5)));
+        when(costs.findById(saved.id())).thenReturn(Optional.of(saved));
+
+        CompanyCostService.CostView reopened = service.deletePayment(saved.id(), rows.getFirst().id());
+
+        assertTrue(reopened.payments().isEmpty());
+        assertNull(reopened.cost().paidOn());
+        assertEquals(new BigDecimal("100.00"), reopened.openEur());
+        assertEquals(reopened.cashTotalEur(), reopened.openEur());
+        assertEquals(new BigDecimal("0.00"), reopened.paidEur());
+
+        when(costs.findById(saved.id())).thenReturn(Optional.of(reopened.cost()));
+        CompanyCost paid = service.markPaid(saved.id(), LocalDate.of(2026, 10, 8));
+        assertEquals(LocalDate.of(2026, 10, 8), paid.paidOn());
+        when(costs.findById(saved.id())).thenReturn(Optional.of(paid));
+
+        CompanyCostService.CostView undone = service.deletePayment(saved.id(), rows.getFirst().id());
+
+        assertTrue(undone.payments().isEmpty());
+        assertNull(undone.cost().paidOn(), "the undo leaves no date behind");
+        assertEquals(new BigDecimal("100.00"), undone.openEur());
     }
 
     @Test
@@ -510,7 +576,10 @@ class CompanyCostServiceTest {
 
         CompanyCostService.CostView withinACent = service.addPayment(saved.id(), payment("27.99", LocalDate.of(2026, 10, 10)));
         assertEquals(LocalDate.of(2026, 10, 10), withinACent.cost().paidOn(), "a cent short still counts as paid");
-        assertEquals(new BigDecimal("0.01"), withinACent.openEur());
+        assertEquals(new BigDecimal("0.00"), withinACent.openEur(), "and reads nothing open: paid and open never disagree");
+        assertEquals(new BigDecimal("41.99"), withinACent.paidEur());
+        when(costs.findById(saved.id())).thenReturn(Optional.of(withinACent.cost()));
+        assertThrows(BusinessRuleException.class, () -> service.markPaid(saved.id(), null), "nothing left to pay");
     }
 
     @Test
@@ -551,7 +620,7 @@ class CompanyCostServiceTest {
         assertEquals("Gebruik maximaal twee decimalen", assertThrows(BusinessRuleException.class,
                 () -> service.addPayment(saved.id(), payment("1.005", DAY))).getMessage());
         assertEquals("Een betaling kan niet in de toekomst liggen", assertThrows(BusinessRuleException.class,
-                () -> service.addPayment(saved.id(), payment("1", LocalDate.now().plusDays(1)))).getMessage());
+                () -> service.addPayment(saved.id(), payment("1", LocalDate.now(ZoneId.of("Europe/Brussels")).plusDays(1)))).getMessage());
         assertThrows(BusinessRuleException.class, () -> service.addPayment(saved.id(), new CostPayment(null, null, null, BigDecimal.ONE,
                 null, null, null, null, null)));
         assertTrue(rows.isEmpty());

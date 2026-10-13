@@ -1266,9 +1266,10 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `PanacheCostPayments`; no foreign key, the service deletes the payments
   before the cost): several payments on one cost (a KBC invoice paid by
   several transfers). `paidOn` is derived, never typed: `totalsOf(cost,
-  payments)` reads paid = Σ amounts, open = max(0, cash total − paid), paid
-  once Σ ≥ cash total − € 0,01 with `paidOn` = the last payment date, else
-  null; overpayment is allowed ('Te veel betaald'). A cost from before the
+  payments)` reads paid = Σ amounts, paid once Σ ≥ cash total − € 0,01 with
+  `paidOn` = the last payment date (else null), open = cash total − paid and
+  0.00 once paid (a cost settled a cent short never reads 'Deels' next to
+  'Betaald'); overpayment is allowed ('Te veel betaald'). A cost from before the
   rows with `paidOn` and no payment rows reads as paid in full on that day
   (the dev H2 database has no migration runner; the PostgreSQL backfill
   writes those rows). `create()` with `paidOn` writes one full payment
@@ -1276,13 +1277,21 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   the cost's bank link), with exactly one row not on the bank moves that
   row's date (and its amount when it was the full payment and the cash total
   changed), with other rows ignores the form's date; `paidOn` null with rows
-  is refused ('Verwijder eerst de betalingen'). `markPaid` pays the remainder
-  ('Deze kost is al volledig betaald' at 0). `addPayment` / `updatePayment` /
+  is refused only on a settled cost ('Verwijder eerst de betalingen'): a cost
+  the rows do not cover carries no derived date, so the view's null date is
+  no change and the rows decide (the KBC invoice stays editable and its
+  regime confirmable while the transfers come in). `markPaid` pays the
+  remainder ('Deze kost is al volledig betaald' at 0). `addPayment` / `updatePayment` /
   `deletePayment` (`POST/PUT/DELETE /api/costs/{id}/payments[/{paymentId}]`)
   return the `CostView`; an amount above zero in cents, a day not in the
   future, account ≤ 120, note ≤ 300; a payment on the bank keeps its amount
   and date ('Deze betaling staat op de bank; maak de bankbeweging eerst los');
-  deleting a banked payment is allowed (the line stays, the link goes).
+  deleting a banked payment is allowed (the line stays, the link goes; a line
+  that carries other payments too must be unlinked first).
+  Deleting the last payment reopens the cost (`paidOn` null, `openEur` = the
+  cash total; the legacy "paid without rows" reading is for rows that never
+  existed, not for rows taken away), and a deleted payment takes
+  `company_cost.bank_statement_line_id` with it when that was its line.
   `RecurringCostService.bookDue` writes one payment 'Domiciliëring' (actor
   'systeem') for an `autoPaid` definition.
 - **CostView JSON** (every `/api/costs` response): the `CompanyCost` fields at
@@ -1311,7 +1320,10 @@ scheduled job was touched, and `StockLedger` only gained two readers.
 - **Recurring definitions** carry `vatRegime`, `vatRegimeConfirmed`,
   `supplierCountry`, `costKind`, `expenseType`, `vatDeductiblePct`,
   `taxDeductiblePct` (same rules, no investment); a booked cost inherits them
-  with `vatRegimeConfirmed = definition.vatRegime() != null`.
+  with `vatRegimeConfirmed = definition.vatRegime() != null &&
+  definition.vatRegimeConfirmed()`: a definition saved through the sheet books
+  confirmed costs, a backfilled one (BE, unconfirmed) books costs the
+  'Btw-regeling bevestigen' item still catches.
 - **Containers**: `purchase_order.clearance` (`Clearance`: `BE_CUSTOMS`,
   `NL_FISCAL_REP_TO_BE`, `NL_FISCAL_REP_SOLD_IN_NL`; nullable = 'te
   bevestigen', form-owned like the tracking reference, PUT

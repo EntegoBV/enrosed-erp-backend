@@ -127,12 +127,13 @@ public class RecurringCostService {
 
     private static CompanyCost costFor(RecurringCost definition, LocalDate date) {
         /* Excl.-only: a recurring booking never carries an entered inclusive total, and the bank link is the bank's to set.
-           The booked cost inherits the regime confirmed; a definition without one books an unknown, unconfirmed regime. */
+           The booked cost inherits the regime as confirmed as the definition's is: a definition saved through the sheet books
+           confirmed costs, a backfilled one (regime derived from its rate) books costs the attention item still asks about. */
         return new CompanyCost(null, date, definition.category(), definition.name(), definition.party(),
                 definition.amountExclEur(), null, definition.vatPct(), definition.reference(),
                 definition.autoPaid() ? date : null, definition.salesChannel(),
                 "Automatisch geboekt als vaste kost (" + definition.interval().label().toLowerCase() + ")",
-                Instant.now(), definition.id(), null, definition.vatRegime(), definition.vatRegime() != null,
+                Instant.now(), definition.id(), null, definition.vatRegime(), definition.vatRegime() != null && definition.vatRegimeConfirmed(),
                 definition.supplierCountry(), definition.costKind(), definition.expenseType(), definition.vatDeductiblePct(),
                 definition.taxDeductiblePct(), null, null);
     }

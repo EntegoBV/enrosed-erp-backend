@@ -132,14 +132,14 @@ class RecurringCostServiceTest {
     void bookingInheritsTheRegimeConfirmed() {
         RecurringCost definition = new RecurringCost(4L, "Google Workspace", "SOFTWARE", "Google Ireland", new BigDecimal("12.00"),
                 new BigDecimal("21"), null, Interval.MONTHLY, LocalDate.of(2026, 9, 1), null, LocalDate.of(2026, 9, 1), true, false,
-                null, null, null, Instant.parse("2026-01-01T09:00:00Z"), VatRegime.EU_SERVICES, false, "IE", CostKind.SERVICES,
+                null, null, null, Instant.parse("2026-01-01T09:00:00Z"), VatRegime.EU_SERVICES, true, "IE", CostKind.SERVICES,
                 ExpenseType.MIXED, new BigDecimal("75"), new BigDecimal("100"));
         when(definitions.findAll()).thenReturn(List.of(definition));
 
         CompanyCost cost = service.bookDue(LocalDate.of(2026, 9, 1)).getFirst();
 
         assertEquals(VatRegime.EU_SERVICES, cost.vatRegime());
-        assertEquals(Boolean.TRUE, cost.vatRegimeConfirmed(), "a definition's regime is confirmed on its bookings");
+        assertEquals(Boolean.TRUE, cost.vatRegimeConfirmed(), "a confirmed definition's regime is confirmed on its bookings");
         assertEquals("IE", cost.supplierCountry());
         assertEquals(CostKind.SERVICES, cost.costKind());
         assertEquals(ExpenseType.MIXED, cost.expenseType());
@@ -147,6 +147,20 @@ class RecurringCostServiceTest {
         assertNull(cost.depreciationYears());
         assertEquals(new BigDecimal("12.00"), cost.totalInclEur(), "reverse charged: nothing goes to Google but the net");
         assertTrue(paid.isEmpty(), "not a direct debit");
+    }
+
+    /** A definition the migration guessed BE for (unconfirmed) books costs the 'Btw-regeling bevestigen' item still catches. */
+    @Test
+    void backfilledDefinitionBooksAnUnconfirmedCost() {
+        RecurringCost guessed = new RecurringCost(6L, "Google Workspace", "SOFTWARE", "Google Ireland", new BigDecimal("12.00"),
+                new BigDecimal("21"), null, Interval.MONTHLY, LocalDate.of(2026, 9, 1), null, LocalDate.of(2026, 9, 1), true, false,
+                null, null, null, Instant.parse("2026-01-01T09:00:00Z"), VatRegime.BE, false, null, null, null, null, null);
+        when(definitions.findAll()).thenReturn(List.of(guessed));
+
+        CompanyCost cost = service.bookDue(LocalDate.of(2026, 9, 1)).getFirst();
+
+        assertEquals(VatRegime.BE, cost.vatRegime());
+        assertEquals(Boolean.FALSE, cost.vatRegimeConfirmed(), "the guess stays a guess on the booking");
     }
 
     @Test
