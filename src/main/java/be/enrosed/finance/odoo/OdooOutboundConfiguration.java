@@ -1,12 +1,13 @@
 package be.enrosed.finance.odoo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.util.*;
 
-@ApplicationScoped
+/** Immutable fields are read by collaborators, so inject the instance rather than a normal-scope client proxy. */
+@Singleton
 public class OdooOutboundConfiguration {
     final boolean enabled,sendEnabled;
     final Long journalId,incomeAccountId;

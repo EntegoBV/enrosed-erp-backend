@@ -116,6 +116,7 @@ public class OdooService {
         Map<Long,Journal> journals=new LinkedHashMap<>();long cursor=0;
         Set<String> journalFields=client.fields("account.journal");
         List<String> fields=new ArrayList<>(List.of("id","company_id","currency_id","name"));
+        if(journalFields.contains("bank_account_number"))fields.add("bank_account_number");
         if(journalFields.contains("bank_acc_number"))fields.add("bank_acc_number");
         while(true) {
             List<Object> domain=new ArrayList<>(List.of(List.of("company_id","=",config.companyId),List.of("type","in",List.of("bank","credit")),List.of("id",">",cursor)));
@@ -127,7 +128,9 @@ public class OdooService {
                 if(id<=cursor||relationId(row.path("company_id"))!=config.companyId)throw new OdooFailure("INVALID_RESPONSE");
                 cursor=id;
                 long currency=row.path("currency_id").isArray()?relationId(row.path("currency_id")):companyCurrency;
-                String account=text(row,"bank_acc_number").replaceAll("\\s","").toUpperCase(Locale.ROOT);
+                String account=text(row,"bank_account_number");
+                if(account.isBlank())account=text(row,"bank_acc_number");
+                account=account.replaceAll("\\s","").toUpperCase(Locale.ROOT);
                 if(account.isBlank())account="ODOO-"+config.sourceNamespace().substring(0,12)+"-J"+id;
                 if(account.length()>120)throw new OdooFailure("INVALID_RESPONSE");
                 journals.put(id,new Journal(id,account,currency));

@@ -1,10 +1,10 @@
-# Odoo 19 connector — test rollout
+# Odoo 19 connector — production reads and test outbound
 
 This connector uses an Odoo 19 JSON-2 API and imports bank movements into ENROSED. ENROSED remains responsible for local payment allocation. Bank/document reads are separated from an explicitly gated outbound invoice workflow. No method reconciles or modifies bank data in Odoo. There is no scheduler: connection checks, bank imports, draft creation and Peppol test submission require explicit administrator actions.
 
 ## Server configuration
 
-Configure these values only on the **test backend**, using the deployment secret store. Never put API keys in browser configuration, source control or screenshots.
+Configure values separately for each backend environment, using its deployment secret store. Production uses the read-only API configuration below; outbound experiments belong to a separate Odoo test database. Never put API keys in browser configuration, source control or screenshots.
 
 | Environment variable | Required | Meaning |
 | --- | --- | --- |
@@ -20,7 +20,19 @@ Configure these values only on the **test backend**, using the deployment secret
 | `ENROSED_ODOO_INCOME_ACCOUNT_ID` | For outbound | Explicit income account in the selected company |
 | `ENROSED_ODOO_VAT_TAX_IDS` | For outbound | JSON mapping from the exact ENROSED `VatTreatment` name to its configured Odoo sale-tax ID, for example `{"BINNENLAND":123}`. IDs are installation-specific; do not copy the example ID. Exempt treatments each need their own deliberate mapping. |
 
-These map to `enrosed.odoo.enabled`, `.base-url`, `.database`, `.api-key`, `.company-id`, `.journal-ids`. No external network request is made when disabled or incomplete. Odoo Online requires a plan permitting external API access, and JSON-2 requires Odoo 19. API-key permissions and company access remain enforced by Odoo. Minimum readable models: `res.company`, `res.currency`, `account.journal`, `account.bank.statement.line`, `account.move`, `ir.attachment`. Install/configure accounting, the bank provider, and Peppol separately in the Odoo test environment; the connector does not enroll a company in Peppol or configure KBC.
+These map to `enrosed.odoo.enabled`, `.base-url`, `.database`, `.api-key`, `.company-id`, `.journal-ids`. No external network request is made when disabled or incomplete. Odoo Online requires a plan permitting external API access, and JSON-2 requires Odoo 19. API-key permissions and company access remain enforced by Odoo. Minimum readable models: `res.company`, `res.currency`, `account.journal`, `account.bank.statement.line`, `account.move`, `ir.attachment`. Configure accounting, the bank provider, and Peppol in the intended Odoo environment separately; the connector does not enroll a company in Peppol or configure KBC.
+
+## Production read-only API configuration
+
+Production was configured on 2026-10-13. The authenticated ENROSED connection check confirmed the Odoo company and bank journal. The first bank import created all 74 accessible posted nonzero rows; a repeat created zero and reported all 74 unchanged. The latest available source transaction was dated 2026-10-08, so this verifies the data available in Odoo rather than the freshness of the upstream bank connection. The live document view listed 25 incoming and 8 outgoing documents with their available attachments and Odoo statuses. Live Peppol submission remains disabled.
+
+Use the production backend service's Railway variables for the five required settings: `ENROSED_ODOO_ENABLED`, `ENROSED_ODOO_BASE_URL`, `ENROSED_ODOO_DATABASE`, `ENROSED_ODOO_API_KEY` and `ENROSED_ODOO_COMPANY_ID`. The verified non-secret values are base URL `https://enrosed.odoo.com`, database `enrosed` and company ID `1`; `res.company` identifies that company as `ENROSED`, VAT `BE1034273386`. These identifiers were confirmed through the API, not inferred from the URL or an assumed first company. A dedicated integration user should have only the company and accounting read access needed above. Keep the connector disabled until all settings are ready.
+
+Pass the key to `railway variable set ENROSED_ODOO_API_KEY --stdin --skip-deploys`, with explicit production project, environment and backend-service arguments. Supply the value through standard input, never a `KEY=value` command argument; suppress secret-bearing command output. Stage the other settings with `--skip-deploys` as well, then deploy once to activate the complete configuration. Verify through authenticated `/api/odoo/status` and the explicit read-only `/api/odoo/check` action before requesting a bank import. Inspect the returned counts and document results to confirm what the configured Odoo account can actually read.
+
+Production deliberately leaves `ENROSED_ODOO_OUTBOUND_ENABLED` and `ENROSED_ODOO_SEND_ENABLED` unset, so both remain `false`. No outbound journal, income-account or tax mapping is needed for reads. Imports write bank rows only in ENROSED; the connector does not change or reconcile Odoo bank data. The existing outbound implementation remains restricted to Peppol test mode and cannot send a live production Peppol invoice.
+
+`.railway/railway.ts` preserves the five production variable names without storing their values. It neither creates credentials nor copies them to test. If optional journal scope or other Odoo variables are later configured, add their names to the corresponding environment's preserve list before the next `railway config apply`. The test backend stays disabled until separately configured with its own Odoo test database and key; never reuse the production key there.
 
 ## Behavior and limitations
 
@@ -54,9 +66,11 @@ All routes require the ERP administrator role.
 
 Document pagination returns `nextAfterId` and `hasMore`. Pass the previous `nextAfterId` to fetch older IDs. Connection status may be ready while Peppol is not installed: the document result reports `peppolSupported:false`. It does not claim Peppol registration or bank-provider freshness.
 
-## Required validation before production consideration
+## Validation checklist
 
-No real connection has been verified without test credentials. Test with a dedicated Odoo database: one reconciled and one unreconciled KBC line; multiple pages; duplicate sync; an EUR account paying a foreign invoice; a non-EUR journal; edits to an allocated line; purchase and sales XML/PDF attachments; a missing Peppol module; denied company/attachment permissions. Compare the imported count with the accessible Odoo statement-line count for the selected snapshot and journal scope.
+After configuring a new environment, check the bank journals, compare the imported count with the accessible Odoo statement-line count for the selected snapshot and journal scope, and verify available purchase and sales XML/PDF attachments. Exercise retries and exceptional cases against a dedicated Odoo test database: one reconciled and one unreconciled KBC line; multiple pages; duplicate sync; an EUR account paying a foreign invoice; a non-EUR journal; edits to an allocated line; a missing Peppol module; denied company/attachment permissions. Never alter production bank data to manufacture these test cases.
+
+The enabled configuration has a real CDI injection and HTTP status regression test: immutable configuration beans use singleton scope because their fields are read directly. Live Odoo saas 19.3 exposes journal IBANs as `bank_account_number` and attachment contents as `raw` (a base64 JSON string). The connector discovers these fields and retains the older `bank_acc_number` and `datas` fallbacks.
 
 ## Outbound controls and remaining verification
 

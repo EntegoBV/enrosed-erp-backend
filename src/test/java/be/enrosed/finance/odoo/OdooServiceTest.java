@@ -62,4 +62,40 @@ class OdooServiceTest {
         var fractional=good.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)fractional).put("amount",new BigDecimal("1.005"));
         assertThrows(OdooFailure.class,()->OdooBankMapper.map(fractional,"scope","bank",7,8,1));
     }
+    OdooService scopedService(Set<String> fields,String accountFields) throws Exception {
+        var service=new OdooService();service.client=mock(OdooClient.class);service.config=OdooClientTest.config();
+        when(service.client.search(eq("res.company"),anyList(),anyList(),eq(1),eq("id asc")))
+                .thenReturn(rows("[{\"id\":7,\"name\":\"Enrosed\",\"currency_id\":[1,\"EUR\"]}]"));
+        when(service.client.search(eq("res.currency"),anyList(),anyList(),eq(1),eq("id asc")))
+                .thenReturn(rows("[{\"id\":1,\"name\":\"EUR\"}]"));
+        when(service.client.fields("account.journal")).thenReturn(fields);
+        when(service.client.search(eq("account.journal"),anyList(),anyList(),eq(200),eq("id asc")))
+                .thenReturn(rows("[{\"id\":13,\"company_id\":[7,\"Enrosed\"],\"currency_id\":false,\"name\":\"KBC\""+accountFields+"}]"),rows("[]"));
+        return service;
+    }
+    @Test void readsTheCurrentSaasJournalAccountFieldWithoutRequestingAnUnavailableLegacyField() throws Exception {
+        var service=scopedService(Set.of("bank_account_number"),",\"bank_account_number\":\"be12 3456 7890 1234\"");
+        var scope=service.scope();
+        assertEquals("BE12345678901234",scope.journals().get(13L).account());
+        assertEquals(1,scope.journals().get(13L).currencyId());
+        verify(service.client,times(2)).search(eq("account.journal"),anyList(),eq(List.of("id","company_id","currency_id","name","bank_account_number")),eq(200),eq("id asc"));
+    }
+    @Test void prefersTheCurrentAccountFieldAndFallsBackToTheLegacyValueWhenBlank() throws Exception {
+        for(String current:List.of("be12 3456 7890 1234","   ")) {
+            var service=scopedService(Set.of("bank_account_number","bank_acc_number"),",\"bank_account_number\":\""+current+"\",\"bank_acc_number\":\"be98 7654 3210 9876\"");
+            assertEquals(current.isBlank()?"BE98765432109876":"BE12345678901234",service.scope().journals().get(13L).account());
+        }
+    }
+    @Test void retainsLegacyJournalSchemaSupport() throws Exception {
+        var service=scopedService(Set.of("bank_acc_number"),",\"bank_acc_number\":\"be98 7654 3210 9876\"");
+        assertEquals("BE98765432109876",service.scope().journals().get(13L).account());
+        verify(service.client,times(2)).search(eq("account.journal"),anyList(),eq(List.of("id","company_id","currency_id","name","bank_acc_number")),eq(200),eq("id asc"));
+    }
+    @Test void missingOrBlankJournalAccountKeepsTheStableSyntheticFallback() throws Exception {
+        for(String fields:List.of("",",\"bank_account_number\":false",",\"bank_account_number\":\"   \",\"bank_acc_number\":\"\"")) {
+            var service=scopedService(fields.isEmpty()?Set.of():Set.of("bank_account_number","bank_acc_number"),fields);
+            assertEquals("ODOO-"+service.config.sourceNamespace().substring(0,12)+"-J13",service.scope().journals().get(13L).account());
+        }
+    }
+
 }

@@ -1,14 +1,15 @@
 package be.enrosed.finance.odoo;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 
-@ApplicationScoped
+/** Immutable fields are read by collaborators, so inject the instance rather than a normal-scope client proxy. */
+@Singleton
 public class OdooConfiguration {
     final boolean enabled;
     final String baseUrl, database, apiKey;

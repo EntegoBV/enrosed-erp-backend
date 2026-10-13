@@ -47,6 +47,16 @@ const VARIABLES = [
   "WEBSITE_PUBLIC_REVISION_URL",
 ];
 
+// The live read connection belongs to production. Test remains disabled and
+// must use its own Odoo database and credentials if it is configured later.
+const PRODUCTION_ONLY_VARIABLES = [
+  "ENROSED_ODOO_ENABLED",
+  "ENROSED_ODOO_BASE_URL",
+  "ENROSED_ODOO_DATABASE",
+  "ENROSED_ODOO_API_KEY",
+  "ENROSED_ODOO_COMPANY_ID",
+];
+
 const TEST_ONLY_VARIABLES = [
   "CCFI_AUTOMATED_ACCESS_AUTHORIZED",
   "DAILY_AGENDA_PUSH_CRON",
@@ -71,7 +81,9 @@ export default defineRailway((ctx) => {
         "Link the directory to test or production and use a current Railway CLI.",
     );
   }
-  const variables = production ? VARIABLES : [...VARIABLES, ...TEST_ONLY_VARIABLES];
+  const variables = production
+    ? [...VARIABLES, ...PRODUCTION_ONLY_VARIABLES]
+    : [...VARIABLES, ...TEST_ONLY_VARIABLES];
 
   const backend = service("enrosed-erp-backend", {
     source: github("EntegoBV/enrosed-erp-backend", {
