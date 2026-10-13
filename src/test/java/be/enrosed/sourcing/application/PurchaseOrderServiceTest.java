@@ -744,8 +744,8 @@ class PurchaseOrderServiceTest {
 
         assertEquals(Clearance.BE_CUSTOMS, Clearance.suggestedFor("Antwerp"));
         assertEquals(Clearance.BE_CUSTOMS, Clearance.suggestedFor("antwerpen"));
-        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, Clearance.suggestedFor("Rotterdam"));
-        assertEquals(Clearance.NL_FISCAL_REP_TO_BE, Clearance.suggestedFor(null));
+        assertEquals(Clearance.NL_FISCAL_REP_SOLD_IN_NL, Clearance.suggestedFor("Rotterdam"));
+        assertEquals(Clearance.NL_FISCAL_REP_SOLD_IN_NL, Clearance.suggestedFor(null));
         assertNull(Clearance.parse("SOMETHING_ELSE"), "unknown stored text reads as 'te bevestigen'");
     }
 

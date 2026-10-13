@@ -14,10 +14,14 @@ import java.util.Locale;
 public enum Clearance {
     BE_CUSTOMS, NL_FISCAL_REP_TO_BE, NL_FISCAL_REP_SOLD_IN_NL;
 
-    /** The suggestion from the port of arrival: Antwerp clears in Belgium, every other port through the representative. */
+    /**
+     * The suggestion from the port of arrival: Antwerp clears in Belgium; every
+     * other port through the representative in the Netherlands, where the goods
+     * usually stay (at the transport partner's) until they are sold.
+     */
     public static Clearance suggestedFor(String destinationPort) {
         String port = destinationPort == null ? "" : destinationPort.strip().toLowerCase(Locale.ROOT);
-        return port.contains("antwerp") ? BE_CUSTOMS : NL_FISCAL_REP_TO_BE;
+        return port.contains("antwerp") ? BE_CUSTOMS : NL_FISCAL_REP_SOLD_IN_NL;
     }
 
     /** The stored text back as a clearance; null for null or a text this version does not know. */
