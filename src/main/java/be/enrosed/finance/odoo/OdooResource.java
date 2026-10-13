@@ -31,7 +31,7 @@ public class OdooResource {
     @Provider public static class FailureMapper implements ExceptionMapper<OdooFailure> {
         @Override public Response toResponse(OdooFailure failure) {
             int status=switch(failure.code) {
-                case "INVALID_REQUEST" -> 400;case "NOT_FOUND" -> 404;case "BUSY","LEASE_LOST" -> 409;
+                case "INVALID_REQUEST","PURCHASE_CURRENCY_UNSUPPORTED","PURCHASE_DOCUMENT_UNAVAILABLE" -> 400;case "NOT_FOUND" -> 404;case "BUSY","LEASE_LOST","PURCHASE_PREVIEW_CHANGED" -> 409;
                 case "ATTACHMENT_TOO_LARGE" -> 413;case "DISABLED","NOT_CONFIGURED","INVALID_CONFIGURATION","OUTBOUND_DISABLED","OUTBOUND_NOT_CONFIGURED" -> 503;
                 default -> failure.code.startsWith("OUTBOX_")||failure.code.equals("CREDIT_REFERENCE_MISSING")?409:502;
             };

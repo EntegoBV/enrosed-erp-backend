@@ -109,6 +109,7 @@ COPY docs/migrations/2026-10-12/bank-links-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-12/vat-regimes-and-cost-payments-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-13/odoo-bank-source-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-13/bank-account-registry-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-13/odoo-cost-import-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

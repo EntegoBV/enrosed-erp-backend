@@ -25,6 +25,7 @@ import java.util.List;
 public class CompanyCostResource {
 
     private final CompanyCostService costs;
+    @jakarta.inject.Inject be.enrosed.finance.odoo.OdooCostImportStore sourceDocuments;
 
     public CompanyCostResource(CompanyCostService costs) {
         this.costs = costs;
@@ -40,6 +41,9 @@ public class CompanyCostResource {
     public CostView get(@PathParam("id") long id) {
         return costs.view(costs.get(id));
     }
+
+    @GET @Path("/{id}/odoo-source")
+    public be.enrosed.finance.odoo.OdooCostImportStore.Source source(@PathParam("id") long id) { costs.get(id); return sourceDocuments.source(id); }
 
     @POST
     public Response create(CompanyCost cost) {

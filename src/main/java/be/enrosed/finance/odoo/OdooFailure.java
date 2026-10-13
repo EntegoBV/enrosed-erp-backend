@@ -16,6 +16,9 @@ public final class OdooFailure extends RuntimeException {
             case "COMPANY_UNAVAILABLE" -> "De ingestelde Odoo-administratie is niet toegankelijk.";
             case "NO_JOURNALS" -> "Er zijn geen toegankelijke bankdagboeken binnen de ingestelde selectie.";
             case "JOURNAL_ACCOUNT_MISMATCH" -> "Het Odoo-bankdagboek hoort niet bij de gekoppelde rekening. Controleer de rekeningverbinding; er zijn geen nieuwe bankregels geïmporteerd.";
+            case "PURCHASE_DOCUMENT_UNAVAILABLE" -> "Kies een ontvangen factuur of leverancierscreditnota die niet geannuleerd is.";
+            case "PURCHASE_CURRENCY_UNSUPPORTED" -> "Deze ontvangen factuur is niet in euro; registreer eerst de juiste omrekening.";
+            case "PURCHASE_PREVIEW_CHANGED" -> "De factuur is gewijzigd sinds het voorbeeld. Open het voorbeeld opnieuw; er is niets geregistreerd.";
             case "BUSY" -> "Er loopt al een Odoo-banksynchronisatie.";
             case "LEASE_LOST" -> "De banksynchronisatie is onderbroken. Start opnieuw; bestaande imports blijven behouden.";
             case "RATE_LIMITED" -> "Odoo laat tijdelijk geen extra API-aanvragen toe. Probeer later opnieuw.";

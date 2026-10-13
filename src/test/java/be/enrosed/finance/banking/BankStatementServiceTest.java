@@ -349,6 +349,145 @@ class BankStatementServiceTest {
         return new BankStatementService.ExternalRequest(id,"KBC",new BigDecimal(amount),AT,"Europe/Brussels","Betaling","Leverancier",AT,reconciled);
     }
 
+    @Test @TestTransaction void existingSalesPaymentMatchesWithinTwoCentsWithoutRewritingReceipt() {
+        var invoice=invoice("100");
+        incoming.add(invoice.id(),new IncomingPaymentService.Request(new BigDecimal("121"),AT,"Europe/Brussels","Original reference"));
+        var original=incoming.forOrder(invoice.id()).getFirst();
+        var near=bank.importExternal(external("two-cent-receipt","121.02",false));
+        var far=bank.importExternal(external("three-cent-receipt","121.03",false));
+        var request=new BankStatementService.Allocation(invoice.id(),original.id());
+        assertTrue(bank.suggestions(near.id()).stream().anyMatch(match->original.id().equals(match.existingPaymentId())));
+        assertThrows(BusinessRuleException.class,()->bank.allocate(far.id(),request));
+        var saved=bank.allocate(near.id(),request);
+        assertEquals(new BigDecimal("121.02"),saved.amountEur);
+        assertEquals(new BigDecimal("121.00"),saved.allocatedAmountEur);
+        assertEquals(new BigDecimal("0.02"),saved.allocationDifferenceEur);
+        var after=incoming.forOrder(invoice.id()).getFirst();
+        assertEquals(original.amountEur(),after.amountEur());assertEquals(original.receivedAt(),after.receivedAt());
+        assertEquals(original.reference(),after.reference());assertEquals(original.recordedAt(),after.recordedAt());
+        assertEquals(saved.id,bank.allocate(near.id(),request).id);
+        assertEquals(1,incoming.forOrder(invoice.id()).size());
+        bank.unallocate(near.id());
+        var free=bank.list().stream().filter(row->row.id.equals(near.id())).findFirst().orElseThrow();
+        assertNull(free.allocatedAmountEur);assertNull(free.allocationDifferenceEur);
+    }
+
+    @Test @TestTransaction void newSalesReceiptAndRefundCloseDocumentWithinTwoCentsWithoutChangingBankAmount() {
+        var invoice=invoice("100");
+        var line=bank.importExternal(external("new-near-receipt","120.98",false));
+        var allocated=bank.allocate(line.id(),new BankStatementService.Allocation(invoice.id(),null));
+        assertEquals(new BigDecimal("120.98"),allocated.amountEur);
+        assertEquals(new BigDecimal("121.00"),incoming.forOrder(invoice.id()).getFirst().amountEur());
+        assertEquals(new BigDecimal("-0.02"),allocated.allocationDifferenceEur);
+        assertEquals(BigDecimal.ZERO.setScale(2),summary(invoice.id()).remainingEur());
+        var credit=invoice("-100");
+        var refund=bank.importExternal(external("new-near-refund","-121.02",false));
+        var refunded=bank.allocate(refund.id(),new BankStatementService.Allocation(credit.id(),null));
+        assertEquals(new BigDecimal("-121.02"),refunded.amountEur);
+        assertEquals(new BigDecimal("-121.00"),incoming.forOrder(credit.id()).getFirst().amountEur());
+        assertEquals(new BigDecimal("-0.02"),refunded.allocationDifferenceEur);
+        assertEquals(BigDecimal.ZERO.setScale(2),summary(credit.id()).refundableEur());
+    }
+
+    @Test @TestTransaction void mixedExistingPaymentsUseOneAggregateAllowanceAndNoDoubleCountForCostHeader() {
+        var order=container();
+        var purchase=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("60"),Currency.EUR,"Goods");
+        var cost=costs.create(cost("Difference fixture","39.98",null));
+        var payment=costs.addPayment(cost.id(),payment("39.98",LocalDate.of(2026,9,8))).payments().getFirst();
+        var near=bank.importExternal(external("aggregate-two","-100",false));
+        var far=bank.importExternal(external("aggregate-three","-100.01",false));
+        var request=new BankStatementService.OutgoingLinks(java.util.List.of(purchase.id()),cost.id(),payment.id());
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(far.id(),request));
+        var saved=bank.linkExisting(near.id(),request);
+        assertEquals(new BigDecimal("-99.98"),saved.allocatedAmountEur);
+        assertEquals(new BigDecimal("-0.02"),saved.allocationDifferenceEur);
+        var listed=bank.list().stream().filter(row->row.id.equals(saved.id)).findFirst().orElseThrow();
+        assertEquals(saved.allocatedAmountEur,listed.allocatedAmountEur);
+        assertEquals(new BigDecimal("60.00"),purchases.payments(order.id()).getFirst().amountEur());
+        assertEquals(new BigDecimal("39.98"),costs.paymentsOf(cost.id()).getFirst().amountEur());
+        assertEquals(saved.id,bank.linkExisting(saved.id,request).id);
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(far.id(),request),"another bank line must not reuse either payment");
+    }
+
+    @Test @TestTransaction void incomingSupplierRefundMatchesNegativeCostPaymentAndKeepsCreditAmounts() {
+        var document=new be.enrosed.finance.odoo.OdooDocumentService.Document(901,"Credit-901","CN-FIXTURE","KBC","2026-09-08",
+                "in_refund","posted","EUR",new BigDecimal("95.58"),null,null,java.util.List.of());
+        var credit=costs.createImported(new be.enrosed.finance.odoo.OdooDocumentService.PurchaseSnapshot("fixture",1,document,1,"BE0000000000","BE",
+                new BigDecimal("-95.58"),BigDecimal.ZERO.setScale(2),new BigDecimal("-95.58"),"2026-09-08T10:00:00Z","fixture"),"OVERIG");
+        var line=bank.importExternal(external("cost-credit","95.60",false));
+        var saved=bank.recordCostPayment(line.id(),new BankStatementService.CostAllocation(credit.id()));
+        var payment=costs.paymentsOf(credit.id()).getFirst();
+        assertEquals(new BigDecimal("-95.58"),payment.amountEur());
+        assertEquals(new BigDecimal("-95.58"),costs.get(credit.id()).totalInclEur());
+        assertEquals(new BigDecimal("95.60"),saved.amountEur);
+        assertEquals(new BigDecimal("95.58"),saved.allocatedAmountEur);
+        assertEquals(new BigDecimal("0.02"),saved.allocationDifferenceEur);
+        assertEquals(saved.id,bank.recordCostPayment(line.id(),new BankStatementService.CostAllocation(credit.id())).id);
+        assertEquals(1,costs.paymentsOf(credit.id()).size());
+        bank.unlinkExisting(saved.id);
+        var wrong=bank.importExternal(external("wrong-credit-direction","-95.58",false));
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(wrong.id(),new BankStatementService.OutgoingLinks(null,credit.id(),payment.id())));
+        assertEquals(payment.amountEur(),costs.paymentsOf(credit.id()).getFirst().amountEur());
+    }
+
+    @Test @TestTransaction void newCostPaymentUsesRemainingWithinToleranceAndNeverDuplicatesAnAlreadyPaidCost() {
+        var cost=costs.create(cost("Near cost","100",null));
+        var line=bank.importExternal(external("near-cost","-99.98",false));
+        var saved=bank.recordCostPayment(line.id(),new BankStatementService.CostAllocation(cost.id()));
+        assertEquals(new BigDecimal("100.00"),costs.paymentsOf(cost.id()).getFirst().amountEur());
+        assertEquals(new BigDecimal("0.02"),saved.allocationDifferenceEur);
+        var another=bank.importExternal(external("paid-cost","-100",false));
+        assertThrows(BusinessRuleException.class,()->bank.recordCostPayment(another.id(),new BankStatementService.CostAllocation(cost.id())));
+        assertEquals(1,costs.paymentsOf(cost.id()).size());
+    }
+
+    @Test @TestTransaction void toleranceCannotAppendAnotherPaymentToAnAlreadyAllocatedBankLine() {
+        var order=container();
+        var first=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("100"),Currency.EUR,"Existing allocation");
+        var extra=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),new BigDecimal("0.01"),Currency.EUR,"Different payment");
+        var line=bank.importExternal(external("no-appending","-100",false));
+        bank.linkExisting(line.id(),new BankStatementService.OutgoingLinks(java.util.List.of(first.id()),null,null));
+        assertThrows(BusinessRuleException.class,()->bank.linkExisting(line.id(),
+                new BankStatementService.OutgoingLinks(java.util.List.of(first.id(),extra.id()),null,null)));
+        assertNull(purchases.payments(order.id()).stream().filter(p->p.id().equals(extra.id())).findFirst().orElseThrow().bankStatementLineId());
+        assertEquals(new BigDecimal("-100.00"),bank.list().getFirst().allocatedAmountEur);
+    }
+
+    @Test void competingBankLinesCannotBothTakeTheSameExistingCostPayment() throws Exception {
+        var fixture=io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(()->{
+            var cost=costs.create(cost("Concurrent bank allocation","50",null));
+            var payment=costs.addPayment(cost.id(),payment("50",LocalDate.of(2026,9,8))).payments().getFirst();
+            var first=bank.importExternal(external("concurrent-first","-50.01",false));
+            var second=bank.importExternal(external("concurrent-second","-49.99",false));
+            return new long[]{cost.id(),payment.id(),first.id(),second.id()};
+        });
+        var ready=new java.util.concurrent.CountDownLatch(2);
+        var start=new java.util.concurrent.CountDownLatch(1);
+        try {
+            java.util.function.LongFunction<java.util.concurrent.CompletableFuture<Boolean>> attempt=id->java.util.concurrent.CompletableFuture.supplyAsync(()->{
+                ready.countDown();
+                try { if(!start.await(10,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("Allocation workers did not start"); }
+                catch(InterruptedException interrupted) { Thread.currentThread().interrupt();throw new AssertionError(interrupted); }
+                try { bank.linkExisting(id,new BankStatementService.OutgoingLinks(null,fixture[0],fixture[1]));return true; }
+                catch(BusinessRuleException alreadyLinked) { return false; }
+            });
+            var first=attempt.apply(fixture[2]);var second=attempt.apply(fixture[3]);
+            assertTrue(ready.await(10,java.util.concurrent.TimeUnit.SECONDS));start.countDown();
+            assertNotEquals(first.get(20,java.util.concurrent.TimeUnit.SECONDS),second.get(20,java.util.concurrent.TimeUnit.SECONDS),"exactly one bank line may acquire the payment");
+            var rows=costs.paymentsOf(fixture[0]);assertEquals(1,rows.size());
+            assertEquals(new BigDecimal("50.00"),rows.getFirst().amountEur());
+            assertTrue(java.util.Set.of(fixture[2],fixture[3]).contains(rows.getFirst().bankStatementLineId()));
+            assertEquals(1,bank.list().stream().filter(row->row.id==fixture[2]||row.id==fixture[3]).filter(row->row.allocated).count());
+        } finally {
+            start.countDown();
+            io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(()->{
+                em.createQuery("delete from CostPaymentEntity p where p.companyCostId=:id").setParameter("id",fixture[0]).executeUpdate();
+                em.createQuery("delete from CompanyCostEntity c where c.id=:id").setParameter("id",fixture[0]).executeUpdate();
+                em.createQuery("delete from BankStatementLineEntity b where b.id in :ids").setParameter("ids",java.util.List.of(fixture[2],fixture[3])).executeUpdate();
+            });
+        }
+    }
+
     @Test @TestTransaction void deletingLastLinkedCostPaymentFreesImportedMovementAndReopensCost() {
         var cost=costs.create(cost("Abonnement","42",null));
         var payment=costs.addPayment(cost.id(),payment("42",LocalDate.of(2026,9,8))).payments().getFirst();

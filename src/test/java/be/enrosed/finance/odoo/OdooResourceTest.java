@@ -28,4 +28,20 @@ class OdooResourceTest {
         store.acquire(key,"second");store.finish(key,"second","{\"complete\":true}");
         assertEquals("{\"complete\":true}",store.snapshot(key).lastSyncJson());
     }
+
+    @Test void incomingImportAndSourceAreNotPublic() {
+        given().get("/api/bank-statements/1/odoo-purchase-invoices").then().statusCode(401);
+        given().get("/api/bank-statements/1/odoo-purchase-invoices/10/preview").then().statusCode(401);
+        given().contentType("application/json").body("{}").post("/api/bank-statements/1/odoo-purchase-invoice").then().statusCode(401);
+        given().get("/api/costs/1/odoo-source").then().statusCode(401);
+    }
+    @Test @TestSecurity(user="staff-fixture",roles="staff") void incomingImportRequiresAdmin() {
+        given().get("/api/bank-statements/1/odoo-purchase-invoices").then().statusCode(403);
+        given().contentType("application/json").body("{}").post("/api/bank-statements/1/odoo-purchase-invoice").then().statusCode(403);
+        given().get("/api/costs/1/odoo-source").then().statusCode(403);
+    }
+    @Test @TestSecurity(user="test-admin",roles="admin") void importRoutesClearlyRejectUnconfiguredProvider() {
+        given().get("/api/bank-statements/1/odoo-purchase-invoices").then().statusCode(503).body("code",is("DISABLED"));
+        given().contentType("application/json").body("{}").post("/api/bank-statements/1/odoo-purchase-invoice").then().statusCode(503).body("code",is("DISABLED"));
+    }
 }

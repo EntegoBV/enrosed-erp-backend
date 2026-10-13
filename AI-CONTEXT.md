@@ -1377,3 +1377,19 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   correction is an edit of the cost), line-level VAT, foreign VAT refund
   claims, the December advance (abolished), degressive depreciation, manual
   61/62 regularisations, a bank-side 'Aan kost koppelen…' action.
+
+## Received Odoo documents and bank differences (2026-10-13)
+
+- `OdooPurchaseImportService` reads a bank-specific received invoice/credit list, makes an
+  immutable refreshed preview, downloads PDF/XML, and delegates all financial writes to
+  `OdooCostImportStore`. See `docs/integrations/odoo-test-connector.md` for REST contracts.
+- Source identity `(namespace, company, move ID)` and local cost are unique in
+  `odoo_cost_import`; failed registration leaves only a retryable empty identity reservation.
+  Keep that provenance if a local cost is deleted. No Odoo write occurs during this import.
+- Original gross/net/VAT and provider draft/posted state are retained. Supplier credits are
+  negative costs/payments. Mixed-tax invoices do not acquire a fictional single tax rate;
+  classification/deductibility remain unconfirmed. Original source fields cannot be locally edited.
+- `BankAmountMatch` is the shared signed EUR 0.02 tolerance, checked once on the whole
+  allocation; never per split. `allocatedAmountEur`/`allocationDifferenceEur` are derived from
+  real payment links and preserve both original bank and payment amounts.
+- Migration `2026-10-13/odoo-cost-import-postgresql.sql` runs after the bank-account registry.

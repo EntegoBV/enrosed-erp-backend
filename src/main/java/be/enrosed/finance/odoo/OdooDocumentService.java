@@ -5,6 +5,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.LocalDate;
 import java.util.*;
 import static be.enrosed.finance.odoo.OdooBankMapper.*;
 
@@ -23,6 +27,60 @@ public class OdooDocumentService {
                            String currency,BigDecimal total,String peppolState,String peppolMessageId,List<Attachment> attachments) {}
     public record Page(List<Document> documents,long nextAfterId,boolean hasMore,boolean peppolSupported) {}
     public record Download(String name,String mimeType,byte[] bytes) {}
+    public record PurchaseSnapshot(String namespace,long companyId,Document document,long partnerId,String partnerVat,
+                                   String supplierCountry,BigDecimal netEur,BigDecimal vatEur,BigDecimal totalEur,
+                                   String sourceUpdatedAt,String hash) {}
+
+    /** Refresh financial facts from the configured company; list totals and filenames are never import authority. */
+    public PurchaseSnapshot purchaseSnapshot(long id) {
+        config.requireReady();if(id<=0)throw new OdooFailure("INVALID_REQUEST");
+        Set<String> available=client.fields("account.move");
+        List<String> fields=new ArrayList<>(DOCUMENT_FIELDS);
+        fields.addAll(List.of("company_id","amount_untaxed","amount_tax","write_date"));
+        if(!available.containsAll(fields))throw new OdooFailure("UNSUPPORTED_SCHEMA");
+        if(available.contains("peppol_move_state"))fields.add("peppol_move_state");
+        if(available.contains("peppol_message_uuid"))fields.add("peppol_message_uuid");
+        JsonNode result=client.search("account.move",List.of(List.of("id","=",id),List.of("company_id","=",config.companyId),
+                List.of("move_type","in",List.of("in_invoice","in_refund"))),fields,1,"id asc");
+        if(result.size()!=1)throw new OdooFailure("NOT_FOUND");
+        JsonNode row=result.get(0);
+        if(positiveId(row.path("id"))!=id||relationId(row.path("company_id"))!=config.companyId)throw new OdooFailure("INVALID_RESPONSE");
+        String type=text(row,"move_type"),state=text(row,"state");
+        if(!Set.of("in_invoice","in_refund").contains(type)||!Set.of("draft","posted").contains(state))throw new OdooFailure("PURCHASE_DOCUMENT_UNAVAILABLE");
+        if(!"EUR".equals(relationName(row,"currency_id")))throw new OdooFailure("PURCHASE_CURRENCY_UNSUPPORTED");
+        String date=text(row,"invoice_date"),updated=text(row,"write_date");
+        try { LocalDate.parse(date); } catch(Exception invalid) { throw new OdooFailure("INVALID_RESPONSE"); }
+        if(updated.isBlank())throw new OdooFailure("INVALID_RESPONSE");
+        BigDecimal net=cents(row,"amount_untaxed"),vat=cents(row,"amount_tax"),total=cents(row,"amount_total");
+        if(net.signum()<0||vat.signum()<0||total.signum()<=0||net.add(vat).compareTo(total)!=0)throw new OdooFailure("INVALID_RESPONSE");
+        long partnerId=relationId(row.path("partner_id"));
+        JsonNode partners=client.search("res.partner",List.of(List.of("id","=",partnerId)),List.of("id","name","vat","country_id"),1,"id asc");
+        if(partners.size()!=1||positiveId(partners.get(0).path("id"))!=partnerId)throw new OdooFailure("INVALID_RESPONSE");
+        JsonNode partner=partners.get(0);String country=null;
+        if(partner.path("country_id").isArray()) {
+            long countryId=relationId(partner.path("country_id"));
+            JsonNode countries=client.search("res.country",List.of(List.of("id","=",countryId)),List.of("id","code"),1,"id asc");
+            if(countries.size()!=1||positiveId(countries.get(0).path("id"))!=countryId)throw new OdooFailure("INVALID_RESPONSE");
+            country=text(countries.get(0),"code").toUpperCase(Locale.ROOT);
+            if(!country.matches("[A-Z]{2}"))throw new OdooFailure("INVALID_RESPONSE");
+        }
+        Document document=new Document(id,text(row,"name"),text(row,"ref"),text(partner,"name"),date,type,state,"EUR",total,
+                optionalText(row,"peppol_move_state"),optionalText(row,"peppol_message_uuid"),List.copyOf(attachments(List.of(id)).getOrDefault(id,List.of())));
+        if(document.partner().isBlank())throw new OdooFailure("INVALID_RESPONSE");
+        if(type.equals("in_refund")) {net=net.negate();vat=vat.negate();total=total.negate();}
+        String namespace=config.sourceNamespace(),partnerVat=text(partner,"vat");
+        String hash=hash(String.join("\n",namespace,Long.toString(config.companyId),Long.toString(id),type,state,date,updated,
+                Long.toString(partnerId),document.partner(),partnerVat,Objects.toString(country,""),document.name(),document.reference(),net.toPlainString(),vat.toPlainString(),total.toPlainString()));
+        return new PurchaseSnapshot(namespace,config.companyId,document,partnerId,partnerVat,country,net,vat,total,updated,hash);
+    }
+    private static BigDecimal cents(JsonNode row,String field) {
+        try { if(!row.path(field).isNumber())throw new IllegalArgumentException();return row.path(field).decimalValue().setScale(2,RoundingMode.UNNECESSARY); }
+        catch(Exception invalid) {throw new OdooFailure("INVALID_RESPONSE");}
+    }
+    private static String hash(String value) {
+        try {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}
+        catch(Exception impossible) {throw new IllegalStateException(impossible);}
+    }
     public Page documents(String direction,long afterId,int limit) {
         config.requireReady();
         if(!Set.of("incoming","outgoing").contains(direction)||afterId<0||limit<1||limit>100)throw new OdooFailure("INVALID_REQUEST");

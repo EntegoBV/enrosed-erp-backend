@@ -89,3 +89,49 @@ The unique local invoice entry has a SHA-256 snapshot and stable remote `ref` ma
 Posting uses public `account.move.action_post`. Peppol submission uses public `account.move.send.wizard.create` with only `sending_methods:["peppol"]`, followed by `action_send_and_print` with PDF fallback disabled. No email fallback is enabled and no private Odoo method is called. `processing`/`to_send` are queued states, not delivery confirmation. `done` is shown as the upstream Odoo status. These paths are unit tested against controlled responses, **not yet verified with a real Odoo test database**. Exact Odoo subscription, permissions, journal sequence, tax setup and Peppol test registration remain required integration checks.
 
 References: [Odoo JSON-2 documentation](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html), [Odoo 19 statement line source](https://github.com/odoo/odoo/blob/19.0/addons/account/models/account_bank_statement_line.py), [Odoo 19 Peppol invoice states](https://github.com/odoo/odoo/blob/19.0/addons/account_peppol/models/account_move.py).
+
+## Incoming invoice registration from a bank movement
+
+An admin can explicitly select a received Odoo bill (`in_invoice`, outgoing bank movement)
+or supplier credit (`in_refund`, incoming bank movement). Both `draft` and `posted` provider
+states are accepted; cancelled documents and non-EUR documents are refused. Odoo drafts
+received via Peppol are source invoices, not ENROSED-issued documents. No remote document
+is posted, changed or paid by this workflow.
+
+- `GET /api/bank-statements/{id}/odoo-purchase-invoices?afterId=0&limit=50` returns the
+  existing flat Odoo document fields plus `companyCostId`, `registered`, `eligible`,
+  `unavailableReason`. Pagination is the same descending Odoo-ID cursor as the document list.
+- `GET /api/bank-statements/{id}/odoo-purchase-invoices/{documentId}/preview` refreshes the
+  source financial facts. Optional `existingCompanyCostId` validates an explicitly selected
+  candidate. It returns `document`, `snapshotHash`, signed `invoiceTotalEur`, `netEur`,
+  `vatEur`, `paymentAmountEur`, `differenceEur`, `supplierCountry`, `companyCostId`,
+  `existingCandidates`, `eligible`, `unavailableReason`, and `actionMessage`.
+- `POST /api/bank-statements/{id}/odoo-purchase-invoice` requires
+  `{odooInvoiceId,snapshotHash,existingCompanyCostId?,category?}`. The reply contains
+  `{line,companyCostId,alreadyRegistered,invoiceTotalEur,paymentAmountEur,differenceEur,documentsSaved}`.
+- `GET /api/costs/{id}/odoo-source` returns null or the immutable source snapshot,
+  saved attachment-to-media IDs and registration time. Original draft/posted state,
+  Peppol evidence, supplier identity and exact source net/VAT/gross remain available.
+
+A unique source namespace/company/move identity prevents duplicate registration and is
+retained even if the local cost is later deleted. Existing-cost candidates require explicit
+selection and financial validation; monthly invoices are not merged by amount alone.
+A provider refresh before registration rejects a changed preview. Downloads occur before
+one DB transaction creates/adopts the cost, reuses/creates its payment, links the selected
+bank movement, saves PDF/XML media and records provenance. An invalid document rolls all
+financial writes back. XML is stored as a downloadable binary document, never executed.
+Same-bank retries return the original local IDs without another payment. Exclusive historical
+manual bank links may move to the selected real bank movement while preserving payment IDs
+and the historical row. An existing imported-bank link is never silently moved.
+
+Gross means `account.move.amount_total`, not the residual/payable balance. Mixed VAT totals
+are preserved exactly, without an invented blended percentage; VAT classification and
+eligibility for deduction remain unconfirmed until reviewed. Supplier credits create negative
+costs and negative cost payments. Original source amounts, date, supplier and reference cannot
+be edited through the ordinary local cost form.
+
+Bank matching allows at most EUR 0.02 between the **signed bank amount and the complete
+signed allocation**, with consistent cash direction for every component. Original amounts
+are never rounded into agreement. DTO `allocatedAmountEur` and `allocationDifferenceEur`
+show the signed allocation and `bank - allocation` difference. A new payment closes the
+original remaining cost within this tolerance; existing payment amounts remain unchanged.

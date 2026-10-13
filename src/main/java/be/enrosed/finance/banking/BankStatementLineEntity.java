@@ -28,4 +28,8 @@ public class BankStatementLineEntity {
     /** Local allocations, never inferred from the provider's reconciliation flag. */
     @Transient public boolean allocated;
     @Transient public String allocationLabel;
+    /** Signed bank amount explained by the original linked payments, without tolerance adjustments. */
+    @Transient public BigDecimal allocatedAmountEur;
+    /** Actual bank amount minus the signed allocation; null while unallocated. */
+    @Transient public BigDecimal allocationDifferenceEur;
 }

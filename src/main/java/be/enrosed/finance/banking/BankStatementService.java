@@ -66,11 +66,8 @@ public class BankStatementService {
 
     public List<BankStatementLineEntity> list() {
         var rows=em.createQuery("from BankStatementLineEntity order by bookedAt desc,id desc",BankStatementLineEntity.class).getResultList();
-        // Fetch reverse links once, including costs recorded before individual payment rows existed.
-        Set<Long> purchase=new HashSet<>(em.createQuery("select distinct p.bankStatementLineId from PurchasePaymentEntity p where p.bankStatementLineId is not null",Long.class).getResultList());
-        Set<Long> costs=new HashSet<>(em.createQuery("select distinct p.bankStatementLineId from CostPaymentEntity p where p.bankStatementLineId is not null",Long.class).getResultList());
-        costs.addAll(em.createQuery("select distinct c.bankStatementLineId from CompanyCostEntity c where c.bankStatementLineId is not null",Long.class).getResultList());
-        for(var row:rows)describe(row,purchase.contains(row.id),costs.contains(row.id));
+        var amounts=allocationAmounts(null);
+        for(var row:rows)describe(row,amounts);
         return rows;
     }
 
@@ -111,7 +108,7 @@ public class BankStatementService {
     public BankStatementLineEntity linkExisting(long id,OutgoingLinks request) {
         var row=get(id,true);
         if(request==null)throw new BusinessRuleException("Kies de betaling die bij deze banktransactie hoort");
-        if(row.amountEur.signum()>=0||row.salesPaymentId!=null)throw new BusinessRuleException("Kies een vrije uitgaande banktransactie");
+        if(row.amountEur.signum()==0||row.salesPaymentId!=null)throw new BusinessRuleException("Kies een vrije banktransactie");
         var ids=request.purchasePaymentIds()==null?List.<Long>of():request.purchasePaymentIds();
         if(ids.stream().anyMatch(Objects::isNull)||new HashSet<>(ids).size()!=ids.size())throw new BusinessRuleException("Kies elke betaling maar één keer");
         List<SourcingEntities.PurchasePaymentEntity> purchases=new ArrayList<>();
@@ -122,6 +119,7 @@ public class BankStatementService {
         for(long paymentId:ids.stream().sorted().toList()) {
             var payment=em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            if(payment.amountEur.signum()<=0||row.amountEur.signum()>=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
             if(payment.bankStatementLineId!=null&&!payment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
             if(em.createQuery("select count(c) from be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseSupplierCreditEntity c where c.offsetPaymentId=:id",Long.class).setParameter("id",paymentId).getSingleResult()>0)
                 throw new BusinessRuleException("Een verrekend leverancierstegoed is geen bankbetaling");
@@ -152,21 +150,29 @@ public class BankStatementService {
             // Historical free-text bank labels need not equal an imported IBAN. The selected movement is authoritative.
             total=total.add(costPayment.amountEur);
         }
+        if(cost!=null) {
+            BigDecimal costAmount=costPayment==null?cost.toDomain().totalInclEur():costPayment.amountEur;
+            if(costAmount.signum()==0||costAmount.signum()!=cost.toDomain().totalInclEur().signum()
+                    ||costAmount.signum()!=-row.amountEur.signum())
+                throw new BusinessRuleException("De richting van de kostbetaling of terugbetaling komt niet overeen met de banktransactie");
+        }
         if(purchases.isEmpty()&&cost==null)throw new BusinessRuleException("Kies minstens één betaling");
-        if(total.compareTo(row.amountEur.abs())!=0)throw new BusinessRuleException("Het totaal van de betalingen moet gelijk zijn aan het bankbedrag (€ "+row.amountEur.abs().toPlainString()+")");
+        if(!BankAmountMatch.matches(row.amountEur,total.negate()))throw new BusinessRuleException("Het totaal van de betalingen mag maximaal € 0,02 van het bankbedrag verschillen");
         Set<Long> linkedPurchases=new HashSet<>(em.createQuery("select p.id from PurchasePaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
         Set<Long> linkedPayments=new HashSet<>(em.createQuery("select p.id from CostPaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
         Set<Long> linkedCosts=new HashSet<>(em.createQuery("select c.id from CompanyCostEntity c where c.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
+        linkedCosts.addAll(em.createQuery("select p.companyCostId from CostPaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
         Long selectedCost=cost==null?null:cost.id;
         Long selectedPayment=costPayment==null?null:costPayment.id;
-        if(!new HashSet<>(ids).containsAll(linkedPurchases)
-                ||linkedPayments.stream().anyMatch(paymentId->!Objects.equals(paymentId,selectedPayment))
-                ||linkedCosts.stream().anyMatch(costId->!Objects.equals(costId,selectedCost)))
+        boolean alreadyLinked=!linkedPurchases.isEmpty()||!linkedPayments.isEmpty()||!linkedCosts.isEmpty();
+        if(alreadyLinked&&(!new HashSet<>(ids).equals(linkedPurchases)
+                ||!linkedPayments.equals(selectedPayment==null?Set.of():Set.of(selectedPayment))
+                ||!linkedCosts.equals(selectedCost==null?Set.of():Set.of(selectedCost))))
             throw new BusinessRuleException("Deze banktransactie is al aan een andere betaling gekoppeld");
         for(var payment:purchases)payment.bankStatementLineId=id;
         if(costPayment!=null) { costPayment.bankStatementLineId=id;costPayment.account=row.account; }
         if(cost!=null&&(costPayment==null||costPayments(cost.id).size()==1))cost.bankStatementLineId=id;
-        row.allocatedAt=Instant.now();em.flush();audit(row,"Banktransactie gekoppeld aan bestaande inkoop- of kostbetaling");
+        row.allocatedAt=Instant.now();em.flush();audit(row,"Banktransactie gekoppeld aan bestaande inkoop- of kostbetaling · toegewezen "+total.negate()+" · verschil "+row.amountEur.add(total));
         return describe(row);
     }
 
@@ -182,32 +188,67 @@ public class BankStatementService {
     public BankStatementLineEntity recordCostPayment(long id,CostAllocation request) {
         var row=get(id,true);
         if(request==null||request.companyCostId()<=0)throw new BusinessRuleException("Kies de kost bij deze banktransactie");
-        if(row.amountEur.signum()>=0)throw new BusinessRuleException("Kies een uitgaande banktransactie");
+        if(row.amountEur.signum()==0)throw new BusinessRuleException("Kies een banktransactie met een bedrag");
         var cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
         if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
         if(describe(row).allocated) {
             var linked=em.createQuery("from CostPaymentEntity p where p.bankStatementLineId=:id",CostPaymentEntity.class).setParameter("id",id).getResultList();
             if(row.salesPaymentId==null&&linked.size()==1&&Objects.equals(linked.getFirst().companyCostId,cost.id)
-                    &&linked.getFirst().amountEur.compareTo(row.amountEur.abs())==0)return row;
+                    &&em.createQuery("select count(p) from PurchasePaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getSingleResult()==0
+                    &&BankAmountMatch.matches(row.amountEur,linked.getFirst().amountEur.negate()))return row;
             throw new BusinessRuleException("Deze banktransactie is al gekoppeld aan een andere betaling");
         }
         Set<Long> before=new HashSet<>(costPayments(cost.id).stream().map(payment->payment.id).toList());
+        BigDecimal remaining=costs.view(cost.toDomain()).openEur();
+        if(remaining.signum()==0)throw new BusinessRuleException("Deze kost is al volledig betaald; koppel de bestaande betaling");
+        if(remaining.signum()!=-row.amountEur.signum())throw new BusinessRuleException("De richting van de betaling komt niet overeen met de kost of creditnota");
+        BigDecimal paymentAmount=BankAmountMatch.matches(row.amountEur,remaining.negate())?remaining:row.amountEur.negate();
         String note=row.reference==null?null:row.reference.substring(0,Math.min(300,row.reference.length()));
         var result=costs.addPayment(cost.id,new be.enrosed.finance.domain.CostPayment(null,cost.id,
-                row.bookedAt.atZone(ZoneId.of(row.timeZone)).toLocalDate(),row.amountEur.abs(),row.account,null,note,null,null));
+                row.bookedAt.atZone(ZoneId.of(row.timeZone)).toLocalDate(),paymentAmount,row.account,null,note,null,null));
         var added=result.payments().stream().filter(payment->!before.contains(payment.id())).findFirst().orElseThrow();
         return linkExisting(id,new OutgoingLinks(null,cost.id,added.id()));
     }
 
-    private static void describe(BankStatementLineEntity row,boolean purchase,boolean cost) {
+    private record AllocationAmounts(Map<Long,BigDecimal> purchases,Map<Long,BigDecimal> costs,Map<Long,BigDecimal> sales) {}
+
+    /** Batch the list's reverse links and avoid counting a cost-level compatibility link twice. */
+    private AllocationAmounts allocationAmounts(Long bankId) {
+        Map<Long,BigDecimal> purchase=paymentAmounts("PurchasePaymentEntity",bankId);
+        Map<Long,BigDecimal> cost=paymentAmounts("CostPaymentEntity",bankId);
+        String restriction=bankId==null?"":" and c.bankStatementLineId=:bank";
+        var legacy=em.createQuery("from CompanyCostEntity c where c.bankStatementLineId is not null"+restriction
+                +" and not exists (select p.id from CostPaymentEntity p where p.companyCostId=c.id and p.bankStatementLineId=c.bankStatementLineId)",CompanyCostEntity.class);
+        if(bankId!=null)legacy.setParameter("bank",bankId);
+        for(var row:legacy.getResultList())cost.merge(row.bankStatementLineId,row.toDomain().totalInclEur(),BigDecimal::add);
+        Map<Long,BigDecimal> receipts=new HashMap<>();
+        var sales=em.createQuery("select b.id,p.amountEur from BankStatementLineEntity b,SalesPaymentEntity p where b.salesPaymentId=p.id"
+                +(bankId==null?"":" and b.id=:bank"),Object[].class);
+        if(bankId!=null)sales.setParameter("bank",bankId);
+        for(var row:sales.getResultList())receipts.put((Long)row[0],(BigDecimal)row[1]);
+        return new AllocationAmounts(purchase,cost,receipts);
+    }
+
+    private Map<Long,BigDecimal> paymentAmounts(String entity,Long bankId) {
+        var query=em.createQuery("select p.bankStatementLineId,sum(p.amountEur) from "+entity
+                +" p where p.bankStatementLineId is not null"+(bankId==null?"":" and p.bankStatementLineId=:bank")
+                +" group by p.bankStatementLineId",Object[].class);
+        if(bankId!=null)query.setParameter("bank",bankId);
+        Map<Long,BigDecimal> result=new HashMap<>();
+        for(var row:query.getResultList())result.put((Long)row[0],(BigDecimal)row[1]);
+        return result;
+    }
+
+    private static void describe(BankStatementLineEntity row,AllocationAmounts amounts) {
+        boolean purchase=amounts.purchases.containsKey(row.id),cost=amounts.costs.containsKey(row.id);
         row.allocated=row.salesPaymentId!=null||purchase||cost;
         row.allocationLabel=row.salesPaymentId!=null?"Verkoopfactuur":purchase&&cost?"Inkoop en kosten":purchase?"Inkoopbetaling":cost?"Kostbetaling":null;
+        row.allocatedAmountEur=!row.allocated?null:row.salesPaymentId!=null?amounts.sales.get(row.id)
+                :amounts.purchases.getOrDefault(row.id,BigDecimal.ZERO).add(amounts.costs.getOrDefault(row.id,BigDecimal.ZERO)).negate();
+        row.allocationDifferenceEur=row.allocatedAmountEur==null?null:row.amountEur.subtract(row.allocatedAmountEur);
     }
-    private BankStatementLineEntity describe(BankStatementLineEntity row) {
-        boolean purchase=em.createQuery("select count(p) from PurchasePaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",row.id).getSingleResult()>0;
-        boolean cost=em.createQuery("select count(p) from CostPaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",row.id).getSingleResult()>0
-                ||em.createQuery("select count(c) from CompanyCostEntity c where c.bankStatementLineId=:id",Long.class).setParameter("id",row.id).getSingleResult()>0;
-        describe(row,purchase,cost);return row;
+    BankStatementLineEntity describe(BankStatementLineEntity row) {
+        describe(row,allocationAmounts(row.id));return row;
     }
 
     /** Records an actual bank movement; creating this row never pays or changes an invoice. */
@@ -258,8 +299,8 @@ public class BankStatementService {
             if(Set.of(QuoteStatus.CONCEPT,QuoteStatus.GEANNULEERD,QuoteStatus.AFGEWEZEN,QuoteStatus.VERLOPEN).contains(invoice.status()))continue;
             var summary=incoming.summary(invoice,sales.price(invoice));
             BigDecimal open=amount.signum()>0?summary.remainingEur():summary.refundableEur();
-            int score=(invoice.number()!=null&&text.contains(PaymentReference.normalized(invoice.number()).toUpperCase(Locale.ROOT))?100:0)+(open.compareTo(amount.abs())==0?20:0);
-            for(var payment:summary.payments())if(!payment.isOffset()&&payment.amountEur().compareTo(amount)==0&&!paymentLinked(payment.id()))
+            int score=(invoice.number()!=null&&text.contains(PaymentReference.normalized(invoice.number()).toUpperCase(Locale.ROOT))?100:0)+(BankAmountMatch.matches(amount,open.multiply(BigDecimal.valueOf(amount.signum())))?20:0);
+            for(var payment:summary.payments())if(!payment.isOffset()&&BankAmountMatch.matches(amount,payment.amountEur())&&!paymentLinked(payment.id()))
                 matches.add(new Match(invoice.id(),invoice.number(),open,score+40,payment.id(),"Bestaande betaling koppelen: geen nieuwe boeking",payment.receivedAt(),payment.reference()));
             String fresh=invoice.isCreditNote()?"Nieuwe terugbetaling op creditnota "+invoice.number():"Nieuwe "+(amount.signum()>0?"ontvangst":"terugbetaling")+" registreren";
             if(open.signum()>0&&score>0)matches.add(new Match(invoice.id(),invoice.number(),open,score,null,fresh,null,null));
@@ -282,7 +323,7 @@ public class BankStatementService {
         if(request.existingPaymentId()!=null) {
             var payment=incoming.forOrder(order.id()).stream().filter(p->p.id().equals(request.existingPaymentId())).findFirst().orElseThrow(()->new BusinessRuleException("De gekozen betaling hoort niet bij deze factuur"));
             if(payment.isOffset())throw new BusinessRuleException("Een verrekening is geen bankbeweging");
-            if(payment.amountEur().compareTo(row.amountEur)!=0)throw new BusinessRuleException("Bedrag of richting komen niet overeen");
+            if(!BankAmountMatch.matches(row.amountEur,payment.amountEur()))throw new BusinessRuleException("Bedrag of richting komen niet overeen; maximaal € 0,02 verschil is toegestaan");
             if(paymentLinked(payment.id()))throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
             if(!Objects.equals(payment.bankAccount(),row.account))incoming.update(order.id(),payment.id(),
                     new IncomingPaymentService.Request(payment.amountEur().abs(),payment.receivedAt(),payment.timeZone(),payment.reference(),
@@ -290,13 +331,16 @@ public class BankStatementService {
             row.salesPaymentId=payment.id();row.allocationCreatedPayment=false;
         } else {
             Set<Long> before=new HashSet<>(incoming.forOrder(order.id()).stream().map(SalesPayment::id).toList());
-            incoming.add(order.id(),new IncomingPaymentService.Request(row.amountEur.abs(),row.bookedAt,row.timeZone,row.reference,
+            var summary=incoming.summary(order,sales.price(order));
+            BigDecimal remaining=row.amountEur.signum()<0?summary.refundableEur().negate():summary.remainingEur();
+            BigDecimal paymentAmount=BankAmountMatch.matches(row.amountEur,remaining)?remaining.abs():row.amountEur.abs();
+            incoming.add(order.id(),new IncomingPaymentService.Request(paymentAmount,row.bookedAt,row.timeZone,row.reference,
                     row.amountEur.signum()<0?IncomingPaymentService.Direction.REFUND:IncomingPaymentService.Direction.RECEIPT,row.account));
             row.salesPaymentId=incoming.forOrder(order.id()).stream().filter(p->!before.contains(p.id())).max(Comparator.comparing(SalesPayment::id)).orElseThrow().id();
             row.allocationCreatedPayment=true;
         }
         row.salesOrderId=order.id();row.allocatedAt=Instant.now();em.flush();
-        audit(row,"Bankbeweging expliciet gekoppeld aan "+order.number());return describe(row);
+        describe(row);audit(row,"Bankbeweging expliciet gekoppeld aan "+order.number()+" · toegewezen "+row.allocatedAmountEur+" · verschil "+row.allocationDifferenceEur);return row;
     }
 
     @Transactional

@@ -49,9 +49,8 @@ public class BankPurchasePaymentService {
         }
         if (hasCostLink(id)) throw alreadyLinked();
         BigDecimal total = parts.stream().map(Payment::amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (total.compareTo(line.amountEur.abs()) != 0) {
-            throw new BusinessRuleException("Het totaal van de betalingen moet gelijk zijn aan het bankbedrag (€ "
-                    + line.amountEur.abs().toPlainString() + ")");
+        if (!BankAmountMatch.matches(line.amountEur, total.negate())) {
+            throw new BusinessRuleException("Het totaal van de betalingen mag maximaal € 0,02 van het bankbedrag verschillen");
         }
         var day = line.bookedAt.atZone(ZoneId.of(line.timeZone)).toLocalDate();
         var existing = em.createQuery("from PurchasePaymentEntity p where p.bankStatementLineId=:id order by p.id",
@@ -65,9 +64,7 @@ public class BankPurchasePaymentService {
                 if (payment.orderId != request.purchaseOrderId() || !day.equals(payment.paidOn)
                         || !sameMoney(payment, parts.get(i))) throw alreadyLinked();
             }
-            line.allocated = true;
-            line.allocationLabel = "Inkoopbetaling";
-            return new Result(line, existing.stream().map(BankPurchasePaymentService::toDomain).toList());
+            return new Result(bank.describe(line), existing.stream().map(BankPurchasePaymentService::toDomain).toList());
         }
         List<Long> ids = new ArrayList<>();
         for (var part : parts) {

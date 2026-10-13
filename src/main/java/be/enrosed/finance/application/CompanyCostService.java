@@ -72,6 +72,7 @@ public class CompanyCostService {
 
     @Inject
     Instance<be.enrosed.finance.banking.BankStatementService> banking;
+    @Inject Instance<be.enrosed.finance.odoo.OdooCostImportStore> imported;
 
     public CompanyCostService(CompanyCosts costs, CostPayments payments) {
         this.costs = costs;
@@ -102,7 +103,8 @@ public class CompanyCostService {
             paid = paid.add(payment.amountEur() == null ? BigDecimal.ZERO : payment.amountEur());
             if (payment.paidOn() != null && (last == null || payment.paidOn().isAfter(last))) last = payment.paidOn();
         }
-        boolean settled = paid.compareTo(cash.subtract(CENT)) >= 0;
+        int direction=cash.signum()<0?-1:1;
+        boolean settled = paid.multiply(BigDecimal.valueOf(direction)).compareTo(cash.abs().subtract(CENT)) >= 0;
         /* Settled within a cent reads open 0.00: one "open" figure, so a cost paid a cent short never shows 'Deels' next to 'Betaald'. */
         BigDecimal open = settled ? BigDecimal.ZERO.setScale(2) : cash.subtract(paid).setScale(2, RoundingMode.HALF_UP);
         return new PaymentTotals(paid.setScale(2, RoundingMode.HALF_UP), open, settled ? last : null);
@@ -155,6 +157,25 @@ public class CompanyCostService {
         return saved;
     }
 
+    /** Provider totals are original document facts, including mixed VAT rates and supplier credits. */
+    @Transactional
+    public CompanyCost createImported(be.enrosed.finance.odoo.OdooDocumentService.PurchaseSnapshot snapshot,String category) {
+        if(snapshot==null||snapshot.totalEur()==null||snapshot.totalEur().signum()==0
+                ||snapshot.netEur().add(snapshot.vatEur()).compareTo(snapshot.totalEur())!=0)
+            throw new BusinessRuleException("De ontvangen factuur heeft ongeldige bedragen");
+        var document=snapshot.document();
+        String reference=document.reference().isBlank()?document.name():document.reference();
+        String description=(snapshot.totalEur().signum()<0?"Leverancierscreditnota ":"Ontvangen factuur ")+reference;
+        String selected=clean(category);if(selected==null)selected="OVERIG";
+        if(selected.length()>60)throw new BusinessRuleException("De categorie is maximaal 60 tekens");
+        var cost=new CompanyCost(null,LocalDate.parse(document.date()),selected.toUpperCase(Locale.ROOT),
+                description.substring(0,Math.min(300,description.length())),document.partner().substring(0,Math.min(200,document.partner().length())),
+                snapshot.netEur(),snapshot.totalEur(),null,reference.substring(0,Math.min(120,reference.length())),null,null,
+                "Overgenomen uit Odoo. Controleer de btw-regeling en aftrekbaarheid aan de hand van de originele factuur.",
+                Instant.now(),null,null,null,false,snapshot.supplierCountry(),null,null,null,null,null,null);
+        var saved=costs.save(cost);recordActivity(ActivityLogService.ACTION_CREATED,saved,"Ontvangen Odoo-document geregistreerd; originele bedragen behouden");return saved;
+    }
+
     /**
      * The payment rows decide "Betaald op"; the form's date only counts
      * while there are none (the switch: one full payment) or while the one
@@ -165,7 +186,15 @@ public class CompanyCostService {
      */
     @Transactional
     public CompanyCost update(long id, CompanyCost changes) {
+        if(changes==null)throw new BusinessRuleException("Geen kostgegevens meegestuurd");
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
+        boolean sourceDocument=imported!=null&&imported.isResolvable()&&imported.get().isImported(id);
+        if(sourceDocument&&changes!=null) {
+            if(changes.amountExclEur().compareTo(current.amountExclEur())!=0
+                    ||!sameMoney(changes.amountInclEur(),current.amountInclEur())||!java.util.Objects.equals(changes.date(),current.date())
+                    ||!java.util.Objects.equals(changes.reference(),current.reference())||!java.util.Objects.equals(changes.party(),current.party()))
+                throw new BusinessRuleException("De originele ontvangen factuurgegevens blijven behouden; corrigeer de bronfactuur in Odoo");
+        }
         List<CostPayment> rows = payments.findByCost(id);
         if (changes != null && changes.paidOn() == null && current.paidOn() != null && !rows.isEmpty()) {
             throw new BusinessRuleException("Verwijder eerst de betalingen");
@@ -177,7 +206,7 @@ public class CompanyCostService {
                 current.recurringCostId(), null, changes.vatRegime(), changes.vatRegimeConfirmed(), changes.supplierCountry(),
                 changes.costKind(), changes.expenseType(), changes.vatDeductiblePct(), changes.taxDeductiblePct(),
                 changes.depreciationYears(), changes.depreciationStart());
-        CompanyCost saved = costs.save(validated(linked, current.id(), current.createdAt(), current.bankStatementLineId(), current));
+        CompanyCost saved = costs.save(sourceDocument?validatedImportedUpdate(linked,current):validated(linked, current.id(), current.createdAt(), current.bankStatementLineId(), current));
         if (saved.paidOn() != null) {
             if (rows.isEmpty()) {
                 /* The switch on a cost without rows, also a cost from before the rows: one full payment, on the bank where the cost is. */
@@ -205,7 +234,7 @@ public class CompanyCostService {
     public CompanyCost markPaid(long id, LocalDate paidOn) {
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         PaymentTotals totals = totalsOf(current, payments.findByCost(id));
-        if (totals.openEur().signum() <= 0) throw new BusinessRuleException("Deze kost is al volledig betaald");
+        if (totals.openEur().signum() == 0) throw new BusinessRuleException("Deze kost is al volledig betaald");
         LocalDate day = paidOn == null ? today() : paidOn;
         payments.save(new CostPayment(null, id, day, totals.openEur(), null, null, null, Instant.now(), actorName()));
         CompanyCost saved = derivePaidOn(current);
@@ -216,7 +245,7 @@ public class CompanyCostService {
     @Transactional
     public CostView addPayment(long costId, CostPayment request) {
         CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
-        CostPayment clean = paymentChecked(request);
+        CostPayment clean = paymentChecked(request,cost.totalInclEur().signum());
         CostPayment saved = payments.save(new CostPayment(null, costId, clean.paidOn(), clean.amountEur(), clean.account(), null,
                 clean.note(), Instant.now(), actorName()));
         CompanyCost derived = derivePaidOn(cost);
@@ -229,7 +258,7 @@ public class CompanyCostService {
     public CostView updatePayment(long costId, long paymentId, CostPayment request) {
         CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment current = paymentOf(costId, paymentId);
-        CostPayment clean = paymentChecked(request);
+        CostPayment clean = paymentChecked(request,cost.totalInclEur().signum());
         if (current.onTheBank() && (clean.amountEur().compareTo(current.amountEur()) != 0 || !clean.paidOn().equals(current.paidOn())
                 || !java.util.Objects.equals(clean.account(), current.account()))) {
             throw new BusinessRuleException("Deze betaling staat op de bank; maak de bankbeweging eerst los");
@@ -307,10 +336,10 @@ public class CompanyCostService {
     }
 
     /** A payment as the form sends it: a positive amount in cents, a day not in the future, short texts; the bank link is the bank's. */
-    private static CostPayment paymentChecked(CostPayment request) {
+    private static CostPayment paymentChecked(CostPayment request,int costDirection) {
         if (request == null) throw new BusinessRuleException("Geen betaling meegestuurd");
-        if (request.amountEur() == null || request.amountEur().signum() <= 0) {
-            throw new BusinessRuleException("Geef een bedrag groter dan nul op");
+        if (request.amountEur() == null || request.amountEur().signum()==0 || request.amountEur().signum()!=(costDirection<0?-1:1)) {
+            throw new BusinessRuleException(costDirection<0?"Een leverancierscreditnota krijgt een negatieve terugbetaling":"Geef een bedrag groter dan nul op");
         }
         BigDecimal amount;
         try {
@@ -373,6 +402,23 @@ public class CompanyCostService {
                 createdAt == null ? Instant.now() : createdAt, cost.recurringCostId(), bankStatementLineId,
                 fields.vatRegime(), fields.vatRegimeConfirmed(), fields.supplierCountry(), fields.costKind(), fields.expenseType(),
                 fields.vatDeductiblePct(), fields.taxDeductiblePct(), years, start);
+    }
+
+    private static boolean sameMoney(BigDecimal first,BigDecimal second) {return first==null?second==null:second!=null&&first.compareTo(second)==0;}
+    private static CompanyCost validatedImportedUpdate(CompanyCost changes,CompanyCost current) {
+        // Validate classification against absolute source totals. No invented blended VAT percentage is needed.
+        BigDecimal absolute=current.amountExclEur().abs();
+        var positive=new CompanyCost(changes.id(),changes.date(),changes.category(),changes.description(),changes.party(),absolute,null,
+                changes.vatPct(),changes.reference(),null,changes.salesChannel(),changes.notes(),current.createdAt(),null,null,
+                changes.vatRegime(),changes.vatRegimeConfirmed(),changes.supplierCountry(),changes.costKind(),changes.expenseType(),
+                changes.vatDeductiblePct(),changes.taxDeductiblePct(),changes.depreciationYears(),changes.depreciationStart());
+        var checked=validated(positive,current.id(),current.createdAt(),current.bankStatementLineId(),current);
+        if(checked.vatRegime()!=null&&checked.vatRegime()!=VatRegime.BE&&checked.vatRegime()!=VatRegime.FOREIGN_VAT
+                &&current.totalInclEur().abs().compareTo(absolute)!=0)
+            throw new BusinessRuleException("Deze btw-regeling past niet bij de originele factuurbedragen");
+        return new CompanyCost(current.id(),current.date(),checked.category(),checked.description(),current.party(),current.amountExclEur(),current.amountInclEur(),
+                checked.vatPct(),current.reference(),current.paidOn(),checked.salesChannel(),checked.notes(),current.createdAt(),current.recurringCostId(),current.bankStatementLineId(),
+                checked.vatRegime(),checked.vatRegimeConfirmed(),checked.supplierCountry(),checked.costKind(),checked.expenseType(),checked.vatDeductiblePct(),checked.taxDeductiblePct(),checked.depreciationYears(),checked.depreciationStart());
     }
 
     /** The regime fields of a cost or a recurring definition as they are stored, after the rules of the regime. */

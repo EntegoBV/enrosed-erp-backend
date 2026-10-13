@@ -100,7 +100,7 @@ class BankPurchasePaymentServiceTest {
         var order = container();
         var line = imported("-100");
         assertThrows(BusinessRuleException.class, () -> service.record(line,
-                new BankPurchasePaymentService.Request(order.id(), List.of(eur("60"), eur("39.99")))));
+                new BankPurchasePaymentService.Request(order.id(), List.of(eur("60"), eur("39.97")))));
         assertTrue(purchases.payments(order.id()).isEmpty());
         assertFalse(bank.list().getFirst().allocated);
     }
@@ -115,6 +115,35 @@ class BankPurchasePaymentServiceTest {
         assertThrows(BusinessRuleException.class, () -> service.record(incoming, request));
         assertThrows(BusinessRuleException.class, () -> service.record(sales, request));
         assertTrue(purchases.payments(order.id()).isEmpty());
+    }
+
+    @Test @TestTransaction
+    void aggregateTwoCentDifferencePreservesEveryPartAndRetryReturnsSameIds() {
+        var order=container();
+        var line=imported("-100.00");
+        var request=new BankPurchasePaymentService.Request(order.id(),List.of(eur("60"),eur("39.98")));
+        var saved=service.record(line,request);
+        assertEquals(new BigDecimal("-100.00"),saved.line().amountEur);
+        assertEquals(new BigDecimal("-99.98"),saved.line().allocatedAmountEur);
+        assertEquals(new BigDecimal("-0.02"),saved.line().allocationDifferenceEur);
+        assertEquals(List.of(new BigDecimal("60.00"),new BigDecimal("39.98")),saved.payments().stream().map(PurchasePayment::amountEur).toList());
+        var retry=service.record(line,request);
+        assertEquals(saved.payments(),retry.payments());
+        assertEquals(new BigDecimal("-0.02"),retry.line().allocationDifferenceEur);
+        assertEquals(2,purchases.payments(order.id()).size());
+    }
+
+    @Test @TestTransaction
+    void rejectsFourCentAggregateEvenWhenEachPartWouldBeTwoCentsShort() {
+        var order=container();
+        var line=imported("-100.00");
+        assertThrows(BusinessRuleException.class,()->service.record(line,
+                new BankPurchasePaymentService.Request(order.id(),List.of(eur("59.98"),eur("39.98")))));
+        assertTrue(purchases.payments(order.id()).isEmpty());
+        var untouched=bank.list().getFirst();
+        assertFalse(untouched.allocated);
+        assertNull(untouched.allocatedAmountEur);
+        assertNull(untouched.allocationDifferenceEur);
     }
 
     @Test @TestTransaction
