@@ -153,3 +153,31 @@ movement requires reuse, or an explicit `confirmNewPayment:true` decision for a 
 separate equal instalment. The flag does not bypass amount/direction/ownership checks.
 Earlier instalments already linked to official imported movements do not cause ambiguity.
 Partial payments remain supported; same-bank retries return the original payment/link.
+
+For a new ordinary local expense from an outgoing movement, use
+`POST /api/bank-statements/{id}/cost-registration` with
+`{requestId:"<canonical UUID>",cost:{...new CompanyCost fields...}}`. The admin-only
+endpoint locks the bank movement and creates the validated cost, one payment and its
+link in one transaction. The returned `{line,cost}` contains the normal enriched, flat
+cost view (including `id`, `payments`, `cashTotalEur` and `openEur`). The original invoice
+date and amounts remain; the payment uses the bank date and account. The cost gross must
+match the absolute outgoing movement within EUR 0.02. Use the existing-cost payment
+endpoint for partial payments. Client `paidOn` is ignored so it cannot create a second
+payment automatically.
+
+Keep the same request ID and exact submitted cost after an uncertain response. A durable
+`bank_cost_registration` receipt returns the original IDs for retries and refuses another
+registration on that bank movement, including after a local cost is deleted. It intentionally
+has no cascading financial foreign keys. A changed body, changed bank facts or removed link
+requires checking the existing registration; retry never silently recreates or rewrites it.
+The request ID is transport metadata and should not appear in product copy. Upload documents
+through the existing cost attachment API after the registration returns; retain the known
+cost ID and pending files if upload fails.
+
+Definite validation failures return HTTP 422 (malformed JSON: 400). HTTP 409 returns a
+`code`: `BANK_COST_REGISTRATION_EXISTS` for a different request ID on this bank,
+`BANK_COST_REGISTRATION_CHANGED` for a changed/replaced earlier registration, or
+`BANK_ALREADY_ALLOCATED` when another flow already linked the movement. Network errors
+and server failures have an unknown outcome: preserve the original request and retry.
+Migration `2026-10-13/bank-cost-registration-postgresql.sql` runs after the source-import
+migration and is safe to run again.

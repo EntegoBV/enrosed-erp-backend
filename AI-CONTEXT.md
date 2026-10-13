@@ -1399,3 +1399,12 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   when an equal existing payment has no official imported bank link. Explicitly confirming
   a genuinely new equal instalment bypasses only that ambiguity, never amount/direction
   checks. Existing imported instalments and same-bank retries remain supported.
+- New local expenses from a bank movement use the admin-only atomic
+  `POST /api/bank-statements/{id}/cost-registration` (`requestId`, new `cost`). It holds
+  the bank lock while validating and creating the cost, payment and link. Never return to
+  client-side create-cost-then-link: uncertain responses and concurrent staff can otherwise
+  leave duplicate costs. `bank_cost_registration` retains the original request hash and
+  cost identity even after local deletion; identical retries return the same IDs, changed
+  or competing requests return coded 409. Normal validation is 422 on this endpoint.
+  The request ID is transport-only. Attachments are uploaded afterwards to the returned
+  cost, preserving its identity on upload retry. See the integration document for details.

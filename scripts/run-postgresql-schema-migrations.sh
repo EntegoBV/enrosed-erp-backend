@@ -143,4 +143,5 @@ exec psql \
     --file=/app/migrations/vat-regimes-and-cost-payments-postgresql.sql \
     --file=/app/migrations/odoo-bank-source-postgresql.sql \
     --file=/app/migrations/bank-account-registry-postgresql.sql \
-    --file=/app/migrations/odoo-cost-import-postgresql.sql
+    --file=/app/migrations/odoo-cost-import-postgresql.sql \
+    --file=/app/migrations/bank-cost-registration-postgresql.sql
