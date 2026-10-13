@@ -1,6 +1,8 @@
 package be.enrosed.finance.odoo;
 
 import be.enrosed.finance.banking.BankStatementService;
+import be.enrosed.finance.banking.BankAccountService;
+import be.enrosed.sales.application.IncomingPaymentService;
 import com.fasterxml.jackson.databind.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -20,6 +22,7 @@ public class OdooService {
     @Inject OdooOutboundConfiguration outbound;
     @Inject OdooSyncStateStore state;
     @Inject BankStatementService bank;
+    @Inject BankAccountService accounts;
     @Inject ObjectMapper json;
 
     public record SyncReport(int scanned,int created,int updated,int unchanged,int conflicts,int skippedNonEur,
@@ -29,6 +32,15 @@ public class OdooService {
                          String companyName,Integer journalCount) {}
     record Journal(long id,String account,long currencyId) {}
     record Scope(String companyName,long eurCurrencyId,Map<Long,Journal> journals) {}
+    public record VerifiedBankAccount(String sourceNamespace,long companyId,long journalId,String account) {}
+
+    public VerifiedBankAccount verifyBankAccount(long journalId,String account) {
+        config.requireReady();
+        Scope scope=scope(false);Journal journal=scope.journals.get(journalId);
+        if(journal==null||journal.currencyId!=scope.eurCurrencyId||journal.account.startsWith("ODOO-")||!journal.account.equals(IncomingPaymentService.normalizeAccount(account)))
+            throw new OdooFailure("JOURNAL_ACCOUNT_MISMATCH");
+        return new VerifiedBankAccount(config.sourceNamespace(),config.companyId,journalId,journal.account);
+    }
 
     public Status status() { return status(null,null); }
     private Status status(Scope scope,String forcedCode) {
@@ -66,6 +78,8 @@ public class OdooService {
         boolean complete=false;String code="READY";
         try {
             Scope scope=scope();requireBankSchema();List<Object> base=bankDomain(scope);
+            for(Journal journal:scope.journals.values())if(journal.currencyId==scope.eurCurrencyId)
+                accounts.registerImportedAccount(namespace,config.companyId,journal.id,journal.account);
             JsonNode latest=client.search("account.bank.statement.line",base,List.of("id"),1,"id desc");
             long upper=latest.isEmpty()?0:positiveId(latest.get(0).path("id")),cursor=0;
             while(cursor<upper) {
@@ -107,7 +121,8 @@ public class OdooService {
         return new ArrayList<>(List.of(List.of("company_id","=",config.companyId),List.of("state","=","posted"),List.of("amount","!=",0),
                 List.of("journal_id","in",new ArrayList<>(scope.journals.keySet()))));
     }
-    Scope scope() {
+    Scope scope() { return scope(true); }
+    private Scope scope(boolean validateMapping) {
         JsonNode companies=client.search("res.company",List.of(List.of("id","=",config.companyId)),List.of("id","name","currency_id"),1,"id asc");
         if(companies.size()!=1||positiveId(companies.get(0).path("id"))!=config.companyId)throw new OdooFailure("COMPANY_UNAVAILABLE");
         JsonNode currencies=client.search("res.currency",List.of(List.of("name","=","EUR")),List.of("id","name"),1,"id asc");
@@ -133,6 +148,7 @@ public class OdooService {
                 account=account.replaceAll("\\s","").toUpperCase(Locale.ROOT);
                 if(account.isBlank())account="ODOO-"+config.sourceNamespace().substring(0,12)+"-J"+id;
                 if(account.length()>120)throw new OdooFailure("INVALID_RESPONSE");
+                if(validateMapping&&accounts!=null)accounts.validateImportAccount(config.sourceNamespace(),config.companyId,id,account);
                 journals.put(id,new Journal(id,account,currency));
             }
         }

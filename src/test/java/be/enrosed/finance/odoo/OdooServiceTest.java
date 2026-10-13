@@ -1,6 +1,7 @@
 package be.enrosed.finance.odoo;
 
 import be.enrosed.finance.banking.BankStatementService;
+import be.enrosed.finance.banking.BankAccountService;
 import com.fasterxml.jackson.databind.*;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -20,6 +21,7 @@ class OdooServiceTest {
     OdooService service() {
         var service=spy(new OdooService());service.client=mock(OdooClient.class);service.config=OdooClientTest.config();
         service.state=mock(OdooSyncStateStore.class);service.bank=mock(BankStatementService.class);service.json=json;
+        service.accounts=mock(BankAccountService.class);
         doReturn(new OdooService.Scope("Enrosed",1,Map.of(8L,new OdooService.Journal(8,"BE123",1),9L,new OdooService.Journal(9,"USD",2)))).when(service).scope();
         when(service.client.fields("account.bank.statement.line")).thenReturn(Set.copyOf(OdooService.BANK_FIELDS));
         when(service.bank.importExternal(any())).thenReturn(new BankStatementService.ImportResult(1L,BankStatementService.ImportOutcome.CREATED));
@@ -41,6 +43,8 @@ class OdooServiceTest {
         verify(service.bank,times(6)).importExternal(captor.capture());
         assertEquals(captor.getAllValues().get(0).sourceId(),captor.getAllValues().get(3).sourceId());
         verify(service.bank,never()).allocate(anyLong(),any());
+        verify(service.accounts,times(2)).registerImportedAccount(service.config.sourceNamespace(),7,8,"BE123");
+        verify(service.accounts,never()).registerImportedAccount(anyString(),anyLong(),eq(9L),anyString());
         var domains=ArgumentCaptor.forClass(List.class);verify(service.client,times(4)).search(eq("account.bank.statement.line"),domains.capture(),eq(OdooService.BANK_FIELDS),eq(200),eq("id asc"));
         assertFalse(domains.getAllValues().toString().contains("is_reconciled"));
         assertTrue(domains.getAllValues().stream().allMatch(domain->domain.toString().contains("[state, =, posted]")),"Draft/cancelled entries are not actual booked money");
@@ -96,6 +100,24 @@ class OdooServiceTest {
             var service=scopedService(fields.isEmpty()?Set.of():Set.of("bank_account_number","bank_acc_number"),fields);
             assertEquals("ODOO-"+service.config.sourceNamespace().substring(0,12)+"-J13",service.scope().journals().get(13L).account());
         }
+    }
+
+    @Test void explicitAccountMappingRequiresTheActualRemoteAccountAndNeverAcceptsASyntheticFallback() throws Exception {
+        var service=scopedService(Set.of("bank_account_number"),",\"bank_account_number\":\"be12 3456 7890 1234\"");
+        var verified=service.verifyBankAccount(13,"BE12 3456 7890 1234");
+        assertEquals("BE12345678901234",verified.account());assertEquals(13,verified.journalId());
+        assertEquals(7,verified.companyId());assertEquals(service.config.sourceNamespace(),verified.sourceNamespace());
+        var wrong=scopedService(Set.of("bank_account_number"),",\"bank_account_number\":\"BE12345678901234\"");
+        assertEquals("JOURNAL_ACCOUNT_MISMATCH",assertThrows(OdooFailure.class,()->wrong.verifyBankAccount(13,"KBC")).code);
+        var absent=scopedService(Set.of(),"");
+        assertThrows(OdooFailure.class,()->absent.verifyBankAccount(13,"ODOO-"+absent.config.sourceNamespace().substring(0,12)+"-J13"));
+    }
+
+    @Test void journalMappingIsCheckedBeforeAnyStatementImport() throws Exception {
+        var service=scopedService(Set.of("bank_account_number"),",\"bank_account_number\":\"BE12345678901234\"");
+        service.accounts=mock(BankAccountService.class);
+        doThrow(new OdooFailure("JOURNAL_ACCOUNT_MISMATCH")).when(service.accounts).validateImportAccount(anyString(),eq(7L),eq(13L),eq("BE12345678901234"));
+        assertEquals("JOURNAL_ACCOUNT_MISMATCH",assertThrows(OdooFailure.class,service::scope).code);
     }
 
 }

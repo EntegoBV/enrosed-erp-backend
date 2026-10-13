@@ -30,6 +30,7 @@ public class BankStatementService {
     @Inject IncomingPaymentService incoming;
     @Inject CurrentActor actor;
     @Inject ActivityLogService activity;
+    @Inject BankAccountService accounts;
     @Inject be.enrosed.finance.application.CompanyCostService costs;
     /** The list "Aan wie" learns the counterparty of an outgoing movement; incoming money comes from customers, who are no payees. */
     @Inject Instance<CostPartyService> parties;
@@ -214,6 +215,7 @@ public class BankStatementService {
     public BankStatementLineEntity create(ManualRequest request) {
         if(request==null)throw new BusinessRuleException("Geen bankbeweging meegestuurd");
         String account=account(request.account());
+        accounts.requireManualMovements(account);
         if(request.amountEur()==null || request.amountEur().signum()<=0)throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         BigDecimal amount;
         try { amount=request.amountEur().setScale(2,java.math.RoundingMode.UNNECESSARY); }

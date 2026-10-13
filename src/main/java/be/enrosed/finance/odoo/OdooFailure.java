@@ -15,6 +15,7 @@ public final class OdooFailure extends RuntimeException {
             case "UNSUPPORTED_SCHEMA" -> "Deze Odoo-installatie mist vereiste velden of modules.";
             case "COMPANY_UNAVAILABLE" -> "De ingestelde Odoo-administratie is niet toegankelijk.";
             case "NO_JOURNALS" -> "Er zijn geen toegankelijke bankdagboeken binnen de ingestelde selectie.";
+            case "JOURNAL_ACCOUNT_MISMATCH" -> "Het Odoo-bankdagboek hoort niet bij de gekoppelde rekening. Controleer de rekeningverbinding; er zijn geen nieuwe bankregels geïmporteerd.";
             case "BUSY" -> "Er loopt al een Odoo-banksynchronisatie.";
             case "LEASE_LOST" -> "De banksynchronisatie is onderbroken. Start opnieuw; bestaande imports blijven behouden.";
             case "RATE_LIMITED" -> "Odoo laat tijdelijk geen extra API-aanvragen toe. Probeer later opnieuw.";

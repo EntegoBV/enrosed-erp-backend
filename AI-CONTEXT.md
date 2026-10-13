@@ -1205,6 +1205,35 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `docs/migrations/2026-10-12/bank-links-postgresql.sql`, the last script of
   the runner.
 
+## Bank account registry and Odoo authority (2026-10-13)
+
+- `/api/bank-accounts` lists canonical normalized account keys from bank readings,
+  statement rows, active sales receipts and cost payments, plus saved metadata.
+  Existing `source=ODOO` statement rows immediately make their account authoritative;
+  no reimport or metadata write is required. `source`, `archived`, explicit `aliases`,
+  `odooJournalId` and `manualMovementsAllowed` tell the frontend how to group the
+  overview. Odoo accounts use imported movements as the official ledger; historical
+  manual movements and unlinked receipts remain preserved outside that ledger.
+- PUT saves a label and explicit aliases. A canonical key and an alias share one
+  primary-key namespace in `bank_account`; aliases group old names without rewriting
+  any balance or payment. An imported account cannot be downgraded to manual or
+  absorbed as another account's alias. No KBC label is automatically merged.
+- DELETE archives locally; POST `/{key}/restore` restores the overview entry. Neither
+  action deletes financial history, closes a bank account or stops provider imports.
+  Manual movement creation is refused on archived and Odoo accounts, including
+  explicit aliases. Sales/cost payment registration and allocation remain separate.
+- A new Odoo authority claim requires a journal ID, remotely checked against its
+  actual EUR bank account. A verified namespace/company/journal binding is retained
+  on label-only edits. Sync checks the binding before reading statement rows and
+  fails closed if the provider account or configuration changes. No company IBAN
+  or journal ID is hardcoded. Existing provenance permits display/alias edits while
+  the optional journal mapping remains unset. An explicit sync registers verified
+  EUR journal bindings from actual provider account numbers, preserving existing
+  labels, aliases and archive flags. Connection checks remain read-only; synthetic
+  account-name fallbacks do not create a verified binding.
+- Additive migration `docs/migrations/2026-10-13/bank-account-registry-postgresql.sql`
+  is copied into the image and runs after `odoo-bank-source-postgresql.sql`.
+
 ## Btw-regeling per kost, btw-aangifte, afschrijvingen en deelbetalingen (2026-10-12)
 
 - **Btw-regeling** (`VatRegime`, `company_cost.vat_regime`, plain text, nullable):

@@ -14,6 +14,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RailwayPreDeployMigrationContractTest {
 
+    @Test
+    void bankAccountRegistryPreservesAllFinancialHistoryAndRunsBeforeStartup() throws IOException {
+        Path migration=Path.of("docs/migrations/2026-10-13/bank-account-registry-postgresql.sql");
+        String sql=normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists bank_account"));
+        assertTrue(sql.contains("account_key varchar(120) primary key"));
+        assertTrue(sql.contains("canonical_key varchar(120)"));
+        assertTrue(sql.contains("archived boolean not null default false"));
+        assertTrue(sql.contains("unique (odoo_source_namespace, odoo_journal_id)"));
+        assertFalse(sql.contains("update "));
+        assertNonDestructive(sql);
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner=Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/"+migration.getFileName()));
+        assertTrue(runner.indexOf("odoo-bank-source-postgresql.sql")<runner.indexOf(migration.getFileName().toString()));
+    }
+
     private static final Path PHOTO_MIGRATION = Path.of(
             "docs/migrations/2026-09-01/product-supplier-agreement-photos-postgresql.sql");
     private static final Path DISCOUNT_MIGRATION = Path.of(
