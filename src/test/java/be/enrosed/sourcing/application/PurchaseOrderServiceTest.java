@@ -41,6 +41,8 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +67,146 @@ class PurchaseOrderServiceTest {
                 PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.CONCEPT));
         assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireForwardTransition(
                 PurchaseOrderStatus.ONTVANGEN, PurchaseOrderStatus.ONDERWEG));
+    }
+
+    @Test
+    void aStatusSetByMistakeStepsBackButAReceivedContainerNeverDoes() {
+        PurchaseOrderStatus[][] stepsBack = {
+                {PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.CONCEPT},
+                {PurchaseOrderStatus.ONDERWEG, PurchaseOrderStatus.BESTELD},
+                {PurchaseOrderStatus.ONDERWEG, PurchaseOrderStatus.CONCEPT}};
+        for (PurchaseOrderStatus[] step : stepsBack) {
+            assertTrue(PurchaseOrderService.isStepBack(step[0], step[1]), step[0] + " -> " + step[1]);
+            assertDoesNotThrow(() -> PurchaseOrderService.requireAllowedTransition(step[0], step[1]));
+            /* The receipt keeps its own forward-only door: no step back slips in through it. */
+            assertThrows(BusinessRuleException.class,
+                    () -> PurchaseOrderService.requireForwardTransition(step[0], step[1]));
+        }
+
+        for (PurchaseOrderStatus earlier : List.of(PurchaseOrderStatus.CONCEPT,
+                PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONDERWEG)) {
+            assertFalse(PurchaseOrderService.isStepBack(PurchaseOrderStatus.ONTVANGEN, earlier));
+            assertEquals("Een ontvangen container gaat niet terug: de voorraad is geboekt.",
+                    assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireAllowedTransition(
+                            PurchaseOrderStatus.ONTVANGEN, earlier)).getMessage());
+            assertThrows(BusinessRuleException.class,
+                    () -> PurchaseOrderService.requireForwardTransition(PurchaseOrderStatus.ONTVANGEN, earlier));
+        }
+
+        /* Forward moves and same-state saves are unchanged. */
+        assertDoesNotThrow(() -> PurchaseOrderService.requireAllowedTransition(
+                PurchaseOrderStatus.CONCEPT, PurchaseOrderStatus.BESTELD));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireAllowedTransition(
+                PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONDERWEG));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireAllowedTransition(
+                PurchaseOrderStatus.ONDERWEG, PurchaseOrderStatus.ONTVANGEN));
+        assertDoesNotThrow(() -> PurchaseOrderService.requireAllowedTransition(
+                PurchaseOrderStatus.ONTVANGEN, PurchaseOrderStatus.ONTVANGEN));
+        assertFalse(PurchaseOrderService.isStepBack(PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.BESTELD));
+        assertFalse(PurchaseOrderService.isStepBack(PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONDERWEG));
+        assertEquals("Inkooporder kan niet van concept naar ontvangen gaan",
+                assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireAllowedTransition(
+                        PurchaseOrderStatus.CONCEPT, PurchaseOrderStatus.ONTVANGEN)).getMessage());
+        assertEquals("Kies een geldige status voor de inkooporder",
+                assertThrows(BusinessRuleException.class, () -> PurchaseOrderService.requireAllowedTransition(
+                        PurchaseOrderStatus.ONDERWEG, null)).getMessage());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aContainerWronglySetToVertrokkenGoesBackToBesteldQuietlyAndDepartsAgainWithTheRealDay() {
+        LocalDate wrongDay = LocalDate.of(2026, 9, 20);
+        InMemoryOrders orders = new InMemoryOrders(withShipping(
+                order(PurchaseOrderStatus.ONDERWEG, 6, 6), wrongDay, "MSKU1234567"));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        Instance<ActivityLogService> activities = mock(Instance.class);
+        ActivityLogService activityLog = mock(ActivityLogService.class);
+        when(activities.isResolvable()).thenReturn(true);
+        when(activities.get()).thenReturn(activityLog);
+        service.activity = activities;
+        service.purchasePush = mock(Event.class);
+
+        PurchaseOrder back = service.update(10L, withShipping(
+                order(PurchaseOrderStatus.BESTELD, 6, 6), wrongDay, "MSKU1234567")).order();
+
+        assertEquals(PurchaseOrderStatus.BESTELD, back.status());
+        assertNull(back.shippedOn(), "it did not leave: the day goes, a real departure sets its own");
+        assertEquals("MSKU1234567", back.trackingReference(), "track & trace stays");
+        assertEquals(6, back.lines().getFirst().orderedQuantity(), "still ordered: the agreement stays");
+        verify(activityLog).record(ActivityLogService.ACTION_STATUS_CHANGED,
+                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", "PO-TEST",
+                "Status teruggezet van Vertrokken naar Besteld",
+                List.of(new ActivityChangeDto("status", "Status", "onderweg", "besteld"),
+                        new ActivityChangeDto("shippedOn", "Vertrokken op", "20/09/2026", null)));
+        verify(service.purchasePush, never()).fire(any());
+
+        PurchaseOrder departed = service.update(10L, withShipping(
+                order(PurchaseOrderStatus.ONDERWEG, 6, 6), wrongDay, "MSKU1234567")).order();
+
+        assertEquals(LocalDate.now(PurchaseOrderService.BRUSSELS), departed.shippedOn(),
+                "the server sets the day, never the form");
+        verify(activityLog).record(ActivityLogService.ACTION_STATUS_CHANGED,
+                ActivityLogService.ENTITY_PURCHASE_ORDER, "10", "PO-TEST",
+                "Status gewijzigd van besteld naar onderweg",
+                List.of(new ActivityChangeDto("status", "Status", "besteld", "onderweg"),
+                        new ActivityChangeDto("shippedOn", "Vertrokken op", null,
+                                LocalDate.now(PurchaseOrderService.BRUSSELS).format(PurchaseOrderService.DAY))));
+        verify(service.purchasePush, times(1)).fire(any());
+        verify(service.purchasePush).fire(argThat(ready -> ready.kind() == PurchasePushNotifier.Kind.DEPARTED));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anOrderPlacedByMistakeGoesBackToConceptAndIsPlacedAfreshLater() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.BESTELD, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        Instance<ActivityLogService> activities = mock(Instance.class);
+        ActivityLogService activityLog = mock(ActivityLogService.class);
+        when(activities.isResolvable()).thenReturn(true);
+        when(activities.get()).thenReturn(activityLog);
+        service.activity = activities;
+        service.purchasePush = mock(Event.class);
+
+        PurchaseOrder concept = service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6)).order();
+
+        assertEquals(PurchaseOrderStatus.CONCEPT, concept.status());
+        assertNull(concept.lines().getFirst().orderedQuantity(), "not ordered: nothing agreed to keep");
+        assertNull(concept.shippedOn());
+        verify(activityLog).record(argThat(action -> action.equals(ActivityLogService.ACTION_STATUS_CHANGED)),
+                any(), any(), any(), argThat(summary -> summary.equals("Status teruggezet van Besteld naar Concept")),
+                any());
+        verify(service.purchasePush, never()).fire(any());
+
+        PurchaseOrder placed = service.update(10L, order(PurchaseOrderStatus.BESTELD, 8, null)).order();
+        assertEquals(8, placed.lines().getFirst().orderedQuantity(), "placing again snapshots anew");
+        verify(service.purchasePush).fire(argThat(ready -> ready.kind() == PurchasePushNotifier.Kind.ORDERED));
+    }
+
+    @Test
+    void aReceivedContainerRefusesEveryStepBackThroughTheForm() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.ONTVANGEN, 6, 6));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+
+        for (PurchaseOrderStatus earlier : List.of(PurchaseOrderStatus.CONCEPT,
+                PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONDERWEG)) {
+            assertEquals("Een ontvangen container gaat niet terug: de voorraad is geboekt.",
+                    assertThrows(BusinessRuleException.class,
+                            () -> service.update(10L, order(earlier, 6, 6))).getMessage());
+        }
+        assertEquals(PurchaseOrderStatus.ONTVANGEN, orders.current.status());
+    }
+
+    @Test
+    void aConceptCannotBeReceivedDirectly() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, null));
+        RecordingProducts products = new RecordingProducts();
+        PurchaseOrderService service = service(orders, products);
+
+        assertEquals("Inkooporder kan niet van concept naar ontvangen gaan",
+                assertThrows(BusinessRuleException.class, () -> service.receive(10L,
+                        new PurchaseOrderService.Receipt(List.of(), true, null, null, null))).getMessage());
+        assertEquals(PurchaseOrderStatus.CONCEPT, orders.current.status());
+        assertEquals(0, products.stockDelta);
     }
 
     @Test
@@ -832,6 +974,20 @@ class PurchaseOrderServiceTest {
                 line.damagedQuantity(), line.receiptUnitValueEur());
         return source.withReceipt(source.status(), source.receivedOn(), source.paidTotalEur(),
                 source.stockBooked(), source.notes(), List.of(changed));
+    }
+
+    private static PurchaseOrder withShipping(PurchaseOrder source, LocalDate shippedOn, String tracking) {
+        return new PurchaseOrder(
+                source.id(), source.number(), source.alias(), source.supplierId(), source.orderDate(),
+                source.status(), source.containerType(), source.cnyToUsd(), source.usdToEurGoods(),
+                source.usdToEurTransport(), source.freightUsd(), source.originCosts(),
+                source.originCurrency(), source.destinationCostsEur(), source.defaultDutyRatePct(),
+                source.extraRevenueEur(), source.allocFreight(), source.allocOrigin(),
+                source.allocDestination(), source.allocExtra(), source.departurePort(),
+                source.destinationPort(), source.receivingLocationId(), source.groupVariants(),
+                source.expectedArrival(), source.receivedOn(), source.paidTotalEur(),
+                source.stockBooked(), source.paymentTerms(), shippedOn, tracking,
+                source.createdBy(), source.createdAt(), source.notes(), source.lines());
     }
 
     private static PurchaseOrder withTrackingReference(PurchaseOrder source, String tracking) {
