@@ -133,10 +133,11 @@ via een **zoekvenster**, niet via een uitgeklapte lijst van alles wat we verkope
 tientallen artikelen scrolt niemand daar doorheen. Bij elk artikel staat de voorraadstip, en
 bij een artikel zonder voorraad meteen *levertermijn nog te bepalen*.
 
-Aantallen van de klant worden **server-side op volle dozen afgerond**, net als de onze. Het
-scherm toont de correctie meteen en past ze na twee seconden toe; de server rondt bij het
-opslaan nog een keer af. Het scherm is de beleefdheid, die controle is de garantie — een
-klant kan het scherm omzeilen, en "13 stuks" op een order klopt verderop nergens meer.
+Aantallen van de klant worden **server-side afgerond op het bestelveelvoud van elk product**
+(*Verkocht per*: volle omdoos, per display of per stuk), net als de onze en met dezelfde
+uitzonderingen: een partnerofferte of een offerte aan containerkost houdt haar exacte stuks.
+Het scherm toont de correctie meteen; de server rondt bij het opslaan nog een keer af. Het
+scherm is de beleefdheid, die controle is de garantie — een klant kan het scherm omzeilen.
 
 Zolang zijn voorstel bij ons ligt, ziet de klant dat staan in plaats van een tekenknop:
 tekenen zou betekenen dat hij tekent voor de offerte zoals ze wás. Hij kan zijn voorstel
@@ -212,10 +213,9 @@ De voorraad hangt aan de inkoop. Zet een inkooporder op **Ontvangen** en de aant
 worden bijgeboekt — één keer, niet opnieuw bij elke bewaring. De stand staat in de
 catalogus en op de regels van de inkooporder.
 
-Aantallen tik je in **stuks**, want zo praat je met een leverancier. De server rondt naar
-boven af op een volle doos: vraag je 5 van iets dat per 6 verpakt zit, dan komen er 6, met
-een melding erbij. Half gevulde dozen bestaan niet, en een order die dat wel veronderstelt
-klopt verderop nergens meer — niet in het volume, niet in de vracht, niet in de kostprijs.
+Aantallen tik je in **stuks**, want zo praat je met een leverancier. Een inkooporder rondt
+nooit af: alleen jij weet of drie stuks een tikfout zijn of stalen. Een onvolle doos krijgt
+enkel een melding.
 
 ## Inkoopcijfers verbergen — dubbelklik op het logo
 
@@ -266,15 +266,24 @@ leveringen is een vraag voor een accountant, niet voor software. Het BTW-nummer 
 alleen op vorm gecontroleerd, niet bij VIES opgevraagd — voor een echte vrijstelling hoort
 dat nummer geldig verklaard te worden.
 
-## Aantallen: stuks in, volle dozen uit
+## Aantallen: stuks in, per bestelveelvoud uit
 
-Je tikt overal **stuks** in, op verkoop- én inkooporders. Vraag je er 5 van iets dat per 6
-verpakt zit, dan verschijnt **meteen** de melding *wordt zo 6*, en springt het veld
-**twee seconden later** ook echt naar 6. Die twee seconden zijn er omdat je anders niet kan
-typen: wie 240 intikt is na de eerste toets al bij "2", en een veld dat dan meteen naar 6
-springt is onbruikbaar. Half gevulde dozen bestaan niet, en een order die dat wel
-veronderstelt klopt verderop nergens meer — niet in het volume, niet in de pallets, niet in
-de vracht. Voeg je toe terwijl de wachttijd nog loopt, dan wordt er alsnog afgerond.
+Je tikt overal **stuks** in (of displays, voor een product dat per display geprijsd is), op
+verkoop- én inkooporders. Bij verkoop rondt het aantal naar boven af op het **bestelveelvoud**
+dat je per product kiest bij *Verkocht per*: een **volle omdoos** (de standaard, zoals altijd),
+**per display** (een display van 8 bowls) of **per stuk** in de eigen eenheid van het product
+(per stolp, per hart, per box). Vraag je er 5 van iets dat per volle doos van 6 verkocht wordt,
+dan verschijnt **meteen** de melding *wordt zo 6*; het veld rekent na **vijf seconden** stilstand
+(of bij Enter of het verlaten van het veld) en toont dan het afgeronde aantal. Wie 240 intikt
+is na de eerste toets al bij "2"; een veld dat dan meteen versprong, was onbruikbaar.
+
+Dezelfde keuze geldt voor offertes en facturen, het klantportaal, de offerteaanvraag en
+bestellingen op de website. De prijs per stuk blijft dezelfde, wat je ook kiest. Een
+aangebroken doos telt voor volume, gewicht, pallets en handling als **één volle doos**,
+precies zoals bij een partnercontainer. Elke regel onthoudt het veelvoud waarop hij laatst
+afgerond werd: zet je een product later terug op volle dozen, dan verandert een verstuurde of
+betaalde offerte of factuur niet mee. Een partnerofferte, een offerte aan containerkost en een
+creditnota houden hun exacte stuks.
 
 De productkiezer is een **zoekveld**, geen keuzelijst: tik een paar letters, een SKU of een
 barcode en je ziet foto, doosinhoud, voorraad en prijs. Een dropdown met tientallen
