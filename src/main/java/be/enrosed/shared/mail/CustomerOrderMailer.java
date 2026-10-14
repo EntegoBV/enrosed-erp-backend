@@ -7,8 +7,13 @@ import java.util.List;
 
 /** The two mails a customer gets about a website order: it was received, and Enrosed took it into processing. */
 public interface CustomerOrderMailer {
-    /** cartons and piecesPerCarton are null when the carton content is not known yet; net is null without a price. */
-    record Line(String description, Integer cartons, Integer piecesPerCarton, int quantity, BigDecimal net) {}
+    /**
+     * cartons and piecesPerCarton are null when the carton content is not known yet; net is null without a
+     * price. quantityText is the ready quantity of a line not sold per full carton ("3 stolpen"), null for
+     * one that is: the mailer prints that in cartons.
+     */
+    record Line(String description, Integer cartons, Integer piecesPerCarton, int quantity, BigDecimal net,
+                String quantityText) {}
 
     /**
      * What the customer ordered, as it stood when they ordered. The three totals are null unless

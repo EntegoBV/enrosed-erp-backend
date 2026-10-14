@@ -206,6 +206,22 @@ class OrderMailTest {
     }
 
     @Test
+    void aLineSoldPerPieceIsCountedInItsOwnUnitNeverInCartons() {
+        Map<String, String> text = DocumentText.of(Language.NL);
+        OrderMail mail = new OrderMail("buyer@login.example", Language.NL, "Anna", "Fleurs & Co", NUMBER,
+                List.of(new Line("Stolp rood", null, 12, 3, new BigDecimal("26.85"), "3 stolpen"),
+                        new Line("Rode roos", 4, 24, 96, new BigDecimal("168.72"), null)),
+                new BigDecimal("195.57"), BigDecimal.ZERO, false, true, new BigDecimal("195.57"),
+                new BigDecimal("41.07"), new BigDecimal("236.64"), null);
+
+        String html = mailer.orderMailHtml(mail, true);
+
+        assertTrue(html.contains("3 stolpen"), html);
+        assertFalse(html.contains(text.get("mailOrderCartons") + " × 12"), "never cartons of a part carton: " + html);
+        assertTrue(html.contains("4 " + text.get("mailOrderCartons") + " × 24"), "a carton line keeps its words: " + html);
+    }
+
+    @Test
     void anOrderThatWasStillToConfirmShowsNoTotalAndACollectionItsPickupPoint() {
         Map<String, String> text = DocumentText.of(Language.NL);
 
@@ -218,7 +234,7 @@ class OrderMailTest {
         assertTrue(html.contains("Magazijn Tessenderlo, Industrieweg 1"), html);
 
         OrderMail collected = new OrderMail("buyer@login.example", Language.NL, " ", "Fleurs & Co", NUMBER,
-                List.of(new Line("Rode roos", 4, 24, 96, new BigDecimal("168.72"))), new BigDecimal("168.72"),
+                List.of(new Line("Rode roos", 4, 24, 96, new BigDecimal("168.72"), null)), new BigDecimal("168.72"),
                 BigDecimal.ZERO, false, true, new BigDecimal("168.72"), new BigDecimal("35.43"), new BigDecimal("204.15"), null);
         String free = mailer.orderMailHtml(collected, true);
         assertFalse(free.contains(text.get("mailOrderDeliveryCosts")), "a collection without a charge names no delivery costs: " + free);
@@ -445,8 +461,8 @@ class OrderMailTest {
 
     private static OrderMail orderMail(Language language, boolean toConfirm) {
         List<Line> lines = List.of(
-                new Line("Rode roos <b>XL</b>", 4, 24, 96, new BigDecimal("168.72")),
-                new Line("Zeeproos in box", 3, null, 0, null));
+                new Line("Rode roos <b>XL</b>", 4, 24, 96, new BigDecimal("168.72"), null),
+                new Line("Zeeproos in box", 3, null, 0, null, null));
         return new OrderMail("buyer@login.example", language, "Anna <script>alert(1)</script>", "Fleurs & Co", NUMBER, lines,
                 new BigDecimal("168.72"), toConfirm ? null : new BigDecimal("42.00"), toConfirm, toConfirm,
                 toConfirm ? null : new BigDecimal("210.72"), toConfirm ? null : new BigDecimal("44.25"),

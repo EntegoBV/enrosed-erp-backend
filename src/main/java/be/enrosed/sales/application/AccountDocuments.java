@@ -1,6 +1,13 @@
 package be.enrosed.sales.application;
 
+import be.enrosed.catalog.adapter.in.rest.UnitDto;
+import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.StockService;
+import be.enrosed.catalog.domain.OrderStep;
+import be.enrosed.catalog.domain.OrderSteps;
+import be.enrosed.catalog.domain.Packaging;
+import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.sales.adapter.in.rest.AccountOrderDtos.DeliveryDefaults;
 import be.enrosed.sales.adapter.in.rest.AccountOrderDtos.DetailExtraLine;
@@ -117,6 +124,7 @@ public class AccountDocuments {
     @Inject CustomerService customers;
     @Inject CountryService countries;
     @Inject StockService stock;
+    @Inject ProductService products;
 
     /**
      * The switch that keeps ordering off until every screen is live. Read on
@@ -319,9 +327,14 @@ public class AccountDocuments {
             country = snapshot.countryCode();
             notes = snapshot.notes();
             basisDate = date(snapshot.takenAt() != null ? snapshot.takenAt() : row.placedAt());
+            /* The words as frozen; an order from before order steps reads per carton, in pieces of "stuk". */
+            Language language = snapshot.language() == null || snapshot.language().isBlank()
+                    ? customerLanguage(customerId) : Language.of(snapshot.language());
             lines = snapshot.lines().stream().map(line -> new DetailLine(line.productId(), line.sku(), line.description(),
                     line.cartons(), line.piecesPerCarton(), line.quantity(), line.unitPrice(), line.discountPct(),
-                    line.net())).toList();
+                    line.net(), line.orderStep() == null ? OrderStep.CARTON.name() : line.orderStep(),
+                    line.salesUnit() == null ? SalesUnit.PIECE.name() : line.salesUnit(),
+                    UnitDto.of(line.unitKey(), language))).toList();
             extraLines = List.of();
             WebOrderSnapshot.Totals frozen = snapshot.totals();
             totals = new DetailTotals(frozen.goods(), null, frozen.shipping(), frozen.shippingStatus(),
@@ -332,7 +345,9 @@ public class AccountDocuments {
             country = order.countryCode();
             notes = customerMessages.find(order).readonly() ? order.notes() : null;
             basisDate = date(order.sentAt());
-            lines = priced.lines().stream().map(AccountDocuments::currentLine).toList();
+            Language language = customerLanguage(customerId);
+            lines = priced.lines().stream()
+                    .map(line -> currentLine(line, product(line.productId()), language)).toList();
             extraLines = priced.extraLines().stream()
                     .map(line -> new DetailExtraLine(line.description(), Money.money(line.total()))).toList();
             totals = currentTotals(order, priced);
@@ -367,16 +382,43 @@ public class AccountDocuments {
                 notes == null || notes.isBlank() ? null : notes, lines, extraLines, totals, invoices.issuedNumber()));
     }
 
-    private static DetailLine currentLine(PricedOrder.Line line) {
+    /**
+     * A line as the document stands. The carton content is the product's own, never guessed from
+     * quantity ÷ cartons: 3 stolpen out of a carton of 12 is not "1 doos × 3".
+     */
+    static DetailLine currentLine(PricedOrder.Line line, Product product, Language language) {
         boolean hasPrice = line.unitPrice() != null && line.unitPrice().signum() > 0;
-        /* Whole cartons of more than one piece are a known carton content; anything else is left open. */
-        Integer perCarton = line.cartons() > 0 && line.quantity() % line.cartons() == 0
-                && line.quantity() / line.cartons() > 1 ? line.quantity() / line.cartons() : null;
+        int known = product == null ? 0 : OrderSteps.knownPiecesPerCarton(product.carton());
+        Integer cartons = known <= 0 ? null
+                : line.quantity() % known == 0 ? Integer.valueOf(line.quantity() / known)
+                : line.orderStep() == OrderStep.CARTON ? Integer.valueOf((line.quantity() + known - 1) / known)
+                : null;
+        Packaging packaging = product == null ? null : product.packaging();
         String description = line.customerDescription() == null || line.customerDescription().isBlank()
                 ? line.description() : line.customerDescription();
-        return new DetailLine(line.productId(), line.sku(), description, perCarton == null ? null : line.cartons(),
-                perCarton, line.quantity(), hasPrice ? line.unitPrice() : null,
-                hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null);
+        return new DetailLine(line.productId(), line.sku(), description, cartons, known > 0 ? known : null,
+                line.quantity(), hasPrice ? line.unitPrice() : null,
+                hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null,
+                line.orderStep().name(), packaging == null ? SalesUnit.PIECE.name() : packaging.salesUnit().name(),
+                UnitDto.of(packaging == null ? null : packaging.unitKey(), language));
+    }
+
+    /** The live product of a current line; null when it is gone, and the line then counts plain pieces. */
+    private Product product(Long productId) {
+        if (productId == null || products == null) return null;
+        try {
+            return products.get(productId);
+        } catch (RuntimeException gone) {
+            return null;
+        }
+    }
+
+    private Language customerLanguage(long customerId) {
+        try {
+            return customers.get(customerId).language();
+        } catch (RuntimeException gone) {
+            return Language.NL;
+        }
     }
 
     private static DetailTotals currentTotals(SalesOrder order, PricedOrder priced) {

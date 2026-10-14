@@ -340,7 +340,9 @@ public class WebOrderMails {
             for (WebOrderSnapshot.Line line : snapshot.lines()) {
                 lines.add(new CustomerOrderMailer.Line(
                         line.description() == null || line.description().isBlank() ? line.sku() : line.description(),
-                        line.cartons(), line.piecesPerCarton(), line.quantity(), line.net()));
+                        line.cartons(), line.piecesPerCarton(), line.quantity(), line.net(),
+                        /* Sold per verpakking or per stuk: counted in its own unit, as frozen. */
+                        line.perCarton() ? null : line.quantityText(language)));
             }
         }
         boolean pickup = delivery != null ? WebOrderDeliveries.PICKUP.equals(delivery.fulfillment())

@@ -155,14 +155,14 @@ class WebOrderTermsTest {
     void freightThatWasOpenAtOrderingReadsAsStillToConfirm() {
         WebOrderSnapshot open = WebOrderSnapshot.of(order().freight(FreightState.TE_BEPALEN).build(),
                 priced(List.of(line(12, "ER-RED", 96, "1.85", "5", "168.72")), "0", "21", List.of()),
-                1, Instant.parse("2026-10-08T09:12:44Z"), "NL", "DELIVERY", Map.of(12L, 24), Map.of());
+                1, Instant.parse("2026-10-08T09:12:44Z"), "NL", "DELIVERY", Map.of(12L, 24), Map.of(), Map.of());
         assertEquals(List.of("Vracht: besteld nog te bevestigen, nu € 42,00"), WebOrderTerms.differences(open, ordered()));
     }
 
     @Test
     void theSnapshotSurvivesItsJsonAndCarriesNoInternalFigure() throws Exception {
         WebOrderSnapshot snapshot = WebOrderSnapshot.of(order().notes("Graag voor vrijdag").build(), ordered(), 2,
-                Instant.parse("2026-10-08T09:12:44Z"), "NL", "DELIVERY", Map.of(12L, 24), Map.of());
+                Instant.parse("2026-10-08T09:12:44Z"), "NL", "DELIVERY", Map.of(12L, 24), Map.of(), Map.of());
         String json = snapshot.toJson();
         assertEquals(snapshot, WebOrderSnapshot.fromJson(json));
         JsonNode node = new ObjectMapper().readTree(json);
@@ -176,7 +176,8 @@ class WebOrderTermsTest {
         assertEquals("Graag voor vrijdag", node.get("notes").asText());
         JsonNode line = node.get("lines").get(0);
         assertEquals(List.of("productId", "sku", "description", "cartons", "piecesPerCarton", "quantity", "unitPrice",
-                "discountPct", "net"), names(line));
+                "discountPct", "net", "orderStep", "unitsPerOrderStep", "unitKey", "salesUnit"), names(line));
+        assertEquals("CARTON", line.get("orderStep").asText());
         assertEquals(4, line.get("cartons").asInt());
         assertEquals(24, line.get("piecesPerCarton").asInt());
         assertEquals(96, line.get("quantity").asInt());
@@ -210,7 +211,7 @@ class WebOrderTermsTest {
             pieces.put((long) product, 24);
         }
         WebOrderSnapshot hundred = WebOrderSnapshot.of(order().build(), priced(lines, "42.00", "21", List.of()), 1,
-                Instant.now(), "EN", "DELIVERY", pieces, Map.of());
+                Instant.now(), "EN", "DELIVERY", pieces, Map.of(), Map.of());
         assertEquals(100, hundred.lines().size());
         assertTrue(hundred.complete());
         assertEquals(160, hundred.lines().getFirst().description().length());
@@ -219,7 +220,7 @@ class WebOrderTermsTest {
         lines.add(line(101, "SKU-101", 24, "2.00", "0", "48.00"));
         pieces.put(101L, 24);
         WebOrderSnapshot more = WebOrderSnapshot.of(order().build(), priced(lines, "42.00", "21", List.of()), 1,
-                Instant.now(), "EN", "DELIVERY", pieces, Map.of());
+                Instant.now(), "EN", "DELIVERY", pieces, Map.of(), Map.of());
         assertEquals(100, more.lines().size());
         assertFalse(more.complete(), "a snapshot that had to drop a line never proves an unchanged order");
     }
@@ -231,26 +232,26 @@ class WebOrderTermsTest {
 
         WebOrderSnapshot zeroQuantity = WebOrderSnapshot.of(order().build(),
                 priced(List.of(known, line(13, "ER-BLUE", 0, "2.00", "0", "0")), "42.00", "21", List.of()),
-                1, at, "NL", "DELIVERY", Map.of(12L, 24, 13L, 12), Map.of());
+                1, at, "NL", "DELIVERY", Map.of(12L, 24, 13L, 12), Map.of(), Map.of());
         assertFalse(zeroQuantity.complete());
 
         WebOrderSnapshot unknownCarton = WebOrderSnapshot.of(order().build(),
                 priced(List.of(known, line(13, "ER-BLUE", 0, "2.00", "0", "0")), "42.00", "21", List.of()),
-                1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of(13L, 5));
+                1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of(13L, 5), Map.of());
         assertFalse(unknownCarton.complete());
         assertNull(unknownCarton.lines().get(1).piecesPerCarton());
         assertEquals(5, unknownCarton.lines().get(1).cartons(), "the cartons the customer asked for");
 
         WebOrderSnapshot noPrice = WebOrderSnapshot.of(order().build(),
                 priced(List.of(known, line(13, "ER-BLUE", 24, "0", "0", "0")), "42.00", "21", List.of()),
-                1, at, "NL", "DELIVERY", Map.of(12L, 24, 13L, 24), Map.of());
+                1, at, "NL", "DELIVERY", Map.of(12L, 24, 13L, 24), Map.of(), Map.of());
         assertFalse(noPrice.complete());
         assertNull(noPrice.lines().get(1).unitPrice());
         assertNull(noPrice.lines().get(1).discountPct());
         assertNull(noPrice.lines().get(1).net());
 
         WebOrderSnapshot freightOpen = WebOrderSnapshot.of(order().freight(FreightState.TE_BEPALEN).build(), ordered(),
-                1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of());
+                1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of(), Map.of());
         assertFalse(freightOpen.complete());
         assertEquals("TO_CONFIRM", freightOpen.totals().shippingStatus());
         assertNull(freightOpen.totals().shipping());
@@ -266,16 +267,16 @@ class WebOrderTermsTest {
                 new PricedOrder.Validation(BigDecimal.ZERO, true, BigDecimal.ZERO, true, true, List.of(), List.of("ER-RED"), List.of(), null),
                 new PricedOrder.Validation(BigDecimal.ZERO, true, BigDecimal.ZERO, true, true, List.of(), List.of(), List.of("ER-RED"), null))) {
             assertFalse(WebOrderSnapshot.of(order().build(), new PricedOrder(base.lines(), base.totals(), validation, List.of()),
-                    1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of()).complete());
+                    1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of(), Map.of()).complete());
         }
 
         WebOrderSnapshot noFreightAmount = WebOrderSnapshot.of(order().build(),
-                priced(List.of(known), "0", "21", List.of()), 1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of());
+                priced(List.of(known), "0", "21", List.of()), 1, at, "NL", "DELIVERY", Map.of(12L, 24), Map.of(), Map.of());
         assertEquals("TO_CONFIRM", noFreightAmount.totals().shippingStatus());
         assertFalse(noFreightAmount.complete());
 
         WebOrderSnapshot pickup = WebOrderSnapshot.of(order().incoterm("EXW").build(),
-                priced(List.of(known), "0", "21", List.of()), 1, at, "NL", "PICKUP", Map.of(12L, 24), Map.of());
+                priced(List.of(known), "0", "21", List.of()), 1, at, "NL", "PICKUP", Map.of(12L, 24), Map.of(), Map.of());
         assertEquals("PICKUP", pickup.totals().shippingStatus());
         assertTrue(pickup.complete());
         assertEquals(0, new BigDecimal("168.72").compareTo(pickup.totals().totalExclVat()));
@@ -293,7 +294,7 @@ class WebOrderTermsTest {
         Map<Long, Integer> pieces = new HashMap<>();
         priced.lines().forEach(line -> pieces.put(line.productId(), 24));
         return WebOrderSnapshot.of(order().build(), priced, 1, Instant.parse("2026-10-08T09:12:44Z"), "NL", "DELIVERY",
-                pieces, Map.of());
+                pieces, Map.of(), Map.of());
     }
 
     static PricedOrder.Line line(long productId, String sku, int quantity, String unitPrice, String discountPct, String net) {

@@ -1,11 +1,13 @@
 package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.sales.domain.SalesOrderLine;
 import be.enrosed.shared.DocumentFormat;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.mail.InternalMessageSender;
 import be.enrosed.shared.mail.InternalMessageSender.TeamFact;
 import be.enrosed.shared.mail.InternalMessageSender.TeamLine;
@@ -204,28 +206,36 @@ public class WebsiteQuoteMailNotifier {
                 text.toString());
     }
 
-    /** One line per product: name and colour, the pieces, and the cartons where the carton content is known. */
+    /**
+     * One line per product: name and colour, the pieces, and the cartons where the carton content is
+     * known. A product sold per verpakking or per stuk counts in its own unit and names the carton
+     * it comes out of ("3 stolpen", "uit omdoos van 12"), never "losse dozen".
+     */
     private List<TeamLine> productLines(SalesOrder order) {
         List<TeamLine> lines = new ArrayList<>();
         for (SalesOrderLine line : order.lines()) {
             String description = "Product " + line.productId();
             String note = null;
+            String quantity = DocumentFormat.amount(BigDecimal.valueOf(line.quantity())) + " st";
             try {
                 Product product = line.productId() == null ? null : products.get(line.productId());
                 if (product != null) {
                     description = product.name() + (product.colour() == null || product.colour().isBlank()
                             ? "" : " - " + product.colour());
                     note = product.sku();
+                    boolean perCarton = product.packaging().orderStep() == OrderStep.CARTON;
+                    if (!perCarton) quantity = SalesUnitText.quantity(product.packaging(), line.quantity(), Language.NL);
                     if (product.carton() != null && product.carton().piecesPerCarton() > 0) {
                         int cartons = product.carton().cartonsFor(line.quantity());
-                        note = (note == null ? "" : note + " · ") + cartons + (cartons == 1 ? " doos" : " dozen")
-                                + " van " + product.carton().piecesPerCarton();
+                        note = (note == null ? "" : note + " · ") + (perCarton
+                                ? cartons + (cartons == 1 ? " doos" : " dozen") + " van " + product.carton().piecesPerCarton()
+                                : "uit omdoos van " + product.carton().piecesPerCarton());
                     }
                 }
             } catch (RuntimeException ignored) {
                 /* A product that vanished in the meantime still gets its line; the ERP shows the rest. */
             }
-            lines.add(new TeamLine(description, DocumentFormat.amount(BigDecimal.valueOf(line.quantity())) + " st", note));
+            lines.add(new TeamLine(description, quantity, note));
         }
         return lines;
     }

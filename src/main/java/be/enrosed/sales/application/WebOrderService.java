@@ -10,6 +10,7 @@ import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteEvent;
 import be.enrosed.sales.domain.SalesOrder;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.NotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
@@ -182,7 +183,7 @@ public class WebOrderService {
             if (facts.piecesPerCarton().getOrDefault(productId, 0) <= 0) unresolved.put(productId, cartons);
         });
         return WebOrderSnapshot.of(saved, priced, revision, Instant.now(), facts.language(), facts.fulfillment(),
-                facts.piecesPerCarton(), unresolved);
+                facts.piecesPerCarton(), unresolved, facts.packagings());
     }
 
     /**
@@ -198,11 +199,18 @@ public class WebOrderService {
         for (WebOrderSnapshot.Line line : after.lines()) {
             WebOrderSnapshot.Line known = old.remove(line.productId());
             if (known == null) {
-                parts.add(line.sku() + " toegevoegd (" + dozen(line.cartons()) + " dozen)");
+                parts.add(line.sku() + " toegevoegd (" + (line.perCarton() ? dozen(line.cartons()) + " dozen"
+                        : line.quantityText(Language.NL)) + ")");
                 continue;
             }
-            if (!Objects.equals(known.cartons(), line.cartons()))
-                parts.add(line.sku() + ": " + dozen(known.cartons()) + " → " + dozen(line.cartons()) + " dozen");
+            /* Cartons while both sides sell per carton; otherwise the sales units, so "3 → 5 stolpen"
+               shows, and a product that changed its step never reads "1 → ? dozen". */
+            if (known.perCarton() && line.perCarton()) {
+                if (!Objects.equals(known.cartons(), line.cartons()))
+                    parts.add(line.sku() + ": " + dozen(known.cartons()) + " → " + dozen(line.cartons()) + " dozen");
+            } else if (known.quantity() != line.quantity()) {
+                parts.add(line.sku() + ": " + known.quantity() + " → " + line.quantityText(Language.NL));
+            }
             BigDecimal keptPrice = kept == null ? null : kept.get(line.productId());
             BigDecimal listPrice = facts.listPrices().get(line.productId());
             if (keptPrice != null && listPrice != null && keptPrice.compareTo(listPrice) != 0)

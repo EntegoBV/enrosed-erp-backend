@@ -2,7 +2,8 @@ package be.enrosed.sales.application;
 
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.StockService;
-import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.OrderSteps;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.sales.adapter.in.rest.AccountOrderDtos.OrderPreviewRequest;
@@ -87,10 +88,12 @@ public class PublicQuoteService {
                     BigDecimal amount = pricing.unitPriceFor(product, priceTemplate, null);
                     boolean available = amount != null && amount.signum() > 0;
                     return new ProductPrice(product.id(), available ? amount : null, available,
-                            piecesPerCarton(product), product.packaging().salesUnit().name(),
+                            OrderSteps.knownPiecesPerCarton(product.carton()), product.packaging().salesUnit().name(),
                             product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
                                     ? product.packaging().piecesPerUnit() : null,
-                            be.enrosed.catalog.adapter.in.rest.UnitDto.of(product.packaging().unitKey(), language));
+                            be.enrosed.catalog.adapter.in.rest.UnitDto.of(product.packaging().unitKey(), language),
+                            product.packaging().orderStep().name(),
+                            OrderSteps.publicUnitsPerStep(product.packaging(), product.carton()));
                 }).toList();
         List<CountryOption> destinations = countries.list().stream()
                 .map(country -> new CountryOption(country.code(), country.name(),
@@ -101,9 +104,11 @@ public class PublicQuoteService {
                 .toList();
         List<String> fulfillmentMethods = pickupLocations.isEmpty()
                 ? List.of("DELIVERY") : List.of("DELIVERY", "PICKUP");
+        /* The basis stays "FULL_CARTONS": a site from before order steps refuses anything else.
+           quantitySteps tells a newer site that each product carries its own step. */
         return new ConfigurationResponse("EUR", "NET_EXCL_VAT", "FULL_CARTONS",
                 fulfillmentMethods, "ESTIMATE_NOT_BINDING",
-                destinations, publicPrices, pickupLocations);
+                destinations, publicPrices, pickupLocations, true, ConfigurationResponse.PER_PRODUCT);
     }
 
     public EstimateResponse preview(PreviewRequest request) {
@@ -226,13 +231,16 @@ public class PublicQuoteService {
         Map<Long, Integer> cartons = new LinkedHashMap<>();
         Map<Long, String> skus = new LinkedHashMap<>();
         Map<Long, BigDecimal> listPrices = new LinkedHashMap<>();
+        Map<Long, Packaging> packagings = new LinkedHashMap<>();
         SalesOrder priceTemplate = draft(null, null, null, Fulfillment.DELIVERY,
                 List.of(), null, FreightState.TE_BEPALEN);
         for (PreparedItem item : prepared.items) {
             long productId = item.product.id();
             piecesPerCarton.put(productId, item.piecesPerCarton);
-            cartons.put(productId, item.cartons);
+            /* Only what the customer asked for in cartons: a quantity item names no cartons. */
+            if (item.requestedCartons != null) cartons.put(productId, item.requestedCartons);
             skus.put(productId, item.product.sku());
+            packagings.put(productId, item.product.packaging());
             if (keptUnitPrices != null && keptUnitPrices.get(productId) != null) {
                 BigDecimal today = pricing.unitPriceFor(item.product, priceTemplate, null);
                 if (today != null && today.signum() > 0) listPrices.put(productId, today);
@@ -250,7 +258,7 @@ public class PublicQuoteService {
                 prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupLabel(),
                 prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupAddress(),
                 contact, isBlank(request.phone()) ? null : clean(request.phone()),
-                piecesPerCarton, cartons, skus, listPrices);
+                piecesPerCarton, cartons, skus, listPrices, packagings);
     }
 
     /**
@@ -316,7 +324,7 @@ public class PublicQuoteService {
         StringBuilder internal = new StringBuilder(SalesOrderService.WEBSITE_REQUEST_MARKER)
                 .append(' ').append(base.number())
                 .append("\nWebsitebestelling van een ingelogde klant; bindend na bevestiging door Enrosed.");
-        prepared.items.stream().filter(item -> item.piecesPerCarton <= 0)
+        prepared.items.stream().filter(item -> !item.quantityKnown)
                 .forEach(item -> internal.append('\n').append(SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER)
                         .append(" productId=").append(item.product.id())
                         .append("; sku=").append(item.product.sku())
@@ -416,7 +424,7 @@ public class PublicQuoteService {
         }).toList();
         String marker = SalesOrderService.WEBSITE_REQUEST_MARKER + " " + created.number();
         String missingCartons = prepared.items.stream()
-                .filter(item -> item.piecesPerCarton <= 0)
+                .filter(item -> !item.quantityKnown)
                 .map(item -> SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER
                         + " productId=" + item.product.id()
                         + "; sku=" + item.product.sku() + "; cartons=" + item.cartons
@@ -583,19 +591,37 @@ public class PublicQuoteService {
                     errors.put(path + ".productId", "NOT_ORDERABLE");
                     continue;
                 }
-                int cartonCount = item.cartons() == null ? 0 : item.cartons();
+                /* Exactly one quantity per item: full cartons, or sales units. */
+                if ((item.cartons() == null) == (item.quantity() == null)) {
+                    errors.put(path, "INVALID");
+                    continue;
+                }
+                /* Carton content decides the quantity of a carton item; dimensions only decide freight
+                   and pallet fit, validated by SalesPricingCalculator. A known 12 per carton still
+                   makes 3 x 12 = 36 while the dimensions need review; an unknown content is 0, never
+                   an invented one-piece carton. */
+                int perCarton = OrderSteps.knownPiecesPerCarton(product.carton());
+                if (item.quantity() != null) {
+                    PreparedItem byQuantity = quantityItem(product, item.quantity(), perCarton, path, errors);
+                    if (byQuantity == null) continue;
+                    /* Counted as the cartons it ships in; one when the content is still unknown. */
+                    totalCartons += perCarton > 0 ? byQuantity.cartons : 1;
+                    preparedItems.add(byQuantity);
+                    continue;
+                }
+                int cartonCount = item.cartons();
                 if (cartonCount < 1 || cartonCount > MAX_CARTONS_PER_LINE) {
                     errors.put(path + ".cartons", "OUT_OF_RANGE");
                     continue;
                 }
-                int perCarton = piecesPerCarton(product);
                 long quantity = (long) cartonCount * perCarton;
                 if (quantity > MAX_PIECES_PER_LINE) {
                     errors.put(path + ".cartons", "TOO_LARGE");
                     continue;
                 }
                 totalCartons += cartonCount;
-                preparedItems.add(new PreparedItem(product, cartonCount, (int) quantity, perCarton));
+                preparedItems.add(new PreparedItem(product, cartonCount, (int) quantity, perCarton,
+                        cartonCount, perCarton > 0));
             }
         }
         if (totalCartons > MAX_TOTAL_CARTONS) errors.put("items", "TOO_MANY_CARTONS");
@@ -655,18 +681,23 @@ public class PublicQuoteService {
     private EstimateResponse toResponse(Prepared prepared) {
         Map<Long, PreparedItem> requested = prepared.items.stream()
                 .collect(Collectors.toMap(item -> item.product.id(), Function.identity()));
+        /* A line is priced once its quantity is known: from known carton content, or because
+           the customer counted it in sales units. Freight still needs the carton below. */
         boolean pricesComplete = prepared.priced.lines().size() == prepared.items.size()
-                && prepared.items.stream().allMatch(item -> item.piecesPerCarton > 0)
+                && prepared.items.stream().allMatch(item -> item.quantityKnown)
                 && prepared.priced.lines().stream().allMatch(line -> line.unitPrice().signum() > 0);
         List<LineEstimate> lines = prepared.priced.lines().stream().map(line -> {
             PreparedItem item = requested.get(line.productId());
             boolean available = line.unitPrice().signum() > 0;
-            boolean lineCanTotal = available && item.piecesPerCarton > 0;
+            boolean lineCanTotal = available && item.quantityKnown;
             return new LineEstimate(line.productId(), line.sku(), item.cartons,
                     line.quantity(), item.piecesPerCarton,
                     available ? line.unitPrice() : null,
                     lineCanTotal ? line.discountPct() : null,
-                    lineCanTotal ? line.net() : null, available);
+                    lineCanTotal ? line.net() : null, available,
+                    line.orderStep().name(),
+                    OrderSteps.publicUnitsPerStep(item.product.packaging(), item.product.carton()) == null
+                            ? null : line.unitsPerOrderStep());
         }).toList();
         PricedOrder.Totals totals = prepared.priced.totals();
         String shippingStatus = prepared.fulfillment == Fulfillment.PICKUP
@@ -825,37 +856,29 @@ public class PublicQuoteService {
                 DocumentType.OFFERTE, null, null, null, null, lines, List.of());
     }
 
-    private static int piecesPerCarton(Product product) {
-        Carton carton = product.carton();
-        /* Carton content determines the commercial quantity. Dimensions only
-           determine freight and pallet fit, and are deliberately validated by
-           SalesPricingCalculator. A known 12 pieces/carton must therefore
-           still produce 3 x 12 = 36 pieces when logistics dimensions need
-           review. Never invent a one-piece carton when the content is absent. */
-        if (carton == null || carton.piecesPerCarton() <= 0) return 0;
-
-        /* Old product rows defaulted to Carton.empty(): one piece with no
-           measurements, weight or capacity. That is a persistence default,
-           not evidence that the commercial box really contains one piece.
-           Treat that exact shape as unknown so a public request cannot turn
-           four requested boxes into four priced pieces by accident. */
-        if (carton.piecesPerCarton() == 1 && hasNoCartonEvidence(carton)) return 0;
-        return carton.piecesPerCarton();
-    }
-
-    private static boolean hasNoCartonEvidence(Carton carton) {
-        var dimensions = carton.dimensions();
-        boolean noDimensions = dimensions == null
-                || nonPositive(dimensions.lengthCm())
-                && nonPositive(dimensions.widthCm())
-                && nonPositive(dimensions.heightCm());
-        return noDimensions
-                && nonPositive(carton.weightKg())
-                && (carton.piecesPerHc() == null || carton.piecesPerHc() <= 0);
-    }
-
-    private static boolean nonPositive(BigDecimal value) {
-        return value == null || value.signum() <= 0;
+    /**
+     * An item counted in sales units, rounded up to the product's order step. Carton content
+     * decides the quantity of a carton item only; dimensions decide freight and pallet fit and
+     * are validated by SalesPricingCalculator. A product sold per carton whose content is
+     * unknown cannot be counted this way: nobody knows what one step is.
+     */
+    private static PreparedItem quantityItem(Product product, int wanted, int perCarton, String path,
+                                             Map<String, String> errors) {
+        if (wanted < 1 || wanted > MAX_PIECES_PER_LINE) {
+            errors.put(path + ".quantity", "OUT_OF_RANGE");
+            return null;
+        }
+        if (OrderSteps.publicUnitsPerStep(product.packaging(), product.carton()) == null) {
+            errors.put(path, "INVALID");
+            return null;
+        }
+        long quantity = OrderSteps.roundUp((long) wanted, OrderSteps.unitsPerStep(product));
+        if (quantity > MAX_PIECES_PER_LINE) {
+            errors.put(path + ".quantity", "TOO_LARGE");
+            return null;
+        }
+        int cartons = perCarton > 0 ? product.carton().cartonsFor((int) quantity) : 0;
+        return new PreparedItem(product, cartons, (int) quantity, perCarton, null, true);
     }
 
     private static Language requireLanguage(String value, Map<String, String> errors) {
@@ -944,17 +967,26 @@ public class PublicQuoteService {
     /**
      * What an order request says beside its document. {@code fulfillment} is DELIVERY or
      * PICKUP; the address is null for a collection. {@code piecesPerCarton} is 0 where the
-     * carton content is unknown. {@code listPrices} holds today's public price of the products
-     * whose price is kept, where there is one.
+     * carton content is unknown; {@code cartons} holds only the items asked for in cartons.
+     * {@code listPrices} holds today's public price of the products whose price is kept, where
+     * there is one. {@code packagings} names each product's unit, basis and order step for the
+     * frozen order.
      */
     public record OrderFacts(String language, String fulfillment, String address, String postalCode,
                              String city, Long pickupLocationId, String pickupLabel,
                              String pickupAddress, String contactName, String phone,
                              Map<Long, Integer> piecesPerCarton, Map<Long, Integer> cartons,
-                             Map<Long, String> skus, Map<Long, BigDecimal> listPrices) {}
+                             Map<Long, String> skus, Map<Long, BigDecimal> listPrices,
+                             Map<Long, Packaging> packagings) {}
 
+    /**
+     * {@code cartons} is what the item ships in, or the cartons asked for while their content is
+     * unknown; {@code requestedCartons} is null for an item counted in sales units.
+     * {@code quantityKnown} is false only for a carton item whose content is unknown: that line
+     * waits for staff ({@code [DOOSINHOUD_TE_BEPALEN]}) and is neither priced nor counted.
+     */
     private record PreparedItem(Product product, int cartons, int quantityPieces,
-                                int piecesPerCarton) {}
+                                int piecesPerCarton, Integer requestedCartons, boolean quantityKnown) {}
 
     private record Stored(SalesOrder order, SubmissionResponse response) {}
 

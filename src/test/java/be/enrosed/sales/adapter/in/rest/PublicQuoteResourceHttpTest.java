@@ -73,7 +73,27 @@ class PublicQuoteResourceHttpTest {
                 .when().get("/api/v1/public/quotes/configuration")
                 .then().statusCode(200)
                 .header("Cache-Control", "no-store")
-                .body("currency", equalTo("EUR"));
+                .body("currency", equalTo("EUR"))
+                .body("quantityBasis", equalTo("FULL_CARTONS"))
+                .body("quantitySteps", equalTo("PER_PRODUCT"));
+    }
+
+    @Test
+    void aQuantityItemReachesTheServiceAndACartonItemSerialisesAsItAlwaysDid() throws Exception {
+        when(quotes.preview(any())).thenReturn(PublicQuotePriceVisibilityTest.pricedEstimate());
+        given().contentType("application/json")
+                .body("{\"language\":\"EN\",\"items\":[{\"productId\":1,\"quantity\":3},{\"productId\":2,\"cartons\":2}]}")
+                .post("/api/v1/public/quotes/preview")
+                .then().statusCode(200);
+        verify(quotes).preview(argThat(request -> request.items().get(0).quantity() == 3
+                && request.items().get(0).cartons() == null && request.items().get(1).cartons() == 2
+                && request.items().get(1).quantity() == null));
+
+        /* Idempotency fingerprints hold the items: an old client's retry across the deploy matches. */
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertEquals("{\"productId\":1,\"cartons\":2}", json.writeValueAsString(new PublicQuoteDtos.ItemRequest(1L, 2)));
+        assertEquals("{\"productId\":1,\"quantity\":3}",
+                json.writeValueAsString(new PublicQuoteDtos.ItemRequest(1L, null, 3)));
     }
 
     @Test
@@ -150,7 +170,7 @@ class PublicQuoteResourceHttpTest {
                 "EUR", "NET_EXCL_VAT", "PICKUP", null,
                 "ESTIMATE_NOT_BINDING", "FINAL_QUOTE_FOLLOWS",
                 List.of(new PublicQuoteDtos.LineEstimate(1L, "SKU-1", 2, 24, 12,
-                        decimal("10"), decimal("5"), decimal("228"), true)),
+                        decimal("10"), decimal("5"), decimal("228"), true, "CARTON", 12)),
                 new PublicQuoteDtos.ShippingEstimate("PICKUP", "PICKUP",
                         decimal("0"), decimal("0"), decimal("0"), 0, 2),
                 new PublicQuoteDtos.TotalsEstimate(

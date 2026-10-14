@@ -312,6 +312,118 @@ class PublicQuoteServiceTest {
     }
 
     @Test
+    void configurationKeepsTheCartonBasisAndPublishesEachProductsStep() {
+        Product stolp = stepped(5L, "STOLP", Carton.empty(), Packaging.none().withOrderStep(OrderStep.UNIT)
+                .withUnitKey("stolp"));
+        when(products.websiteOrderableProducts()).thenReturn(List.of(pricedProduct, stolp, bowls(6L)));
+
+        PublicQuoteDtos.ConfigurationResponse config = service.configuration("NL");
+
+        assertEquals("FULL_CARTONS", config.quantityBasis(), "the live site refuses any other basis");
+        assertEquals("PER_PRODUCT", config.quantitySteps());
+        java.util.Map<Long, PublicQuoteDtos.ProductPrice> byId = config.products().stream()
+                .collect(java.util.stream.Collectors.toMap(PublicQuoteDtos.ProductPrice::productId, p -> p));
+        assertEquals("CARTON", byId.get(1L).orderStep());
+        assertEquals(12, byId.get(1L).unitsPerOrderStep());
+        assertEquals("UNIT", byId.get(5L).orderStep());
+        assertEquals(1, byId.get(5L).unitsPerOrderStep(), "per stuk needs no carton content");
+        assertEquals(0, byId.get(5L).piecesPerCarton());
+        assertEquals("PACKAGE", byId.get(6L).orderStep());
+        assertEquals(8, byId.get(6L).unitsPerOrderStep());
+
+        when(products.websiteOrderableProducts()).thenReturn(List.of(stepped(7L, "NO-CARTON", Carton.empty(),
+                Packaging.none())));
+        assertNull(service.configuration("NL").products().getFirst().unitsPerOrderStep(),
+                "a carton step without content is never guessed");
+    }
+
+    @Test
+    void quantityItemsRoundUpToTheProductsStepAndArePricedWithoutCartonContent() {
+        Product stolp = stepped(5L, "STOLP", Carton.empty(), Packaging.none().withOrderStep(OrderStep.UNIT));
+        when(products.websiteOrderableProducts()).thenReturn(List.of(pricedProduct, stolp, bowls(6L)));
+
+        PublicQuoteDtos.EstimateResponse result = service.preview(new PublicQuoteDtos.PreviewRequest("EN",
+                "DELIVERY", null, new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                List.of(new PublicQuoteDtos.ItemRequest(5L, null, 3),
+                        new PublicQuoteDtos.ItemRequest(6L, null, 10),
+                        new PublicQuoteDtos.ItemRequest(1L, null, 13))));
+
+        PublicQuoteDtos.LineEstimate perUnit = result.lines().get(0);
+        assertEquals(3, perUnit.quantityPieces(), "three stolpen stay three");
+        assertEquals(0, perUnit.cartons(), "no carton is invented for an unknown content");
+        assertEquals("UNIT", perUnit.orderStep());
+        assertEquals(1, perUnit.unitsPerOrderStep());
+        assertEquals(decimal("30.00"), perUnit.lineTotalNet(), "a known quantity is priced");
+        PublicQuoteDtos.LineEstimate perDisplay = result.lines().get(1);
+        assertEquals(16, perDisplay.quantityPieces(), "ten bowls round up to two displays of eight");
+        assertEquals(1, perDisplay.cartons(), "out of one carton of forty");
+        assertEquals(8, perDisplay.unitsPerOrderStep());
+        PublicQuoteDtos.LineEstimate perCarton = result.lines().get(2);
+        assertEquals(24, perCarton.quantityPieces(), "a carton product counted in pieces still sells full cartons");
+        assertEquals(2, perCarton.cartons());
+        assertEquals("CARTON", perCarton.orderStep());
+        assertNotNull(result.totals().goodsNet(), "every quantity is known, so the goods add up");
+        assertFalse(result.validation().messageCodes().contains("PRICE_TO_CONFIRM"));
+        assertEquals("TO_CONFIRM", result.shipping().status(), "freight still needs the carton of the stolp");
+        assertTrue(result.validation().messageCodes().contains("CARTON_DATA_TO_CONFIRM"));
+    }
+
+    @Test
+    void quantityItemsAreRangeCheckedAndCarryExactlyOneQuantity() {
+        when(products.websiteOrderableProducts()).thenReturn(List.of(pricedProduct, missingPriceProduct,
+                stepped(5L, "NO-CARTON", Carton.empty(), Packaging.none()), bowls(6L),
+                stepped(7L, "STOLP", TWELVE_STOLPEN, Packaging.none().withOrderStep(OrderStep.UNIT)),
+                stepped(8L, "BIG", TWELVE_STOLPEN, Packaging.none())));
+
+        PublicQuoteValidationException failure = assertThrows(PublicQuoteValidationException.class,
+                () -> service.preview(new PublicQuoteDtos.PreviewRequest("EN", "DELIVERY", null,
+                        new PublicQuoteDtos.Destination("BE", "2400", "Mol", "Street 1"),
+                        List.of(new PublicQuoteDtos.ItemRequest(1L, 2, 24),
+                                new PublicQuoteDtos.ItemRequest(2L, null, null),
+                                new PublicQuoteDtos.ItemRequest(5L, null, 4),
+                                new PublicQuoteDtos.ItemRequest(6L, null, 0),
+                                new PublicQuoteDtos.ItemRequest(7L, null, 1_000_001),
+                                new PublicQuoteDtos.ItemRequest(8L, null, 999_999)))));
+
+        assertEquals(java.util.Map.of(
+                "items[0]", "INVALID",
+                "items[1]", "INVALID",
+                "items[2]", "INVALID",
+                "items[3].quantity", "OUT_OF_RANGE",
+                "items[4].quantity", "OUT_OF_RANGE",
+                "items[5].quantity", "TOO_LARGE"), failure.fieldErrors(),
+                "both, neither, a carton step without content, zero, too many and too many after rounding");
+        verifyNoInteractions(customers, salesOrders);
+    }
+
+    @Test
+    void aSubmittedQuantityItemStoresItsRoundedUnitsAndNeverAnUnknownCartonMarker() {
+        Product stolp = stepped(5L, "STOLP", Carton.empty(), Packaging.none().withOrderStep(OrderStep.UNIT));
+        when(products.websiteOrderableProducts()).thenReturn(List.of(stolp, bowls(6L)));
+        Customer savedCustomer = new Customer(9L, "Buyer BV", "Ana", "ana@example.com",
+                null, null, "BE", Language.EN, null, null, null,
+                "EXW", null, null, LocalDate.now());
+        when(customers.create(any())).thenReturn(savedCustomer);
+        when(salesOrders.createWebsiteRequest(9L, "BE", "EXW"))
+                .thenReturn(draft(46L, 9L, "ENR-2026-0046"));
+        when(salesOrders.update(eq(46L), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        PublicQuoteDtos.SubmissionResponse response = service.submit(new PublicQuoteDtos.SubmitRequest(
+                "EN", "PICKUP", "BE0123456789", null,
+                List.of(new PublicQuoteDtos.ItemRequest(5L, null, 3),
+                        new PublicQuoteDtos.ItemRequest(6L, null, 9)),
+                "BE", "Buyer BV", "Ana", "ana@example.com", null, null, true, ""));
+
+        ArgumentCaptor<SalesOrder> saved = ArgumentCaptor.forClass(SalesOrder.class);
+        verify(salesOrders).update(eq(46L), saved.capture());
+        assertEquals(3, saved.getValue().lines().get(0).quantity());
+        assertEquals(16, saved.getValue().lines().get(1).quantity());
+        assertFalse(saved.getValue().internalNotes().contains(SalesOrderService.WEBSITE_CARTON_UNRESOLVED_MARKER),
+                "a quantity item never waits for its carton content");
+        assertFalse(response.estimate().validation().messageCodes().contains("PRICE_TO_CONFIRM"));
+    }
+
+    @Test
     void submissionCreatesExistingErpQuoteAndFreezesServerPrice() {
         Customer savedCustomer = new Customer(9L, "Buyer BV", "Ana", "ana@example.com",
                 null, "BE0123456789", "BE", Language.EN, "Street 1", "2400", "Mol",
@@ -829,6 +941,25 @@ class PublicQuoteServiceTest {
                 fixedPrice.signum() > 0 ? decimal("1") : BigDecimal.ZERO,
                 "test", decimal("45"), fixedPrice, 1000,
                 List.of(), List.of());
+    }
+
+    private static final Carton TWELVE_STOLPEN = new Carton(new Dimensions(decimal("40"), decimal("30"),
+            decimal("20")), 12, decimal("5"));
+
+    /** A priced product with its own packaging and order step. */
+    private static Product stepped(long id, String sku, Carton carton, Packaging packaging) {
+        return new Product(id, sku, sku, Dimensions.empty(), packaging, null, null, null, null,
+                1L, 1L, true, null, null, null, 0, true, null, null, null, null,
+                Barcodes.none(), null, carton, BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                decimal("1"), "test", decimal("45"), decimal("10"), 1000, List.of(), List.of());
+    }
+
+    /** Bowls in displays of eight, forty to the carton, sold per display. */
+    private static Product bowls(long id) {
+        return stepped(id, "BOWL", new Carton(new Dimensions(decimal("60"), decimal("40"), decimal("40")),
+                        40, decimal("9")),
+                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.PIECE, "bowl",
+                        OrderStep.PACKAGE));
     }
 
     private static Country country() {
