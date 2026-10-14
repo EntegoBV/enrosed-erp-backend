@@ -45,6 +45,7 @@ class SalesOrderStepTest {
     @Inject SalesOrderService sales;
     @Inject QuoteService quotes;
     @Inject SalesSplits splits;
+    @Inject be.enrosed.sales.adapter.in.rest.CustomerQuoteMapper customerQuotes;
     @Inject SalesRepositories.Revisions revisions;
     @Inject CustomerService customers;
     @Inject PurchaseOrderService purchases;
@@ -140,6 +141,56 @@ class SalesOrderStepTest {
                 "Klant", null);
         assertEquals(95, revisions.findByOrder(atCost.id()).getFirst().lines().getFirst().quantity(),
                 "a container-cost quote keeps exact pieces in the portal too");
+    }
+
+    @Test @TestTransaction
+    void anOpenPortalLineCarriesTheStepAProposalOnItRoundsTo() {
+        long stolp = product("UNIT", 12);
+        SalesOrder quote = sent(quote(stolp, 3));
+        /* Sent per stolp; Emre then switches the product to full cartons of twelve. */
+        step(stolp, "CARTON");
+        var line = customerQuotes.portal(sales.get(quote.id()), null).lines().getFirst();
+        assertEquals(3, line.quantity(), "the sent line keeps what it was priced with");
+        assertEquals(12, line.unitsPerOrderStep(), "but a proposal on it rounds to today's step");
+
+        quotes.proposeRevision(quote.portalToken(), List.of(new QuoteRevision.Line(null, stolp, 13, null)), "Klant", null);
+        assertEquals(be.enrosed.catalog.domain.OrderSteps.roundUp(13, line.unitsPerOrderStep()),
+                revisions.findByOrder(quote.id()).getFirst().lines().getFirst().quantity(),
+                "the portal announces exactly what the server stores");
+
+        status(quote.id(), QuoteStatus.GEACCEPTEERD);
+        assertEquals(1, customerQuotes.portal(sales.get(quote.id()), null).lines().getFirst().unitsPerOrderStep(),
+                "a closed quote shows the step its line was priced with");
+    }
+
+    @Test @TestTransaction
+    void aSplitNamesTheMultipleTheLineWasRoundedToNotTodaysSetting() {
+        long bowls = product(null, 40);
+        em.find(ProductEntity.class, bowls).packagingUnitKey = "bowl";
+        em.flush();
+        SalesOrder perCarton = quote(bowls, 40);
+        assertEquals(40, perCarton.lines().getFirst().unitsPerOrderStep());
+
+        /* The product goes per display of eight after the line was rounded to cartons of forty. */
+        ProductEntity display = em.find(ProductEntity.class, bowls);
+        display.packagingKind = PackagingKind.DISPLAY;
+        display.packagingPiecesPerUnit = 8;
+        display.packagingSalesUnit = SalesUnit.PIECE;
+        em.flush();
+        step(bowls, "PACKAGE");
+        BusinessRuleException cartons = assertThrows(BusinessRuleException.class, () -> splits.preview(perCarton.id(),
+                new SalesSplits.Request(List.of(new SalesSplits.Choice(perCarton.lines().getFirst().id(), 8)),
+                        "2026-W45", BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, null)));
+        assertTrue(cartons.getMessage().contains("in volle dozen van 40 bowls"), cartons.getMessage());
+
+        /* And the other way round: rounded per display, the product back on full cartons. */
+        SalesOrder perDisplay = quote(bowls, 16);
+        assertEquals(8, perDisplay.lines().getFirst().unitsPerOrderStep());
+        step(bowls, "CARTON");
+        BusinessRuleException displays = assertThrows(BusinessRuleException.class, () -> splits.preview(perDisplay.id(),
+                new SalesSplits.Request(List.of(new SalesSplits.Choice(perDisplay.lines().getFirst().id(), 4)),
+                        "2026-W45", BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, null)));
+        assertTrue(displays.getMessage().contains("in displays van 8 bowls"), displays.getMessage());
     }
 
     @Test @TestTransaction

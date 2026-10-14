@@ -700,7 +700,11 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `unitsPerOrderStep` (the step applied to this line, 1 on exempt documents);
   the same pair on portal lines/catalogue, the split line choice, public
   `VariantDto`, `ProductPrice` and `LineEstimate` (null when a carton step's
-  content is unknown). The Excel/CSV exchange has `verkocht_per` (omdoos,
+  content is unknown). While a quote is open, its portal lines carry the
+  step a proposal rounds to (today's, as the portal catalogue), not the
+  remembered one. A split refusal names the multiple the line was rounded to.
+  The packing slip picks what each line is charged, so it matches the
+  invoice; the last carton of a per-stuk line may be part-filled. The Excel/CSV exchange has `verkocht_per` (omdoos,
   verpakking, stuk) as the last column. Only a step other than CARTON enters
   the website revision hash.
 - Website: `/configuration` keeps `quantityBasis: FULL_CARTONS` (the live site

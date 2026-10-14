@@ -75,6 +75,15 @@ public class SalesPricingCalculator {
         return remembered != null && remembered >= 1 ? remembered : OrderSteps.unitsPerStep(product);
     }
 
+    /**
+     * The quantity a line is charged, and so delivered: what it says, rounded up to its step
+     * unless its document keeps exact pieces. An unavailable line charges nothing.
+     */
+    public static int chargedQuantity(SalesOrderLine line, Product product, boolean exact) {
+        int requested = line.isUnavailable() ? 0 : Math.max(0, line.quantity());
+        return OrderSteps.roundUp(requested, exact ? 1 : unitsPerOrderStep(line, product));
+    }
+
     public PricedOrder price(SalesOrder order, Map<Long, Product> productsById, Context context) {
 
         SalesSplitPricing split = context.splitPricing();
@@ -112,11 +121,10 @@ public class SalesPricingCalculator {
                carton unless the product says per verpakking or per stuk. Rounding up happens right
                here, so what you see on screen is what actually goes out the door. A part carton
                still ships, and counts for volume, weight and pallets, as one full carton. */
-            int requested = line.isUnavailable() ? 0 : Math.max(0, line.quantity());
             /* A partner deal follows the container: the pieces it holds, not a full last step. */
             boolean exact = order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST || allocated != null;
             int step = exact ? 1 : unitsPerOrderStep(line, product);
-            int quantity = OrderSteps.roundUp(requested, step);
+            int quantity = chargedQuantity(line, product, exact);
             int cartons = carton.cartonsFor(quantity);
 
             boolean validOuterCarton = hasValidOuterCarton(carton);

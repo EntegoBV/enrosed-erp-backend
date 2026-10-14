@@ -199,11 +199,18 @@ public class QuoteService {
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
         Set<Long> unavailable = order.lines().stream().filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
-        /* The pieces still to pick per product: a carton never holds more than the line ordered,
-           so the last carton of a line sold per piece or per display may be part-filled. */
+        /* The pieces still to pick per product: what each line is charged, so the slip and the
+           invoice agree (rounded to the line's step, or the exact pieces of a document that keeps
+           them). A carton never holds more than that, so the last carton of a line sold per piece
+           or per display may be part-filled. */
+        boolean exact = salesOrders.keepsExactQuantities(order);
+        java.util.List<Integer> charged = new java.util.ArrayList<>(order.lines().size());
         java.util.Map<Long, Integer> unpicked = new java.util.HashMap<>();
         for (var line : order.lines()) {
-            if (!line.isUnavailable()) unpicked.merge(line.productId(), Math.max(0, line.quantity()), Integer::sum);
+            int pieces = line.isUnavailable() ? 0
+                    : SalesPricingCalculator.chargedQuantity(line, products.get(line.productId()), exact);
+            charged.add(pieces);
+            if (!line.isUnavailable()) unpicked.merge(line.productId(), pieces, Integer::sum);
         }
         java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
         int visiblePallets = order.loadMode() == LoadMode.PALLETS ? order.pallets().size() : 0;
@@ -234,17 +241,19 @@ public class QuoteService {
            and 3 displays are not "43" of anything. */
         Set<String> countedUnits = new HashSet<>();
         be.enrosed.catalog.domain.Packaging countedPackaging = null;
-        for (var line : order.lines()) {
+        for (int index = 0; index < order.lines().size(); index++) {
+            var line = order.lines().get(index);
             if (line.isUnavailable()) continue;
             var product = products.get(line.productId());
             int per = product.carton() == null ? 1
                     : Math.max(1, product.carton().piecesPerCarton());
+            int pieces = charged.get(index);
             int cartons = (product.carton() == null ? be.enrosed.catalog.domain.Carton.empty() : product.carton())
-                    .cartonsFor(line.quantity());
+                    .cartonsFor(pieces);
             totalCartons += cartons;
-            /* What is picked is what the line says: a full carton for a carton step, part of one
-               for 3 stolpen out of 12; the footer adds up the rows. */
-            totalPieces += Math.max(0, line.quantity());
+            /* What is picked is what the line is charged: full cartons for a carton step, part of
+               one for 3 stolpen out of 12; the footer adds up the rows. */
+            totalPieces += pieces;
             countedUnits.add(Objects.toString(SalesUnitText.comparisonKey(product.packaging()), "?"));
             countedPackaging = product.packaging();
             int left = cartons - assigned.getOrDefault(line.productId(), 0);

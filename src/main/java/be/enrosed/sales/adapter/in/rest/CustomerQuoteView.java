@@ -47,7 +47,8 @@ public record CustomerQuoteView(
             be.enrosed.catalog.adapter.in.rest.UnitDto unit,
             /** The product's "Verkocht per" (CARTON, PACKAGE or UNIT), for wording. */
             String orderStep,
-            /** The multiple this quote rounds the line to; 1 where the quote keeps exact pieces. */
+            /** The multiple a proposal on this line rounds to while the quote is open (the product's
+                step of today), afterwards the one it was priced with; 1 where the quote keeps exact pieces. */
             int unitsPerOrderStep) {
         public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
                             int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,

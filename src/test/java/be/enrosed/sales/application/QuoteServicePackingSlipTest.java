@@ -111,7 +111,7 @@ class QuoteServicePackingSlipTest {
     }
 
     @Test
-    void picksWhatEachLineSaysSoAPartCartonIsNeverPickedFull() {
+    void picksWhatEachLineIsChargedSoAPartCartonIsNeverPickedFull() {
         SalesOrderService salesOrders = mock(SalesOrderService.class);
         ProductService products = mock(ProductService.class);
         QuoteDocumentRenderer renderer = mock(QuoteDocumentRenderer.class);
@@ -119,7 +119,7 @@ class QuoteServicePackingSlipTest {
         Product roses = stolpen(10L, Packaging.none());
         when(products.get(9L)).thenReturn(stolp);
         when(products.get(10L)).thenReturn(roses);
-        /* Three stolpen per piece, and thirteen roses a container-cost invoice kept exact. */
+        /* Three stolpen per piece, and thirteen roses per carton of twelve, charged as twenty-four. */
         when(salesOrders.get(44L)).thenReturn(order(44L, List.of(
                 new SalesOrderLine(1L, 9L, 3, BigDecimal.TEN, null, null),
                 new SalesOrderLine(2L, 10L, 13, BigDecimal.TEN, null, null))));
@@ -135,9 +135,30 @@ class QuoteServicePackingSlipTest {
         assertEquals(3, slip.getValue().loose().get(0).pieces(), "three stolpen picked, not twelve");
         assertEquals("3 stolpen", slip.getValue().loose().get(0).quantityText());
         assertEquals(2, slip.getValue().loose().get(1).cartons());
-        assertEquals(13, slip.getValue().loose().get(1).pieces(), "the last carton part-filled");
+        assertEquals(24, slip.getValue().loose().get(1).pieces(), "what the invoice charges");
         assertEquals(3, slip.getValue().totalCartons());
-        assertEquals(16, slip.getValue().totalPieces(), "the footer adds up the rows");
+        assertEquals(27, slip.getValue().totalPieces(), "the footer adds up the rows");
+
+        /* A container-cost invoice keeps its thirteen exact roses: the last carton part-filled. */
+        SalesOrder atCost = withMarkup(order(46L, List.of(new SalesOrderLine(1L, 10L, 13, BigDecimal.TEN, null, null))),
+                MarkupMode.CONTAINER_COST);
+        when(salesOrders.get(46L)).thenReturn(atCost);
+        when(salesOrders.keepsExactQuantities(atCost)).thenReturn(true);
+        service.packingSlip(46L, options);
+        verify(renderer, org.mockito.Mockito.times(2)).packingSlip(slip.capture(), eq(options));
+        assertEquals(2, slip.getValue().loose().getFirst().cartons());
+        assertEquals(13, slip.getValue().loose().getFirst().pieces());
+        assertEquals(13, slip.getValue().totalPieces());
+
+        /* A container quote at customer price keeps the container's 1003 pieces until a save, and
+           is charged for 84 full cartons; the slip picks the same 1008. */
+        when(salesOrders.get(47L)).thenReturn(order(47L, List.of(
+                new SalesOrderLine(1L, 10L, 1003, BigDecimal.TEN, null, null, null, null, null, 12))));
+        service.packingSlip(47L, options);
+        verify(renderer, org.mockito.Mockito.times(3)).packingSlip(slip.capture(), eq(options));
+        assertEquals(84, slip.getValue().loose().getFirst().cartons());
+        assertEquals(1008, slip.getValue().loose().getFirst().pieces());
+        assertEquals(1008, slip.getValue().totalPieces());
 
         /* On a hand-built pallet the carton still holds only what the line ordered. */
         SalesOrder onPallet = order(45L, List.of(new SalesOrderLine(1L, 9L, 3, BigDecimal.TEN, null, null)));
@@ -152,7 +173,7 @@ class QuoteServicePackingSlipTest {
                         List.of(new be.enrosed.sales.domain.OrderPallet.Item(9L, 1)))));
         when(salesOrders.get(45L)).thenReturn(onPallet);
         service.packingSlip(45L, options);
-        verify(renderer, org.mockito.Mockito.times(2)).packingSlip(slip.capture(), eq(options));
+        verify(renderer, org.mockito.Mockito.times(4)).packingSlip(slip.capture(), eq(options));
         assertEquals(3, slip.getValue().pallets().getFirst().items().getFirst().pieces());
         assertEquals(List.of(), slip.getValue().loose());
         assertEquals(3, slip.getValue().totalPieces());
@@ -202,6 +223,16 @@ class QuoteServicePackingSlipTest {
                 DocumentType.FACTUUR, null, null, null, null,
                 lines,
                 List.of());
+    }
+
+    private static SalesOrder withMarkup(SalesOrder order, MarkupMode markup) {
+        return new SalesOrder(order.id(), order.number(), null, "BE", order.orderDate(),
+                order.validUntil(), QuoteStatus.CONCEPT, "DDP", null, null, markup, BigDecimal.ZERO,
+                null, null, null, null, null, 0, null, null, null, null,
+                DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
+                LoadMode.LOOSE_CARTONS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
+                DocumentType.FACTUUR, null, null, null, null, order.lines(), List.of());
     }
 
     private static Product productWithPackagingBarcode() {

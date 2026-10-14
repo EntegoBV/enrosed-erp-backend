@@ -340,8 +340,7 @@ public class SalesSplits {
             if (later < 0 || later > line.quantity())
                 throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " binnen het bestelde aantal");
             if (later % pack != 0)
-                throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " in "
-                        + (product.packaging().orderStep() == be.enrosed.catalog.domain.OrderStep.PACKAGE ? "displays" : "volle dozen")
+                throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " in " + multipleWord(product, pack)
                         + " van " + SalesUnitText.quantity(product.packaging(), pack, be.enrosed.shared.Language.NL)
                         + ", binnen het bestelde aantal");
             int current = line.quantity() - later;
@@ -505,6 +504,22 @@ public class SalesSplits {
     private SalesSplitPricing read(String value) { try { return json.readValue(value, SalesSplitPricing.class); } catch (Exception e) { throw new IllegalStateException("Opgeslagen orderverdeling is niet leesbaar", e); } }
     private String write(Object value) { try { return json.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException("Orderverdeling kon niet vastgelegd worden", e); } }
     private String hash(Object value) { try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(write(value).getBytes(StandardCharsets.UTF_8))); } catch (Exception e) { throw new IllegalStateException(e); } }
+    /**
+     * What a portion must be a multiple of, named after the step the line was rounded to, which
+     * on a document saved before the product's "Verkocht per" changed is not today's setting.
+     * Never asked for a step of one: any number of pieces divides.
+     */
+    static String multipleWord(Product product, int pack) {
+        var packaging = product.packaging();
+        if (pack == be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product))
+            return packaging.orderStep() == be.enrosed.catalog.domain.OrderStep.PACKAGE ? "displays" : "volle dozen";
+        if (product.carton() != null && pack == Math.max(1, product.carton().piecesPerCarton())) return "volle dozen";
+        if (packaging.kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                && Objects.equals(packaging.piecesPerUnit(), pack)) return "displays";
+        /* The carton or display content changed since: say only what still holds. */
+        return "veelvouden";
+    }
+
     private static boolean same(BigDecimal a, BigDecimal b) { return Money.nz(a).compareTo(Money.nz(b)) == 0; }
     private static boolean sameExtras(List<SalesExtraLine> before, List<SalesExtraLine> after) {
         if (before.size() != after.size()) return false;
