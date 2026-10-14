@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
@@ -107,6 +108,68 @@ class QuoteServicePackingSlipTest {
         assertEquals("40 stuks", slip.getValue().loose().getLast().quantityText());
         assertEquals(null, slip.getValue().totalQuantityText());
         assertEquals(2, slip.getValue().totalCartons());
+    }
+
+    @Test
+    void picksWhatEachLineSaysSoAPartCartonIsNeverPickedFull() {
+        SalesOrderService salesOrders = mock(SalesOrderService.class);
+        ProductService products = mock(ProductService.class);
+        QuoteDocumentRenderer renderer = mock(QuoteDocumentRenderer.class);
+        Product stolp = stolpen(9L, Packaging.none().withOrderStep(OrderStep.UNIT).withUnitKey("stolp"));
+        Product roses = stolpen(10L, Packaging.none());
+        when(products.get(9L)).thenReturn(stolp);
+        when(products.get(10L)).thenReturn(roses);
+        /* Three stolpen per piece, and thirteen roses a container-cost invoice kept exact. */
+        when(salesOrders.get(44L)).thenReturn(order(44L, List.of(
+                new SalesOrderLine(1L, 9L, 3, BigDecimal.TEN, null, null),
+                new SalesOrderLine(2L, 10L, 13, BigDecimal.TEN, null, null))));
+        QuoteService service = service(salesOrders, products, renderer);
+        SalesPdfOptions options = SalesPdfOptions.forPackingSlip(false, false);
+
+        service.packingSlip(44L, options);
+
+        ArgumentCaptor<QuoteDocumentRenderer.PackingSlip> slip =
+                ArgumentCaptor.forClass(QuoteDocumentRenderer.PackingSlip.class);
+        verify(renderer).packingSlip(slip.capture(), eq(options));
+        assertEquals(1, slip.getValue().loose().get(0).cartons(), "one opened carton");
+        assertEquals(3, slip.getValue().loose().get(0).pieces(), "three stolpen picked, not twelve");
+        assertEquals("3 stolpen", slip.getValue().loose().get(0).quantityText());
+        assertEquals(2, slip.getValue().loose().get(1).cartons());
+        assertEquals(13, slip.getValue().loose().get(1).pieces(), "the last carton part-filled");
+        assertEquals(3, slip.getValue().totalCartons());
+        assertEquals(16, slip.getValue().totalPieces(), "the footer adds up the rows");
+
+        /* On a hand-built pallet the carton still holds only what the line ordered. */
+        SalesOrder onPallet = order(45L, List.of(new SalesOrderLine(1L, 9L, 3, BigDecimal.TEN, null, null)));
+        onPallet = new SalesOrder(onPallet.id(), onPallet.number(), null, "BE", onPallet.orderDate(),
+                onPallet.validUntil(), QuoteStatus.CONCEPT, "DDP", null, null, MarkupMode.PRODUCT, BigDecimal.ZERO,
+                null, null, null, null, null, 0, null, null, null, null,
+                DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
+                DocumentType.FACTUUR, null, null, null, null, onPallet.lines(),
+                List.of(new be.enrosed.sales.domain.OrderPallet(null, "Pallet 1", "Europallet", 120,
+                        List.of(new be.enrosed.sales.domain.OrderPallet.Item(9L, 1)))));
+        when(salesOrders.get(45L)).thenReturn(onPallet);
+        service.packingSlip(45L, options);
+        verify(renderer, org.mockito.Mockito.times(2)).packingSlip(slip.capture(), eq(options));
+        assertEquals(3, slip.getValue().pallets().getFirst().items().getFirst().pieces());
+        assertEquals(List.of(), slip.getValue().loose());
+        assertEquals(3, slip.getValue().totalPieces());
+    }
+
+    private static Product stolpen(long id, Packaging packaging) {
+        return new Product(
+                id, "ENR-STOLP-" + id, "Stolp", Dimensions.empty(), packaging,
+                "Rood", null, null, null, 1L, 1L, true,
+                null, null, null, 0, true, null, null,
+                PublicationState.DRAFT, PublicationState.DRAFT,
+                Barcodes.none(), null,
+                new Carton(new Dimensions(BigDecimal.valueOf(40), BigDecimal.valueOf(30),
+                        BigDecimal.valueOf(20)), 12, BigDecimal.ONE),
+                BigDecimal.ONE, Currency.USD, BigDecimal.ZERO,
+                BigDecimal.ONE, null, BigDecimal.ZERO, BigDecimal.TEN, 100,
+                List.of(), List.of());
     }
 
     private static QuoteService service(SalesOrderService salesOrders, ProductService products,

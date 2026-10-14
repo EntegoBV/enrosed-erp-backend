@@ -77,7 +77,7 @@ final class SalesMapper {
         for (SalesOrderLineEntity line : entity.lines) {
             lines.add(new SalesOrderLine(line.id, line.productId, line.quantity,
                     line.unitPriceEur, line.manualDiscountPct, line.deliveryWeek, line.unitCostEur,
-                    line.unavailable, line.requestedQuantity));
+                    line.unavailable, line.requestedQuantity, line.unitsPerOrderStep));
         }
         List<OrderPallet> pallets = new ArrayList<>();
         for (SalesEntities.SalesPalletEntity pallet : entity.pallets) {
@@ -195,6 +195,7 @@ final class SalesMapper {
             target.unitCostEur = line.unitCostEur();
             target.unavailable = line.isUnavailable();
             target.requestedQuantity = line.requestedQuantity();
+            target.unitsPerOrderStep = line.unitsPerOrderStep();
         }
 
         /* Pallets carry no outside references, so wipe-and-rebuild is the

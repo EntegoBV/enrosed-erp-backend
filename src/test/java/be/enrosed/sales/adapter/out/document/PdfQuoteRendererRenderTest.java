@@ -86,7 +86,7 @@ class PdfQuoteRendererRenderTest {
                 null, 0, 0, 0, 0, 0, 0, null, zero, zero,
                 zero, zero, zero, zero, zero, zero, zero, zero,
                 zero, zero, zero, zero, null, null, 0, true, false, null,
-                null, null, null, true, 48);
+                null, null, null, true, 48, be.enrosed.catalog.domain.OrderStep.CARTON, 1);
         var mixed = new PricedOrder(List.of(unavailable, active.lines().getFirst()),
                 active.totals(), active.validation(), active.extraLines());
         var output = Path.of("/private/tmp/pdfs/enrosed-unavailable");

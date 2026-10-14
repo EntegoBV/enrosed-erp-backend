@@ -159,14 +159,17 @@ class RailwayPreDeployMigrationContractTest {
     }
 
     @Test
-    void orderStepMigrationAddsTheNullableProductColumnRegisteredLast() throws IOException {
+    void orderStepMigrationAddsTwoNullableColumnsRegisteredLast() throws IOException {
         Path migration = Path.of("docs/migrations/2026-10-14/product-order-step-postgresql.sql");
         String sql = normalizedSql(migration);
         assertTrue(sql.contains(
                 "alter table product add column if not exists packagingorderstep varchar(16);"));
-        assertFalse(sql.contains("not null"), "null reads as the full carton");
+        assertTrue(sql.contains(
+                "alter table sales_order_line add column if not exists unitsperorderstep integer;"));
+        assertEquals(2, sql.split("alter table ", -1).length - 1, "two columns, nothing else changes");
+        assertFalse(sql.contains("not null"), "null reads as the full carton, and as the product's step on a line");
         assertFalse(sql.contains("default "), "the default lives in code, not in the column");
-        assertFalse(sql.contains("update "), "existing products keep today's behaviour");
+        assertFalse(sql.contains("update "), "existing products and lines keep today's behaviour");
         assertFalse(sql.contains("check"), "a plain varchar: no enum check has to learn a later value");
         assertNonDestructive(sql);
 
@@ -174,6 +177,10 @@ class RailwayPreDeployMigrationContractTest {
                 "src/main/java/be/enrosed/catalog/adapter/out/persistence/ProductEntity.java"))
                 .contains("@Column(name = \"packagingorderstep\", length = 16)"),
                 "the product names the migrated column and stores a string, not an enum");
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/sales/adapter/out/persistence/SalesEntities.java"))
+                .contains("@Column(name = \"unitsperorderstep\") public Integer unitsPerOrderStep;"),
+                "the line names the migrated column, nullable: dev H2 adds it to a filled table");
 
         assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
         String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));

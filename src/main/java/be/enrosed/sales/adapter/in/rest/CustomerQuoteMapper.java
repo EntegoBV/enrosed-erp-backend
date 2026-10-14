@@ -128,7 +128,8 @@ public class CustomerQuoteMapper {
                 arrangementOnly ? null : line.net(), line.inventoryKnown(), line.inStock(),
                 line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity(),
                 basis, perDisplay,
-                be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language));
+                be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language),
+                line.orderStep().name(), line.unitsPerOrderStep());
     }
 
     private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {

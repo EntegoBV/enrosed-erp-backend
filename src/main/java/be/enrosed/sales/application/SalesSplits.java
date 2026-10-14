@@ -36,9 +36,14 @@ public class SalesSplits {
             this(lines, deliveryWeek, null, null, null, null, previewToken, requestId);
         }
     }
+    /**
+     * {@code unitsPerOrderStep} is the multiple a portion must keep, the step this document applies to the
+     * line (1 where it keeps exact pieces); {@code orderStep} is the product's own setting, for wording.
+     */
     public record LineChoice(long lineId, long productId, String description, int quantity,
                              Integer piecesPerCarton, Integer stockQuantity, boolean inventoryKnown,
-                             boolean unavailable, Integer requestedQuantity) {}
+                             boolean unavailable, Integer requestedQuantity,
+                             int unitsPerOrderStep, String orderStep) {}
     public record Eligibility(boolean allowed, String reason, long sourceId, String sourceNumber,
                               List<LineChoice> lines, String existingGroupId) {}
     public record PartPreview(int quantity, BigDecimal totalExclVatEur, BigDecimal vatEur, BigDecimal totalInclVatEur,
@@ -73,12 +78,15 @@ public class SalesSplits {
         String reason = null;
         try { requireEligible(source); } catch (BusinessRuleException blocked) { reason = blocked.getMessage(); }
         Map<Long, Product> catalog = catalog();
+        boolean exact = sales.keepsExactQuantities(source);
         List<LineChoice> lines = source.lines().stream().filter(line -> line.id() != null).map(line -> {
             Product p = catalog.get(line.productId());
             Integer pack = p == null || p.carton() == null ? null : p.carton().piecesPerCarton();
             return new LineChoice(line.id(), line.productId(), p == null ? "Product " + line.productId() : p.nameWithColour(),
                     line.quantity(), pack, p != null && p.inventoryKnown() ? p.stockQuantity() : null,
-                    p != null && p.inventoryKnown(), line.isUnavailable(), line.requestedQuantity());
+                    p != null && p.inventoryKnown(), line.isUnavailable(), line.requestedQuantity(),
+                    exact || p == null ? 1 : SalesPricingCalculator.unitsPerOrderStep(line, p),
+                    (p == null ? be.enrosed.catalog.domain.OrderStep.CARTON : p.packaging().orderStep()).name());
         }).toList();
         var part = part(id);
         return new Eligibility(reason == null, reason, id, source.number(), lines, part == null ? null : part.group.id);
@@ -314,7 +322,7 @@ public class SalesSplits {
                             ? candidate.withAvailability(false, line.requestedQuantity(), line.requestedQuantity()) : candidate).toList(), source.pallets());
                     var reference = sales.price(restored).lines().stream().filter(row -> row.productId().equals(line.productId())).findFirst().orElseThrow();
                     if (reference.quantity() != line.requestedQuantity())
-                        throw new BusinessRuleException("De doosinhoud van een uitgesloten product is gewijzigd; herstel en controleer dat product eerst op de order");
+                        throw new BusinessRuleException("Het bestelveelvoud of de doosinhoud van een uitgesloten product is gewijzigd; herstel en controleer dat product eerst op de order");
                     var referenceLine = allocate(reference, reference.quantity(), false);
                     references.add(new SalesSplitPricing.UnavailableReference(referenceLine,
                             Money.money(Money.percentOf(referenceLine.net(), original.totals().orderDiscountPercent()))));
@@ -322,13 +330,20 @@ public class SalesSplits {
                 continue;
             }
             Product product = catalog.get(line.productId());
-            int pack = product == null || product.carton() == null ? 0 : product.carton().piecesPerCarton();
+            /* Each portion keeps the step the pricing applies to this line: full cartons, whole
+               displays, or any number of pieces. */
+            int pack = product == null ? 0 : priced.unitsPerOrderStep();
             if (line.id() == null || line.quantity() <= 0 || pack <= 0 || line.quantity() % pack != 0
-                    || priced.quantity() != line.quantity()) throw new BusinessRuleException("Controleer eerst de doosaantallen van alle productregels");
+                    || priced.quantity() != line.quantity()) throw new BusinessRuleException("Controleer eerst de aantallen van alle productregels");
             boolean exclude = choice != null && Boolean.TRUE.equals(choice.unavailable());
             if (exclude && later != 0) throw new BusinessRuleException("Een uitgesloten product kan niet tegelijk naar de latere levering worden verplaatst");
-            if (later < 0 || later > line.quantity() || later % pack != 0)
-                throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " in volle dozen van " + pack + " stuks, binnen het bestelde aantal");
+            if (later < 0 || later > line.quantity())
+                throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " binnen het bestelde aantal");
+            if (later % pack != 0)
+                throw new BusinessRuleException("Verdeel " + product.nameWithColour() + " in "
+                        + (product.packaging().orderStep() == be.enrosed.catalog.domain.OrderStep.PACKAGE ? "displays" : "volle dozen")
+                        + " van " + SalesUnitText.quantity(product.packaging(), pack, be.enrosed.shared.Language.NL)
+                        + ", binnen het bestelde aantal");
             int current = line.quantity() - later;
             SalesSplitPricing.Line first = allocate(priced, current, false);
             SalesSplitPricing.Line second = allocate(priced, current, true);
@@ -341,7 +356,7 @@ public class SalesSplits {
         }
         if (!laterById.isEmpty()) throw new BusinessRuleException("De verdeling bevat een regel die niet meer op deze bestelling staat");
         if (currentLines.stream().noneMatch(line -> line.quantity() > 0) || laterLines.stream().noneMatch(line -> line.quantity() > 0))
-            throw new BusinessRuleException("Beide leveringen moeten minstens één actieve volle doos bevatten");
+            throw new BusinessRuleException("Beide leveringen moeten minstens één actief product bevatten");
         var total = original.totals();
         carryAggregateCents(currentTerms, laterTerms, total);
         BigDecimal currentNet = currentTerms.stream().map(SalesSplitPricing.Line::net).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -464,7 +479,8 @@ public class SalesSplits {
     }
     private static BigDecimal subtotal(SalesSplitPricing terms) { return terms.lines().stream().map(SalesSplitPricing.Line::net).reduce(BigDecimal.ZERO, BigDecimal::add); }
     private static SalesOrderLine line(SalesOrderLine source, int quantity, String week, boolean fresh, PricedOrder.Line priced) {
-        return new SalesOrderLine(fresh ? null : source.id(), source.productId(), quantity, priced.unitPrice(), source.manualDiscountPct(), week, priced.landedUnitCost(), source.unavailable(), source.requestedQuantity());
+        return new SalesOrderLine(fresh ? null : source.id(), source.productId(), quantity, priced.unitPrice(), source.manualDiscountPct(), week, priced.landedUnitCost(), source.unavailable(), source.requestedQuantity(),
+                source.unitsPerOrderStep());
     }
     static SalesOrder copy(SalesOrder s, Long id, String number, List<SalesOrderLine> lines, List<SalesExtraLine> extras,
                            BigDecimal freight, BigDecimal extraPct, Long sourceQuoteId) {

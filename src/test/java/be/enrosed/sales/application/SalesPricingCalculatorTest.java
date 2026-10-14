@@ -3,7 +3,11 @@ package be.enrosed.sales.application;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
+import be.enrosed.catalog.domain.Packaging;
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Currency;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,94 @@ class SalesPricingCalculatorTest {
         assertEquals(decimal("5"), discounted.lines().getFirst().tierPercent());
         assertEquals(0, atCost.lines().getFirst().tierPercent().signum());
         assertEquals(decimal("8608.75"), atCost.lines().getFirst().net());
+    }
+
+    @Test
+    void aProductSoldPerUnitKeepsItsPiecesAndShipsThePartCartonAsOne() {
+        Product stolp = product(1L, "STOLP", carton("40", "30", "20", 12, "6"),
+                Packaging.none().withOrderStep(OrderStep.UNIT).withUnitKey("stolp"));
+        SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.PER_CBM,
+                null, decimal("100"), FreightState.BEREKEND,
+                List.of(new SalesOrderLine(null, 1L, 3, decimal("8.95"), null, null)), List.of());
+
+        PricedOrder priced = price(order, Map.of(1L, stolp));
+        PricedOrder.Line line = priced.lines().getFirst();
+
+        assertEquals(3, line.quantity(), "per stolp: three stay three");
+        assertEquals(1, line.cartons(), "a part carton ships as one full carton");
+        assertEquals(decimal("0.024"), line.cbm(), "with the volume of one carton");
+        assertEquals(decimal("6.0"), line.weightKg(), "and its weight");
+        assertEquals(decimal("26.85"), line.net(), "the same unit price, no surcharge");
+        assertEquals(OrderStep.UNIT, line.orderStep());
+        assertEquals(1, line.unitsPerOrderStep());
+        assertEquals(1, priced.totals().cartons());
+        assertEquals(decimal("2.40"), priced.totals().freight());
+    }
+
+    @Test
+    void aBowlSoldPerDisplayRoundsUpToWholeDisplaysOutOfOneCarton() {
+        Product bowl = product(1L, "BOWL", carton("60", "40", "40", 40, "9"),
+                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.PIECE, "bowl",
+                        OrderStep.PACKAGE));
+        SalesOrder order = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(null, 1L, 10, decimal("3.95"), null, null)), List.of());
+
+        PricedOrder.Line line = price(order, Map.of(1L, bowl)).lines().getFirst();
+
+        assertEquals(16, line.quantity(), "ten bowls are two displays of eight");
+        assertEquals(1, line.cartons());
+        assertEquals(OrderStep.PACKAGE, line.orderStep());
+        assertEquals(8, line.unitsPerOrderStep());
+        assertEquals(decimal("63.20"), line.net());
+    }
+
+    @Test
+    void exemptDocumentsKeepTheirPiecesAndSayTheirStepIsOne() {
+        Product bowl = product(1L, "BOWL", carton("60", "40", "40", 40, "9"),
+                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.PIECE, "bowl",
+                        OrderStep.PACKAGE));
+        SalesOrder plain = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(null, 1L, 10, decimal("3.95"), null, null)), List.of());
+        SalesOrder partner = plain.withPartnerDeal(13L, decimal("50"));
+        SalesOrder containerCost = withMarkupMode(plain, MarkupMode.CONTAINER_COST);
+
+        for (SalesOrder exempt : List.of(partner, containerCost)) {
+            PricedOrder.Line line = price(exempt, Map.of(1L, bowl)).lines().getFirst();
+            assertEquals(10, line.quantity(), exempt.markupMode() + " keeps exact pieces");
+            assertEquals(1, line.cartons());
+            assertEquals(1, line.unitsPerOrderStep(), "a client snaps to nothing here");
+            assertEquals(OrderStep.PACKAGE, line.orderStep(), "the product's own step, for wording");
+        }
+    }
+
+    @Test
+    void aLineRoundsToTheStepItRemembersNotToTheProductsStepOfToday() {
+        /* Sent and paid as three stolpen per piece; the product went back to full cartons of twelve since. */
+        Product nowPerCarton = product(1L, "STOLP", carton("40", "30", "20", 12, "6"));
+        SalesOrder accepted = withStatus(order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(7L, 1L, 3, decimal("8.95"), null, null, null, null, null, 1)),
+                List.of()), QuoteStatus.GEACCEPTEERD);
+        SalesOrder paid = withStatus(accepted, QuoteStatus.BETAALD);
+
+        for (SalesOrder sent : List.of(accepted, paid)) {
+            PricedOrder.Line line = price(sent, Map.of(1L, nowPerCarton)).lines().getFirst();
+            assertEquals(3, line.quantity(), sent.status() + " never re-prices on a later step change");
+            assertEquals(decimal("26.85"), line.net());
+            assertEquals(1, line.unitsPerOrderStep());
+            assertEquals(OrderStep.CARTON, line.orderStep());
+        }
+
+        /* A line from before steps were remembered follows the product, exactly as before. */
+        SalesOrder legacy = order(LoadMode.LOOSE_CARTONS, FreightPricingStrategy.FIXED,
+                BigDecimal.ZERO, null, FreightState.AANGEVULD,
+                List.of(new SalesOrderLine(8L, 1L, 500, decimal("17.2175"), null, null)), List.of());
+        PricedOrder.Line old = price(legacy, Map.of(1L, product(1L, "SKU-1", carton("10", "10", "10", 6, "2"))))
+                .lines().getFirst();
+        assertEquals(504, old.quantity());
+        assertEquals(6, old.unitsPerOrderStep());
     }
 
     @Test
@@ -299,6 +391,31 @@ class SalesPricingCalculatorTest {
                 BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
                 decimal("1"), "test", decimal("45"), null, 1000,
                 List.of(), List.of());
+    }
+
+    private static Product product(long id, String sku, Carton carton, Packaging packaging) {
+        return new Product(id, sku, sku, Dimensions.empty(), packaging, null, null, null, null,
+                1L, 1L, true, null, null, null, 0, true, null, null, null, null,
+                Barcodes.none(), null, carton, BigDecimal.ZERO, Currency.USD, BigDecimal.ZERO,
+                decimal("1"), "test", decimal("45"), null, 1000, List.of(), List.of());
+    }
+
+    private static SalesOrder withStatus(SalesOrder order, QuoteStatus status) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), status, order.incoterm(), order.paymentTerms(), order.notes(),
+                order.markupMode(), order.orderMarkupPct(), null, null, null, null, null, 0, null, null, null, null,
+                order.deliveryTerms(), order.freight(), order.manualFreightEur(), order.loadMode(),
+                order.palletProfile(), null, order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                null, null, null, null, null, null, null, order.lines(), order.pallets());
+    }
+
+    private static SalesOrder withMarkupMode(SalesOrder order, MarkupMode markup) {
+        return new SalesOrder(order.id(), order.number(), order.customerId(), order.countryCode(),
+                order.orderDate(), order.validUntil(), order.status(), order.incoterm(), order.paymentTerms(),
+                order.notes(), markup, order.orderMarkupPct(), null, null, null, null, null, 0, null, null, null,
+                null, order.deliveryTerms(), order.freight(), order.manualFreightEur(), order.loadMode(),
+                order.palletProfile(), null, order.freightPricingStrategy(), order.freightRatePerCbmEur(),
+                null, null, null, null, null, null, null, order.lines(), order.pallets());
     }
 
     private static Carton carton(String length, String width, String height,

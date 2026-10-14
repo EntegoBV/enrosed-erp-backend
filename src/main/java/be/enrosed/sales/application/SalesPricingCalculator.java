@@ -2,6 +2,7 @@ package be.enrosed.sales.application;
 
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderSteps;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.Language;
@@ -65,6 +66,15 @@ public class SalesPricingCalculator {
 
     private final DeliveryCalculator delivery;
 
+    /**
+     * The step a line rounds to when its document does not keep exact pieces: the one the
+     * line remembers from its last save, else the product's current step.
+     */
+    public static int unitsPerOrderStep(SalesOrderLine line, Product product) {
+        Integer remembered = line == null ? null : line.unitsPerOrderStep();
+        return remembered != null && remembered >= 1 ? remembered : OrderSteps.unitsPerStep(product);
+    }
+
     public PricedOrder price(SalesOrder order, Map<Long, Product> productsById, Context context) {
 
         SalesSplitPricing split = context.splitPricing();
@@ -98,13 +108,16 @@ public class SalesPricingCalculator {
             if (product == null) continue;
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
-            /* Quantities are entered in pieces but shipped in full cartons.
-               Rounding up happens right here, so what you see on screen is
-               what actually goes out the door. */
+            /* Quantities are entered in sales units and sold per the product's order step: a full
+               carton unless the product says per verpakking or per stuk. Rounding up happens right
+               here, so what you see on screen is what actually goes out the door. A part carton
+               still ships, and counts for volume, weight and pallets, as one full carton. */
             int requested = line.isUnavailable() ? 0 : Math.max(0, line.quantity());
-            int cartons = carton.cartonsFor(requested);
-            /* A partner deal follows the container: the pieces it holds, not a full last carton. */
-            int quantity = order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST || allocated != null ? requested : cartons * Math.max(1, carton.piecesPerCarton());
+            /* A partner deal follows the container: the pieces it holds, not a full last step. */
+            boolean exact = order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST || allocated != null;
+            int step = exact ? 1 : unitsPerOrderStep(line, product);
+            int quantity = OrderSteps.roundUp(requested, step);
+            int cartons = carton.cartonsFor(quantity);
 
             boolean validOuterCarton = hasValidOuterCarton(carton);
             if (quantity > 0 && !validOuterCarton) withoutCartonDimensions.add(product.sku());
@@ -197,7 +210,8 @@ public class SalesPricingCalculator {
                     line.isUnavailable() ? Integer.valueOf(0) : estimate.shortfall(),
                     line.isUnavailable() || estimate.earliestDate() == null ? null : estimate.earliestDate().toString(),
                     line.isUnavailable() ? null : manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
-                    line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity()));
+                    line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity(),
+                    product.packaging().orderStep(), step));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);
