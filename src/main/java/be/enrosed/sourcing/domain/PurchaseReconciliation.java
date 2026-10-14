@@ -28,11 +28,39 @@ public record PurchaseReconciliation(
         this(streams, totals, lines, notes, List.of());
     }
 
+    /**
+     * One term of the payee's plan. paidEur is what was booked on it, gross;
+     * remainingEur and overpaidEur are after the payee's terms were netted:
+     * a surplus on one term covers a shortfall on another.
+     *
+     * @param offsetEur what that netting moved: above zero another term's
+     *                  surplus covered this shortfall, below zero this
+     *                  surplus covered another term. Zero for a term settled
+     *                  on its own, which stays out of the netting.
+     */
     public record SupplierInstalment(
             PaymentTerms.Moment due, String label, BigDecimal plannedEur, BigDecimal paidEur,
             BigDecimal remainingEur, BigDecimal settledSavingEur, BigDecimal overpaidEur,
-            boolean explicitlySettled, boolean finalized
-    ) {}
+            boolean explicitlySettled, boolean finalized, BigDecimal offsetEur
+    ) {
+        /** Compatibility for callers written before the terms were netted: nothing moved. */
+        public SupplierInstalment(PaymentTerms.Moment due, String label, BigDecimal plannedEur, BigDecimal paidEur,
+                                  BigDecimal remainingEur, BigDecimal settledSavingEur, BigDecimal overpaidEur,
+                                  boolean explicitlySettled, boolean finalized) {
+            this(due, label, plannedEur, paidEur, remainingEur, settledSavingEur, overpaidEur,
+                    explicitlySettled, finalized, BigDecimal.ZERO.setScale(2));
+        }
+
+        /**
+         * The term's own difference as shown: paid minus Afspraak, with what
+         * is still open left out (open money is not a difference). An unpaid
+         * future term reads zero; the payee's terms add up to overpaid
+         * minus saving.
+         */
+        public BigDecimal differenceEur() {
+            return paidEur.subtract(plannedEur).add(remainingEur);
+        }
+    }
 
     public enum Status { PLANNED, UNPAID, PARTIAL, PAID, OVERPAID, SETTLED_LOWER, NOT_APPLICABLE, ADDITIONAL }
 

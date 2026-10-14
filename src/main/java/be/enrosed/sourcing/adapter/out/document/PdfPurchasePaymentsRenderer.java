@@ -119,20 +119,21 @@ public class PdfPurchasePaymentsRenderer {
         if (payments != null && payments.stream().anyMatch(payment -> payment.instalmentDue() != null)
                 && report.supplierInstalments() != null && !report.supplierInstalments().isEmpty()) {
             html.append("<h3>Leverancier per termijn</h3><table class=\"data\"><thead><tr>")
-                    .append("<th>Termijn</th><th class=\"num\">Afgesproken</th><th class=\"num\">Betaald</th>")
-                    .append("<th class=\"num\">Open</th><th class=\"num\">Besparing</th></tr></thead><tbody>");
+                    .append("<th style=\"width:30%\">Termijn</th><th class=\"num\">Afgesproken</th><th class=\"num\">Betaald</th>")
+                    .append("<th class=\"num\">Open</th><th class=\"num\">Verschil</th><th class=\"num\">Besparing</th></tr></thead><tbody>");
             for (var instalment : report.supplierInstalments()) {
                 html.append("<tr><td><b>").append(escape(instalment.label()))
                         .append("</b><br/><span class=\"muted small\">")
-                        .append(instalment.finalized() ? "Termijn afgerekend" : "Termijn nog open").append("</span></td>");
+                        .append(escape(termStatus(instalment, report.supplierInstalments()))).append("</span></td>");
                 moneyCell(html, instalment.plannedEur()); moneyCell(html, instalment.paidEur());
-                moneyCell(html, instalment.remainingEur()); moneyCell(html, instalment.settledSavingEur());
+                moneyCell(html, instalment.remainingEur()); differenceCell(html, instalment.differenceEur());
+                moneyCell(html, instalment.settledSavingEur());
                 html.append("</tr>");
             }
             html.append("</tbody></table>");
         }
         html.append("<div class=\"note\"><p><b>Positief verschil = duurder; negatief verschil = goedkoper.</b></p>")
-                .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Een slotbetaling voor een termijn sluit alleen die termijn af; latere termijnen blijven open. Alleen een slotbetaling voor de hele groep sluit de volledige groep af. Een overbetaling zonder afrekening blijft voorlopig.</p>")
+                .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Wat op de ene termijn te veel is betaald, wordt verrekend met wat op een andere termijn te weinig is betaald; alleen het saldo blijft open. Een slotbetaling voor een termijn sluit alleen die termijn af en houdt hem buiten die verrekening; latere termijnen blijven open. Alleen een slotbetaling voor de hele groep sluit de volledige groep af. Een overbetaling zonder afrekening blijft voorlopig.</p>")
                 .append("<p>Interne Enrosed-opslag is geen uitgaande betaling en staat apart van de externe kost.</p></div>");
 
         html.append("<div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
@@ -213,13 +214,46 @@ public class PdfPurchasePaymentsRenderer {
         return value == null || value.isBlank() ? "-" : value.replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
     }
+    /**
+     * The term's word, as on the Betalingen tab. A term keeps its own
+     * difference in the Verschil column; the word says what netting with the
+     * payee's other terms did with it.
+     */
+    static String termStatus(PurchaseReconciliation.SupplierInstalment term,
+                             List<PurchaseReconciliation.SupplierInstalment> terms) {
+        BigDecimal offset = term.offsetEur() == null ? BigDecimal.ZERO : term.offsetEur();
+        String with = "verrekend met " + dutchList(terms.stream()
+                .filter(other -> other != term && other.offsetEur() != null
+                        && other.offsetEur().signum() == -offset.signum() && offset.signum() != 0)
+                .map(PurchaseReconciliation.SupplierInstalment::label).toList());
+        String moved = offset.signum() == 0 ? null : money(offset.abs()) + " " + with;
+        boolean settled = term.explicitlySettled() && term.finalized();
+        String word;
+        if (settled && term.settledSavingEur().signum() > 0) word = "Afgerekend · minder betaald";
+        else if (settled && term.overpaidEur().signum() > 0) word = "Afgerekend · meer betaald";
+        else if (offset.signum() > 0 && term.remainingEur().signum() == 0) return "Betaald · " + with;
+        else if (offset.signum() < 0 && term.overpaidEur().signum() > 0) word = "Betaald · " + money(term.overpaidEur()) + " te veel";
+        else if (offset.signum() < 0) return "Betaald · " + with;
+        else if (offset.signum() > 0) word = "Termijn nog open";
+        else if (term.overpaidEur().signum() > 0) word = "Te veel betaald · nakijken";
+        else word = term.finalized() ? "Termijn afgerekend" : "Termijn nog open";
+        return moved == null ? word : word + " · " + moved;
+    }
+
+    private static String dutchList(List<String> labels) {
+        if (labels.size() < 2) return labels.isEmpty() ? "" : labels.getFirst();
+        return String.join(", ", labels.subList(0, labels.size() - 1)) + " en " + labels.getLast();
+    }
+
     private static String status(PurchaseReconciliation.Stream stream) {
         return switch (stream.status()) {
             case PLANNED -> "Begroot";
             case UNPAID -> "Nog niet betaald";
             case PARTIAL -> "Gedeeltelijk betaald";
             case PAID -> "Volledig betaald";
-            case OVERPAID -> stream.explicitlySettled() ? "Hoger afgerekend" : "Meer betaald - voorlopig";
+            case OVERPAID -> stream.explicitlySettled() || stream.finalized() ? "Hoger afgerekend"
+                    : stream.remainingEur().signum() == 0 ? "Betaald · " + money(stream.overpaidEur()) + " te veel"
+                    : "Meer betaald - voorlopig";
             case SETTLED_LOWER -> "Lager afgerekend";
             case NOT_APPLICABLE -> "Niet van toepassing";
             case ADDITIONAL -> stream.explicitlySettled() ? "Extra betaling - afgerekend" : "Extra betaling";

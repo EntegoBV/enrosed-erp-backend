@@ -70,6 +70,53 @@ class PdfPurchasePaymentsRendererTest {
         assertFalse(resetHtml.contains("Slotbetaling hele groep:"), resetHtml);
     }
 
+    /** PO-2026-002: + € 61,28 on the 30 % and - € 60,78 on the 70 % net to € 0,50 too much, nothing to pay. */
+    @Test
+    void po35TermsNetSoNothingIsLeftToPayAndEachTermKeepsItsOwnDifference() throws Exception {
+        var order = new PurchaseOrder(35L, "PO-2026-002", null, 7L,
+                LocalDate.of(2026, 3, 1), PurchaseOrderStatus.ONTVANGEN, ContainerType.FORTY_HQ,
+                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO,
+                Currency.EUR, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                Allocation.VALUE, Allocation.VALUE, Allocation.VALUE, Allocation.VALUE,
+                "Ningbo", "Rotterdam", null, true, null, null, null, false,
+                PaymentTerms.DEPOSIT_30_70, null, null, null,
+                List.of(new PurchaseOrderLine(1L, 1L, 252, BigDecimal.TEN, Currency.EUR, BigDecimal.ZERO, 252)));
+        var payable = new PurchaseOrderService.Payable(new BigDecimal("31048.04"), BigDecimal.ZERO,
+                BigDecimal.ZERO, true, true);
+        var payments = List.of(
+                new PurchasePayment(1L, 35L, LocalDate.of(2026, 3, 2), new BigDecimal("9375.69"), Currency.EUR,
+                        new BigDecimal("9375.69"), "Aanbetaling", "Emre", Instant.parse("2026-03-02T08:00:00Z"),
+                        PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED),
+                new PurchasePayment(2L, 35L, LocalDate.of(2026, 6, 2), new BigDecimal("21672.85"), Currency.EUR,
+                        new BigDecimal("21672.85"), "Saldo", "Emre", Instant.parse("2026-06-02T08:00:00Z"),
+                        PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.SHIPPED));
+        var report = new PurchaseReconciliationCalculator().calculate(order,
+                PdfPurchaseRendererRenderTest.costing(1), payable, payments);
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        assertTrue(html.contains("<span class=\"label\">Nog te betalen</span><span class=\"value\">€ 0,00</span>"), html);
+        assertTrue(html.contains("<span class=\"label\">Verwachte eindkost</span><span class=\"value\">€ 31.048,54</span>"), html);
+        assertTrue(html.contains("Betaald · € 0,50 te veel</span>"), "the supplier row: " + html);
+        assertTrue(html.contains("Betaald · € 0,50 te veel · € 60,78 verrekend met 70% bij vertrek"), html);
+        assertTrue(html.contains("Betaald · verrekend met 30% bij bestelling"), html);
+        assertTrue(html.contains("+€ 61,28"), html);
+        assertTrue(html.contains("€ -60,78"), html);
+        assertFalse(html.contains("Termijn nog open"), html);
+
+        var document = renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/po35-netted-terms.pdf"), document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertTrue(text.contains("verrekend met 30% bij bestelling"), text);
+            assertTrue(text.contains("61,28"), text);
+            assertTrue(text.contains("60,78"), text);
+        }
+
+        var purchasePdf = PdfPurchaseRenderer.payableView(payments, payable, report);
+        assertTrue(purchasePdf.overpaid(), "the purchase PDF shows the supplier paid too much, not an open balance");
+        assertEquals(be.enrosed.shared.DocumentFormat.eur(new BigDecimal("0.50")), purchasePdf.openSupplier());
+    }
+
     static PurchaseOrder instalmentOrder() {
         return new PurchaseOrder(1L, "PO-2026-001", "Termijnafspraak 30/30/40", 7L,
                 LocalDate.of(2026, 9, 1), PurchaseOrderStatus.BESTELD, ContainerType.FORTY_HQ,

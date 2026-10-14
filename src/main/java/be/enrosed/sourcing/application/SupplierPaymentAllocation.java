@@ -12,7 +12,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Rebuilds milestone balances from the ledger; there is no persistent paid/closed status. */
+/**
+ * Rebuilds milestone balances from the ledger; there is no persistent paid/closed status.
+ * Payments land on their terms as booked; the terms are then netted, so a surplus on one
+ * term settles a shortfall on another and only the payee's net balance stays open.
+ */
 public final class SupplierPaymentAllocation {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
     private SupplierPaymentAllocation() {}
@@ -85,19 +89,50 @@ public final class SupplierPaymentAllocation {
                 if (payment.settlesWholeGroup()) wholeGroupSettled = true;
             }
         }
-        // A legacy whole-group flag does not assign subsequent transfers to a
-        // particular term. Apply it after allocation, otherwise later money
-        // would invent a saving on one term and an overrun on another.
-        if (wholeGroupSettled) buckets.forEach(bucket -> bucket.settled = true);
         final boolean known = amountsKnown;
+        // A term settled on its own keeps its own result; only known amounts can close it.
+        for (Bucket bucket : buckets) bucket.closed = known && bucket.settled;
+        net(buckets);
+        // A legacy whole-group flag does not assign subsequent transfers to a
+        // particular term. Apply it after allocation and netting, otherwise later
+        // money would invent a saving on one term and an overrun on another.
+        if (wholeGroupSettled) buckets.forEach(bucket -> bucket.settled = true);
         return buckets.stream().map(bucket -> {
-            BigDecimal gap = bucket.planned.subtract(bucket.paid).max(ZERO);
+            if (bucket.closed) {
+                return new SupplierInstalment(bucket.step.due(), bucket.step.label(), bucket.planned, bucket.paid,
+                        ZERO, bucket.gap(), bucket.surplus(), true, true, ZERO);
+            }
             boolean settled = known && bucket.settled;
-            return new SupplierInstalment(bucket.step.due(), bucket.step.label(), bucket.planned,
-                    bucket.paid, settled ? ZERO : gap, settled ? gap : ZERO,
-                    bucket.paid.subtract(bucket.planned).max(ZERO), bucket.settled,
-                    known && (settled || bucket.paid.compareTo(bucket.planned) == 0));
+            return new SupplierInstalment(bucket.step.due(), bucket.step.label(), bucket.planned, bucket.paid,
+                    settled ? ZERO : bucket.remaining, settled ? bucket.remaining : ZERO, bucket.overpaid,
+                    bucket.settled,
+                    known && (settled || bucket.remaining.signum() == 0 && bucket.overpaid.signum() == 0),
+                    bucket.offset);
         }).toList();
+    }
+
+    /**
+     * The terms of one payee are one account: a surplus on one term covers a
+     * shortfall on another, the earliest shortfall first, so whatever stays
+     * open sits on the latest terms. A term settled on its own ("Slotbetaling
+     * termijn") keeps its own result and stays out. Exact to the cent: one
+     * cent of surplus covers one cent of shortfall, no tolerance.
+     */
+    private static void net(List<Bucket> buckets) {
+        List<Bucket> open = buckets.stream().filter(bucket -> !bucket.closed).toList();
+        BigDecimal gaps = open.stream().map(Bucket::gap).reduce(ZERO, BigDecimal::add);
+        BigDecimal surpluses = open.stream().map(Bucket::surplus).reduce(ZERO, BigDecimal::add);
+        BigDecimal toCover = gaps.min(surpluses);
+        BigDecimal toUse = toCover;
+        for (Bucket bucket : open) {
+            BigDecimal covered = bucket.gap().min(toCover);
+            BigDecimal used = bucket.surplus().min(toUse);
+            toCover = toCover.subtract(covered);
+            toUse = toUse.subtract(used);
+            bucket.remaining = bucket.gap().subtract(covered);
+            bucket.overpaid = bucket.surplus().subtract(used);
+            bucket.offset = covered.subtract(used);
+        }
     }
 
     private static final class Bucket {
@@ -105,6 +140,14 @@ public final class SupplierPaymentAllocation {
         final BigDecimal planned;
         BigDecimal paid = ZERO;
         boolean settled;
+        /** Settled on its own by a scoped payment, with every amount known: out of the netting. */
+        boolean closed;
+        /* After netting; a closed term keeps its own gap and surplus. */
+        BigDecimal remaining = ZERO;
+        BigDecimal overpaid = ZERO;
+        BigDecimal offset = ZERO;
         Bucket(PaymentTerms.Instalment step, BigDecimal planned) { this.step = step; this.planned = planned; }
+        BigDecimal gap() { return planned.subtract(paid).max(ZERO); }
+        BigDecimal surplus() { return paid.subtract(planned).max(ZERO); }
     }
 }

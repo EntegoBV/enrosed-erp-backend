@@ -663,11 +663,13 @@ public class SourcingResource {
         PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
                 supplier == null ? null : supplier.incoterm());
         boolean credits = supplierCredits != null && order.id() != null;
+        /* One reconciliation for the tab and the attention list, so both read the same netted terms. */
+        PurchaseReconciliation reconciliation = purchaseOrders.reconciliation(order, costing);
         return new PurchaseOrderView(order, costing, adjustments,
-                PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, payable),
+                PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, reconciliation),
                 purchaseOrders.receiptVarianceSummary(order),
                 order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order),
-                purchaseOrders.reconciliation(order, costing),
+                reconciliation,
                 credits ? supplierCredits.views(order.id()) : List.of(),
                 credits ? supplierCredits.offsetsOnto(order.id()) : List.of());
     }

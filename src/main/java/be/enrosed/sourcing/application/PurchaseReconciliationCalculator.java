@@ -206,6 +206,8 @@ public class PurchaseReconciliationCalculator {
         BigDecimal overpaid = payee == PurchasePayment.Payee.OTHER ? ZERO : paid.subtract(planned).max(ZERO);
         if (payee == PurchasePayment.Payee.SUPPLIER && !supplierInstalments.isEmpty()
                 && matching.stream().anyMatch(p -> p.instalmentDue() != null)) {
+            // The terms come netted: a surplus on one term already covers a shortfall
+            // on another, so these sums are the supplier's net open and net overpayment.
             remaining = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::remainingEur);
             saving = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::settledSavingEur);
             overpaid = sum(supplierInstalments, PurchaseReconciliation.SupplierInstalment::overpaidEur);
