@@ -345,10 +345,40 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   destination→warehouse trucking (outside customs value) + optional
   "extra revenue" the seller wants folded in. Allocation modes decide how
   shared costs spread over lines. Container fill/overflow is computed.
-- Status: CONCEPT → BESTELD → ONTVANGEN. (ONDERWEG still exists in the
-  enum for old rows but the UI stepper hides it.) Leaving CONCEPT
-  snapshots `orderedQuantity` per line so short shipments stay visible;
-  arrival books stock.
+- Status: CONCEPT → BESTELD → ONDERWEG → ONTVANGEN; the screens call
+  ONDERWEG "Vertrokken" (the enum name stays). Leaving CONCEPT snapshots
+  `orderedQuantity` per line so short shipments stay visible; arrival
+  books stock. `shippedOn` is server-owned: set to today (Brussels) the
+  first time the status says ONDERWEG, then kept; the form value is
+  ignored.
+- Step back (2026-10-14), for a status set by mistake: the same
+  `PUT /purchase-orders/{id}` with `?stepBack=true` (service
+  `update(id, order, true)`) accepts an earlier status
+  (`requireAllowedTransition`/`isStepBack`): ONDERWEG → BESTELD,
+  ONDERWEG → CONCEPT, BESTELD → CONCEPT. Only the ERP "Status
+  terugzetten" sheet sends the flag. Every form save carries the status
+  its screen loaded and the PUT has no version check, so the flag and the
+  move must agree: an earlier status without it (an outdated tab after a
+  departure tapped elsewhere) or a later one with it is refused
+  untouched with "Deze container staat intussen op <Vertrokken|...>;
+  laad hem opnieuw voor je opslaat." The same status with the flag is a
+  plain save. ONTVANGEN never goes back
+  ("Een ontvangen container gaat niet terug: de voorraad is geboekt.").
+  Back to CONCEPT is refused while money moved - any payment row (any
+  payee, offsets included) or a legacy `paidTotalEur` ("Terug naar
+  Concept kan niet: er zijn al betalingen geboekt op deze container.
+  Besteld is de laagste status die nog kan.") - or a supplier credit
+  exists ("... er staat een tegoed van de leverancier op deze
+  container. ..."); BESTELD is always reachable from ONDERWEG. Any step
+  back clears `shippedOn` (a later real departure sets its own day);
+  tracking, B/L, documents, payments and credits stay, paid departure
+  terms stay paid (early), to CONCEPT drops the ordered snapshot.
+  Activity `STATUS_CHANGED` "Status teruggezet van Vertrokken naar
+  Besteld" (labels Concept/Besteld/Vertrokken/Ontvangen) with a
+  "Vertrokken op" change (dd/MM/yyyy, also logged on a forward
+  departure); no push. `requireForwardTransition` stays forward-only and
+  `receive()` keeps using it, so the receipt never steps back and a
+  CONCEPT container cannot be received directly.
 - Purchasing **warns and never rounds** quantities (a sample of 3 pieces
   is legitimate; silently inflating an order costs real money).
 - "Kostprijzen toepassen" writes landed cost per piece onto the products

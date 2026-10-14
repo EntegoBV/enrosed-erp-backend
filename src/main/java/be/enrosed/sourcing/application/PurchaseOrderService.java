@@ -312,15 +312,39 @@ public class PurchaseOrderService {
      * supplier. Quantities that do not fill whole cartons are flagged in the
      * response but saved exactly as entered — unlike sales, purchasing never
      * rounds. Only the user knows whether "3 pieces" is a typo or a sample.
+     *
+     * A form save only moves the status forward. Every save carries the whole
+     * order, including the status the screen loaded, so an earlier status
+     * there is far more likely an outdated tab than a wish; see
+     * {@link #update(long, PurchaseOrder, boolean)} for the explicit step back.
      */
     @Transactional
     public UpdateResult update(long id, PurchaseOrder changes) {
+        return update(id, changes, false);
+    }
+
+    /**
+     * Updates the purchase order; with {@code stepBackRequested} the status
+     * may also go back to correct a mistake. The flag and the move must agree:
+     * an earlier status without it, or a later one with it, means the screen
+     * no longer shows what is stored, and the save is refused untouched.
+     */
+    @Transactional
+    public UpdateResult update(long id, PurchaseOrder changes, boolean stepBackRequested) {
         PurchaseOrder current = getForUpdate(id);
         if (changes == null) {
             throw new BusinessRuleException("Geen inkoopordergegevens meegestuurd");
         }
         validateHeader(changes);
-        requireForwardTransition(current.status(), changes.status());
+        requireAllowedTransition(current.status(), changes.status());
+        boolean stepBack = isStepBack(current.status(), changes.status());
+        if (current.status() != changes.status() && stepBack != stepBackRequested) {
+            throw new BusinessRuleException("Deze container staat intussen op " + statusName(current.status())
+                    + "; laad hem opnieuw voor je opslaat.");
+        }
+        if (stepBack && changes.status() == PurchaseOrderStatus.CONCEPT) {
+            requireConceptStepBackAllowed(current);
+        }
         List<String> lateDamage = new ArrayList<>();
         if (current.status() == PurchaseOrderStatus.ONTVANGEN) {
             requireReceivedLinesUnchanged(current, changes);
@@ -416,9 +440,7 @@ public class PurchaseOrderService {
                 changes.receivingLocationId(), changes.groupVariants(),
                 changes.expectedArrival(), receivedOnAfter(current, changes), current.paidTotalEur(), current.stockBooked(),
                 changes.paymentTerms(),
-                /* The sailing date is set the moment the status says so, and kept. */
-                current.shippedOn() != null ? current.shippedOn()
-                        : changes.status() == PurchaseOrderStatus.ONDERWEG ? LocalDate.now() : null,
+                shippedOnAfter(current, changes, stepBack),
                 changes.trackingReference(),
                 current.createdBy(), current.createdAt(),
                 withLateDamageNotes(changes.notes(), lateDamage), lines)
@@ -434,7 +456,11 @@ public class PurchaseOrderService {
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
-            if (current.status() != saved.status()) {
+            if (stepBack) {
+                recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, saved,
+                        "Status teruggezet van " + statusName(current.status()) + " naar " + statusName(saved.status()),
+                        auditChanges);
+            } else if (current.status() != saved.status()) {
                 recordActivity(ActivityLogService.ACTION_STATUS_CHANGED, saved,
                         "Status gewijzigd van " + statusLabel(current.status()) + " naar " + statusLabel(saved.status()),
                         auditChanges);
@@ -442,7 +468,8 @@ public class PurchaseOrderService {
                 recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inkooporder bijgewerkt", auditChanges);
             }
         }
-        if (current.status() != saved.status()) {
+        /* A step back corrects a mistake; it is not news for anyone's phone. */
+        if (current.status() != saved.status() && !stepBack) {
             switch (saved.status()) {
                 case BESTELD -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.ORDERED,
                         saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
@@ -600,6 +627,19 @@ public class PurchaseOrderService {
             return current.receivedOn();
         }
         return requireReceiptDay(wanted, changes.orderDate());
+    }
+
+    /**
+     * The sailing day as it should be after a save. It is set the moment the
+     * status says the container left (today in Belgium) and kept from then
+     * on; the form's own value is never trusted. A step back means the
+     * container did not leave after all, so the day goes with it and a later
+     * real departure records its own.
+     */
+    private static LocalDate shippedOnAfter(PurchaseOrder current, PurchaseOrder changes, boolean stepBack) {
+        if (stepBack) return null;
+        if (current.shippedOn() != null) return current.shippedOn();
+        return changes.status() == PurchaseOrderStatus.ONDERWEG ? LocalDate.now(BRUSSELS) : null;
     }
 
     /** A receipt day lies between the order date and today (Brussels). */
@@ -1665,6 +1705,48 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Deze inkooporder heeft een tegoed van de leverancier; archiveer de container zodat het tegoed behouden blijft");
     }
 
+    /**
+     * The lifecycle a form save may follow: forward as before, plus one or
+     * more steps back to correct a status set by mistake. A received
+     * container never goes back: its stock is booked.
+     */
+    static void requireAllowedTransition(PurchaseOrderStatus current,
+                                         PurchaseOrderStatus requested) {
+        if (current == null || requested == null) {
+            throw new BusinessRuleException("Kies een geldige status voor de inkooporder");
+        }
+        if (current == PurchaseOrderStatus.ONTVANGEN && requested != PurchaseOrderStatus.ONTVANGEN) {
+            throw new BusinessRuleException("Een ontvangen container gaat niet terug: de voorraad is geboekt.");
+        }
+        if (isStepBack(current, requested)) return;
+        requireForwardTransition(current, requested);
+    }
+
+    /** An earlier status than the current one, for a container that is not received yet. */
+    static boolean isStepBack(PurchaseOrderStatus current, PurchaseOrderStatus requested) {
+        return current != null && requested != null
+                && current != PurchaseOrderStatus.ONTVANGEN
+                && requested.ordinal() < current.ordinal();
+    }
+
+    /**
+     * Back to Concept means "never ordered". Money that already moved for the
+     * container - a payment to anyone, an offset, a legacy paid total - or a
+     * credit the supplier owes on it says otherwise, so the lowest step back
+     * is Besteld then.
+     */
+    private void requireConceptStepBackAllowed(PurchaseOrder current) {
+        if (Money.nz(current.paidTotalEur()).signum() != 0
+                || payments != null && payments.isResolvable() && !payments.get().forOrder(current.id()).isEmpty()) {
+            throw new BusinessRuleException("Terug naar Concept kan niet: er zijn al betalingen geboekt op deze "
+                    + "container. Besteld is de laagste status die nog kan.");
+        }
+        if (!supplierCredits(current.id()).isEmpty()) {
+            throw new BusinessRuleException("Terug naar Concept kan niet: er staat een tegoed van de leverancier "
+                    + "op deze container. Besteld is de laagste status die nog kan.");
+        }
+    }
+
     /** Forward-only lifecycle; same-state saves remain possible for details. */
     static void requireForwardTransition(PurchaseOrderStatus current,
                                          PurchaseOrderStatus requested) {
@@ -2155,6 +2237,7 @@ public class PurchaseOrderService {
                         before.receivingLocationId(), after.receivingLocationId())
                 .add("groupVariants", "Varianten groeperen", before.groupsVariants(), after.groupsVariants())
                 .add("expectedArrival", "Verwachte aankomst", before.expectedArrival(), after.expectedArrival())
+                .add("shippedOn", "Vertrokken op", day(before.shippedOn()), day(after.shippedOn()))
                 .add("receivedOn", "Ontvangen op", before.receivedOn(), after.receivedOn())
                 .add("paymentTerms", "Betaalvoorwaarden", before.paymentTerms(), after.paymentTerms())
                 .add("trackingReference", "Tracking", before.trackingReference(), after.trackingReference())
@@ -2187,6 +2270,10 @@ public class PurchaseOrderService {
                     oldLine == null ? null : oldLine.exwPrice(), newLine == null ? null : newLine.exwPrice());
         }
         return changes.build();
+    }
+
+    private static String day(LocalDate value) {
+        return value == null ? null : value.format(DAY);
     }
 
     private static int totalPieces(PurchaseOrder order) {
@@ -2227,6 +2314,17 @@ public class PurchaseOrderService {
             case BESTELD -> "besteld";
             case ONDERWEG -> "onderweg";
             case ONTVANGEN -> "ontvangen";
+        };
+    }
+
+    /** The status as the screens name it; ONDERWEG reads "Vertrokken" there. */
+    private static String statusName(PurchaseOrderStatus status) {
+        if (status == null) return "Onbekend";
+        return switch (status) {
+            case CONCEPT -> "Concept";
+            case BESTELD -> "Besteld";
+            case ONDERWEG -> "Vertrokken";
+            case ONTVANGEN -> "Ontvangen";
         };
     }
 

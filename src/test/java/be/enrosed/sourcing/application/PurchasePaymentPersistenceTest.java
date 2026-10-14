@@ -1,5 +1,6 @@
 package be.enrosed.sourcing.application;
 
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
 import be.enrosed.sourcing.domain.PaymentTerms;
@@ -17,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -360,6 +362,130 @@ class PurchasePaymentPersistenceTest {
                         again.notes(), List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(lineAgain.id(),
                                 product.id, 97, BigDecimal.TEN, Currency.USD, null, lineAgain.orderedQuantity(),
                                 null, 1)))));
+    }
+
+    private static final String NO_CONCEPT_PAID = "Terug naar Concept kan niet: er zijn al betalingen geboekt op deze "
+            + "container. Besteld is de laagste status die nog kan.";
+
+    /** Vertrokken by mistake: back to Besteld keeps every payment where it was; money that moved rules out Concept. */
+    @Test
+    @TestTransaction
+    void aContainerSetToVertrokkenByMistakeGoesBackToBesteldWithItsPaymentsButNotToConcept() {
+        long id = placedContainer("Step back Co", "SKU-BACK-1").id();
+        purchaseOrders.addPayment(id, LocalDate.of(2026, 8, 1), new BigDecimal("300"), Currency.EUR, "1/3",
+                PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED);
+
+        PurchaseOrder departed = moveTo(id, PurchaseOrderStatus.ONDERWEG);
+        assertEquals(LocalDate.now(PurchaseOrderService.BRUSSELS), departed.shippedOn());
+        assertEquals(List.of("Track & trace ontbreekt", "Betaling open: 1/3 bij vertrek (€ 300,00)"), attention(id));
+
+        /* It did not leave after all: no tracking nag, and the departure third is not due yet. */
+        PurchaseOrder back = stepBack(id, PurchaseOrderStatus.BESTELD);
+        assertEquals(PurchaseOrderStatus.BESTELD, back.status());
+        assertNull(back.shippedOn());
+        assertEquals(List.of(), attention(id));
+
+        /* Departed again and the departure third paid; then the status turns out wrong once more. */
+        moveTo(id, PurchaseOrderStatus.ONDERWEG);
+        PurchasePayment shipped = purchaseOrders.addPayment(id, LocalDate.of(2026, 8, 20), new BigDecimal("300"),
+                Currency.EUR, "1/3 bij vertrek", PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.SHIPPED);
+        assertEquals(List.of("Track & trace ontbreekt"), attention(id));
+        stepBack(id, PurchaseOrderStatus.BESTELD);
+        entityManager.flush(); entityManager.clear();
+
+        assertEquals(PurchaseOrderStatus.BESTELD, purchaseOrders.get(id).status());
+        assertNull(purchaseOrders.get(id).shippedOn());
+        assertEquals(PaymentTerms.Moment.SHIPPED, purchaseOrders.payments(id).stream()
+                        .filter(payment -> payment.id().equals(shipped.id())).findFirst().orElseThrow().instalmentDue(),
+                "a paid departure term stays paid, simply early");
+        assertEquals(List.of(), attention(id));
+
+        assertEquals(NO_CONCEPT_PAID, assertThrows(BusinessRuleException.class,
+                () -> stepBack(id, PurchaseOrderStatus.CONCEPT)).getMessage());
+        assertEquals(2, purchaseOrders.payments(id).size());
+    }
+
+    @Test
+    @TestTransaction
+    void anUnpaidContainerGoesBackToConceptButALegacyPaidTotalKeepsItOrdered() {
+        long id = placedContainer("Legacy paid Co", "SKU-BACK-2").id();
+        moveTo(id, PurchaseOrderStatus.ONDERWEG);
+
+        /* Nothing paid, nothing credited: never ordered after all. */
+        PurchaseOrder concept = stepBack(id, PurchaseOrderStatus.CONCEPT);
+        assertEquals(PurchaseOrderStatus.CONCEPT, concept.status());
+        assertNull(concept.shippedOn());
+        assertNull(concept.lines().getFirst().orderedQuantity(), "not ordered: no snapshot to keep");
+        assertEquals(List.of(), attention(id));
+        assertEquals(100, moveTo(id, PurchaseOrderStatus.BESTELD).lines().getFirst().orderedQuantity(),
+                "placing again takes a new snapshot");
+
+        /* A paid total from before the payment ledger counts as money that moved. */
+        entityManager.find(PurchaseOrderEntity.class, id).paidTotalEur = new BigDecimal("250.00");
+        entityManager.flush(); entityManager.clear();
+        assertEquals(NO_CONCEPT_PAID, assertThrows(BusinessRuleException.class,
+                () -> stepBack(id, PurchaseOrderStatus.CONCEPT)).getMessage());
+    }
+
+    /**
+     * The desk tab still shows Besteld when the phone marks the container
+     * departed; a later Opslaan there must not undo the departure or its day.
+     */
+    @Test
+    @TestTransaction
+    void anOutdatedFormSaveDoesNotUndoADepartureMadeElsewhere() {
+        long id = placedContainer("Stale tab Co", "SKU-BACK-3").id();
+        PurchaseOrder deskCopy = purchaseOrders.get(id);
+        LocalDate departedOn = moveTo(id, PurchaseOrderStatus.ONDERWEG).shippedOn();
+        entityManager.flush(); entityManager.clear();
+
+        assertEquals("Deze container staat intussen op Vertrokken; laad hem opnieuw voor je opslaat.",
+                assertThrows(BusinessRuleException.class, () -> purchaseOrders.update(id,
+                        deskCopy.withReceipt(deskCopy.status(), deskCopy.receivedOn(), deskCopy.paidTotalEur(),
+                                deskCopy.stockBooked(), "typo fixed", deskCopy.lines()))).getMessage());
+        entityManager.clear();
+
+        PurchaseOrder stored = purchaseOrders.get(id);
+        assertEquals(PurchaseOrderStatus.ONDERWEG, stored.status());
+        assertEquals(departedOn, stored.shippedOn());
+        assertEquals(100, stored.lines().getFirst().orderedQuantity());
+    }
+
+    /** One container of 100 pieces at US$ 10 (€ 900 to the factory), ordered. */
+    private PurchaseOrder placedContainer(String supplierName, String sku) {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, supplierName, "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        PurchaseOrder order = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"),
+                BigDecimal.TEN);
+        var product = new be.enrosed.catalog.adapter.out.persistence.ProductEntity();
+        product.sku = sku;
+        product.name = "Step back rose " + sku;
+        product.active = true;
+        product.supplierId = supplier.id();
+        product.piecesPerCarton = 10;
+        product.productLengthCm = product.productWidthCm = product.productHeightCm = BigDecimal.ONE;
+        product.cartonLengthCm = product.cartonWidthCm = product.cartonHeightCm = BigDecimal.ONE;
+        entityManager.persist(product);
+        entityManager.flush();
+        return purchaseOrders.update(order.id(), order.withReceipt(PurchaseOrderStatus.BESTELD, null, null, false, null,
+                List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(null, product.id, 100, BigDecimal.TEN,
+                        Currency.USD, null, null)))).order();
+    }
+
+    /** The form save with only the status changed, as the ERP sends it. */
+    private PurchaseOrder moveTo(long orderId, PurchaseOrderStatus status) {
+        return save(orderId, status, false);
+    }
+
+    /** The explicit "Status terugzetten" step: the same save, flagged as a step back. */
+    private PurchaseOrder stepBack(long orderId, PurchaseOrderStatus status) {
+        return save(orderId, status, true);
+    }
+
+    private PurchaseOrder save(long orderId, PurchaseOrderStatus status, boolean stepBack) {
+        PurchaseOrder current = purchaseOrders.get(orderId);
+        return purchaseOrders.update(orderId, current.withReceipt(status, current.receivedOn(), current.paidTotalEur(),
+                current.stockBooked(), current.notes(), current.lines()), stepBack).order();
     }
 
     private List<String> attention(long orderId) {
