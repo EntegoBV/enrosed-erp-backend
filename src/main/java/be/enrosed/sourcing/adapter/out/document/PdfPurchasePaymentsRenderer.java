@@ -251,12 +251,22 @@ public class PdfPurchasePaymentsRenderer {
             case UNPAID -> "Nog niet betaald";
             case PARTIAL -> "Gedeeltelijk betaald";
             case PAID -> "Volledig betaald";
-            case OVERPAID -> stream.explicitlySettled() || stream.finalized() ? "Hoger afgerekend"
+            case OVERPAID -> stream.explicitlySettled() || stream.finalized() ? settled(stream)
                     : stream.remainingEur().signum() == 0 ? "Betaald · " + money(stream.overpaidEur()) + " te veel"
                     : "Meer betaald - voorlopig";
             case SETTLED_LOWER -> "Lager afgerekend";
             case NOT_APPLICABLE -> "Niet van toepassing";
             case ADDITIONAL -> stream.explicitlySettled() ? "Extra betaling - afgerekend" : "Extra betaling";
         };
+    }
+
+    /**
+     * A settled payee can hold an overrun and a saving at once, from terms
+     * closed on their own; the word follows the net result, as the Verschil
+     * column does, not the overrun alone.
+     */
+    private static String settled(PurchaseReconciliation.Stream stream) {
+        int net = stream.overpaidEur().compareTo(stream.settledSavingEur());
+        return net > 0 ? "Hoger afgerekend" : net < 0 ? "Lager afgerekend" : "Afgerekend";
     }
 }
