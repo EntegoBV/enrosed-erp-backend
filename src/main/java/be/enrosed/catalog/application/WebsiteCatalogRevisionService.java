@@ -197,6 +197,11 @@ public class WebsiteCatalogRevisionService {
         add(out, product.packagingPiecesPerUnit);
         /* Normalized: an old null and an explicit "stuk" print the same words. */
         add(out, be.enrosed.shared.UnitNames.normalize(product.packagingUnitKey));
+        /* Only a step other than the full carton adds a term: every existing digest stays what it was. */
+        be.enrosed.catalog.domain.OrderStep step = be.enrosed.catalog.domain.OrderStep.effective(product.packagingOrderStep);
+        if (step != be.enrosed.catalog.domain.OrderStep.CARTON) {
+            add(out, "orderStep"); add(out, step);
+        }
         add(out, product.canonicalBarcode); add(out, product.active);
         add(out, product.inventoryKnown); add(out, product.stockQuantity); add(out, product.variantPosition);
         for (Language language : Language.values()) {

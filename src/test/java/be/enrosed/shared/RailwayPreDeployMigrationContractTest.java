@@ -159,6 +159,33 @@ class RailwayPreDeployMigrationContractTest {
     }
 
     @Test
+    void orderStepMigrationAddsTheNullableProductColumnRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-14/product-order-step-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains(
+                "alter table product add column if not exists packagingorderstep varchar(16);"));
+        assertFalse(sql.contains("not null"), "null reads as the full carton");
+        assertFalse(sql.contains("default "), "the default lives in code, not in the column");
+        assertFalse(sql.contains("update "), "existing products keep today's behaviour");
+        assertFalse(sql.contains("check"), "a plain varchar: no enum check has to learn a later value");
+        assertNonDestructive(sql);
+
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/catalog/adapter/out/persistence/ProductEntity.java"))
+                .contains("@Column(name = \"packagingorderstep\", length = 16)"),
+                "the product names the migrated column and stores a string, not an enum");
+
+        assertTrue(Files.readString(Path.of("Dockerfile")).contains(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.indexOf("--file=/app/migrations/bank-cost-registration-postgresql.sql")
+                        < runner.indexOf(migration.getFileName().toString()),
+                "the order step lands after every earlier script");
+        assertTrue(runner.contains("bank-cost-registration-postgresql.sql \\\n"),
+                "without the continuation backslash psql never sees the next file");
+    }
+
+    @Test
     void creditNoteMigrationIsAdditiveAndRegisteredBeforeAppStartup() throws IOException {
         Path migration = Path.of("docs/migrations/2026-09-25/credit-notes-postgresql.sql");
         String sql = normalizedSql(migration);

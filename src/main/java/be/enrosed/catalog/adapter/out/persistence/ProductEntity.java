@@ -1,5 +1,7 @@
 package be.enrosed.catalog.adapter.out.persistence;
 
+import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.catalog.domain.SalesUnit;
@@ -54,6 +56,12 @@ public class ProductEntity {
     /** What one piece is called on customer documents (UnitNames key); null reads as "stuk". */
     @Column(length = 40)
     public String packagingUnitKey;
+    /**
+     * "Verkocht per" (OrderStep name); null reads as the full carton. A plain string on
+     * purpose: no generated enum check constraint has to learn a later value.
+     */
+    @Column(name = "packagingorderstep", length = 16)
+    public String packagingOrderStep;
 
     /* Explicit merchandising variant attributes; size is not a physical dimension. */
     public String colour;
@@ -151,4 +159,14 @@ public class ProductEntity {
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @OrderBy("language ASC")
     public List<ProductTextEntity> texts = new ArrayList<>();
+
+    /** The packaging as the domain reads it, for projections that work on rows. */
+    public Packaging packaging() {
+        return CatalogMapper.packaging(this);
+    }
+
+    /** The outer carton as the domain reads it, for projections that work on rows. */
+    public Carton carton() {
+        return CatalogMapper.carton(this);
+    }
 }

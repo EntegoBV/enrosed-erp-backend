@@ -6,6 +6,7 @@ import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Photo;
@@ -290,6 +291,40 @@ class ProductSharedFieldsTest {
         verify(guard).lockFamilies(anyCollection());
         verify(guard).lockProducts(anyCollection());
         assertEquals(0, products.saves);
+    }
+
+    @Test
+    void theOrderStepTravelsWithThePackagingAndADuplicateKeepsIt() {
+        Product source = withPackaging(source(1L, 42L), source(1L, 42L).packaging().withOrderStep(OrderStep.UNIT));
+        Product target = target(2L, 42L);
+        products.add(source);
+        products.add(target);
+
+        service.applySharedFields(source.id(), 42L, List.of(target.id()),
+                Set.of(ProductService.SharedField.PACKAGING));
+        assertEquals(OrderStep.UNIT, service.get(target.id()).packaging().orderStep(),
+                "per stuk is part of the packaging group");
+        assertEquals("hart", service.get(target.id()).packaging().unitKey());
+
+        Product copy = service.duplicate(source.id(), "Blue");
+        assertEquals(OrderStep.UNIT, copy.packaging().orderStep(), "a new colour sells the same way");
+
+        products.add(target(3L, 42L));
+        service.applySharedFields(source.id(), 42L, List.of(3L), Set.of(ProductService.SharedField.CARTON));
+        assertEquals(OrderStep.CARTON, service.get(3L).packaging().orderStep(), "only the selected groups travel");
+    }
+
+    private static Product withPackaging(Product product, Packaging packaging) {
+        return new Product(product.id(), product.sku(), product.name(), product.dimensions(), packaging,
+                product.colour(), product.variantSize(), product.colourHex(), product.description(),
+                product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
+                product.familyId(), product.canonicalVariantKey(), product.canonicalBarcode(),
+                product.variantPosition(), product.inventoryKnown(), product.familyKey(), product.publicHandle(),
+                product.websiteStatus(), product.orderAppStatus(), product.barcodes(), product.hsCode(),
+                product.carton(), product.exwPrice(), product.exwCurrency(), product.extraUnitCost(),
+                product.landedCostEur(), product.landedCostSource(), product.markupPct(),
+                product.fixedSalesPriceEur(), product.stockQuantity(), product.photos(), product.texts(),
+                product.demo());
     }
 
     private static Product source(long id, long familyId) {

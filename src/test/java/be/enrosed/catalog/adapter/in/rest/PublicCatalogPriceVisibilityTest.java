@@ -34,6 +34,12 @@ class PublicCatalogPriceVisibilityTest {
             assertNotNull(original.families().getFirst().variants().getFirst().publicPrice(),
                     "redaction must not mutate the ERP projection");
             assertEquals(hidden, PublicCatalogPriceVisibility.apply(hidden, false), "repeated redaction is safe");
+            JsonNode red = wire.path("families").get(0).path("variants").get(0);
+            assertEquals("UNIT", red.path("orderStep").asText(), "the order step is not a price");
+            assertEquals(1, red.path("unitsPerOrderStep").asInt());
+            JsonNode pink = wire.path("families").get(0).path("variants").get(1);
+            assertEquals("CARTON", pink.path("orderStep").asText(), "an older caller reads the full carton");
+            assertTrue(pink.path("unitsPerOrderStep").isNull());
         }
     }
 
@@ -77,7 +83,7 @@ class PublicCatalogPriceVisibilityTest {
         PublicFamilyCatalogDto.VariantDto red = new PublicFamilyCatalogDto.VariantDto(
                 20L, "ENR-RED", "5400000000017", "Red", "9*9cm", "#A91F32", "Red rose", 0, "IN_STOCK", 30L,
                 new PublicFamilyCatalogDto.PublicPriceDto(new BigDecimal("12.34"), "EUR", new BigDecimal("99.99")),
-                Map.of("name", Language.EN), "DISPLAY", 6, UnitDto.of(null, Language.EN));
+                Map.of("name", Language.EN), "DISPLAY", 6, UnitDto.of(null, Language.EN), "UNIT", 1);
         PublicFamilyCatalogDto.VariantDto pink = new PublicFamilyCatalogDto.VariantDto(
                 21L, "ENR-PINK", null, "Pink", null, "#F4B6C2", "Pink rose", 1, "UNKNOWN", null,
                 new PublicFamilyCatalogDto.PublicPriceDto(new BigDecimal("56.78"), "EUR", null),

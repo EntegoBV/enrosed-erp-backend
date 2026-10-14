@@ -27,6 +27,7 @@ import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.catalog.domain.WebsiteRebuildStatus;
@@ -1950,6 +1951,89 @@ class ProductFamilyVariantContractPersistenceTest {
                 bowl.id, json.treeToValue(chosen, ProductDto.class)
                         .toDomainForUpdate(products.findById(bowl.id).orElseThrow())));
         assertEquals("Onbekende eenheid 'vaas'. Kies een eenheid uit de lijst.", unknown.getMessage());
+    }
+
+    @Test
+    @TestTransaction
+    void productPutKeepsTheStoredOrderStepUnlessTheEditorChoosesAnother() throws Exception {
+        FamilyContext context = completeFamilyContext("step-put-family");
+        ProductEntity stolp = product(
+                context.family, "SKU-STEP-PUT", "step-put", "Red", null, "#A91F32", 0);
+        stolp.categoryId = context.category.id;
+        stolp.piecesPerCarton = 12;
+        stolp.packagingUnitKey = "stolp";
+        stolp.packagingOrderStep = "UNIT";
+        entityManager.persist(stolp);
+        entityManager.flush();
+        entityManager.clear();
+
+        Product read = products.findById(stolp.id).orElseThrow();
+        assertEquals(OrderStep.UNIT, read.packaging().orderStep(), "the mapper reads the stored step");
+        ProductDto current = ProductDto.from(read);
+        assertEquals(OrderStep.UNIT, current.packaging().orderStep());
+        assertEquals(1, current.unitsPerOrderStep());
+        com.fasterxml.jackson.databind.node.ObjectNode legacyJson = json.valueToTree(current);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyJson.path("packaging")).remove("orderStep");
+        Product kept = productService.update(stolp.id, json.treeToValue(legacyJson, ProductDto.class)
+                .toDomainForUpdate(products.findById(stolp.id).orElseThrow()));
+        assertEquals(OrderStep.UNIT, kept.packaging().orderStep(), "an older full-PUT client cannot reset the step");
+
+        legacyJson.putNull("packaging");
+        kept = productService.update(stolp.id, json.treeToValue(legacyJson, ProductDto.class)
+                .toDomainForUpdate(products.findById(stolp.id).orElseThrow()));
+        assertEquals(OrderStep.UNIT, kept.packaging().orderStep(), "no packaging still sells per stuk");
+
+        com.fasterxml.jackson.databind.node.ObjectNode chosen = json.valueToTree(ProductDto.from(kept));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).put("orderStep", "CARTON");
+        Product changed = productService.update(stolp.id, json.treeToValue(chosen, ProductDto.class)
+                .toDomainForUpdate(products.findById(stolp.id).orElseThrow()));
+        assertEquals(OrderStep.CARTON, changed.packaging().orderStep());
+        assertEquals(12, ProductDto.from(changed).unitsPerOrderStep());
+        entityManager.flush();
+        entityManager.clear();
+        assertEquals("CARTON", entityManager.find(ProductEntity.class, stolp.id).packagingOrderStep);
+
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).put("orderStep", "PACKAGE");
+        BusinessRuleException bare = assertThrows(BusinessRuleException.class, () -> productService.update(
+                stolp.id, json.treeToValue(chosen, ProductDto.class)
+                        .toDomainForUpdate(products.findById(stolp.id).orElseThrow())));
+        assertEquals("Verkocht per verpakking kan alleen met een display of geschenkverpakking.", bare.getMessage());
+
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).put("orderStep", "BOX");
+        assertThrows(com.fasterxml.jackson.core.JsonProcessingException.class,
+                () -> json.treeToValue(chosen, ProductDto.class), "an unknown step is refused like an unknown basis");
+
+        ((com.fasterxml.jackson.databind.node.ObjectNode) chosen.path("packaging")).remove("orderStep");
+        assertEquals(OrderStep.CARTON, json.treeToValue(chosen, ProductDto.class).toDomain(null).packaging().orderStep(),
+                "a new product without a step sells per full carton");
+    }
+
+    @Test
+    @TestTransaction
+    void publicVariantsPublishTheirOrderStepThroughTheDomainRule() {
+        ProductFamilyEntity family = family("step-public");
+        entityManager.persist(family);
+        entityManager.flush();
+        ProductEntity stolp = product(family, "SKU-STEP-UNIT", "step-unit", "Red", null, "#A91F32", 0);
+        stolp.packagingOrderStep = "UNIT";
+        ProductEntity unknownCarton = product(family, "SKU-STEP-CARTON", "step-carton", "White", null, "#F0E9DF", 1);
+        unknownCarton.cartonLengthCm = null;
+        unknownCarton.cartonWidthCm = null;
+        unknownCarton.cartonHeightCm = null;
+        ProductEntity known = product(family, "SKU-STEP-KNOWN", "step-known", "Pink", null, "#F4B6C2", 2);
+        known.piecesPerCarton = 24;
+        entityManager.persist(stolp);
+        entityManager.persist(unknownCarton);
+        entityManager.persist(known);
+        entityManager.persist(photo(family, "step-public-image", 0));
+        entityManager.flush();
+
+        PublicFamilyCatalogDto.FamilyDto english = publicFamily("EN", family.publicHandle);
+        assertEquals("UNIT", variant(english, stolp.id).orderStep());
+        assertEquals(1, variant(english, stolp.id).unitsPerOrderStep());
+        assertEquals("CARTON", variant(english, unknownCarton.id).orderStep());
+        assertNull(variant(english, unknownCarton.id).unitsPerOrderStep(), "a one-piece default carton is unknown");
+        assertEquals(24, variant(english, known.id).unitsPerOrderStep());
     }
 
     @Test

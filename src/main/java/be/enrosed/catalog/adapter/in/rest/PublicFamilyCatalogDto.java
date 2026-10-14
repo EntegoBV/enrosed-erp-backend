@@ -137,14 +137,18 @@ public record PublicFamilyCatalogDto(
             String salesUnit,
             Integer piecesPerDisplay,
             /** What one piece is called in the requested language; {@code textSources.unit} is always exact. */
-            UnitDto unit
+            UnitDto unit,
+            /** "Verkocht per": CARTON, PACKAGE or UNIT, never null. Not a price, so never hidden. */
+            String orderStep,
+            /** Sales units one order step moves; null for a carton step whose carton content is unknown. */
+            Integer unitsPerOrderStep
     ) {
         public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,
                           String name, int position, String availability, Long primaryImageId,
                           PublicPriceDto publicPrice, Map<String, Language> textSources,
                           String salesUnit, Integer piecesPerDisplay) {
             this(id, sku, barcode, color, size, colorHex, name, position, availability,
-                    primaryImageId, publicPrice, textSources, salesUnit, piecesPerDisplay, null);
+                    primaryImageId, publicPrice, textSources, salesUnit, piecesPerDisplay, null, "CARTON", null);
         }
 
         public VariantDto(Long id, String sku, String barcode, String color, String size, String colorHex,

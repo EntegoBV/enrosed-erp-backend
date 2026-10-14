@@ -142,7 +142,7 @@ class PdfCatalogRendererTest {
     void bowlProductsPriceAndCountInBowlsWhileDefaultProductsKeepPerPiece() {
         be.enrosed.catalog.domain.Packaging bowl = new be.enrosed.catalog.domain.Packaging(
                 be.enrosed.catalog.domain.PackagingKind.NONE, Dimensions.empty(), null, null,
-                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl");
+                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl", null);
         List<Product> bowls = List.of(
                 withPackaging(product(1L, "BOWL-RD", 100L, 1L, 0), bowl),
                 withPackaging(product(2L, "BOWL-WT", 100L, 1L, 1), bowl));
@@ -173,7 +173,7 @@ class PdfCatalogRendererTest {
         /* Sold per display of eight bowls: the set leads and counts its bowls. */
         be.enrosed.catalog.domain.Packaging bowlSet = new be.enrosed.catalog.domain.Packaging(
                 be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 8,
-                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl");
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl", null);
         String sets = normalizeWhitespace(renderer.renderHtml(unitModel(List.of(
                 withPackaging(product(6L, "BOWL-SET", 100L, 1L, 0), bowlSet)),
                 CatalogExportService.Layout.SIMPLE, "en")));

@@ -61,10 +61,10 @@ class QuoteMailTemplateRenderTest {
     void requestedQuantityOfAnUnavailableLineSaysWhatItCounted() {
         var bowl = new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
                 be.enrosed.catalog.domain.Dimensions.empty(), null, 8,
-                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl");
+                be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl", null);
         var displays = new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
                 be.enrosed.catalog.domain.Dimensions.empty(), null, 12,
-                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos");
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos", null);
         var lines = List.of(
                 new be.enrosed.sales.application.port.out.QuoteMailer.DeliveryLine(
                         "Bowl", "2026-W37", true, true, 48, bowl),

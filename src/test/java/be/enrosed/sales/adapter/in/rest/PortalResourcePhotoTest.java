@@ -55,7 +55,7 @@ class PortalResourcePhotoTest {
                 BigDecimal.ZERO, BigDecimal.ZERO, 0, List.of(), List.of());
         Product bowl = new Product(base.id(), base.sku(), base.name(), base.dimensions(),
                 new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
-                        Dimensions.empty(), null, 8, be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl"),
+                        Dimensions.empty(), null, 8, be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl", null),
                 base.colour(), base.variantSize(), base.colourHex(), base.description(), base.categoryId(),
                 base.supplierId(), base.supplierNote(), base.active(), base.familyId(), base.canonicalVariantKey(),
                 base.canonicalBarcode(), base.variantPosition(), base.inventoryKnown(), base.familyKey(),

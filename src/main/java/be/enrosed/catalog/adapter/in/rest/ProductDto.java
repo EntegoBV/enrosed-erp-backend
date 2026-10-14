@@ -64,7 +64,9 @@ public record ProductDto(
         String describedAs,
         BigDecimal cartonCbm,
         BigDecimal pieceCbm,
-        BigDecimal computedSalesPriceEur
+        BigDecimal computedSalesPriceEur,
+        /** Sales units one order step moves (OrderSteps), so a client need not derive it. */
+        Integer unitsPerOrderStep
 ) {
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
@@ -77,10 +79,15 @@ public record ProductDto(
     public record PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode,
                                Integer piecesPerUnit, SalesUnit salesUnit,
                                /** UnitNames key ("stuk", "bowl", ...); null on a write keeps the stored unit. */
-                               String unitKey) {
+                               String unitKey,
+                               /**
+                                * "Verkocht per": CARTON, PACKAGE or UNIT. A response always carries the
+                                * effective step; null on a write keeps the stored one (a new product: carton).
+                                */
+                               OrderStep orderStep) {
         public PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit,
                             SalesUnit salesUnit) {
-            this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null);
+            this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null, null);
         }
 
         public PackagingDto(PackagingKind kind, DimensionsDto dimensions, String barcode, Integer piecesPerUnit) {
@@ -246,7 +253,8 @@ public record ProductDto(
                         product.packaging().dimensions().weightKg()),
                         product.packaging().barcode(),
                         product.packaging().isPresent() ? product.packaging().unitPieces() : null,
-                        product.packaging().salesUnit(), product.packaging().unitKey()),
+                        product.packaging().salesUnit(), product.packaging().unitKey(),
+                        product.packaging().orderStep()),
                 product.colour(), product.variantSize(), product.colourHex(), product.description(),
                 product.categoryId(), product.supplierId(), product.supplierNote(), product.active(),
                 product.demo(),
@@ -265,15 +273,16 @@ public record ProductDto(
                 product.markupPct(), product.fixedSalesPriceEur(), product.stockQuantity(),
                 photos, texts,
                 product.publicationIssues(),
-                product.describe(), carton.cbm(), carton.pieceCbm(), product.computedSalesPriceEur());
+                product.describe(), carton.cbm(), carton.pieceCbm(), product.computedSalesPriceEur(),
+                OrderSteps.unitsPerStep(product));
     }
 
     public Product toDomain(Long id) {
-        return toDomain(id, null, null, null);
+        return toDomain(id, null, null, null, null);
     }
 
     private Product toDomain(Long id, Integer preservedPiecesPer20Ft, SalesUnit preservedSalesUnit,
-                             String preservedUnitKey) {
+                             String preservedUnitKey, OrderStep preservedOrderStep) {
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
@@ -285,13 +294,16 @@ public record ProductDto(
         /* The unit names the piece, not the box around it: "no packaging" keeps it too. */
         String unitKey = packaging == null || packaging.unitKey() == null
                 ? preservedUnitKey : packaging.unitKey();
+        /* So does the order step: an older client that never sent one keeps what was stored. */
+        OrderStep orderStep = packaging == null || packaging.orderStep() == null
+                ? preservedOrderStep : packaging.orderStep();
         Packaging presentation = packaging == null || packaging.kind() == null
-                ? Packaging.none().withUnitKey(unitKey)
+                ? Packaging.none().withUnitKey(unitKey).withOrderStep(orderStep)
                 : new Packaging(packaging.kind(),
                         new Dimensions(wrap.lengthCm(), wrap.widthCm(), wrap.heightCm(), wrap.weightKg()),
                         packaging.barcode(), packaging.piecesPerUnit(),
                         packaging.salesUnit() == null ? preservedSalesUnit : packaging.salesUnit(),
-                        unitKey);
+                        unitKey, orderStep);
 
         return new Product(
                 id, sku, name,
@@ -326,7 +338,7 @@ public record ProductDto(
     public Product toDomainForUpdate(Product current) {
         Product changes = toDomain(current.id(), current.carton() == null
                 ? null : current.carton().piecesPer20Ft(), current.packaging().salesUnit(),
-                current.packaging().unitKey());
+                current.packaging().unitKey(), current.packaging().requestedOrderStep());
         if (inventoryKnown == null) {
             changes = changes.withCanonicalIdentity(
                     changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),

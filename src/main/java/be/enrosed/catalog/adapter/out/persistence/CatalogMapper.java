@@ -41,11 +41,7 @@ final class CatalogMapper {
                 entity.name,
                 new Dimensions(entity.productLengthCm, entity.productWidthCm, entity.productHeightCm,
                         entity.productWeightKg),
-                new Packaging(entity.packagingKind == null ? PackagingKind.NONE : entity.packagingKind,
-                        new Dimensions(entity.packagingLengthCm, entity.packagingWidthCm,
-                                entity.packagingHeightCm, entity.packagingWeightKg),
-                        entity.packagingBarcode, entity.packagingPiecesPerUnit, entity.packagingSalesUnit,
-                        entity.packagingUnitKey),
+                packaging(entity),
                 entity.colour,
                 entity.variantSize,
                 entity.colourHex,
@@ -65,9 +61,7 @@ final class CatalogMapper {
                 entity.orderAppStatus == null ? PublicationState.DRAFT : entity.orderAppStatus,
                 new Barcodes(entity.barcodeInner, entity.barcodeOuter),
                 entity.hsCode,
-                new Carton(new Dimensions(entity.cartonLengthCm, entity.cartonWidthCm, entity.cartonHeightCm),
-                        entity.piecesPerCarton, entity.cartonWeightKg,
-                        entity.piecesPerHc, entity.piecesPer20Ft),
+                carton(entity),
                 entity.exwPrice,
                 entity.exwCurrency,
                 entity.extraUnitCost,
@@ -79,6 +73,21 @@ final class CatalogMapper {
                 photos,
                 texts,
                 entity.demo);
+    }
+
+    /** The packaging of a row as the domain reads it; public projections that work on rows use it too. */
+    static Packaging packaging(ProductEntity entity) {
+        return new Packaging(entity.packagingKind == null ? PackagingKind.NONE : entity.packagingKind,
+                new Dimensions(entity.packagingLengthCm, entity.packagingWidthCm,
+                        entity.packagingHeightCm, entity.packagingWeightKg),
+                entity.packagingBarcode, entity.packagingPiecesPerUnit, entity.packagingSalesUnit,
+                entity.packagingUnitKey, OrderStep.parse(entity.packagingOrderStep));
+    }
+
+    static Carton carton(ProductEntity entity) {
+        return new Carton(new Dimensions(entity.cartonLengthCm, entity.cartonWidthCm, entity.cartonHeightCm),
+                entity.piecesPerCarton, entity.cartonWeightKg,
+                entity.piecesPerHc, entity.piecesPer20Ft);
     }
 
     static void apply(Product product, ProductEntity entity) {
@@ -106,6 +115,9 @@ final class CatalogMapper {
         entity.packagingSalesUnit = packaging.salesUnit();
         /* Like the sales unit, the name of one piece survives "no packaging". */
         entity.packagingUnitKey = packaging.unitKey();
+        /* The step too; as given, so a product nobody set stays on the default carton. */
+        entity.packagingOrderStep = packaging.requestedOrderStep() == null
+                ? null : packaging.requestedOrderStep().name();
 
         entity.colour = product.colour();
         entity.variantSize = blankToNull(product.variantSize());

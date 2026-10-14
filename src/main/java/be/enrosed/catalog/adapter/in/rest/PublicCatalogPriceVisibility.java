@@ -30,7 +30,8 @@ final class PublicCatalogPriceVisibility {
                         variant.id(), variant.sku(), variant.barcode(), variant.color(), variant.size(),
                         variant.colorHex(), variant.name(), variant.position(), variant.availability(),
                         variant.primaryImageId(), null, variant.textSources(), variant.salesUnit(),
-                        variant.piecesPerDisplay(), variant.unit())).toList(),
+                        variant.piecesPerDisplay(), variant.unit(), variant.orderStep(),
+                        variant.unitsPerOrderStep())).toList(),
                 family.textSources(), family.quoteImageId());
     }
 }
