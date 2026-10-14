@@ -266,21 +266,30 @@ class PurchaseSupplierCreditPersistenceTest {
         credits.add(id, new CreditRequest(DAY, BigDecimal.TEN, Currency.EUR, null, Reason.PRICE, null));
         moveTo(id, PurchaseOrderStatus.ONDERWEG);
 
-        PurchaseOrder back = moveTo(id, PurchaseOrderStatus.BESTELD);
+        PurchaseOrder back = stepBack(id, PurchaseOrderStatus.BESTELD);
         assertEquals(PurchaseOrderStatus.BESTELD, back.status());
         assertNull(back.shippedOn());
         assertEquals(1, orders.supplierCredits(id).size(), "the credit stays on the container");
 
         assertRule("Terug naar Concept kan niet: er staat een tegoed van de leverancier op deze container. "
-                + "Besteld is de laagste status die nog kan.", () -> moveTo(id, PurchaseOrderStatus.CONCEPT));
+                + "Besteld is de laagste status die nog kan.", () -> stepBack(id, PurchaseOrderStatus.CONCEPT));
         assertEquals(1, orders.supplierCredits(id).size());
     }
 
     /** The form save with only the status changed, as the ERP sends it. */
     private PurchaseOrder moveTo(long orderId, PurchaseOrderStatus status) {
+        return save(orderId, status, false);
+    }
+
+    /** The explicit "Status terugzetten" step: the same save, flagged as a step back. */
+    private PurchaseOrder stepBack(long orderId, PurchaseOrderStatus status) {
+        return save(orderId, status, true);
+    }
+
+    private PurchaseOrder save(long orderId, PurchaseOrderStatus status, boolean stepBack) {
         PurchaseOrder current = orders.get(orderId);
         return orders.update(orderId, current.withReceipt(status, current.receivedOn(), current.paidTotalEur(),
-                current.stockBooked(), current.notes(), current.lines())).order();
+                current.stockBooked(), current.notes(), current.lines()), stepBack).order();
     }
 
     private static void assertRule(String message, Executable action) {

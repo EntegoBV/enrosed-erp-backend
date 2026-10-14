@@ -349,9 +349,17 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   first time the status says ONDERWEG, then kept; the form value is
   ignored.
 - Step back (2026-10-14), for a status set by mistake: the same
-  `PUT /purchase-orders/{id}` accepts an earlier status
+  `PUT /purchase-orders/{id}` with `?stepBack=true` (service
+  `update(id, order, true)`) accepts an earlier status
   (`requireAllowedTransition`/`isStepBack`): ONDERWEG → BESTELD,
-  ONDERWEG → CONCEPT, BESTELD → CONCEPT. ONTVANGEN never goes back
+  ONDERWEG → CONCEPT, BESTELD → CONCEPT. Only the ERP "Status
+  terugzetten" sheet sends the flag. Every form save carries the status
+  its screen loaded and the PUT has no version check, so the flag and the
+  move must agree: an earlier status without it (an outdated tab after a
+  departure tapped elsewhere) or a later one with it is refused
+  untouched with "Deze container staat intussen op <Vertrokken|...>;
+  laad hem opnieuw voor je opslaat." The same status with the flag is a
+  plain save. ONTVANGEN never goes back
   ("Een ontvangen container gaat niet terug: de voorraad is geboekt.").
   Back to CONCEPT is refused while money moved - any payment row (any
   payee, offsets included) or a legacy `paidTotalEur` ("Terug naar

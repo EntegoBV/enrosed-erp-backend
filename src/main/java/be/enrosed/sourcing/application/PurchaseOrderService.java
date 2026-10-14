@@ -312,9 +312,25 @@ public class PurchaseOrderService {
      * supplier. Quantities that do not fill whole cartons are flagged in the
      * response but saved exactly as entered — unlike sales, purchasing never
      * rounds. Only the user knows whether "3 pieces" is a typo or a sample.
+     *
+     * A form save only moves the status forward. Every save carries the whole
+     * order, including the status the screen loaded, so an earlier status
+     * there is far more likely an outdated tab than a wish; see
+     * {@link #update(long, PurchaseOrder, boolean)} for the explicit step back.
      */
     @Transactional
     public UpdateResult update(long id, PurchaseOrder changes) {
+        return update(id, changes, false);
+    }
+
+    /**
+     * Updates the purchase order; with {@code stepBackRequested} the status
+     * may also go back to correct a mistake. The flag and the move must agree:
+     * an earlier status without it, or a later one with it, means the screen
+     * no longer shows what is stored, and the save is refused untouched.
+     */
+    @Transactional
+    public UpdateResult update(long id, PurchaseOrder changes, boolean stepBackRequested) {
         PurchaseOrder current = getForUpdate(id);
         if (changes == null) {
             throw new BusinessRuleException("Geen inkoopordergegevens meegestuurd");
@@ -322,6 +338,10 @@ public class PurchaseOrderService {
         validateHeader(changes);
         requireAllowedTransition(current.status(), changes.status());
         boolean stepBack = isStepBack(current.status(), changes.status());
+        if (current.status() != changes.status() && stepBack != stepBackRequested) {
+            throw new BusinessRuleException("Deze container staat intussen op " + statusName(current.status())
+                    + "; laad hem opnieuw voor je opslaat.");
+        }
         if (stepBack && changes.status() == PurchaseOrderStatus.CONCEPT) {
             requireConceptStepBackAllowed(current);
         }

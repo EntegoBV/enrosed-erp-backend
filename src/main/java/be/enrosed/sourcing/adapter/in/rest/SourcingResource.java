@@ -220,10 +220,17 @@ public class SourcingResource {
                 .build();
     }
 
+    /**
+     * The form save. {@code stepBack=true} is sent only by the explicit
+     * "Status terugzetten" step; an ordinary save with an earlier status is
+     * an outdated screen and is refused.
+     */
     @PUT
     @Path("/purchase-orders/{id}")
-    public PurchaseOrderView updatePurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
-        PurchaseOrderService.UpdateResult result = purchaseOrders.update(id, order);
+    public PurchaseOrderView updatePurchaseOrder(@PathParam("id") long id,
+                                                 @QueryParam("stepBack") @DefaultValue("false") boolean stepBack,
+                                                 PurchaseOrder order) {
+        PurchaseOrderService.UpdateResult result = purchaseOrders.update(id, order, stepBack);
         return view(result.order(), purchaseOrders.calculate(result.order()), result.adjustments());
     }
 

@@ -127,7 +127,7 @@ class PurchaseOrderServiceTest {
         service.purchasePush = mock(Event.class);
 
         PurchaseOrder back = service.update(10L, withShipping(
-                order(PurchaseOrderStatus.BESTELD, 6, 6), wrongDay, "MSKU1234567")).order();
+                order(PurchaseOrderStatus.BESTELD, 6, 6), wrongDay, "MSKU1234567"), true).order();
 
         assertEquals(PurchaseOrderStatus.BESTELD, back.status());
         assertNull(back.shippedOn(), "it did not leave: the day goes, a real departure sets its own");
@@ -167,7 +167,7 @@ class PurchaseOrderServiceTest {
         service.activity = activities;
         service.purchasePush = mock(Event.class);
 
-        PurchaseOrder concept = service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6)).order();
+        PurchaseOrder concept = service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6), true).order();
 
         assertEquals(PurchaseOrderStatus.CONCEPT, concept.status());
         assertNull(concept.lines().getFirst().orderedQuantity(), "not ordered: nothing agreed to keep");
@@ -189,11 +189,72 @@ class PurchaseOrderServiceTest {
 
         for (PurchaseOrderStatus earlier : List.of(PurchaseOrderStatus.CONCEPT,
                 PurchaseOrderStatus.BESTELD, PurchaseOrderStatus.ONDERWEG)) {
-            assertEquals("Een ontvangen container gaat niet terug: de voorraad is geboekt.",
-                    assertThrows(BusinessRuleException.class,
-                            () -> service.update(10L, order(earlier, 6, 6))).getMessage());
+            for (boolean stepBack : new boolean[] {false, true}) {
+                assertEquals("Een ontvangen container gaat niet terug: de voorraad is geboekt.",
+                        assertThrows(BusinessRuleException.class,
+                                () -> service.update(10L, order(earlier, 6, 6), stepBack)).getMessage());
+            }
         }
         assertEquals(PurchaseOrderStatus.ONTVANGEN, orders.current.status());
+    }
+
+    /**
+     * Every form save carries the status the screen loaded. A desk tab opened
+     * while the container was Besteld must not undo a departure tapped on the
+     * phone meanwhile: only the explicit step back may lower the status.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void anOutdatedFormSaveNeverStepsTheStatusBack() {
+        LocalDate departedOn = LocalDate.of(2026, 9, 20);
+        PurchaseOrder departed = withShipping(order(PurchaseOrderStatus.ONDERWEG, 6, 6), departedOn, null);
+        InMemoryOrders orders = new InMemoryOrders(departed);
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        Instance<ActivityLogService> activities = mock(Instance.class);
+        ActivityLogService activityLog = mock(ActivityLogService.class);
+        when(activities.isResolvable()).thenReturn(true);
+        when(activities.get()).thenReturn(activityLog);
+        service.activity = activities;
+        service.purchasePush = mock(Event.class);
+        PurchaseOrder staleDesk = withShipping(order(PurchaseOrderStatus.BESTELD, 6, 6), null, "MSKU1234567");
+
+        assertEquals("Deze container staat intussen op Vertrokken; laad hem opnieuw voor je opslaat.",
+                assertThrows(BusinessRuleException.class, () -> service.update(10L, staleDesk)).getMessage());
+        assertEquals("Deze container staat intussen op Vertrokken; laad hem opnieuw voor je opslaat.",
+                assertThrows(BusinessRuleException.class,
+                        () -> service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6), false)).getMessage());
+        assertEquals(departed, orders.current, "status, departure day and everything else stay as stored");
+
+        /* Besteld with nothing paid: an outdated concept draft does not quietly cancel the order either. */
+        orders.current = order(PurchaseOrderStatus.BESTELD, 6, 6);
+        assertEquals("Deze container staat intussen op Besteld; laad hem opnieuw voor je opslaat.",
+                assertThrows(BusinessRuleException.class,
+                        () -> service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, 6))).getMessage());
+        assertEquals(PurchaseOrderStatus.BESTELD, orders.current.status());
+        assertEquals(6, orders.current.lines().getFirst().orderedQuantity());
+
+        verify(activityLog, never()).record(any(), any(), any(), any(), any(), any());
+        verify(service.purchasePush, never()).fire(any());
+    }
+
+    /** A step back asked for on a screen that is behind never turns into a step forward. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aStepBackFromAnOutdatedScreenNeverMovesTheStatusForward() {
+        InMemoryOrders orders = new InMemoryOrders(order(PurchaseOrderStatus.CONCEPT, 6, null));
+        PurchaseOrderService service = service(orders, new RecordingProducts());
+        service.purchasePush = mock(Event.class);
+
+        /* The sheet was opened at Vertrokken; someone set the container back to Concept meanwhile. */
+        assertEquals("Deze container staat intussen op Concept; laad hem opnieuw voor je opslaat.",
+                assertThrows(BusinessRuleException.class,
+                        () -> service.update(10L, order(PurchaseOrderStatus.BESTELD, 6, null), true)).getMessage());
+        assertEquals(PurchaseOrderStatus.CONCEPT, orders.current.status());
+        verify(service.purchasePush, never()).fire(any());
+
+        /* Already where the step back wanted it (a second tap): the save simply goes through. */
+        assertEquals(PurchaseOrderStatus.CONCEPT,
+                service.update(10L, order(PurchaseOrderStatus.CONCEPT, 6, null), true).order().status());
     }
 
     @Test
