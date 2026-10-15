@@ -78,4 +78,11 @@ public class CompanyProfileEntity {
     /** The ET 14000 licence: import VAT self-assessed in the return; null reads as no. */
     @Column(name = "import_vat_deferred")
     public Boolean importVatDeferred;
+
+    /**
+     * The Kasprognose's buffer for "krap"; null reads as EUR 10.000. Written only by the forecast
+     * settings endpoint: the profile PUT never touches it.
+     */
+    @Column(name = "cash_buffer_eur", precision = 19, scale = 2)
+    public java.math.BigDecimal cashBufferEur;
 }

@@ -147,4 +147,6 @@ exec psql \
     --file=/app/migrations/bank-cost-registration-postgresql.sql \
     --file=/app/migrations/product-order-step-postgresql.sql \
     --file=/app/migrations/purchase-invoice-postgresql.sql \
-    --file=/app/migrations/purchase-document-invoice-kind-postgresql.sql
+    --file=/app/migrations/purchase-document-invoice-kind-postgresql.sql \
+    --file=/app/migrations/cash-forecast-postgresql.sql \
+    --file=/app/migrations/bank-classification-postgresql.sql

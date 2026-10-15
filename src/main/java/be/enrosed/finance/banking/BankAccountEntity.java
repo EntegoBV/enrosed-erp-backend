@@ -18,4 +18,6 @@ public class BankAccountEntity {
     @Column(name="odoo_journal_id") public Long odooJournalId;
     @Column(name="created_at",nullable=false) public Instant createdAt;
     @Column(name="updated_at",nullable=false) public Instant updatedAt;
+    /** True: left out of the Kasprognose's start (a savings account); null counts. Nullable: dev H2 adds it to a filled table. */
+    @Column(name = "cash_excluded") public Boolean cashExcluded;
 }

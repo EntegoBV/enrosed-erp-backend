@@ -114,6 +114,8 @@ COPY docs/migrations/2026-10-13/bank-cost-registration-postgresql.sql ./migratio
 COPY docs/migrations/2026-10-14/product-order-step-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-15/purchase-invoice-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-15/purchase-document-invoice-kind-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-16/cash-forecast-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-16/bank-classification-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink
