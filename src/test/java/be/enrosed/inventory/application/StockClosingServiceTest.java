@@ -733,7 +733,7 @@ class StockClosingServiceTest {
         assertEquals(0, article(view, g).closingQuantity,
                 "without a receipt day its receipt of today counts as a movement after the closing date");
 
-        /* The instalment plan: the reconciliation reads a gap on the second term, but nothing is owed. */
+        /* The instalment plan: the deposit above its term covers the second term once the terms net, so nothing is owed. */
         StockClosingContainerEntity plan = container(view, k8);
         assertMoney("3680.00", plan.supplierPlannedEur);
         assertMoney("0.00", plan.supplierOpenEur);

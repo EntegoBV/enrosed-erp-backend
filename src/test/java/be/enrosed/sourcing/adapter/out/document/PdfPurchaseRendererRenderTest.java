@@ -93,6 +93,28 @@ class PdfPurchaseRendererRenderTest {
                 PdfPurchaseRenderer.payableView(List.of(), payable, reset).openSupplier());
     }
 
+    /** PO-2026-002: the netted terms leave € 0,50 too much at the supplier, in the same words as the Betalingen tab. */
+    @Test
+    void po35DossierSaysTheSupplierWasPaidTooMuch() throws Exception {
+        var order = PdfPurchasePaymentsRendererTest.po35Order();
+        var costing = costing(1);
+        var payable = PdfPurchasePaymentsRendererTest.po35Payable();
+        var payments = PdfPurchasePaymentsRendererTest.po35Payments();
+        var report = new PurchaseReconciliationCalculator().calculate(order, costing, payable, payments);
+        var document = renderer.render(order, costing, supplier(), true, payments, payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE, PdfPurchaseRenderer.Audience.INTERNAL,
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        Path preview = Path.of("target/pdf-preview/purchase-po35-netted-terms.pdf");
+        Files.createDirectories(preview.getParent());
+        Files.write(preview, document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
+            assertTrue(text.contains("Te veel betaald 0,50 EUR"), text);
+            assertFalse(text.contains("Extra betaald"), text);
+            assertFalse(text.contains("Open bij leverancier"), text);
+        }
+    }
+
     @Test
     void aCifDossierOwesTheSupplierGoodsPlusFreightAsItsOwnTerm() throws Exception {
         PurchaseOrder order = order(1).withFreightViaSupplier(true);

@@ -8,6 +8,7 @@ import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchasePayment;
+import be.enrosed.sourcing.domain.PurchaseReconciliation;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.Allocation;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -68,6 +69,93 @@ class PdfPurchasePaymentsRendererTest {
         assertTrue(resetHtml.contains("59.620,00"), resetHtml);
         assertFalse(resetHtml.contains("Betaling #1"), resetHtml);
         assertFalse(resetHtml.contains("Slotbetaling hele groep:"), resetHtml);
+    }
+
+    /** PO-2026-002: + € 61,28 on the 30 % and - € 60,78 on the 70 % net to € 0,50 too much, nothing to pay. */
+    @Test
+    void po35TermsNetSoNothingIsLeftToPayAndEachTermKeepsItsOwnDifference() throws Exception {
+        var order = po35Order();
+        var payable = po35Payable();
+        var payments = po35Payments();
+        var report = new PurchaseReconciliationCalculator().calculate(order,
+                PdfPurchaseRendererRenderTest.costing(1), payable, payments);
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        assertTrue(html.contains("<span class=\"label\">Nog te betalen</span><span class=\"value\">€ 0,00</span>"), html);
+        assertTrue(html.contains("<span class=\"label\">Verwachte eindkost</span><span class=\"value\">€ 31.048,54</span>"), html);
+        assertTrue(html.contains("Betaald · € 0,50 te veel</span>"), "the supplier row: " + html);
+        assertTrue(html.contains("Betaald · € 0,50 te veel · € 60,78 verrekend met 70% bij vertrek"), html);
+        assertTrue(html.contains("Betaald · verrekend met 30% bij bestelling"), html);
+        assertTrue(html.contains("+€ 61,28"), html);
+        assertTrue(html.contains("€ -60,78"), html);
+        assertFalse(html.contains("Termijn nog open"), html);
+
+        var document = renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/po35-netted-terms.pdf"), document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertTrue(text.contains("verrekend met 30% bij bestelling"), text);
+            assertTrue(text.contains("61,28"), text);
+            assertTrue(text.contains("60,78"), text);
+        }
+
+        var purchasePdf = PdfPurchaseRenderer.payableView(payments, payable, report);
+        assertTrue(purchasePdf.overpaid(), "the purchase PDF shows the supplier paid too much, not an open balance");
+        assertEquals(be.enrosed.shared.DocumentFormat.eur(new BigDecimal("0.50")), purchasePdf.openSupplier());
+    }
+
+    /** Two terms each closed on their own, + € 10,00 and - € 60,00: the supplier settled € 50,00 lower, not higher. */
+    @Test
+    void closedTermsThatNetLowerReadAsSettledLower() {
+        var order = po35Order();
+        var payable = po35Payable();
+        var payments = List.of(
+                po35Payment(1L, "9324.41", true, PaymentTerms.Moment.ORDERED),
+                po35Payment(2L, "21673.63", true, PaymentTerms.Moment.SHIPPED));
+        var report = new PurchaseReconciliationCalculator().calculate(order,
+                PdfPurchaseRendererRenderTest.costing(1), payable, payments);
+        var supplier = report.streams().stream().filter(row -> row.payee() == PurchasePayment.Payee.SUPPLIER).findFirst().orElseThrow();
+        assertEquals(PurchaseReconciliation.Status.OVERPAID, supplier.status());
+        assertEquals(0, supplier.overpaidEur().compareTo(new BigDecimal("10.00")));
+        assertEquals(0, supplier.settledSavingEur().compareTo(new BigDecimal("60.00")));
+        assertEquals(0, supplier.varianceEur().compareTo(new BigDecimal("-50.00")));
+        assertTrue(supplier.finalized());
+        assertFalse(supplier.explicitlySettled());
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), report, payments);
+        assertTrue(html.contains("<b>Leverancier</b><br/><span class=\"muted small\">Lager afgerekend</span>"), html);
+        assertFalse(html.contains("Hoger afgerekend"), html);
+        assertTrue(html.contains("€ -50,00"), html);
+    }
+
+    static PurchaseOrder po35Order() {
+        return new PurchaseOrder(35L, "PO-2026-002", null, 7L,
+                LocalDate.of(2026, 3, 1), PurchaseOrderStatus.ONTVANGEN, ContainerType.FORTY_HQ,
+                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO,
+                Currency.EUR, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                Allocation.VALUE, Allocation.VALUE, Allocation.VALUE, Allocation.VALUE,
+                "Ningbo", "Rotterdam", null, true, null, null, null, false,
+                PaymentTerms.DEPOSIT_30_70, null, null, null,
+                List.of(new PurchaseOrderLine(1L, 1L, 252, BigDecimal.TEN, Currency.EUR, BigDecimal.ZERO, 252)));
+    }
+
+    static PurchaseOrderService.Payable po35Payable() {
+        return new PurchaseOrderService.Payable(new BigDecimal("31048.04"), BigDecimal.ZERO,
+                BigDecimal.ZERO, true, true);
+    }
+
+    /** As on production: + € 61,28 on the 30 %, - € 60,78 on the 70 %. */
+    static List<PurchasePayment> po35Payments() {
+        return List.of(
+                po35Payment(1L, "9375.69", false, PaymentTerms.Moment.ORDERED),
+                po35Payment(2L, "21672.85", false, PaymentTerms.Moment.SHIPPED));
+    }
+
+    private static PurchasePayment po35Payment(long id, String value, boolean settles, PaymentTerms.Moment due) {
+        boolean deposit = due == PaymentTerms.Moment.ORDERED;
+        LocalDate day = deposit ? LocalDate.of(2026, 3, 2) : LocalDate.of(2026, 6, 2);
+        return new PurchasePayment(id, 35L, day, new BigDecimal(value), Currency.EUR,
+                new BigDecimal(value), deposit ? "Aanbetaling" : "Saldo", "Emre", Instant.parse(day + "T08:00:00Z"),
+                PurchasePayment.Payee.SUPPLIER, settles, due);
     }
 
     static PurchaseOrder instalmentOrder() {

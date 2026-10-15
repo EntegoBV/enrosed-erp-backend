@@ -218,12 +218,14 @@ class LotCostCalculatorTest {
         var container = plan.run();
 
         var reconciled = plan.reconciled(SUPPLIER);
-        eq("276.00", reconciled.remainingEur(), "the reconciliation sums the gaps per term");
-        assertEquals(PurchaseReconciliation.Status.OVERPAID, reconciled.status());
+        eq("0.00", reconciled.remainingEur(), "the deposit above its term covers the 70 %: the terms net");
+        eq("3680.00", reconciled.plannedEur());
         eq("3680.00", reconciled.paidEur());
+        eq("0.00", reconciled.overpaidEur());
+        assertEquals(PurchaseReconciliation.Status.PAID, reconciled.status());
 
         var supplier = container.stream(SUPPLIER);
-        assertEquals("OVERPAID", supplier.status(), "shown as the Nacalculatie shows it");
+        assertEquals("PAID", supplier.status(), "shown as the Nacalculatie shows it");
         eq("0.00", supplier.openEur());
         eq("0.00", supplier.overpaidEur());
         eq("0.00", supplier.estimatedEur());

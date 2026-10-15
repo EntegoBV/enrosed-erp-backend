@@ -1007,27 +1007,49 @@ public class PurchaseOrderService {
      * tracking reference, an instalment whose moment has come and is not
      * noted yet. Once ordered, something must always have been paid -
      * without a plan, the first payment itself is the open point.
+     * The terms are the reconciliation's own, so the list asks for exactly
+     * what the Betalingen tab shows open: netted per payee and on the
+     * ordered quantities.
      */
+    public List<String> attention(PurchaseOrder order, PurchaseReconciliation reconciliation) {
+        var supplier = reconciliation == null ? null : reconciliation.streams().stream()
+                .filter(stream -> stream.payee() == PurchasePayment.Payee.SUPPLIER).findFirst().orElse(null);
+        return attention(order, supplier == null ? null : supplier.plannedEur(),
+                supplier == null ? BigDecimal.ZERO : supplier.paidEur(),
+                supplier != null && supplier.explicitlySettled() && supplier.finalized(),
+                reconciliation == null ? List.of() : reconciliation.supplierInstalments());
+    }
+
+    /** Compatibility for callers with a payable of their own: the terms are rebuilt, netted, from it. */
     public List<String> attention(PurchaseOrder order, Payable payable) {
+        List<PurchasePayment> supplierPayments = order.status() == PurchaseOrderStatus.CONCEPT || payable == null
+                || payments == null || !payments.isResolvable() ? List.of()
+                : payments.get().forOrder(order.id()).stream()
+                        .filter(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER)
+                        .toList();
+        BigDecimal owed = payable == null ? null : payable.supplierEur();
+        BigDecimal paid = supplierPayments.stream().map(PurchasePayment::amountEur)
+                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        boolean wholeGroupSettled = supplierPayments.stream().anyMatch(PurchasePayment::settlesWholeGroup)
+                && supplierPayments.stream().noneMatch(payment -> payment.amountEur() == null);
+        BigDecimal freight = payable == null ? BigDecimal.ZERO : Money.nz(payable.supplierFreightEur());
+        List<PurchaseReconciliation.SupplierInstalment> instalments = owed == null || owed.signum() <= 0 ? List.of()
+                : SupplierPaymentAllocation.calculate(order, owed.subtract(freight), freight, supplierPayments);
+        return attention(order, owed, paid, wholeGroupSettled, instalments);
+    }
+
+    private List<String> attention(PurchaseOrder order, BigDecimal owed, BigDecimal paid, boolean wholeGroupSettled,
+                                   List<PurchaseReconciliation.SupplierInstalment> instalments) {
         List<String> items = new ArrayList<>();
         if (order.status() == PurchaseOrderStatus.ONDERWEG
                 && (order.trackingReference() == null || order.trackingReference().isBlank())) {
             items.add("Track & trace ontbreekt");
         }
-        if (order.status() == PurchaseOrderStatus.CONCEPT || payable == null || payable.supplierEur().signum() <= 0
+        if (order.status() == PurchaseOrderStatus.CONCEPT || owed == null || owed.signum() <= 0
                 || payments == null || !payments.isResolvable()) {
             return items;
         }
-        BigDecimal owed = payable.supplierEur();
-        List<PurchasePayment> supplierPayments = payments.get().forOrder(order.id()).stream()
-                .filter(payment -> payment.payee() == PurchasePayment.Payee.SUPPLIER)
-                .toList();
-        if (supplierPayments.stream().anyMatch(PurchasePayment::settlesWholeGroup)
-                && supplierPayments.stream().noneMatch(payment -> payment.amountEur() == null)) return items;
-        BigDecimal paid = supplierPayments.stream().map(PurchasePayment::amountEur)
-                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal freight = Money.nz(payable.supplierFreightEur());
-        var instalments = SupplierPaymentAllocation.calculate(order, owed.subtract(freight), freight, supplierPayments);
+        if (wholeGroupSettled) return items;
         if (instalments.isEmpty()) {
             if (paid.signum() == 0) items.add("Nog geen betaling genoteerd");
             return items;

@@ -557,28 +557,218 @@ class PurchaseReconciliationCalculatorTest {
     }
 
     @Test
-    void actualPaymentsAboveTheNamedMilestoneRemainVisibleWithoutCappingOrMovingTheirExcess() {
+    void paymentsAboveTheNamedMilestoneStayBookedThereAndCoverAnotherTermsShortfall() {
         var half = calculate(milestoneBudget("7774.20", "50", "50", "0"), List.of(
                 milestonePayment(1, "4500", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED)));
         var ordered = half.supplierInstalments().getFirst();
         assertEquals("50% bij bestelling", ordered.label());
         eq("3887.10", ordered.plannedEur());
-        eq("4500.00", ordered.paidEur());
-        eq("612.90", ordered.overpaidEur());
+        eq("4500.00", ordered.paidEur(), "booked where it was paid, never capped");
+        eq("612.90", ordered.differenceEur(), "its own + stays visible");
+        eq("0.00", ordered.overpaidEur(), "the surplus went to the other term");
+        eq("-612.90", ordered.offsetEur());
+        assertTrue(ordered.finalized());
         eq("0.00", half.supplierInstalments().getLast().paidEur());
-        eq("3887.10", half.supplierInstalments().getLast().remainingEur());
+        eq("612.90", half.supplierInstalments().getLast().offsetEur());
+        eq("3274.20", half.supplierInstalments().getLast().remainingEur());
+        eq("3274.20", stream(half, SUPPLIER).remainingEur());
 
         var thirds = calculate(milestoneBudget("50273.40", "33.3333", "33.3333", "33.3334"), List.of(
                 milestonePayment(1, "20289.56", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED)));
         var shipped = thirds.supplierInstalments().get(1);
         eq("16757.78", shipped.plannedEur());
         eq("20289.56", shipped.paidEur());
-        eq("3531.78", shipped.overpaidEur());
+        eq("0.00", shipped.overpaidEur());
+        eq("-3531.78", shipped.offsetEur());
         eq("0.00", thirds.supplierInstalments().getFirst().paidEur());
+        eq("3531.78", thirds.supplierInstalments().getFirst().offsetEur(), "a later surplus covers an earlier gap");
+        eq("13226.00", thirds.supplierInstalments().getFirst().remainingEur());
         eq("0.00", thirds.supplierInstalments().getLast().paidEur());
+        eq("16757.84", thirds.supplierInstalments().getLast().remainingEur(), "what stays open sits on the latest term");
+        eq("0.00", thirds.supplierInstalments().getLast().differenceEur(), "an unpaid future term has no difference");
         eq("20289.56", stream(thirds, SUPPLIER).paidEur());
+        eq("29983.84", stream(thirds, SUPPLIER).remainingEur());
+        assertNetted(half);
+        assertNetted(thirds);
         assertConserved(half);
         assertConserved(thirds);
+    }
+
+    /** PO-2026-002: 30 % paid € 61,28 above its term, 70 % € 60,78 below; net € 0,50 too much, nothing open. */
+    @Test
+    void po35TermsNetToTheSupplierWhole() {
+        var result = calculate(po35(), List.of(
+                milestonePayment(1, "9375.69", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED),
+                milestonePayment(2, "21672.85", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED)));
+        var deposit = result.supplierInstalments().get(0);
+        assertEquals("30% bij bestelling", deposit.label());
+        eq("9314.41", deposit.plannedEur());
+        eq("9375.69", deposit.paidEur());
+        eq("61.28", deposit.differenceEur());
+        eq("-60.78", deposit.offsetEur(), "its surplus covered the 70 %");
+        eq("0.00", deposit.remainingEur());
+        eq("0.50", deposit.overpaidEur());
+        eq("0.00", deposit.settledSavingEur());
+        assertFalse(deposit.explicitlySettled());
+        assertFalse(deposit.finalized(), "the € 0,50 left over is still to review");
+        var balance = result.supplierInstalments().get(1);
+        assertEquals("70% bij vertrek", balance.label());
+        eq("21733.63", balance.plannedEur());
+        eq("21672.85", balance.paidEur());
+        eq("-60.78", balance.differenceEur());
+        eq("60.78", balance.offsetEur());
+        eq("0.00", balance.remainingEur(), "nothing to pay now");
+        eq("0.00", balance.overpaidEur());
+        eq("0.00", balance.settledSavingEur());
+        assertTrue(balance.finalized(), "covered in full by the 30 %");
+
+        var supplier = stream(result, SUPPLIER);
+        assertEquals(OVERPAID, supplier.status());
+        eq("31048.04", supplier.plannedEur());
+        eq("31048.54", supplier.paidEur());
+        eq("0.00", supplier.remainingEur());
+        eq("0.50", supplier.overpaidEur());
+        eq("0.00", supplier.settledSavingEur());
+        eq("31048.54", supplier.forecastEur());
+        eq("0.50", supplier.varianceEur());
+        assertFalse(supplier.explicitlySettled());
+        assertFalse(supplier.finalized());
+        eq("0.00", result.totals().remainingEur());
+        eq("31048.54", result.totals().forecastExternalEur());
+        eq("0.50", result.totals().varianceEur());
+        assertTrue(result.notes().stream().anyMatch(note -> note.startsWith("Meer betaald dan begroot blijft voorlopig")),
+                result.notes().toString());
+        assertNetted(result);
+        assertConserved(result);
+    }
+
+    @Test
+    void laterSurplusCoversEarlierShortfall() {
+        var result = calculate(po35(), List.of(
+                milestonePayment(1, "9253.13", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED),
+                milestonePayment(2, "21795.41", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED)));
+        var deposit = result.supplierInstalments().get(0);
+        eq("-61.28", deposit.differenceEur());
+        eq("61.28", deposit.offsetEur());
+        eq("0.00", deposit.remainingEur());
+        assertTrue(deposit.finalized());
+        var balance = result.supplierInstalments().get(1);
+        eq("61.78", balance.differenceEur());
+        eq("-61.28", balance.offsetEur());
+        eq("0.50", balance.overpaidEur());
+        assertFalse(balance.finalized());
+        var supplier = stream(result, SUPPLIER);
+        assertEquals(OVERPAID, supplier.status());
+        eq("0.00", supplier.remainingEur());
+        eq("0.50", supplier.overpaidEur());
+        eq("31048.54", supplier.forecastEur());
+        eq("0.00", result.totals().remainingEur());
+        assertNetted(result);
+        assertConserved(result);
+    }
+
+    @Test
+    void wholeGroupSettleAfterNetting() {
+        // A legacy whole-supplier settlement on the 70 % transfer: the terms net first,
+        // so it confirms the € 0,50 overpayment instead of a € 60,78 saving and a € 61,28 overrun.
+        var result = calculate(po35(), List.of(
+                milestonePayment(1, "9375.69", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED),
+                milestonePayment(2, "21672.85", true, null)));
+        for (var term : result.supplierInstalments()) {
+            eq("0.00", term.remainingEur());
+            eq("0.00", term.settledSavingEur());
+            assertTrue(term.explicitlySettled());
+            assertTrue(term.finalized());
+        }
+        eq("0.50", result.supplierInstalments().get(0).overpaidEur());
+        eq("-60.78", result.supplierInstalments().get(0).offsetEur());
+        eq("0.00", result.supplierInstalments().get(1).overpaidEur());
+        var supplier = stream(result, SUPPLIER);
+        assertTrue(supplier.explicitlySettled());
+        assertTrue(supplier.finalized());
+        eq("0.00", supplier.settledSavingEur());
+        eq("0.50", supplier.overpaidEur());
+        eq("0.00", supplier.remainingEur());
+        eq("31048.54", supplier.forecastEur());
+        assertNetted(result);
+        assertConserved(result);
+    }
+
+    @Test
+    void closedTermStaysOutOfNetting() {
+        // "Slotbetaling termijn" on the 30 %: its overrun is confirmed on its own and cannot pay the 70 %.
+        var result = calculate(po35(), List.of(
+                milestonePayment(1, "9375.69", true, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED),
+                milestonePayment(2, "21672.85", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED)));
+        var deposit = result.supplierInstalments().get(0);
+        eq("61.28", deposit.overpaidEur());
+        eq("0.00", deposit.offsetEur());
+        assertTrue(deposit.explicitlySettled());
+        assertTrue(deposit.finalized());
+        var balance = result.supplierInstalments().get(1);
+        eq("60.78", balance.remainingEur());
+        eq("0.00", balance.offsetEur());
+        assertFalse(balance.finalized());
+        var supplier = stream(result, SUPPLIER);
+        eq("60.78", supplier.remainingEur());
+        eq("61.28", supplier.overpaidEur());
+        eq("31109.32", supplier.forecastEur());
+        assertNetted(result);
+        assertConserved(result);
+    }
+
+    @Test
+    void cifFreightTermCoveredByGoodsSurplus() {
+        var base = milestoneBudget("1000", "30", "30", "40");
+        var cif = new Fixture(base.order.withFreightViaSupplier(true), base.costing,
+                new PurchaseOrderService.Payable(bd("1200"), bd("0"), bd("100"), true, false, bd("200")));
+        var result = calculate(cif, List.of(
+                milestonePayment(1, "350", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.ORDERED),
+                milestonePayment(2, "300", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.SHIPPED),
+                milestonePayment(3, "150", false, be.enrosed.sourcing.domain.PaymentTerms.Moment.FREIGHT)));
+        var terms = result.supplierInstalments();
+        assertEquals(List.of("30% bij bestelling", "30% bij vertrek", "Zeevracht (CIF)", "40% bij aankomst"),
+                terms.stream().map(PurchaseReconciliation.SupplierInstalment::label).toList());
+        eq("-50.00", terms.get(0).offsetEur());
+        eq("0.00", terms.get(0).overpaidEur());
+        assertTrue(terms.get(0).finalized());
+        eq("50.00", terms.get(2).offsetEur(), "the goods surplus pays the freight short");
+        eq("0.00", terms.get(2).remainingEur());
+        eq("-50.00", terms.get(2).differenceEur());
+        assertTrue(terms.get(2).finalized());
+        eq("0.00", terms.get(3).offsetEur());
+        eq("400.00", terms.get(3).remainingEur(), "the arrival term is still to pay in full");
+        eq("400.00", stream(result, SUPPLIER).remainingEur());
+        eq("0.00", stream(result, SUPPLIER).overpaidEur());
+        assertNetted(result);
+        assertConserved(result);
+    }
+
+    /** The payee identity the ERP checks: Afspraak - paid - saving + overpaid = open, and the terms' differences add up. */
+    private void assertNetted(PurchaseReconciliation result) {
+        var supplier = stream(result, SUPPLIER);
+        assertEquals(supplier.remainingEur(), supplier.plannedEur().subtract(supplier.paidEur())
+                .subtract(supplier.settledSavingEur()).add(supplier.overpaidEur()));
+        assertEquals(supplier.overpaidEur().subtract(supplier.settledSavingEur()), result.supplierInstalments().stream()
+                .map(PurchaseReconciliation.SupplierInstalment::differenceEur).reduce(bd("0.00"), BigDecimal::add));
+        assertEquals(supplier.remainingEur(), result.supplierInstalments().stream()
+                .map(PurchaseReconciliation.SupplierInstalment::remainingEur).reduce(bd("0.00"), BigDecimal::add));
+        eq("0.00", result.supplierInstalments().stream()
+                .map(PurchaseReconciliation.SupplierInstalment::offsetEur).reduce(bd("0.00"), BigDecimal::add),
+                "every euro moved between terms leaves one and lands on another");
+    }
+
+    /** PO-2026-002 as received: supplier only, DDP, 30 % at order and 70 % at departure. */
+    private Fixture po35() {
+        var lines = List.of(line(1, 10, 10, 0, true));
+        var order = new PurchaseOrder(35L, "PO-2026-002", null, 1L, LocalDate.of(2026, 1, 1),
+                PurchaseOrderStatus.ONTVANGEN, ContainerType.FORTY_HQ,
+                bd("0.14"), bd("0.90"), bd("0.90"), bd("0"), bd("0"), Currency.USD,
+                bd("0"), bd("0"), bd("0"), Allocation.VALUE, Allocation.VALUE, Allocation.VALUE,
+                Allocation.PIECES, "Ningbo", "Rotterdam", null, false, null, null, null, false,
+                be.enrosed.sourcing.domain.PaymentTerms.DEPOSIT_30_70, null, null, null, null, null, lines);
+        return fixture(order, "31048.04", "0", "0", "0", false,
+                List.of(cost(1, 10, "31048.04", "0", "0", "0")));
     }
 
     private Fixture milestoneBudget(String amount, String ordered, String shipped, String arrived) {
