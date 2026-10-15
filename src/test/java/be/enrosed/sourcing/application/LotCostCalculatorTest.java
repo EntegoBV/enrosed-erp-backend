@@ -435,6 +435,45 @@ class LotCostCalculatorTest {
         eq("0.00", container.stream(LOGISTICS).openEur());
     }
 
+    /** Spec §2.11: a foreign payment paid in two transfers after the purchase counts as the one payment it was. */
+    @Test
+    void aForeignPaymentPaidInPartsAfterThePurchaseCountsToTheCentAsOnePayment() {
+        Scenario whole = exampleOne("1116.00");
+        whole.goodsRate = bd("0.8555");
+        whole.payments.set(1, payment(2L, SUPPLIER, DEC_5, "100.03", Currency.USD, "93.00", false, null));
+        var unsplit = whole.run();
+        eq("85.58", payment(unsplit, 2L).countedEur(), "100.03 USD at 0.8555 = 85.575665");
+
+        Scenario parts = exampleOne("1116.00");
+        parts.goodsRate = bd("0.8555");
+        parts.payments.set(1, part(2L, DEC_5, "50.01", "46.50", 2L));
+        parts.payments.add(part(6L, DEC_5.plusDays(7), "50.02", "46.50", 2L));
+        var split = parts.run();
+        eq("42.78", payment(split, 2L).countedEur(), "50.01 USD at 0.8555 = 42.783555");
+        eq("42.80", payment(split, 6L).countedEur(), "the last part takes the rest of the whole, not 42.79");
+        assertEquals(PaymentUse.RULE_GOODS_RATE, payment(split, 6L).rule());
+
+        assertEquals(unsplit.stream(SUPPLIER).paidEur(), split.stream(SUPPLIER).paidEur());
+        assertEquals(unsplit.stream(SUPPLIER).includedEur(), split.stream(SUPPLIER).includedEur());
+        assertEquals(unsplit.exchangeDifferenceEur(), split.exchangeDifferenceEur());
+        assertEquals(unsplit.acquisitionEur(), split.acquisitionEur());
+        for (long product : List.of(A, B)) {
+            assertEquals(unsplit.lot(product).goodsEur(), split.lot(product).goodsEur());
+            assertEquals(unsplit.lot(product).unitValueEur(), split.lot(product).unitValueEur());
+        }
+
+        /* A part paid on or before the purchase keeps its bank euro; only the later parts are valued together. */
+        Scenario straddling = exampleOne("1116.00");
+        straddling.goodsRate = bd("0.8555");
+        straddling.payments.set(1, part(2L, NOV_20, "50.01", "46.50", 2L));
+        straddling.payments.add(part(6L, DEC_5, "25.01", "23.25", 2L));
+        straddling.payments.add(part(7L, DEC_5.plusDays(7), "25.01", "23.25", 2L));
+        var mixed = straddling.run();
+        eq("46.50", payment(mixed, 2L).countedEur());
+        eq("21.40", payment(mixed, 6L).countedEur(), "25.01 USD at 0.8555 = 21.396055");
+        eq("21.39", payment(mixed, 7L).countedEur(), "50.02 USD at 0.8555 = 42.79211, less the first later part");
+    }
+
     @Test
     void aPaymentWithoutEuroValueCountsForNothingAndIsFlagged() {
         Scenario legacy = exampleOne("1116.00");
@@ -1329,6 +1368,12 @@ class LotCostCalculatorTest {
                                            String bankEuro, boolean settles, PaymentTerms.Moment due) {
         return new PurchasePayment(id, 14L, on, bd(amount), currency, bankEuro == null ? null : bd(bankEuro),
                 "Betaling " + id, "test", null, payee, settles, due);
+    }
+
+    /** One transfer of a dollar supplier payment that was split over several bank transactions. */
+    private static PurchasePayment part(long id, LocalDate on, String amount, String bankEuro, long group) {
+        return new PurchasePayment(id, 14L, on, bd(amount), Currency.USD, bd(bankEuro), "Saldo", "test", null,
+                SUPPLIER, false, null, null, group, null);
     }
 
     private static StockMovement loss(long product, StockMovement.Kind kind, int delta, String at) {

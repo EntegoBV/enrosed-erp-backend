@@ -139,6 +139,13 @@ public class LotCostCalculator {
         return values;
     }
 
+    /** A foreign payment made after the goods were bought: it counts at the container rate. */
+    private static boolean afterPurchase(PurchasePayment payment, LotCost.Options options) {
+        Currency money = payment.currency() == null ? Currency.EUR : payment.currency();
+        return money != Currency.EUR && options.rateCutoff() != null && payment.paidOn() != null
+                && payment.paidOn().isAfter(options.rateCutoff());
+    }
+
     public LotCost.Container calculate(LotCost.Input input) {
         PurchaseOrder order = input.order();
         LotCost.Options options = input.options();
@@ -151,20 +158,23 @@ public class LotCostCalculator {
         BigDecimal exchangeDifference = ZERO;
         boolean paymentWithoutEuro = false;
         List<PaymentUse> paymentUses = new ArrayList<>();
+        /* The parts of one payment paid after the purchase count as that payment: a split never moves a cent. */
+        Map<Long, BigDecimal> grouped = groupValues(order, input.payments().stream()
+                .filter(payment -> afterPurchase(payment, options)).toList());
         for (PurchasePayment payment : input.payments()) {
             Payee payee = payment.payee();
             Currency money = payment.currency() == null ? Currency.EUR : payment.currency();
             boolean foreign = money != Currency.EUR;
             /* Bought already: the bank euro of a later payment holds an exchange result. */
-            boolean afterPurchase = foreign && options.rateCutoff() != null && payment.paidOn() != null
-                    && payment.paidOn().isAfter(options.rateCutoff());
+            boolean afterPurchase = afterPurchase(payment, options);
             boolean afterClosing = options.costCutoff() != null && payment.paidOn() != null
                     && (payee == Payee.LOGISTICS || payee == Payee.SEPARATE)
                     && payment.paidOn().isAfter(options.costCutoff());
             BigDecimal stored = payment.amountEur() == null ? null : Money.money(payment.amountEur());
             if (stored == null) paymentWithoutEuro = true;
             BigDecimal counted = afterPurchase
-                    ? Money.money(atContainerRate(order, payee, Money.nz(payment.amount()), money))
+                    ? grouped.containsKey(payment.id()) ? grouped.get(payment.id())
+                    : Money.money(atContainerRate(order, payee, Money.nz(payment.amount()), money))
                     : stored == null ? ZERO : stored;
             if (stored != null) exchangeDifference = exchangeDifference.add(stored.subtract(counted));
             boolean inValue = payee != Payee.OTHER && !afterClosing;

@@ -1499,7 +1499,8 @@ the nacalculatie.
   line's local day first (diary line replaced). Identical retries return the same group without
   writing; D needs `expectedAmountEur` for that. `linkExisting` (`/links`) itself is unchanged:
   a payment linked there keeps its date. Foreign parts are pro rata unless every amount is given;
-  `normalised` values a foreign group together so a split never moves what is still owed.
+  `normalised` values a foreign group together so a split never moves what is still owed, and
+  `LotCostCalculator.calculate` does the same for the parts paid after the purchase (year-end lot cost).
 - **Inspection via supplier** (`purchase_order.inspection_via_supplier`, null = no):
   server-owned like the archive. `PUT /api/purchase-orders/{id}/inspection-via-supplier`
   `{value}`; a SEPARATE payment write with `inspectionViaSupplier: true` (also a bank transfer

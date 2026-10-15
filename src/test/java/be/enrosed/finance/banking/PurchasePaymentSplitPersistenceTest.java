@@ -2,6 +2,8 @@ package be.enrosed.finance.banking;
 
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.shared.audit.ActivityLogEntity;
+import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import be.enrosed.sourcing.application.LotCostCalculator;
 import be.enrosed.sourcing.application.PurchaseInvoiceService;
@@ -44,6 +46,8 @@ class PurchasePaymentSplitPersistenceTest {
     @Inject ObjectMapper json;
 
     private static final LocalDate NOTED = LocalDate.of(2026, 9, 10);
+    /** A day on neither transfer: every part that goes onto a line must leave it. */
+    private static final LocalDate RECORDED = LocalDate.of(2026, 9, 5);
     private static final Instant SEP_10 = Instant.parse("2026-09-10T08:00:00Z");
     private static final Instant SEP_24 = Instant.parse("2026-09-24T08:00:00Z");
 
@@ -53,7 +57,7 @@ class PurchasePaymentSplitPersistenceTest {
         PurchaseOrder order = container();
         var invoice = invoices.add(order.id(), new PurchaseInvoiceService.InvoiceRequest(PurchasePayment.Payee.SUPPLIER,
                 "CI-2026-118", LocalDate.of(2026, 8, 20), new BigDecimal("31048.04"), Currency.EUR, null, null, null));
-        PurchasePayment balance = balance(order);
+        PurchasePayment balance = balance(order, RECORDED);
         long first = line("-10000.00", SEP_10);
         long second = line("-11733.63", SEP_24);
 
@@ -64,7 +68,7 @@ class PurchasePaymentSplitPersistenceTest {
         PurchasePayment part1 = result.payments().get(1);
         assertEquals(balance.id(), part0.id(), "the original id stays on the first transfer");
         assertEquals(new BigDecimal("10000.00"), part0.amountEur());
-        assertEquals(NOTED, part0.paidOn());
+        assertEquals(LocalDate.of(2026, 9, 10), part0.paidOn(), "the first part leaves 05/09 for its transfer's day");
         assertEquals(first, part0.bankStatementLineId());
         assertEquals(new BigDecimal("11733.63"), part1.amountEur());
         assertEquals(new BigDecimal("11733.63"), part1.amount());
@@ -81,6 +85,7 @@ class PurchasePaymentSplitPersistenceTest {
 
         String notes = purchases.get(order.id()).notes();
         assertFalse(notes.contains("€ 21.733,63"), notes);
+        assertFalse(notes.contains("Betaald 05/09/2026"), notes);
         assertTrue(notes.contains("Betaald 10/09/2026: € 10.000,00 aan de leverancier · Saldo 70% · termijn bij vertrek."), notes);
         assertTrue(notes.contains("Betaald 24/09/2026: € 11.733,63 aan de leverancier · Saldo 70% · termijn bij vertrek."), notes);
 
@@ -105,6 +110,7 @@ class PurchasePaymentSplitPersistenceTest {
         }
         assertEquals("2026-09-24", tree.get("paidOn").asText());
         assertEquals(List.of(balance.id(), part1.id()), invoices.list(order.id()).getFirst().paymentIds());
+        assertDateChange(order, "Betaling verdeeld over 2 banktransacties", "2026-09-05", "2026-09-10");
     }
 
     @Test
@@ -128,36 +134,43 @@ class PurchasePaymentSplitPersistenceTest {
 
     @Test
     @TestTransaction
-    void routeTwoCarvesAPartAndTheLastTransferTakesItsOwnDay() {
+    void routeTwoCarvesAPartAndTheLastTransferTakesItsOwnDay() throws Exception {
         PurchaseOrder order = container();
-        PurchasePayment balance = balance(order);
+        PurchasePayment balance = balance(order, RECORDED);
         long first = line("-10000.00", SEP_10);
         long second = line("-11733.63", SEP_24);
 
         var carved = splits.linkPart(balance.id(), new PurchasePaymentSplitService.PartRequest(first, null));
 
         assertEquals(2, carved.payments().size());
-        PurchasePayment linked = carved.payments().get(0);
-        PurchasePayment rest = carved.payments().get(1);
+        /* By day, then id: the open rest still carries 05/09, the carved part now 10/09. */
+        PurchasePayment rest = carved.payments().get(0);
+        PurchasePayment linked = carved.payments().get(1);
         assertEquals(balance.id(), linked.id());
         assertEquals(new BigDecimal("10000.00"), linked.amountEur());
         assertEquals(first, linked.bankStatementLineId());
+        assertEquals(LocalDate.of(2026, 9, 10), linked.paidOn(), "the carved part takes its transfer's day");
         assertEquals(new BigDecimal("11733.63"), rest.amountEur());
         assertNull(rest.bankStatementLineId());
-        assertEquals(NOTED, rest.paidOn(), "the open rest keeps the payment's day");
+        assertEquals(RECORDED, rest.paidOn(), "the open rest keeps the payment's day");
         assertEquals(balance.id(), rest.groupId());
         assertEquals(List.of(first), carved.lines().stream().map(line -> line.id).toList());
 
         String before = purchases.get(order.id()).notes();
-        assertTrue(before.contains("Betaald 10/09/2026: € 11.733,63"), before);
+        assertFalse(before.contains("€ 21.733,63"), before);
+        assertTrue(before.contains("Betaald 10/09/2026: € 10.000,00 aan de leverancier · Saldo 70%"), before);
+        assertTrue(before.contains("Betaald 05/09/2026: € 11.733,63 aan de leverancier · Saldo 70%"), before);
+        assertDateChange(order, "Deel van de betaling aan een banktransactie gekoppeld", "2026-09-05", "2026-09-10");
         var whole = splits.linkPart(rest.id(), new PurchasePaymentSplitService.PartRequest(second, null));
         PurchasePayment last = whole.payments().stream().filter(payment -> payment.id().equals(rest.id())).findFirst().orElseThrow();
         assertEquals(LocalDate.of(2026, 9, 24), last.paidOn(), "a whole match takes the line's day");
         assertEquals(second, last.bankStatementLineId());
         assertEquals(2, whole.payments().size(), "the group comes back whole");
         String after = purchases.get(order.id()).notes();
-        assertFalse(after.contains("Betaald 10/09/2026: € 11.733,63"), after);
+        assertFalse(after.contains("Betaald 05/09/2026: € 11.733,63"), after);
         assertTrue(after.contains("Betaald 24/09/2026: € 11.733,63"), after);
+        assertTrue(after.contains("Betaald 10/09/2026: € 10.000,00"), after);
+        assertDateChange(order, "Betaling aan een banktransactie gekoppeld", "2026-09-05", "2026-09-24");
 
         /* The bank feed from 20/09 brings the whole group, the older transfer included. */
         var feed = purchases.paymentsSince(LocalDate.of(2026, 9, 20)).stream()
@@ -326,8 +339,23 @@ class PurchasePaymentSplitPersistenceTest {
     }
 
     private PurchasePayment balance(PurchaseOrder order) {
-        return purchases.addPayment(order.id(), NOTED, new BigDecimal("21733.63"), Currency.EUR, "Saldo 70%",
+        return balance(order, NOTED);
+    }
+
+    private PurchasePayment balance(PurchaseOrder order, LocalDate day) {
+        return purchases.addPayment(order.id(), day, new BigDecimal("21733.63"), Currency.EUR, "Saldo 70%",
                 PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.SHIPPED);
+    }
+
+    /** The order's activity with this summary records the payment's day before and after. */
+    private void assertDateChange(PurchaseOrder order, String summary, String before, String after) throws Exception {
+        List<ActivityLogEntity> entries = ActivityLogEntity.list("entityType = ?1 and entityId = ?2 and summary = ?3",
+                ActivityLogService.ENTITY_PURCHASE_ORDER, order.id().toString(), summary);
+        assertEquals(1, entries.size(), summary);
+        var change = java.util.stream.StreamSupport.stream(json.readTree(entries.getFirst().changesJson).spliterator(), false)
+                .filter(node -> "payment.date".equals(node.path("field").asText())).findFirst().orElseThrow();
+        assertEquals(before, change.path("beforeValue").asText(), summary);
+        assertEquals(after, change.path("afterValue").asText(), summary);
     }
 
     private long line(String amount, Instant at) {
