@@ -111,6 +111,8 @@ COPY docs/migrations/2026-10-13/odoo-bank-source-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-13/bank-account-registry-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-13/odoo-cost-import-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-13/bank-cost-registration-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-15/purchase-invoice-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-15/purchase-document-invoice-kind-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

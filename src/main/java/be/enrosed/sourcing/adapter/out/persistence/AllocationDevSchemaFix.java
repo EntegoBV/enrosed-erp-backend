@@ -41,5 +41,11 @@ public class AllocationDevSchemaFix {
                 LOG.debugf("payment column %s left as is: %s", column, failure.getMessage());
             }
         }
+        /* The document kind (INVOICE joined it for invoices that are not the commercial invoice). */
+        try {
+            entities.createNativeQuery("alter table purchase_document alter column kind varchar(32)").executeUpdate();
+        } catch (RuntimeException failure) {
+            LOG.debugf("document column kind left as is: %s", failure.getMessage());
+        }
     }
 }

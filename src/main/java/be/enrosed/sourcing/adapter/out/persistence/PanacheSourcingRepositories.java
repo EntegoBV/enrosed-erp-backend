@@ -32,6 +32,91 @@ public final class PanacheSourcingRepositories {
     public static class PurchaseSupplierCreditDao implements PanacheRepository<SourcingEntities.PurchaseSupplierCreditEntity> {}
 
     @ApplicationScoped
+    public static class PurchaseInvoiceDao implements PanacheRepository<PurchaseInvoiceEntity> {}
+
+    @ApplicationScoped
+    public static class InvoiceAdapter implements SourcingRepositories.Invoices {
+        private final PurchaseInvoiceDao dao;
+
+        public InvoiceAdapter(PurchaseInvoiceDao dao) {
+            this.dao = dao;
+        }
+
+        @Override
+        public List<PurchaseInvoice> forOrder(long orderId) {
+            return dao.list("orderId = ?1 order by invoiceDate, id", orderId).stream()
+                    .map(InvoiceAdapter::toDomain).toList();
+        }
+
+        @Override
+        public List<PurchaseInvoice> all() {
+            return dao.list("order by orderId, invoiceDate, id").stream().map(InvoiceAdapter::toDomain).toList();
+        }
+
+        @Override
+        public Optional<PurchaseInvoice> find(long orderId, long invoiceId) {
+            return dao.find("id = ?1 and orderId = ?2", invoiceId, orderId).firstResultOptional()
+                    .map(InvoiceAdapter::toDomain);
+        }
+
+        @Override
+        public PurchaseInvoice save(PurchaseInvoice invoice) {
+            /* An invoice with an id is the same invoice corrected, never a second one. */
+            PurchaseInvoiceEntity entity = invoice.id() == null ? null : dao.findById(invoice.id());
+            if (entity == null) entity = new PurchaseInvoiceEntity();
+            entity.orderId = invoice.orderId();
+            entity.payee = invoice.payee().name();
+            entity.number = invoice.number();
+            entity.invoiceDate = invoice.invoiceDate();
+            entity.amount = invoice.amount();
+            entity.currency = invoice.currency() == null ? be.enrosed.shared.Currency.EUR.name() : invoice.currency().name();
+            entity.amountEur = invoice.amountEur();
+            entity.documentId = invoice.documentId();
+            entity.notes = invoice.notes();
+            entity.actor = invoice.actor();
+            entity.recordedAt = invoice.recordedAt();
+            if (entity.id == null) dao.persist(entity);
+            dao.flush();
+            return toDomain(entity);
+        }
+
+        @Override
+        public boolean delete(long orderId, long invoiceId) {
+            return dao.delete("id = ?1 and orderId = ?2", invoiceId, orderId) == 1;
+        }
+
+        /* On the managed rows, so the same transaction reads the change at once. */
+        @Override
+        public void clearDocument(long orderId, long documentId) {
+            for (PurchaseInvoiceEntity entity : dao.list("orderId = ?1 and documentId = ?2", orderId, documentId)) {
+                entity.documentId = null;
+            }
+            dao.flush();
+        }
+
+        private static PurchaseInvoice toDomain(PurchaseInvoiceEntity e) {
+            return new PurchaseInvoice(e.id, e.orderId, payee(e.payee), e.number, e.invoiceDate, e.amount,
+                    currency(e.currency), e.amountEur, e.documentId, e.notes, e.actor, e.recordedAt);
+        }
+
+        private static PurchasePayment.Payee payee(String value) {
+            try {
+                return value == null ? PurchasePayment.Payee.SUPPLIER : PurchasePayment.Payee.valueOf(value);
+            } catch (IllegalArgumentException unknown) {
+                return PurchasePayment.Payee.OTHER;
+            }
+        }
+
+        private static be.enrosed.shared.Currency currency(String value) {
+            try {
+                return value == null ? be.enrosed.shared.Currency.EUR : be.enrosed.shared.Currency.valueOf(value);
+            } catch (IllegalArgumentException unknown) {
+                return be.enrosed.shared.Currency.EUR;
+            }
+        }
+    }
+
+    @ApplicationScoped
     public static class SupplierCreditAdapter implements SourcingRepositories.SupplierCredits {
         private final PurchaseSupplierCreditDao dao;
 
@@ -89,6 +174,15 @@ public final class PanacheSourcingRepositories {
         @Override
         public boolean delete(long orderId, long creditId) {
             return dao.delete("id = ?1 and orderId = ?2", creditId, orderId) == 1;
+        }
+
+        @Override
+        public java.util.Set<Long> offsetPaymentIds() {
+            java.util.Set<Long> ids = new java.util.HashSet<>();
+            for (SourcingEntities.PurchaseSupplierCreditEntity credit : dao.list("offsetPaymentId is not null")) {
+                ids.add(credit.offsetPaymentId);
+            }
+            return ids;
         }
 
         private static PurchaseSupplierCredit toDomain(SourcingEntities.PurchaseSupplierCreditEntity e) {
@@ -154,6 +248,23 @@ public final class PanacheSourcingRepositories {
             return dao.delete("orderId", orderId);
         }
 
+        /* On the managed rows, so the same transaction reads the change at once. */
+        @Override
+        public void reassignPayment(long orderId, long fromPaymentId, Long toPaymentId) {
+            for (SourcingEntities.PurchaseDocumentEntity entity
+                    : dao.list("orderId = ?1 and paymentId = ?2", orderId, fromPaymentId)) {
+                entity.paymentId = toPaymentId;
+            }
+            dao.flush();
+        }
+
+        @Override
+        public List<be.enrosed.sourcing.domain.PurchaseDocument> ofKinds(java.util.Collection<PurchaseDocument.Kind> kinds) {
+            if (kinds == null || kinds.isEmpty()) return List.of();
+            return dao.list("kind in ?1 order by orderId, addedAt, id", List.copyOf(kinds)).stream()
+                    .map(DocumentAdapter::toDomain).toList();
+        }
+
         private static be.enrosed.sourcing.domain.PurchaseDocument toDomain(SourcingEntities.PurchaseDocumentEntity e) {
             return new be.enrosed.sourcing.domain.PurchaseDocument(e.id, e.orderId, e.kind, e.label, e.originalFilename,
                     e.contentType, e.sizeBytes, e.storageKey, e.paymentId, e.actor, e.addedAt);
@@ -196,6 +307,8 @@ public final class PanacheSourcingRepositories {
             entity.settles = payment.settles();
             entity.instalmentDue = payment.instalmentDue();
             entity.bankStatementLineId = payment.bankStatementLineId();
+            entity.groupId = payment.groupId();
+            entity.invoiceId = payment.invoiceId();
             if (entity.id == null) dao.persist(entity);
             dao.flush();
             return toDomain(entity);
@@ -207,6 +320,38 @@ public final class PanacheSourcingRepositories {
         }
 
         @Override
+        public List<be.enrosed.sourcing.domain.PurchasePayment> inGroup(long rootId) {
+            return dao.list("groupId = ?1 order by paidOn, id", rootId).stream().map(PaymentAdapter::toDomain).toList();
+        }
+
+        /* The column writes below work on the managed rows, so the same transaction reads them at once. */
+        @Override
+        public void clearInvoice(long orderId, long invoiceId) {
+            for (SourcingEntities.PurchasePaymentEntity entity : dao.list("orderId = ?1 and invoiceId = ?2", orderId, invoiceId)) {
+                entity.invoiceId = null;
+            }
+            dao.flush();
+        }
+
+        @Override
+        public void setInvoice(java.util.Collection<Long> paymentIds, Long invoiceId) {
+            if (paymentIds == null || paymentIds.isEmpty()) return;
+            for (SourcingEntities.PurchasePaymentEntity entity : dao.list("id in ?1", List.copyOf(paymentIds))) {
+                entity.invoiceId = invoiceId;
+            }
+            dao.flush();
+        }
+
+        @Override
+        public void setGroup(java.util.Collection<Long> paymentIds, Long groupId) {
+            if (paymentIds == null || paymentIds.isEmpty()) return;
+            for (SourcingEntities.PurchasePaymentEntity entity : dao.list("id in ?1", List.copyOf(paymentIds))) {
+                entity.groupId = groupId;
+            }
+            dao.flush();
+        }
+
+        @Override
         public long deleteForOrder(long orderId) {
             return dao.delete("orderId", orderId);
         }
@@ -214,7 +359,7 @@ public final class PanacheSourcingRepositories {
         private static be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e) {
             return new be.enrosed.sourcing.domain.PurchasePayment(e.id, e.orderId, e.paidOn, e.amount, e.currency,
                     e.amountEur, e.label, e.actor, e.recordedAt, e.payee, Boolean.TRUE.equals(e.settles), e.instalmentDue,
-                    e.bankStatementLineId);
+                    e.bankStatementLineId, e.groupId, e.invoiceId);
         }
     }
 
@@ -384,6 +529,7 @@ public final class PanacheSourcingRepositories {
             entity.payPctArrived = order.payPctArrived();
             entity.freightViaSupplier = order.freightViaSupplier();
             entity.clearance = order.clearance() == null ? null : order.clearance().name();
+            entity.inspectionViaSupplier = order.inspectionViaSupplier();
             entity.allocFreight = order.allocFreight();
             entity.allocOrigin = order.allocOrigin();
             entity.allocDestination = order.allocDestination();
@@ -477,7 +623,8 @@ public final class PanacheSourcingRepositories {
                     .withSeparateAllocation(entity.allocSeparate)
                     .withPaymentSplit(entity.payPctOrdered, entity.payPctShipped, entity.payPctArrived)
                     .withFreightViaSupplier(entity.freightViaSupplier)
-                    .withClearance(Clearance.parse(entity.clearance));
+                    .withClearance(Clearance.parse(entity.clearance))
+                    .withInspectionViaSupplier(entity.inspectionViaSupplier);
         }
     }
 }

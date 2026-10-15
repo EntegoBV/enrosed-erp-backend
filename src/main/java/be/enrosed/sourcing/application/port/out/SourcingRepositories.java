@@ -21,6 +21,22 @@ public interface SourcingRepositories {
         List<be.enrosed.sourcing.domain.PurchasePayment> since(java.time.LocalDate from);
         be.enrosed.sourcing.domain.PurchasePayment save(be.enrosed.sourcing.domain.PurchasePayment payment);
         boolean delete(long orderId, long paymentId);
+        /** Every member of a group (the root included), by day then id; empty for a payment never split. */
+        default List<be.enrosed.sourcing.domain.PurchasePayment> inGroup(long rootId) {
+            return since(null).stream().filter(payment -> Long.valueOf(rootId).equals(payment.groupId())).toList();
+        }
+        /** Every payment of the order that names this invoice goes back to automatic. Column-only. */
+        default void clearInvoice(long orderId, long invoiceId) {
+            throw new UnsupportedOperationException("invoices not supported by this adapter");
+        }
+        /** Names (or, with null, stops naming) an invoice on these payments. Column-only: no other field changes. */
+        default void setInvoice(java.util.Collection<Long> paymentIds, Long invoiceId) {
+            throw new UnsupportedOperationException("invoices not supported by this adapter");
+        }
+        /** Puts these payments in a group (or, with null, out of it). Column-only: no other field changes. */
+        default void setGroup(java.util.Collection<Long> paymentIds, Long groupId) {
+            throw new UnsupportedOperationException("groups not supported by this adapter");
+        }
         default long deleteForOrder(long orderId) {
             long deleted = 0;
             for (be.enrosed.sourcing.domain.PurchasePayment payment : List.copyOf(forOrder(orderId))) {
@@ -39,6 +55,10 @@ public interface SourcingRepositories {
         Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> find(long orderId, long creditId);
         /** The credit an offset payment settles, if any. */
         Optional<be.enrosed.sourcing.domain.PurchaseSupplierCredit> forOffsetPayment(long paymentId);
+        /** Every payment that is a credit offset, on any order: no bank line, no proof needed. */
+        default java.util.Set<Long> offsetPaymentIds() {
+            return java.util.Set.of();
+        }
         be.enrosed.sourcing.domain.PurchaseSupplierCredit save(be.enrosed.sourcing.domain.PurchaseSupplierCredit credit);
         boolean delete(long orderId, long creditId);
     }
@@ -49,6 +69,15 @@ public interface SourcingRepositories {
         be.enrosed.sourcing.domain.PurchaseDocument save(be.enrosed.sourcing.domain.PurchaseDocument document);
         java.util.Optional<be.enrosed.sourcing.domain.PurchaseDocument> rename(long orderId, long documentId, String label);
         boolean delete(long orderId, long documentId);
+        /** The files of one payment go to another (null: to the container itself). Column-only. */
+        default void reassignPayment(long orderId, long fromPaymentId, Long toPaymentId) {
+            throw new UnsupportedOperationException("reassigning documents not supported by this adapter");
+        }
+        /** Every document of these kinds on every order, in one read. */
+        default List<be.enrosed.sourcing.domain.PurchaseDocument> ofKinds(
+                java.util.Collection<be.enrosed.sourcing.domain.PurchaseDocument.Kind> kinds) {
+            return List.of();
+        }
         default long deleteForOrder(long orderId) {
             long deleted = 0;
             for (be.enrosed.sourcing.domain.PurchaseDocument document : List.copyOf(forOrder(orderId))) {
@@ -56,6 +85,19 @@ public interface SourcingRepositories {
             }
             return deleted;
         }
+    }
+
+    /** The invoices of the containers: number, date, amount and the file they came in. */
+    interface Invoices {
+        /** The invoices of one order, by invoice date then id. */
+        List<be.enrosed.sourcing.domain.PurchaseInvoice> forOrder(long orderId);
+        /** Every invoice of every order, by order, invoice date then id. */
+        List<be.enrosed.sourcing.domain.PurchaseInvoice> all();
+        Optional<be.enrosed.sourcing.domain.PurchaseInvoice> find(long orderId, long invoiceId);
+        be.enrosed.sourcing.domain.PurchaseInvoice save(be.enrosed.sourcing.domain.PurchaseInvoice invoice);
+        boolean delete(long orderId, long invoiceId);
+        /** The file is gone: the invoices that held it keep their data without a file. */
+        void clearDocument(long orderId, long documentId);
     }
 
     interface PurchaseOrders {

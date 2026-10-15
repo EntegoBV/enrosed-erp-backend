@@ -123,6 +123,8 @@ public final class SourcingEntities {
         @Column(name = "freight_via_supplier") public Boolean freightViaSupplier;
         /** Where the container is cleared, as plain text; null = still to be confirmed. */
         @Column(name = "clearance", length = 24) public String clearance;
+        /** The inspection is paid through the supplier, in the goods' transfer; null reads as no. */
+        @Column(name = "inspection_via_supplier") public Boolean inspectionViaSupplier;
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
 
@@ -191,6 +193,10 @@ public final class SourcingEntities {
         public be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
         /** The bank line that carried this payment; the bank service sets and clears it. */
         @Column(name = "bank_statement_line_id") public Long bankStatementLineId;
+        /** The root payment of the transfers this one was split into; null when never split. */
+        @Column(name = "group_id") public Long groupId;
+        /** The invoice chosen for this payment; null means automatic. */
+        @Column(name = "invoice_id") public Long invoiceId;
     }
 
     /**

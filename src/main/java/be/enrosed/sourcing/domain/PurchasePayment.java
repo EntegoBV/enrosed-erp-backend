@@ -41,8 +41,34 @@ public record PurchasePayment(
          * the movement is noted and null until then. One line carries every
          * payment of one transfer: the goods, the CIF freight, the inspection.
          */
-        Long bankStatementLineId
+        Long bankStatementLineId,
+        /**
+         * The payment this one was split from when it was paid in several
+         * transfers: the root's id, carried by every member (the root
+         * included). Null for a payment that was never split. One row stays
+         * one transfer on its own bank day.
+         */
+        Long groupId,
+        /** The invoice chosen for this payment; null means automatic (the payee's only invoice). */
+        Long invoiceId
 ) {
+    /**
+     * Compatibility for new rows and read-only copies written before a
+     * payment could be paid in parts or point at an invoice. Never use it to
+     * save an existing payment: it would erase both.
+     */
+    public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                           BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,
+                           boolean settles, PaymentTerms.Moment instalmentDue, Long bankStatementLineId) {
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, settles, instalmentDue,
+                bankStatementLineId, null, null);
+    }
+
+    /** The group this payment belongs to: its own id when it was never split. */
+    public long groupRoot() {
+        return groupId == null ? id : groupId;
+    }
+
     /** Compatibility for payments recorded before a bank line could point at them. */
     public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                            BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,

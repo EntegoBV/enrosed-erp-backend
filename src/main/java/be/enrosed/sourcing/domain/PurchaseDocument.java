@@ -23,12 +23,16 @@ public record PurchaseDocument(
         Instant addedAt
 ) {
     public enum Kind {
-        PAYMENT_PROOF, COMMERCIAL_INVOICE, PACKING_LIST, BILL_OF_LADING, CUSTOMS, OTHER;
+        PAYMENT_PROOF, COMMERCIAL_INVOICE,
+        /** An invoice that is not the supplier's commercial invoice: inspection, transport, a courier. */
+        INVOICE,
+        PACKING_LIST, BILL_OF_LADING, CUSTOMS, OTHER;
 
         public String dutchLabel() {
             return switch (this) {
-                case PAYMENT_PROOF -> "Betalingsbewijs";
+                case PAYMENT_PROOF -> "Betaalbewijs";
                 case COMMERCIAL_INVOICE -> "Commercial invoice";
+                case INVOICE -> "Factuur";
                 case PACKING_LIST -> "Packing list";
                 case BILL_OF_LADING -> "Bill of lading";
                 case CUSTOMS -> "Douanedocument";
