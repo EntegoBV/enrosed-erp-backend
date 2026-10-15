@@ -170,14 +170,15 @@ class PdfCatalogRendererTest {
         assertFalse(mixedHtml.contains("<span class=\"display-price\">per bowl</span>"), mixedHtml);
         assertTrue(mixedHtml.contains("<small>per bowl</small>") && mixedHtml.contains("<small>per stuk</small>"));
 
-        /* Sold per display of eight bowls: the set leads and counts its bowls. */
+        /* Sold per display of eight bowls: the display price leads and counts its bowls. */
         be.enrosed.catalog.domain.Packaging bowlSet = new be.enrosed.catalog.domain.Packaging(
                 be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 8,
                 be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl", null);
         String sets = normalizeWhitespace(renderer.renderHtml(unitModel(List.of(
                 withPackaging(product(6L, "BOWL-SET", 100L, 1L, 0), bowlSet)),
                 CatalogExportService.Layout.SIMPLE, "en")));
-        assertTrue(sets.contains("Set (8 bowls): "), sets);
+        assertTrue(sets.contains("Display (8 bowls): "), sets);
+        assertFalse(sets.contains("Set ("), "a display is never called a set: " + sets);
         assertTrue(sets.contains("6 displays (48 bowls)"), sets);
         assertTrue(sets.contains("· per bowl</small>"), sets);
 

@@ -324,7 +324,7 @@
       {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
       {#if hasSeparateColumn}<td class="r">{line.separateEur.money}</td>{/if}
       <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
-      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<br/><span class="tiny">per set</span><br/><span class="tiny">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<br/><span class="tiny">per display</span><br/><span class="tiny">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
       {/if}
     </tr>
   {/for}
@@ -346,7 +346,7 @@
     {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
     {#if hasSeparateColumn}<td class="r">{costing.totals.separateCostsEur.money}</td>{/if}
     <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
-    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<br/><span class="tiny">per set</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
+    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<br/><span class="tiny">per display</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
     {/if}
   </tr>
   </tbody>

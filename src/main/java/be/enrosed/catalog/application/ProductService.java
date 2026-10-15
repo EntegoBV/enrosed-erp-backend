@@ -11,6 +11,7 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.PhotoRole;
 import be.enrosed.catalog.domain.Packaging;
+import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
@@ -891,16 +892,23 @@ public class ProductService {
                 summary, changes);
     }
 
-    /** The editor's own words for the commercial basis, so the log reads like the screen. */
-    private static String salesUnitLabel(Packaging packaging) {
-        return packaging.soldAsDisplay() ? "Volledig display (set)" : "Los stuk";
+    /**
+     * "Prijs geldt per" in the editor's own words ("Display van 12", "Eén
+     * diamant"), so the log reads like the screen. Null for both sides while
+     * the basis itself stays: a renamed unit or a recounted display is
+     * already logged as Eenheid or Stuks per display, never as a new basis.
+     */
+    private static String salesUnitLabel(Packaging packaging, boolean basisChanged) {
+        if (!basisChanged) return null;
+        return packaging.soldAsDisplay() ? "Display van " + packaging.unitPieces()
+                : "Eén " + UnitNames.one(packaging.unitKey(), Language.NL);
     }
 
-    /** "Volle omdoos", "Per verpakking" or "Per stolp": the step in plain Dutch. */
+    /** "Volle omdoos", "Per display" or "Per stolp": "Klant bestelt per" in plain Dutch. */
     private static String orderStepLabel(Packaging packaging) {
         return switch (packaging.orderStep()) {
             case CARTON -> "Volle omdoos";
-            case PACKAGE -> "Per verpakking";
+            case PACKAGE -> packaging.kind() == PackagingKind.GIFT_BOX ? "Per geschenkverpakking" : "Per display";
             case UNIT -> "Per " + (packaging.soldAsDisplay() ? "display" : UnitNames.one(packaging.unitKey(), Language.NL));
         };
     }
@@ -912,6 +920,7 @@ public class ProductService {
         Carton afterCarton = after.carton() == null ? Carton.empty() : after.carton();
         Barcodes beforeCodes = before.barcodes() == null ? Barcodes.none() : before.barcodes();
         Barcodes afterCodes = after.barcodes() == null ? Barcodes.none() : after.barcodes();
+        boolean basisChanged = before.packaging().salesUnit() != after.packaging().salesUnit();
         return ActivityChangeSet.create()
                 .add("name", "Naam", before.name(), after.name())
                 .add("sku", "SKU", before.sku(), after.sku())
@@ -940,12 +949,13 @@ public class ProductService {
                 .add("packaging", "Verpakking", before.packaging().label(), after.packaging().label())
                 .add("packagingPieces", "Stuks per display",
                         before.packaging().piecesPerUnit(), after.packaging().piecesPerUnit())
-                .add("salesUnit", "Prijs en orderaantal per",
-                        salesUnitLabel(before.packaging()), salesUnitLabel(after.packaging()))
+                .add("salesUnit", "Prijs geldt per",
+                        salesUnitLabel(before.packaging(), basisChanged),
+                        salesUnitLabel(after.packaging(), basisChanged))
                 .add("unitKey", "Eenheid",
                         UnitNames.one(before.packaging().unitKey(), Language.NL),
                         UnitNames.one(after.packaging().unitKey(), Language.NL))
-                .add("orderStep", "Verkocht per", orderStepLabel(before.packaging()),
+                .add("orderStep", "Klant bestelt per", orderStepLabel(before.packaging()),
                         orderStepLabel(after.packaging()))
                 .add("packagingBarcode", "Verpakkingsbarcode",
                         before.packaging().barcode(), after.packaging().barcode())

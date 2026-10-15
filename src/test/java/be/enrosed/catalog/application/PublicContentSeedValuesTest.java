@@ -41,6 +41,52 @@ class PublicContentSeedValuesTest {
     }
 
     @Test
+    void catalogueDisplayPricesSayDisplayAndOnlyTheFormerSetSeedMoves() {
+        assertEquals("Display ({pieces} st.): {price}",
+                PublicContentSeedLoader.catalogSeedValues(Language.NL).get("catalog.price.displaytotal"));
+        assertEquals("Display ({units}): {price}",
+                PublicContentSeedLoader.catalogSeedValues(Language.NL).get("catalog.price.settotalunits"));
+        assertEquals("Σταντ ({pieces} τεμ.): {price}",
+                PublicContentSeedLoader.catalogSeedValues(Language.EL).get("catalog.price.displaytotal"));
+        List<String> keys = List.of("catalog.price.displaytotal", "catalog.price.settotalunits");
+        for (Language language : Language.values()) {
+            for (String key : keys) {
+                String seeded = PublicContentSeedLoader.catalogSeedValues(language).get(key);
+                assertFalse(seeded.matches("(?u)^(Set|Zestaw|Conjunto|Σετ) .*"), key + " " + language + ": " + seeded);
+                assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                        ContentScope.CATALOG, key, language, seeded),
+                        key + " " + language + " must be stable on the next start");
+                assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                        ContentScope.CATALOG, key, language, null));
+            }
+        }
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.displaytotal", Language.NL, "Set ({pieces} st.): {price}"));
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.displaytotal", Language.FR, "Set ({pieces} pcs) : {price}"));
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.displaytotal", Language.EL, "Σετ ({pieces} τεμ.): {price}"));
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.settotalunits", Language.NL, "Set ({units}): {price}"));
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.settotalunits", Language.PL, "Zestaw ({units}): {price}"));
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.settotalunits", Language.EL, "Σετ ({units}): {price}"));
+        // A dashboard edit, the other key's former value and another scope never move.
+        assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.displaytotal", Language.NL, "Set van {pieces} st.: {price}"));
+        assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.settotalunits", Language.NL, "Set ({pieces} st.): {price}"));
+        assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.price.displaytotal", Language.PL, "Set ({pieces} st.): {price}"));
+        assertFalse(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.WEBSITE, "catalog.price.displaytotal", Language.NL, "Set ({pieces} st.): {price}"));
+        // The selection counters still migrate as before.
+        assertTrue(PublicContentSeedLoader.isKnownStaleSeedValue(
+                ContentScope.CATALOG, "catalog.common.variant.singular", Language.TR, "SEÇİLEN VARYANT"));
+    }
+
+    @Test
     void supersededWebsiteCopyMatchesOnlyTheListedExactValuesPerKeyAndLanguage() throws Exception {
         JsonNode superseded = supersededWebsiteCopy();
         assertEquals(List.of("products.hero.title", "meta.products.title", "meta.products.description",

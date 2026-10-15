@@ -13,6 +13,7 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
+import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.push.StaffActionPushNotifier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
@@ -25,6 +26,7 @@ import jakarta.enterprise.event.Event;
 import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.io.ByteArrayInputStream;
@@ -48,6 +50,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -561,6 +564,60 @@ class ProductServicePublicationTest {
                 "PRODUCT", "1", "ENR-P01", "Product bijgewerkt",
                 List.of(new ActivityChangeDto(
                         "supplierNote", "Leveranciersnotitie", null, null)));
+    }
+
+    /**
+     * The log names the price basis and the order step in the words of the
+     * product's sales card ("Prijs geldt per", "Klant bestelt per"), never
+     * "set" or "Verkocht per". A renamed unit is logged as Eenheid only, not
+     * as a new basis.
+     */
+    @Test
+    void packagingChangesAreLoggedInTheWordsOfTheSalesCard() {
+        ActivityLogService activities = mock(ActivityLogService.class);
+        @SuppressWarnings("unchecked")
+        Instance<ActivityLogService> activityInstance = mock(Instance.class);
+        when(activityInstance.isResolvable()).thenReturn(true);
+        when(activityInstance.get()).thenReturn(activities);
+        service.activity = activityInstance;
+        repository.add(diamond(PackagingKind.DISPLAY, SalesUnit.PIECE, "diamant", OrderStep.CARTON));
+
+        service.update(45L, diamond(PackagingKind.DISPLAY, SalesUnit.DISPLAY, "diamant", OrderStep.UNIT));
+        service.update(45L, diamond(PackagingKind.DISPLAY, SalesUnit.DISPLAY, "roos", OrderStep.UNIT));
+        service.update(45L, diamond(PackagingKind.DISPLAY, SalesUnit.PIECE, "roos", OrderStep.PACKAGE));
+        service.update(45L, diamond(PackagingKind.GIFT_BOX, SalesUnit.PIECE, "roos", OrderStep.PACKAGE));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ActivityChangeDto>> changes = ArgumentCaptor.forClass(List.class);
+        verify(activities, times(4)).record(eq(ActivityLogService.ACTION_UPDATED), eq("PRODUCT"), eq("45"),
+                eq("DIAM-D-RD"), eq("Product bijgewerkt"), changes.capture());
+        List<List<ActivityChangeDto>> logged = changes.getAllValues();
+        assertEquals(List.of(
+                new ActivityChangeDto("salesUnit", "Prijs geldt per", "Eén diamant", "Display van 12"),
+                new ActivityChangeDto("orderStep", "Klant bestelt per", "Volle omdoos", "Per display")),
+                logged.get(0));
+        assertEquals(List.of(new ActivityChangeDto("unitKey", "Eenheid", "diamant", "roos")), logged.get(1),
+                "a renamed unit is no new basis");
+        assertEquals(List.of(new ActivityChangeDto("salesUnit", "Prijs geldt per", "Display van 12", "Eén roos")),
+                logged.get(2), "the customer still orders one display: no Klant bestelt per row");
+        assertTrue(logged.get(3).contains(new ActivityChangeDto(
+                "orderStep", "Klant bestelt per", "Per display", "Per geschenkverpakking")), logged.get(3).toString());
+        assertTrue(logged.stream().flatMap(List::stream).noneMatch(change ->
+                String.valueOf(change.beforeValue()).contains("set") || String.valueOf(change.afterValue()).contains("set")
+                        || change.label().equals("Verkocht per")), logged.toString());
+    }
+
+    /** DIAM-D-RD as Emre pasted it: a display of 12, € 2,95 per stored unit, 12 per carton. */
+    private static Product diamond(PackagingKind kind, SalesUnit basis, String unit, OrderStep step) {
+        Packaging packaging = new Packaging(kind, new Dimensions(one(), one(), one()), null,
+                kind == PackagingKind.DISPLAY ? 12 : null, basis, unit, step);
+        return new Product(
+                45L, "DIAM-D-RD", "Diamantroos met display en geur", new Dimensions(one(), one(), one()),
+                packaging, "Red", null, null, "Beschrijving", 1L, 2L, true,
+                null, null, null, 0, true, null, null, PublicationState.DRAFT, PublicationState.DRAFT,
+                Barcodes.none(), "0603", new Carton(new Dimensions(one(), one(), one()), 12, one()),
+                one(), Currency.USD, BigDecimal.ZERO, new BigDecimal("0.56"), "PO-1",
+                null, new BigDecimal("2.95"), 4, List.of(), List.of());
     }
 
     @Test

@@ -331,7 +331,7 @@ public class PdfPurchaseRenderer {
             String packagingPieces, String packagingEan,
             /** Inspection and other costs spread into this line; zero while they stay apart. */
             BigDecimal separateEur,
-            /** A set (a display of 12 roses): its landed unit cost is per set, this is per stuk; null otherwise. */
+            /** A display (of 12 roses, say): its landed unit cost is per display, this is per stuk; null otherwise. */
             BigDecimal landedPieceEur) {
 
         /** Compatibility for callers written before the packing column existed. */
@@ -417,7 +417,7 @@ public class PdfPurchaseRenderer {
                             int productCount, boolean containerAverage,
                             /* Under the landed total: the one product's figure, or the range of the products' own. */
                             List<UnitRow> unitRows,
-                            /* One product sold as a set: the container's landed unit cost is per set. */
+                            /* One product sold per display: the container's landed unit cost is per display. */
                             boolean perSet) {
         boolean hasExtraColumn() {
             return lines.stream().anyMatch(line ->
@@ -831,15 +831,15 @@ public class PdfPurchaseRenderer {
                 productCount, containerAverage, unitRows(costing, byId, productCount, containerAverage), perSet);
     }
 
-    /** A row under the landed total of the internal calculation: "Gemiddeld per stuk", "Per set", a range. */
+    /** A row under the landed total of the internal calculation: "Gemiddeld per stuk", "Per display", a range. */
     public record UnitRow(String label, String note, String value) {}
 
     /**
      * What the internal calculation prints under its landed total. One
-     * product keeps its figure ("Gemiddeld per stuk"; a set "Per set" and
-     * "Per stuk"). Several products get no average: the lowest and highest
-     * of their own figures per stuk, or per set and per stuk when every
-     * product is a set; "per product" when none is known.
+     * product keeps its figure ("Gemiddeld per stuk"; a display "Per display"
+     * and "Per stuk"). Several products get no average: the lowest and highest
+     * of their own figures per stuk, or per display and per stuk when every
+     * product is sold per display; "per product" when none is known.
      */
     static List<UnitRow> unitRows(LandedCost costing, Map<Long, Product> byId, int productCount,
                                   boolean containerAverage) {
@@ -852,8 +852,8 @@ public class PdfPurchaseRenderer {
             }
             BigDecimal perPiece = Money.nz(totals.totalEur()).divide(
                     BigDecimal.valueOf((long) totals.pieces() * pieces), Money.UNIT_SCALE, RoundingMode.HALF_UP);
-            return List.of(new UnitRow("Per set", null, DocumentFormat.unit(totals.averageUnitEur())),
-                    new UnitRow("Per stuk", pieces + " " + pieceNames(product) + " per set",
+            return List.of(new UnitRow("Per display", null, DocumentFormat.unit(totals.averageUnitEur())),
+                    new UnitRow("Per stuk", pieces + " " + pieceNames(product) + " per display",
                             DocumentFormat.unit(perPiece)));
         }
         List<ReconciliationUnits.UnitFigure> figures = new ArrayList<>();
@@ -868,11 +868,11 @@ public class PdfPurchaseRenderer {
         String products = productCount + " producten";
         if (range == null) return List.of(new UnitRow("Per stuk", products, "per product"));
         if (range.perSet()) {
-            return List.of(new UnitRow("Per set", products, rangeText(range.low(), range.high())),
+            return List.of(new UnitRow("Per display", products, rangeText(range.low(), range.high())),
                     new UnitRow("Per stuk", null, rangeText(range.pieceLow(), range.pieceHigh())));
         }
         boolean anySet = figures.stream().anyMatch(ReconciliationUnits.UnitFigure::set);
-        return List.of(new UnitRow("Per stuk", anySet ? products + " · sets per stuk" : products,
+        return List.of(new UnitRow("Per stuk", anySet ? products + " · displays per stuk" : products,
                 rangeText(range.low(), range.high())));
     }
 
@@ -897,19 +897,19 @@ public class PdfPurchaseRenderer {
                 : DocumentFormat.moneyUnit(low) + " – " + DocumentFormat.unit(high);
     }
 
-    /** The pieces in one sales unit of a product sold as a set; 1 for a product sold per piece. */
+    /** The pieces in one sales unit of a product sold per display; 1 for a product sold per piece. */
     static int setPieces(Product product) {
         Packaging packaging = product == null ? null : product.packaging();
         return packaging != null && packaging.soldAsDisplay() ? Math.max(1, packaging.unitPieces()) : 1;
     }
 
-    /** "rozen" for a set of roses, "stuks" otherwise. */
+    /** "rozen" for a display of roses, "stuks" otherwise. */
     private static String pieceNames(Product product) {
         Packaging packaging = product == null ? null : product.packaging();
         return packaging == null ? "stuks" : UnitNames.other(packaging.unitKey(), Language.NL);
     }
 
-    /** A set line's landed cost per stuk: the line total over its pieces, never the rounded set figure divided. */
+    /** A display line's landed cost per stuk: the line total over its pieces, never the rounded display figure divided. */
     static BigDecimal landedPieceEur(LandedCost.Line line, Product product) {
         int pieces = setPieces(product);
         if (pieces <= 1 || line.quantity() <= 0 || line.totalEur() == null) return null;

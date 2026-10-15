@@ -31,7 +31,9 @@ import java.util.List;
  *
  * The nine rose products come from the supplier list; the "Preserved rose
  * with stem" comes from the Excel cost calculation and serves as a control
- * point: purchase order PO-2026-002 must land exactly on EUR 22.7385 per set.
+ * point: purchase order PO-2026-002 must land exactly on EUR 22.7385 per stuk
+ * (the Excel's "per set" names its own unit; the ERP sells this product per
+ * stuk, without a display).
  *
  * CAUTION - to be reconciled with real figures:
  *  - EXW prices of P01..P10 derive from the old EUR list
@@ -167,7 +169,7 @@ public class DemoDataLoader {
         /* Culinan delivers FOB: origin is already in their price. This is the Excel. */
         purchase(culinan.id(), "3717", "0", Currency.USD, "1155", "2000",
                 List.of(line(p11.id(), 1968)),
-                "Reproduceert de Excel: EUR 22,7385 per set.");
+                "Reproduceert de Excel: EUR 22,7385 per stuk.");
 
         purchaseOrders.list().forEach(order -> purchaseOrders.applyToProducts(order.id()));
 

@@ -159,7 +159,8 @@ class PdfPurchasePaymentsRendererTest {
     }
 
     /**
-     * Spec §5.4: a set is priced per set with the piece price under it.
+     * Spec §5.4: a display is priced per display with the piece price under it
+     * (2026-10-15: "display", never "set", like every other screen and document).
      * Round 2 (R2-4): a container of different products shows no average.
      */
     @Test
@@ -168,23 +169,30 @@ class PdfPurchasePaymentsRendererTest {
         var roses = setLine(1L, "Long stem rose box display", 100, "3120.00", "3360.00");
         var display = report(List.of(roses), "DISPLAY", 12, 1200);
         String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of());
-        for (String required : List.of("verdeeld over 100 bestelde sets (1.200 stuks)", ">Aantal<", ">Extern / eenheid<",
-                ">Incl. Enrosed kost / eenheid<", ">100 sets<", "€ 31,2000 /set<br/>€ 2,6000 /stuk",
-                "€ 33,6000 /set<br/>€ 2,8000 /stuk", "Bij sets staat de prijs per set en per stuk.",
-                "Totaal / gemiddeld", "€ 31,2000 /set</td>")) {
+        String perDisplay = "<br/><span class=\"muted small\">per display</span>";
+        for (String required : List.of("verdeeld over 100 bestelde displays (1.200 stuks)", ">Aantal<", ">Extern / eenheid<",
+                ">Incl. Enrosed kost / eenheid<", ">100<br/><span class=\"muted small\">displays</span><",
+                "€ 31,2000" + perDisplay + "<br/>€ 2,6000 /stuk", "€ 33,6000" + perDisplay + "<br/>€ 2,8000 /stuk",
+                "Bij displays staat de prijs per display en per stuk.", "Totaal / gemiddeld",
+                "€ 31,2000" + perDisplay + "</td>")) {
             assertTrue(html.contains(required), required + " missing from " + html);
         }
         assertFalse(html.contains(">Extern / stuk<"), html);
-        try (var pdf = Loader.loadPDF(renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of()).content())) {
+        assertFalse(java.util.regex.Pattern.compile("\\bsets?\\b").matcher(html).find(), "no \"set\" left: " + html);
+        byte[] displayPdf = renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of()).content();
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/one-display.pdf"), displayPdf);
+        try (var pdf = Loader.loadPDF(displayPdf)) {
             String text = new PDFTextStripper().getText(pdf);
-            assertTrue(text.contains("2,6000") && text.contains("/stuk") && text.contains("100 sets"), text);
+            assertTrue(text.contains("2,6000") && text.contains("/stuk") && text.contains("per display")
+                    && text.contains("displays"), text);
         }
 
         var bowl = pieceLine(2L, "Rozenschaal", 200, "1000.00");
         var mixed = withAverage(report(List.of(roses, bowl), "MIXED", 12, 1400), 2, false);
         String mixedHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), mixed, List.of());
-        for (String required : List.of("verdeeld over 2 producten (1.400 bestelde stuks, sets als 12 rozen geteld)",
-                "De kost per stuk of per set staat per product.", "€ 5,0000 /stuk", ">1.400 stuks<", ">200<",
+        for (String required : List.of("verdeeld over 2 producten (1.400 bestelde stuks, displays als 12 rozen geteld)",
+                "De kost per stuk of per display staat per product.", "€ 5,0000 /stuk", ">1.400 stuks<", ">200<",
                 "<td>Totaal</td>", ">per product<")) {
             assertTrue(mixedHtml.contains(required), required + " missing from " + mixedHtml);
         }
@@ -200,7 +208,7 @@ class PdfPurchasePaymentsRendererTest {
         assertTrue(piecesHtml.contains(">Stuks<") && piecesHtml.contains(">Extern / stuk<")
                 && piecesHtml.contains(">Incl. Enrosed kost / stuk<"), piecesHtml);
         assertTrue(piecesHtml.contains("verdeeld over 200 bestelde stuks"), piecesHtml);
-        assertFalse(piecesHtml.contains("Bij sets"), piecesHtml);
+        assertFalse(piecesHtml.contains("Bij displays"), piecesHtml);
     }
 
     /**
@@ -299,7 +307,7 @@ class PdfPurchasePaymentsRendererTest {
                         forecast.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP),
                         pricing.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP));
         return new PurchaseReconciliation(List.of(), totals, lines,
-                "PIECE".equals(basis) ? List.of() : List.of("Bij sets is de kostprijs per set."));
+                "PIECE".equals(basis) ? List.of() : List.of("Bij displays is de kostprijs per display."));
     }
 
     static PurchaseOrder instalmentOrder() {

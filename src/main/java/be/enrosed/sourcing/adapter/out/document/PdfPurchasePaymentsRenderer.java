@@ -26,6 +26,12 @@ public class PdfPurchasePaymentsRenderer {
     private final Brand brand;
     private static final Locale LOCALE = Locale.forLanguageTag("nl-BE");
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    /**
+     * The unit of a display figure, as a small line under it like on the
+     * internal calculation: "€ 31,2000 /display" on one line does not fit a
+     * 12.5 % column.
+     */
+    private static final String PER_DISPLAY = "<br/><span class=\"muted small\">per display</span>";
 
     public PdfPurchasePaymentsRenderer(PdfFonts fonts, Brand brand) {
         this.fonts = fonts;
@@ -142,7 +148,7 @@ public class PdfPurchasePaymentsRenderer {
 
         boolean sets = report.lines().stream().anyMatch(PdfPurchasePaymentsRenderer::isSet);
         String setBasis = total.setBasis() == null ? "PIECE" : total.setBasis();
-        /* An average over different products says nothing: then every figure per stuk or per set is per product.
+        /* An average over different products says nothing: then every figure per stuk or per display is per product.
            The lines decide too, so a report that skipped the units never prints one. */
         List<Long> productIds = report.lines().stream().map(PurchaseReconciliation.Line::productId).toList();
         boolean average = total.containerAverage() && ReconciliationUnits.containerAverage(productIds);
@@ -153,7 +159,7 @@ public class PdfPurchasePaymentsRenderer {
                         ? quantityText(total, quantityBasis, sets, setBasis)
                         : productsText(total, productCount, quantityBasis, sets, setBasis))
                 .append(". Alle externe kosten zijn inbegrepen, ook inspectie en extra betalingen.")
-                .append(average ? "" : " De kost per stuk of per set staat per product.")
+                .append(average ? "" : " De kost per stuk of per display staat per product.")
                 .append(" De kolom Enrosed kost toont welk deel van de Enrosed kost op elk product is verdeeld.</p>");
         if (total.receiptRecorded()) html.append("<p>Besteld: ").append(total.orderedQuantity()).append(" · Ontvangen: ")
                 .append(total.receivedQuantity()).append(" · Beschadigd: ").append(total.damagedQuantity())
@@ -201,9 +207,9 @@ public class PdfPurchasePaymentsRenderer {
             moneyCell(html, total.internalMarkupEur());
             perProductCell(html);
         } else if (sets && "DISPLAY".equals(setBasis)) {
-            unitCell(html, total.forecastExternalUnitEur(), " /set");
+            unitCell(html, total.forecastExternalUnitEur(), PER_DISPLAY);
             moneyCell(html, total.internalMarkupEur());
-            unitCell(html, total.forecastPricingUnitEur(), " /set");
+            unitCell(html, total.forecastPricingUnitEur(), PER_DISPLAY);
         } else {
             unitCell(html, total.forecastExternalUnitEur());
             moneyCell(html, total.internalMarkupEur());
@@ -217,7 +223,7 @@ public class PdfPurchasePaymentsRenderer {
         if (!report.lines().isEmpty()) html.append("<p>").append(escape(report.lines().getFirst().allocationBasis())).append("</p>");
         for (String note : report.notes()) html.append("<p>").append(escape(note)).append("</p>");
         html.append("<p>Een bedrag per stuk ontbreekt als er geen stuks zijn. Deze afrekening wijzigt opgeslagen productprijzen en historische voorraadwaardes niet.")
-                .append(sets ? " Bij sets staat de prijs per set en per stuk." : "").append("</p></div>");
+                .append(sets ? " Bij displays staat de prijs per display en per stuk." : "").append("</p></div>");
         if (total.legacyPaidTotalEur() != null) html.append("<p class=\"muted\">Historisch totaal op ontvangst: ")
                 .append(money(total.legacyPaidTotalEur())).append(". Dit bedrag is informatief en wordt niet opnieuw bij de betaalregels opgeteld.</p>");
         html.append("</div><div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
@@ -257,9 +263,9 @@ public class PdfPurchasePaymentsRenderer {
     private static void unitCell(StringBuilder html, BigDecimal value, String unit) {
         html.append("<td class=\"num\">").append(value == null ? "n.v.t." : unit(value) + unit).append("</td>");
     }
-    /** A set: the price per set, and under it the price per piece. */
+    /** A display: the price per display, and under it the price per piece. */
     private static void setCell(StringBuilder html, BigDecimal perSet, BigDecimal perPiece) {
-        html.append("<td class=\"num\">").append(perSet == null ? "n.v.t." : unit(perSet) + " /set")
+        html.append("<td class=\"num\">").append(perSet == null ? "n.v.t." : unit(perSet) + PER_DISPLAY)
                 .append(perPiece == null ? "" : "<br/>" + unit(perPiece) + " /stuk").append("</td>");
     }
     /** The total row of a container of different products: no average, the figure is in each product's row. */
@@ -268,33 +274,36 @@ public class PdfPurchasePaymentsRenderer {
     }
     private static String unit(BigDecimal value) { return "€ " + String.format(LOCALE, "%,.4f", value); }
     private static String count(int value) { return String.format(LOCALE, "%,d", value); }
-    private static String setCount(int value) { return count(value) + (value == 1 ? " set" : " sets"); }
+    /** "100" with "displays" under it: the 8 % Aantal column holds the count, not the word next to it. */
+    private static String setCount(int value) {
+        return count(value) + "<br/><span class=\"muted small\">" + (value == 1 ? "display" : "displays") + "</span>";
+    }
     private static boolean isSet(PurchaseReconciliation.Line line) { return "DISPLAY".equals(line.salesUnit()); }
 
     /**
-     * What the cost is spread over: "100 bestelde sets (1.200 stuks)" for a
-     * container of one set size, "1.400 bestelde stuks (sets als 12 rozen
-     * geteld)" for sets mixed with pieces or with each other; plain pieces
-     * otherwise.
+     * What the cost is spread over: "100 bestelde displays (1.200 stuks)" for
+     * a container of one display size, "1.400 bestelde stuks (displays als 12
+     * rozen geteld)" for displays mixed with pieces or with each other; plain
+     * pieces otherwise.
      */
     private static String quantityText(PurchaseReconciliation.Totals total, String quantityBasis, boolean sets,
                                        String setBasis) {
         if (!sets || "PIECE".equals(setBasis)) return total.unitCostQuantity() + " " + quantityBasis;
         String state = total.receiptRecorded() ? "bruikbare ontvangen" : "bestelde";
         if ("DISPLAY".equals(setBasis)) {
-            return count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "set" : "sets")
+            return count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "display" : "displays")
                     + " (" + count(total.unitCostPieceQuantity()) + " stuks)";
         }
         String counted = total.setPieces() != null && total.setUnitOther() != null
-                ? "sets als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
-                : "sets als hun aantal stuks geteld";
+                ? "displays als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
+                : "displays als hun aantal stuks geteld";
         return count(total.unitCostPieceQuantity()) + " " + state + " stuks (" + counted + ")";
     }
     /**
      * What the cost is spread over when the products differ: the products
      * first, then the same quantities as for one product ("3 producten
-     * (6.920 bestelde stuks)", "2 producten (1.400 bestelde stuks, sets als
-     * 12 rozen geteld)").
+     * (6.920 bestelde stuks)", "2 producten (1.400 bestelde stuks, displays
+     * als 12 rozen geteld)").
      */
     private static String productsText(PurchaseReconciliation.Totals total, int productCount, String quantityBasis,
                                        boolean sets, String setBasis) {
@@ -304,13 +313,13 @@ public class PdfPurchasePaymentsRenderer {
         if (!sets || "PIECE".equals(setBasis)) {
             quantities = count(total.unitCostQuantity()) + " " + quantityBasis;
         } else if ("DISPLAY".equals(setBasis)) {
-            quantities = count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "set" : "sets")
+            quantities = count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "display" : "displays")
                     + ", " + count(total.unitCostPieceQuantity()) + " stuks";
         } else {
             quantities = count(total.unitCostPieceQuantity()) + " " + state + " stuks, "
                     + (total.setPieces() != null && total.setUnitOther() != null
-                            ? "sets als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
-                            : "sets als hun aantal stuks geteld");
+                            ? "displays als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
+                            : "displays als hun aantal stuks geteld");
         }
         return products + " (" + quantities + ")";
     }

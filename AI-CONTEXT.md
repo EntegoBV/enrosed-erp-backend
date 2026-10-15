@@ -748,6 +748,13 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   Changing a step on an open web order can show a quantity difference.
 - Rollout: no production product leaves CARTON until the website that sends
   `quantity` is live.
+- Wording (2026-10-15): the ERP calls the step **Klant bestelt per** and the
+  basis **Prijs geldt per**. The activity log follows: "Prijs geldt per"
+  reads "Display van 12" / "Eén diamant" (logged only when the basis itself
+  changes), "Klant bestelt per" reads "Volle omdoos", "Per display"
+  (PACKAGE; "Per geschenkverpakking" for a gift box) or "Per diamant". The
+  Excel/CSV column stays `verkocht_per` (omdoos, verpakking, stuk), and so
+  do the validator's words for it.
 
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,
@@ -1571,8 +1578,11 @@ the nacalculatie.
   set of one size and piece name, else MIXED), `setPieces`, `setUnitOther`, piece quantities and
   the container average per piece. `unitCostQuantity`, `forecastExternalUnitEur` and the other
   existing quantities keep their **sales-unit** meaning: sales and partner settlements multiply
-  them with sales quantities. The payments PDF prints "Aantal" and "/set" + "/stuk"; since round 2
-  it prints no average over different products (see below).
+  them with sales quantities. The payments PDF prints "Aantal" and "per display" + "/stuk"; since
+  round 2 it prints no average over different products (see below). Since 2026-10-15 every visible
+  word is "display", never "set" (identifiers such as `setBasis` stay): the payments PDF puts
+  "displays" under the count and "per display" under the figure, because "/display" does not fit
+  its 8 % and 12.5 % columns on one line.
 - Not removed on unlink (Codex's area, noted only): a `bank_cost_registration` receipt keeps a
   line answering 409 after an unlink.
 - Migrations `2026-10-15/purchase-invoice-postgresql.sql` (table, two payment columns, the order
@@ -1647,20 +1657,21 @@ the nacalculatie.
 - **No average over different products**: `Totals.productCount` and `Totals.containerAverage` (true
   only for a container of one product; since the round-2 screen check also false for variants of one
   family, because Emre said an average over several products "klopt niet"). Without it the server
-  notes say the cost per stuk or per set is per product (the round-1 note on a container average per
+  notes say the cost per stuk or per display is per product (the round-1 note on a container average per
   piece is gone) and the payments PDF reads "verdeeld over n producten (…)", its total row "Totaal"
   with "per product" where an average stood (the PDF also checks the lines, so a report that skipped
   `ReconciliationUnits.apply` never prints one; "/stuk (gem.)" is gone). The piece figures stay in
   the data. The internal calculation PDF (`purchase.html`) uses the same rule
   (`ReconciliationUnits.containerAverage` over the costing lines): one product keeps "Gemiddeld per
-  stuk" (a set: "Per set" and "Per stuk · 12 rozen per set", the table's set lines and total add "per
-  set" and the cost per stuk); several products show "Per stuk · n producten" with the range of their
-  own landed figures ("4,138 – 5,753 EUR", one figure when equal; all sets: "Per set" and "Per stuk"
-  ranges; sets next to pieces: per stuk) via `ReconciliationUnits.range`, the total row "per
+  stuk" (a display: "Per display" and "Per stuk · 12 rozen per display", the table's display lines and
+  total add "per display" and the cost per stuk); several products show "Per stuk · n producten" with
+  the range of their own landed figures ("4,138 – 5,753 EUR", one figure when equal; all displays:
+  "Per display" and "Per stuk" ranges; displays next to pieces: per stuk) via
+  `ReconciliationUnits.range`, the total row "per
   product". Different duty rates read "5 % – 12 % per product" instead of "x % gemiddeld".
 - **Enrosed kost per product in the payments PDF**: columns "Extern / stuk", "Enrosed kost" (the
-  line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per set
-  and per stuk for sets); the total row keeps the total, the box below reads "Enrosed kost" and
+  line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per
+  display and per stuk for displays); the total row keeps the total, the box below reads "Enrosed kost" and
   "Totaal incl. Enrosed kost".
 
 ## Kasprognose en bank (2026-10-16)
