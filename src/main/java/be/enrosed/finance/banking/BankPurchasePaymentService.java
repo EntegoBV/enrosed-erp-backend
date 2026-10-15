@@ -27,8 +27,20 @@ public class BankPurchasePaymentService {
     @Inject PurchaseOrderService purchases;
     @Inject BankStatementService bank;
 
+    /**
+     * One part of the transfer. {@code invoiceId} names the invoice (null:
+     * automatic); {@code inspectionViaSupplier} on an inspection part says the
+     * supplier was paid the inspection in this same transfer.
+     */
     public record Payment(BigDecimal amount, Currency currency, String label, PurchasePayment.Payee payee,
-                          boolean settles, PaymentTerms.Moment instalmentDue, BigDecimal amountEur) {}
+                          boolean settles, PaymentTerms.Moment instalmentDue, BigDecimal amountEur,
+                          Long invoiceId, Boolean inspectionViaSupplier) {
+        /** Compatibility for callers written before parts named an invoice. */
+        public Payment(BigDecimal amount, Currency currency, String label, PurchasePayment.Payee payee,
+                       boolean settles, PaymentTerms.Moment instalmentDue, BigDecimal amountEur) {
+            this(amount, currency, label, payee, settles, instalmentDue, amountEur, null, null);
+        }
+    }
     public record Request(long purchaseOrderId, List<Payment> payments) {}
     public record Result(BankStatementLineEntity line, List<PurchasePayment> payments) {}
 
@@ -69,7 +81,8 @@ public class BankPurchasePaymentService {
         List<Long> ids = new ArrayList<>();
         for (var part : parts) {
             ids.add(purchases.addPayment(request.purchaseOrderId(), day, part.amount(), part.currency(),
-                    part.label(), part.payee(), part.settles(), part.instalmentDue(), part.amountEur()).id());
+                    part.label(), part.payee(), part.settles(), part.instalmentDue(), part.amountEur(),
+                    part.invoiceId(), Boolean.TRUE.equals(part.inspectionViaSupplier())).id());
         }
         var linked = bank.linkExisting(id, new BankStatementService.OutgoingLinks(ids, null, null));
         return new Result(linked, ids.stream()
@@ -96,7 +109,7 @@ public class BankPurchasePaymentService {
         if (label != null && label.length() > 255) throw new BusinessRuleException("De omschrijving mag maximaal 255 tekens bevatten");
         return new Payment(amount, currency, label,
                 part.payee() == null ? PurchasePayment.Payee.SUPPLIER : part.payee(),
-                part.settles(), part.instalmentDue(), eur);
+                part.settles(), part.instalmentDue(), eur, part.invoiceId(), part.inspectionViaSupplier());
     }
 
     private static BigDecimal cents(BigDecimal value) {
@@ -115,13 +128,15 @@ public class BankPurchasePaymentService {
                 && saved.amountEur.compareTo(requested.amountEur()) == 0
                 && (saved.payee == null ? PurchasePayment.Payee.SUPPLIER : saved.payee) == requested.payee()
                 && Boolean.TRUE.equals(saved.settles) == requested.settles()
-                && Objects.equals(saved.instalmentDue, requested.instalmentDue());
+                && Objects.equals(saved.instalmentDue, requested.instalmentDue())
+                && Objects.equals(saved.invoiceId, requested.invoiceId());
     }
 
     private static PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity payment) {
         return new PurchasePayment(payment.id, payment.orderId, payment.paidOn, payment.amount, payment.currency,
                 payment.amountEur, payment.label, payment.actor, payment.recordedAt, payment.payee,
-                Boolean.TRUE.equals(payment.settles), payment.instalmentDue, payment.bankStatementLineId);
+                Boolean.TRUE.equals(payment.settles), payment.instalmentDue, payment.bankStatementLineId,
+                payment.groupId, payment.invoiceId);
     }
 
     private static BusinessRuleException alreadyLinked() {

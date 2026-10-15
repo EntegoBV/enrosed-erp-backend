@@ -3,6 +3,7 @@ package be.enrosed.finance.banking;
 import be.enrosed.finance.adapter.out.persistence.CostPaymentEntity;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
+import be.enrosed.sourcing.application.PurchaseInvoiceService;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
@@ -33,6 +34,7 @@ class BankPurchasePaymentServiceTest {
     @Inject PurchaseOrderService purchases;
     @Inject SupplierService suppliers;
     @Inject EntityManager em;
+    @Inject PurchaseInvoiceService invoices;
 
     private static final Instant AT = Instant.parse("2026-09-08T23:00:00Z");
     private static final LocalDate DAY = LocalDate.of(2026, 9, 9);
@@ -229,6 +231,44 @@ class BankPurchasePaymentServiceTest {
                 em.remove(em.find(SourcingEntities.SupplierEntity.class, fixture[1]));
             });
         }
+    }
+
+    /** Spec example (b): one transfer pays the goods and the inspection, and says so. */
+    @Test @TestTransaction
+    void anInspectionPartPaidThroughTheSupplierSetsTheContainerFlag() {
+        var order = container();
+        var line = imported("-10300");
+        var result = service.record(line, new BankPurchasePaymentService.Request(order.id(), List.of(
+                new BankPurchasePaymentService.Payment(new BigDecimal("10000"), Currency.EUR, "Aanbetaling 30%",
+                        PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED, null, null, null),
+                new BankPurchasePaymentService.Payment(new BigDecimal("300"), Currency.EUR, "Aanbetaling 30% · inspectie",
+                        PurchasePayment.Payee.SEPARATE, false, null, null, null, true))));
+        assertEquals(2, result.payments().size());
+        assertTrue(result.payments().stream().allMatch(payment -> line.equals(payment.bankStatementLineId())));
+        assertTrue(purchases.get(order.id()).inspectionPaidViaSupplier());
+        assertTrue(purchases.get(order.id()).notes().contains("Betaald 09/09/2026: € 300,00 aan inspectie & andere kosten"));
+    }
+
+    @Test @TestTransaction
+    void theChosenInvoiceTravelsWithThePartAndARetryMustNameItToo() {
+        var order = container();
+        var first = invoices.add(order.id(), new PurchaseInvoiceService.InvoiceRequest(PurchasePayment.Payee.SUPPLIER,
+                "CI-1", DAY, new BigDecimal("1000"), Currency.EUR, null, null, null));
+        var second = invoices.add(order.id(), new PurchaseInvoiceService.InvoiceRequest(PurchasePayment.Payee.SUPPLIER,
+                "CI-2", DAY, new BigDecimal("500"), Currency.EUR, null, null, null));
+        var line = imported("-100");
+        var request = new BankPurchasePaymentService.Request(order.id(), List.of(new BankPurchasePaymentService.Payment(
+                new BigDecimal("100"), Currency.EUR, "Deel", PurchasePayment.Payee.SUPPLIER, false, null, null, second.id(), null)));
+        var saved = service.record(line, request);
+        assertEquals(second.id(), saved.payments().getFirst().invoiceId());
+        assertEquals(second.id(), purchases.payments(order.id()).getFirst().invoiceId());
+
+        assertEquals(saved.payments(), service.record(line, request).payments(), "the same retry answers the same ids");
+        var other = new BankPurchasePaymentService.Request(order.id(), List.of(new BankPurchasePaymentService.Payment(
+                new BigDecimal("100"), Currency.EUR, "Deel", PurchasePayment.Payee.SUPPLIER, false, null, null, first.id(), null)));
+        var refusal = assertThrows(BusinessRuleException.class, () -> service.record(line, other));
+        assertEquals("Deze banktransactie is al aan een andere betaling gekoppeld", refusal.getMessage());
+        assertEquals(1, purchases.payments(order.id()).size());
     }
 
     private PurchaseOrder container() {

@@ -93,6 +93,35 @@ class PdfPurchaseRendererRenderTest {
                 PdfPurchaseRenderer.payableView(List.of(), payable, reset).openSupplier());
     }
 
+    /** Spec example (b): the inspection went to the supplier in the goods' transfer; the dossier says so. */
+    @Test
+    void theDossierNamesTheInspectionPaidThroughTheSupplier() throws Exception {
+        var order = PdfPurchasePaymentsRendererTest.instalmentOrder().withInspectionViaSupplier(true);
+        var costing = costing(1);
+        var payable = PdfPurchasePaymentsRendererTest.instalmentPayable();
+        var goods = new PurchasePayment(1L, 1L, LocalDate.of(2026, 9, 3), new BigDecimal("10000"), Currency.EUR,
+                new BigDecimal("10000"), "Aanbetaling 30%", "Emre", Instant.parse("2026-09-03T08:00:00Z"),
+                PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED, 610L);
+        var inspection = new PurchasePayment(2L, 1L, LocalDate.of(2026, 9, 3), new BigDecimal("300"), Currency.EUR,
+                new BigDecimal("300"), "Aanbetaling 30% · inspectie", "Emre", Instant.parse("2026-09-03T08:00:00Z"),
+                PurchasePayment.Payee.SEPARATE, false, null, 610L);
+        var payments = List.of(goods, inspection);
+        var report = new PurchaseReconciliationCalculator().calculate(order, costing, payable, payments);
+        var document = renderer.render(order, costing, supplier(), true, payments, payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE, PdfPurchaseRenderer.Audience.INTERNAL,
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
+            assertTrue(text.contains("Inspectie via leverancier zelfde transactie"), text);
+        }
+        var without = renderer.render(order.withInspectionViaSupplier(null), costing, supplier(), true, payments, payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE, PdfPurchaseRenderer.Audience.INTERNAL,
+                PdfPurchaseRenderer.PdfOptions.defaults(), report);
+        try (var pdf = Loader.loadPDF(without.content())) {
+            assertFalse(new PDFTextStripper().getText(pdf).contains("Inspectie via leverancier"));
+        }
+    }
+
     /** PO-2026-002: the netted terms leave € 0,50 too much at the supplier, in the same words as the Betalingen tab. */
     @Test
     void po35DossierSaysTheSupplierWasPaidTooMuch() throws Exception {

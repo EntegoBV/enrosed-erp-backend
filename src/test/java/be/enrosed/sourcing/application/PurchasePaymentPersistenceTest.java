@@ -4,6 +4,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
 import be.enrosed.sourcing.domain.PaymentTerms;
+import be.enrosed.sourcing.domain.PurchaseDocument;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.PurchasePayment;
@@ -470,6 +471,195 @@ class PurchasePaymentPersistenceTest {
         return purchaseOrders.update(order.id(), order.withReceipt(PurchaseOrderStatus.BESTELD, null, null, false, null,
                 List.of(new be.enrosed.sourcing.domain.PurchaseOrderLine(null, product.id, 100, BigDecimal.TEN,
                         Currency.USD, null, null)))).order();
+    }
+
+    /* ---- payments paid in several transfers, and their invoice ---- */
+
+    @Inject PurchaseInvoiceService invoices;
+
+    private static final LocalDate SEP_10 = LocalDate.of(2026, 9, 10);
+    private static final LocalDate SEP_24 = LocalDate.of(2026, 9, 24);
+
+    @Test
+    @TestTransaction
+    void aGroupEditKeepsTheGroupAndTheInvoiceAndAppliesToEveryTransfer() {
+        PurchaseOrder order = groupOrder();
+        var first = invoices.add(order.id(), invoice(PurchasePayment.Payee.SUPPLIER, "CI-1"));
+        var second = invoices.add(order.id(), invoice(PurchasePayment.Payee.SUPPLIER, "CI-2"));
+        PurchasePayment balance = purchaseOrders.addPayment(order.id(), SEP_10, new BigDecimal("21733.63"), Currency.EUR,
+                "Saldo 70%", PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.SHIPPED, null, first.id(), false);
+        var parts = purchaseOrders.splitPayment(order.id(), balance.id(), List.of(
+                new PurchaseOrderService.PaymentPart(new BigDecimal("10000.00"), new BigDecimal("10000.00"), SEP_10),
+                new PurchaseOrderService.PaymentPart(new BigDecimal("11733.63"), new BigDecimal("11733.63"), SEP_24)));
+        long other = parts.get(1).id();
+
+        /* Its own description only: the group and the invoice stay. */
+        purchaseOrders.updatePayment(order.id(), other, SEP_24, new BigDecimal("11733.63"), Currency.EUR, "Saldo deel 2",
+                PurchasePayment.Payee.SUPPLIER, false);
+        PurchasePayment edited = payment(order, other);
+        assertEquals("Saldo deel 2", edited.label());
+        assertEquals(balance.id(), edited.groupId());
+        assertEquals(first.id(), edited.invoiceId());
+
+        /* A settle on the root with applyToGroup reaches both transfers, each with its own day and money. */
+        purchaseOrders.updatePayment(order.id(), balance.id(), SEP_10, new BigDecimal("10000.00"), Currency.EUR,
+                "Saldo 70%", PurchasePayment.Payee.SUPPLIER, true, PaymentTerms.Moment.SHIPPED, true, null,
+                second.id(), true, true);
+        for (PurchasePayment part : purchaseOrders.payments(order.id())) {
+            assertTrue(part.settles());
+            assertEquals("Saldo 70%", part.label());
+            assertEquals(second.id(), part.invoiceId());
+            assertEquals(balance.id(), part.groupId());
+        }
+        assertEquals(SEP_24, payment(order, other).paidOn());
+        assertEquals(new BigDecimal("11733.63"), payment(order, other).amountEur());
+        String notes = purchaseOrders.get(order.id()).notes();
+        assertEquals(1, notes.split("Betaald 24/09/2026: € 11.733,63", -1).length - 1, notes);
+        assertTrue(notes.contains("Betaald 24/09/2026: € 11.733,63 aan de leverancier · Saldo 70% · termijn bij vertrek · slotbetaling, deze termijn vereffend."), notes);
+
+        /* A move to another payee with applyToGroup: an invoice it may no longer carry goes back to automatic. */
+        purchaseOrders.updatePayment(order.id(), balance.id(), SEP_10, new BigDecimal("10000.00"), Currency.EUR,
+                "Saldo 70%", PurchasePayment.Payee.LOGISTICS, false, null, true, null, null, false, true);
+        for (PurchasePayment part : purchaseOrders.payments(order.id())) {
+            assertEquals(PurchasePayment.Payee.LOGISTICS, part.payee());
+            assertNull(part.invoiceId(), "a supplier invoice cannot carry a transport payment");
+            assertEquals(balance.id(), part.groupId());
+        }
+    }
+
+    @Test
+    @TestTransaction
+    void oneTransferOfAGroupCannotDriftFromTheOthers() {
+        PurchaseOrder order = groupOrder();
+        var invoice = invoices.add(order.id(), invoice(PurchasePayment.Payee.SUPPLIER, "CI-1"));
+        PurchasePayment balance = purchaseOrders.addPayment(order.id(), SEP_10, new BigDecimal("300"), Currency.EUR,
+                "Saldo", PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.SHIPPED);
+        var parts = purchaseOrders.splitPayment(order.id(), balance.id(), List.of(
+                new PurchaseOrderService.PaymentPart(new BigDecimal("100.00"), new BigDecimal("100.00"), SEP_10),
+                new PurchaseOrderService.PaymentPart(new BigDecimal("200.00"), new BigDecimal("200.00"), SEP_24)));
+        long other = parts.get(1).id();
+        String refusal = "Deze betaling is verdeeld over 2 transacties; pas de transacties samen aan";
+        assertEquals(refusal, assertThrows(BusinessRuleException.class, () -> purchaseOrders.updatePayment(order.id(), other,
+                SEP_24, new BigDecimal("200"), Currency.EUR, "Saldo", PurchasePayment.Payee.LOGISTICS, false)).getMessage());
+        assertEquals(refusal, assertThrows(BusinessRuleException.class, () -> purchaseOrders.updatePayment(order.id(), other,
+                SEP_24, new BigDecimal("200"), Currency.EUR, "Saldo", PurchasePayment.Payee.SUPPLIER, false,
+                PaymentTerms.Moment.ORDERED)).getMessage());
+        assertEquals(refusal, assertThrows(BusinessRuleException.class, () -> purchaseOrders.updatePayment(order.id(), other,
+                SEP_24, new BigDecimal("200"), Currency.EUR, "Saldo", PurchasePayment.Payee.SUPPLIER, true)).getMessage());
+        assertEquals(refusal, assertThrows(BusinessRuleException.class, () -> purchaseOrders.updatePayment(order.id(), other,
+                SEP_24, new BigDecimal("200"), Currency.EUR, "Saldo", PurchasePayment.Payee.SUPPLIER, false,
+                PaymentTerms.Moment.SHIPPED, true, null, invoice.id(), true, false)).getMessage());
+
+        /* The per-part correction: its own amount and day. */
+        PurchasePayment corrected = purchaseOrders.updatePayment(order.id(), other, SEP_24.plusDays(1),
+                new BigDecimal("210"), Currency.EUR, "Saldo", PurchasePayment.Payee.SUPPLIER, false);
+        assertEquals(new BigDecimal("210.00"), corrected.amountEur());
+        assertEquals(balance.id(), corrected.groupId());
+        assertEquals(PaymentTerms.Moment.SHIPPED, corrected.instalmentDue());
+    }
+
+    @Test
+    @TestTransaction
+    void deletingTransfersKeepsTheGroupNamedAfterAMemberAndMovesTheFiles() {
+        PurchaseOrder order = groupOrder();
+        PurchasePayment balance = purchaseOrders.addPayment(order.id(), SEP_10, new BigDecimal("300"), Currency.EUR,
+                "Saldo", PurchasePayment.Payee.SUPPLIER);
+        var proof = purchaseOrders.addDocument(order.id(), PurchaseDocument.Kind.PAYMENT_PROOF, null, balance.id(),
+                "afschrift.pdf", "application/pdf", "%PDF-1.4 proof".getBytes());
+        var parts = purchaseOrders.splitPayment(order.id(), balance.id(), List.of(
+                new PurchaseOrderService.PaymentPart(new BigDecimal("100.00"), new BigDecimal("100.00"), SEP_10),
+                new PurchaseOrderService.PaymentPart(new BigDecimal("100.00"), new BigDecimal("100.00"), SEP_24),
+                new PurchaseOrderService.PaymentPart(new BigDecimal("100.00"), new BigDecimal("100.00"), SEP_24.plusDays(1))));
+        long second = parts.get(1).id();
+        long third = parts.get(2).id();
+
+        /* The root goes: the other two are re-rooted on the lowest remaining id, the proof follows. */
+        purchaseOrders.deletePayment(order.id(), balance.id());
+        assertEquals(second, payment(order, second).groupId());
+        assertEquals(second, payment(order, third).groupId());
+        assertEquals(second, purchaseOrders.documents(order.id()).stream()
+                .filter(document -> document.id().equals(proof.id())).findFirst().orElseThrow().paymentId());
+
+        /* One transfer left: a plain payment again, and the proof goes to it. */
+        purchaseOrders.deletePayment(order.id(), second);
+        assertNull(payment(order, third).groupId());
+        assertEquals(third, purchaseOrders.documents(order.id()).getFirst().paymentId());
+
+        /* No transfer left: the proof belongs to the container. */
+        purchaseOrders.deletePayment(order.id(), third);
+        assertNull(purchaseOrders.documents(order.id()).getFirst().paymentId());
+    }
+
+    @Test
+    @TestTransaction
+    void aPaymentNamesOnlyAnInvoiceItMayCarry() {
+        PurchaseOrder order = groupOrder();
+        PurchaseOrder other = groupOrder();
+        var own = invoices.add(order.id(), invoice(PurchasePayment.Payee.SUPPLIER, "CI-1"));
+        var elsewhere = invoices.add(other.id(), invoice(PurchasePayment.Payee.SUPPLIER, "CI-9"));
+        assertEquals("Deze factuur hoort niet bij deze inkooporder", assertThrows(BusinessRuleException.class, () ->
+                purchaseOrders.addPayment(order.id(), SEP_10, BigDecimal.TEN, Currency.EUR, null,
+                        PurchasePayment.Payee.SUPPLIER, false, null, null, elsewhere.id(), false)).getMessage());
+        assertEquals("Deze factuur hoort bij Leverancier, niet bij Douane & transport", assertThrows(BusinessRuleException.class, () ->
+                purchaseOrders.addPayment(order.id(), SEP_10, BigDecimal.TEN, Currency.EUR, null,
+                        PurchasePayment.Payee.LOGISTICS, false, null, null, own.id(), false)).getMessage());
+        assertEquals("Deze factuur hoort bij Leverancier, niet bij Inspectie & andere kosten", assertThrows(BusinessRuleException.class, () ->
+                purchaseOrders.addPayment(order.id(), SEP_10, BigDecimal.TEN, Currency.EUR, null,
+                        PurchasePayment.Payee.SEPARATE, false, null, null, own.id(), false)).getMessage(),
+                "a supplier invoice carries the inspection only while it is paid through the supplier");
+        assertFalse(purchaseOrders.get(order.id()).inspectionPaidViaSupplier());
+
+        /* The inspection part that says "via leverancier" sets the flag first, so the supplier invoice may carry it. */
+        PurchasePayment inspection = purchaseOrders.addPayment(order.id(), SEP_10, BigDecimal.TEN, Currency.EUR,
+                "Inspectie", PurchasePayment.Payee.SEPARATE, false, null, null, own.id(), true);
+        assertEquals(own.id(), inspection.invoiceId());
+        assertTrue(purchaseOrders.get(order.id()).inspectionPaidViaSupplier());
+        assertTrue(purchaseOrders.get(order.id()).notes().contains("aan inspectie & andere kosten · Inspectie."));
+        assertEquals("Inspectiebetalingen verwijzen naar een factuur van de leverancier; kies bij die betalingen eerst een andere factuur",
+                assertThrows(BusinessRuleException.class, () -> purchaseOrders.setInspectionViaSupplier(order.id(), false)).getMessage());
+
+        /* A false or a supplier payment never touches the flag. */
+        purchaseOrders.addPayment(other.id(), SEP_10, BigDecimal.TEN, Currency.EUR, null,
+                PurchasePayment.Payee.SUPPLIER, false, null, null, null, true);
+        assertFalse(purchaseOrders.get(other.id()).inspectionPaidViaSupplier());
+    }
+
+    @Test
+    @TestTransaction
+    void aFileCanOnlyHangOnAPaymentOfItsOwnContainer() {
+        PurchaseOrder order = groupOrder();
+        PurchaseOrder other = groupOrder();
+        PurchasePayment foreign = purchaseOrders.addPayment(other.id(), SEP_10, BigDecimal.TEN, Currency.EUR, "Elders");
+        assertEquals("Deze betaling hoort niet bij deze inkooporder", assertThrows(BusinessRuleException.class, () ->
+                purchaseOrders.addDocument(order.id(), PurchaseDocument.Kind.PAYMENT_PROOF, null, foreign.id(),
+                        "afschrift.pdf", "application/pdf", "%PDF-1.4 x".getBytes())).getMessage());
+        /* Invoices get room for ten files, the other kinds keep five. */
+        for (int i = 1; i <= 10; i++) {
+            purchaseOrders.addDocument(order.id(), PurchaseDocument.Kind.COMMERCIAL_INVOICE, null, null,
+                    "ci-" + i + ".pdf", "application/pdf", ("%PDF-1.4 " + i).getBytes());
+        }
+        assertEquals("Per container horen hoogstens tien factuurbestanden", assertThrows(BusinessRuleException.class, () ->
+                purchaseOrders.addDocument(order.id(), PurchaseDocument.Kind.COMMERCIAL_INVOICE, null, null,
+                        "ci-11.pdf", "application/pdf", "%PDF-1.4 11".getBytes())).getMessage());
+        assertEquals(PurchaseDocument.Kind.INVOICE, purchaseOrders.addDocument(order.id(), PurchaseDocument.Kind.INVOICE,
+                null, null, "inspectie.pdf", "application/pdf", "%PDF-1.4 ins".getBytes()).kind());
+        assertEquals("Factuur", PurchaseDocument.Kind.INVOICE.dutchLabel());
+        assertEquals("Betaalbewijs", PurchaseDocument.Kind.PAYMENT_PROOF.dutchLabel());
+    }
+
+    private PurchaseOrder groupOrder() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Group Co", "CN", "Yiwu",
+                null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        return purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"), BigDecimal.ZERO);
+    }
+
+    private PurchasePayment payment(PurchaseOrder order, long id) {
+        return purchaseOrders.payments(order.id()).stream().filter(payment -> payment.id() == id).findFirst().orElseThrow();
+    }
+
+    private static PurchaseInvoiceService.InvoiceRequest invoice(PurchasePayment.Payee payee, String number) {
+        return new PurchaseInvoiceService.InvoiceRequest(payee, number, LocalDate.of(2026, 8, 20),
+                new BigDecimal("31048.04"), Currency.EUR, null, null, null);
     }
 
     /** The form save with only the status changed, as the ERP sends it. */

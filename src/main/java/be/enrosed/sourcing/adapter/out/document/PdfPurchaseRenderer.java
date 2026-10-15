@@ -19,6 +19,7 @@ import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
 import be.enrosed.sourcing.application.LandedCostCalculator;
+import be.enrosed.sourcing.application.InvoiceAssignment;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -178,7 +179,20 @@ public class PdfPurchaseRenderer {
                               String paidSupplier, String paidLogistics,
                               String openSupplier, boolean overpaid,
                               /** CIF: the supplier is also owed the sea freight and the local costs in China. */
-                              boolean cif) {}
+                              boolean cif,
+                              /**
+                               * The inspection paid to the supplier in the goods' transfers, formatted;
+                               * null when the container does not pay it through the supplier.
+                               */
+                              String paidInspectionViaSupplier) {
+        /** Compatibility for callers written before the inspection could be paid through the supplier. */
+        public PayableView(String supplier, String logistics, String enrosed, boolean freightInSupplierPrice,
+                           boolean ddp, String paidSupplier, String paidLogistics, String openSupplier,
+                           boolean overpaid, boolean cif) {
+            this(supplier, logistics, enrosed, freightInSupplierPrice, ddp, paidSupplier, paidLogistics,
+                    openSupplier, overpaid, cif, null);
+        }
+    }
 
     /**
      * Optional fields on the normal portrait export. Supplier and landscape
@@ -559,7 +573,7 @@ public class PdfPurchaseRenderer {
                     .data("payableView", payableView(payments, payable, reconciliation != null
                             ? reconciliation : payable == null ? null
                             : new PurchaseReconciliationCalculator().calculate(order, costing, payable,
-                                    payments == null ? List.of() : payments)))
+                                    payments == null ? List.of() : payments), order.inspectionPaidViaSupplier()))
                     .data("notesText", internal ? notes : null)
                     .data("usdRateGoods", rate(order.usdToEurGoods()))
                     .data("usdRateTransport", rate(order.usdToEurTransport()))
@@ -1323,7 +1337,26 @@ public class PdfPurchaseRenderer {
     static PayableView payableView(List<PurchasePayment> payments,
                                    PurchaseOrderService.Payable payable,
                                    PurchaseReconciliation reconciliation) {
+        return payableView(payments, payable, reconciliation, false);
+    }
+
+    /**
+     * With the inspection paid through the supplier: what of the inspection
+     * and other named costs went in a supplier transfer (or is not on the bank
+     * yet), apart from the goods.
+     */
+    static PayableView payableView(List<PurchasePayment> payments,
+                                   PurchaseOrderService.Payable payable,
+                                   PurchaseReconciliation reconciliation,
+                                   boolean inspectionViaSupplier) {
         if (payable == null) return null;
+        List<PurchasePayment> recorded = payments == null ? List.of() : payments;
+        List<PurchasePayment> viaSupplier = recorded.stream()
+                .filter(payment -> payment != null && InvoiceAssignment.viaSupplier(payment, recorded, inspectionViaSupplier))
+                .toList();
+        String paidInspection = viaSupplier.isEmpty() ? null : DocumentFormat.eur(viaSupplier.stream()
+                .map(PurchasePayment::amountEur).filter(java.util.Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
         BigDecimal paidSupplier = paidTo(payments, PurchasePayment.Payee.SUPPLIER);
         BigDecimal paidLogistics = paidTo(payments, PurchasePayment.Payee.LOGISTICS);
         boolean settled = payments != null && payments.stream()
@@ -1347,7 +1380,7 @@ public class PdfPurchaseRenderer {
                 payable.freightInSupplierPrice(), payable.ddp(),
                 DocumentFormat.eur(paidSupplier), DocumentFormat.eur(paidLogistics),
                 DocumentFormat.eur(open.abs()), open.signum() < 0,
-                payable.freightInSupplierPrice() && !payable.ddp());
+                payable.freightInSupplierPrice() && !payable.ddp(), paidInspection);
     }
 
     static String paymentLabel(PurchasePayment payment) {

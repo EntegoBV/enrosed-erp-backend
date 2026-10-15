@@ -2,6 +2,7 @@ package be.enrosed.sourcing.adapter.in.rest;
 
 import be.enrosed.sourcing.adapter.out.document.PdfPurchaseRenderer;
 import be.enrosed.sourcing.adapter.out.document.PdfPurchasePaymentsRenderer;
+import be.enrosed.sourcing.application.PurchaseInvoiceService;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.PurchaseSupplierCreditService;
 import be.enrosed.sourcing.application.ReceiptIssues;
@@ -37,6 +38,7 @@ public class SourcingResource {
     @jakarta.inject.Inject PdfPurchasePaymentsRenderer paymentsPdf;
     @jakarta.inject.Inject be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer inspectionPdf;
     @jakarta.inject.Inject PurchaseSupplierCreditService supplierCredits;
+    @jakarta.inject.Inject PurchaseInvoiceService invoices;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -81,10 +83,29 @@ public class SourcingResource {
                                     /** What the supplier owes on this container ("Tegoed leverancier"); never null. */
                                     List<PurchaseSupplierCreditService.CreditView> supplierCredits,
                                     /** Credits of other containers paid as a supplier payment on this one; never null. */
-                                    List<PurchaseSupplierCreditService.CreditOffsetView> creditOffsets) {
+                                    List<PurchaseSupplierCreditService.CreditOffsetView> creditOffsets,
+                                    /** The container's invoices with the payments that belong to them; never null. */
+                                    List<PurchaseInvoiceService.PurchaseInvoiceView> invoices,
+                                    /** Invoice files no invoice holds yet ("Gegevens invullen"); never null. */
+                                    List<PurchaseInvoiceService.InvoiceFileView> invoiceFiles) {
         public PurchaseOrderView {
             supplierCredits = supplierCredits == null ? List.of() : supplierCredits;
             creditOffsets = creditOffsets == null ? List.of() : creditOffsets;
+            invoices = invoices == null ? List.of() : invoices;
+            invoiceFiles = invoiceFiles == null ? List.of() : invoiceFiles;
+        }
+        /** Compatibility for callers written before containers had invoices. */
+        public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
+                                 List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                 PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
+                                 List<String> attention, PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
+                                 ActorRef createdBy, java.time.Instant createdAt,
+                                 List<PurchaseOrderService.ReceiptReport> receiptReports,
+                                 PurchaseReconciliation reconciliation,
+                                 List<PurchaseSupplierCreditService.CreditView> supplierCredits,
+                                 List<PurchaseSupplierCreditService.CreditOffsetView> creditOffsets) {
+            this(order, costing, adjustments, costLabels, payable, attention, receiptVariance, createdBy, createdAt,
+                    receiptReports, reconciliation, supplierCredits, creditOffsets, List.of(), List.of());
         }
         /** Compatibility for callers written before supplier credits. */
         public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
@@ -153,11 +174,25 @@ public class SourcingResource {
 
     /* ------------------------------------------------------ inkooporders */
 
+    /**
+     * Every container with its view. The products, the invoices and the
+     * invoice files are read once for the whole list, not once per container:
+     * Kosten &amp; bank reads this list too.
+     */
     @GET
     @Path("/purchase-orders")
     public List<PurchaseOrderView> listPurchaseOrders() {
+        Map<Long, be.enrosed.catalog.domain.Product> products = purchaseOrders.productsById();
+        Map<Long, List<be.enrosed.sourcing.domain.PurchaseInvoice>> invoicesByOrder = invoices == null ? Map.of()
+                : invoices.all().stream().collect(java.util.stream.Collectors.groupingBy(
+                        be.enrosed.sourcing.domain.PurchaseInvoice::orderId));
+        Map<Long, List<PurchaseDocument>> invoiceDocsByOrder = invoices == null ? Map.of()
+                : invoices.invoiceDocuments().stream().collect(java.util.stream.Collectors.groupingBy(
+                        PurchaseDocument::orderId));
         return purchaseOrders.list().stream()
-                .map(order -> view(order, purchaseOrders.calculate(order), List.of()))
+                .map(order -> view(order, purchaseOrders.calculate(order, products), List.of(),
+                        invoicesByOrder.getOrDefault(order.id(), List.of()),
+                        invoiceDocsByOrder.getOrDefault(order.id(), List.of()), products))
                 .toList();
     }
 
@@ -251,12 +286,13 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}/preview")
     public PurchaseOrderView previewPurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
         PurchaseOrder stored = purchaseOrders.get(id);
-        PurchaseOrder draft = withServerMetadata(order, id, stored.createdBy(), stored.createdAt());
+        PurchaseOrder draft = withServerMetadata(order, id, stored);
         return view(draft, purchaseOrders.calculate(draft), List.of());
     }
 
-    private static PurchaseOrder withServerMetadata(PurchaseOrder o, long id, ActorRef createdBy,
-                                                    java.time.Instant createdAt) {
+    private static PurchaseOrder withServerMetadata(PurchaseOrder o, long id, PurchaseOrder stored) {
+        ActorRef createdBy = stored.createdBy();
+        java.time.Instant createdAt = stored.createdAt();
         return new PurchaseOrder(id, o.number(), o.alias(), o.supplierId(), o.orderDate(), o.status(),
                 o.containerType(), o.cnyToUsd(), o.usdToEurGoods(), o.usdToEurTransport(), o.freightUsd(),
                 o.originCosts(), o.originCurrency(), o.destinationCostsEur(), o.defaultDutyRatePct(),
@@ -270,7 +306,9 @@ public class SourcingResource {
                 .withPartner(o.partnerCustomerId(), o.partnerCostPct(), o.partnerSharePct())
                 .withSeparateAllocation(o.allocSeparate())
                 .withPaymentSplit(o.payPctOrdered(), o.payPctShipped(), o.payPctArrived())
-                .withFreightViaSupplier(o.freightViaSupplier());
+                .withFreightViaSupplier(o.freightViaSupplier())
+                /* Server-owned: the draft never sets it, the stored container does. */
+                .withInspectionViaSupplier(stored.inspectionViaSupplier());
     }
 
     @DELETE
@@ -486,6 +524,12 @@ public class SourcingResource {
         public java.math.BigDecimal amountEur;
         private be.enrosed.sourcing.domain.PaymentTerms.Moment instalmentDue;
         private boolean instalmentDueProvided;
+        private Long invoiceId;
+        private boolean invoiceIdProvided;
+        /** An inspection part paid through the supplier: true sets the container's flag (SEPARATE only). */
+        public Boolean inspectionViaSupplier;
+        /** PUT only: the description, payee, settlement, term and invoice go to every transfer of the payment. */
+        public Boolean applyToGroup;
 
         // Missing in an older PUT preserves its existing scope; explicit null means the whole group.
         @com.fasterxml.jackson.annotation.JsonSetter("instalmentDue")
@@ -493,6 +537,15 @@ public class SourcingResource {
             instalmentDue = value;
             instalmentDueProvided = true;
         }
+
+        // Missing in a PUT keeps the stored choice; explicit null means automatic.
+        @com.fasterxml.jackson.annotation.JsonSetter("invoiceId")
+        public void setInvoiceId(Long value) {
+            invoiceId = value;
+            invoiceIdProvided = true;
+        }
+        public Long invoiceId() { return invoiceId; }
+        public boolean invoiceIdProvided() { return invoiceIdProvided; }
         public java.time.LocalDate paidOn() { return paidOn; }
         public java.math.BigDecimal amount() { return amount; }
         public be.enrosed.shared.Currency currency() { return currency; }
@@ -516,7 +569,8 @@ public class SourcingResource {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         PurchasePayment saved = purchaseOrders.addPayment(id, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
-                request.instalmentDue(), request.amountEur());
+                request.instalmentDue(), request.amountEur(), request.invoiceId(),
+                Boolean.TRUE.equals(request.inspectionViaSupplier));
         return Response.status(Response.Status.CREATED).entity(saved).build();
     }
 
@@ -527,7 +581,8 @@ public class SourcingResource {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
         return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
-                request.instalmentDue(), request.instalmentDueProvided(), request.amountEur());
+                request.instalmentDue(), request.instalmentDueProvided(), request.amountEur(),
+                request.invoiceId(), request.invoiceIdProvided(), Boolean.TRUE.equals(request.applyToGroup));
     }
 
     @DELETE
@@ -535,6 +590,46 @@ public class SourcingResource {
     public Response deletePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId) {
         purchaseOrders.deletePayment(id, paymentId);
         return Response.noContent().build();
+    }
+
+    /* ---- invoices ---- */
+
+    @GET
+    @Path("/purchase-orders/{id}/invoices")
+    public List<PurchaseInvoiceService.PurchaseInvoiceView> invoices(@PathParam("id") long id) {
+        return invoices.list(id);
+    }
+
+    /** The file goes up first through the documents endpoint; the invoice names it by its id. */
+    @POST
+    @Path("/purchase-orders/{id}/invoices")
+    public Response addInvoice(@PathParam("id") long id, PurchaseInvoiceService.InvoiceRequest request) {
+        return Response.status(Response.Status.CREATED).entity(invoices.add(id, request)).build();
+    }
+
+    @PUT
+    @Path("/purchase-orders/{id}/invoices/{invoiceId}")
+    public PurchaseInvoiceService.PurchaseInvoiceView updateInvoice(@PathParam("id") long id,
+                                                                  @PathParam("invoiceId") long invoiceId,
+                                                                  PurchaseInvoiceService.InvoiceRequest request) {
+        return invoices.update(id, invoiceId, request);
+    }
+
+    @DELETE
+    @Path("/purchase-orders/{id}/invoices/{invoiceId}")
+    public Response deleteInvoice(@PathParam("id") long id, @PathParam("invoiceId") long invoiceId) {
+        invoices.delete(id, invoiceId);
+        return Response.noContent().build();
+    }
+
+    public record FlagRequest(Boolean value) {}
+
+    /** "Inspectie via leverancier": the inspection travels in the goods' transfer; answers with the container. */
+    @PUT
+    @Path("/purchase-orders/{id}/inspection-via-supplier")
+    public PurchaseOrderView setInspectionViaSupplier(@PathParam("id") long id, FlagRequest request) {
+        purchaseOrders.setInspectionViaSupplier(id, request != null && Boolean.TRUE.equals(request.value()));
+        return currentView(id);
     }
 
     /* ---- supplier credits ("Tegoed leverancier") ---- */
@@ -659,19 +754,38 @@ public class SourcingResource {
 
     private PurchaseOrderView view(PurchaseOrder order, LandedCost costing,
                                    List<PurchaseOrderService.CartonAdjustment> adjustments) {
+        boolean saved = order.id() != null && invoices != null;
+        List<PurchaseDocument> documents = saved ? purchaseOrders.documents(order.id()) : List.of();
+        return view(order, costing, adjustments, saved ? purchaseOrders.invoices(order.id()) : List.of(),
+                documents, purchaseOrders.productsById());
+    }
+
+    /**
+     * The view with what a list read once: every product, the order's
+     * invoices and its invoice documents. The order's payments are read once
+     * here and serve the reconciliation and the invoices alike.
+     */
+    private PurchaseOrderView view(PurchaseOrder order, LandedCost costing,
+                                   List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                   List<be.enrosed.sourcing.domain.PurchaseInvoice> invoicesOfOrder,
+                                   List<PurchaseDocument> invoiceDocsOfOrder,
+                                   Map<Long, be.enrosed.catalog.domain.Product> productsById) {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
                 supplier == null ? null : supplier.incoterm());
         boolean credits = supplierCredits != null && order.id() != null;
+        List<PurchasePayment> recorded = order.id() == null ? List.of() : purchaseOrders.payments(order.id());
         /* One reconciliation for the tab and the attention list, so both read the same netted terms. */
-        PurchaseReconciliation reconciliation = purchaseOrders.reconciliation(order, costing);
+        PurchaseReconciliation reconciliation = purchaseOrders.reconciliation(order, costing, recorded, productsById);
         return new PurchaseOrderView(order, costing, adjustments,
                 PurchaseCostLabels.forOrder(order, supplier), payable, purchaseOrders.attention(order, reconciliation),
                 purchaseOrders.receiptVarianceSummary(order),
                 order.createdBy(), order.createdAt(), purchaseOrders.receiptReports(order),
                 reconciliation,
                 credits ? supplierCredits.views(order.id()) : List.of(),
-                credits ? supplierCredits.offsetsOnto(order.id()) : List.of());
+                credits ? supplierCredits.offsetsOnto(order.id()) : List.of(),
+                PurchaseInvoiceService.views(order, invoicesOfOrder, recorded, invoiceDocsOfOrder),
+                PurchaseInvoiceService.files(invoicesOfOrder, recorded, invoiceDocsOfOrder));
     }
 
     private PurchaseOrderView currentView(long id) {

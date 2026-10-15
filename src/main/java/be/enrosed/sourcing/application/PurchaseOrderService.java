@@ -63,6 +63,9 @@ public class PurchaseOrderService {
     /* Credits the supplier owes ("Tegoed leverancier"); pure unit tests run without. */
     @Inject
     Instance<SourcingRepositories.SupplierCredits> supplierCredits;
+    /* The container's invoices; pure unit tests run without, which reads as none. */
+    @Inject
+    Instance<SourcingRepositories.Invoices> invoices;
     @Inject
     Instance<CurrentActor> actor;
     @Inject
@@ -471,7 +474,9 @@ public class PurchaseOrderService {
                 .withPaymentSplit(changes.payPctOrdered(), changes.payPctShipped(), changes.payPctArrived())
                 .withFreightViaSupplier(changes.freightViaSupplier())
                 /* Form-owned like the tracking reference: where the container is cleared, for the VAT return. */
-                .withClearance(changes.clearance()));
+                .withClearance(changes.clearance())
+                /* Server-owned: set by its own endpoint or by a payment that says so, never by a form save. */
+                .withInspectionViaSupplier(current.inspectionViaSupplier()));
 
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
@@ -679,23 +684,82 @@ public class PurchaseOrderService {
         return payments == null || !payments.isResolvable() ? List.of() : payments.get().forOrder(orderId);
     }
 
-    /** One payment that left the bank, with the container it went to. */
+    /**
+     * One payment that left the bank, with the container it went to. A
+     * payment paid in parts arrives as its parts, each with the group it
+     * belongs to; the invoice is the one it resolves to (named or automatic),
+     * never to be written back as an explicit choice.
+     */
     public record PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
                              BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee,
                              /** The bank line that carried it; null while it is not on the bank yet. */
-                             Long bankStatementLineId) {}
+                             Long bankStatementLineId,
+                             BigDecimal amount, Currency currency, PaymentTerms.Moment instalmentDue, boolean settles,
+                             /** The root of the transfers this payment was split into; null when never split. */
+                             Long groupId,
+                             /** The invoice the payment belongs to after the automatic rule; null when none or ambiguous. */
+                             Long resolvedInvoiceId,
+                             String invoiceNumber,
+                             /** A supplier credit offset: never on the bank, never in need of proof. */
+                             boolean creditOffset) {
+        /** Compatibility for callers written before payments had groups and invoices. */
+        public PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
+                          BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee,
+                          Long bankStatementLineId) {
+            this(id, orderId, orderNumber, orderAlias, paidOn, amountEur, label, payee, bankStatementLineId,
+                    null, null, null, false, null, null, null, false);
+        }
+    }
 
-    /** Every payment on every container from a day on, oldest first: the money side of the bank. */
+    /**
+     * Every payment on every container from a day on, oldest first: the money
+     * side of the bank. Groups arrive whole: a payment paid in parts brings
+     * every part once one of them falls on or after the day, even older ones.
+     */
     public List<PaymentRow> paymentsSince(LocalDate from) {
         if (payments == null || !payments.isResolvable()) return List.of();
         Map<Long, PurchaseOrder> byId = orders.findAll().stream()
                 .collect(java.util.stream.Collectors.toMap(PurchaseOrder::id, java.util.function.Function.identity(), (left, right) -> left));
-        return payments.get().since(from).stream().map(payment -> {
+        Map<Long, PurchasePayment> selected = new java.util.LinkedHashMap<>();
+        for (PurchasePayment payment : payments.get().since(from)) selected.put(payment.id(), payment);
+        if (from != null) {
+            for (Long root : selected.values().stream().map(PurchasePayment::groupId).filter(Objects::nonNull)
+                    .distinct().toList()) {
+                for (PurchasePayment member : payments.get().inGroup(root)) selected.putIfAbsent(member.id(), member);
+            }
+        }
+        List<PurchasePayment> rows = selected.values().stream()
+                .sorted(java.util.Comparator.comparing(PurchasePayment::paidOn)
+                        .thenComparing(PurchasePayment::id)).toList();
+        Map<Long, List<PurchaseInvoice>> invoicesByOrder = invoicesAvailable()
+                ? invoices.get().all().stream().collect(Collectors.groupingBy(PurchaseInvoice::orderId))
+                : Map.of();
+        Set<Long> offsets = supplierCredits == null || !supplierCredits.isResolvable()
+                ? Set.of() : supplierCredits.get().offsetPaymentIds();
+        /* The automatic rule reads the order's other payments (who else is on the same transfer): once per order. */
+        Map<Long, List<PurchasePayment>> paymentsByOrder = new HashMap<>();
+        return rows.stream().map(payment -> {
             PurchaseOrder order = byId.get(payment.orderId());
+            List<PurchaseInvoice> orderInvoices = invoicesByOrder.getOrDefault(payment.orderId(), List.of());
+            Long resolved = orderInvoices.isEmpty() ? null : InvoiceAssignment.resolve(payment, orderInvoices,
+                    paymentsByOrder.computeIfAbsent(payment.orderId(), id -> payments.get().forOrder(id)),
+                    order != null && order.inspectionPaidViaSupplier());
+            String invoiceNumber = resolved == null ? null : orderInvoices.stream()
+                    .filter(invoice -> resolved.equals(invoice.id())).map(PurchaseInvoice::number).findFirst().orElse(null);
             return new PaymentRow(payment.id(), payment.orderId(), order == null ? null : order.number(),
                     order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee(),
-                    payment.bankStatementLineId());
+                    payment.bankStatementLineId(), payment.amount(), payment.currency(), payment.instalmentDue(),
+                    payment.settles(), payment.groupId(), resolved, invoiceNumber, offsets.contains(payment.id()));
         }).toList();
+    }
+
+    /** The invoices of one order; none for a draft or without the repository (pure unit tests). */
+    public List<PurchaseInvoice> invoices(Long orderId) {
+        return orderId == null || !invoicesAvailable() ? List.of() : invoices.get().forOrder(orderId);
+    }
+
+    private boolean invoicesAvailable() {
+        return invoices != null && invoices.isResolvable();
     }
 
     /**
@@ -741,8 +805,26 @@ public class PurchaseOrderService {
     public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
                                       String label, PurchasePayment.Payee payee, boolean settles,
                                       PaymentTerms.Moment instalmentDue, BigDecimal amountEur) {
+        return addPayment(orderId, paidOn, amount, currency, label, payee, settles, instalmentDue, amountEur, null, false);
+    }
+
+    /**
+     * As above, naming the invoice the payment belongs to (null: automatic),
+     * and for an inspection part saying it is paid through the supplier: that
+     * sets the container's flag in the same transaction, before the invoice
+     * is checked, so the supplier's invoice may carry it.
+     */
+    @Transactional
+    public PurchasePayment addPayment(long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                                      String label, PurchasePayment.Payee payee, boolean settles,
+                                      PaymentTerms.Moment instalmentDue, BigDecimal amountEur,
+                                      Long invoiceId, boolean inspectionViaSupplier) {
         PurchaseOrder order = getForUpdate(orderId);
+        if (inspectionViaSupplier && payee == PurchasePayment.Payee.SEPARATE) {
+            order = markInspectionViaSupplier(order);
+        }
         requireInstalmentDue(order, payee, instalmentDue);
+        PurchaseInvoice invoice = invoiceId == null ? null : requireInvoice(order, payee, invoiceId);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
         Currency money = currency == null ? Currency.EUR : currency;
         BigDecimal eur;
@@ -761,7 +843,8 @@ public class PurchaseOrderService {
         PurchasePayment payment = payments.get().save(new PurchasePayment(null, orderId, day,
                 amount.setScale(2, java.math.RoundingMode.HALF_UP), money, eurRounded,
                 label == null || label.isBlank() ? null : label.strip(),
-                currentActor().displayName(), java.time.Instant.now(), to, settles, instalmentDue));
+                currentActor().displayName(), java.time.Instant.now(), to, settles, instalmentDue,
+                null, null, invoiceId));
 
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 appendNote(order.notes(), paymentNoteLine(payment)), order.lines()));
@@ -773,6 +856,7 @@ public class PurchaseOrderService {
                 .add("payment.settles", "Slotbetaling", null, payment.settles() ? "ja" : null)
                 .add("payment.instalmentDue", "Betaaltermijn", null, payment.instalmentDue());
         if (amountEur != null) changes.add("payment.amountEur", "In euro", null, eurRounded);
+        if (invoice != null) changes.add("payment.invoice", "Factuur", null, invoice.number());
         recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
                 "Betaling aan " + to.dutchLabel().toLowerCase(java.util.Locale.ROOT) + " toegevoegd",
                 changes.privateValue("payment.label", "Omschrijving", null, payment.label())
@@ -796,6 +880,59 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Voor een betaling in euro is het eurobedrag gelijk aan het bedrag");
         }
         return amountEur;
+    }
+
+    /**
+     * An invoice a payment names must be one of this order, and of the
+     * payment's payee; a supplier invoice may also carry an inspection paid
+     * through the supplier.
+     */
+    PurchaseInvoice requireInvoice(PurchaseOrder order, PurchasePayment.Payee payee, long invoiceId) {
+        PurchaseInvoice invoice = invoices(order.id()).stream()
+                .filter(candidate -> candidate.id() != null && candidate.id() == invoiceId).findFirst()
+                .orElseThrow(() -> new BusinessRuleException("Deze factuur hoort niet bij deze inkooporder"));
+        PurchasePayment.Payee paymentPayee = payee == null ? PurchasePayment.Payee.SUPPLIER : payee;
+        if (!InvoiceAssignment.mayCarry(invoice, paymentPayee, order.inspectionPaidViaSupplier())) {
+            throw new BusinessRuleException("Deze factuur hoort bij " + invoice.payee().dutchLabel() + ", niet bij "
+                    + paymentPayee.dutchLabel());
+        }
+        return invoice;
+    }
+
+    /**
+     * The inspection is paid through the supplier from now on, or no longer.
+     * Turning it off is refused while an inspection payment names a supplier
+     * invoice: that payment would point at an invoice it may no longer carry.
+     */
+    @Transactional
+    public PurchaseOrder setInspectionViaSupplier(long orderId, boolean value) {
+        PurchaseOrder order = getForUpdate(orderId);
+        if (order.inspectionPaidViaSupplier() == value) return order;
+        if (!value) {
+            List<PurchaseInvoice> orderInvoices = invoices(orderId);
+            boolean named = payments != null && payments.isResolvable() && payments.get().forOrder(orderId).stream()
+                    .anyMatch(payment -> payment.payee() == PurchasePayment.Payee.SEPARATE && payment.invoiceId() != null
+                            && orderInvoices.stream().anyMatch(invoice -> payment.invoiceId().equals(invoice.id())
+                                    && invoice.payee() == PurchasePayment.Payee.SUPPLIER));
+            if (named) {
+                throw new BusinessRuleException("Inspectiebetalingen verwijzen naar een factuur van de leverancier; kies bij die betalingen eerst een andere factuur");
+            }
+        }
+        PurchaseOrder saved = orders.save(order.withInspectionViaSupplier(value));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved,
+                value ? "Inspectie via leverancier aangezet" : "Inspectie via leverancier uitgezet",
+                ActivityChangeSet.create().add("inspectionViaSupplier", "Inspectie via leverancier",
+                        value ? "nee" : "ja", value ? "ja" : "nee").build());
+        return saved;
+    }
+
+    /** Turns the flag on inside a payment write; the caller's activity tells it, plus one line of its own. */
+    private PurchaseOrder markInspectionViaSupplier(PurchaseOrder order) {
+        if (order.inspectionPaidViaSupplier()) return order;
+        PurchaseOrder saved = orders.save(order.withInspectionViaSupplier(true));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inspectie via leverancier aangezet",
+                ActivityChangeSet.create().add("inspectionViaSupplier", "Inspectie via leverancier", "nee", "ja").build());
+        return saved;
     }
 
     /** A plan of one's own adds up to the whole goods value, and every share stays between 0 and 100. */
@@ -926,15 +1063,25 @@ public class PurchaseOrderService {
         PurchaseOrder order = getForUpdate(orderId);
         if (bytes == null || bytes.length == 0) throw new BusinessRuleException("Het bestand is leeg");
         if (bytes.length > 25 * 1024 * 1024) throw new BusinessRuleException("Een bestand mag hoogstens 25 MB zijn");
+        if (paymentId != null && payments != null && payments.isResolvable()
+                && payments.get().forOrder(orderId).stream().noneMatch(payment -> paymentId.equals(payment.id()))) {
+            throw new BusinessRuleException("Deze betaling hoort niet bij deze inkooporder");
+        }
         if (paymentId != null) {
             long proofs = documents.get().forOrder(orderId).stream().filter(d -> paymentId.equals(d.paymentId())).count();
             if (proofs >= 5) throw new BusinessRuleException("Bij één betaling horen hoogstens vijf bewijsstukken");
         } else {
-            /* Every category keeps room for a handful, not an archive. */
+            /* Every category keeps room for a handful, not an archive; invoices for ten (corrections, extra invoices). */
             PurchaseDocument.Kind wanted = kind == null ? PurchaseDocument.Kind.OTHER : kind;
             long inKind = documents.get().forOrder(orderId).stream()
                     .filter(d -> d.paymentId() == null && d.kind() == wanted).count();
-            if (inKind >= 5) throw new BusinessRuleException("Per categorie horen hoogstens vijf bestanden bij een order");
+            boolean invoiceFile = wanted == PurchaseDocument.Kind.COMMERCIAL_INVOICE || wanted == PurchaseDocument.Kind.INVOICE;
+            if (invoiceFile && inKind >= 10) {
+                throw new BusinessRuleException("Per container horen hoogstens tien factuurbestanden");
+            }
+            if (!invoiceFile && inKind >= 5) {
+                throw new BusinessRuleException("Per categorie horen hoogstens vijf bestanden bij een order");
+            }
         }
         String name = filename == null || filename.isBlank() ? "document" : filename.strip();
         String type = contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType;
@@ -972,6 +1119,8 @@ public class PurchaseOrderService {
     public void deleteDocument(long orderId, long documentId) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchaseDocument document = document(orderId, documentId);
+        /* An invoice keeps its number, date and amount without the file. */
+        if (invoicesAvailable()) invoices.get().clearDocument(orderId, documentId);
         documents.get().delete(orderId, documentId);
         unlinkLegacyMedia(MediaLegacySourceType.PURCHASE_DOCUMENT, documentId);
         recordActivity(ActivityLogService.ACTION_DOCUMENT_DELETED, order, "Document verwijderd",
@@ -1121,10 +1270,58 @@ public class PurchaseOrderService {
                                          Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
                                          PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided,
                                          BigDecimal amountEur) {
+        return updatePayment(orderId, paymentId, paidOn, amount, currency, label, payee, settles, instalmentDue,
+                instalmentDueProvided, amountEur, null, false, false);
+    }
+
+    /**
+     * Corrects a payment, optionally naming its invoice ({@code invoiceIdProvided};
+     * null then means automatic, while an omitted invoice keeps the stored
+     * choice). A payment paid in several transfers stays one payment: with
+     * {@code applyToGroup} the description, payee, settlement, term and the
+     * invoice go to every transfer, each keeping its own day and amount;
+     * without it only one transfer's own amount, day and description may
+     * change.
+     */
+    @Transactional
+    public PurchasePayment updatePayment(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                         Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
+                                         PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided,
+                                         BigDecimal amountEur, Long invoiceId, boolean invoiceIdProvided,
+                                         boolean applyToGroup) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchasePayment before = payments.get().forOrder(orderId).stream()
                 .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
                 .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+        List<PurchasePayment> group = before.groupId() == null ? List.of() : payments.get().inGroup(before.groupId());
+        if (!applyToGroup && group.size() >= 2 && (payee != null && payee != before.payee()
+                || instalmentDueProvided && instalmentDue != before.instalmentDue()
+                || settles != before.settles()
+                || invoiceIdProvided && !Objects.equals(invoiceId, before.invoiceId()))) {
+            throw new BusinessRuleException("Deze betaling is verdeeld over " + group.size()
+                    + " transacties; pas de transacties samen aan");
+        }
+        PurchasePayment after = correctPayment(order, before, paidOn, amount, currency, label, payee, settles,
+                instalmentDue, instalmentDueProvided, amountEur, invoiceId, invoiceIdProvided);
+        if (applyToGroup && group.size() >= 2) {
+            for (PurchasePayment member : group) {
+                if (member.id() == null || member.id() == paymentId) continue;
+                /* Each transfer keeps its own day and money, so a linked one passes the bank lock. */
+                correctPayment(getForUpdate(orderId), member, member.paidOn(), member.amount(), member.currency(),
+                        label, payee, settles, instalmentDue, instalmentDueProvided, null, invoiceId, invoiceIdProvided);
+            }
+        }
+        return after;
+    }
+
+    /** One payment corrected in place, with its diary line and its own activity. */
+    private PurchasePayment correctPayment(PurchaseOrder order, PurchasePayment before, LocalDate paidOn,
+                                           BigDecimal amount, Currency currency, String label,
+                                           PurchasePayment.Payee payee, boolean settles,
+                                           PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided,
+                                           BigDecimal amountEur, Long invoiceId, boolean invoiceIdProvided) {
+        long orderId = order.id();
+        long paymentId = before.id();
         PaymentTerms.Moment due = instalmentDueProvided ? instalmentDue : before.instalmentDue();
         requireInstalmentDue(order, payee == null ? before.payee() : payee, due);
         if (amount == null || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
@@ -1137,6 +1334,19 @@ public class PurchaseOrderService {
                 || payee != null && payee != before.payee())) {
             throw new BusinessRuleException("Deze betaling is een verrekend tegoed van "
                     + orderNumber(offsetCredit.orderId()) + "; maak de verrekening daar ongedaan");
+        }
+        PurchasePayment.Payee to = payee == null ? before.payee() : payee;
+        List<PurchaseInvoice> orderInvoices = invoices(orderId);
+        Long chosenInvoice;
+        if (invoiceIdProvided) {
+            chosenInvoice = invoiceId;
+            if (invoiceId != null) requireInvoice(order, to, invoiceId);
+        } else {
+            Long stored = before.invoiceId();
+            /* Moved to another payee: an invoice it may no longer carry goes back to automatic. */
+            boolean carried = stored == null || to == before.payee() || orderInvoices.stream().anyMatch(invoice ->
+                    stored.equals(invoice.id()) && InvoiceAssignment.mayCarry(invoice, to, order.inspectionPaidViaSupplier()));
+            chosenInvoice = carried ? stored : null;
         }
         // Date, label, recipient and settlement corrections never revalue an
         // existing bank movement at an exchange rate edited since registration.
@@ -1156,9 +1366,9 @@ public class PurchaseOrderService {
                 paidOn != null ? paidOn : before.paidOn(),
                 recordedAmount, money, eur.setScale(2, java.math.RoundingMode.HALF_UP),
                 label == null || label.isBlank() ? null : label.strip(),
-                before.actor(), before.recordedAt(), payee == null ? before.payee() : payee, settles, due,
-                /* The bank line that carried it is the bank's to set; a correction keeps it. */
-                before.bankStatementLineId()));
+                before.actor(), before.recordedAt(), to, settles, due,
+                /* The bank line that carried it is the bank's to set; a correction keeps it, and its group. */
+                before.bankStatementLineId(), before.groupId(), chosenInvoice));
         String notes = appendNote(removeNoteLine(order.notes(), paymentNoteLine(before)), paymentNoteLine(after));
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
                 notes, order.lines()));
@@ -1174,12 +1384,21 @@ public class PurchaseOrderService {
                 .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
                 .add("payment.payee", "Begunstigde", before.payee().dutchLabel(), after.payee().dutchLabel())
                 .add("payment.settles", "Slotbetaling", before.settles() ? "ja" : "nee", after.settles() ? "ja" : "nee")
-                .add("payment.instalmentDue", "Betaaltermijn", before.instalmentDue(), after.instalmentDue());
+                .add("payment.instalmentDue", "Betaaltermijn", before.instalmentDue(), after.instalmentDue())
+                .add("payment.invoice", "Factuur", invoiceNumber(orderInvoices, before.invoiceId()),
+                        invoiceNumber(orderInvoices, after.invoiceId()));
         if (amountEur != null) changes.add("payment.amountEur", "In euro", before.amountEur(), after.amountEur());
         recordActivity(ActivityLogService.ACTION_UPDATED, order, "Betaling gewijzigd",
                 changes.privateValue("payment.label", "Omschrijving", before.label(), after.label())
                         .build());
         return after;
+    }
+
+    /** The number of a named invoice for the activity log; "automatisch" without a choice. */
+    private static String invoiceNumber(List<PurchaseInvoice> orderInvoices, Long invoiceId) {
+        if (invoiceId == null) return "automatisch";
+        return orderInvoices.stream().filter(invoice -> invoiceId.equals(invoice.id()))
+                .map(PurchaseInvoice::number).findFirst().orElse("factuur #" + invoiceId);
     }
 
     @Transactional
@@ -1193,6 +1412,7 @@ public class PurchaseOrderService {
         }
         PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
+        regroupAfterDelete(orderId, payment);
         /* The diary line the payment wrote goes with it. */
         String cleaned = removeNoteLine(order.notes(), paymentNoteLine(payment));
         if (!java.util.Objects.equals(cleaned, order.notes())) {
@@ -1207,6 +1427,183 @@ public class PurchaseOrderService {
                         .add("payment.date", "Betaald op", payment.paidOn(), null)
                         .add("payment.payee", "Begunstigde", payment.payee().dutchLabel(), null)
                         .build());
+    }
+
+    /** One transfer of a payment paid in parts: its amount in the payment's currency, its euro value, its day. */
+    public record PaymentPart(BigDecimal amount, BigDecimal amountEur, LocalDate paidOn) {}
+
+    /**
+     * Splits one payment that is not on the bank yet into transfers, one row
+     * each, so every transfer keeps its own bank day (what the year-end
+     * closing reads). The first part keeps the payment's id, and with it its
+     * proof files, its offset links and its frozen closing references; the
+     * others are new rows. Every part keeps the payee, term, settlement,
+     * description and invoice, and joins the payment's group. The bank links
+     * are the caller's: this only writes the payments and the diary.
+     */
+    @Transactional
+    public List<PurchasePayment> splitPayment(long orderId, long paymentId, List<PaymentPart> parts) {
+        return splitPayment(orderId, paymentId, parts,
+                "Betaling verdeeld over " + (parts == null ? 0 : parts.size()) + " banktransacties");
+    }
+
+    @Transactional
+    public List<PurchasePayment> splitPayment(long orderId, long paymentId, List<PaymentPart> parts, String summary) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment original = storedPayment(orderId, paymentId);
+        if (original.bankStatementLineId() != null) {
+            throw new BusinessRuleException("Deze betaling staat al op de bank; maak de koppeling eerst los");
+        }
+        if (offsetCreditFor(paymentId).isPresent()) {
+            throw new BusinessRuleException("Een verrekend leverancierstegoed is geen bankbetaling");
+        }
+        if (parts == null || parts.size() < 2 || parts.size() > 10) {
+            throw new BusinessRuleException("Kies één tot tien banktransacties");
+        }
+        BigDecimal amount = BigDecimal.ZERO;
+        BigDecimal amountEur = BigDecimal.ZERO;
+        for (PaymentPart part : parts) {
+            if (part == null || part.paidOn() == null || part.amount() == null || part.amountEur() == null
+                    || part.amount().signum() <= 0 || part.amountEur().signum() <= 0) {
+                throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
+            }
+            amount = amount.add(part.amount());
+            amountEur = amountEur.add(part.amountEur());
+        }
+        /* The stored totals never change by a split, to the cent. */
+        if (amount.compareTo(original.amount()) != 0 || amountEur.compareTo(original.amountEur()) != 0) {
+            throw new BusinessRuleException("De delen moeten samen de betaling zijn");
+        }
+        long root = original.groupRoot();
+        List<PurchasePayment> saved = new ArrayList<>();
+        PaymentPart first = parts.getFirst();
+        saved.add(payments.get().save(new PurchasePayment(original.id(), orderId, first.paidOn(),
+                money(first.amount()), original.currency(), money(first.amountEur()), original.label(),
+                original.actor(), original.recordedAt(), original.payee(), original.settles(), original.instalmentDue(),
+                null, root, original.invoiceId())));
+        String actorName = currentActor().displayName();
+        Instant now = Instant.now();
+        for (PaymentPart part : parts.subList(1, parts.size())) {
+            saved.add(payments.get().save(new PurchasePayment(null, orderId, part.paidOn(), money(part.amount()),
+                    original.currency(), money(part.amountEur()), original.label(), actorName, now, original.payee(),
+                    original.settles(), original.instalmentDue(), null, root, original.invoiceId())));
+        }
+        String notes = removeNoteLine(order.notes(), paymentNoteLine(original));
+        for (PurchasePayment part : saved) notes = appendNote(notes, paymentNoteLine(part));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                notes, order.lines()));
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, summary, ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", original.amount(), saved.getFirst().amount())
+                .add("payment.date", "Betaald op", original.paidOn(), saved.getFirst().paidOn())
+                .add("payment.parts", "Transacties", null, saved.size())
+                .build());
+        return saved;
+    }
+
+    /**
+     * A payment that goes onto a bank line takes the line's day: one row is
+     * one transfer on the bank's day. Its diary line follows; nothing else
+     * changes. Unchanged when the day already agrees.
+     */
+    @Transactional
+    public PurchasePayment redatePayment(long orderId, long paymentId, LocalDate day, String summary) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment before = storedPayment(orderId, paymentId);
+        if (day == null || day.equals(before.paidOn())) return before;
+        PurchasePayment after = payments.get().save(new PurchasePayment(before.id(), orderId, day, before.amount(),
+                before.currency(), before.amountEur(), before.label(), before.actor(), before.recordedAt(),
+                before.payee(), before.settles(), before.instalmentDue(), before.bankStatementLineId(),
+                before.groupId(), before.invoiceId()));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                replaceNoteLine(order.notes(), paymentNoteLine(before), paymentNoteLine(after)), order.lines()));
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, summary, ActivityChangeSet.create()
+                .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
+                .build());
+        return after;
+    }
+
+    /**
+     * Splits the inspection paid through the supplier off a goods payment: the
+     * goods payment keeps its id, bank line, group, term, settlement, invoice
+     * and day and is lowered by the part; a new inspection payment (Inspectie
+     * & andere kosten) takes the part on the same day and the same bank line,
+     * so the transfer's total stays what the bank says. The container's flag
+     * goes on. Both rows are written as they are, not through the correction
+     * flow: this is the one write that changes a linked payment's money, and
+     * only with the line total unchanged. The caller checks the amounts.
+     */
+    @Transactional
+    public List<PurchasePayment> splitInspection(long orderId, long paymentId, BigDecimal part, BigDecimal partEur,
+                                                 String label) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment goods = storedPayment(orderId, paymentId);
+        if (goods.payee() != PurchasePayment.Payee.SUPPLIER || goods.instalmentDue() == PaymentTerms.Moment.FREIGHT
+                || offsetCreditFor(paymentId).isPresent()) {
+            throw new BusinessRuleException("Splits de inspectie af van een goederenbetaling aan de leverancier");
+        }
+        if (part == null || partEur == null || part.signum() <= 0 || partEur.signum() <= 0) {
+            throw new BusinessRuleException("Geef een inspectiebedrag groter dan nul op");
+        }
+        if (part.compareTo(goods.amount()) >= 0 || partEur.compareTo(goods.amountEur()) >= 0) {
+            throw new BusinessRuleException("Het inspectiedeel moet kleiner zijn dan de betaling ("
+                    + describeMoney(goods.amountEur(), Currency.EUR) + ")");
+        }
+        PurchasePayment lowered = payments.get().save(new PurchasePayment(goods.id(), orderId, goods.paidOn(),
+                money(goods.amount().subtract(part)), goods.currency(), money(goods.amountEur().subtract(partEur)),
+                goods.label(), goods.actor(), goods.recordedAt(), goods.payee(), goods.settles(), goods.instalmentDue(),
+                goods.bankStatementLineId(), goods.groupId(), goods.invoiceId()));
+        String name = label != null && !label.isBlank() ? label.strip()
+                : (goods.label() == null ? "Betaling" : goods.label()) + " · inspectie";
+        PurchasePayment inspection = payments.get().save(new PurchasePayment(null, orderId, goods.paidOn(),
+                money(part), goods.currency(), money(partEur), name.length() > 255 ? name.substring(0, 255) : name,
+                currentActor().displayName(), Instant.now(), PurchasePayment.Payee.SEPARATE, false, null,
+                goods.bankStatementLineId(), null, null));
+        boolean flagChanged = !order.inspectionPaidViaSupplier();
+        String notes = appendNote(replaceNoteLine(order.notes(), paymentNoteLine(goods), paymentNoteLine(lowered)),
+                paymentNoteLine(inspection));
+        PurchaseOrder flagged = order.withInspectionViaSupplier(true);
+        orders.save(flagged.withReceipt(flagged.status(), flagged.receivedOn(), flagged.paidTotalEur(),
+                flagged.stockBooked(), notes, flagged.lines()));
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", goods.amount(), lowered.amount())
+                .add("payment.inspection", "Inspectie via leverancier", null, inspection.amount());
+        if (flagChanged) changes.add("inspectionViaSupplier", "Inspectie via leverancier", "nee", "ja");
+        recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
+                "Inspectie via leverancier afgesplitst van de betaling aan de leverancier", changes.build());
+        return List.of(lowered, inspection);
+    }
+
+    private PurchasePayment storedPayment(long orderId, long paymentId) {
+        return payments.get().forOrder(orderId).stream()
+                .filter(candidate -> candidate.id() != null && candidate.id() == paymentId)
+                .findFirst().orElseThrow(() -> new NotFoundException("Betaling", paymentId));
+    }
+
+    private static BigDecimal money(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * A transfer of a payment paid in parts is gone: its files go to the
+     * lowest remaining transfer (or to the container when none is left), a
+     * single remaining transfer is a plain payment again, and a group that
+     * lost its root is named after its lowest remaining transfer. So a group
+     * id always names a member that carries it.
+     */
+    private void regroupAfterDelete(long orderId, PurchasePayment deleted) {
+        List<PurchasePayment> remaining = deleted.groupId() == null ? List.of()
+                : payments.get().inGroup(deleted.groupId()).stream()
+                        .filter(member -> !Objects.equals(member.id(), deleted.id())).toList();
+        Long lowest = remaining.stream().map(PurchasePayment::id).filter(Objects::nonNull)
+                .min(Long::compare).orElse(null);
+        if (documents != null && documents.isResolvable()) {
+            documents.get().reassignPayment(orderId, deleted.id(), lowest);
+        }
+        if (remaining.size() == 1) {
+            payments.get().setGroup(List.of(remaining.getFirst().id()), null);
+        } else if (remaining.size() >= 2 && Objects.equals(deleted.id(), deleted.groupId())) {
+            payments.get().setGroup(remaining.stream().map(PurchasePayment::id).toList(), lowest);
+        }
     }
 
     /**
@@ -1744,6 +2141,8 @@ public class PurchaseOrderService {
             throw new BusinessRuleException("Deze inkooporder heeft geregistreerde betalingen; archiveer de container zodat de betaalhistorie behouden blijft");
         if (!supplierCredits(order.id()).isEmpty())
             throw new BusinessRuleException("Deze inkooporder heeft een tegoed van de leverancier; archiveer de container zodat het tegoed behouden blijft");
+        if (!invoices(order.id()).isEmpty())
+            throw new BusinessRuleException("Deze inkooporder heeft geregistreerde facturen; archiveer de container zodat de facturen behouden blijven");
     }
 
     /**

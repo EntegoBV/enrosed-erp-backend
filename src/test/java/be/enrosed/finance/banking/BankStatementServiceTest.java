@@ -597,6 +597,20 @@ class BankStatementServiceTest {
         assertTrue(parties.list().stream().noneMatch(party->"Bloemen BV".equals(party.name())),"a customer who pays is no payee");
     }
 
+    @Test @TestTransaction void aCreditOffsetNeverGetsAManualBankMovement() {
+        var order=container();
+        var offset=purchases.addPayment(order.id(),LocalDate.of(2026,9,8),BigDecimal.ONE,Currency.EUR,"Verrekend tegoed");
+        var credit=new be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseSupplierCreditEntity();
+        credit.orderId=order.id();credit.notedOn=LocalDate.of(2026,9,8);credit.amount=BigDecimal.ONE;credit.currency=Currency.EUR;
+        credit.amountEur=BigDecimal.ONE;credit.reason=be.enrosed.sourcing.domain.PurchaseSupplierCredit.Reason.PRICE;
+        credit.status=be.enrosed.sourcing.domain.PurchaseSupplierCredit.Status.OFFSET;credit.offsetOrderId=order.id();
+        credit.offsetPaymentId=offset.id();credit.recordedAt=Instant.now();
+        em.persist(credit);em.flush();
+        var refusal=assertThrows(BusinessRuleException.class,()->bank.create(linked("offset-line",java.util.List.of(offset.id()),null)));
+        assertEquals("Een verrekend leverancierstegoed is geen bankbetaling",refusal.getMessage());
+        assertNull(purchases.payments(order.id()).getFirst().bankStatementLineId(),"the refusal undoes the movement with its link");
+    }
+
     private BankStatementService.ManualRequest linked(String requestId,java.util.List<Long> paymentIds,Long costId) {
         return new BankStatementService.ManualRequest("KBC",BigDecimal.ONE,BankStatementService.Direction.OUTGOING,AT,"Europe/Brussels","Nogmaals","Pay Co",requestId,paymentIds,costId);
     }

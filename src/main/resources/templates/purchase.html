@@ -393,6 +393,7 @@
       <div class="card__title card__title--follow">Stand</div>
       <table class="mini">
         <tr><td>Betaald aan leverancier</td><td class="r">{payableView.paidSupplier}</td></tr>
+        {#if payableView.paidInspectionViaSupplier}<tr><td>Inspectie via leverancier <span class="tiny">zelfde transactie</span></td><td class="r">{payableView.paidInspectionViaSupplier}</td></tr>{/if}
         <tr><td>Betaald douane &amp; transport</td><td class="r">{payableView.paidLogistics}</td></tr>
         <tr class="mini__grand">
           <td>{#if payableView.overpaid}Te veel betaald{#else}Open bij leverancier{/if}</td>

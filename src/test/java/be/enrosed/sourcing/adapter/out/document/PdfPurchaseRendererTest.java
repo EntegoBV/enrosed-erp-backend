@@ -215,6 +215,24 @@ class PdfPurchaseRendererTest {
         assertFalse(PdfPurchaseRenderer.payableView(List.of(), new be.enrosed.sourcing.application.PurchaseOrderService.Payable(
                 new BigDecimal("1200.00"), BigDecimal.ZERO, BigDecimal.ZERO, true, true)).cif(), "DDP is no CIF");
 
+        /* The inspection paid to the supplier in a goods transfer (or not on the bank yet); a lab fee on its own transfer is not. */
+        var day = LocalDate.of(2026, 9, 3);
+        var goods = new be.enrosed.sourcing.domain.PurchasePayment(11L, 1L, day, new BigDecimal("10000"), Currency.EUR,
+                new BigDecimal("10000"), "Goederen", null, null, be.enrosed.sourcing.domain.PurchasePayment.Payee.SUPPLIER,
+                false, null, 610L);
+        var inspection = new be.enrosed.sourcing.domain.PurchasePayment(12L, 1L, day, new BigDecimal("300"), Currency.EUR,
+                new BigDecimal("300"), "Inspectie", null, null, be.enrosed.sourcing.domain.PurchasePayment.Payee.SEPARATE,
+                false, null, 610L);
+        var lab = new be.enrosed.sourcing.domain.PurchasePayment(13L, 1L, day, new BigDecimal("50"), Currency.EUR,
+                new BigDecimal("50"), "Labo", null, null, be.enrosed.sourcing.domain.PurchasePayment.Payee.SEPARATE,
+                false, null, 611L);
+        var ledger = List.of(goods, inspection, lab);
+        assertEquals(be.enrosed.shared.DocumentFormat.eur(new BigDecimal("300")),
+                PdfPurchaseRenderer.payableView(ledger, payable, null, true).paidInspectionViaSupplier());
+        assertNull(PdfPurchaseRenderer.payableView(ledger, payable, null, false).paidInspectionViaSupplier());
+        assertNull(PdfPurchaseRenderer.payableView(List.of(goods, lab), payable, null, true).paidInspectionViaSupplier(),
+                "no inspection travelled with the goods");
+
         var freight = new be.enrosed.sourcing.domain.PurchasePayment(1L, 1L, LocalDate.of(2026, 9, 1),
                 new BigDecimal("300"), Currency.EUR, new BigDecimal("300"), "Zeevracht", null, null,
                 be.enrosed.sourcing.domain.PurchasePayment.Payee.SUPPLIER, false,

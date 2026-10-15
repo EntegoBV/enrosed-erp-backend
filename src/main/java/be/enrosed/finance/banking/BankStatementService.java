@@ -407,6 +407,9 @@ public class BankStatementService {
             var payment=paymentId==null?null:em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
             if(payment.bankStatementLineId!=null)throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
+            // A credit offset never left the bank: no manual movement may carry it either.
+            if(em.createQuery("select count(c) from be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseSupplierCreditEntity c where c.offsetPaymentId=:id",Long.class).setParameter("id",paymentId).getSingleResult()>0)
+                throw new BusinessRuleException("Een verrekend leverancierstegoed is geen bankbetaling");
             payment.bankStatementLineId=row.id;
         }
         if(costPaymentId!=null) {
@@ -465,7 +468,7 @@ public class BankStatementService {
         catch(RuntimeException failure) { LOG.debug("De lijst Aan wie leerde de bankbeweging niet: "+failure.getMessage(),failure); }
     }
     private BankStatementLineEntity get(long id,boolean lock) {var row=lock?em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE):em.find(BankStatementLineEntity.class,id);if(row==null)throw new NotFoundException("Bankbeweging",id);return row;}
-    private void audit(BankStatementLineEntity row,String text){activity.record(ActivityLogService.ACTION_UPDATED,"BANK_STATEMENT",row.id.toString(),row.account+" · "+row.amountEur,text);}
+    void audit(BankStatementLineEntity row,String text){activity.record(ActivityLogService.ACTION_UPDATED,"BANK_STATEMENT",row.id.toString(),row.account+" · "+row.amountEur,text);}
     private static String account(String value){String account=IncomingPaymentService.normalizeAccount(value);if(account==null)throw new BusinessRuleException("Kies de bankrekening van deze beweging");return account;}
     private static String limited(String text,int length){if(text==null)return "";text=text.strip();if(text.length()>length)throw new BusinessRuleException("Een tekstveld is te lang (maximaal "+length+")");return text;}
     private static String hash(String text){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));}catch(Exception failure){throw new IllegalStateException(failure);}}

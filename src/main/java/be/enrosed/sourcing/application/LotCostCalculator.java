@@ -89,15 +89,54 @@ public class LotCostCalculator {
      */
     public static List<PurchasePayment> normalised(PurchaseOrder order, List<PurchasePayment> payments) {
         if (payments == null) return List.of();
-        return payments.stream().filter(java.util.Objects::nonNull).map(payment -> {
+        List<PurchasePayment> present = payments.stream().filter(java.util.Objects::nonNull).toList();
+        Map<Long, BigDecimal> groupValues = groupValues(order, present);
+        return present.stream().map(payment -> {
             boolean foreign = payment.currency() != null && payment.currency() != Currency.EUR;
-            BigDecimal value = foreign && payment.amount() != null
+            BigDecimal value = groupValues.containsKey(payment.id()) ? groupValues.get(payment.id())
+                    : foreign && payment.amount() != null
                     ? Money.money(atContainerRate(order, payment.payee(), payment.amount(), payment.currency()))
                     : payment.amountEur();
+            /* The canonical copy: the bank line, the group and the invoice stay on it. */
             return new PurchasePayment(payment.id(), payment.orderId(), payment.paidOn(), payment.amount(),
                     payment.currency(), value, payment.label(), payment.actor(), payment.recordedAt(),
-                    payment.payee(), payment.settles(), payment.instalmentDue());
+                    payment.payee(), payment.settles(), payment.instalmentDue(), payment.bankStatementLineId(),
+                    payment.groupId(), payment.invoiceId());
         }).toList();
+    }
+
+    /**
+     * A foreign payment paid in several transfers is valued as one: every part
+     * but the last at the container rate, the last takes the rest of the
+     * whole, so a split never moves what is still owed by a cent.
+     */
+    private static Map<Long, BigDecimal> groupValues(PurchaseOrder order, List<PurchasePayment> payments) {
+        Map<Long, List<PurchasePayment>> groups = new LinkedHashMap<>();
+        for (PurchasePayment payment : payments) {
+            if (payment.groupId() == null || payment.id() == null || payment.amount() == null) continue;
+            groups.computeIfAbsent(payment.groupId(), root -> new ArrayList<>()).add(payment);
+        }
+        Map<Long, BigDecimal> values = new java.util.HashMap<>();
+        for (List<PurchasePayment> members : groups.values()) {
+            Currency money = members.getFirst().currency() == null ? Currency.EUR : members.getFirst().currency();
+            boolean shared = members.stream().allMatch(member -> (member.currency() == null ? Currency.EUR
+                    : member.currency()) == money && member.payee() == members.getFirst().payee());
+            if (members.size() < 2 || money == Currency.EUR || !shared) continue;
+            List<PurchasePayment> ordered = members.stream()
+                    .sorted(Comparator.comparing(PurchasePayment::paidOn, Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(PurchasePayment::id)).toList();
+            Payee payee = ordered.getFirst().payee();
+            BigDecimal whole = Money.money(atContainerRate(order, payee,
+                    ordered.stream().map(PurchasePayment::amount).reduce(BigDecimal.ZERO, BigDecimal::add), money));
+            BigDecimal others = ZERO;
+            for (int i = 0; i < ordered.size() - 1; i++) {
+                BigDecimal value = Money.money(atContainerRate(order, payee, ordered.get(i).amount(), money));
+                values.put(ordered.get(i).id(), value);
+                others = others.add(value);
+            }
+            values.put(ordered.getLast().id(), whole.subtract(others));
+        }
+        return values;
     }
 
     public LotCost.Container calculate(LotCost.Input input) {
