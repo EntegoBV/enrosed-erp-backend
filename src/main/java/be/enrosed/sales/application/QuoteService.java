@@ -917,17 +917,32 @@ public class QuoteService {
 
     /** The list-screen variant: one query for all orders at once. */
     public Set<Long> awaitsResendIds(List<SalesOrder> orders) {
+        if (orders.stream().noneMatch(QuoteService::mayAwaitResend)) return Set.of();
+        return awaitsResendSince(orders, revisions.findApproved()).keySet();
+    }
+
+    /**
+     * The same answer with the moment the customer started waiting: per
+     * concept quote, the latest adoption of a proposal after its last send.
+     * Static so the bell feed reads it with its own revisions, without a
+     * QuoteService of its own.
+     */
+    static Map<Long, Instant> awaitsResendSince(List<SalesOrder> orders, List<QuoteRevision> approved) {
         Map<Long, SalesOrder> concepts = orders.stream()
-                .filter(order -> order.status() == QuoteStatus.CONCEPT && order.id() != null)
+                .filter(QuoteService::mayAwaitResend)
                 .collect(java.util.stream.Collectors.toMap(SalesOrder::id, order -> order));
-        if (concepts.isEmpty()) return Set.of();
-        return revisions.findApproved().stream()
-                .filter(revision -> {
-                    SalesOrder order = concepts.get(revision.salesOrderId());
-                    return order != null && adoptedAfterLastSend(order, revision);
-                })
-                .map(QuoteRevision::salesOrderId)
-                .collect(java.util.stream.Collectors.toSet());
+        Map<Long, Instant> since = new java.util.HashMap<>();
+        if (concepts.isEmpty()) return since;
+        for (QuoteRevision revision : approved) {
+            SalesOrder order = concepts.get(revision.salesOrderId());
+            if (order == null || !adoptedAfterLastSend(order, revision)) continue;
+            since.merge(order.id(), revision.handledAt(), (a, b) -> a.isAfter(b) ? a : b);
+        }
+        return since;
+    }
+
+    private static boolean mayAwaitResend(SalesOrder order) {
+        return order.status() == QuoteStatus.CONCEPT && order.id() != null;
     }
 
     private static boolean adoptedAfterLastSend(SalesOrder order, QuoteRevision revision) {

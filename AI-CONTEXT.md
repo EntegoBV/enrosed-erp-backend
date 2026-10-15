@@ -130,6 +130,16 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   answer with Wijzigen (take over, then adjust), Overnemen (take over as
   asked) or Afwijzen. The customer only sees "verwerkt" after we actually
   RE-SEND the quote - never automatically ("honest revision status").
+- **The bell** (`NotificationService.feed()`, `GET /api/notifications`) is
+  computed from the documents, no table. Its action items are the ERP's one
+  set of "customers waiting": WEBSITE_AANVRAAG, LEVERTERMIJN, VRACHT,
+  VOORSTEL and, since 2026-10-16, OPNIEUW_VERSTUREN ("Wijziging nog
+  versturen": an adopted proposal not sent again, `at` = the latest
+  adoption). That last one is the sales list's `awaitingResend`, read
+  through the same static `QuoteService.awaitsResendSince`, and it replaces
+  the website item of the same document: one item per document. The ERP
+  badge, the Verkoop count and the home's "Klanten wachten" all read
+  `actionCount`.
 - Delivery terms and freight are three-state: TE_BEPALEN / AANGEVULD /
   known. A second send whose news is the filled-in delivery term says so
   in the mail subject instead of looking like a duplicate mail.
