@@ -1438,3 +1438,90 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   or competing requests return coded 409. Normal validation is 422 on this endpoint.
   The request ID is transport-only. Attachments are uploaded afterwards to the returned
   cost, preserving its identity on upload retry. See the integration document for details.
+
+## Inkoopfacturen, betaalbewijs en betalingen in delen (2026-10-15)
+
+Emre's round of 2026-10-14 (answers 2026-10-15): one commercial invoice per container that every
+payment term points at, the bank transaction as the payment proof, a container paid in several
+transfers, the inspection paid to the supplier in the goods' transfer, and per set / per stuk in
+the nacalculatie.
+
+- **Invoices** (`purchase_invoice`, `PurchaseInvoiceEntity` in its own file, `PurchaseInvoice`,
+  `PurchaseInvoiceService`, `/api/purchase-orders/{id}/invoices` GET/POST/PUT/DELETE): payee
+  stream, number, date, amount + currency + `amountEur` (given for a foreign invoice, else
+  `LotCostCalculator.atContainerRate` for that payee; a result of zero is refused), optional
+  `documentId` (the file is uploaded first through the documents endpoint, kind
+  COMMERCIAL_INVOICE for the supplier, `INVOICE` "Factuur" otherwise), notes. Up to twenty per
+  container. Writes lock the order and leave an activity record; no diary line. Invoices never
+  become a company cost, never go to Odoo, never enter the VAT return or the accountant export.
+  A second invoice of a payee is **extra on top** (adds up against the Afspraak); a correction is
+  edited on the invoice itself; a supplier credit note stays a supplier credit. An order with
+  invoices cannot be deleted (archive it). Deleting the file keeps the invoice data; deleting the
+  invoice puts its payments back on automatic and keeps the file.
+- **Which invoice a payment belongs to** (`InvoiceAssignment.resolve`, pure): the invoice the
+  payment names (`purchase_payment.invoice_id`, explicit; null = automatic) when it is one of the
+  order; else the payee's only invoice (two or more: none, the screen asks); else, for a SEPARATE
+  payment that is `viaSupplier` (container flag on, and not on the bank yet or on a line that
+  also carries a SUPPLIER payment of the order), the supplier's **primary** invoice. The primary
+  is the payee's first registered invoice (lowest id): adding or redating a later invoice never
+  moves it. Adding the second invoice of a payee **pins** the payments that resolved to the first
+  one automatically (`Payments.setInvoice`), so an extra invoice never moves existing payments.
+  A named invoice must be of the order and of the payee (a supplier invoice may carry an
+  inspection only with the flag on); moving a payment to another payee silently clears a named
+  invoice it may no longer carry. `PurchaseOrderView.invoices` carry `primary`,
+  `coversInspection`, `paymentIds` and `paidEur`; `invoiceFiles` lists invoice files no invoice
+  holds yet (COMMERCIAL_INVOICE, INVOICE, OTHER labelled Factuur / Factuur inspectie / Factuur
+  transport) for "Gegevens invullen". The list endpoint reads invoices, invoice documents and
+  products once for all containers (Kosten & bank reads it).
+- **Betaalbewijs**: the bank link is the proof (the ERP decides); `PAYMENT_PROOF` reads
+  "Betaalbewijs". COMMERCIAL_INVOICE and INVOICE files are never proof. A credit offset is never
+  a bank payment: `BankStatementService.link()` (manual movement) now refuses it like
+  `linkExisting`, and `GET /api/purchase-payments` marks it `creditOffset`.
+- **Payments in parts**: one `purchase_payment` row stays one transfer on its own bank day (what
+  closings read). `group_id` = the id of the payment that was split, on every member (root
+  included); null when never split. Invariant: a non-null `group_id` names an existing member
+  that carries it. Deleting a member moves its files to the lowest remaining member (or to the
+  container), a single remaining member loses its group, deleting the root re-roots the rest on
+  the lowest remaining id (`Payments.setGroup`). Every in-place save of a payment carries the
+  stored `groupId` and `invoiceId` (the 13-arg constructor is for new rows and read-only copies
+  only; `LotCostCalculator.normalised` copies canonically). A PUT on a member of a group of two
+  or more that changes payee, term, settles or invoice is refused ("Deze betaling is verdeeld
+  over {n} transacties; pas de transacties samen aan") unless `applyToGroup: true`, which applies
+  label, payee, settles, term and invoice to every member with that member's own day and money.
+- **Split endpoints** (`PurchasePaymentSplitResource`, `/api/purchase-payment-splits/{paymentId}`;
+  a prefix of their own so they never shadow the sourcing payment routes): `bank-lines` (C1, a
+  payment over 1-10 free outgoing lines that make its amount under `BankAmountMatch`; one line =
+  no split), `bank-part` (C2, a whole match, or a smaller line carved out with the rest left open
+  in the group), `inspection` (D, the inspection split off a goods payment on the same line, line
+  total unchanged, flag on, audit on the line). One transaction each; lock order is the bank
+  service's (lines ascending, then the order, then the payment rows); links go through
+  `linkExisting`, whose guards run per line unchanged. A part that goes onto a line takes the
+  line's local day first (diary line replaced). Identical retries return the same group without
+  writing; D needs `expectedAmountEur` for that. `linkExisting` (`/links`) itself is unchanged:
+  a payment linked there keeps its date. Foreign parts are pro rata unless every amount is given;
+  `normalised` values a foreign group together so a split never moves what is still owed.
+- **Inspection via supplier** (`purchase_order.inspection_via_supplier`, null = no):
+  server-owned like the archive. `PUT /api/purchase-orders/{id}/inspection-via-supplier`
+  `{value}`; a SEPARATE payment write with `inspectionViaSupplier: true` (also a bank transfer
+  part) sets it first. A form save keeps the stored value, a preview shows the stored value, a
+  copy starts without. Turning it off is refused while a SEPARATE payment names a supplier
+  invoice. The internal purchase PDF lists "Inspectie via leverancier · zelfde transactie".
+- **Per set / per stuk** (`ReconciliationUnits`, applied in `PurchaseOrderService.reconciliation`
+  with the products; the list endpoint and `LotCostService` pass the map they already hold):
+  `Line` gains `salesUnit` (DISPLAY when sold as a display, else PIECE), `piecesPerUnit`,
+  `unitKey`/`unitOne`/`unitOther`, `pieceQuantity`, `forecastExternalPieceEur`,
+  `forecastPricingPieceEur`; `Totals` gains `setBasis` (PIECE, DISPLAY only when every line is a
+  set of one size and piece name, else MIXED), `setPieces`, `setUnitOther`, piece quantities and
+  the container average per piece. `unitCostQuantity`, `forecastExternalUnitEur` and the other
+  existing quantities keep their **sales-unit** meaning: sales and partner settlements multiply
+  them with sales quantities. The payments PDF prints "Aantal", "/set" + "/stuk" and the mixed
+  average per piece.
+- Not removed on unlink (Codex's area, noted only): a `bank_cost_registration` receipt keeps a
+  line answering 409 after an unlink.
+- Migrations `2026-10-15/purchase-invoice-postgresql.sql` (table, two payment columns, the order
+  flag, indexes; no backfill) and `purchase-document-invoice-kind-postgresql.sql` (the kind check
+  learns INVOICE) run after `bank-cost-registration-postgresql.sql`; dev H2 widens
+  `purchase_document.kind` in `AllocationDevSchemaFix`. **Rollout: backend first**, wait until
+  Railway serves it (a purchase order answer carries `invoices`), then the ERP; the ERP hides
+  every new action against a server without this round. Payments that were "bewezen" only by an
+  invoice file read "geen betaalbewijs" until their bank transaction is linked.
