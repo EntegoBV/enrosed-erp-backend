@@ -1515,8 +1515,8 @@ the nacalculatie.
   set of one size and piece name, else MIXED), `setPieces`, `setUnitOther`, piece quantities and
   the container average per piece. `unitCostQuantity`, `forecastExternalUnitEur` and the other
   existing quantities keep their **sales-unit** meaning: sales and partner settlements multiply
-  them with sales quantities. The payments PDF prints "Aantal", "/set" + "/stuk" and the mixed
-  average per piece.
+  them with sales quantities. The payments PDF prints "Aantal" and "/set" + "/stuk"; since round 2
+  it prints no average over different products (see below).
 - Not removed on unlink (Codex's area, noted only): a `bank_cost_registration` receipt keeps a
   line answering 409 after an unlink.
 - Migrations `2026-10-15/purchase-invoice-postgresql.sql` (table, two payment columns, the order
@@ -1526,3 +1526,49 @@ the nacalculatie.
   Railway serves it (a purchase order answer carries `invoices`), then the ERP; the ERP hides
   every new action against a server without this round. Payments that were "bewezen" only by an
   invoice file read "geen betaalbewijs" until their bank transaction is linked.
+
+### Round 2 (Emre's follow-ups of 2026-10-15)
+
+- **A linked payment follows its transaction** (`bank-part`, and `bank-lines` with one line): the
+  payment takes the line's day and, for a whole match (± € 0,02), the line's exact amount (a euro
+  payment's `amount` = `amountEur` = the line; a USD/CNY payment keeps its foreign `amount`, its
+  `amountEur` becomes the line). A line more than € 0,02 above the payment is refused ("Transactie is
+  € x hoger dan deze betaling: kies 'Bedrag aanpassen naar € y' …") unless the request carries
+  `higher`: `ADJUST` (the payment takes the line's amount) or `INSPECTION` ("Rest als inspectie via
+  leverancier": only for a goods payment to the supplier, not the CIF freight term, on a container
+  with `inspectionCostEur` > 0; `PurchaseOrderService.addInspectionRest` books a SEPARATE payment of
+  the rest on the same line and day, in the goods' currency at their own booked rate, and turns the
+  container flag on). A smaller line is still carved out (C2). `withPaymentIds` names other open
+  payments of the same container for the same transfer (the inspection paid with the goods): they
+  keep their amounts and take the line's day; the addressed payment absorbs every difference, never
+  the inspection, so the line total equals the parts. `expectedAmountEur` (optional) refuses a
+  payment that changed since the screen read it. Addressed to the root of a payment in parts that is
+  on another line, `bank-part` links the group's one open transfer. One transaction:
+  `PurchaseOrderService.followBankLine` rewrites the diary line in place and records "Betaling aan
+  een banktransactie gekoppeld" with the date / amount / euro before and after; then `linkExisting`
+  links. The answer's `notice` says what changed ("Bedrag en datum gevolgd van de transactie:
+  € 10.300,00 op 05/01/2026 (was € 10.250,00 op 03/01/2026).", "Deel van deze betaling: … blijft
+  open als tweede transactie.", "… Inspectie via leverancier € 300,00 toegevoegd op dezelfde
+  transactie."; null on an identical retry). `/links` (several payments, Kosten & bank) is
+  unchanged: two-cent rule, no following. The inspection split (D) is refused on a line that already
+  carries an inspection payment of the container.
+- **One invoice for every part-payment**: `POST /api/purchase-orders/{id}/invoices/{invoiceId}/assign-all`
+  names the invoice on every payment of its payee (each transfer of a payment in parts and payments
+  already on the bank included; column-only, no diary line, one activity record) and answers every
+  invoice of the container. **Invoice file uploads go to the invoice**, never to a payment: a
+  multipart `POST /api/purchase-orders/{id}/invoices` (the JSON fields as form fields plus `file` and
+  `assignAll`) checks the data before keeping the file, stores it at container level
+  (COMMERCIAL_INVOICE for the supplier, INVOICE otherwise) and creates the invoice holding it;
+  multipart `POST …/invoices/{invoiceId}/document` (`file`, `assignAll`) gives a file to an invoice
+  that has none ("Bij factuur {number} hoort al een bestand (…); verwijder dat eerst" otherwise).
+  The list endpoint now also names an invoice's file of another kind.
+- **No average over different products**: `Totals.productCount` and `Totals.containerAverage` (true
+  for one product, or every line of one product family, sales unit, set size and piece name). Without
+  it the server notes say the cost per stuk or per set is per product (the round-1 note on a
+  container average per piece is gone) and the payments PDF reads "verdeeld over n producten (…)",
+  its total row "Totaal" with "per product" where an average stood. The piece figures stay in the
+  data.
+- **Enrosed kost per product in the payments PDF**: columns "Extern / stuk", "Enrosed kost" (the
+  line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per set
+  and per stuk for sets); the total row keeps the total, the box below reads "Enrosed kost" and
+  "Totaal incl. Enrosed kost".
