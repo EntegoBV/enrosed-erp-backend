@@ -29,6 +29,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -195,6 +196,32 @@ class ProductCostHistoryPersistenceTest {
         assertEquals(order.number(), copy.source());
         assertEquals(applied.breakdown(), copy.breakdown());
         assertEquals(new ProductCostBasis("DISPLAY", 12, "hart"), copy.basis());
+
+        /* The copy joins the same container: its first apply from it is an apply, not a re-apply. */
+        PurchaseOrder current = purchases.get(order.id());
+        List<PurchaseOrderLine> lines = new ArrayList<>(current.lines());
+        lines.add(new PurchaseOrderLine(null, copyId, 40, new BigDecimal("3.00"), Currency.USD, null, null));
+        purchases.update(order.id(), current.withReceipt(current.status(), null, null, false, current.notes(), lines));
+        LandedCost both = purchases.applyToProducts(order.id());
+        rows = history.history(copyId);
+        assertEquals(List.of("APPLY", "COPY"), rows.stream().map(ProductCostEntry::kind).toList());
+        assertEquals(order.id(), rows.getFirst().purchaseOrderId());
+        assertEquals(40, rows.getFirst().quantity(), "the copy's own quantity from the container");
+        assertEquals(0, copy.landedUnitEur().compareTo(rows.getFirst().previousLandedUnitEur()));
+        assertEquals(0, both.lines().stream().filter(l -> l.productId() == copyId).findFirst().orElseThrow()
+                .landedUnitEur().compareTo(rows.getFirst().landedUnitEur()));
+        assertEquals(List.of("REAPPLY", "APPLY"), history.history(source.id).stream().map(ProductCostEntry::kind).toList(),
+                "the source did carry this container: another cost is a re-apply there");
+
+        /* The same container at the very cost the copy took over: still written, as the copy's first apply. */
+        ProductCostEntry sourceNow = history.history(source.id).getFirst();
+        long second = productService.duplicate(source.id, "Groen").id();
+        assertEquals(order.id(), history.history(second).getFirst().purchaseOrderId());
+        history.record(second, sourceNow.landedUnitEur(), sourceNow.landedUnitEur(), order.number(), order.id(), 40,
+                new BigDecimal("3.00"), "USD", null, new ProductCostBasis("DISPLAY", 12, "hart"), null);
+        rows = history.history(second);
+        assertEquals(List.of("APPLY", "COPY"), rows.stream().map(ProductCostEntry::kind).toList());
+        assertEquals(40, rows.getFirst().quantity());
 
         /* A cost the history never saw: only the text the cost carried. */
         ProductEntity loose = displayProduct(supplier, null);

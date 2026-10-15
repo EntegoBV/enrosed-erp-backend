@@ -83,7 +83,9 @@ public class ProductCostHistoryService {
      * the product's newest row is this same container at this same cost and
      * the product still carries it; the same container at another cost is a
      * re-apply, anything else (another container, an older one again) is an
-     * apply.
+     * apply. A copy's first row only names the container its cost came from:
+     * the copy's own first apply from that container is an apply, never a
+     * re-apply, and is always written.
      */
     @Transactional
     public void record(long productId, BigDecimal previous, BigDecimal landedUnitEur, String source,
@@ -92,7 +94,8 @@ public class ProductCostHistoryService {
         if (landedUnitEur == null) return;
         ProductCostHistoryEntity latest = latest(productId);
         boolean sameContainer = latest != null && purchaseOrderId != null
-                && purchaseOrderId.equals(latest.purchaseOrderId);
+                && purchaseOrderId.equals(latest.purchaseOrderId)
+                && !ProductCostKind.COPY.name().equals(latest.kind);
         if (sameContainer && sameCost(latest.landedUnitEur, landedUnitEur) && sameCost(previous, landedUnitEur)) {
             return;
         }
