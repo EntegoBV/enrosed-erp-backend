@@ -285,6 +285,9 @@ public class BankStatementService {
         for(long paymentId:ids.stream().sorted().toList()) {
             var payment=em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            /* The link's own guards, checked before anything is created. */
+            if(payment.bankStatementLineId!=null&&!payment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
+            if(payment.amountEur.signum()<=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
             total=total.add(payment.amountEur);
             var order=em.find(SourcingEntities.PurchaseOrderEntity.class,payment.orderId);
             if(order!=null&&order.number!=null)orderNumbers.add(order.number);

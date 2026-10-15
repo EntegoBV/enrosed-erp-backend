@@ -197,6 +197,13 @@ class BankFollowBankTest {
         assertEquals(before, costCount());
         assertNull(purchases.payments(order.id()).getFirst().bankStatementLineId());
 
+        long elsewhere = line("-500.00");
+        bank.linkExisting(elsewhere, new BankStatementService.OutgoingLinks(List.of(purchase.id()), null, null));
+        refused(() -> bank.linkExisting(more, new BankStatementService.OutgoingLinks(List.of(purchase.id()), null, null, null, "BANKKOSTEN")),
+                "Deze betaling is al aan een andere banktransactie gekoppeld");
+        assertEquals(before, costCount(), "a payment on another line is refused before any cost is made");
+        bank.unlinkExisting(elsewhere);
+
         /* Without keepDifferenceAs a link and its retry are today's. */
         long exact = line("-500.00");
         assertTrue(bank.linkExisting(exact, new BankStatementService.OutgoingLinks(List.of(purchase.id()), null, null)).allocated);
