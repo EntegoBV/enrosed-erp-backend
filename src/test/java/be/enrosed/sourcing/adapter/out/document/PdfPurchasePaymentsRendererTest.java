@@ -158,6 +158,78 @@ class PdfPurchasePaymentsRendererTest {
                 PurchasePayment.Payee.SUPPLIER, settles, due);
     }
 
+    /** Spec §5.4: a set is priced per set with the piece price under it; a mixed container averages per piece. */
+    @Test
+    void setsArePricedPerSetAndPerStukAndAMixedContainerAveragesPerPiece() throws Exception {
+        var order = instalmentOrder();
+        var roses = setLine(1L, "Long stem rose box display", 100, "3120.00", "3360.00");
+        var display = report(List.of(roses), "DISPLAY", 12, 1200);
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of());
+        for (String required : List.of("verdeeld over 100 bestelde sets (1.200 stuks)", ">Aantal<", ">Extern / eenheid<",
+                ">Met opslag / eenheid<", ">100 sets<", "€ 31,2000 /set<br/>€ 2,6000 /stuk",
+                "€ 33,6000 /set<br/>€ 2,8000 /stuk", "Bij sets staat de prijs per set en per stuk.")) {
+            assertTrue(html.contains(required), required + " missing from " + html);
+        }
+        assertFalse(html.contains(">Extern / stuk<"), html);
+        try (var pdf = Loader.loadPDF(renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of()).content())) {
+            String text = new PDFTextStripper().getText(pdf);
+            assertTrue(text.contains("2,6000") && text.contains("/stuk") && text.contains("100 sets"), text);
+        }
+
+        var bowl = pieceLine(2L, "Rozenschaal", 200, "1000.00");
+        var mixed = report(List.of(roses, bowl), "MIXED", 12, 1400);
+        String mixedHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), mixed, List.of());
+        for (String required : List.of("verdeeld over 1.400 bestelde stuks (sets als 12 rozen geteld)", "€ 5,0000 /stuk",
+                "€ 2,9429 /stuk (gem.)", ">1.400 stuks<", ">200<")) {
+            assertTrue(mixedHtml.contains(required), required + " missing from " + mixedHtml);
+        }
+
+        var pieces = report(List.of(bowl), "PIECE", null, 200);
+        String piecesHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), pieces, List.of());
+        assertTrue(piecesHtml.contains(">Stuks<") && piecesHtml.contains(">Extern / stuk<"), piecesHtml);
+        assertTrue(piecesHtml.contains("verdeeld over 200 bestelde stuks"), piecesHtml);
+        assertFalse(piecesHtml.contains("Bij sets"), piecesHtml);
+    }
+
+    private static PurchaseReconciliation.Line setLine(Long id, String name, int quantity, String forecast, String pricing) {
+        BigDecimal external = new BigDecimal(forecast);
+        BigDecimal priced = new BigDecimal(pricing);
+        int pieces = quantity * 12;
+        return new PurchaseReconciliation.Line(id, name, quantity, 0, 0, 0, quantity, PurchaseReconciliation.UnitCostBasis.ORDERED,
+                external, BigDecimal.ZERO, external, external, BigDecimal.ZERO, priced.subtract(external), priced,
+                external.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP),
+                priced.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP), "Naar goederenwaarde.",
+                BigDecimal.ZERO).withPieces("DISPLAY", 12, "roos", "roos", "rozen", pieces,
+                external.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP),
+                priced.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP));
+    }
+
+    private static PurchaseReconciliation.Line pieceLine(Long id, String name, int quantity, String forecast) {
+        BigDecimal external = new BigDecimal(forecast);
+        BigDecimal unit = external.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP);
+        return new PurchaseReconciliation.Line(id, name, quantity, 0, 0, 0, quantity, PurchaseReconciliation.UnitCostBasis.ORDERED,
+                external, BigDecimal.ZERO, external, external, BigDecimal.ZERO, BigDecimal.ZERO, external, unit, unit,
+                "Naar goederenwaarde.", BigDecimal.ZERO);
+    }
+
+    private static PurchaseReconciliation report(List<PurchaseReconciliation.Line> lines, String basis, Integer setPieces,
+                                                 int pieces) {
+        BigDecimal forecast = lines.stream().map(PurchaseReconciliation.Line::forecastExternalEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal pricing = lines.stream().map(PurchaseReconciliation.Line::forecastPricingEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        int quantity = lines.stream().mapToInt(PurchaseReconciliation.Line::unitCostQuantity).sum();
+        var totals = new PurchaseReconciliation.Totals(forecast, BigDecimal.ZERO, forecast, forecast, BigDecimal.ZERO,
+                pricing.subtract(forecast), pricing, pricing, false, quantity, 0, 0, 0, quantity,
+                PurchaseReconciliation.UnitCostBasis.ORDERED,
+                forecast.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP),
+                pricing.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP), false, null,
+                BigDecimal.ZERO, BigDecimal.ZERO)
+                .withPieces(basis, setPieces, setPieces == null ? null : "rozen", pieces, 0, pieces,
+                        forecast.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP),
+                        pricing.divide(BigDecimal.valueOf(pieces), 4, java.math.RoundingMode.HALF_UP));
+        return new PurchaseReconciliation(List.of(), totals, lines,
+                "PIECE".equals(basis) ? List.of() : List.of("Bij sets is de kostprijs per set."));
+    }
+
     static PurchaseOrder instalmentOrder() {
         return new PurchaseOrder(1L, "PO-2026-001", "Termijnafspraak 30/30/40", 7L,
                 LocalDate.of(2026, 9, 1), PurchaseOrderStatus.BESTELD, ContainerType.FORTY_HQ,

@@ -42,7 +42,7 @@ public class LotCostService {
         List<PurchasePayment> payments = order.id() == null ? List.of() : orders.payments(order.id());
         /* One call, on the payments at the container rates: its figures only measure what is still owed. */
         PurchaseReconciliation reconciliation = orders.reconciliation(order, received,
-                LotCostCalculator.normalised(order, payments));
+                LotCostCalculator.normalised(order, payments), productsById);
         List<StockMovement> laterLoss = order.id() == null || stock == null || !stock.isResolvable()
                 ? List.of() : stock.get().movementsForPurchaseOrder(order.id());
         return calculator.calculate(new LotCost.Input(order, options, productsById, received,

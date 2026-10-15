@@ -136,27 +136,55 @@ public class PdfPurchasePaymentsRenderer {
                 .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Wat op de ene termijn te veel is betaald, wordt verrekend met wat op een andere termijn te weinig is betaald; alleen het saldo blijft open. Een slotbetaling voor een termijn sluit alleen die termijn af en houdt hem buiten die verrekening; latere termijnen blijven open. Alleen een slotbetaling voor de hele groep sluit de volledige groep af. Een overbetaling zonder afrekening blijft voorlopig.</p>")
                 .append("<p>Interne Enrosed-opslag is geen uitgaande betaling en staat apart van de externe kost.</p></div>");
 
+        boolean sets = report.lines().stream().anyMatch(PdfPurchasePaymentsRenderer::isSet);
+        String setBasis = total.setBasis() == null ? "PIECE" : total.setBasis();
         html.append("<div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
                 .append(" / Kostprijs</div><h2>De kost per product</h2><p class=\"muted\">")
-                .append(basis).append(" verdeeld over ").append(total.unitCostQuantity()).append(" ").append(quantityBasis)
+                .append(basis).append(" verdeeld over ").append(quantityText(total, quantityBasis, sets, setBasis))
                 .append(". Alle externe kosten zijn inbegrepen, ook inspectie en extra betalingen.</p>");
         if (total.receiptRecorded()) html.append("<p>Besteld: ").append(total.orderedQuantity()).append(" · Ontvangen: ")
                 .append(total.receivedQuantity()).append(" · Beschadigd: ").append(total.damagedQuantity())
                 .append(" · Bruikbaar: ").append(total.usableQuantity()).append("</p>");
-        html.append("<table class=\"data\"><thead><tr><th style=\"width:24%\">Product</th><th style=\"width:9%\" class=\"num\">Stuks</th>")
+        html.append("<table class=\"data\"><thead><tr><th style=\"width:24%\">Product</th><th style=\"width:9%\" class=\"num\">")
+                .append(sets ? "Aantal" : "Stuks").append("</th>")
                 .append("<th class=\"num\">Begroot extern</th><th class=\"num\">Eindkost extern</th><th class=\"num\">Verschil</th>")
-                .append("<th class=\"num\">Extern / stuk</th><th class=\"num\">Met opslag / stuk</th></tr></thead><tbody>");
+                .append("<th class=\"num\">").append(sets ? "Extern / eenheid" : "Extern / stuk").append("</th><th class=\"num\">")
+                .append(sets ? "Met opslag / eenheid" : "Met opslag / stuk").append("</th></tr></thead><tbody>");
         for (var line : report.lines()) {
             html.append("<tr><td>").append(escape(line.productName())).append("</td><td class=\"num nowrap\">")
-                    .append(line.unitCostQuantity()).append("</td>");
+                    .append(isSet(line) ? setCount(line.unitCostQuantity()) : String.valueOf(line.unitCostQuantity()))
+                    .append("</td>");
             moneyCell(html, line.plannedExternalEur()); moneyCell(html, line.forecastExternalEur());
-            differenceCell(html, line.varianceEur()); unitCell(html, line.forecastExternalUnitEur());
-            unitCell(html, line.forecastPricingUnitEur()); html.append("</tr>");
+            differenceCell(html, line.varianceEur());
+            if (isSet(line)) {
+                setCell(html, line.forecastExternalUnitEur(), line.forecastExternalPieceEur());
+                setCell(html, line.forecastPricingUnitEur(), line.forecastPricingPieceEur());
+            } else if (sets) {
+                unitCell(html, line.forecastExternalUnitEur(), " /stuk");
+                unitCell(html, line.forecastPricingUnitEur(), " /stuk");
+            } else {
+                unitCell(html, line.forecastExternalUnitEur());
+                unitCell(html, line.forecastPricingUnitEur());
+            }
+            html.append("</tr>");
         }
-        html.append("<tr class=\"sum\"><td>Totaal / gemiddeld</td><td class=\"num nowrap\">").append(total.unitCostQuantity()).append("</td>");
+        html.append("<tr class=\"sum\"><td>Totaal / gemiddeld</td><td class=\"num nowrap\">")
+                .append(!sets || "PIECE".equals(setBasis) ? String.valueOf(total.unitCostQuantity())
+                        : "DISPLAY".equals(setBasis) ? setCount(total.unitCostQuantity())
+                        : count(total.unitCostPieceQuantity()) + " stuks")
+                .append("</td>");
         moneyCell(html, total.plannedExternalEur()); moneyCell(html, total.forecastExternalEur());
-        differenceCell(html, total.varianceEur()); unitCell(html, total.forecastExternalUnitEur());
-        unitCell(html, total.forecastPricingUnitEur());
+        differenceCell(html, total.varianceEur());
+        if (sets && "DISPLAY".equals(setBasis)) {
+            unitCell(html, total.forecastExternalUnitEur(), " /set");
+            unitCell(html, total.forecastPricingUnitEur(), " /set");
+        } else if (sets && "MIXED".equals(setBasis)) {
+            unitCell(html, total.forecastExternalPieceEur(), " /stuk (gem.)");
+            unitCell(html, total.forecastPricingPieceEur(), " /stuk (gem.)");
+        } else {
+            unitCell(html, total.forecastExternalUnitEur());
+            unitCell(html, total.forecastPricingUnitEur());
+        }
         html.append("</tr></tbody></table><table class=\"totals\"><tr><td>").append(basis).append(" extern</td><td>")
                 .append(money(total.forecastExternalEur())).append("</td></tr><tr><td>Interne Enrosed-opslag</td><td>")
                 .append(money(total.internalMarkupEur())).append("</td></tr><tr><td><b>Totaal met interne opslag</b></td><td>")
@@ -164,7 +192,8 @@ public class PdfPurchasePaymentsRenderer {
         html.append("<div class=\"note\"><p><b>Berekening en verdeling</b></p>");
         if (!report.lines().isEmpty()) html.append("<p>").append(escape(report.lines().getFirst().allocationBasis())).append("</p>");
         for (String note : report.notes()) html.append("<p>").append(escape(note)).append("</p>");
-        html.append("<p>Een bedrag per stuk ontbreekt als er geen stuks zijn. Deze afrekening wijzigt opgeslagen productprijzen en historische voorraadwaardes niet.</p></div>");
+        html.append("<p>Een bedrag per stuk ontbreekt als er geen stuks zijn. Deze afrekening wijzigt opgeslagen productprijzen en historische voorraadwaardes niet.")
+                .append(sets ? " Bij sets staat de prijs per set en per stuk." : "").append("</p></div>");
         if (total.legacyPaidTotalEur() != null) html.append("<p class=\"muted\">Historisch totaal op ontvangst: ")
                 .append(money(total.legacyPaidTotalEur())).append(". Dit bedrag is informatief en wordt niet opnieuw bij de betaalregels opgeteld.</p>");
         html.append("</div><div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
@@ -200,6 +229,38 @@ public class PdfPurchasePaymentsRenderer {
     }
     private static void unitCell(StringBuilder html, BigDecimal value) {
         html.append("<td class=\"num\">").append(value == null ? "n.v.t." : "€ " + String.format(LOCALE, "%,.4f", value)).append("</td>");
+    }
+    private static void unitCell(StringBuilder html, BigDecimal value, String unit) {
+        html.append("<td class=\"num\">").append(value == null ? "n.v.t." : unit(value) + unit).append("</td>");
+    }
+    /** A set: the price per set, and under it the price per piece. */
+    private static void setCell(StringBuilder html, BigDecimal perSet, BigDecimal perPiece) {
+        html.append("<td class=\"num\">").append(perSet == null ? "n.v.t." : unit(perSet) + " /set")
+                .append(perPiece == null ? "" : "<br/>" + unit(perPiece) + " /stuk").append("</td>");
+    }
+    private static String unit(BigDecimal value) { return "€ " + String.format(LOCALE, "%,.4f", value); }
+    private static String count(int value) { return String.format(LOCALE, "%,d", value); }
+    private static String setCount(int value) { return count(value) + (value == 1 ? " set" : " sets"); }
+    private static boolean isSet(PurchaseReconciliation.Line line) { return "DISPLAY".equals(line.salesUnit()); }
+
+    /**
+     * What the cost is spread over: "100 bestelde sets (1.200 stuks)" for a
+     * container of one set size, "1.400 bestelde stuks (sets als 12 rozen
+     * geteld)" for sets mixed with pieces or with each other; plain pieces
+     * otherwise.
+     */
+    private static String quantityText(PurchaseReconciliation.Totals total, String quantityBasis, boolean sets,
+                                       String setBasis) {
+        if (!sets || "PIECE".equals(setBasis)) return total.unitCostQuantity() + " " + quantityBasis;
+        String state = total.receiptRecorded() ? "bruikbare ontvangen" : "bestelde";
+        if ("DISPLAY".equals(setBasis)) {
+            return count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "set" : "sets")
+                    + " (" + count(total.unitCostPieceQuantity()) + " stuks)";
+        }
+        String counted = total.setPieces() != null && total.setUnitOther() != null
+                ? "sets als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
+                : "sets als hun aantal stuks geteld";
+        return count(total.unitCostPieceQuantity()) + " " + state + " stuks (" + counted + ")";
     }
     private static void differenceCell(StringBuilder html, BigDecimal value) {
         html.append("<td class=\"num ").append(value.signum() > 0 ? "positive" : "negative").append("\">")

@@ -122,8 +122,45 @@ public record PurchaseReconciliation(
             /** Every supplier credit on the order; it lowers forecastExternalEur. */
             BigDecimal supplierCreditEur,
             /** The part of those credits still to receive. */
-            BigDecimal supplierCreditOpenEur
+            BigDecimal supplierCreditOpenEur,
+            /**
+             * What one sales unit of the container is: PIECE when no line is
+             * a set, DISPLAY when every line is a set of the same size and
+             * piece name, MIXED otherwise (sets of different sizes, or sets
+             * next to pieces, have no common "per set").
+             */
+            String setBasis,
+            /** The pieces in a set, shared by every set line; null when none or not shared. */
+            Integer setPieces,
+            /** The plural piece name shared by every set line ("rozen"); null when none or not shared. */
+            String setUnitOther,
+            /** The quantities counted in pieces: a set counts its pieces. */
+            int orderedPieceQuantity,
+            int usablePieceQuantity,
+            int unitCostPieceQuantity,
+            /** The container average per piece; null when there are no pieces. */
+            BigDecimal forecastExternalPieceEur,
+            BigDecimal forecastPricingPieceEur
     ) {
+        /**
+         * Compatibility for callers written before sets were counted in
+         * pieces: every sales unit is one piece.
+         */
+        public Totals(BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
+                      BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
+                      BigDecimal plannedPricingEur, BigDecimal forecastPricingEur, boolean finalized,
+                      int orderedQuantity, int receivedQuantity, int damagedQuantity, int usableQuantity,
+                      int unitCostQuantity, UnitCostBasis unitCostBasis, BigDecimal forecastExternalUnitEur,
+                      BigDecimal forecastPricingUnitEur, boolean receiptRecorded, BigDecimal legacyPaidTotalEur,
+                      BigDecimal supplierCreditEur, BigDecimal supplierCreditOpenEur) {
+            this(plannedExternalEur, paidEur, remainingEur, forecastExternalEur, varianceEur, internalMarkupEur,
+                    plannedPricingEur, forecastPricingEur, finalized, orderedQuantity, receivedQuantity,
+                    damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis, forecastExternalUnitEur,
+                    forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur, supplierCreditEur, supplierCreditOpenEur,
+                    "PIECE", null, null, orderedQuantity, usableQuantity, unitCostQuantity,
+                    forecastExternalUnitEur, forecastPricingUnitEur);
+        }
+
         /** Compatibility for callers written before supplier credits existed. */
         public Totals(BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
                       BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
@@ -136,6 +173,17 @@ public record PurchaseReconciliation(
                     damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis, forecastExternalUnitEur,
                     forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur,
                     BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2));
+        }
+
+        /** The same totals with their piece view. */
+        public Totals withPieces(String basis, Integer pieces, String unitOther, int orderedPieces, int usablePieces,
+                                 int unitCostPieces, BigDecimal externalPieceEur, BigDecimal pricingPieceEur) {
+            return new Totals(plannedExternalEur, paidEur, remainingEur, forecastExternalEur, varianceEur,
+                    internalMarkupEur, plannedPricingEur, forecastPricingEur, finalized, orderedQuantity,
+                    receivedQuantity, damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis,
+                    forecastExternalUnitEur, forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur,
+                    supplierCreditEur, supplierCreditOpenEur, basis, pieces, unitOther, orderedPieces, usablePieces,
+                    unitCostPieces, externalPieceEur, pricingPieceEur);
         }
     }
 
@@ -159,8 +207,50 @@ public record PurchaseReconciliation(
             BigDecimal forecastPricingUnitEur,
             String allocationBasis,
             /** This product's share of the supplier credits; forecastExternalEur = paid + open - credit. */
-            BigDecimal creditEur
+            BigDecimal creditEur,
+            /**
+             * PIECE or DISPLAY: what one unit of this line is. The quantities
+             * and unit figures above stay in sales units (per set for a set),
+             * because sales and partner settlements multiply them with sales
+             * quantities; the piece figures below sit next to them.
+             */
+            String salesUnit,
+            /** The pieces in one sales unit: the set size for a set, else 1. */
+            int piecesPerUnit,
+            /** The piece's unit key and its Dutch names ("roos", "rozen"). */
+            String unitKey,
+            String unitOne,
+            String unitOther,
+            /** unitCostQuantity counted in pieces. */
+            int pieceQuantity,
+            /** The line's cost per piece; null when there are no pieces. */
+            BigDecimal forecastExternalPieceEur,
+            BigDecimal forecastPricingPieceEur
     ) {
+        /** Compatibility for callers written before sets were counted in pieces: every unit is one piece. */
+        public Line(Long productId, String productName, int orderedQuantity, int receivedQuantity,
+                    int damagedQuantity, int usableQuantity, int unitCostQuantity, UnitCostBasis unitCostBasis,
+                    BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
+                    BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
+                    BigDecimal forecastPricingEur, BigDecimal forecastExternalUnitEur,
+                    BigDecimal forecastPricingUnitEur, String allocationBasis, BigDecimal creditEur) {
+            this(productId, productName, orderedQuantity, receivedQuantity, damagedQuantity, usableQuantity,
+                    unitCostQuantity, unitCostBasis, plannedExternalEur, paidEur, remainingEur, forecastExternalEur,
+                    varianceEur, internalMarkupEur, forecastPricingEur, forecastExternalUnitEur,
+                    forecastPricingUnitEur, allocationBasis, creditEur, "PIECE", 1, "stuk", "stuk", "stuks",
+                    unitCostQuantity, forecastExternalUnitEur, forecastPricingUnitEur);
+        }
+
+        /** The same line with its piece view. */
+        public Line withPieces(String unit, int pieces, String key, String one, String other, int quantityInPieces,
+                               BigDecimal externalPieceEur, BigDecimal pricingPieceEur) {
+            return new Line(productId, productName, orderedQuantity, receivedQuantity, damagedQuantity, usableQuantity,
+                    unitCostQuantity, unitCostBasis, plannedExternalEur, paidEur, remainingEur, forecastExternalEur,
+                    varianceEur, internalMarkupEur, forecastPricingEur, forecastExternalUnitEur,
+                    forecastPricingUnitEur, allocationBasis, creditEur, unit, pieces, key, one, other,
+                    quantityInPieces, externalPieceEur, pricingPieceEur);
+        }
+
         /** Compatibility for callers written before supplier credits existed. */
         public Line(Long productId, String productName, int orderedQuantity, int receivedQuantity,
                     int damagedQuantity, int usableQuantity, int unitCostQuantity, UnitCostBasis unitCostBasis,

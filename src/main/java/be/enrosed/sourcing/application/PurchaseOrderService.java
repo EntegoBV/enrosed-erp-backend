@@ -125,9 +125,17 @@ public class PurchaseOrderService {
     }
 
     public LandedCost calculate(PurchaseOrder order) {
-        Map<Long, Product> byId = products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity()));
-        return calculator.calculate(order, byId);
+        return calculator.calculate(order, productsById());
+    }
+
+    /** The same calculation with every product loaded once by the caller, e.g. for a whole list. */
+    public LandedCost calculate(PurchaseOrder order, Map<Long, Product> productsById) {
+        return calculator.calculate(order, productsById);
+    }
+
+    /** Every product by id, in one read. */
+    public Map<Long, Product> productsById() {
+        return products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
     }
 
     /** The same calculation on the quantities agreed with the supplier, whatever arrived. */
@@ -147,6 +155,17 @@ public class PurchaseOrderService {
     /** Accept one ledger snapshot so a PDF cannot mix a corrected register with older totals. */
     public PurchaseReconciliation reconciliation(PurchaseOrder order, LandedCost currentCosting,
                                                 List<PurchasePayment> recorded) {
+        return reconciliation(order, currentCosting, recorded, productsById());
+    }
+
+    /**
+     * With every product loaded once by the caller (a list, a closing run):
+     * the products also say which lines are sets, for the per set and per
+     * stuk figures.
+     */
+    public PurchaseReconciliation reconciliation(PurchaseOrder order, LandedCost currentCosting,
+                                                List<PurchasePayment> recorded, Map<Long, Product> productsById) {
+        Map<Long, Product> byId = productsById == null ? Map.of() : productsById;
         List<PurchaseOrderLine> budgetLines = order.lines().stream().map(line -> new PurchaseOrderLine(
                 line.id(), line.productId(), line.ordered(), line.exwPrice(), line.exwCurrency(),
                 line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(), line.damagedQuantity(),
@@ -154,9 +173,9 @@ public class PurchaseOrderService {
         boolean sameQuantities = order.lines().stream().allMatch(line -> line.quantity() == line.ordered());
         PurchaseOrder budgetOrder = sameQuantities ? order : order.withReceipt(order.status(), order.receivedOn(),
                 order.paidTotalEur(), order.stockBooked(), order.notes(), budgetLines);
-        LandedCost budget = sameQuantities ? currentCosting : calculate(budgetOrder);
-        return new PurchaseReconciliationCalculator().calculate(order, budget, payable(budgetOrder, budget, null), recorded,
-                supplierCredits(order.id()));
+        LandedCost budget = sameQuantities ? currentCosting : calculator.calculate(budgetOrder, byId);
+        return ReconciliationUnits.apply(new PurchaseReconciliationCalculator().calculate(order, budget,
+                payable(budgetOrder, budget, null), recorded, supplierCredits(order.id())), byId);
     }
 
     /** The credits noted on this order; none for a draft that was never saved. */
