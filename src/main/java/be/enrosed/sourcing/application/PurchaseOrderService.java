@@ -66,6 +66,9 @@ public class PurchaseOrderService {
     /* The container's invoices; pure unit tests run without, which reads as none. */
     @Inject
     Instance<SourcingRepositories.Invoices> invoices;
+    /* What payments were before they followed the bank; pure unit tests run without, which reads as none. */
+    @Inject
+    Instance<SourcingRepositories.PaymentBankAdjustments> bankAdjustments;
     @Inject
     Instance<CurrentActor> actor;
     @Inject
@@ -701,13 +704,16 @@ public class PurchaseOrderService {
                              Long resolvedInvoiceId,
                              String invoiceNumber,
                              /** A supplier credit offset: never on the bank, never in need of proof. */
-                             boolean creditOffset) {
+                             boolean creditOffset,
+                             /** What the payment was before it first followed its bank transaction; null when it never did. */
+                             BigDecimal bankAdjustedFromEur,
+                             LocalDate bankAdjustedFromOn) {
         /** Compatibility for callers written before payments had groups and invoices. */
         public PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
                           BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee,
                           Long bankStatementLineId) {
             this(id, orderId, orderNumber, orderAlias, paidOn, amountEur, label, payee, bankStatementLineId,
-                    null, null, null, false, null, null, null, false);
+                    null, null, null, false, null, null, null, false, null, null);
         }
     }
 
@@ -738,6 +744,8 @@ public class PurchaseOrderService {
                 ? Set.of() : supplierCredits.get().offsetPaymentIds();
         /* The automatic rule reads the order's other payments (who else is on the same transfer): once per order. */
         Map<Long, List<PurchasePayment>> paymentsByOrder = new HashMap<>();
+        Map<Long, be.enrosed.sourcing.domain.PurchasePaymentBankAdjustment> adjusted = adjustmentsAvailable()
+                ? bankAdjustments.get().find(rows.stream().map(PurchasePayment::id).toList()) : Map.of();
         return rows.stream().map(payment -> {
             PurchaseOrder order = byId.get(payment.orderId());
             List<PurchaseInvoice> orderInvoices = invoicesByOrder.getOrDefault(payment.orderId(), List.of());
@@ -746,11 +754,52 @@ public class PurchaseOrderService {
                     order != null && order.inspectionPaidViaSupplier());
             String invoiceNumber = resolved == null ? null : orderInvoices.stream()
                     .filter(invoice -> resolved.equals(invoice.id())).map(PurchaseInvoice::number).findFirst().orElse(null);
+            var adjustment = adjusted.get(payment.id());
             return new PaymentRow(payment.id(), payment.orderId(), order == null ? null : order.number(),
                     order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee(),
                     payment.bankStatementLineId(), payment.amount(), payment.currency(), payment.instalmentDue(),
-                    payment.settles(), payment.groupId(), resolved, invoiceNumber, offsets.contains(payment.id()));
+                    payment.settles(), payment.groupId(), resolved, invoiceNumber, offsets.contains(payment.id()),
+                    adjustment == null ? null : adjustment.fromAmountEur(), adjustment == null ? null : adjustment.fromPaidOn());
         }).toList();
+    }
+
+    private boolean adjustmentsAvailable() {
+        return bankAdjustments != null && bankAdjustments.isResolvable();
+    }
+
+    /**
+     * Remembers what a payment was before it followed a bank transaction, when the follow changed its euro amount
+     * or its day: {@code before} is the payment as the follow path read it, the stored payment is what it became.
+     * Only the first adjustment is kept. Called by the follow path after its own update; a correction through
+     * {@code updatePayment} never writes or clears the memory itself.
+     */
+    @Transactional
+    public void recordBankAdjustment(PurchasePayment before, long lineId) {
+        if (before == null || before.id() == null || !adjustmentsAvailable()) return;
+        PurchasePayment after = storedPayment(before.orderId(), before.id());
+        if (after.amountEur().compareTo(before.amountEur()) == 0 && after.paidOn().equals(before.paidOn())) return;
+        bankAdjustments.get().insertIfAbsent(new be.enrosed.sourcing.domain.PurchasePaymentBankAdjustment(before.id(),
+                before.amountEur(), before.paidOn(), lineId, Instant.now(), currentActor().displayName()));
+    }
+
+    /**
+     * The payment sheet's correction: {@link #updatePayment} with every field, and a changed amount or day
+     * forgets what the payment was before it followed the bank (the hand edit is the truth now).
+     */
+    @Transactional
+    public PurchasePayment updatePaymentByHand(long orderId, long paymentId, LocalDate paidOn, BigDecimal amount,
+                                               Currency currency, String label, PurchasePayment.Payee payee, boolean settles,
+                                               PaymentTerms.Moment instalmentDue, boolean instalmentDueProvided,
+                                               BigDecimal amountEur, Long invoiceId, boolean invoiceIdProvided,
+                                               boolean applyToGroup) {
+        getForUpdate(orderId);
+        PurchasePayment before = storedPayment(orderId, paymentId);
+        PurchasePayment after = updatePayment(orderId, paymentId, paidOn, amount, currency, label, payee, settles,
+                instalmentDue, instalmentDueProvided, amountEur, invoiceId, invoiceIdProvided, applyToGroup);
+        boolean moved = after.amount().compareTo(before.amount()) != 0 || after.amountEur().compareTo(before.amountEur()) != 0
+                || !after.paidOn().equals(before.paidOn());
+        if (moved && adjustmentsAvailable()) bankAdjustments.get().delete(paymentId);
+        return after;
     }
 
     /** The invoices of one order; none for a draft or without the repository (pure unit tests). */
@@ -1412,6 +1461,7 @@ public class PurchaseOrderService {
         }
         PurchaseSupplierCredit offsetCredit = offsetCreditFor(paymentId).orElse(null);
         if (!payments.get().delete(orderId, paymentId)) throw new NotFoundException("Betaling", paymentId);
+        if (adjustmentsAvailable()) bankAdjustments.get().delete(paymentId);
         regroupAfterDelete(orderId, payment);
         /* The diary line the payment wrote goes with it. */
         String cleaned = removeNoteLine(order.notes(), paymentNoteLine(payment));

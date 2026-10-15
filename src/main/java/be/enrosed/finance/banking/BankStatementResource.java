@@ -15,7 +15,12 @@ public class BankStatementResource {
     @Inject BankStatementService service;
     @Inject OdooPurchaseImportService incomingDocuments;
     @Inject BankCostRegistrationService costRegistration;
-    @GET public List<BankStatementLineEntity> list(){return service.list();}
+    @Inject BankLineClassificationService classifications;
+    /** {@code from} (YYYY-MM-DD): the lines from that day on plus every older line still to link; without it every line. */
+    @GET public List<BankStatementLineEntity> list(@QueryParam("from") String from){return service.list(from);}
+    /** "Boeken als": an internal transfer, VAT, a loan, capital, private money or something else. */
+    @POST @Path("/{id}/classification") public BankLineClassificationService.Result classify(@PathParam("id") long id,BankLineClassificationService.Request request){return classifications.classify(id,request);}
+    @DELETE @Path("/{id}/classification") public void unclassify(@PathParam("id") long id){classifications.unclassify(id);}
     @POST public BankStatementLineEntity create(BankStatementService.ManualRequest request){return service.create(request);}
     @GET @Path("/{id}/suggestions") public List<BankStatementService.Match> suggestions(@PathParam("id") long id){return service.suggestions(id);}
     @POST @Path("/{id}/allocation") public BankStatementLineEntity allocate(@PathParam("id") long id,BankStatementService.Allocation request){return service.allocate(id,request);}

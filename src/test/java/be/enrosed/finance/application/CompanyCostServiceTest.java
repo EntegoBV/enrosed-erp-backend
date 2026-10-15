@@ -728,19 +728,19 @@ class CompanyCostServiceTest {
     private static CompanyCost regime(VatRegime regime, String country, String excl, String incl, String vat, ExpenseType type, CostKind kind) {
         return new CompanyCost(null, DAY, "SOFTWARE", "Google Workspace", "Google", new BigDecimal(excl),
                 incl == null ? null : new BigDecimal(incl), vat == null ? null : new BigDecimal(vat),
-                null, null, null, null, null, null, null, regime, true, country, kind, type, null, null, null, null);
+                null, null, null, null, null, null, null, regime, true, country, kind, type, null, null, null, null, null);
     }
 
     private static CompanyCost investment(int years, LocalDate start) {
         return new CompanyCost(null, DAY, "MATERIAAL", "Laptop", "Coolblue", new BigDecimal("3000"), null, new BigDecimal("21"),
-                null, null, null, null, null, null, null, VatRegime.BE, true, "BE", CostKind.INVESTMENT, null, null, null, years, start);
+                null, null, null, null, null, null, null, VatRegime.BE, true, "BE", CostKind.INVESTMENT, null, null, null, years, start, null);
     }
 
     private static CompanyCost withDeduction(CompanyCost cost, BigDecimal vatPct, BigDecimal taxPct) {
         return new CompanyCost(cost.id(), cost.date(), cost.category(), cost.description(), cost.party(), cost.amountExclEur(),
                 cost.amountInclEur(), cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(), cost.createdAt(),
                 cost.recurringCostId(), cost.bankStatementLineId(), cost.vatRegime(), cost.vatRegimeConfirmed(), cost.supplierCountry(),
-                cost.costKind(), cost.expenseType(), vatPct, taxPct, cost.depreciationYears(), cost.depreciationStart());
+                cost.costKind(), cost.expenseType(), vatPct, taxPct, cost.depreciationYears(), cost.depreciationStart(), cost.dueDate());
     }
 
     private static CompanyCost withPaidOn(CompanyCost cost, LocalDate paidOn) {
@@ -748,7 +748,7 @@ class CompanyCostServiceTest {
                 cost.amountInclEur(), cost.vatPct(), cost.reference(), paidOn, cost.salesChannel(), cost.notes(), cost.createdAt(),
                 cost.recurringCostId(), cost.bankStatementLineId(), cost.vatRegime(), cost.vatRegimeConfirmed(), cost.supplierCountry(),
                 cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(),
-                cost.depreciationStart());
+                cost.depreciationStart(), cost.dueDate());
     }
 
     /** A Belgian invoice, confirmed: the regime every round-one booking took. */
@@ -760,7 +760,7 @@ class CompanyCostServiceTest {
         return new CompanyCost(cost.id(), cost.date(), cost.category(), cost.description(), cost.party(), cost.amountExclEur(),
                 cost.amountInclEur(), cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(), cost.createdAt(),
                 cost.recurringCostId(), cost.bankStatementLineId(), regime, confirmed, country, cost.costKind(), cost.expenseType(),
-                cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(), cost.depreciationStart());
+                cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(), cost.depreciationStart(), cost.dueDate());
     }
 
     private static CompanyCost withId(CompanyCost cost, long id) {
@@ -768,7 +768,7 @@ class CompanyCostServiceTest {
                 cost.amountInclEur(), cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(), cost.createdAt(),
                 cost.recurringCostId(), cost.bankStatementLineId(), cost.vatRegime(), cost.vatRegimeConfirmed(), cost.supplierCountry(),
                 cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(),
-                cost.depreciationStart());
+                cost.depreciationStart(), cost.dueDate());
     }
 
     private static CostPayment payment(String amount, LocalDate day) {

@@ -882,6 +882,92 @@ class RailwayPreDeployMigrationContractTest {
                 "without the continuation backslash psql never sees the next file");
     }
 
+    @Test
+    void cashForecastIsOneTableAndThreeNullableColumnsRegisteredAfterTheInvoiceKind() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-16/cash-forecast-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout = '10s'; set local statement_timeout = '60s';"));
+        assertTrue(sql.endsWith("commit;"));
+        assertTrue(sql.contains("create table if not exists purchase_order_forecast ( order_id bigint primary key, "
+                + "price_mode varchar(16), markup_pct numeric(7,2), markup_eur_per_unit numeric(19,4), cost_basis varchar(16), "
+                + "sell_weeks integer, payment_days integer, seasonal boolean, included boolean, expected_ship_on date, "
+                + "order_date_override date, updated_at timestamp(6) with time zone not null, actor varchar(255) );"));
+        assertTrue(sql.contains("alter table company_profile add column if not exists cash_buffer_eur numeric(19,2);"));
+        assertTrue(sql.contains("alter table company_cost add column if not exists due_date date;"));
+        assertTrue(sql.contains("alter table bank_account add column if not exists cash_excluded boolean;"));
+        assertEquals(3, sql.split("alter table ", -1).length - 1, "three nullable columns, nothing else changes");
+        assertEquals(1, sql.split("create table if not exists ", -1).length - 1, "one table, no other");
+        assertNoRewriteNoGuardNoForeignKey(sql);
+        assertNonDestructive(sql);
+        assertEntityNamesEveryColumn(sql, "purchase_order_forecast", "PurchaseOrderForecastEntity", 13,
+                "src/main/java/be/enrosed/finance/forecast/");
+        assertTrue(Files.readString(Path.of("src/main/java/be/enrosed/shared/company/CompanyProfileEntity.java"))
+                .contains("@Column(name = \"cash_buffer_eur\", precision = 19, scale = 2)"));
+        assertTrue(Files.readString(Path.of("src/main/java/be/enrosed/finance/adapter/out/persistence/CompanyCostEntity.java"))
+                .contains("@Column(name = \"due_date\") public LocalDate dueDate;"));
+        assertTrue(Files.readString(Path.of("src/main/java/be/enrosed/finance/banking/BankAccountEntity.java"))
+                .contains("@Column(name = \"cash_excluded\") public Boolean cashExcluded;"));
+        assertRegisteredAfter(migration, "2026-10-15/purchase-document-invoice-kind-postgresql.sql");
+    }
+
+    @Test
+    void bankClassificationIsSixNullableColumnsAndTheAdjustmentTableRegisteredAfterTheForecast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-16/bank-classification-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout = '10s'; set local statement_timeout = '60s';"));
+        assertTrue(sql.endsWith("commit;"));
+        for (String column : new String[] {"classification varchar(24)", "classification_note varchar(300)",
+                "transfer_line_id bigint", "vat_period varchar(7)", "classified_at timestamp(6) with time zone",
+                "classified_by varchar(255)"}) {
+            assertTrue(sql.contains("alter table bank_statement_line add column if not exists " + column + ";"), column);
+        }
+        assertEquals(6, sql.split("alter table ", -1).length - 1, "six nullable columns, nothing else changes");
+        assertTrue(sql.contains("create index if not exists ix_bank_statement_line_transfer on bank_statement_line(transfer_line_id);"));
+        assertTrue(sql.contains("create table if not exists purchase_payment_bank_adjustment ( payment_id bigint primary key, "
+                + "from_amount_eur numeric(19,2) not null, from_paid_on date not null, bank_statement_line_id bigint, "
+                + "adjusted_at timestamp(6) with time zone not null, actor varchar(255) );"));
+        assertEquals(1, sql.split("create table if not exists ", -1).length - 1, "one table, no other");
+        assertNoRewriteNoGuardNoForeignKey(sql);
+        assertNonDestructive(sql);
+        assertEntityNamesEveryColumn(sql, "purchase_payment_bank_adjustment", "PurchasePaymentBankAdjustmentEntity", 6,
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/");
+        String line = Files.readString(Path.of("src/main/java/be/enrosed/finance/banking/BankStatementLineEntity.java"));
+        for (String column : new String[] {"@Column(name = \"classification\", length = 24) public String classification;",
+                "@Column(name = \"classification_note\", length = 300) public String classificationNote;",
+                "@Column(name = \"transfer_line_id\") public Long transferLineId;",
+                "@Column(name = \"vat_period\", length = 7) public String vatPeriod;",
+                "@Column(name = \"classified_at\") public Instant classifiedAt;",
+                "@Column(name = \"classified_by\", length = 255) public String classifiedBy;"}) {
+            assertTrue(line.contains(column), "the line names " + column);
+        }
+        assertFalse(line.contains("@Enumerated"), "the classification is plain text");
+        assertRegisteredAfter(migration, "2026-10-16/cash-forecast-postgresql.sql");
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        assertTrue(runner.endsWith("--file=/app/migrations/bank-classification-postgresql.sql\n"),
+                "the last file closes the command without a continuation backslash");
+    }
+
+    /** Neither rewrites a row nor adds a database guard that a later value or a purge would trip over. */
+    private static void assertNoRewriteNoGuardNoForeignKey(String sql) {
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertFalse(sql.contains("insert "), "no guessed backfill");
+        assertFalse(sql.contains("check"), "the modes and classifications are plain text");
+        assertFalse(sql.contains("references"), "no foreign key");
+        assertTrue(sql.contains("set local lock_timeout"));
+    }
+
+    /** Copied into the image and run by the pre-deploy runner right after {@code previous}, with the continuation backslash. */
+    private static void assertRegisteredAfter(Path migration, String previous) throws IOException {
+        String dockerfile = Files.readString(Path.of("Dockerfile"));
+        assertTrue(dockerfile.contains("COPY " + migration + " ./migrations/\n"));
+        assertTrue(dockerfile.indexOf("docs/migrations/" + previous) < dockerfile.indexOf(migration.toString()));
+        String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
+        String before = Path.of(previous).getFileName().toString();
+        assertTrue(runner.contains("--file=/app/migrations/" + migration.getFileName()));
+        assertTrue(runner.contains("--file=/app/migrations/" + before + " \\\n    --file=/app/migrations/" + migration.getFileName()),
+                "registered directly after " + before + ", whose line keeps its continuation backslash");
+    }
+
     /**
      * Railway validates the schema: every column the script creates must be named by the
      * entity, and the entity must not map a column the script does not create.

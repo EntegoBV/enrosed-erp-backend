@@ -25,6 +25,19 @@ public class BankStatementLineEntity {
     @Column(name="source_id", length=180) public String sourceId;
     @Column(name="source_updated_at") public Instant sourceUpdatedAt;
     @Column(name="source_reconciled") public Boolean sourceReconciled;
+    /*
+     * "Boeken als": a line without an invoice or cost, booked as an internal transfer, VAT, a loan, capital,
+     * private money or something else. Plain text, no enum check, nullable (dev H2 adds them to a filled table).
+     * A classified line reads as allocated everywhere.
+     */
+    @Column(name = "classification", length = 24) public String classification;
+    @Column(name = "classification_note", length = 300) public String classificationNote;
+    /** The other leg of an internal transfer; the two lines point at each other. */
+    @Column(name = "transfer_line_id") public Long transferLineId;
+    /** The VAT quarter a VAT payment or refund settles: 'YYYY-Qn'. */
+    @Column(name = "vat_period", length = 7) public String vatPeriod;
+    @Column(name = "classified_at") public Instant classifiedAt;
+    @Column(name = "classified_by", length = 255) public String classifiedBy;
     /** Local allocations, never inferred from the provider's reconciliation flag. */
     @Transient public boolean allocated;
     @Transient public String allocationLabel;

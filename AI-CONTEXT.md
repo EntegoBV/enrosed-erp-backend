@@ -1662,3 +1662,80 @@ the nacalculatie.
   line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per set
   and per stuk for sets); the total row keeps the total, the box below reads "Enrosed kost" and
   "Totaal incl. Enrosed kost".
+
+## Kasprognose en bank (2026-10-16)
+
+Emre's round of 2026-10-15: Kosten & bank opens on the bank, Analyses gets a Kasprognose (cash forecast) with
+choices per container, and a bank transaction can be booked without an invoice. The forecast itself is computed in
+the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it needs.
+
+- **Choices per container** (`purchase_order_forecast`, `be.enrosed.finance.forecast`, `/api/purchase-order-forecasts`
+  GET, PUT `/{orderId}`, DELETE `/{orderId}`): price mode (MARKUP_PCT, EUR_PER_UNIT, LIST, HISTORIC), markup %, markup
+  per unit, cost basis (EXTERNAL, PRICING), sell weeks, payment days, seasonal, included ("Meetellen"), the expected
+  ship date of an ordered container and the planned order day of a concept. They live in their own table, not on
+  `purchase_order`: the order PUT replaces the whole record and an older ERP build would null a column it does not
+  know. Every PUT is the whole set; all null removes the row (the answer then has every field null and no
+  `updatedAt`). Refusals in order: unknown or trashed order (404, looked up through `PurchaseOrderService.get`), price
+  mode, markup 0–1000 with two decimals, per unit 0–100000 with four, cost basis, weeks 1–104, days 0–365, then the
+  order-state rules (partner container: no price or pace; ship date not on a departed order nor before the order date;
+  planned order day only on a concept and not before today). Those last rules check only a value that differs from the
+  stored row, so a control may repeat a stored value after the order moved on. PUT and DELETE first lock the
+  `purchase_order` row (the payment paths' lock): before the first choice there is no forecast row to lock, and two
+  PUTs sent together would both insert it. Deleting an order is a soft delete: the
+  row stays, GET skips it (`deleted_at is null` written out), PUT answers 404, a restore brings the choices back. No
+  diary line, no activity record. The resource has its own prefix: a second class under `/api/purchase-orders` would
+  shadow the sourcing routes.
+- **Buffer** (`company_profile.cash_buffer_eur`, `/api/cash-forecast/settings` GET/PUT): `{cashBufferEur,
+  cashBufferStored}`, EUR 10.000,00 and false while nothing is stored, 0–10.000.000 in cents, null clears. The profile
+  PUT never touches the column; a missing profile row is first created by the profile's own save (so it keeps the
+  seeded identity). The ERP reads a 404 here as "server without this round" and hides every phase-2 control.
+- **Accounts that count** (`bank_account.cash_excluded`, null counts): `BankAccountService.Account.countsInCash`; PUT
+  `/api/bank-accounts/{key}/cash {counts}` creates the row like archiving, refuses an alias, audits "Telt (niet) mee
+  in de kasprognose". Only the forecast start reads it; the account stays on Bank.
+- **Cost due date** (`company_cost.due_date`, `CompanyCost.dueDate`, 25th component, left out of the JSON while null
+  so the bank registration hash of an old retry stays the same): POST stores it, the cost PUT keeps the stored value
+  (server-owned), PUT `/api/costs/{id}/due-date {dueDate}` sets or clears it; before the cost date is refused (POST and
+  that endpoint). There is no 24-argument constructor: every copy names the due date and must carry the stored one
+  (update, validated, paymentState for every payment write and markPaid, the imported update, the entity); new costs
+  of the recurring job, the Odoo import and the bank registration start without one.
+- **"Boeken als"** (`BankLineClassificationService`, POST/DELETE `/api/bank-statements/{id}/classification`, six
+  nullable plain-text columns on `bank_statement_line`): INTERNAL_TRANSFER (optionally with the other leg: another own
+  account by canonical key, the exact opposite amount, within five days, free; the two legs point at each other and
+  are booked and undone together), VAT (`vatPeriod` 'YYYY-Qn'), LOAN, CAPITAL, PRIVATE, OTHER (note required). Locks in
+  ascending line id; an identical retry answers the lines. `describe` reports a classified line as allocated with its
+  Dutch label, the line amount and no difference, so it leaves Te koppelen, an Odoo re-import that changes it is a
+  CONFLICT and the split operations refuse it. Every link path calls `BankStatementService.requireUnclassified` first,
+  before any retry shortcut ("Deze banktransactie is geboekt als {label}; maak dat eerst ongedaan"): allocate, /links,
+  /cost-payment, /purchase-payment, /cost-registration (422 there), the Odoo invoice link (and its preview) and
+  deleting a manual line. Unlink and unallocate never touch a classification.
+- **`GET /api/bank-statements?from=YYYY-MM-DD`**: lines booked from that day (00:00 Brussels) plus every line still to
+  link, whatever its age; filtered in Java after `describe` (the allocation is transient). Without `from` unchanged.
+- **Follow the bank** on `/links` (`followBank`): exactly one cost payment (named, or a cost's only one), no purchase
+  payments; before the two-cent check the payment takes the line's day, amount and account through
+  `CompanyCostService.updatePayment` (refused above the cash total + EUR 0,02), then today's link. On `/allocation`
+  (`followBank` with `existingPaymentId`) the receipt takes the line's amount, moment, zone and account through
+  `IncomingPaymentService.update` before the match. Purchase payments follow through round 2's bank-part.
+- **Keep the payment, book the difference** (`/links` with `keepDifferenceAs` BANKKOSTEN or KOERSVERSCHIL, purchase
+  payments only, the bank paid more than EUR 0,02 above them): a confirmed company cost is created **unpaid** (with a
+  paidOn `create` would add its own payment), EXEMPT "Bankkosten · {counterparty}" (VERZEKERING) or OUT_OF_SCOPE
+  "Koersverschil · {orders}" (ANDERE), then one payment on the line's day and account noted "Verschil bij
+  bankkoppeling", then the purchase payments and that payment are linked together. A retry that finds exactly those
+  purchase payments plus one such payment of the difference answers the line before creating anything.
+- **"Aangepast aan de bank (was ...)"** (`purchase_payment_bank_adjustment`, entity in sourcing persistence, port
+  `SourcingRepositories.PaymentBankAdjustments`, optional `Instance` like the payments): every whole follow in
+  `PurchasePaymentSplitService` (bank-part whole, ADJUST and INSPECTION, bank-lines with one line, and the payments
+  named with it that take the line's day) calls `PurchaseOrderService.recordBankAdjustment(before, lineId)` after its
+  own update; a row is written only when the euro amount or the day changed and only when none exists (the first
+  adjustment wins). A carved part is a new transfer and writes nothing. The row goes only by the payment sheet's hand
+  PUT (`updatePaymentByHand`, which `SourcingResource` now calls; a changed amount or date) and by deleting the
+  payment, never inside `updatePayment` itself (a follow path may reuse it). `GET /api/purchase-payments` carries
+  `bankAdjustedFromEur` and `bankAdjustedFromOn` (one read for the list).
+- **One transfer for several containers** (owner addition): each part of `POST /api/bank-statements/{id}/purchase-payment`
+  may name its own `purchaseOrderId` (the request's is the default and may be left out). The line, then every order in
+  ascending id, are locked; the parts' total must make the line (two-cent rule); each part is a payment on its order;
+  all are linked to the one line, which is the proof for every part. Identical retries answer the same ids.
+- **Migrations** `2026-10-16/cash-forecast-postgresql.sql` (the forecast table, the buffer, the due date, the account
+  flag) and `bank-classification-postgresql.sql` (the classification columns with an index on the other leg, the
+  adjustment table) run after `purchase-document-invoice-kind-postgresql.sql`, in that order. Additive: no update,
+  insert, check or foreign key. **Rollout: backend first**; the ERP hides every phase-2 control until
+  `/api/cash-forecast/settings` answers.

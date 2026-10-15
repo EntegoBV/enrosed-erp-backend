@@ -65,6 +65,15 @@ public class CompanyCostResource {
 
     public record PaidRequest(String paidOn) {}
 
+    /** Body: {"dueDate": "2026-11-05"}; null clears it. The cost PUT never changes the due date. */
+    @PUT
+    @Path("/{id}/due-date")
+    public CostView setDueDate(@PathParam("id") long id, DueDateRequest body) {
+        return costs.setDueDate(id, body == null ? null : body.dueDate());
+    }
+
+    public record DueDateRequest(LocalDate dueDate) {}
+
     @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") long id) {

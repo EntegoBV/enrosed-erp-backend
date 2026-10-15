@@ -1,6 +1,7 @@
 package be.enrosed.finance.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -65,7 +66,14 @@ public record CompanyCost(
         /** Useful life of an investment in years; null unless the cost is an investment. */
         Integer depreciationYears,
         /** First day of the depreciation; defaults to the cost date. */
-        LocalDate depreciationStart
+        LocalDate depreciationStart,
+        /**
+         * When the invoice falls due; null = the cost date counts in the cash line. Set on creation and by its own
+         * endpoint only: a cost PUT keeps the stored value, and every copy of a cost must carry it. Left out of the
+         * JSON while null, so a cost without one serialises exactly as before (the bank registration hash).
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        LocalDate dueDate
 ) {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
 
@@ -87,7 +95,7 @@ public record CompanyCost(
                        LocalDate paidOn, String salesChannel, String notes, Instant createdAt, Long recurringCostId,
                        Long bankStatementLineId) {
         this(id, date, category, description, party, amountExclEur, amountInclEur, vatPct, reference, paidOn, salesChannel,
-                notes, createdAt, recurringCostId, bankStatementLineId, null, null, null, null, null, null, null, null, null);
+                notes, createdAt, recurringCostId, bankStatementLineId, null, null, null, null, null, null, null, null, null, null);
     }
 
     public boolean recurring() {

@@ -37,6 +37,7 @@ public class BankCostRegistrationService {
         if(request.cost().id()!=null)throw new BusinessRuleException("Kies een bestaande kost via de factuurlijst");
         var line=em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE);
         if(line==null)throw new NotFoundException("Banktransactie",id);
+        bank.requireUnclassified(line);
         if(line.amountEur.signum()>=0)throw new BusinessRuleException("Een nieuwe uitgave hoort bij een uitgaande banktransactie");
         var clean=unpaid(request.cost());
         String hash=hash(line,clean);
@@ -73,7 +74,7 @@ public class BankCostRegistrationService {
     private static CompanyCost unpaid(CompanyCost value) {
         return new CompanyCost(null,value.date(),value.category(),value.description(),value.party(),value.amountExclEur(),value.amountInclEur(),value.vatPct(),
                 value.reference(),null,value.salesChannel(),value.notes(),null,null,null,value.vatRegime(),value.vatRegimeConfirmed(),value.supplierCountry(),
-                value.costKind(),value.expenseType(),value.vatDeductiblePct(),value.taxDeductiblePct(),value.depreciationYears(),value.depreciationStart());
+                value.costKind(),value.expenseType(),value.vatDeductiblePct(),value.taxDeductiblePct(),value.depreciationYears(),value.depreciationStart(),null);
     }
     private String hash(BankStatementLineEntity line,CompanyCost cost) {
         try {

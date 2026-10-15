@@ -46,12 +46,14 @@ public class CompanyCostEntity {
     @Column(name = "tax_deductible_pct", precision = 5, scale = 2) public BigDecimal taxDeductiblePct;
     @Column(name = "depreciation_years") public Integer depreciationYears;
     @Column(name = "depreciation_start") public LocalDate depreciationStart;
+    /** When the invoice falls due; null = the cost date counts in the cash line. Only its own endpoint changes it. */
+    @Column(name = "due_date") public LocalDate dueDate;
 
     public CompanyCost toDomain() {
         return new CompanyCost(id, date, category, description, party, amountExclEur, amountInclEur, vatPct,
                 reference, paidOn, salesChannel, notes, createdAt, recurringCostId, bankStatementLineId,
                 VatRegime.parse(vatRegime), vatRegimeConfirmed, supplierCountry, CostKind.parse(costKind),
-                ExpenseType.parse(expenseType), vatDeductiblePct, taxDeductiblePct, depreciationYears, depreciationStart);
+                ExpenseType.parse(expenseType), vatDeductiblePct, taxDeductiblePct, depreciationYears, depreciationStart, dueDate);
     }
 
     public void apply(CompanyCost cost) {
@@ -78,5 +80,6 @@ public class CompanyCostEntity {
         taxDeductiblePct = cost.taxDeductiblePct();
         depreciationYears = cost.depreciationYears();
         depreciationStart = cost.depreciationStart();
+        dueDate = cost.dueDate();
     }
 }

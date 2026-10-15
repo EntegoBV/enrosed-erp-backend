@@ -579,7 +579,7 @@ public class SourcingResource {
     public PurchasePayment updatePayment(@PathParam("id") long id, @PathParam("paymentId") long paymentId,
                                          PaymentRequest request) {
         if (request == null) throw new be.enrosed.shared.BusinessRuleException("Geef een bedrag op");
-        return purchaseOrders.updatePayment(id, paymentId, request.paidOn(), request.amount(),
+        return purchaseOrders.updatePaymentByHand(id, paymentId, request.paidOn(), request.amount(),
                 request.currency(), request.label(), request.payee(), Boolean.TRUE.equals(request.settles()),
                 request.instalmentDue(), request.instalmentDueProvided(), request.amountEur(),
                 request.invoiceId(), request.invoiceIdProvided(), Boolean.TRUE.equals(request.applyToGroup));

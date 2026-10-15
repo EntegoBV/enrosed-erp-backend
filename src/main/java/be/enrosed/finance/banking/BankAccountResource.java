@@ -15,4 +15,7 @@ public class BankAccountResource {
     @PUT @Path("/{key}") public BankAccountService.Account update(@PathParam("key") String key,BankAccountService.Update request){return service.update(key,request);}
     @DELETE @Path("/{key}") public void archive(@PathParam("key") String key){service.archive(key);}
     @POST @Path("/{key}/restore") public BankAccountService.Account restore(@PathParam("key") String key){return service.restore(key);}
+    /** Body {"counts": false}: the account leaves the Kasprognose's start; true brings it back. */
+    @PUT @Path("/{key}/cash") public BankAccountService.Account cash(@PathParam("key") String key,CashRequest request){return service.setCountsInCash(key,request==null?null:request.counts());}
+    public record CashRequest(Boolean counts) {}
 }

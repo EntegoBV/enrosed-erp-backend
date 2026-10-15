@@ -51,7 +51,10 @@ public class OdooCostImportStore {
             throw new BusinessRuleException("Deze banktransactie hoort bij een andere Odoo-administratie");
     }
     public LocalPlan plan(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,Long selectedCostId) {
-        var line=line(lineId);requireBankSource(line,snapshot.namespace());
+        var line=line(lineId);
+        if(line.classification!=null)return new LocalPlan(null,List.of(),null,"Deze banktransactie is geboekt als "
+                +BankStatementService.classificationLabel(line.classification)+"; maak dat eerst ongedaan",null);
+        requireBankSource(line,snapshot.namespace());
         if(line.amountEur.signum()!=-snapshot.totalEur().signum())return new LocalPlan(null,List.of(),null,"De richting van deze banktransactie past niet bij de factuur of creditnota",null);
         var registration=find(snapshot.namespace(),snapshot.document().id());
         Long costId=registration==null?null:registration.companyCostId;
@@ -153,7 +156,7 @@ public class OdooCostImportStore {
         SortedSet<Long> bankIds=new TreeSet<>();bankIds.add(lineId);
         if(target!=null)payments(target).stream().map(payment->payment.bankStatementLineId).filter(Objects::nonNull).forEach(bankIds::add);
         for(long id:bankIds)em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE);
-        var line=line(lineId);requireBankSource(line,snapshot.namespace());
+        var line=line(lineId);bank.requireUnclassified(line);requireBankSource(line,snapshot.namespace());
         if(target!=null) {
             em.find(CompanyCostEntity.class,target,LockModeType.PESSIMISTIC_WRITE);
             if(payments(target).stream().anyMatch(payment->payment.bankStatementLineId!=null&&!bankIds.contains(payment.bankStatementLineId)))

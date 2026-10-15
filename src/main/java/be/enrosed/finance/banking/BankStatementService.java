@@ -56,8 +56,23 @@ public class BankStatementService {
         }
     }
     public record Match(long salesOrderId,String number,BigDecimal openEur,int score,Long existingPaymentId,String reason,Instant receivedAt,String reference) {}
-    public record Allocation(long salesOrderId,Long existingPaymentId) {}
-    public record OutgoingLinks(List<Long> purchasePaymentIds,Long companyCostId,Long costPaymentId) {}
+    /** {@code followBank}: an existing receipt takes the line's amount, moment and account before it is matched. */
+    public record Allocation(long salesOrderId,Long existingPaymentId,Boolean followBank) {
+        public Allocation(long salesOrderId,Long existingPaymentId) {this(salesOrderId,existingPaymentId,null);}
+    }
+    /**
+     * {@code followBank}: the one cost payment takes the line's day, amount and account before the two-cent check.
+     * {@code keepDifferenceAs} (BANKKOSTEN or KOERSVERSCHIL): the purchase payments keep their amounts and the bank's
+     * surplus becomes a paid company cost on the same line.
+     */
+    public record OutgoingLinks(List<Long> purchasePaymentIds,Long companyCostId,Long costPaymentId,Boolean followBank,
+                                String keepDifferenceAs) {
+        public OutgoingLinks(List<Long> purchasePaymentIds,Long companyCostId,Long costPaymentId) {
+            this(purchasePaymentIds,companyCostId,costPaymentId,null,null);
+        }
+    }
+    static final String DIFFERENCE_NOTE="Verschil bij bankkoppeling";
+    private static final java.time.format.DateTimeFormatter DAY=java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
     public record CostAllocation(long companyCostId,boolean confirmNewPayment) {
         public CostAllocation(long companyCostId) {this(companyCostId,false);}
     }
@@ -71,6 +86,44 @@ public class BankStatementService {
         var amounts=allocationAmounts(null);
         for(var row:rows)describe(row,amounts);
         return rows;
+    }
+
+    /**
+     * The lines booked from a day on (00:00 Brussels), plus every older line that is still "te koppelen": the
+     * Kasprognose needs recent movements and every open line. "Open" is the described allocation (a classified
+     * line is not open), which is transient, so the filter runs here and never in SQL. Same order as {@link #list()}.
+     */
+    public List<BankStatementLineEntity> list(String from) {
+        if(from==null||from.isBlank())return list();
+        LocalDate day;
+        try { day=LocalDate.parse(from.strip()); }
+        catch(java.time.format.DateTimeParseException invalid) { throw new BusinessRuleException("Ongeldige datum voor from (JJJJ-MM-DD)"); }
+        Instant start=day.atStartOfDay(ZoneId.of("Europe/Brussels")).toInstant();
+        return list().stream().filter(row->!row.bookedAt.isBefore(start)||!row.allocated).toList();
+    }
+
+    /** The Dutch name of a "Boeken als" classification; null for none. */
+    public static String classificationLabel(String classification) {
+        if(classification==null)return null;
+        return switch(classification) {
+            case "INTERNAL_TRANSFER" -> "Interne overboeking";
+            case "VAT" -> "Btw";
+            case "LOAN" -> "Lening";
+            case "CAPITAL" -> "Kapitaal";
+            case "PRIVATE" -> "Privé";
+            case "OTHER" -> "Andere";
+            default -> classification;
+        };
+    }
+
+    /**
+     * A line booked as an internal transfer, VAT, a loan and so on carries no payment. Every link path calls this
+     * first, right after loading or locking the line and before any retry shortcut or allocation test: the
+     * described allocation of a classified line would otherwise answer "al gekoppeld".
+     */
+    public void requireUnclassified(BankStatementLineEntity row) {
+        if(row!=null&&row.classification!=null)
+            throw new BusinessRuleException("Deze banktransactie is geboekt als "+classificationLabel(row.classification)+"; maak dat eerst ongedaan");
     }
 
     /** Each imported row commits independently. A failed/retried sync resumes from stable external identities. */
@@ -109,10 +162,14 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity linkExisting(long id,OutgoingLinks request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(request==null)throw new BusinessRuleException("Kies de betaling die bij deze banktransactie hoort");
         if(row.amountEur.signum()==0||row.salesPaymentId!=null)throw new BusinessRuleException("Kies een vrije banktransactie");
         var ids=request.purchasePaymentIds()==null?List.<Long>of():request.purchasePaymentIds();
         if(ids.stream().anyMatch(Objects::isNull)||new HashSet<>(ids).size()!=ids.size())throw new BusinessRuleException("Kies elke betaling maar één keer");
+        boolean follow=Boolean.TRUE.equals(request.followBank());
+        if(follow&&(!ids.isEmpty()||request.companyCostId()==null&&request.costPaymentId()==null))throw followPerCostPayment();
+        if(request.keepDifferenceAs()!=null)return linkWithDifference(row,request,ids);
         List<SourcingEntities.PurchasePaymentEntity> purchases=new ArrayList<>();
         BigDecimal total=BigDecimal.ZERO;
         // Payment corrections hold the parent order lock; take the same lock before reading amounts.
@@ -139,6 +196,8 @@ public class BankStatementService {
             cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
             if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
             var candidates=costPayments(cost.id);
+            // Following needs exactly one payment to follow; the follow refusal names that before the plain link's.
+            if(follow&&candidates.size()!=1)throw followPerCostPayment();
             if(candidates.size()>1)throw new BusinessRuleException("Kies de betaling die deze banktransactie dekt");
             if(candidates.size()==1)costPayment=em.find(CostPaymentEntity.class,candidates.getFirst().id,LockModeType.PESSIMISTIC_WRITE);
             else {
@@ -149,6 +208,8 @@ public class BankStatementService {
         }
         if(costPayment!=null) {
             if(costPayment.bankStatementLineId!=null&&!costPayment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
+            // The payment follows before its amount joins the total, so the two-cent check reads the followed amount.
+            if(follow&&costPayment.bankStatementLineId==null)costPayment=followCost(row,cost,costPayment);
             // Historical free-text bank labels need not equal an imported IBAN. The selected movement is authoritative.
             total=total.add(costPayment.amountEur);
         }
@@ -178,6 +239,95 @@ public class BankStatementService {
         return describe(row);
     }
 
+    private static BusinessRuleException followPerCostPayment() {
+        return new BusinessRuleException("Betaling volgt de bank kan per kostbetaling; inkoopbetalingen volgen de bank via hun eigen koppeling");
+    }
+
+    /**
+     * "Betaling volgt de bank" for a cost payment: it takes the line's local day, amount and account through the
+     * cost's own payment update (totals and "Betaald op" follow), under the locks the link already holds. A cost
+     * would never be paid more than its cash total plus two cents.
+     */
+    private CostPaymentEntity followCost(BankStatementLineEntity row,CompanyCostEntity cost,CostPaymentEntity payment) {
+        LocalDate day=localDay(row);
+        BigDecimal amount=row.amountEur.negate();
+        if(day.equals(payment.paidOn)&&amount.compareTo(payment.amountEur)==0&&Objects.equals(row.account,payment.account))return payment;
+        BigDecimal cash=cost.toDomain().totalInclEur();
+        if(cash.signum()==0||amount.signum()!=cash.signum())
+            throw new BusinessRuleException("De richting van de kostbetaling of terugbetaling komt niet overeen met de banktransactie");
+        BigDecimal others=costPayments(cost.id).stream().filter(other->!other.id.equals(payment.id))
+                .map(other->other.amountEur).reduce(BigDecimal.ZERO,BigDecimal::add);
+        if(others.add(amount).abs().subtract(cash.abs()).compareTo(BankAmountMatch.MAX_DIFFERENCE)>0)
+            throw new BusinessRuleException("De transactie is hoger dan wat er op deze kost openstaat; registreer het verschil apart");
+        BigDecimal wasAmount=payment.amountEur;LocalDate wasDay=payment.paidOn;
+        costs.updatePayment(cost.id,payment.id,new be.enrosed.finance.domain.CostPayment(null,null,day,amount,row.account,null,payment.note,null,null));
+        var followed=em.find(CostPaymentEntity.class,payment.id);
+        em.refresh(followed);
+        audit(row,"Kostbetaling volgt de bank: "+eur(amount)+" op "+DAY.format(day)+" (was "+eur(wasAmount)+" op "+DAY.format(wasDay)+")");
+        return followed;
+    }
+
+    /**
+     * "Betaling houden, verschil als Bankkosten / Koersverschil": the bank paid more than the purchase payments, and
+     * they keep their amounts. The difference becomes a paid company cost on the same line (created unpaid, so
+     * create adds no payment of its own, then one payment on the line's day and account), linked together with
+     * the purchase payments in this transaction. A retry of a link that already carries exactly those payments and
+     * one such difference answers the line and creates nothing.
+     */
+    private BankStatementLineEntity linkWithDifference(BankStatementLineEntity row,OutgoingLinks request,List<Long> ids) {
+        String keep=request.keepDifferenceAs().strip();
+        if(ids.isEmpty()||request.companyCostId()!=null||request.costPaymentId()!=null)
+            throw new BusinessRuleException("Een verschil boeken kan alleen bij inkoopbetalingen");
+        if(!Set.of("BANKKOSTEN","KOERSVERSCHIL").contains(keep))throw new BusinessRuleException("Kies Bankkosten of Koersverschil");
+        long id=row.id;
+        lockOutgoingParents(ids,null,null);
+        BigDecimal total=BigDecimal.ZERO;
+        Set<String> orderNumbers=new TreeSet<>();
+        for(long paymentId:ids.stream().sorted().toList()) {
+            var payment=em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
+            if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            /* The link's own guards, checked before anything is created. */
+            if(payment.bankStatementLineId!=null&&!payment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
+            if(payment.amountEur.signum()<=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
+            total=total.add(payment.amountEur);
+            var order=em.find(SourcingEntities.PurchaseOrderEntity.class,payment.orderId);
+            if(order!=null&&order.number!=null)orderNumbers.add(order.number);
+        }
+        BigDecimal difference=row.amountEur.negate().subtract(total);
+        Set<Long> linkedPurchases=new HashSet<>(em.createQuery("select p.id from PurchasePaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
+        var linkedCosts=em.createQuery("from CostPaymentEntity p where p.bankStatementLineId=:id",CostPaymentEntity.class).setParameter("id",id).getResultList();
+        if(linkedPurchases.equals(new HashSet<>(ids))&&linkedCosts.size()==1&&DIFFERENCE_NOTE.equals(linkedCosts.getFirst().note)
+                &&linkedCosts.getFirst().amountEur.subtract(difference).abs().compareTo(BankAmountMatch.MAX_DIFFERENCE)<=0)return describe(row);
+        if(row.amountEur.signum()>=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
+        if(difference.compareTo(BankAmountMatch.MAX_DIFFERENCE.negate())<0)
+            throw new BusinessRuleException("De bank betaalde minder dan de betaling; laat de betaling de bank volgen");
+        if(difference.compareTo(BankAmountMatch.MAX_DIFFERENCE)<=0)throw new BusinessRuleException("Er is geen verschil om te boeken; koppel gewoon");
+        if(!linkedPurchases.isEmpty()||!linkedCosts.isEmpty()||describe(row).allocated)
+            throw new BusinessRuleException("Deze banktransactie is al aan een andere betaling gekoppeld");
+        boolean bankFees=keep.equals("BANKKOSTEN");
+        String counterparty=row.counterparty==null||row.counterparty.isBlank()?null:row.counterparty.strip();
+        String description=bankFees?(counterparty==null?"Bankkosten":"Bankkosten · "+counterparty):"Koersverschil · "+String.join(", ",orderNumbers);
+        LocalDate day=localDay(row);
+        var cost=costs.create(new be.enrosed.finance.domain.CompanyCost(null,day,bankFees?"VERZEKERING":"ANDERE",shortened(description,300),
+                counterparty==null?null:shortened(counterparty,200),difference,null,null,null,null,null,null,null,null,null,
+                bankFees?be.enrosed.finance.domain.VatRegime.EXEMPT:be.enrosed.finance.domain.VatRegime.OUT_OF_SCOPE,true,null,
+                null,null,null,null,null,null,null));
+        var payments=costs.addPayment(cost.id(),new be.enrosed.finance.domain.CostPayment(null,cost.id(),day,difference,row.account,null,
+                DIFFERENCE_NOTE,null,null)).payments();
+        long costPaymentId=payments.stream().filter(payment->payment.bankStatementLineId()==null)
+                .map(be.enrosed.finance.domain.CostPayment::id).max(Long::compare).orElseThrow();
+        var linked=linkExisting(id,new OutgoingLinks(ids,cost.id(),costPaymentId));
+        audit(row,"Verschil "+eur(difference)+" geboekt als "+(bankFees?"Bankkosten":"Koersverschil"));
+        return linked;
+    }
+
+    private static String shortened(String text,int length) {return text.length()<=length?text:text.substring(0,length);}
+    private static LocalDate localDay(BankStatementLineEntity row) {return row.bookedAt.atZone(ZoneId.of(row.timeZone)).toLocalDate();}
+    /** Belgian euro: a point every three digits, a comma before the cents. */
+    static String eur(BigDecimal amount) {
+        return "€ "+String.format(Locale.forLanguageTag("nl-BE"),"%,.2f",amount.setScale(2,java.math.RoundingMode.HALF_UP));
+    }
+
     @Transactional
     public void unlinkExisting(long id) {
         var row=get(id,true);
@@ -189,6 +339,7 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity recordCostPayment(long id,CostAllocation request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(request==null||request.companyCostId()<=0)throw new BusinessRuleException("Kies de kost bij deze banktransactie");
         if(row.amountEur.signum()==0)throw new BusinessRuleException("Kies een banktransactie met een bedrag");
         var cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
@@ -255,6 +406,12 @@ public class BankStatementService {
     }
 
     private static void describe(BankStatementLineEntity row,AllocationAmounts amounts) {
+        if(row.classification!=null) {
+            /* Booked as a transfer, VAT, a loan...: explained in full, so it counts as allocated everywhere. */
+            row.allocated=true;row.allocationLabel=classificationLabel(row.classification);
+            row.allocatedAmountEur=row.amountEur;row.allocationDifferenceEur=BigDecimal.ZERO.setScale(2);
+            return;
+        }
         boolean purchase=amounts.purchases.containsKey(row.id),cost=amounts.costs.containsKey(row.id);
         row.allocated=row.salesPaymentId!=null||purchase||cost;
         row.allocationLabel=row.salesPaymentId!=null?"Verkoopfactuur":purchase&&cost?"Inkoop en kosten":purchase?"Inkoopbetaling":cost?"Kostbetaling":null;
@@ -326,6 +483,7 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity allocate(long id,Allocation request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(describe(row).allocated) {
             if(request!=null&&row.salesPaymentId!=null&&Objects.equals(row.salesOrderId,request.salesOrderId())
                     &&(request.existingPaymentId()==null&&row.allocationCreatedPayment||Objects.equals(row.salesPaymentId,request.existingPaymentId())))return row;
@@ -338,6 +496,7 @@ public class BankStatementService {
         if(request.existingPaymentId()!=null) {
             var payment=incoming.forOrder(order.id()).stream().filter(p->p.id().equals(request.existingPaymentId())).findFirst().orElseThrow(()->new BusinessRuleException("De gekozen betaling hoort niet bij deze factuur"));
             if(payment.isOffset())throw new BusinessRuleException("Een verrekening is geen bankbeweging");
+            if(Boolean.TRUE.equals(request.followBank()))payment=followReceipt(row,order.id(),payment);
             if(!BankAmountMatch.matches(row.amountEur,payment.amountEur()))throw new BusinessRuleException("Bedrag of richting komen niet overeen; maximaal € 0,02 verschil is toegestaan");
             if(paymentLinked(payment.id()))throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
             if(!Objects.equals(payment.bankAccount(),row.account))incoming.update(order.id(),payment.id(),
@@ -356,6 +515,25 @@ public class BankStatementService {
         }
         row.salesOrderId=order.id();row.allocatedAt=Instant.now();em.flush();
         describe(row);audit(row,"Bankbeweging expliciet gekoppeld aan "+order.number()+" · toegewezen "+row.allocatedAmountEur+" · verschil "+row.allocationDifferenceEur);return row;
+    }
+
+    /**
+     * "Betaling volgt de bank" for a receipt: before the match it takes the line's amount, moment, time zone and
+     * account through the receipt's own correction (the invoice's balance follows). Direction and an existing bank
+     * link are refused as without following.
+     */
+    private SalesPayment followReceipt(BankStatementLineEntity row,long orderId,SalesPayment payment) {
+        if(payment.amountEur().signum()!=row.amountEur.signum())throw new BusinessRuleException("Bedrag of richting komen niet overeen; maximaal € 0,02 verschil is toegestaan");
+        if(paymentLinked(payment.id()))throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
+        if(payment.amountEur().compareTo(row.amountEur)==0&&payment.receivedAt().equals(row.bookedAt)
+                &&Objects.equals(payment.timeZone(),row.timeZone)&&Objects.equals(payment.bankAccount(),row.account))return payment;
+        LocalDate wasDay=payment.receivedAt().atZone(ZoneId.of(payment.timeZone()==null?"Europe/Brussels":payment.timeZone())).toLocalDate();
+        incoming.update(orderId,payment.id(),new IncomingPaymentService.Request(row.amountEur.abs(),row.bookedAt,row.timeZone,payment.reference(),
+                row.amountEur.signum()<0?IncomingPaymentService.Direction.REFUND:IncomingPaymentService.Direction.RECEIPT,row.account));
+        var followed=incoming.forOrder(orderId).stream().filter(p->p.id().equals(payment.id())).findFirst().orElseThrow();
+        audit(row,"Ontvangst volgt de bank: "+eur(row.amountEur.abs())+" op "+DAY.format(localDay(row))
+                +" (was "+eur(payment.amountEur().abs())+" op "+DAY.format(wasDay)+")");
+        return followed;
     }
 
     @Transactional
@@ -387,6 +565,7 @@ public class BankStatementService {
     @Transactional
     public void delete(long id) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(row.source!=null)throw new BusinessRuleException("Een opgehaalde banktransactie kan niet worden verwijderd; je kunt alleen de koppeling losmaken");
         if(row.salesPaymentId!=null)throw new BusinessRuleException("Maak eerst de factuurkoppeling ongedaan");
         unlink(row.id);
