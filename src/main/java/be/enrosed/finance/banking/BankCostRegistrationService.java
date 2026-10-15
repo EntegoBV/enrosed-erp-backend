@@ -73,7 +73,7 @@ public class BankCostRegistrationService {
     private static CompanyCost unpaid(CompanyCost value) {
         return new CompanyCost(null,value.date(),value.category(),value.description(),value.party(),value.amountExclEur(),value.amountInclEur(),value.vatPct(),
                 value.reference(),null,value.salesChannel(),value.notes(),null,null,null,value.vatRegime(),value.vatRegimeConfirmed(),value.supplierCountry(),
-                value.costKind(),value.expenseType(),value.vatDeductiblePct(),value.taxDeductiblePct(),value.depreciationYears(),value.depreciationStart());
+                value.costKind(),value.expenseType(),value.vatDeductiblePct(),value.taxDeductiblePct(),value.depreciationYears(),value.depreciationStart(),null);
     }
     private String hash(BankStatementLineEntity line,CompanyCost cost) {
         try {

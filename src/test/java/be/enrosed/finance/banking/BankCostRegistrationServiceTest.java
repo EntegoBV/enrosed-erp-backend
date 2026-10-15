@@ -27,7 +27,7 @@ class BankCostRegistrationServiceTest {
     static BigDecimal money(String value){return new BigDecimal(value).setScale(2);}
     CompanyCost cost(String description) {
         return new CompanyCost(null,LocalDate.of(2026,9,1),"SOFTWARE",description,"Fixture Supplier",money("100"),money("121"),money("21"),"INV-FIXTURE",
-                LocalDate.of(2026,9,2),null,null,null,null,null,VatRegime.BE,true,"BE",null,null,null,null,null,null);
+                LocalDate.of(2026,9,2),null,null,null,null,null,VatRegime.BE,true,"BE",null,null,null,null,null,null,null);
     }
     BankStatementLineEntity line(String amount) {
         var value=money(amount);return bank.create(new BankStatementService.ManualRequest("ATOMIC-TEST",value.abs(),value.signum()>0?BankStatementService.Direction.INCOMING:BankStatementService.Direction.OUTGOING,
@@ -69,7 +69,7 @@ class BankCostRegistrationServiceTest {
         assertEquals("BANK_COST_REGISTRATION_EXISTS",error.code);assertEquals(before,costCount());assertEquals(1,costs.paymentsOf(saved.cost().cost().id()).size());
     }
     @Test @TestTransaction void aBankLineAlreadyLinkedThroughAnotherFlowCannotCreateACost() {
-        var row=line("-121");var existing=costs.create(new CompanyCost(null,LocalDate.of(2026,9,1),"SOFTWARE","Existing","Fixture",money("100"),money("121"),money("21"),null,null,null,null,null,null,null,VatRegime.BE,true,"BE",null,null,null,null,null,null));
+        var row=line("-121");var existing=costs.create(new CompanyCost(null,LocalDate.of(2026,9,1),"SOFTWARE","Existing","Fixture",money("100"),money("121"),money("21"),null,null,null,null,null,null,null,VatRegime.BE,true,"BE",null,null,null,null,null,null,null));
         bank.recordCostPayment(row.id,new BankStatementService.CostAllocation(existing.id()));long before=costCount();
         assertEquals("BANK_ALREADY_ALLOCATED",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,request("Duplicate"))).code);
         assertEquals(before,costCount());assertNull(em.find(BankCostRegistrationEntity.class,row.id));

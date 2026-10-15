@@ -172,7 +172,7 @@ public class CompanyCostService {
                 description.substring(0,Math.min(300,description.length())),document.partner().substring(0,Math.min(200,document.partner().length())),
                 snapshot.netEur(),snapshot.totalEur(),null,reference.substring(0,Math.min(120,reference.length())),null,null,
                 "Overgenomen uit Odoo. Controleer de btw-regeling en aftrekbaarheid aan de hand van de originele factuur.",
-                Instant.now(),null,null,null,false,snapshot.supplierCountry(),null,null,null,null,null,null);
+                Instant.now(),null,null,null,false,snapshot.supplierCountry(),null,null,null,null,null,null,null);
         var saved=costs.save(cost);recordActivity(ActivityLogService.ACTION_CREATED,saved,"Ontvangen Odoo-document geregistreerd; originele bedragen behouden");return saved;
     }
 
@@ -205,7 +205,9 @@ public class CompanyCostService {
                 changes.reference(), changes.paidOn(), changes.salesChannel(), changes.notes(), null,
                 current.recurringCostId(), null, changes.vatRegime(), changes.vatRegimeConfirmed(), changes.supplierCountry(),
                 changes.costKind(), changes.expenseType(), changes.vatDeductiblePct(), changes.taxDeductiblePct(),
-                changes.depreciationYears(), changes.depreciationStart());
+                changes.depreciationYears(), changes.depreciationStart(),
+                /* The due date is its own endpoint's: a PUT (also from an older screen that never sends it) keeps it. */
+                current.dueDate());
         CompanyCost saved = costs.save(sourceDocument?validatedImportedUpdate(linked,current):validated(linked, current.id(), current.createdAt(), current.bankStatementLineId(), current));
         if (saved.paidOn() != null) {
             if (rows.isEmpty()) {
@@ -240,6 +242,31 @@ public class CompanyCostService {
         CompanyCost saved = derivePaidOn(current);
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Kost betaald op " + day);
         return saved;
+    }
+
+    /**
+     * When the invoice falls due, for the cash line; null clears it. The one write of the due date after
+     * creation: the cost's own PUT keeps the stored value.
+     */
+    @Transactional
+    public CostView setDueDate(long id, LocalDate dueDate) {
+        CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
+        requireDueDate(current.date(), dueDate);
+        if (java.util.Objects.equals(dueDate, current.dueDate())) return view(current);
+        CompanyCost saved = costs.save(new CompanyCost(current.id(), current.date(), current.category(), current.description(),
+                current.party(), current.amountExclEur(), current.amountInclEur(), current.vatPct(), current.reference(),
+                current.paidOn(), current.salesChannel(), current.notes(), current.createdAt(), current.recurringCostId(),
+                current.bankStatementLineId(), current.vatRegime(), current.vatRegimeConfirmed(), current.supplierCountry(),
+                current.costKind(), current.expenseType(), current.vatDeductiblePct(), current.taxDeductiblePct(),
+                current.depreciationYears(), current.depreciationStart(), dueDate));
+        recordActivity(ActivityLogService.ACTION_UPDATED, saved, dueDate == null ? "Vervaldag gewist" : "Vervalt op " + dueDate);
+        return view(saved);
+    }
+
+    private static void requireDueDate(LocalDate date, LocalDate dueDate) {
+        if (dueDate != null && date != null && dueDate.isBefore(date)) {
+            throw new BusinessRuleException("De vervaldag ligt vóór de kostdatum");
+        }
     }
 
     @Transactional
@@ -327,7 +354,7 @@ public class CompanyCostService {
                 cost.amountExclEur(), cost.amountInclEur(), cost.vatPct(), cost.reference(), paidOn, cost.salesChannel(),
                 cost.notes(), cost.createdAt(), cost.recurringCostId(), bankStatementLineId, cost.vatRegime(),
                 cost.vatRegimeConfirmed(), cost.supplierCountry(), cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(),
-                cost.taxDeductiblePct(), cost.depreciationYears(), cost.depreciationStart()));
+                cost.taxDeductiblePct(), cost.depreciationYears(), cost.depreciationStart(), cost.dueDate()));
     }
 
     private CostPayment paymentOf(long costId, long paymentId) {
@@ -395,13 +422,15 @@ public class CompanyCostService {
             years = cost.depreciationYears();
             start = cost.depreciationStart() == null ? cost.date() : cost.depreciationStart();
         }
+        /* A new cost is checked here; a stored due date travels unchecked (its own endpoint checks it). */
+        if (current == null) requireDueDate(cost.date(), cost.dueDate());
         return new CompanyCost(id, cost.date(), category.toUpperCase(), description, clean(cost.party()),
                 excl, fields.amountInclEur(), fields.vatPct(),
                 clean(cost.reference()), cost.paidOn(),
                 channel == null ? null : channel.toUpperCase(), clean(cost.notes()),
                 createdAt == null ? Instant.now() : createdAt, cost.recurringCostId(), bankStatementLineId,
                 fields.vatRegime(), fields.vatRegimeConfirmed(), fields.supplierCountry(), fields.costKind(), fields.expenseType(),
-                fields.vatDeductiblePct(), fields.taxDeductiblePct(), years, start);
+                fields.vatDeductiblePct(), fields.taxDeductiblePct(), years, start, cost.dueDate());
     }
 
     private static boolean sameMoney(BigDecimal first,BigDecimal second) {return first==null?second==null:second!=null&&first.compareTo(second)==0;}
@@ -411,14 +440,14 @@ public class CompanyCostService {
         var positive=new CompanyCost(changes.id(),changes.date(),changes.category(),changes.description(),changes.party(),absolute,null,
                 changes.vatPct(),changes.reference(),null,changes.salesChannel(),changes.notes(),current.createdAt(),null,null,
                 changes.vatRegime(),changes.vatRegimeConfirmed(),changes.supplierCountry(),changes.costKind(),changes.expenseType(),
-                changes.vatDeductiblePct(),changes.taxDeductiblePct(),changes.depreciationYears(),changes.depreciationStart());
+                changes.vatDeductiblePct(),changes.taxDeductiblePct(),changes.depreciationYears(),changes.depreciationStart(),current.dueDate());
         var checked=validated(positive,current.id(),current.createdAt(),current.bankStatementLineId(),current);
         if(checked.vatRegime()!=null&&checked.vatRegime()!=VatRegime.BE&&checked.vatRegime()!=VatRegime.FOREIGN_VAT
                 &&current.totalInclEur().abs().compareTo(absolute)!=0)
             throw new BusinessRuleException("Deze btw-regeling past niet bij de originele factuurbedragen");
         return new CompanyCost(current.id(),current.date(),checked.category(),checked.description(),current.party(),current.amountExclEur(),current.amountInclEur(),
                 checked.vatPct(),current.reference(),current.paidOn(),checked.salesChannel(),checked.notes(),current.createdAt(),current.recurringCostId(),current.bankStatementLineId(),
-                checked.vatRegime(),checked.vatRegimeConfirmed(),checked.supplierCountry(),checked.costKind(),checked.expenseType(),checked.vatDeductiblePct(),checked.taxDeductiblePct(),checked.depreciationYears(),checked.depreciationStart());
+                checked.vatRegime(),checked.vatRegimeConfirmed(),checked.supplierCountry(),checked.costKind(),checked.expenseType(),checked.vatDeductiblePct(),checked.taxDeductiblePct(),checked.depreciationYears(),checked.depreciationStart(),current.dueDate());
     }
 
     /** The regime fields of a cost or a recurring definition as they are stored, after the rules of the regime. */

@@ -57,7 +57,7 @@ class RecurringCostServiceTest {
                     cost.amountExclEur(), null, cost.vatPct(), cost.reference(), cost.paidOn(), cost.salesChannel(), cost.notes(),
                     cost.createdAt(), cost.recurringCostId(), null, cost.vatRegime(), cost.vatRegimeConfirmed(), cost.supplierCountry(),
                     cost.costKind(), cost.expenseType(), cost.vatDeductiblePct(), cost.taxDeductiblePct(), cost.depreciationYears(),
-                    cost.depreciationStart());
+                    cost.depreciationStart(), cost.dueDate());
             booked.add(saved);
             return saved;
         });

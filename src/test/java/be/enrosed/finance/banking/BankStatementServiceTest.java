@@ -248,7 +248,7 @@ class BankStatementServiceTest {
 
     private static CompanyCost cost(String description,String excl,LocalDate paidOn) {
         return new CompanyCost(null,LocalDate.of(2026,9,8),"BANK",description,"KBC",new BigDecimal(excl),null,null,null,paidOn,null,null,null,null,null,
-                VatRegime.OUT_OF_SCOPE,true,null,null,null,null,null,null,null);
+                VatRegime.OUT_OF_SCOPE,true,null,null,null,null,null,null,null,null);
     }
 
     @Test @TestTransaction void externalImportIsIdempotentAndProviderReconciliationNeverAllocatesLocally() {

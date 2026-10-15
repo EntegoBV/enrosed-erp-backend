@@ -135,7 +135,7 @@ public class RecurringCostService {
                 "Automatisch geboekt als vaste kost (" + definition.interval().label().toLowerCase() + ")",
                 Instant.now(), definition.id(), null, definition.vatRegime(), definition.vatRegime() != null && definition.vatRegimeConfirmed(),
                 definition.supplierCountry(), definition.costKind(), definition.expenseType(), definition.vatDeductiblePct(),
-                definition.taxDeductiblePct(), null, null);
+                definition.taxDeductiblePct(), null, null, null);
     }
 
     /** The regime rules are the cost's; a body without a regime keeps the stored one on an update. */

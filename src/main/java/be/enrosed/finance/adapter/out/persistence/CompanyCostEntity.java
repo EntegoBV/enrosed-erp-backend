@@ -53,7 +53,7 @@ public class CompanyCostEntity {
         return new CompanyCost(id, date, category, description, party, amountExclEur, amountInclEur, vatPct,
                 reference, paidOn, salesChannel, notes, createdAt, recurringCostId, bankStatementLineId,
                 VatRegime.parse(vatRegime), vatRegimeConfirmed, supplierCountry, CostKind.parse(costKind),
-                ExpenseType.parse(expenseType), vatDeductiblePct, taxDeductiblePct, depreciationYears, depreciationStart);
+                ExpenseType.parse(expenseType), vatDeductiblePct, taxDeductiblePct, depreciationYears, depreciationStart, dueDate);
     }
 
     public void apply(CompanyCost cost) {
@@ -80,5 +80,6 @@ public class CompanyCostEntity {
         taxDeductiblePct = cost.taxDeductiblePct();
         depreciationYears = cost.depreciationYears();
         depreciationStart = cost.depreciationStart();
+        dueDate = cost.dueDate();
     }
 }
