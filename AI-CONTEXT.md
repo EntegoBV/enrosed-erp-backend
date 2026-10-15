@@ -748,6 +748,13 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   Changing a step on an open web order can show a quantity difference.
 - Rollout: no production product leaves CARTON until the website that sends
   `quantity` is live.
+- Wording (2026-10-15): the ERP calls the step **Klant bestelt per** and the
+  basis **Prijs geldt per**. The activity log follows: "Prijs geldt per"
+  reads "Display van 12" / "Eén diamant" (logged only when the basis itself
+  changes), "Klant bestelt per" reads "Volle omdoos", "Per display"
+  (PACKAGE; "Per geschenkverpakking" for a gift box) or "Per diamant". The
+  Excel/CSV column stays `verkocht_per` (omdoos, verpakking, stuk), and so
+  do the validator's words for it.
 
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,

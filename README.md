@@ -134,7 +134,7 @@ tientallen artikelen scrolt niemand daar doorheen. Bij elk artikel staat de voor
 bij een artikel zonder voorraad meteen *levertermijn nog te bepalen*.
 
 Aantallen van de klant worden **server-side afgerond op het bestelveelvoud van elk product**
-(*Verkocht per*: volle omdoos, per display of per stuk), net als de onze en met dezelfde
+(*Klant bestelt per*: volle omdoos, per display of per stuk), net als de onze en met dezelfde
 uitzonderingen: een partnerofferte of een offerte aan containerkost houdt haar exacte stuks.
 Het scherm toont de correctie meteen; de server rondt bij het opslaan nog een keer af. Het
 scherm is de beleefdheid, die controle is de garantie — een klant kan het scherm omzeilen.
@@ -270,7 +270,7 @@ dat nummer geldig verklaard te worden.
 
 Je tikt overal **stuks** in (of displays, voor een product dat per display geprijsd is), op
 verkoop- én inkooporders. Bij verkoop rondt het aantal naar boven af op het **bestelveelvoud**
-dat je per product kiest bij *Verkocht per*: een **volle omdoos** (de standaard, zoals altijd),
+dat je per product kiest bij *Klant bestelt per*: een **volle omdoos** (de standaard, zoals altijd),
 **per display** (een display van 8 bowls) of **per stuk** in de eigen eenheid van het product
 (per stolp, per hart, per box). Vraag je er 5 van iets dat per volle doos van 6 verkocht wordt,
 dan verschijnt **meteen** de melding *wordt zo 6*; het veld rekent na **vijf seconden** stilstand
