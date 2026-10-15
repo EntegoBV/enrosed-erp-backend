@@ -2,6 +2,7 @@ package be.enrosed.finance.forecast;
 
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.security.CurrentActor;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
@@ -69,6 +70,7 @@ public class PurchaseOrderForecastService {
 
     @Transactional
     public PurchaseOrderForecastView save(long orderId, Write request) {
+        lockOrder(orderId);
         /* The service filters the trash; a plain find would see a deleted order. */
         PurchaseOrder order = purchases.get(orderId);
         Write write = request == null ? new Write(null, null, null, null, null, null, null, null, null, null) : request;
@@ -94,7 +96,7 @@ public class PurchaseOrderForecastService {
         if (write.paymentDays() != null && (write.paymentDays() < 0 || write.paymentDays() > 365)) {
             throw new BusinessRuleException("De betaaltermijn moet tussen 0 en 365 dagen liggen");
         }
-        PurchaseOrderForecastEntity stored = em.find(PurchaseOrderForecastEntity.class, orderId, LockModeType.PESSIMISTIC_WRITE);
+        PurchaseOrderForecastEntity stored = em.find(PurchaseOrderForecastEntity.class, orderId);
         PurchaseOrderForecastEntity before = stored == null ? new PurchaseOrderForecastEntity() : stored;
         if (order.partnerCustomerId() != null
                 && (changed(priceMode, before.priceMode) || changed(markupPct, before.markupPct)
@@ -152,11 +154,23 @@ public class PurchaseOrderForecastService {
     /** Back to the defaults; nothing to do when there was no choice. */
     @Transactional
     public void delete(long orderId) {
+        lockOrder(orderId);
+        /* An order purged from the trash has no row left to lock; its orphan choices still serialise on their own row. */
         PurchaseOrderForecastEntity row = em.find(PurchaseOrderForecastEntity.class, orderId, LockModeType.PESSIMISTIC_WRITE);
         if (row != null) {
             em.remove(row);
             em.flush();
         }
+    }
+
+    /**
+     * Serialises the writes of one order on its purchase order row, the lock the payment paths take too. The
+     * forecast row cannot be that point: before the first choice there is no row to lock, and two PUTs arriving
+     * together would both insert it. An unknown order locks nothing; {@code save} then answers 404 and
+     * {@code delete} stays a no-op.
+     */
+    private void lockOrder(long orderId) {
+        em.find(SourcingEntities.PurchaseOrderEntity.class, orderId, LockModeType.PESSIMISTIC_WRITE);
     }
 
     private static PurchaseOrderForecastView view(PurchaseOrderForecastEntity row) {

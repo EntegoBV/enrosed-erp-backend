@@ -1679,7 +1679,9 @@ the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it ne
   mode, markup 0–1000 with two decimals, per unit 0–100000 with four, cost basis, weeks 1–104, days 0–365, then the
   order-state rules (partner container: no price or pace; ship date not on a departed order nor before the order date;
   planned order day only on a concept and not before today). Those last rules check only a value that differs from the
-  stored row, so a control may repeat a stored value after the order moved on. Deleting an order is a soft delete: the
+  stored row, so a control may repeat a stored value after the order moved on. PUT and DELETE first lock the
+  `purchase_order` row (the payment paths' lock): before the first choice there is no forecast row to lock, and two
+  PUTs sent together would both insert it. Deleting an order is a soft delete: the
   row stays, GET skips it (`deleted_at is null` written out), PUT answers 404, a restore brings the choices back. No
   diary line, no activity record. The resource has its own prefix: a second class under `/api/purchase-orders` would
   shadow the sourcing routes.

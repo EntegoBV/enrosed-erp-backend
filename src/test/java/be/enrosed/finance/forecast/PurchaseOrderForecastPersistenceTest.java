@@ -12,6 +12,7 @@ import be.enrosed.sourcing.application.SupplierService;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.domain.Supplier;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.TestTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
@@ -23,6 +24,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.junit.jupiter.api.Assertions.*;
@@ -189,6 +194,40 @@ class PurchaseOrderForecastPersistenceTest {
         trash.restore(item.id());
         var back = forecasts.list().stream().filter(row -> row.orderId().equals(order.id())).findFirst().orElseThrow();
         assertEquals(12, back.sellWeeks(), "the restored order gets its choices back");
+    }
+
+    @Test
+    void twoFirstChoicesArrivingTogetherBothSave() throws Exception {
+        /* Two controls changed before the first answer: no stored row yet, so the order row serialises them. */
+        long[] ids = QuarkusTransaction.requiringNew().call(() -> {
+            var order = order(PurchaseOrderStatus.BESTELD);
+            return new long[] {order.id(), order.supplierId()};
+        });
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var threads = Executors.newFixedThreadPool(2)) {
+            java.util.function.IntFunction<Callable<Integer>> save = weeks -> () -> {
+                ready.countDown();
+                assertTrue(start.await(10, TimeUnit.SECONDS));
+                return forecasts.save(ids[0], new Write(null, null, null, null, weeks, null, null, true, null, null)).sellWeeks();
+            };
+            var first = threads.submit(save.apply(12));
+            var second = threads.submit(save.apply(14));
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            assertEquals(12, first.get(20, TimeUnit.SECONDS), "neither PUT fails on the first insert");
+            assertEquals(14, second.get(20, TimeUnit.SECONDS));
+            int stored = QuarkusTransaction.requiringNew().call(() -> em.find(PurchaseOrderForecastEntity.class, ids[0]).sellWeeks);
+            assertTrue(stored == 12 || stored == 14, "one row, holding the write that came last");
+        } finally {
+            start.countDown();
+            QuarkusTransaction.requiringNew().run(() -> {
+                em.createNativeQuery("delete from purchase_order_forecast where order_id = :id").setParameter("id", ids[0]).executeUpdate();
+                em.createNativeQuery("delete from purchase_order_line where order_id = :id").setParameter("id", ids[0]).executeUpdate();
+                em.createNativeQuery("delete from purchase_order where id = :id").setParameter("id", ids[0]).executeUpdate();
+                em.createNativeQuery("delete from supplier where id = :id").setParameter("id", ids[1]).executeUpdate();
+            });
+        }
     }
 
     @Test
