@@ -137,8 +137,11 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   with a label that prints verbatim, VAT treatment per customer
   (intracommunautair verlegd prints the legal mention), freight per pallet
   by destination country, minimum order value warning.
-- Quantities snap to full cartons **after a 2-second pause** (the seller
-  sees a notice immediately, the snap follows) - shared rule with portal.
+- Quantities round up to each product's **order step** ("Verkocht per": full
+  carton, display or single piece; see "Sales units" below). The editor
+  shows the notice at once and prices a typed quantity after a 5-second
+  pause or on blur/Enter; the server rounds again on save (shared rule with
+  the portal and the website).
 - Payment terms: standard translated list (PaymentTermsNames); an order-
   level override wins over the customer default ("Van de klant").
 - **Hand-built pallets** (optional, never required): a list of pallets on
@@ -470,7 +473,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 
 ### Catalog / products
 - Product: SKU, name, colour (translated via dictionary), sizes, carton
-  (pieces per carton drives all rounding), barcodes (piece EAN-13 + outer
+  (pieces per carton drives shipping, and the rounding of products sold per
+  full carton), "Verkocht per" (order step), barcodes (piece EAN-13 + outer
   ITF-14), HS code, EXW price + currency, landed cost + source, markup or
   fixed sales price, stock, photos (stored IN the database as blobs -
   survives Railway redeploys; port `PhotoStorage` allows an S3 later).
@@ -693,6 +697,58 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   missing keys): unit-aware catalogue wording uses new keys
   (`catalog.quantity.displayunits`, `catalog.price.settotalunits`, ...).
 
+### Verkocht per: the order step (2026-10-14)
+- Owner decision: per product, sell per **full outer carton** (CARTON, the
+  default; every existing product), **per verpakking** (PACKAGE: a display of
+  pieces) or **per stuk** in the product's own unit (UNIT: per stolp, per
+  hart, per box, or per display on a display basis). One setting governs ERP
+  quotes/invoices, the portal, the anonymous website request and website
+  ordering. Same unit price whatever the step; tiers unchanged.
+- Stored on `Packaging.orderStep` (`product.packagingorderstep`, a plain
+  varchar, null = CARTON; it survives packaging NONE like the unit). PACKAGE
+  needs a display or gift box (validator). One rule in
+  `catalog/domain/OrderSteps`: CARTON = pieces per carton (at least 1),
+  PACKAGE = the display's pieces when it is a DISPLAY sold per PIECE with at
+  least 2 pieces, else 1 (a gift box holds one piece), UNIT = 1; rounding is
+  `ceil(q / step) * step`, 0 stays 0. Quantities stay in sales units.
+- Exemptions as before: partner deals, `MarkupMode.CONTAINER_COST` (every
+  credit note) and split allocations never round; the save also skips a
+  document being tied to a container. Purchasing never rounds.
+- Logistics: a part carton ships, weighs and takes pallet room as one full
+  carton (`Carton.cartonsFor`), exactly like partner deals; no pro-rata.
+- Each sales line remembers the step it was last rounded to
+  (`SalesOrderLine.unitsPerOrderStep`, `sales_order_line.unitsperorderstep`,
+  null on older lines = the product's step). The calculator uses it, so a
+  later step or carton change never re-prices a sent or paid document. The
+  server writes it on save (`roundLinesToOrderSteps`), in the preview, when
+  a portal proposal is adopted and for a container quote at customer prices;
+  it is never read from the client. Such a container quote keeps the
+  container's exact pieces until its first save, priced rounded to the step
+  meanwhile (as before; not redesigned).
+- Wire: `ProductDto.packaging.orderStep` (enum, null on PUT keeps the stored
+  value) and `unitsPerOrderStep`; `PricedOrder.Line.orderStep` +
+  `unitsPerOrderStep` (the step applied to this line, 1 on exempt documents);
+  the same pair on portal lines/catalogue, the split line choice, public
+  `VariantDto`, `ProductPrice` and `LineEstimate` (null when a carton step's
+  content is unknown). While a quote is open, its portal lines carry the
+  step a proposal rounds to (today's, as the portal catalogue), not the
+  remembered one. A split refusal names the multiple the line was rounded to.
+  The packing slip picks what each line is charged, so it matches the
+  invoice; the last carton of a per-stuk line may be part-filled. The Excel/CSV exchange has `verkocht_per` (omdoos,
+  verpakking, stuk) as the last column. Only a step other than CARTON enters
+  the website revision hash.
+- Website: `/configuration` keeps `quantityBasis: FULL_CARTONS` (the live site
+  refuses anything else) and adds `quantitySteps: PER_PRODUCT`. An item sends
+  `cartons` (old site, carton products) or `quantity` in sales units (rounded
+  to the step; a carton product with unknown content refuses it), never both.
+  A quantity item is priced without carton content; freight still needs it.
+  `WebOrderSnapshot` lines freeze orderStep, unit and basis; account lines,
+  mails ("3 stolpen") and the staff summary ("3 → 5 stolpen") word non-carton
+  lines in sales units, never "losse dozen" (that means loose cartons).
+  Changing a step on an open web order can show a quantity difference.
+- Rollout: no production product leaves CARTON until the website that sends
+  `quantity` is live.
+
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,
   scoped (`ContentScope`: website copy, legal pages, categories, product
@@ -894,7 +950,7 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - **Minimum order value**: an order below the minimum of the delivery
   country is refused with 422 `items: MINIMUM_NOT_MET`, on validation and
   again in the write. Only lines the ERP can price count; a line without a
-  price or without known carton content adds nothing. While the switch is
+  price, or a carton line without known carton content, adds nothing. While the switch is
   on, the old logged-in `quotes/requests` holds the same minimum
   (`PublicQuoteService.validateSubmissionForCustomer`); the anonymous
   request never does.

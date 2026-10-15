@@ -199,6 +199,19 @@ public class QuoteService {
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
         Set<Long> unavailable = order.lines().stream().filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
+        /* The pieces still to pick per product: what each line is charged, so the slip and the
+           invoice agree (rounded to the line's step, or the exact pieces of a document that keeps
+           them). A carton never holds more than that, so the last carton of a line sold per piece
+           or per display may be part-filled. */
+        boolean exact = salesOrders.keepsExactQuantities(order);
+        java.util.List<Integer> charged = new java.util.ArrayList<>(order.lines().size());
+        java.util.Map<Long, Integer> unpicked = new java.util.HashMap<>();
+        for (var line : order.lines()) {
+            int pieces = line.isUnavailable() ? 0
+                    : SalesPricingCalculator.chargedQuantity(line, products.get(line.productId()), exact);
+            charged.add(pieces);
+            if (!line.isUnavailable()) unpicked.merge(line.productId(), pieces, Integer::sum);
+        }
         java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
         int visiblePallets = order.loadMode() == LoadMode.PALLETS ? order.pallets().size() : 0;
         for (int i = 0; i < visiblePallets; i++) {
@@ -209,7 +222,8 @@ public class QuoteService {
                 var product = products.get(item.productId());
                 int per = product.carton() == null ? 1
                         : Math.max(1, product.carton().piecesPerCarton());
-                items.add(packingItem(product, item.cartons(), item.cartons() * per, options, language));
+                int pieces = pick(unpicked, item.productId(), item.cartons() * per);
+                items.add(packingItem(product, item.cartons(), pieces, options, language));
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
             String label = pallet.label() == null || pallet.label().isBlank()
@@ -227,21 +241,24 @@ public class QuoteService {
            and 3 displays are not "43" of anything. */
         Set<String> countedUnits = new HashSet<>();
         be.enrosed.catalog.domain.Packaging countedPackaging = null;
-        for (var line : order.lines()) {
+        for (int index = 0; index < order.lines().size(); index++) {
+            var line = order.lines().get(index);
             if (line.isUnavailable()) continue;
             var product = products.get(line.productId());
             int per = product.carton() == null ? 1
                     : Math.max(1, product.carton().piecesPerCarton());
-            int cartons = (line.quantity() + per - 1) / per;
+            int pieces = charged.get(index);
+            int cartons = (product.carton() == null ? be.enrosed.catalog.domain.Carton.empty() : product.carton())
+                    .cartonsFor(pieces);
             totalCartons += cartons;
-            /* Sales ships full outer cartons; the footer must match the row
-               (13 requested at 12/doos is 24 picked pieces, not 13). */
-            totalPieces += cartons * per;
+            /* What is picked is what the line is charged: full cartons for a carton step, part of
+               one for 3 stolpen out of 12; the footer adds up the rows. */
+            totalPieces += pieces;
             countedUnits.add(Objects.toString(SalesUnitText.comparisonKey(product.packaging()), "?"));
             countedPackaging = product.packaging();
             int left = cartons - assigned.getOrDefault(line.productId(), 0);
             if (left > 0) {
-                loose.add(packingItem(product, left, left * per, options, language));
+                loose.add(packingItem(product, left, pick(unpicked, line.productId(), left * per), options, language));
             }
         }
         String totalQuantity = countedUnits.isEmpty()
@@ -259,6 +276,14 @@ public class QuoteService {
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
                 order, customer, pallets, loose, totalCartons, totalPieces,
                 order.loadMode() == LoadMode.LOOSE_CARTONS, totalQuantity), options);
+    }
+
+    /** Takes up to {@code wanted} pieces of a product from what is still to pick. */
+    private static int pick(java.util.Map<Long, Integer> unpicked, Long productId, int wanted) {
+        int left = unpicked.getOrDefault(productId, 0);
+        int taken = Math.max(0, Math.min(wanted, left));
+        unpicked.put(productId, left - taken);
+        return taken;
     }
 
     private static QuoteDocumentRenderer.PackingItem packingItem(
@@ -684,12 +709,12 @@ public class QuoteService {
             throw new BusinessRuleException("De naam bij het voorstel is te lang");
         }
 
-        /* Round the customer's quantities up to a full carton. We do it on our
-           own lines too; it belongs here just as much, because half a carton
-           does not exist and otherwise "13 pieces" lands on the order and
-           nothing downstream adds up - not the volume, not the pallets, not
-           the freight. Server-side, because a customer can bypass the screen. */
-        List<QuoteRevision.Line> rounded = roundToCartons(order, proposedLines);
+        /* Round the customer's quantities up to each product's order step (a full
+           carton unless the product sells per verpakking or per stuk), exactly as
+           our own lines and the pricing do, with the same exemptions: a partner
+           deal or a container-cost quote keeps its pieces. Server-side, because a
+           customer can bypass the screen. */
+        List<QuoteRevision.Line> rounded = roundToOrderSteps(order, proposedLines);
         requireUnchangedAdvanceAgreement(order, rounded);
 
         QuoteRevision revision = revisions.save(new QuoteRevision(
@@ -777,13 +802,15 @@ public class QuoteService {
     }
 
     /**
-     * Rounds every proposed quantity up to a full carton.
+     * Rounds every proposed quantity up to the product's order step, unless the
+     * quote keeps exact pieces.
      *
      * Zero stays zero: it means "drop this line" and is not a quantity.
      */
-    private List<QuoteRevision.Line> roundToCartons(SalesOrder order,
-                                                    List<QuoteRevision.Line> lines) {
+    private List<QuoteRevision.Line> roundToOrderSteps(SalesOrder order,
+                                                       List<QuoteRevision.Line> lines) {
         if (lines == null || lines.isEmpty()) return List.of();
+        boolean exact = salesOrders.keepsExactQuantities(order);
 
         List<QuoteRevision.Line> result = new ArrayList<>(lines.size());
         Set<Long> seen = new HashSet<>();
@@ -813,9 +840,9 @@ public class QuoteService {
                     throw new BusinessRuleException(
                             "Product " + product.describe() + " is niet beschikbaar om toe te voegen");
                 }
-                int per = product.carton() == null ? 1 : product.carton().piecesPerCarton();
-                if (per > 1) {
-                    quantity = (int) Math.ceil((double) quantity / per) * per;
+                if (!exact) {
+                    quantity = be.enrosed.catalog.domain.OrderSteps.roundUp(quantity,
+                            be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product));
                 }
             }
             result.add(new QuoteRevision.Line(line.id(), line.productId(), quantity, line.note()));
@@ -941,7 +968,8 @@ public class QuoteService {
                 updated.add(line);
             } else if (proposal.quantity() > 0) {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
-                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()));
+                        line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
+                        line.unitsPerOrderStep()));
             }
             /* quantity 0 means: drop this line */
         }
@@ -956,6 +984,12 @@ public class QuoteService {
                 updated.add(new SalesOrderLine(null, proposal.productId(), proposal.quantity(),
                         null, null, null, cost == null || cost.signum() <= 0 ? null : cost));
             }
+        }
+
+        /* Written without the editor's save, so rounded and remembered here as a save would:
+           a proposal made before the product's step changed lands on today's step. */
+        if (!salesOrders.keepsExactQuantities(order)) {
+            updated = SalesOrderService.withOrderSteps(updated, this::productOrNull, true);
         }
 
         revisions.save(handled(revision, RevisionStatus.GOEDGEKEURD, handledBy, responseMessage));
@@ -977,6 +1011,14 @@ public class QuoteService {
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
                 updated, order.pallets()).carrying(order));
+    }
+
+    private be.enrosed.catalog.domain.Product productOrNull(Long productId) {
+        try {
+            return products.get(productId);
+        } catch (RuntimeException gone) {
+            return null;
+        }
     }
 
     /** A message can be answered, but a quoted financing arrangement cannot silently change its goods. */

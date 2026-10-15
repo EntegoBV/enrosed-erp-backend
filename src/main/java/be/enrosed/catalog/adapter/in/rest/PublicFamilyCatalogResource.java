@@ -320,6 +320,8 @@ public class PublicFamilyCatalogResource {
         source(sources, "name", name.sourceLanguage());
         /* The unit dictionary is complete in every language, so the source is always exact. */
         source(sources, "unit", language);
+        /* The step through the domain rule, never re-derived from columns here. */
+        be.enrosed.catalog.domain.Packaging packaging = product.packaging();
         return new PublicFamilyCatalogDto.VariantDto(
                 product.id, product.sku, product.canonicalBarcode,
                 color.value(),
@@ -331,7 +333,9 @@ public class PublicFamilyCatalogResource {
                         && product.packagingSalesUnit == be.enrosed.catalog.domain.SalesUnit.DISPLAY ? "DISPLAY" : "PIECE",
                 product.packagingKind == be.enrosed.catalog.domain.PackagingKind.DISPLAY
                         ? product.packagingPiecesPerUnit : null,
-                UnitDto.of(product.packagingUnitKey, language));
+                UnitDto.of(product.packagingUnitKey, language),
+                packaging.orderStep().name(),
+                be.enrosed.catalog.domain.OrderSteps.publicUnitsPerStep(packaging, product.carton()));
     }
 
     private PublicFamilyCatalogDto.ImageDto image(

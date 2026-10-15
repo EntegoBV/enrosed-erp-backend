@@ -252,10 +252,10 @@ class PdfPurchaseRendererTest {
         var second = costing.lines().get(1);
         Product roses = withPackaging(1L, new be.enrosed.catalog.domain.Packaging(
                 be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 12,
-                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"));
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos", null));
         Product six = withPackaging(2L, new be.enrosed.catalog.domain.Packaging(
                 be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 6,
-                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"));
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos", null));
         Product bowl = withPackaging(2L, be.enrosed.catalog.domain.Packaging.none());
 
         var pieces = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(), 2, false);

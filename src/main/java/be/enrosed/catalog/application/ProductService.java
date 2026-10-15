@@ -365,7 +365,7 @@ public class ProductService {
                     sourcePackaging.dimensions(),
                     target.packaging().barcode(),
                     sourcePackaging.piecesPerUnit(), sourcePackaging.salesUnit(),
-                    sourcePackaging.unitKey());
+                    sourcePackaging.unitKey(), sourcePackaging.requestedOrderStep());
         }
 
         List<ProductText> texts = name || description
@@ -656,7 +656,8 @@ public class ProductService {
            carton codes. */
         Packaging packaging = new Packaging(source.packaging().kind(),
                 source.packaging().dimensions(), null, source.packaging().piecesPerUnit(),
-                source.packaging().salesUnit(), source.packaging().unitKey());
+                source.packaging().salesUnit(), source.packaging().unitKey(),
+                source.packaging().requestedOrderStep());
         return create(new Product(
                 null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
@@ -895,6 +896,15 @@ public class ProductService {
         return packaging.soldAsDisplay() ? "Volledig display (set)" : "Los stuk";
     }
 
+    /** "Volle omdoos", "Per verpakking" or "Per stolp": the step in plain Dutch. */
+    private static String orderStepLabel(Packaging packaging) {
+        return switch (packaging.orderStep()) {
+            case CARTON -> "Volle omdoos";
+            case PACKAGE -> "Per verpakking";
+            case UNIT -> "Per " + (packaging.soldAsDisplay() ? "display" : UnitNames.one(packaging.unitKey(), Language.NL));
+        };
+    }
+
     private static List<ActivityChangeDto> productChanges(Product before, Product after) {
         Dimensions beforeDimensions = before.dimensions() == null ? Dimensions.empty() : before.dimensions();
         Dimensions afterDimensions = after.dimensions() == null ? Dimensions.empty() : after.dimensions();
@@ -935,6 +945,8 @@ public class ProductService {
                 .add("unitKey", "Eenheid",
                         UnitNames.one(before.packaging().unitKey(), Language.NL),
                         UnitNames.one(after.packaging().unitKey(), Language.NL))
+                .add("orderStep", "Verkocht per", orderStepLabel(before.packaging()),
+                        orderStepLabel(after.packaging()))
                 .add("packagingBarcode", "Verpakkingsbarcode",
                         before.packaging().barcode(), after.packaging().barcode())
                 .add("dimensions", "Productafmetingen", beforeDimensions.label(), afterDimensions.label())

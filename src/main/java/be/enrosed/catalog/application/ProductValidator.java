@@ -81,6 +81,12 @@ public class ProductValidator {
             throw new BusinessRuleException(
                     "Onbekende eenheid '%s'. Kies een eenheid uit de lijst.".formatted(unit));
         }
+        /* A product without packaging has nothing to sell per verpakking; per stuk or per carton it can. */
+        if (product.packaging().orderStep() == be.enrosed.catalog.domain.OrderStep.PACKAGE
+                && !product.packaging().isPresent()) {
+            throw new BusinessRuleException(
+                    "Verkocht per verpakking kan alleen met een display of geschenkverpakking.");
+        }
         if (product.packaging().isPresent()) {
             checkBarcode(product.packaging().barcode(),
                     "Barcode " + product.packaging().kind().dutchLabel().toLowerCase());

@@ -28,6 +28,8 @@ class PublicQuotePriceVisibilityTest {
         assertEquals(original.pickupLocation(), hidden.pickupLocation());
         assertNullMoneyFields(hidden);
         assertNotNull(original.lines().getFirst().unitPriceNet(), "redaction must not mutate the ERP estimate");
+        assertEquals("UNIT", hidden.lines().getFirst().orderStep(), "the step of a line is not a price");
+        assertEquals(1, hidden.lines().getFirst().unitsPerOrderStep());
         assertEquals(hidden, PublicQuotePriceVisibility.apply(hidden, false), "repeated redaction is safe");
     }
 
@@ -46,6 +48,10 @@ class PublicQuotePriceVisibilityTest {
         assertNull(hidden.countries().getFirst().minimumOrderNet());
         assertEquals(2, hidden.countries().getFirst().transitDays());
         assertEquals(original.pickupLocations(), hidden.pickupLocations());
+        assertEquals("FULL_CARTONS", hidden.quantityBasis(), "the live site refuses any other basis");
+        assertEquals("PER_PRODUCT", hidden.quantitySteps(), "hidden prices never hide the per-product steps");
+        assertEquals("CARTON", hidden.products().getFirst().orderStep());
+        assertEquals(12, hidden.products().getFirst().unitsPerOrderStep());
         assertSame(original, PublicQuotePriceVisibility.apply(original, true));
     }
 
@@ -54,11 +60,14 @@ class PublicQuotePriceVisibilityTest {
         var bowl = be.enrosed.catalog.adapter.in.rest.UnitDto.of("bowl", be.enrosed.shared.Language.FR);
         ConfigurationResponse original = new ConfigurationResponse("EUR", "NET_EXCL_VAT", "FULL_CARTONS",
                 List.of("DELIVERY"), "ESTIMATE_NOT_BINDING", List.of(),
-                List.of(new ProductPrice(1L, new BigDecimal("3.95"), true, 40, "PIECE", 8, bowl)),
+                List.of(new ProductPrice(1L, new BigDecimal("3.95"), true, 40, "PIECE", 8, bowl, "PACKAGE", 8)),
                 List.of());
         ConfigurationResponse hidden = PublicQuotePriceVisibility.apply(original, false);
 
         assertNull(hidden.products().getFirst().unitPriceNet());
+        assertEquals("PACKAGE", hidden.products().getFirst().orderStep(), "a step is not a price");
+        assertEquals(8, hidden.products().getFirst().unitsPerOrderStep());
+        assertEquals("PER_PRODUCT", hidden.quantitySteps());
         assertEquals(bowl, hidden.products().getFirst().unit(), "a unit name is not a price");
         assertEquals(8, hidden.products().getFirst().piecesPerDisplay());
         JsonNode unit = new ObjectMapper().valueToTree(hidden).path("products").path(0).path("unit");
@@ -115,7 +124,7 @@ class PublicQuotePriceVisibilityTest {
         BigDecimal amount = new BigDecimal("123.45");
         return new EstimateResponse("EUR", "NET_EXCL_VAT", "DELIVERY",
                 new PickupLocation(2L, "Warehouse", "Street 1", null, 0), "ESTIMATE_NOT_BINDING", "FINAL_QUOTE_FOLLOWS",
-                List.of(new LineEstimate(1L, "SKU-1", 2, 24, 12, amount, amount, amount, true)),
+                List.of(new LineEstimate(1L, "SKU-1", 2, 24, 12, amount, amount, amount, true, "UNIT", 1)),
                 new ShippingEstimate("CALCULATED", "COUNTRY_TARIFF", amount, amount, amount, 1, 2),
                 new TotalsEstimate(amount, amount, amount, amount, amount, amount, amount, amount, amount, amount, amount, "DOMESTIC", true),
                 new ValidationSummary(true, true, false, amount, amount, List.of("MINIMUM_NOT_MET", "PRICE_TO_CONFIRM", "PALLET_FIT_TO_CONFIRM")));

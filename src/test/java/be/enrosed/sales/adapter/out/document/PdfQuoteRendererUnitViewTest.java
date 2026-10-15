@@ -28,7 +28,7 @@ class PdfQuoteRendererUnitViewTest {
     @Test
     void aPlainBowlCountsAndPricesBowls() {
         var view = view(new Packaging(PackagingKind.NONE, Dimensions.empty(), null, null,
-                SalesUnit.PIECE, "bowl"), 16, BOWL_PRICE, Language.NL);
+                SalesUnit.PIECE, "bowl", null), 16, BOWL_PRICE, Language.NL);
 
         assertEquals("bowls", view.quantityLabel());
         assertEquals("per bowl", view.priceLabel());
@@ -104,7 +104,7 @@ class PdfQuoteRendererUnitViewTest {
 
     @Test
     void anOldDisplayWithoutBasisStaysNeutralAndAMissingProductIsAPlainPiece() {
-        var legacy = view(new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, null, "bowl"),
+        var legacy = view(new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, null, "bowl", null),
                 3, BOWL_PRICE, Language.NL);
         assertEquals("Verkoopeenheden", legacy.quantityLabel());
         assertEquals("Prijs per eenheid", legacy.priceLabel());
@@ -115,7 +115,7 @@ class PdfQuoteRendererUnitViewTest {
     }
 
     private static Packaging bowlPackaging(PackagingKind kind, Integer pieces, SalesUnit basis) {
-        return new Packaging(kind, Dimensions.empty(), null, pieces, basis, "bowl");
+        return new Packaging(kind, Dimensions.empty(), null, pieces, basis, "bowl", null);
     }
 
     private static PdfQuoteRenderer.UnitView view(Packaging packaging, int quantity, BigDecimal price,

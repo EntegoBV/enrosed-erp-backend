@@ -3,6 +3,7 @@ package be.enrosed.sales.adapter.in.rest;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.adapter.in.rest.UnitDto;
+import be.enrosed.catalog.domain.OrderSteps;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Product;
@@ -63,12 +64,16 @@ public class PortalResource {
                               boolean inventoryKnown, boolean inStock,
                               String salesUnit, Integer piecesPerDisplay,
                               /* What one piece is called, in the portal's language ("per bowl"). */
-                              UnitDto unit) {
+                              UnitDto unit,
+                              /* The product's "Verkocht per" (CARTON, PACKAGE or UNIT), for wording. */
+                              String orderStep,
+                              /* The multiple this quote rounds a new line to; 1 where it keeps exact pieces. */
+                              int unitsPerOrderStep) {
         public CatalogItem(Long productId, String sku, String description, String photoUrl,
                            int piecesPerCarton, BigDecimal unitPrice, boolean inventoryKnown, boolean inStock,
                            String salesUnit, Integer piecesPerDisplay) {
             this(productId, sku, description, photoUrl, piecesPerCarton, unitPrice,
-                    inventoryKnown, inStock, salesUnit, piecesPerDisplay, null);
+                    inventoryKnown, inStock, salesUnit, piecesPerDisplay, null, "CARTON", Math.max(1, piecesPerCarton));
         }
 
         public CatalogItem(Long productId, String sku, String description, String photoUrl,
@@ -99,6 +104,8 @@ public class PortalResource {
         Language language = preferredLanguage != null && !preferredLanguage.isBlank()
                 ? Language.of(preferredLanguage)
                 : customer == null ? Language.NL : customer.language();
+        /* The same multiple the proposal will round to: none on a quote that keeps exact pieces. */
+        boolean exact = salesOrders.keepsExactQuantities(order);
         return products.list().stream()
                 .filter(Product::active)
                 .map(product -> new CatalogItem(
@@ -115,7 +122,9 @@ public class PortalResource {
                         product.packaging() != null && product.packaging().kind() == PackagingKind.DISPLAY
                                 && product.packaging().piecesPerUnit() != null && product.packaging().piecesPerUnit() > 1
                                 ? product.packaging().piecesPerUnit() : null,
-                        UnitDto.of(product.packaging() == null ? null : product.packaging().unitKey(), language)))
+                        UnitDto.of(product.packaging() == null ? null : product.packaging().unitKey(), language),
+                        product.packaging().orderStep().name(),
+                        exact ? 1 : OrderSteps.unitsPerStep(product)))
                 .toList();
     }
 

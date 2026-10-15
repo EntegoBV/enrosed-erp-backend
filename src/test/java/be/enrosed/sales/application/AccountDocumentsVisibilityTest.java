@@ -677,7 +677,7 @@ class AccountDocumentsVisibilityTest {
                     address, postalCode, city, null, null, null, "Jan Besteller", "+32 13 00 00 00", null));
             PricedOrder priced = sales.price(saved);
             WebOrderSnapshot snapshot = WebOrderSnapshot.of(saved, priced, 1, Instant.now(), "NL",
-                    WebOrderDeliveries.DELIVERY, Map.of(first.productId(), 12), Map.of());
+                    WebOrderDeliveries.DELIVERY, Map.of(first.productId(), 12), Map.of(), Map.of());
             webOrders.create(saved.id(), first.customerId(), first.accountId(), "buyer@login.example", "NL",
                     snapshot.toJson(), snapshot.complete() ? WebOrderTerms.of(priced) : null);
             return saved.id();

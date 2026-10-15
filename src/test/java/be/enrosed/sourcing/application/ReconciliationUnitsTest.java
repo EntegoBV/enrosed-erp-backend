@@ -28,11 +28,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ReconciliationUnitsTest {
 
     private static final Product ROSES = product(1L, "Long stem rose box display",
-            new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 12, SalesUnit.DISPLAY, "roos"));
+            new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 12, SalesUnit.DISPLAY, "roos", null));
     private static final Product BOWL = product(2L, "Rozenschaal", Packaging.none());
     private static final Product BOWL_TWO = product(3L, "Tweede schaal", Packaging.none());
     private static final Packaging BOX_OF_12 = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 12,
-            SalesUnit.DISPLAY, "roos");
+            SalesUnit.DISPLAY, "roos", null);
 
     @Test
     void aSetContainerIsPricedPerSetWithThePiecePriceNextToIt() {
@@ -176,7 +176,7 @@ class ReconciliationUnitsTest {
     @Test
     void aProductSoldPerPieceInADisplayCountsOnePiecePerUnit() {
         Product perPiece = product(3L, "Roos per stuk in display",
-                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 12, SalesUnit.PIECE, "roos"));
+                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 12, SalesUnit.PIECE, "roos", null));
         var report = ReconciliationUnits.apply(report(false, line(3L, 120, 120, "240.00", "240.00")), Map.of(3L, perPiece));
         Line line = report.lines().getFirst();
         assertEquals("PIECE", line.salesUnit());
@@ -189,7 +189,7 @@ class ReconciliationUnitsTest {
     @Test
     void setsOfDifferentSizesHaveNoCommonSet() {
         Product six = product(4L, "Six roses display",
-                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 6, SalesUnit.DISPLAY, "roos"));
+                new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 6, SalesUnit.DISPLAY, "roos", null));
         var report = ReconciliationUnits.apply(report(false, line(1L, 10, 10, "312.00", "312.00"),
                 line(4L, 10, 10, "100.00", "100.00")), Map.of(1L, ROSES, 4L, six));
         assertEquals("MIXED", report.totals().setBasis());

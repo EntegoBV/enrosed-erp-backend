@@ -351,6 +351,8 @@ public final class SalesEntities {
         @Column(name = "unit_cost_eur", precision = 19, scale = 4) public BigDecimal unitCostEur;
         @Column(name = "unavailable", nullable = false) public boolean unavailable;
         @Column(name = "requested_quantity") public Integer requestedQuantity;
+        /** The order step this line was last rounded to; null on rows from before it was remembered. */
+        @Column(name = "unitsperorderstep") public Integer unitsPerOrderStep;
     }
 
     @Entity(name = "QuoteRevisionEntity")

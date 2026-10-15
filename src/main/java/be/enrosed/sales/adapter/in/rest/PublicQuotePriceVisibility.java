@@ -18,8 +18,8 @@ final class PublicQuotePriceVisibility {
                         country.name(), null, country.transitDays())).toList(),
                 value.products().stream().map(product -> new ProductPrice(product.productId(),
                         null, false, product.piecesPerCarton(), product.salesUnit(), product.piecesPerDisplay(),
-                        product.unit())).toList(),
-                value.pickupLocations(), false);
+                        product.unit(), product.orderStep(), product.unitsPerOrderStep())).toList(),
+                value.pickupLocations(), false, value.quantitySteps());
     }
 
     static EstimateResponse apply(EstimateResponse value, boolean visible) {
@@ -45,7 +45,7 @@ final class PublicQuotePriceVisibility {
                 value.pickupLocation(), value.estimateStatus(), value.disclaimerCode(),
                 value.lines().stream().map(line -> new LineEstimate(line.productId(), line.sku(),
                         line.cartons(), line.quantityPieces(), line.piecesPerCarton(),
-                        null, null, null, false)).toList(),
+                        null, null, null, false, line.orderStep(), line.unitsPerOrderStep())).toList(),
                 shipping == null ? null : new ShippingEstimate(shipping.status(), shipping.source(),
                         null, null, null, shipping.pallets(), shipping.cartons()),
                 totals == null ? null : new TotalsEstimate(null, null, null, null, null, null,

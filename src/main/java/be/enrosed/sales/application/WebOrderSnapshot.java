@@ -1,8 +1,11 @@
 package be.enrosed.sales.application;
 
+import be.enrosed.catalog.domain.OrderStep;
+import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.sales.domain.FreightState;
 import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.SalesOrder;
+import be.enrosed.shared.Language;
 import be.enrosed.shared.Money;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -35,9 +38,30 @@ public record WebOrderSnapshot(int v, int revision, String at, String language, 
         lines = lines == null ? List.of() : List.copyOf(lines);
     }
 
+    /**
+     * One ordered line. {@code quantity} counts sales units; {@code cartons} is the cartons it ships
+     * in when that is a whole number of known cartons (or, sold per carton, rounded up), null otherwise.
+     * {@code orderStep} (the product's "Verkocht per"), {@code unitsPerOrderStep}, {@code unitKey} and
+     * {@code salesUnit} name the quantity; all four are null in an order frozen before order steps,
+     * which reads as per carton, "stuk" and per piece. Kept as text so a value this code does not
+     * know never makes the whole snapshot unreadable.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Line(Long productId, String sku, String description, Integer cartons, Integer piecesPerCarton,
-                       int quantity, BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net) {}
+                       int quantity, BigDecimal unitPrice, BigDecimal discountPct, BigDecimal net,
+                       String orderStep, Integer unitsPerOrderStep, String unitKey, String salesUnit) {
+
+        /** Sold per full carton: the step of every order frozen before order steps. */
+        @JsonIgnore
+        public boolean perCarton() {
+            return orderStep == null || OrderStep.effective(orderStep) == OrderStep.CARTON;
+        }
+
+        /** "3 stolpen", "2 displays": the quantity in the words of its own unit and basis. */
+        public String quantityText(Language language) {
+            return SalesUnitText.quantity(salesUnit, unitKey, quantity, language);
+        }
+    }
 
     /** PICKUP, CALCULATED or TO_CONFIRM; with TO_CONFIRM the shipping and every total that needs it are null. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -50,21 +74,31 @@ public record WebOrderSnapshot(int v, int revision, String at, String language, 
      * @param piecesPerCarton  the carton content per product id; missing or 0 means unknown
      * @param requestedCartons the cartons the customer asked for, per product id, for lines whose
      *                         carton content is unknown (those are stored with quantity 0)
+     * @param packagings       each product's packaging, for the unit and basis of its quantity;
+     *                         a product missing here reads as plain pieces
      */
     public static WebOrderSnapshot of(SalesOrder saved, PricedOrder priced, int revision, Instant at, String language,
                                       String fulfillment, Map<Long, Integer> piecesPerCarton,
-                                      Map<Long, Integer> requestedCartons) {
+                                      Map<Long, Integer> requestedCartons, Map<Long, Packaging> packagings) {
         boolean cut = priced.lines().size() > MAX_LINES;
         List<Line> lines = priced.lines().stream().limit(MAX_LINES).map(line -> {
             int pieces = piecesPerCarton == null ? 0 : Math.max(0, piecesPerCarton.getOrDefault(line.productId(), 0));
-            Integer cartons = pieces > 0 ? Integer.valueOf(line.quantity() / pieces)
+            boolean perCarton = line.orderStep() == OrderStep.CARTON;
+            /* Whole known cartons, or for a product sold per carton the cartons it ships in; never a floor. */
+            Integer cartons = pieces > 0 && line.quantity() % pieces == 0 ? Integer.valueOf(line.quantity() / pieces)
+                    : !perCarton ? null
+                    : pieces > 0 ? Integer.valueOf((line.quantity() + pieces - 1) / pieces)
                     : requestedCartons == null ? null : requestedCartons.get(line.productId());
             boolean hasPrice = positive(line.unitPrice());
             String description = line.customerDescription() == null || line.customerDescription().isBlank()
                     ? line.description() : line.customerDescription();
+            Packaging packaging = packagings == null ? null : packagings.get(line.productId());
             return new Line(line.productId(), line.sku(), cut(description), cartons, pieces > 0 ? pieces : null,
                     line.quantity(), hasPrice ? line.unitPrice() : null,
-                    hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null);
+                    hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null,
+                    line.orderStep().name(), line.unitsPerOrderStep(),
+                    packaging == null ? null : packaging.unitKey(),
+                    packaging == null ? null : packaging.salesUnit().name());
         }).toList();
 
         PricedOrder.Totals totals = priced.totals();
@@ -75,10 +109,11 @@ public record WebOrderSnapshot(int v, int revision, String at, String language, 
         String shippingStatus = pickup ? "PICKUP"
                 : freightOpen || !positive(totals.shippingTotal()) ? "TO_CONFIRM" : "CALCULATED";
         boolean toConfirm = "TO_CONFIRM".equals(shippingStatus);
-        /* Exactly when the page showed the customer a total; in every other case it said "to be confirmed". */
+        /* Exactly when the page showed the customer a total; in every other case it said "to be confirmed".
+           A line sold per verpakking or per stuk has a known quantity without its carton content. */
         boolean complete = !cut && !lines.isEmpty() && !freightOpen && !toConfirm
                 && lines.stream().allMatch(line -> line.unitPrice() != null && line.quantity() > 0
-                        && line.piecesPerCarton() != null)
+                        && (line.piecesPerCarton() != null || !line.perCarton()))
                 && validation.productsWithoutCartonDimensions().isEmpty()
                 && validation.productsWithoutPalletFit().isEmpty();
         Totals frozen = new Totals(Money.money(totals.goodsTotal()),

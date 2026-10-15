@@ -77,6 +77,23 @@ class WebsiteCatalogRevisionServiceTest {
     }
 
     @Test
+    void anOrderStepOtherThanTheCartonAltersTheRevisionAndTheCartonKeepsTheDigest() {
+        Graph graph = graph(10L, 20L, 30L,
+                Instant.parse("2026-08-21T10:00:00Z"), "internal-a");
+        String unset = service(graph).currentRevision();
+        graph.product().packagingOrderStep = "CARTON";
+        String carton = service(graph).currentRevision();
+        graph.product().packagingOrderStep = "UNIT";
+        String unit = service(graph).currentRevision();
+        graph.product().packagingOrderStep = "PACKAGE";
+        String perPackage = service(graph).currentRevision();
+
+        assertEquals(unset, carton, "every product that stays per carton keeps its digest: no rebuild");
+        assertNotEquals(carton, unit, "per stuk reaches the website only through a rebuild");
+        assertNotEquals(unit, perPackage);
+    }
+
+    @Test
     void publicProductNameChangesAlterTheWebsiteRevision() {
         Graph graph = graph(10L, 20L, 30L,
                 Instant.parse("2026-08-21T10:00:00Z"), "internal-a");

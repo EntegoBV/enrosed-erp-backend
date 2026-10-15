@@ -205,7 +205,7 @@ class PdfPurchaseRendererRenderTest {
                 new Dimensions(new BigDecimal("30"), new BigDecimal("20"), new BigDecimal("60")),
                 new Packaging(PackagingKind.DISPLAY,
                         new Dimensions(new BigDecimal("32"), new BigDecimal("22"), new BigDecimal("62")),
-                        null, 12, be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"),
+                        null, 12, be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos", null),
                 "Rood", null, null, "Testset voor PDF QA",
                 null, 7L, true,
                 null, null, null, 0, true,

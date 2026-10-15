@@ -45,6 +45,17 @@ public final class SalesUnitText {
     }
 
     /**
+     * The same from frozen values (a basis name and a unit key, either may be null): a frozen
+     * order no longer reads its product. Null reads as plain pieces of "stuk".
+     */
+    public static String quantity(String salesUnit, String unitKey, long quantity, Language language) {
+        if ("DISPLAY".equals(salesUnit)) {
+            return number(quantity, language) + " " + DocumentText.of(language).get("salesDisplayUnits");
+        }
+        return UnitNames.count(UnitNames.normalize(unitKey), quantity, language);
+    }
+
+    /**
      * "40 bowls per doos"; a display basis counts its displays with the same
      * carton noun and names the pieces inside: "5 displays per doos (40 bowls)".
      */

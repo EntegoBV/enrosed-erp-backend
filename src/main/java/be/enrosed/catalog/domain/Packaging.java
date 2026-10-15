@@ -18,12 +18,17 @@ public record Packaging(PackagingKind kind, Dimensions dimensions, String barcod
                          * What one piece is called on customer documents ({@link UnitNames} key).
                          * Independent of the kind: a bowl stays a bowl without a display too.
                          */
-                        String unitKey) {
+                        String unitKey,
+                        /**
+                         * What one sale moves at a time ("Verkocht per", see {@link OrderSteps});
+                         * null reads as the full carton. Like the unit, it survives "no packaging".
+                         */
+                        OrderStep orderStep) {
 
     /** Compatibility for callers written before a piece could be called something else than "stuk". */
     public Packaging(PackagingKind kind, Dimensions dimensions, String barcode, Integer piecesPerUnit,
                      SalesUnit salesUnit) {
-        this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null);
+        this(kind, dimensions, barcode, piecesPerUnit, salesUnit, null, null);
     }
 
     public Packaging(PackagingKind kind, Dimensions dimensions, String barcode, Integer piecesPerUnit) {
@@ -54,9 +59,24 @@ public record Packaging(PackagingKind kind, Dimensions dimensions, String barcod
         return unitKey == null || unitKey.isBlank() ? null : unitKey.strip();
     }
 
+    /** Always a step; missing (older rows, frozen JSON, older clients) reads as the full carton. */
+    public OrderStep orderStep() {
+        return orderStep == null ? OrderStep.CARTON : orderStep;
+    }
+
+    /** The step as it was given; null when never chosen. Only storage and validation need the raw value. */
+    public OrderStep requestedOrderStep() {
+        return orderStep;
+    }
+
     /** The same packaging with another name for one piece. */
     public Packaging withUnitKey(String unit) {
-        return new Packaging(kind, dimensions, barcode, piecesPerUnit, salesUnit, unit);
+        return new Packaging(kind, dimensions, barcode, piecesPerUnit, salesUnit, unit, orderStep);
+    }
+
+    /** The same packaging sold per another step. */
+    public Packaging withOrderStep(OrderStep step) {
+        return new Packaging(kind, dimensions, barcode, piecesPerUnit, salesUnit, unitKey, step);
     }
 
     public static Packaging none() {

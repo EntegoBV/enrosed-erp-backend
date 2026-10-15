@@ -49,8 +49,13 @@ public class CustomerQuoteMapper {
         var agreement = advanceQuotes == null || order.id() == null ? null : advanceQuotes.find(order.id());
         boolean arrangementOnly = agreement != null;
 
+        /* While the customer can still propose, a line carries the multiple a proposal will be
+           rounded to: the product's step of today (as the catalogue of the same quote), or none on
+           a quote that keeps exact pieces. Afterwards, the step the line was priced with. */
+        boolean proposing = !preview && order.status().isOpenForCustomer();
+        boolean exact = proposing && salesOrders.keepsExactQuantities(order);
         List<CustomerQuoteView.CustomerLine> lines = priced.lines().stream()
-                .map(line -> customerLine(line, order, arrangementOnly, language))
+                .map(line -> customerLine(line, order, arrangementOnly, language, proposing, exact))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();
@@ -104,7 +109,8 @@ public class CustomerQuoteMapper {
     }
 
     private CustomerQuoteView.CustomerLine customerLine(
-            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly, Language language) {
+            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly, Language language,
+            boolean proposing, boolean exact) {
         be.enrosed.catalog.domain.Product product = null;
         try {
             if (line.productId() != null) product = products.get(line.productId());
@@ -119,6 +125,9 @@ public class CustomerQuoteMapper {
                 ? packaging.piecesPerUnit() : null;
         int perCarton = product == null || product.carton() == null
                 ? 1 : Math.max(1, product.carton().piecesPerCarton());
+        int step = proposing && product != null
+                ? exact ? 1 : be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product)
+                : line.unitsPerOrderStep();
         return new CustomerQuoteView.CustomerLine(
                 line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
                 line.quantity(), line.cartons(),
@@ -128,7 +137,8 @@ public class CustomerQuoteMapper {
                 arrangementOnly ? null : line.net(), line.inventoryKnown(), line.inStock(),
                 line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity(),
                 basis, perDisplay,
-                be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language));
+                be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language),
+                line.orderStep().name(), step);
     }
 
     private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {

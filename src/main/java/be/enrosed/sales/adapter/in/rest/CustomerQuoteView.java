@@ -44,14 +44,19 @@ public record CustomerQuoteView(
             /** Basis of the unchanged commercial quantity and price; no costs or internal stock data. */
             String salesUnit, Integer piecesPerDisplay,
             /** What one piece is called, in the view's language ("per bowl"). */
-            be.enrosed.catalog.adapter.in.rest.UnitDto unit) {
+            be.enrosed.catalog.adapter.in.rest.UnitDto unit,
+            /** The product's "Verkocht per" (CARTON, PACKAGE or UNIT), for wording. */
+            String orderStep,
+            /** The multiple a proposal on this line rounds to while the quote is open (the product's
+                step of today), afterwards the one it was priced with; 1 where the quote keeps exact pieces. */
+            int unitsPerOrderStep) {
         public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
                             int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,
                             BigDecimal net, boolean inventoryKnown, boolean inStock, String deliveryDate, String deliveryWeek,
                             boolean unavailable, Integer requestedQuantity, String salesUnit, Integer piecesPerDisplay) {
             this(productId, sku, description, photoUrl, quantity, cartons, pallets, cbm, piecesPerCarton, unitPrice,
                     discountPct, net, inventoryKnown, inStock, deliveryDate, deliveryWeek, unavailable, requestedQuantity,
-                    salesUnit, piecesPerDisplay, null);
+                    salesUnit, piecesPerDisplay, null, "CARTON", Math.max(1, piecesPerCarton));
         }
         public CustomerLine(Long productId, String sku, String description, String photoUrl, int quantity, int cartons,
                             int pallets, BigDecimal cbm, int piecesPerCarton, BigDecimal unitPrice, BigDecimal discountPct,

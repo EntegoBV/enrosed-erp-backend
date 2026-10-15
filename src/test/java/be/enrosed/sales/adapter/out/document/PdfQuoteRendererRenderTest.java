@@ -86,7 +86,7 @@ class PdfQuoteRendererRenderTest {
                 null, 0, 0, 0, 0, 0, 0, null, zero, zero,
                 zero, zero, zero, zero, zero, zero, zero, zero,
                 zero, zero, zero, zero, null, null, 0, true, false, null,
-                null, null, null, true, 48);
+                null, null, null, true, 48, be.enrosed.catalog.domain.OrderStep.CARTON, 1);
         var mixed = new PricedOrder(List.of(unavailable, active.lines().getFirst()),
                 active.totals(), active.validation(), active.extraLines());
         var output = Path.of("/private/tmp/pdfs/enrosed-unavailable");
@@ -776,7 +776,7 @@ class PdfQuoteRendererRenderTest {
         when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
                 new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
                         new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
-                        be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl"), 40));
+                        be.enrosed.catalog.domain.SalesUnit.PIECE, "bowl", null), 40));
         for (DocumentType type : List.of(DocumentType.OFFERTE, DocumentType.FACTUUR)) {
             var document = renderer.render(order(type, "BOWL-" + type, 1), priced(1), customer(), null,
                     Language.NL, details);
@@ -799,7 +799,7 @@ class PdfQuoteRendererRenderTest {
         when(productService.get(anyLong())).thenReturn(withPackaging(productWithPrintableMasterData(),
                 new be.enrosed.catalog.domain.Packaging(be.enrosed.catalog.domain.PackagingKind.DISPLAY,
                         new Dimensions(bd("30"), bd("20"), bd("12")), null, 8,
-                        be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl"), 5));
+                        be.enrosed.catalog.domain.SalesUnit.DISPLAY, "bowl", null), 5));
         var french = renderer.render(order(DocumentType.FACTUUR, "BOWL-FR", 1), priced(1), customer(Language.FR),
                 null, Language.FR, details);
         writePreview("bowl-display-set-fr.pdf", french.content());

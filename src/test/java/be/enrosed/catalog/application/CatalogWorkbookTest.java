@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.shared.BusinessRuleException;
@@ -132,7 +133,8 @@ class CatalogWorkbookTest {
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             var products = excel.getSheet("Producten");
             assertEquals("Eenheid", products.getRow(0).getCell(26).getStringCellValue());
-            assertEquals(27, products.getRow(0).getLastCellNum(), "appended, never inserted");
+            assertEquals("Verkocht per", products.getRow(0).getCell(27).getStringCellValue(),
+                    "the order step was appended after it");
             assertEquals("stuk", products.getRow(1).getCell(26).getStringCellValue());
             products.getRow(1).getCell(26).setCellValue("Bowl");
             excel.write(output);
@@ -162,6 +164,53 @@ class CatalogWorkbookTest {
         assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("Onbekende eenheid 'vaas'")),
                 result.problems().toString());
         assertEquals("bowl", unitRepository.get("ENR-P01").packaging().unitKey());
+    }
+
+    @Test
+    void orderStepIsTheLastProductColumnAndABlankCellKeepsIt() throws Exception {
+        FakeProducts stepRepository = new FakeProducts();
+        stepRepository.add(product());
+        CatalogWorkbook stepWorkbook = workbookFor(stepRepository);
+
+        byte[] edited;
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(stepWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            var products = excel.getSheet("Producten");
+            assertEquals("Verkocht per", products.getRow(0).getCell(27).getStringCellValue());
+            assertEquals(28, products.getRow(0).getLastCellNum(), "appended, never inserted");
+            assertEquals("omdoos", products.getRow(1).getCell(27).getStringCellValue(),
+                    "a product nobody set sells per full carton");
+            products.getRow(1).getCell(27).setCellValue("Stuk");
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        CatalogWorkbook.ImportResult result = stepWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals(OrderStep.UNIT, stepRepository.get("ENR-P01").packaging().orderStep());
+
+        try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(stepWorkbook.export()));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            assertEquals("stuk", excel.getSheet("Producten").getRow(1).getCell(27).getStringCellValue());
+            excel.getSheet("Producten").getRow(1).getCell(27).setBlank();
+            excel.write(output);
+            edited = output.toByteArray();
+        }
+        result = stepWorkbook.importFrom(new ByteArrayInputStream(edited));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals(OrderStep.UNIT, stepRepository.get("ENR-P01").packaging().orderStep(), "blank keeps the step");
+
+        for (String refused : List.of("verpakking", "doosje")) {
+            try (XSSFWorkbook excel = new XSSFWorkbook(new ByteArrayInputStream(stepWorkbook.export()));
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                excel.getSheet("Producten").getRow(1).getCell(27).setCellValue(refused);
+                excel.write(output);
+                edited = output.toByteArray();
+            }
+            result = stepWorkbook.importFrom(new ByteArrayInputStream(edited));
+            assertEquals(1, result.problems().size(), refused + ": " + result.problems());
+            assertEquals(OrderStep.UNIT, stepRepository.get("ENR-P01").packaging().orderStep(), refused);
+        }
+        assertTrue(result.problems().getFirst().contains("omdoos, verpakking of stuk"), result.problems().toString());
     }
 
     @Test

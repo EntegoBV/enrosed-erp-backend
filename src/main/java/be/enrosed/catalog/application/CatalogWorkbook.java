@@ -83,7 +83,8 @@ public class CatalogWorkbook {
             text("order_app_status", "Orderapp status", 18),
             text("variant_size", "Variantmaat", 18),
             text("colour_hex", "Kleurstaal (#RRGGBB)", 22),
-            text("eenheid", "Eenheid", 14));
+            text("eenheid", "Eenheid", 14),
+            text("verkocht_per", "Verkocht per", 16));
 
     private static final List<Column> TRANSLATION_COLUMNS = List.of(
             text("sku", "SKU", 18),
@@ -121,7 +122,8 @@ public class CatalogWorkbook {
                             19, new String[]{"ja", "nee"},
                             22, new String[]{"DRAFT", "READY", "PUBLISHED"},
                             23, new String[]{"DRAFT", "READY", "PUBLISHED"},
-                            26, be.enrosed.shared.UnitNames.KEYS.toArray(String[]::new)));
+                            26, be.enrosed.shared.UnitNames.KEYS.toArray(String[]::new),
+                            27, ProductCsv.ORDER_STEP_VALUES.toArray(String[]::new)));
             createDataSheet(workbook, TRANSLATIONS_SHEET, TRANSLATION_COLUMNS,
                     translations.exportRows(), styles, Map.of(
                             1, new String[]{"nl", "fr", "en", "de", "es", "pl", "pt", "tr"}));
@@ -289,7 +291,7 @@ public class CatalogWorkbook {
                 new String[]{"SKU", "Niet wijzigen: de SKU koppelt elke rij veilig aan het bestaande product."},
                 new String[]{"Lege productcel", "Laat het bestaande productveld ongemoeid."},
                 new String[]{"Lege vertaling", "Verwijdert de vertaling voor dat veld; de basistekst wordt dan gebruikt."},
-                new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal, publicatiestatus en eenheid."},
+                new String[]{"Keuzelijsten", "Gebruik de dropdowns voor munt, actief, taal, publicatiestatus, eenheid en verkocht per."},
                 new String[]{"Maatvolgorde", "Alle product- en doosmaten staan als Breedte × Diepte × Hoogte (B × D × H)."},
                 new String[]{"Variantmaat", "Een verkoopoptie zoals S, XL of 25 cm; dit is iets anders dan de fysieke B × D × H. "
                         + "Eén waarde voor alle talen: ze wordt niet vertaald."},
@@ -297,6 +299,10 @@ public class CatalogWorkbook {
                 new String[]{"Eenheid", "Hoe één stuk op offertes, facturen, catalogus en website heet: "
                         + String.join(", ", be.enrosed.shared.UnitNames.KEYS)
                         + ". Leeg laat de bestaande eenheid staan."},
+                new String[]{"Verkocht per", "Hoe offertes, het klantportaal en de website het aantal afronden: "
+                        + "omdoos (volle omdozen), verpakking (per display; een geschenkverpakking telt één stuk) "
+                        + "of stuk (per eenheid). Verpakking kan alleen met een display of geschenkverpakking. "
+                        + "Leeg laat de bestaande keuze staan."},
                 new String[]{"Niet opgenomen", "Categorie, leverancier, voorraad, extra eenheidskosten "
                         + "en actuele landed cost blijven in het ERP en veranderen niet door deze import."});
 

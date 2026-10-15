@@ -14,14 +14,14 @@ class SalesUnitTextTest {
 
     @Test
     void aDisplayCartonCountsItsDisplaysAndThePiecesInsideWithOneCartonNoun() {
-        var displays = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.DISPLAY, "bowl");
+        var displays = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.DISPLAY, "bowl", null);
         assertEquals("5 displays per doos (40 bowls)", SalesUnitText.cartonContents(displays, 5, Language.NL));
         assertEquals("5 présentoirs par carton (40 bols)", SalesUnitText.cartonContents(displays, 5, Language.FR));
 
-        var single = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 1, SalesUnit.DISPLAY, "bowl");
+        var single = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 1, SalesUnit.DISPLAY, "bowl", null);
         assertEquals("5 displays per doos", SalesUnitText.cartonContents(single, 5, Language.NL));
 
-        var pieces = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.PIECE, "bowl");
+        var pieces = new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 8, SalesUnit.PIECE, "bowl", null);
         assertEquals("40 bowls per doos", SalesUnitText.cartonContents(pieces, 40, Language.NL));
         assertEquals("24 stuks per doos", SalesUnitText.cartonContents(Packaging.none(), 24, Language.NL));
     }

@@ -77,6 +77,12 @@ public final class AccountOrderDtos {
             String relatedNumber
     ) {}
 
+    /**
+     * {@code quantity} counts sales units. {@code cartons} is the cartons of a whole number of known
+     * cartons, or, for a product sold per carton, the cartons it ships in; null otherwise.
+     * {@code orderStep} is CARTON, PACKAGE or UNIT, {@code salesUnit} PIECE or DISPLAY, and
+     * {@code unit} names one piece in the customer's language.
+     */
     public record DetailLine(
             Long productId,
             String sku,
@@ -86,7 +92,10 @@ public final class AccountOrderDtos {
             int quantity,
             BigDecimal unitPrice,
             BigDecimal discountPct,
-            BigDecimal net
+            BigDecimal net,
+            String orderStep,
+            String salesUnit,
+            be.enrosed.catalog.adapter.in.rest.UnitDto unit
     ) {}
 
     public record DetailExtraLine(String description, BigDecimal net) {}

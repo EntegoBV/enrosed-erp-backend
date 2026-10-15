@@ -6,6 +6,7 @@ import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderStep;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Photo;
@@ -602,8 +603,9 @@ class ProductServicePublicationTest {
         byte[] exported = csv.export();
         String text = new String(exported, StandardCharsets.UTF_8);
         assertTrue(text.lines().findFirst().orElseThrow().endsWith(
-                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex;eenheid"), text);
-        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32;stuk"), text);
+                "family_key;public_handle;website_status;order_app_status;variant_size;colour_hex;eenheid;verkocht_per"),
+                text);
+        assertTrue(text.contains("rose-family;rode-roos;PUBLISHED;READY;XL;#A91F32;stuk;omdoos"), text);
 
         ProductCsv.ImportResult result = csv.importFrom(new ByteArrayInputStream(exported));
         assertEquals(1, result.updatedProducts());
@@ -614,6 +616,33 @@ class ProductServicePublicationTest {
         assertEquals("#A91F32", repository.findById(1L).orElseThrow().colourHex());
         assertEquals("Niet wissen bij bulkimport",
                 repository.findById(1L).orElseThrow().supplierNote());
+    }
+
+    @Test
+    void theOrderStepColumnRoundTripsAndAFileFromBeforeItKeepsTheStoredStep() {
+        Product current = product(1L, "ENR-P01", "Beschrijving", "rode-roos",
+                PublicationState.DRAFT, PublicationState.DRAFT, true);
+        repository.add(current);
+        ProductCsv csv = new ProductCsv(repository, new ProductValidator(new BarcodeValidator()));
+        String exported = new String(csv.export(), StandardCharsets.UTF_8);
+
+        ProductCsv.ImportResult perPiece = csv.importFrom(new ByteArrayInputStream(
+                exported.replace(";stuk;omdoos", ";stuk;stuk").getBytes(StandardCharsets.UTF_8)));
+        assertTrue(perPiece.problems().isEmpty(), perPiece.problems().toString());
+        assertEquals(OrderStep.UNIT, repository.findById(1L).orElseThrow().packaging().orderStep());
+        assertTrue(new String(csv.export(), StandardCharsets.UTF_8).contains(";stuk;stuk"),
+                "the export writes the step it has");
+
+        /* A file exported before the column existed has 27 cells: the step stays what it was. */
+        String older = exported.replace(";verkocht_per", "").replace(";stuk;omdoos", ";stuk");
+        ProductCsv.ImportResult result = csv.importFrom(new ByteArrayInputStream(older.getBytes(StandardCharsets.UTF_8)));
+        assertTrue(result.problems().isEmpty(), result.problems().toString());
+        assertEquals(OrderStep.UNIT, repository.findById(1L).orElseThrow().packaging().orderStep());
+
+        ProductCsv.ImportResult refused = csv.importFrom(new ByteArrayInputStream(
+                exported.replace(";stuk;omdoos", ";stuk;verpakking").getBytes(StandardCharsets.UTF_8)));
+        assertEquals(List.of("Regel 2 (ENR-P01): Verkocht per verpakking kan alleen met een display of geschenkverpakking."),
+                refused.problems(), "a bare product has no packaging to sell per");
     }
 
     @Test

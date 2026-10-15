@@ -3,6 +3,7 @@ package be.enrosed.sales.application;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.catalog.domain.OrderSteps;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
@@ -143,7 +144,14 @@ public class SalesOrderService {
 
     public SalesOrder preview(long id, SalesOrder proposed) {
         SalesOrder stored = get(id);
-        return lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
+        SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
+        if (normalized == null || normalized.lines() == null) return normalized;
+        /* Priced with the step a save would remember: today's for a document that rounds, the stored one
+           otherwise; whatever step the client sent is never used. Nothing is saved here. */
+        List<SalesOrderLine> lines = keepsExactQuantities(stored, proposed)
+                ? withStoredOrderSteps(normalized.lines(), stored.lines())
+                : stampOrderSteps(normalized.lines());
+        return normalized.withLinesAndPallets(lines, normalized.pallets());
     }
 
     public void captureCustomerRequest(long id) {
@@ -346,7 +354,8 @@ public class SalesOrderService {
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, source.id(), null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
+                                line.unitsPerOrderStep()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -525,6 +534,9 @@ public class SalesOrderService {
         }
         if (!partner && lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
         lines = withCostSnapshots(lines, null);
+        /* At customer prices the container's exact pieces stay on the lines until the first save,
+           which rounds them; the step they will round to is remembered from the start. */
+        if (!atCost) lines = stampOrderSteps(lines);
 
         /* The inspection and the other named costs already sit in every landed piece price, so a
            cost quote carries them in its lines; the request's flags from before that are ignored. */
@@ -1636,13 +1648,12 @@ public class SalesOrderService {
                 current.docType(),
                 changes.invoiceDueDate() == null ? current.invoiceDueDate() : changes.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(),
-                /* A partner deal keeps the container's exact pieces; other documents ship full cartons.
-                   A credit note's line costs are the invoice's, never the client's or today's. */
-                current.isCreditNote() ? storedCreditCosts(changes.lines(), current.lines())
-                        : withCostSnapshots(current.isPartnerDeal() || changes.partnerPurchaseOrderId() != null
-                        || (changes.markupMode() == null ? current.markupMode() : changes.markupMode()) == MarkupMode.CONTAINER_COST
-                        || splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(current) != null
-                        ? changes.lines() : roundLinesToCartons(changes.lines()), current.lines()),
+                /* A partner deal keeps the container's exact pieces; other documents round up to each
+                   product's order step and remember it. A credit note's line costs are the invoice's,
+                   never the client's or today's. */
+                current.isCreditNote() ? storedCreditCosts(withStoredOrderSteps(changes.lines(), current.lines()), current.lines())
+                        : withCostSnapshots(keepsExactQuantities(current, changes)
+                        ? withStoredOrderSteps(changes.lines(), current.lines()) : roundLinesToOrderSteps(changes.lines()), current.lines()),
                 changes.pallets())
                 .withExtraLines(keptExtraLines(changes.extraLines()))
                 /* Null means an update client that does not know the deal: keep it. */
@@ -1832,7 +1843,8 @@ public class SalesOrderService {
         List<SalesOrderLine> lines = current.lines().stream()
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity())
+                                line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
+                                line.unitsPerOrderStep())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -2150,7 +2162,8 @@ public class SalesOrderService {
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
-                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity()))
+                                line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
+                                line.unitsPerOrderStep()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -2501,7 +2514,8 @@ public class SalesOrderService {
      */
     private static SalesOrder asStoredCreditNote(SalesOrder updated, SalesOrder stored) {
         List<SalesOrderLine> lines = updated.lines().stream().map(line -> new SalesOrderLine(line.id(), line.productId(),
-                line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null)).toList();
+                line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null,
+                line.unitsPerOrderStep())).toList();
         return new SalesOrder(updated.id(), updated.number(), stored.customerId(), stored.countryCode(),
                 updated.orderDate(), updated.validUntil(), updated.status(), stored.incoterm(),
                 stored.paymentTerms(), updated.notes(), MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
@@ -3100,11 +3114,6 @@ public class SalesOrderService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    /**
-     * We never sell half a carton: every quantity rounds up to whole outer
-     * cartons on save. The screen announces the correction; this makes it
-     * true no matter which client wrote the order.
-     */
     /** A free line the seller added and never filled in is dropped, not rejected. */
     static List<SalesExtraLine> keptExtraLines(List<SalesExtraLine> lines) {
         if (lines == null) return List.of();
@@ -3135,20 +3144,82 @@ public class SalesOrderService {
         }
     }
 
-    private List<SalesOrderLine> roundLinesToCartons(List<SalesOrderLine> lines) {
+    /**
+     * A product sells per its order step (a full carton unless the product says
+     * otherwise): every quantity rounds up to that step on save, and the line
+     * remembers the step, so a later change on the product never re-prices this
+     * document. The screen announces the correction; this makes it true no
+     * matter which client wrote the order.
+     */
+    private List<SalesOrderLine> roundLinesToOrderSteps(List<SalesOrderLine> lines) {
+        return withOrderSteps(lines, true);
+    }
+
+    /** The same remembering without rounding: the preview, and container quotes that keep their pieces until a save. */
+    private List<SalesOrderLine> stampOrderSteps(List<SalesOrderLine> lines) {
+        return withOrderSteps(lines, false);
+    }
+
+    private List<SalesOrderLine> withOrderSteps(List<SalesOrderLine> lines, boolean round) {
         if (lines == null || lines.isEmpty()) return lines;
         Map<Long, Product> byId = products.list().stream()
-                .collect(Collectors.toMap(Product::id, Function.identity()));
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        return withOrderSteps(lines, byId::get, round);
+    }
+
+    /** Each line at its product's step of today; a line whose product is gone keeps its quantity and no step. */
+    static List<SalesOrderLine> withOrderSteps(List<SalesOrderLine> lines, Function<Long, Product> products,
+                                               boolean round) {
+        if (lines == null || lines.isEmpty()) return lines;
         return lines.stream().map(line -> {
-            if (line == null || line.quantity() <= 0) return line;
-            Product product = byId.get(line.productId());
-            int per = product == null || product.carton() == null ? 1
-                    : Math.max(1, product.carton().piecesPerCarton());
-            int rounded = (int) Math.ceil(line.quantity() / (double) per) * per;
-            return rounded == line.quantity() ? line
-                    : new SalesOrderLine(line.id(), line.productId(), rounded,
-                            line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity());
+            if (line == null) return null;
+            Product product = line.productId() == null ? null : products.apply(line.productId());
+            if (product == null) return line.withOrderStep(line.quantity(), null);
+            int step = OrderSteps.unitsPerStep(product);
+            return line.withOrderStep(round ? OrderSteps.roundUp(line.quantity(), step) : line.quantity(), step);
         }).toList();
+    }
+
+    /**
+     * The step each line keeps on a document that does not round: the one stored on the
+     * same line, never one a client sent along. A new line has none.
+     */
+    private static List<SalesOrderLine> withStoredOrderSteps(List<SalesOrderLine> lines, List<SalesOrderLine> stored) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line != null && line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        return lines.stream().map(line -> {
+            if (line == null) return null;
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            Integer step = known == null ? null : known.unitsPerOrderStep();
+            return Objects.equals(step, line.unitsPerOrderStep()) ? line : line.withOrderStep(line.quantity(), step);
+        }).toList();
+    }
+
+    /**
+     * Documents that keep their exact pieces, the calculator's exemptions: a partner deal, a
+     * container-cost document (every credit note is one) and a part of a delivery split.
+     */
+    public boolean keepsExactQuantities(SalesOrder order) {
+        return order.isCreditNote() || order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST
+                || isSplitPriced(order);
+    }
+
+    /**
+     * The same while {@code changes} are being written onto {@code current}; a save also keeps
+     * the pieces of a document that is being tied to a container.
+     */
+    private boolean keepsExactQuantities(SalesOrder current, SalesOrder changes) {
+        MarkupMode markup = changes == null || changes.markupMode() == null ? current.markupMode() : changes.markupMode();
+        return current.isCreditNote() || current.isPartnerDeal()
+                || changes != null && changes.partnerPurchaseOrderId() != null
+                || markup == MarkupMode.CONTAINER_COST
+                || isSplitPriced(current);
+    }
+
+    private boolean isSplitPriced(SalesOrder order) {
+        return splitOrders != null && splitOrders.isResolvable() && splitOrders.get().pricing(order) != null;
     }
 
     /**

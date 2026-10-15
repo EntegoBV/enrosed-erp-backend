@@ -544,8 +544,12 @@ public class SmtpQuoteMailer implements QuoteMailer, InternalMessageSender, Cust
                 .render();
     }
 
-    /** "4 dozen × 24" when the carton content is known, the cartons alone when it is not. */
+    /**
+     * "4 dozen × 24" when the carton content is known, the cartons alone when it is not; a line
+     * not sold per carton brings its own words ("3 stolpen").
+     */
     private static String orderQuantity(CustomerOrderMailer.Line line, Map<String, String> text) {
+        if (line.quantityText() != null && !line.quantityText().isBlank()) return line.quantityText();
         if (line.cartons() != null && line.cartons() > 0) {
             String cartons = line.cartons() + " " + text.get("mailOrderCartons");
             return line.piecesPerCarton() != null && line.piecesPerCarton() > 0
