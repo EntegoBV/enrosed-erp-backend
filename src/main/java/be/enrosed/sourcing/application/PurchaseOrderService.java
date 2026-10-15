@@ -1523,6 +1523,89 @@ public class PurchaseOrderService {
     }
 
     /**
+     * A payment that goes onto a bank line follows it: it takes the line's
+     * day and, when {@code amountEur} is given, the line's euro. A euro
+     * payment's amount is that euro; a foreign payment keeps its own amount
+     * (the bank's euro sets its rate). Its diary line is rewritten in place
+     * and the activity keeps what it was. Unchanged when nothing differs.
+     * The bank link is the caller's, after this: a payment already on the
+     * bank never changes here.
+     */
+    @Transactional
+    public PurchasePayment followBankLine(long orderId, long paymentId, LocalDate day, BigDecimal amountEur,
+                                          String summary) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment before = storedPayment(orderId, paymentId);
+        LocalDate paidOn = day == null ? before.paidOn() : day;
+        BigDecimal eur = amountEur == null ? before.amountEur() : money(amountEur);
+        BigDecimal amount = before.currency() == Currency.EUR ? eur : before.amount();
+        if (paidOn.equals(before.paidOn()) && eur.compareTo(before.amountEur()) == 0
+                && amount.compareTo(before.amount()) == 0) {
+            return before;
+        }
+        if (before.bankStatementLineId() != null) {
+            throw new BusinessRuleException("Deze betaling staat al op de bank; maak de koppeling eerst los");
+        }
+        if (eur.signum() <= 0 || amount.signum() <= 0) throw new BusinessRuleException("Geef een bedrag groter dan nul op");
+        PurchasePayment after = payments.get().save(new PurchasePayment(before.id(), orderId, paidOn, amount,
+                before.currency(), eur, before.label(), before.actor(), before.recordedAt(), before.payee(),
+                before.settles(), before.instalmentDue(), before.bankStatementLineId(), before.groupId(),
+                before.invoiceId()));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                replaceNoteLine(order.notes(), paymentNoteLine(before), paymentNoteLine(after)), order.lines()));
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.date", "Betaald op", before.paidOn(), after.paidOn())
+                .add("payment.amount", "Bedrag", before.amount(), after.amount());
+        if (before.currency() != Currency.EUR) changes.add("payment.amountEur", "In euro", before.amountEur(), after.amountEur());
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, summary, changes.build());
+        return after;
+    }
+
+    /**
+     * The bank line carried more than the goods payment and the rest is the
+     * inspection paid through the supplier: a new inspection payment
+     * (Inspectie &amp; andere kosten) of that rest, on the goods' day, in the
+     * goods' currency at the goods' own booked rate. The container's flag
+     * goes on. The bank link is the caller's: the line then carries the goods
+     * and the inspection, its total unchanged.
+     */
+    @Transactional
+    public PurchasePayment addInspectionRest(long orderId, long goodsPaymentId, BigDecimal restEur) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment goods = storedPayment(orderId, goodsPaymentId);
+        if (goods.payee() != PurchasePayment.Payee.SUPPLIER || goods.instalmentDue() == PaymentTerms.Moment.FREIGHT
+                || offsetCreditFor(goodsPaymentId).isPresent()
+                || order.inspectionCostEur() == null || order.inspectionCostEur().signum() <= 0) {
+            throw new BusinessRuleException(INSPECTION_REST_REFUSED);
+        }
+        if (restEur == null || restEur.signum() <= 0) throw new BusinessRuleException("Geef een inspectiebedrag groter dan nul op");
+        BigDecimal partEur = money(restEur);
+        BigDecimal part = goods.currency() == Currency.EUR ? partEur
+                : goods.amount().multiply(partEur).divide(goods.amountEur(), 2, RoundingMode.HALF_UP);
+        if (part.signum() <= 0) throw new BusinessRuleException("Geef een inspectiebedrag groter dan nul op");
+        String name = (goods.label() == null ? "Betaling" : goods.label()) + " · inspectie";
+        PurchasePayment inspection = payments.get().save(new PurchasePayment(null, orderId, goods.paidOn(), part,
+                goods.currency(), partEur, name.length() > 255 ? name.substring(0, 255) : name,
+                currentActor().displayName(), Instant.now(), PurchasePayment.Payee.SEPARATE, false, null,
+                null, null, null));
+        boolean flagChanged = !order.inspectionPaidViaSupplier();
+        PurchaseOrder flagged = order.withInspectionViaSupplier(true);
+        orders.save(flagged.withReceipt(flagged.status(), flagged.receivedOn(), flagged.paidTotalEur(),
+                flagged.stockBooked(), appendNote(order.notes(), paymentNoteLine(inspection)), flagged.lines()));
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.inspection", "Inspectie via leverancier", null, inspection.amount());
+        if (goods.currency() != Currency.EUR) changes.add("payment.amountEur", "In euro", null, inspection.amountEur());
+        if (flagChanged) changes.add("inspectionViaSupplier", "Inspectie via leverancier", "nee", "ja");
+        recordActivity(ActivityLogService.ACTION_PAYMENT_ADDED, order,
+                "Rest van de banktransactie als inspectie via leverancier geboekt", changes.build());
+        return inspection;
+    }
+
+    /** Why the rest of a larger bank line cannot be booked as the inspection. */
+    public static final String INSPECTION_REST_REFUSED = "Rest als inspectie via leverancier kan alleen bij een "
+            + "goederenbetaling aan de leverancier van een container met inspectiekost";
+
+    /**
      * Splits the inspection paid through the supplier off a goods payment: the
      * goods payment keeps its id, bank line, group, term, settlement, invoice
      * and day and is lowered by the part; a new inspection payment (Inspectie

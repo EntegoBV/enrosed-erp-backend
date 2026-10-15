@@ -53,6 +53,25 @@ class PurchasePaymentSplitResourceHttpTest {
         given().get("/api/purchase-orders/999999/invoices").then().statusCode(404);
     }
 
+    /** Round 2: the owner's choice for a larger transfer and the other parts travel in the bank-part body. */
+    @Test
+    void aBankPartBodyCarriesTheChoiceAndTheAnswerItsNotice() throws Exception {
+        var plain = json.readValue("{\"bankStatementLineId\":5}", PurchasePaymentSplitService.PartRequest.class);
+        assertNull(plain.higher());
+        assertNull(plain.withPaymentIds());
+        assertNull(plain.expectedAmountEur());
+        var chosen = json.readValue("{\"bankStatementLineId\":5,\"higher\":\"INSPECTION\",\"withPaymentIds\":[7],"
+                + "\"expectedAmountEur\":10250.00}", PurchasePaymentSplitService.PartRequest.class);
+        assertEquals(PurchasePaymentSplitService.Higher.INSPECTION, chosen.higher());
+        assertEquals(java.util.List.of(7L), chosen.withPaymentIds());
+        assertEquals(0, new java.math.BigDecimal("10250").compareTo(chosen.expectedAmountEur()));
+        var tree = json.readTree(json.writeValueAsString(new PurchasePaymentSplitService.SplitResult(
+                java.util.List.of(), java.util.List.of(), "Datum gevolgd van de transactie: 05/09/2026 (was 03/09/2026).")));
+        assertEquals("Datum gevolgd van de transactie: 05/09/2026 (was 03/09/2026).", tree.get("notice").asText());
+        assertTrue(json.readTree(json.writeValueAsString(new PurchasePaymentSplitService.SplitResult(
+                java.util.List.of(), java.util.List.of()))).has("notice"));
+    }
+
     @Test
     void aMissingInvoiceKeepsTheStoredChoiceAndAnExplicitNullMeansAutomatic() throws Exception {
         var missing = json.readValue("{\"amount\":10}", SourcingResource.PaymentRequest.class);

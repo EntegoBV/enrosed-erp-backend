@@ -265,7 +265,8 @@ class PurchasePaymentSplitPersistenceTest {
         assertRefused("Banktransactie van 24/09/2026 (€ 11.733,63) is al gekoppeld of niet uitgaand; kies een vrije uitgaande banktransactie",
                 () -> splits.linkLines(balance.id(), lines(first, taken)));
         long big = line("-25000.00", SEP_24);
-        assertRefused("De banktransactie (€ 25.000,00) is groter dan deze betaling (€ 21.733,63); koppel ze via Bestaande betaling met alle delen",
+        /* Round 2: a larger transfer asks the owner's choice instead of sending him to Kosten & bank. */
+        assertRefused("Transactie is € 3.266,37 hoger dan deze betaling: kies 'Bedrag aanpassen naar € 25.000,00'.",
                 () -> splits.linkPart(balance.id(), new PurchasePaymentSplitService.PartRequest(big, null)));
         assertRefused("Deze betaling staat al op de bank; maak de koppeling eerst los",
                 () -> splits.linkLines(other.id(), lines(first)));

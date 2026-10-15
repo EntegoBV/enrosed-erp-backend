@@ -35,8 +35,12 @@ import java.util.Objects;
  *
  *   bank-lines   one payment over 1 to 10 free outgoing lines that together
  *                make its amount (two-cent rule on the total)
- *   bank-part    one line linked to a payment: a whole match, or a smaller
- *                line carved out of it with the rest left open in the group
+ *   bank-part    one line linked to a payment, which follows the line: a
+ *                whole match takes the line's day and amount, a larger line
+ *                takes the owner's choice (the payment's amount follows, or
+ *                the rest is the inspection paid through the supplier), a
+ *                smaller line is carved out with the rest left open in the
+ *                group
  *   inspection   the inspection paid through the supplier split off a goods
  *                payment, on the same line, the line total unchanged
  *
@@ -60,12 +64,47 @@ public class PurchasePaymentSplitService {
 
     public record LineRef(Long bankStatementLineId, BigDecimal amount) {}
     public record LinesRequest(List<LineRef> lines) {}
-    /** {@code amount}: the linked part in the payment's currency; empty means pro rata. */
-    public record PartRequest(Long bankStatementLineId, BigDecimal amount) {}
+
+    /** What to do when the line is more than the payment: the owner's choice in the sheet. */
+    public enum Higher {
+        /** "Bedrag aanpassen": the payment takes the line's amount. */
+        ADJUST,
+        /** "Rest als inspectie via leverancier": the rest becomes the inspection on the same line. */
+        INSPECTION
+    }
+
+    /**
+     * One line to one payment.
+     *
+     * @param amount            the linked part in the payment's currency when a smaller line is carved out;
+     *                          empty means pro rata
+     * @param higher            the choice for a line more than € 0,02 above the payment; without it that link is refused
+     * @param withPaymentIds    other open payments of the same container on the same transfer (the inspection paid
+     *                          with the goods): they keep their amounts and take the line's day, the addressed payment
+     *                          takes the rest of the line
+     * @param expectedAmountEur the payment's euro as the screen saw it; a different stored amount is refused
+     */
+    public record PartRequest(Long bankStatementLineId, BigDecimal amount, Higher higher, List<Long> withPaymentIds,
+                              BigDecimal expectedAmountEur) {
+        /** A link without a choice: a whole match or a smaller line. */
+        public PartRequest(Long bankStatementLineId, BigDecimal amount) {
+            this(bankStatementLineId, amount, null, null, null);
+        }
+    }
     /** {@code expectedAmountEur}: the goods payment's euro amount as the screen saw it. */
     public record InspectionRequest(BigDecimal amountEur, BigDecimal amount, String label, BigDecimal expectedAmountEur) {}
-    /** Every member of the group (or goods + inspection), by day then id, and every touched line. */
-    public record SplitResult(List<PurchasePayment> payments, List<BankStatementLineEntity> lines) {}
+
+    /**
+     * Every member of the group (or goods + inspection) and every payment of
+     * the container on a touched line, by day then id; every touched line;
+     * and one sentence on what the link changed (null when nothing changed,
+     * also on an identical retry).
+     */
+    public record SplitResult(List<PurchasePayment> payments, List<BankStatementLineEntity> lines, String notice) {
+        public SplitResult(List<PurchasePayment> payments, List<BankStatementLineEntity> lines) {
+            this(payments, lines, null);
+        }
+    }
 
     /** C1: one payment over several transfers (or one), each part on the line's day. */
     @Transactional
@@ -95,8 +134,12 @@ public class PurchasePaymentSplitService {
                     + "'Afgeschreven in euro' aan.");
         }
         if (lines.size() == 1) {
-            linkWhole(orderId, paymentId, lines.getFirst());
-            return result(orderId, lockPayment(paymentId), lines);
+            BankStatementLineEntity line = lines.getFirst();
+            PurchasePayment before = toDomain(payment);
+            PurchasePayment after = purchases.followBankLine(orderId, paymentId, day(line), line.amountEur.negate(),
+                    LINKED_SUMMARY);
+            link(line, List.of(paymentId));
+            return result(orderId, lockPayment(paymentId), lines, followed(before, after));
         }
         List<BankStatementLineEntity> ordered = lines.stream()
                 .sorted(Comparator.comparing((BankStatementLineEntity line) -> line.bookedAt).thenComparing(line -> line.id))
@@ -125,7 +168,17 @@ public class PurchasePaymentSplitService {
         return result(orderId, lockPayment(paymentId), lines);
     }
 
-    /** C2: one line to a payment: a whole match takes the line's day; a smaller line is carved out. */
+    /**
+     * C2: one line to a payment, and the payment follows the transaction.
+     * A whole match (± € 0,02) takes the line's day and its exact amount; a
+     * line more than the payment needs the owner's choice (the payment takes
+     * the line's amount, or the rest is the inspection paid through the
+     * supplier); a smaller line is carved out of the payment, the rest stays
+     * open as a second transfer of it. Other open payments named for the same
+     * transfer keep their amounts: the addressed payment (the goods) absorbs
+     * every difference, never the inspection. The root of a payment in parts
+     * names its one open transfer.
+     */
     @Transactional
     public SplitResult linkPart(long paymentId, PartRequest request) {
         if (request == null || request.bankStatementLineId() == null) {
@@ -136,19 +189,64 @@ public class PurchasePaymentSplitService {
         lockOrder(orderId);
         var payment = lockPayment(paymentId);
         requireNoOffset(paymentId);
-        if (Objects.equals(payment.bankStatementLineId, line.id)) return result(orderId, payment, List.of(line));
+        if (Objects.equals(payment.bankStatementLineId, line.id)) return result(orderId, payment, List.of(line), null);
+        if (payment.bankStatementLineId != null && payment.groupId != null) {
+            var onLine = groupMemberOn(payment.groupId, line.id);
+            if (onLine != null) return result(orderId, onLine, List.of(line), null);
+            var open = em.createQuery("from PurchasePaymentEntity p where p.groupId=:root and p.bankStatementLineId is null",
+                    SourcingEntities.PurchasePaymentEntity.class).setParameter("root", payment.groupId).getResultList();
+            if (open.size() == 1) {
+                payment = lockPayment(open.getFirst().id);
+                requireNoOffset(payment.id);
+            }
+        }
         requireNotOnBank(payment);
         requireFree(line);
+        long goodsId = payment.id;
+        List<SourcingEntities.PurchasePaymentEntity> others = otherParts(orderId, goodsId, request.withPaymentIds());
+        if (request.expectedAmountEur() != null
+                && payment.amountEur.compareTo(request.expectedAmountEur().setScale(2, RoundingMode.HALF_UP)) != 0) {
+            throw new BusinessRuleException(CHANGED);
+        }
         BigDecimal lineEur = line.amountEur.negate();
-        if (BankAmountMatch.matches(line.amountEur, payment.amountEur.negate())) {
-            linkWhole(orderId, paymentId, line);
-            return result(orderId, lockPayment(paymentId), List.of(line));
+        BigDecimal othersEur = others.stream().map(other -> other.amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal target = lineEur.subtract(othersEur);
+        if (target.signum() <= 0) {
+            throw new BusinessRuleException("De andere betalingen (" + eur(othersEur) + ") zijn samen niet kleiner dan de banktransactie ("
+                    + eur(lineEur) + ")");
         }
-        if (lineEur.compareTo(payment.amountEur.add(BankAmountMatch.MAX_DIFFERENCE)) > 0) {
-            throw new BusinessRuleException("De banktransactie (" + eur(lineEur) + ") is groter dan deze betaling ("
-                    + eur(payment.amountEur) + "); koppel ze via Bestaande betaling met alle delen");
+        LocalDate day = day(line);
+        BigDecimal difference = target.subtract(payment.amountEur);
+        PurchasePayment before = toDomain(payment);
+        List<Long> otherIds = others.stream().map(other -> other.id).toList();
+        boolean higher = difference.compareTo(BankAmountMatch.MAX_DIFFERENCE) > 0;
+        if (!higher && difference.compareTo(BankAmountMatch.MAX_DIFFERENCE.negate()) >= 0
+                || higher && request.higher() == Higher.ADJUST) {
+            /* The payment follows the transfer: its day and, the other parts kept, the rest of the line. */
+            PurchasePayment after = purchases.followBankLine(orderId, goodsId, day, target, LINKED_SUMMARY);
+            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            link(line, concat(goodsId, otherIds));
+            return result(orderId, lockPayment(goodsId), List.of(line), followed(before, after));
         }
-        List<BigDecimal> eurs = List.of(lineEur, payment.amountEur.subtract(lineEur));
+        if (higher) {
+            boolean eligible = inspectionRestAllowed(orderId, payment);
+            if (request.higher() == null) {
+                throw new BusinessRuleException("Transactie is " + eur(difference) + " hoger dan deze betaling: kies 'Bedrag aanpassen naar "
+                        + eur(target) + "'" + (eligible ? " of 'Rest als inspectie via leverancier'" : "") + ".");
+            }
+            if (!eligible) throw new BusinessRuleException(PurchaseOrderService.INSPECTION_REST_REFUSED);
+            PurchasePayment after = purchases.followBankLine(orderId, goodsId, day, null, LINKED_SUMMARY);
+            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            PurchasePayment inspection = purchases.addInspectionRest(orderId, goodsId, difference);
+            List<Long> linked = new ArrayList<>(concat(goodsId, otherIds));
+            linked.add(inspection.id());
+            link(line, linked);
+            String dated = followed(before, after);
+            String rest = "Inspectie via leverancier " + eur(inspection.amountEur()) + " toegevoegd op dezelfde transactie.";
+            return result(orderId, lockPayment(goodsId), List.of(line), dated == null ? rest : dated + " " + rest);
+        }
+        /* A smaller line: its part is carved out, the rest stays open in the group. */
+        List<BigDecimal> eurs = List.of(target, payment.amountEur.subtract(target));
         if (eurs.stream().anyMatch(part -> part.signum() <= 0)) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
         List<BigDecimal> amounts;
         if (payment.currency == Currency.EUR || request.amount() == null) {
@@ -159,11 +257,13 @@ public class PurchasePaymentSplitService {
             if (first.signum() <= 0 || rest.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
             amounts = List.of(first, rest);
         }
-        List<PurchasePayment> saved = purchases.splitPayment(orderId, paymentId, List.of(
-                new PurchaseOrderService.PaymentPart(amounts.get(0), eurs.get(0), day(line)),
+        BigDecimal whole = payment.amountEur;
+        List<PurchasePayment> saved = purchases.splitPayment(orderId, goodsId, List.of(
+                new PurchaseOrderService.PaymentPart(amounts.get(0), eurs.get(0), day),
                 new PurchaseOrderService.PaymentPart(amounts.get(1), eurs.get(1), payment.paidOn)), CARVED_SUMMARY);
-        bank.linkExisting(line.id, new BankStatementService.OutgoingLinks(List.of(saved.getFirst().id()), null, null));
-        return result(orderId, lockPayment(paymentId), List.of(line));
+        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        link(line, concat(saved.getFirst().id(), otherIds));
+        return result(orderId, lockPayment(goodsId), List.of(line), carved(eurs.get(0), whole));
     }
 
     /** D: the inspection paid through the supplier, split off a goods payment on the same line. */
@@ -207,6 +307,17 @@ public class PurchasePaymentSplitService {
                 || payment.instalmentDue == PaymentTerms.Moment.FREIGHT) {
             throw new BusinessRuleException("Splits de inspectie af van een goederenbetaling aan de leverancier");
         }
+        if (line != null) {
+            /* One transfer carries one inspection: a second split of the same line would book it twice. */
+            var carried = em.createQuery("from PurchasePaymentEntity p where p.orderId=:order and p.bankStatementLineId=:line"
+                            + " and p.payee=:payee order by p.id", SourcingEntities.PurchasePaymentEntity.class)
+                    .setParameter("order", orderId).setParameter("line", line.id)
+                    .setParameter("payee", PurchasePayment.Payee.SEPARATE).getResultStream().findFirst().orElse(null);
+            if (carried != null) {
+                throw new BusinessRuleException("Deze transactie draagt al Inspectie " + eur(carried.amountEur)
+                        + " (via leverancier); pas die betaling aan in plaats van opnieuw af te splitsen");
+            }
+        }
         if (partEur == null || partEur.signum() <= 0) throw new BusinessRuleException("Geef een inspectiebedrag groter dan nul op");
         if (partEur.compareTo(payment.amountEur) >= 0) {
             throw new BusinessRuleException("Het inspectiedeel moet kleiner zijn dan de betaling (" + eur(payment.amountEur) + ")");
@@ -233,10 +344,84 @@ public class PurchasePaymentSplitService {
         return new SplitResult(both, described(lines));
     }
 
-    /** The whole payment on one line: first the line's day, then the bank service's link. */
-    private void linkWhole(long orderId, long paymentId, BankStatementLineEntity line) {
-        purchases.redatePayment(orderId, paymentId, day(line), LINKED_SUMMARY);
-        bank.linkExisting(line.id, new BankStatementService.OutgoingLinks(List.of(paymentId), null, null));
+    /** The bank service's own link, with its direction, two-cent, offset and exclusive-set guards. */
+    private void link(BankStatementLineEntity line, List<Long> paymentIds) {
+        bank.linkExisting(line.id, new BankStatementService.OutgoingLinks(paymentIds, null, null));
+    }
+
+    private static List<Long> concat(Long first, List<Long> rest) {
+        List<Long> all = new ArrayList<>();
+        all.add(first);
+        all.addAll(rest);
+        return all;
+    }
+
+    /** A member of the group already on this line: the retry of a link addressed to the group's root. */
+    private SourcingEntities.PurchasePaymentEntity groupMemberOn(long root, long lineId) {
+        return em.createQuery("from PurchasePaymentEntity p where (p.groupId=:root or p.id=:root) and p.bankStatementLineId=:line",
+                        SourcingEntities.PurchasePaymentEntity.class)
+                .setParameter("root", root).setParameter("line", lineId).getResultStream().findFirst().orElse(null);
+    }
+
+    /**
+     * The other open payments of the same container named for the same
+     * transfer, locked, in id order. They are not on the bank, not a credit
+     * offset and carry money.
+     */
+    private List<SourcingEntities.PurchasePaymentEntity> otherParts(long orderId, long paymentId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        if (ids.stream().anyMatch(Objects::isNull) || new HashSet<>(ids).size() != ids.size() || ids.contains(paymentId)) {
+            throw new BusinessRuleException("Kies elke betaling maar één keer");
+        }
+        if (ids.size() > 9) throw new BusinessRuleException("Kies hoogstens tien betalingen voor één banktransactie");
+        List<SourcingEntities.PurchasePaymentEntity> others = new ArrayList<>();
+        for (Long id : ids.stream().sorted().toList()) {
+            var other = lockPayment(id);
+            if (other.orderId != orderId) {
+                throw new BusinessRuleException("Kies betalingen van dezelfde container voor één banktransactie");
+            }
+            requireNoOffset(id);
+            if (other.bankStatementLineId != null) {
+                throw new BusinessRuleException("Een van de gekozen betalingen staat al op de bank; maak die koppeling eerst los");
+            }
+            if (other.amountEur == null || other.amountEur.signum() <= 0) {
+                throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
+            }
+            others.add(other);
+        }
+        return others;
+    }
+
+    /** A goods payment to the supplier of a container with an inspection cost may book the rest as the inspection. */
+    private boolean inspectionRestAllowed(long orderId, SourcingEntities.PurchasePaymentEntity payment) {
+        if (payment.payee != null && payment.payee != PurchasePayment.Payee.SUPPLIER) return false;
+        if (payment.instalmentDue == PaymentTerms.Moment.FREIGHT) return false;
+        var order = em.find(SourcingEntities.PurchaseOrderEntity.class, orderId);
+        return order != null && order.inspectionCostEur != null && order.inspectionCostEur.signum() > 0;
+    }
+
+    /**
+     * What following the transfer changed, in one sentence: "Bedrag en datum
+     * gevolgd van de transactie: € 10.300,00 op 05/01/2026 (was € 10.250,00
+     * op 03/01/2026)." The euro is what the bank shows; null when nothing
+     * changed.
+     */
+    static String followed(PurchasePayment before, PurchasePayment after) {
+        boolean money = before.amountEur().compareTo(after.amountEur()) != 0;
+        boolean date = !before.paidOn().equals(after.paidOn());
+        if (money && date) {
+            return "Bedrag en datum gevolgd van de transactie: " + eur(after.amountEur()) + " op " + DAY.format(after.paidOn())
+                    + " (was " + eur(before.amountEur()) + " op " + DAY.format(before.paidOn()) + ").";
+        }
+        if (money) return "Bedrag gevolgd van de transactie: " + eur(after.amountEur()) + " (was " + eur(before.amountEur()) + ").";
+        if (date) return "Datum gevolgd van de transactie: " + DAY.format(after.paidOn()) + " (was " + DAY.format(before.paidOn()) + ").";
+        return null;
+    }
+
+    /** The part a smaller line took, as Kosten &amp; bank says it before the link. */
+    static String carved(BigDecimal part, BigDecimal whole) {
+        return "Deel van deze betaling: " + eur(part) + " van " + eur(whole) + "; de rest (" + eur(whole.subtract(part))
+                + ") blijft open als tweede transactie.";
     }
 
     /**
@@ -304,13 +489,21 @@ public class PurchasePaymentSplitService {
 
     private SplitResult result(long orderId, SourcingEntities.PurchasePaymentEntity payment,
                                List<BankStatementLineEntity> lines) {
+        return result(orderId, payment, lines, null);
+    }
+
+    /** The payment's group and every payment of the container on the touched lines. */
+    private SplitResult result(long orderId, SourcingEntities.PurchasePaymentEntity payment,
+                               List<BankStatementLineEntity> lines, String notice) {
         long root = payment.groupId == null ? payment.id : payment.groupId;
+        java.util.Set<Long> lineIds = new HashSet<>(lines.stream().map(line -> line.id).toList());
         List<PurchasePayment> members = purchases.payments(orderId).stream()
                 .filter(candidate -> Objects.equals(candidate.id(), root) || Objects.equals(candidate.groupId(), root)
-                        || Objects.equals(candidate.id(), payment.id))
+                        || Objects.equals(candidate.id(), payment.id)
+                        || candidate.bankStatementLineId() != null && lineIds.contains(candidate.bankStatementLineId()))
                 .sorted(Comparator.comparing(PurchasePayment::paidOn).thenComparing(PurchasePayment::id))
                 .toList();
-        return new SplitResult(members, described(lines));
+        return new SplitResult(members, described(lines), notice);
     }
 
     private List<BankStatementLineEntity> described(List<BankStatementLineEntity> lines) {
