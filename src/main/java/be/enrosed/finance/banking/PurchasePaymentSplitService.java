@@ -439,7 +439,6 @@ public class PurchasePaymentSplitService {
         return new SplitResult(both, described(lines));
     }
 
-    /** The bank service's own link, with its direction, two-cent, offset and exclusive-set guards. */
     /**
      * A whole payment follows its transaction (the line's day, and its euro when given) and remembers, the first
      * time, what it was before: "aangepast aan de bank (was ...)". A carved part is a new transfer, not a payment
@@ -453,6 +452,7 @@ public class PurchasePaymentSplitService {
         return after;
     }
 
+    /** The bank service's own link, with its direction, two-cent, offset and exclusive-set guards. */
     private void link(BankStatementLineEntity line, List<Long> paymentIds) {
         bank.linkExisting(line.id, new BankStatementService.OutgoingLinks(paymentIds, null, null));
     }
