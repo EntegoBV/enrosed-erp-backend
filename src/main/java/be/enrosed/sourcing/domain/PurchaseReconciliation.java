@@ -127,7 +127,7 @@ public record PurchaseReconciliation(
              * What one sales unit of the container is: PIECE when no line is
              * a set, DISPLAY when every line is a set of the same size and
              * piece name, MIXED otherwise (sets of different sizes, or sets
-             * next to pieces, have no common "per set").
+             * next to pieces, have no common "per display").
              */
             String setBasis,
             /** The pieces in a set, shared by every set line; null when none or not shared. */

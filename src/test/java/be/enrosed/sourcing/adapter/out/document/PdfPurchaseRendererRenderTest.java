@@ -192,11 +192,11 @@ class PdfPurchaseRendererRenderTest {
             assertTrue(text.contains("Gemiddeld per stuk " + be.enrosed.shared.DocumentFormat.unit(
                     costing(1, 990_001L).totals().averageUnitEur())), text);
             assertFalse(text.contains("per product"), text);
-            assertFalse(text.contains("per set"), text);
+            assertFalse(text.contains("per display"), text);
         }
     }
 
-    /** A container of one set: its landed unit cost is per set, and the calculation adds the cost per stuk. */
+    /** A container of one display product: its landed unit cost is per display, and the calculation adds the cost per stuk. */
     @Test
     @TestTransaction
     void theCalculationOfASetSaysPerSetAndAddsPerStuk() throws Exception {
@@ -228,8 +228,9 @@ class PdfPurchaseRendererRenderTest {
         try (var pdf = Loader.loadPDF(document.content())) {
             String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
             assertFalse(text.contains("Gemiddeld per stuk"), "the set figure is not per stuk: " + text);
-            assertTrue(text.contains("Per set " + be.enrosed.shared.DocumentFormat.unit(costing.totals().averageUnitEur())), text);
-            assertTrue(text.contains("Per stuk 12 rozen per set " + be.enrosed.shared.DocumentFormat.unit(perStuk)), text);
+            assertTrue(text.contains("Per display " + be.enrosed.shared.DocumentFormat.unit(costing.totals().averageUnitEur())), text);
+            assertTrue(text.contains("Per stuk 12 rozen per display " + be.enrosed.shared.DocumentFormat.unit(perStuk)), text);
+            assertFalse(java.util.regex.Pattern.compile("\\bsets?\\b").matcher(text).find(), "no \"set\" left: " + text);
             assertTrue(text.contains(be.enrosed.shared.DocumentFormat.moneyUnit(perStuk) + " /stuk"),
                     "the line says its cost per stuk too: " + text);
         }

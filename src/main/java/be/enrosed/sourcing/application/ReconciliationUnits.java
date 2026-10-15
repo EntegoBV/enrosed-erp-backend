@@ -35,11 +35,11 @@ public final class ReconciliationUnits {
     public static final String DISPLAY = "DISPLAY";
     public static final String MIXED = "MIXED";
 
-    static final String SET_NOTE = "Bij sets is de kostprijs per set; per stuk = per set gedeeld door het aantal stuks in de set (bijv. 12 rozen).";
+    static final String SET_NOTE = "Bij displays is de kostprijs per display; per stuk = per display gedeeld door het aantal stuks in het display (bijv. 12 rozen).";
 
-    /** A container of different products has no meaningful average per stuk or per set. */
+    /** A container of different products has no meaningful average per stuk or per display. */
     static String perProductNote(int products) {
-        return "Deze container heeft " + products + " verschillende producten: de kost per stuk of per set staat per product, "
+        return "Deze container heeft " + products + " verschillende producten: de kost per stuk of per display staat per product, "
                 + "zonder gemiddelde over de hele container.";
     }
 

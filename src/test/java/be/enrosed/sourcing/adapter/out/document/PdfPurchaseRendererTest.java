@@ -242,8 +242,8 @@ class PdfPurchaseRendererTest {
 
     /**
      * Round-2 screen check: no average over different products. One product
-     * keeps its figure (a set per set and per stuk); several show the range
-     * of their own figures, per stuk when sets sit next to pieces.
+     * keeps its figure (a display per display and per stuk); several show the
+     * range of their own figures, per stuk when displays sit next to pieces.
      */
     @Test
     void theRowsUnderTheLandedTotalNeverAverageDifferentProducts() {
@@ -271,12 +271,12 @@ class PdfPurchaseRendererTest {
                 java.math.RoundingMode.HALF_UP), rosePiece);
         var setAndBowl = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(1L, roses, 2L, bowl), 2, false);
         assertEquals(1, setAndBowl.size());
-        assertEquals("2 producten · sets per stuk", setAndBowl.getFirst().note());
+        assertEquals("2 producten · displays per stuk", setAndBowl.getFirst().note());
         assertEquals(PdfPurchaseRenderer.rangeText(rosePiece.min(second.landedUnitEur()),
                 rosePiece.max(second.landedUnitEur())), setAndBowl.getFirst().value());
 
         var twoSets = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(1L, roses, 2L, six), 2, false);
-        assertEquals(List.of("Per set", "Per stuk"), twoSets.stream().map(PdfPurchaseRenderer.UnitRow::label).toList());
+        assertEquals(List.of("Per display", "Per stuk"), twoSets.stream().map(PdfPurchaseRenderer.UnitRow::label).toList());
         BigDecimal sixPiece = PdfPurchaseRenderer.landedPieceEur(second, six);
         assertEquals(PdfPurchaseRenderer.rangeText(rosePiece.min(sixPiece), rosePiece.max(sixPiece)),
                 twoSets.get(1).value());
@@ -286,9 +286,9 @@ class PdfPurchaseRendererTest {
         assertEquals(List.of(new PdfPurchaseRenderer.UnitRow("Gemiddeld per stuk", null,
                 be.enrosed.shared.DocumentFormat.unit(one.totals().averageUnitEur()))), piece);
         var set = PdfPurchaseRenderer.unitRows(one, java.util.Map.of(1L, roses), 1, true);
-        assertEquals(new PdfPurchaseRenderer.UnitRow("Per set", null,
+        assertEquals(new PdfPurchaseRenderer.UnitRow("Per display", null,
                 be.enrosed.shared.DocumentFormat.unit(one.totals().averageUnitEur())), set.get(0));
-        assertEquals("12 rozen per set", set.get(1).note());
+        assertEquals("12 rozen per display", set.get(1).note());
 
         assertEquals("4,00 EUR", PdfPurchaseRenderer.rangeText(new BigDecimal("4.0000"), new BigDecimal("4.0000")),
                 "equal ends: one figure");
