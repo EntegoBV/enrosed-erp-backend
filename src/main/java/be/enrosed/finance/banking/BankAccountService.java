@@ -19,8 +19,9 @@ public class BankAccountService {
     @Inject OdooService odoo;
     @Inject ActivityLogService activity;
 
+    /** {@code countsInCash}: the account's balance starts the Kasprognose; true unless switched off (a savings account). */
     public record Account(String key,String label,String source,boolean archived,List<String> aliases,
-                          Long odooJournalId,boolean manualMovementsAllowed) {}
+                          Long odooJournalId,boolean manualMovementsAllowed,boolean countsInCash) {}
     public record Update(String label,String source,Long odooJournalId,List<String> aliases) {}
 
     /** Historical names remain intact; explicit aliases determine how they are grouped in the overview. */
@@ -103,6 +104,23 @@ public class BankAccountService {
         return get(row.key);
     }
 
+    /**
+     * Whether the account counts in the Kasprognose and the Kaslijn. Only the forecast start reads it: the account
+     * stays on Bank and in the register. Stored as {@code cash_excluded} (null counts) on the account's own row,
+     * created like archiving does; an alias is managed through its account.
+     */
+    @Transactional
+    public Account setCountsInCash(String rawKey,Boolean counts) {
+        if(counts==null)throw new BusinessRuleException("Kies of deze rekening meetelt");
+        var row=managed(rawKey);
+        Boolean excluded=counts?null:Boolean.TRUE;
+        if(!Objects.equals(row.cashExcluded,excluded)) {
+            row.cashExcluded=excluded;row.updatedAt=Instant.now();em.flush();
+            audit(row,counts?"Telt mee in de kasprognose":"Telt niet mee in de kasprognose");
+        }
+        return get(row.key);
+    }
+
     /** Also protects already imported accounts before anyone has configured display metadata. */
     public void requireManualMovements(String rawKey) {
         String key=requiredKey(rawKey);
@@ -178,7 +196,8 @@ public class BankAccountService {
         String source=odoo||row!=null&&"ODOO".equals(row.source)?"ODOO":"MANUAL";
         boolean archived=row!=null&&row.archived;
         var aliases=registry.values().stream().filter(value->key.equals(value.canonicalKey)).map(value->value.key).sorted().toList();
-        return new Account(key,row==null?key:row.label,source,archived,aliases,row==null?null:row.odooJournalId,!archived&&source.equals("MANUAL"));
+        return new Account(key,row==null?key:row.label,source,archived,aliases,row==null?null:row.odooJournalId,!archived&&source.equals("MANUAL"),
+                row==null||!Boolean.TRUE.equals(row.cashExcluded));
     }
     private static String requiredKey(String value) {
         String key=IncomingPaymentService.normalizeAccount(value);
