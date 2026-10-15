@@ -183,11 +183,11 @@ public class SourcingResource {
     @Path("/purchase-orders")
     public List<PurchaseOrderView> listPurchaseOrders() {
         Map<Long, be.enrosed.catalog.domain.Product> products = purchaseOrders.productsById();
-        Map<Long, List<be.enrosed.sourcing.domain.PurchaseInvoice>> invoicesByOrder = invoices == null ? Map.of()
-                : invoices.all().stream().collect(java.util.stream.Collectors.groupingBy(
-                        be.enrosed.sourcing.domain.PurchaseInvoice::orderId));
+        List<be.enrosed.sourcing.domain.PurchaseInvoice> allInvoices = invoices == null ? List.of() : invoices.all();
+        Map<Long, List<be.enrosed.sourcing.domain.PurchaseInvoice>> invoicesByOrder = allInvoices.stream()
+                .collect(java.util.stream.Collectors.groupingBy(be.enrosed.sourcing.domain.PurchaseInvoice::orderId));
         Map<Long, List<PurchaseDocument>> invoiceDocsByOrder = invoices == null ? Map.of()
-                : invoices.invoiceDocuments().stream().collect(java.util.stream.Collectors.groupingBy(
+                : invoices.invoiceDocuments(allInvoices).stream().collect(java.util.stream.Collectors.groupingBy(
                         PurchaseDocument::orderId));
         return purchaseOrders.list().stream()
                 .map(order -> view(order, purchaseOrders.calculate(order, products), List.of(),
@@ -620,6 +620,99 @@ public class SourcingResource {
     public Response deleteInvoice(@PathParam("id") long id, @PathParam("invoiceId") long invoiceId) {
         invoices.delete(id, invoiceId);
         return Response.noContent().build();
+    }
+
+    /**
+     * A new invoice with its file in one step (multipart): the fields of the
+     * JSON request as form fields, plus {@code file} and {@code assignAll}
+     * ("voor alle deelbetalingen"). The file goes to the container, never to
+     * a single payment.
+     */
+    @POST
+    @Path("/purchase-orders/{id}/invoices")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public Response addInvoiceWithFile(@PathParam("id") long id,
+                                       @org.jboss.resteasy.reactive.RestForm("file") org.jboss.resteasy.reactive.multipart.FileUpload file,
+                                       @org.jboss.resteasy.reactive.RestForm("payee") String payee,
+                                       @org.jboss.resteasy.reactive.RestForm("number") String number,
+                                       @org.jboss.resteasy.reactive.RestForm("invoiceDate") String invoiceDate,
+                                       @org.jboss.resteasy.reactive.RestForm("amount") String amount,
+                                       @org.jboss.resteasy.reactive.RestForm("currency") String currency,
+                                       @org.jboss.resteasy.reactive.RestForm("amountEur") String amountEur,
+                                       @org.jboss.resteasy.reactive.RestForm("notes") String notes,
+                                       @org.jboss.resteasy.reactive.RestForm("assignAll") String assignAll) throws java.io.IOException {
+        if (file == null) throw new BadRequestException("Geen bestand meegestuurd");
+        var request = new PurchaseInvoiceService.InvoiceRequest(formPayee(payee), number, formDay(invoiceDate),
+                formAmount(amount, "Geef een factuurbedrag groter dan nul op"), formCurrency(currency),
+                formAmount(amountEur, "Geef een eurobedrag groter dan nul op"), null, notes);
+        var created = invoices.addWithFile(id, request, file.fileName(), file.contentType(),
+                java.nio.file.Files.readAllBytes(file.uploadedFile()), Boolean.parseBoolean(blankToNull(assignAll)));
+        return Response.status(Response.Status.CREATED).entity(created).build();
+    }
+
+    /** The file of an invoice that has none yet (multipart {@code file}, optional {@code assignAll}). */
+    @POST
+    @Path("/purchase-orders/{id}/invoices/{invoiceId}/document")
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public PurchaseInvoiceService.PurchaseInvoiceView attachInvoiceFile(@PathParam("id") long id,
+                                       @PathParam("invoiceId") long invoiceId,
+                                       @org.jboss.resteasy.reactive.RestForm("file") org.jboss.resteasy.reactive.multipart.FileUpload file,
+                                       @org.jboss.resteasy.reactive.RestForm("assignAll") String assignAll) throws java.io.IOException {
+        if (file == null) throw new BadRequestException("Geen bestand meegestuurd");
+        return invoices.attachFile(id, invoiceId, file.fileName(), file.contentType(),
+                java.nio.file.Files.readAllBytes(file.uploadedFile()), Boolean.parseBoolean(blankToNull(assignAll)));
+    }
+
+    /** "Toewijzen aan alle betalingen": every payment of the invoice's payee names it; answers with every invoice. */
+    @POST
+    @Path("/purchase-orders/{id}/invoices/{invoiceId}/assign-all")
+    public List<PurchaseInvoiceService.PurchaseInvoiceView> assignInvoiceToAll(@PathParam("id") long id,
+                                                                              @PathParam("invoiceId") long invoiceId) {
+        return invoices.assignToAll(id, invoiceId);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    private static PurchasePayment.Payee formPayee(String value) {
+        String cleaned = blankToNull(value);
+        if (cleaned == null) return null;
+        try {
+            return PurchasePayment.Payee.valueOf(cleaned);
+        } catch (IllegalArgumentException unknown) {
+            throw new be.enrosed.shared.BusinessRuleException("Kies bij wie de factuur hoort");
+        }
+    }
+
+    private static java.time.LocalDate formDay(String value) {
+        String cleaned = blankToNull(value);
+        if (cleaned == null) return null;
+        try {
+            return java.time.LocalDate.parse(cleaned);
+        } catch (java.time.format.DateTimeParseException invalid) {
+            throw new be.enrosed.shared.BusinessRuleException("De factuurdatum moet JJJJ-MM-DD zijn");
+        }
+    }
+
+    private static java.math.BigDecimal formAmount(String value, String refusal) {
+        String cleaned = blankToNull(value);
+        if (cleaned == null) return null;
+        try {
+            return new java.math.BigDecimal(cleaned);
+        } catch (NumberFormatException invalid) {
+            throw new be.enrosed.shared.BusinessRuleException(refusal);
+        }
+    }
+
+    private static be.enrosed.shared.Currency formCurrency(String value) {
+        String cleaned = blankToNull(value);
+        if (cleaned == null) return null;
+        try {
+            return be.enrosed.shared.Currency.valueOf(cleaned);
+        } catch (IllegalArgumentException unknown) {
+            throw new be.enrosed.shared.BusinessRuleException("Kies EUR, USD of CNY");
+        }
     }
 
     public record FlagRequest(Boolean value) {}

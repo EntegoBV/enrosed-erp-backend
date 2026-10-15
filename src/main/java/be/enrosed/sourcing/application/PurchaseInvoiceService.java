@@ -95,8 +95,22 @@ public class PurchaseInvoiceService {
 
     /** Every document that can be an invoice file, on every container, in one read. */
     public List<PurchaseDocument> invoiceDocuments() {
-        return documents.ofKinds(List.of(PurchaseDocument.Kind.COMMERCIAL_INVOICE, PurchaseDocument.Kind.INVOICE,
-                PurchaseDocument.Kind.OTHER));
+        return invoiceDocuments(List.of());
+    }
+
+    /**
+     * As above, plus the files these invoices hold whatever their kind (an
+     * invoice may point at a document filed as another kind), so the list
+     * names every invoice's file as the single container does.
+     */
+    public List<PurchaseDocument> invoiceDocuments(List<PurchaseInvoice> invoicesOfAll) {
+        List<PurchaseDocument> found = new ArrayList<>(documents.ofKinds(List.of(PurchaseDocument.Kind.COMMERCIAL_INVOICE,
+                PurchaseDocument.Kind.INVOICE, PurchaseDocument.Kind.OTHER)));
+        Set<Long> have = found.stream().map(PurchaseDocument::id).filter(Objects::nonNull).collect(Collectors.toSet());
+        List<Long> missing = invoicesOfAll == null ? List.of() : invoicesOfAll.stream().map(PurchaseInvoice::documentId)
+                .filter(Objects::nonNull).filter(id -> !have.contains(id)).distinct().toList();
+        if (!missing.isEmpty()) found.addAll(documents.byIds(missing));
+        return found;
     }
 
     public List<PurchaseInvoiceView> list(long orderId) {
@@ -150,6 +164,104 @@ public class PurchaseInvoiceService {
                 .add("invoice.document", "Bestand", current.documentId(), saved.documentId())
                 .privateValue("invoice.notes", "Notitie", current.notes(), saved.notes()));
         return view(order, saved);
+    }
+
+    /**
+     * "Toewijzen aan alle betalingen": every payment of the invoice's payee
+     * names this invoice, each transfer of a payment in parts included, in
+     * one write. Column-only, like the pin of a second invoice: no diary line,
+     * no bank lock, so a payment already on the bank takes it too. Answers
+     * with every invoice of the container, as their payments moved.
+     */
+    @Transactional
+    public List<PurchaseInvoiceView> assignToAll(long orderId, long invoiceId) {
+        PurchaseOrder order = purchaseOrders.getForUpdate(orderId);
+        PurchaseInvoice invoice = invoices.find(orderId, invoiceId)
+                .orElseThrow(() -> new NotFoundException("Factuur", invoiceId));
+        assignAll(order, invoice);
+        return views(order, invoices.forOrder(orderId), payments.forOrder(orderId), documents.forOrder(orderId));
+    }
+
+    private void assignAll(PurchaseOrder order, PurchaseInvoice invoice) {
+        List<PurchaseInvoice> all = invoices.forOrder(order.id());
+        List<PurchasePayment> recorded = payments.forOrder(order.id());
+        List<Long> moved = recorded.stream()
+                .filter(payment -> (payment.payee() == null ? PurchasePayment.Payee.SUPPLIER : payment.payee()) == invoice.payee())
+                .filter(payment -> !invoice.id().equals(payment.invoiceId()))
+                .map(PurchasePayment::id).filter(Objects::nonNull).toList();
+        if (moved.isEmpty()) return;
+        boolean via = order.inspectionPaidViaSupplier();
+        long before = recorded.stream()
+                .filter(payment -> invoice.id().equals(InvoiceAssignment.resolve(payment, all, recorded, via))).count();
+        payments.setInvoice(moved, invoice.id());
+        List<PurchasePayment> after = payments.forOrder(order.id());
+        long now = after.stream()
+                .filter(payment -> invoice.id().equals(InvoiceAssignment.resolve(payment, all, after, via))).count();
+        record(order, "Factuur " + invoice.number() + " toegewezen aan alle betalingen van "
+                + invoice.payee().dutchLabel(), ActivityChangeSet.create()
+                .add("invoice.payments", "Betalingen bij factuur " + invoice.number(), before, now));
+    }
+
+    /**
+     * A new invoice with its file, in one step: the data is checked before
+     * the file is kept, the file goes to the container (never to a single
+     * payment) and the invoice holds it. With {@code assignAll} every payment
+     * of the payee names the invoice ("voor alle deelbetalingen").
+     */
+    @Transactional
+    public PurchaseInvoiceView addWithFile(long orderId, InvoiceRequest request, String filename, String contentType,
+                                           byte[] bytes, boolean assignAll) {
+        PurchaseOrder order = purchaseOrders.getForUpdate(orderId);
+        List<PurchaseInvoice> before = invoices.forOrder(orderId);
+        InvoiceRequest data = request == null ? null : new InvoiceRequest(request.payee(), request.number(),
+                request.invoiceDate(), request.amount(), request.currency(), request.amountEur(), null, request.notes());
+        checked(order, null, data, before, null);
+        if (before.size() >= MAX_INVOICES) {
+            throw new BusinessRuleException("Per container horen hoogstens twintig facturen");
+        }
+        PurchaseDocument file = purchaseOrders.addDocument(orderId, fileKind(data.payee()), null, null, filename,
+                contentType, bytes);
+        PurchaseInvoiceView added = add(orderId, new InvoiceRequest(data.payee(), data.number(), data.invoiceDate(),
+                data.amount(), data.currency(), data.amountEur(), file.id(), data.notes()));
+        if (assignAll) {
+            assignAll(order, invoices.find(orderId, added.id()).orElseThrow(() -> new NotFoundException("Factuur", added.id())));
+            return view(order, invoices.find(orderId, added.id()).orElseThrow());
+        }
+        return added;
+    }
+
+    /**
+     * The file of an invoice that has none yet, uploaded to the invoice: the
+     * file goes to the container (never to a single payment) and the invoice
+     * holds it. An invoice that already holds a file keeps it: remove that
+     * one first. With {@code assignAll} every payment of the payee names the
+     * invoice.
+     */
+    @Transactional
+    public PurchaseInvoiceView attachFile(long orderId, long invoiceId, String filename, String contentType,
+                                          byte[] bytes, boolean assignAll) {
+        PurchaseOrder order = purchaseOrders.getForUpdate(orderId);
+        PurchaseInvoice current = invoices.find(orderId, invoiceId)
+                .orElseThrow(() -> new NotFoundException("Factuur", invoiceId));
+        if (current.documentId() != null) {
+            String held = documents.find(orderId, current.documentId()).map(PurchaseDocument::originalFilename).orElse(null);
+            throw new BusinessRuleException("Bij factuur " + current.number() + " hoort al een bestand"
+                    + (held == null ? "" : " (" + held + ")") + "; verwijder dat eerst");
+        }
+        PurchaseDocument file = purchaseOrders.addDocument(orderId, fileKind(current.payee()), null, null, filename,
+                contentType, bytes);
+        PurchaseInvoice saved = invoices.save(new PurchaseInvoice(current.id(), current.orderId(), current.payee(),
+                current.number(), current.invoiceDate(), current.amount(), current.currency(), current.amountEur(),
+                file.id(), current.notes(), current.actor(), current.recordedAt()));
+        record(order, "Bestand bij factuur " + saved.number() + " toegevoegd", ActivityChangeSet.create()
+                .privateValue("invoice.document", "Bestand", null, file.originalFilename()));
+        if (assignAll) assignAll(order, saved);
+        return view(order, saved);
+    }
+
+    /** The kind an invoice file is kept as: the supplier's commercial invoice, or an invoice of another payee. */
+    static PurchaseDocument.Kind fileKind(PurchasePayment.Payee payee) {
+        return payee == PurchasePayment.Payee.SUPPLIER ? PurchaseDocument.Kind.COMMERCIAL_INVOICE : PurchaseDocument.Kind.INVOICE;
     }
 
     /** The invoice goes; its payments go back to automatic, its file stays with the container. */

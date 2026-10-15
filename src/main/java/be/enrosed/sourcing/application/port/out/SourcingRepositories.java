@@ -78,6 +78,10 @@ public interface SourcingRepositories {
                 java.util.Collection<be.enrosed.sourcing.domain.PurchaseDocument.Kind> kinds) {
             return List.of();
         }
+        /** These documents, whatever their order or kind, in one read; unknown ids are absent. */
+        default List<be.enrosed.sourcing.domain.PurchaseDocument> byIds(java.util.Collection<Long> ids) {
+            return List.of();
+        }
         default long deleteForOrder(long orderId) {
             long deleted = 0;
             for (be.enrosed.sourcing.domain.PurchaseDocument document : List.copyOf(forOrder(orderId))) {

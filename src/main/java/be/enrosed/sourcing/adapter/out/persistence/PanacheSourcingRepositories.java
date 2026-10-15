@@ -265,6 +265,13 @@ public final class PanacheSourcingRepositories {
                     .map(DocumentAdapter::toDomain).toList();
         }
 
+        @Override
+        public List<be.enrosed.sourcing.domain.PurchaseDocument> byIds(java.util.Collection<Long> ids) {
+            if (ids == null || ids.isEmpty()) return List.of();
+            return dao.list("id in ?1 order by orderId, addedAt, id", List.copyOf(ids)).stream()
+                    .map(DocumentAdapter::toDomain).toList();
+        }
+
         private static be.enrosed.sourcing.domain.PurchaseDocument toDomain(SourcingEntities.PurchaseDocumentEntity e) {
             return new be.enrosed.sourcing.domain.PurchaseDocument(e.id, e.orderId, e.kind, e.label, e.originalFilename,
                     e.contentType, e.sizeBytes, e.storageKey, e.paymentId, e.actor, e.addedAt);
