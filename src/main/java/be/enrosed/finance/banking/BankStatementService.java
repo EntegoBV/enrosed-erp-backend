@@ -196,10 +196,11 @@ public class BankStatementService {
             cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
             if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
             var candidates=costPayments(cost.id);
+            // Following needs exactly one payment to follow; the follow refusal names that before the plain link's.
+            if(follow&&candidates.size()!=1)throw followPerCostPayment();
             if(candidates.size()>1)throw new BusinessRuleException("Kies de betaling die deze banktransactie dekt");
             if(candidates.size()==1)costPayment=em.find(CostPaymentEntity.class,candidates.getFirst().id,LockModeType.PESSIMISTIC_WRITE);
             else {
-                if(follow)throw followPerCostPayment();
                 if(cost.paidOn==null)throw new BusinessRuleException("Noteer eerst de betaling op deze kost");
                 if(cost.bankStatementLineId!=null&&!cost.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze kost is al aan een andere banktransactie gekoppeld");
                 total=total.add(cost.toDomain().totalInclEur());

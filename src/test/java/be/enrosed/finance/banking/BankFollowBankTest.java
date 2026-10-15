@@ -104,6 +104,14 @@ class BankFollowBankTest {
         long paid = cost("100.00");
         long payment = pay(paid, "100.00", OCT_13);
         refused(() -> bank.linkExisting(line, new BankStatementService.OutgoingLinks(List.of(purchase.id()), null, payment, true, null)), message);
+
+        /* A cost named alone with several payments: the follow refusal, not the plain link's "Kies de betaling". */
+        long split = cost("100.00");
+        pay(split, "60.00", OCT_13);
+        pay(split, "40.00", OCT_13);
+        refused(() -> bank.linkExisting(line, new BankStatementService.OutgoingLinks(null, split, null, true, null)), message);
+        refused(() -> bank.linkExisting(line, new BankStatementService.OutgoingLinks(null, split, null, false, null)),
+                "Kies de betaling die deze banktransactie dekt");
     }
 
     @Test @TestTransaction
