@@ -12,7 +12,10 @@ kaart "Hoe verkoop je dit product?" bij Verkoopprijs.
   circa €4,16 per roos. De omdoos bevat 4 displays, dus 48 rozen.
 
 De catalogus presenteert de stukprijs met daaronder de displayprijs en de
-inhoud van het display. Een afgeronde terugrekening krijgt een benaderingsteken.
+inhoud van het display ("Display (12 st.): € 35,40"; tot 2026-10-15 "Set").
+Een opgeslagen "Set"-standaardtekst gaat bij het opstarten mee naar "Display";
+een eigen tekst uit het dashboard blijft staan. Een afgeronde terugrekening
+krijgt een benaderingsteken.
 Offertes en facturen, het portaal en de website tonen eerst de displayprijs; het
 ERP toont eerst de opgeslagen prijs met de displayprijs eronder. Het woord onder
 een prijs zegt altijd waarvoor die prijs geldt ("per diamant", "per display").

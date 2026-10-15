@@ -131,7 +131,6 @@ public class PublicContentSeedLoader {
     private static final Map<String, List<String>> LEGACY_CATALOG_SELECTION_COPY = legacyCatalogSelectionCopy();
 
     private static Map<String, List<String>> legacyCatalogSelectionCopy() {
-        Map<String, List<String>> result = new HashMap<>();
         String[][] rows = {
             {"catalog.common.variant.singular", "GESELECTEERDE VARIANT", "VARIANTE SÉLECTIONNÉE",
                 "SELECTED VARIANT", "AUSGEWÄHLTE VARIANTE", "VARIANTE SELECCIONADA", "WYBRANY WARIANT",
@@ -148,8 +147,34 @@ public class PublicContentSeedLoader {
                 "familias de productos seleccionadas", "wybrane rodziny produktów",
                 "famílias de produtos selecionadas", "seçilen ürün aileleri"},
         };
-        Language[] order = {Language.NL, Language.FR, Language.EN, Language.DE, Language.ES,
-            Language.PL, Language.PT, Language.TR};
+        return formerValuesPerLanguage(rows, Language.NL, Language.FR, Language.EN, Language.DE,
+                Language.ES, Language.PL, Language.PT, Language.TR);
+    }
+
+    /**
+     * Exact former seed values of the display price labels. They said "Set (12 st.)"
+     * until Emre chose "display" everywhere (2026-10-15); a dashboard edit stays.
+     */
+    private static final Map<String, List<String>> LEGACY_CATALOG_SET_PRICE_COPY = legacyCatalogSetPriceCopy();
+
+    private static Map<String, List<String>> legacyCatalogSetPriceCopy() {
+        String[][] rows = {
+            {"catalog.price.displaytotal", "Set ({pieces} st.): {price}", "Set ({pieces} pcs) : {price}",
+                "Set ({pieces} pcs): {price}", "Set ({pieces} Stk.): {price}", "Set ({pieces} uds.): {price}",
+                "Zestaw ({pieces} szt.): {price}", "Conjunto ({pieces} un.): {price}",
+                "Set ({pieces} adet): {price}", "Σετ ({pieces} τεμ.): {price}"},
+            {"catalog.price.settotalunits", "Set ({units}): {price}", "Set ({units}) : {price}",
+                "Set ({units}): {price}", "Set ({units}): {price}", "Set ({units}): {price}",
+                "Zestaw ({units}): {price}", "Conjunto ({units}): {price}", "Set ({units}): {price}",
+                "Σετ ({units}): {price}"},
+        };
+        return formerValuesPerLanguage(rows, Language.NL, Language.FR, Language.EN, Language.DE,
+                Language.ES, Language.PL, Language.PT, Language.TR, Language.EL);
+    }
+
+    /** Rows of {key, value per language in the given order}, keyed "key:language". */
+    private static Map<String, List<String>> formerValuesPerLanguage(String[][] rows, Language... order) {
+        Map<String, List<String>> result = new HashMap<>();
         for (String[] row : rows) {
             for (int index = 0; index < order.length; index++) {
                 result.put(row[0] + ":" + order[index].code(), List.of(row[index + 1]));
@@ -495,9 +520,12 @@ public class PublicContentSeedLoader {
             ContentScope scope, String key, Language language, String current) {
         if (scope == ContentScope.CATALOG) {
             /* Customer-facing counters used to leak the selection workflow
-               ("selected variant"); the wording became plain product language. */
-            List<String> previous = LEGACY_CATALOG_SELECTION_COPY.get(key + ":" + language.code());
-            return previous != null && previous.contains(current);
+               ("selected variant"); the wording became plain product language.
+               The display price labels said "Set"; they say "Display" now. */
+            String id = key + ":" + language.code();
+            List<String> previous = LEGACY_CATALOG_SELECTION_COPY.getOrDefault(id,
+                    LEGACY_CATALOG_SET_PRICE_COPY.get(id));
+            return current != null && previous != null && previous.contains(current);
         }
         if (scope == ContentScope.WEBSITE) {
             /* Compare-and-swap for planned copy updates: only a stored value that is

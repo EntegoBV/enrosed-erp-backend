@@ -625,7 +625,7 @@ rekenmotor die uit de pas kan lopen met de eerste.
 
 Origin en destination staan bewust apart: alles vóór de grens wordt mee belast, alles erna
 niet. `LandedCostCalculatorTest` legt dat vast tegen de Excel — **€ 44.749,38 totaal en
-€ 22,7385 per display** — plus twee tests die bewijzen dat origin wél en destination níét in
+€ 22,7385 per stuk** — plus twee tests die bewijzen dat origin wél en destination níét in
 de douanewaarde telt. Wijkt die test af, dan is de motor stuk, niet de test.
 
 ### Verkoop

@@ -270,6 +270,32 @@ class ContentTranslationContractTest {
 
     @Test
     @TestTransaction
+    void catalogueDisplayPriceMovesFromTheFormerSetSeedAndKeepsDashboardEdits() {
+        ContentTranslationEntity total = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.CATALOG, "catalog.price.displaytotal").firstResult();
+        ContentTranslationEntity units = rows.find(
+                "scope = ?1 and key = ?2", ContentScope.CATALOG, "catalog.price.settotalunits").firstResult();
+        ContentTranslationTextEntity totalDutch = translation(total, Language.NL);
+        ContentTranslationTextEntity totalGreek = translation(total, Language.EL);
+        ContentTranslationTextEntity totalFrench = translation(total, Language.FR);
+        ContentTranslationTextEntity unitsPolish = translation(units, Language.PL);
+        totalDutch.value = "Set ({pieces} st.): {price}";
+        totalGreek.value = "Σετ ({pieces} τεμ.): {price}";
+        totalFrench.value = "Lot de {pieces} pcs : {price}";
+        unitsPolish.value = "Zestaw ({units}): {price}";
+        entityManager.flush();
+
+        seeds.onStart(null);
+
+        assertEquals("Display ({pieces} st.): {price}", totalDutch.value, "the exact former set seed must migrate");
+        assertEquals("Σταντ ({pieces} τεμ.): {price}", totalGreek.value, "Greek has its own former seed");
+        assertEquals("Ekspozytor ({units}): {price}", unitsPolish.value);
+        assertEquals("Lot de {pieces} pcs : {price}", totalFrench.value,
+                "dashboard-authored values must never be overwritten");
+    }
+
+    @Test
+    @TestTransaction
     void legalSeedMigratesOnlyExactFormerDatesHeadingsAndLimburgClause() {
         ContentTranslationEntity shippingDate = rows.find(
                 "scope = ?1 and key = ?2", ContentScope.WEBSITE,
