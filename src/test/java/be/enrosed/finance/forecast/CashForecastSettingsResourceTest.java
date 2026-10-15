@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static io.restassured.RestAssured.given;
@@ -54,6 +55,23 @@ class CashForecastSettingsResourceTest {
     }
 
     @Test @TestTransaction
+    void aMissingProfileRowIsCreatedWithTheSeededIdentity() {
+        var row = em.find(CompanyProfileEntity.class, 1L);
+        if (row != null) {
+            em.remove(row);
+            em.flush();
+        }
+        var seeded = company.get();
+        settings.save(new CashForecastSettingsService.Request(new BigDecimal("9000")));
+        em.flush(); em.clear();
+        var stored = company.get();
+        assertEquals(List.of(seeded.name(), seeded.vatNumber(), seeded.addressLine(), seeded.city(), seeded.quotePrefix()),
+                List.of(stored.name(), stored.vatNumber(), stored.addressLine(), stored.city(), stored.quotePrefix()),
+                "storing the buffer never blanks the company's identity");
+        assertEquals(new BigDecimal("9000.00"), settings.get().cashBufferEur());
+    }
+
+    @Test @TestTransaction
     void theCompanyProfileSaveKeepsTheBuffer() {
         settings.save(new CashForecastSettingsService.Request(new BigDecimal("7500")));
         company.save(company.get());
@@ -63,6 +81,7 @@ class CashForecastSettingsResourceTest {
 
     @Test @TestSecurity(user = "emre", roles = "admin")
     void theEndpointAnswersTheSettingsShape() {
+        boolean existed = QuarkusTransaction.requiringNew().call(() -> em.find(CompanyProfileEntity.class, 1L) != null);
         BigDecimal before = QuarkusTransaction.requiringNew().call(() -> {
             var row = em.find(CompanyProfileEntity.class, 1L);
             return row == null ? null : row.cashBufferEur;
@@ -81,7 +100,8 @@ class CashForecastSettingsResourceTest {
         } finally {
             QuarkusTransaction.requiringNew().run(() -> {
                 var row = em.find(CompanyProfileEntity.class, 1L);
-                if (row != null) row.cashBufferEur = before;
+                if (row != null && !existed) em.remove(row);
+                else if (row != null) row.cashBufferEur = before;
             });
         }
     }

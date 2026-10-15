@@ -2,6 +2,7 @@ package be.enrosed.finance.forecast;
 
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.company.CompanyProfileEntity;
+import be.enrosed.shared.company.CompanyProfileService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -22,6 +23,7 @@ public class CashForecastSettingsService {
     private static final BigDecimal MAX_BUFFER_EUR = new BigDecimal("10000000");
 
     @Inject EntityManager em;
+    @Inject CompanyProfileService company;
 
     public record Settings(BigDecimal cashBufferEur, boolean cashBufferStored) {}
     public record Request(BigDecimal cashBufferEur) {}
@@ -46,10 +48,9 @@ public class CashForecastSettingsService {
         }
         CompanyProfileEntity profile = em.find(CompanyProfileEntity.class, 1L, LockModeType.PESSIMISTIC_WRITE);
         if (profile == null) {
-            /* The one profile row, created the way the profile's own save creates it. */
-            profile = new CompanyProfileEntity();
-            profile.id = 1L;
-            em.persist(profile);
+            /* The one profile row, created by the profile's own save with the seeded identity it shows while missing. */
+            company.save(company.get());
+            profile = em.find(CompanyProfileEntity.class, 1L, LockModeType.PESSIMISTIC_WRITE);
         }
         profile.cashBufferEur = value;
         em.flush();
