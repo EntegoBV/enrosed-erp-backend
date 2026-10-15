@@ -158,16 +158,20 @@ class PdfPurchasePaymentsRendererTest {
                 PurchasePayment.Payee.SUPPLIER, settles, due);
     }
 
-    /** Spec §5.4: a set is priced per set with the piece price under it; a mixed container averages per piece. */
+    /**
+     * Spec §5.4: a set is priced per set with the piece price under it.
+     * Round 2 (R2-4): a container of different products shows no average.
+     */
     @Test
-    void setsArePricedPerSetAndPerStukAndAMixedContainerAveragesPerPiece() throws Exception {
+    void setsArePricedPerSetAndPerStukAndDifferentProductsGetNoAverage() throws Exception {
         var order = instalmentOrder();
         var roses = setLine(1L, "Long stem rose box display", 100, "3120.00", "3360.00");
         var display = report(List.of(roses), "DISPLAY", 12, 1200);
         String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), display, List.of());
         for (String required : List.of("verdeeld over 100 bestelde sets (1.200 stuks)", ">Aantal<", ">Extern / eenheid<",
-                ">Met opslag / eenheid<", ">100 sets<", "€ 31,2000 /set<br/>€ 2,6000 /stuk",
-                "€ 33,6000 /set<br/>€ 2,8000 /stuk", "Bij sets staat de prijs per set en per stuk.")) {
+                ">Incl. Enrosed kost / eenheid<", ">100 sets<", "€ 31,2000 /set<br/>€ 2,6000 /stuk",
+                "€ 33,6000 /set<br/>€ 2,8000 /stuk", "Bij sets staat de prijs per set en per stuk.",
+                "Totaal / gemiddeld", "€ 31,2000 /set</td>")) {
             assertTrue(html.contains(required), required + " missing from " + html);
         }
         assertFalse(html.contains(">Extern / stuk<"), html);
@@ -177,18 +181,78 @@ class PdfPurchasePaymentsRendererTest {
         }
 
         var bowl = pieceLine(2L, "Rozenschaal", 200, "1000.00");
-        var mixed = report(List.of(roses, bowl), "MIXED", 12, 1400);
+        var mixed = withAverage(report(List.of(roses, bowl), "MIXED", 12, 1400), 2, false);
         String mixedHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), mixed, List.of());
-        for (String required : List.of("verdeeld over 1.400 bestelde stuks (sets als 12 rozen geteld)", "€ 5,0000 /stuk",
-                "€ 2,9429 /stuk (gem.)", ">1.400 stuks<", ">200<")) {
+        for (String required : List.of("verdeeld over 2 producten (1.400 bestelde stuks, sets als 12 rozen geteld)",
+                "De kost per stuk of per set staat per product.", "€ 5,0000 /stuk", ">1.400 stuks<", ">200<",
+                "<td>Totaal</td>", ">per product<")) {
             assertTrue(mixedHtml.contains(required), required + " missing from " + mixedHtml);
         }
+        assertFalse(mixedHtml.contains("(gem.)"), "no average over a set and a bowl: " + mixedHtml);
+        assertFalse(mixedHtml.contains("2,9429"), mixedHtml);
+        assertFalse(mixedHtml.contains("Totaal / gemiddeld"), mixedHtml);
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/mixed-sets.pdf"),
+                renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), mixed, List.of()).content());
 
         var pieces = report(List.of(bowl), "PIECE", null, 200);
         String piecesHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), pieces, List.of());
-        assertTrue(piecesHtml.contains(">Stuks<") && piecesHtml.contains(">Extern / stuk<"), piecesHtml);
+        assertTrue(piecesHtml.contains(">Stuks<") && piecesHtml.contains(">Extern / stuk<")
+                && piecesHtml.contains(">Incl. Enrosed kost / stuk<"), piecesHtml);
         assertTrue(piecesHtml.contains("verdeeld over 200 bestelde stuks"), piecesHtml);
         assertFalse(piecesHtml.contains("Bij sets"), piecesHtml);
+    }
+
+    /**
+     * Round 2 (R2-5): every product shows the part of the Enrosed kost it
+     * carries, next to its external cost per stuk and its cost per stuk
+     * including the Enrosed kost; the bottom line keeps the total.
+     */
+    @Test
+    void everyProductShowsItsShareOfTheEnrosedKost() throws Exception {
+        var order = instalmentOrder();
+        var vase = pricedLine(1L, "Vaas", 100, "1000.00", "1120.00");
+        var bowl = pricedLine(2L, "Rozenschaal", 200, "1000.00", "1080.00");
+        var report = withAverage(report(List.of(vase, bowl), "PIECE", null, 300), 2, false);
+
+        String html = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), report, List.of());
+
+        assertTrue(html.contains(">Extern / stuk</th><th style=\"width:12.5%\" class=\"num\">Enrosed kost</th>"
+                + "<th style=\"width:12.5%\" class=\"num\">Incl. Enrosed kost / stuk<"), html);
+        for (String required : List.of("<td>Vaas</td><td class=\"num nowrap\">100</td>", "€ 10,0000</td><td class=\"num\">€ 120,00</td><td class=\"num\">€ 11,2000</td>",
+                "€ 5,0000</td><td class=\"num\">€ 80,00</td><td class=\"num\">€ 5,4000</td>",
+                ">per product</td><td class=\"num\">€ 200,00</td><td class=\"num muted small\">per product<",
+                "verdeeld over 2 producten (300 bestelde stuks)", "Totaal incl. Enrosed kost", "€ 2.200,00")) {
+            assertTrue(html.contains(required), required + " missing from " + html);
+        }
+        assertFalse(html.contains("6,6667") || html.contains("7,3333"), "no container average over a vase and a bowl: " + html);
+        var document = renderer.render(order, PdfPurchaseRendererRenderTest.supplier(), report, List.of());
+        Files.createDirectories(Path.of("target/payment-pdf-qa"));
+        Files.write(Path.of("target/payment-pdf-qa/enrosed-kost-per-product.pdf"), document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf);
+            assertTrue(text.contains("120,00") && text.contains("80,00") && text.contains("200,00"), text);
+        }
+
+        var one = report(List.of(vase), "PIECE", null, 100);
+        String oneHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), one, List.of());
+        assertTrue(oneHtml.contains("Totaal / gemiddeld"), oneHtml);
+        assertTrue(oneHtml.contains("€ 10,0000</td><td class=\"num\">€ 120,00</td><td class=\"num\">€ 11,2000</td></tr></tbody>"), oneHtml);
+    }
+
+    private static PurchaseReconciliation.Line pricedLine(Long id, String name, int quantity, String forecast, String pricing) {
+        BigDecimal external = new BigDecimal(forecast);
+        BigDecimal priced = new BigDecimal(pricing);
+        return new PurchaseReconciliation.Line(id, name, quantity, 0, 0, 0, quantity, PurchaseReconciliation.UnitCostBasis.ORDERED,
+                external, BigDecimal.ZERO, external, external, BigDecimal.ZERO, priced.subtract(external), priced,
+                external.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP),
+                priced.divide(BigDecimal.valueOf(quantity), 4, java.math.RoundingMode.HALF_UP), "Naar goederenwaarde.",
+                BigDecimal.ZERO);
+    }
+
+    private static PurchaseReconciliation withAverage(PurchaseReconciliation report, int products, boolean average) {
+        return new PurchaseReconciliation(report.streams(), report.totals().withAverage(products, average), report.lines(),
+                report.notes());
     }
 
     private static PurchaseReconciliation.Line setLine(Long id, String name, int quantity, String forecast, String pricing) {
@@ -275,7 +339,7 @@ class PdfPurchasePaymentsRendererTest {
             assertTrue(text.contains("Voorlopig"), text);
             assertTrue(text.contains("23.942,73"), text);
             assertTrue(text.contains("Inklaring & transport <origineel>"), text);
-            assertTrue(text.contains("Met opslag"), text);
+            assertTrue(text.replaceAll("\\s+", " ").contains("Incl. Enrosed kost / stuk"), text);
             assertTrue(text.contains("Slotbetaling"), text);
             assertTrue(text.contains("preserved") || text.contains("Preserved"), text);
             assertTrue(pdf.getPage(0).getMediaBox().getWidth() < pdf.getPage(0).getMediaBox().getHeight());

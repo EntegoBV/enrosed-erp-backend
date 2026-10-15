@@ -24,7 +24,9 @@ import java.util.Objects;
  * set. Those keep their meaning (sales and partner settlements multiply them
  * with sales quantities); the piece view is added: the line forecast over
  * its pieces, never a rounded set figure divided again. The container
- * average per piece counts every set with its pieces.
+ * average per piece counts every set with its pieces; it is shown only when
+ * it means something (one product, or one family sold alike): different
+ * products are read per product.
  */
 public final class ReconciliationUnits {
 
@@ -33,7 +35,12 @@ public final class ReconciliationUnits {
     public static final String MIXED = "MIXED";
 
     static final String SET_NOTE = "Bij sets is de kostprijs per set; per stuk = per set gedeeld door het aantal stuks in de set (bijv. 12 rozen).";
-    static final String MIXED_NOTE = "Het containergemiddelde is per stuk: sets tellen met hun aantal stuks.";
+
+    /** A container of different products has no meaningful average per stuk or per set. */
+    static String perProductNote(int products) {
+        return "Deze container heeft " + products + " verschillende producten: de kost per stuk of per set staat per product, "
+                + "zonder gemiddelde over de hele container.";
+    }
 
     private ReconciliationUnits() {}
 
@@ -51,14 +58,33 @@ public final class ReconciliationUnits {
         String sharedOther = null;
         boolean sizesAgree = true;
         boolean keysAgree = true;
+        /* One average over the container only for like products: one product, or one family sold alike. */
+        java.util.Set<Object> distinctProducts = new java.util.HashSet<>();
+        boolean alike = true;
+        Product first = null;
+        String firstUnit = null;
+        int firstPieces = 0;
+        String firstKey = null;
+        int index = 0;
         for (PurchaseReconciliation.Line line : report.lines()) {
             Product product = line.productId() == null ? null : products.get(line.productId());
+            distinctProducts.add(line.productId() == null ? "line-" + index : line.productId());
             Packaging packaging = product == null ? null : product.packaging();
             boolean set = packaging != null && packaging.soldAsDisplay();
             int pieces = set ? packaging.unitPieces() : 1;
             String key = packaging == null ? UnitNames.DEFAULT : packaging.unitKey();
             String one = packaging == null ? "stuk" : UnitNames.one(key, Language.NL);
             String other = packaging == null ? "stuks" : UnitNames.other(key, Language.NL);
+            if (index == 0) {
+                first = product;
+                firstUnit = set ? DISPLAY : PIECE;
+                firstPieces = pieces;
+                firstKey = key;
+            } else {
+                alike &= product != null && sameFamily(first, product) && firstUnit.equals(set ? DISPLAY : PIECE)
+                        && firstPieces == pieces && Objects.equals(firstKey, key);
+            }
+            index++;
             int pieceQuantity = line.unitCostQuantity() * pieces;
             BigDecimal linePricing = Money.nz(line.forecastPricingEur());
             lines.add(line.withPieces(set ? DISPLAY : PIECE, pieces, key, one, other, pieceQuantity,
@@ -88,11 +114,21 @@ public final class ReconciliationUnits {
                     perPiece(totals.forecastExternalEur(), unitCostPieces),
                     perPiece(totals.forecastPricingEur(), unitCostPieces));
         }
+        boolean average = distinctProducts.size() <= 1 || alike;
+        if (totals != null) totals = totals.withAverage(distinctProducts.size(), average);
         List<String> notes = new ArrayList<>(report.notes() == null ? List.of() : report.notes());
         if (anySet) notes.add(SET_NOTE);
-        if (MIXED.equals(basis)) notes.add(MIXED_NOTE);
+        if (!average) notes.add(perProductNote(distinctProducts.size()));
         return new PurchaseReconciliation(report.streams(), totals, List.copyOf(lines), List.copyOf(notes),
                 report.supplierInstalments());
+    }
+
+    /** Two products of one family: the same family entity, or the same family key when neither has one. */
+    static boolean sameFamily(Product left, Product right) {
+        if (left == null || right == null) return false;
+        if (Objects.equals(left.id(), right.id()) && left.id() != null) return true;
+        if (left.familyId() != null || right.familyId() != null) return Objects.equals(left.familyId(), right.familyId());
+        return left.familyKey() != null && !left.familyKey().isBlank() && left.familyKey().equals(right.familyKey());
     }
 
     private static BigDecimal perPiece(BigDecimal amount, int pieces) {

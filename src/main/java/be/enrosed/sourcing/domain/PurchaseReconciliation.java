@@ -140,8 +140,37 @@ public record PurchaseReconciliation(
             int unitCostPieceQuantity,
             /** The container average per piece; null when there are no pieces. */
             BigDecimal forecastExternalPieceEur,
-            BigDecimal forecastPricingPieceEur
+            BigDecimal forecastPricingPieceEur,
+            /** The different products on the container (lines of one product count once). */
+            int productCount,
+            /**
+             * Whether a container-wide figure per stuk or per set means
+             * anything: one product, or every line of the same product
+             * family, sales unit, set size and piece name. Otherwise the
+             * screens and the PDF show the cost per product and never an
+             * average over different products.
+             */
+            boolean containerAverage
     ) {
+        /** Compatibility for callers written before the container average was limited to like products. */
+        public Totals(BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
+                      BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
+                      BigDecimal plannedPricingEur, BigDecimal forecastPricingEur, boolean finalized,
+                      int orderedQuantity, int receivedQuantity, int damagedQuantity, int usableQuantity,
+                      int unitCostQuantity, UnitCostBasis unitCostBasis, BigDecimal forecastExternalUnitEur,
+                      BigDecimal forecastPricingUnitEur, boolean receiptRecorded, BigDecimal legacyPaidTotalEur,
+                      BigDecimal supplierCreditEur, BigDecimal supplierCreditOpenEur, String setBasis,
+                      Integer setPieces, String setUnitOther, int orderedPieceQuantity, int usablePieceQuantity,
+                      int unitCostPieceQuantity, BigDecimal forecastExternalPieceEur,
+                      BigDecimal forecastPricingPieceEur) {
+            this(plannedExternalEur, paidEur, remainingEur, forecastExternalEur, varianceEur, internalMarkupEur,
+                    plannedPricingEur, forecastPricingEur, finalized, orderedQuantity, receivedQuantity,
+                    damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis, forecastExternalUnitEur,
+                    forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur, supplierCreditEur, supplierCreditOpenEur,
+                    setBasis, setPieces, setUnitOther, orderedPieceQuantity, usablePieceQuantity, unitCostPieceQuantity,
+                    forecastExternalPieceEur, forecastPricingPieceEur, 0, true);
+        }
+
         /**
          * Compatibility for callers written before sets were counted in
          * pieces: every sales unit is one piece.
@@ -183,7 +212,18 @@ public record PurchaseReconciliation(
                     receivedQuantity, damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis,
                     forecastExternalUnitEur, forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur,
                     supplierCreditEur, supplierCreditOpenEur, basis, pieces, unitOther, orderedPieces, usablePieces,
-                    unitCostPieces, externalPieceEur, pricingPieceEur);
+                    unitCostPieces, externalPieceEur, pricingPieceEur, productCount, containerAverage);
+        }
+
+        /** The same totals saying how many products they hold and whether an average over them means anything. */
+        public Totals withAverage(int products, boolean average) {
+            return new Totals(plannedExternalEur, paidEur, remainingEur, forecastExternalEur, varianceEur,
+                    internalMarkupEur, plannedPricingEur, forecastPricingEur, finalized, orderedQuantity,
+                    receivedQuantity, damagedQuantity, usableQuantity, unitCostQuantity, unitCostBasis,
+                    forecastExternalUnitEur, forecastPricingUnitEur, receiptRecorded, legacyPaidTotalEur,
+                    supplierCreditEur, supplierCreditOpenEur, setBasis, setPieces, setUnitOther, orderedPieceQuantity,
+                    usablePieceQuantity, unitCostPieceQuantity, forecastExternalPieceEur, forecastPricingPieceEur,
+                    products, average);
         }
     }
 

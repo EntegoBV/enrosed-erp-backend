@@ -83,6 +83,9 @@ public class PdfPurchasePaymentsRenderer {
                 .totals td { padding: 6pt; border-bottom: 0.5pt solid #dce4de; }
                 .totals td:last-child { text-align: right; font-weight: 700; }
                 .nowrap { white-space: nowrap; }
+                table.products { font-size: 7.5pt; }
+                .products th, .products td { padding-left: 4pt; padding-right: 4pt; }
+                .products td.num { white-space: nowrap; }
                 .small { font-size: 7pt; }
                 """);
         html.append("</style></head><body>");
@@ -134,22 +137,32 @@ public class PdfPurchasePaymentsRenderer {
         }
         html.append("<div class=\"note\"><p><b>Positief verschil = duurder; negatief verschil = goedkoper.</b></p>")
                 .append("<p>Een gedeeltelijke betaling verlaagt de eindkost niet: het open bedrag blijft meegerekend. Wat op de ene termijn te veel is betaald, wordt verrekend met wat op een andere termijn te weinig is betaald; alleen het saldo blijft open. Een slotbetaling voor een termijn sluit alleen die termijn af en houdt hem buiten die verrekening; latere termijnen blijven open. Alleen een slotbetaling voor de hele groep sluit de volledige groep af. Een overbetaling zonder afrekening blijft voorlopig.</p>")
-                .append("<p>Interne Enrosed-opslag is geen uitgaande betaling en staat apart van de externe kost.</p></div>");
+                .append("<p>Enrosed kost is een interne kost, geen uitgaande betaling, en staat apart van de externe kost.</p></div>");
 
         boolean sets = report.lines().stream().anyMatch(PdfPurchasePaymentsRenderer::isSet);
         String setBasis = total.setBasis() == null ? "PIECE" : total.setBasis();
+        /* An average over different products says nothing: then every figure per stuk or per set is per product. */
+        boolean average = total.containerAverage();
         html.append("<div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
                 .append(" / Kostprijs</div><h2>De kost per product</h2><p class=\"muted\">")
-                .append(basis).append(" verdeeld over ").append(quantityText(total, quantityBasis, sets, setBasis))
-                .append(". Alle externe kosten zijn inbegrepen, ook inspectie en extra betalingen.</p>");
+                .append(basis).append(" verdeeld over ").append(average
+                        ? quantityText(total, quantityBasis, sets, setBasis)
+                        : productsText(total, quantityBasis, sets, setBasis))
+                .append(". Alle externe kosten zijn inbegrepen, ook inspectie en extra betalingen.")
+                .append(average ? "" : " De kost per stuk of per set staat per product.")
+                .append(" De kolom Enrosed kost toont welk deel van de Enrosed kost op elk product is verdeeld.</p>");
         if (total.receiptRecorded()) html.append("<p>Besteld: ").append(total.orderedQuantity()).append(" · Ontvangen: ")
                 .append(total.receivedQuantity()).append(" · Beschadigd: ").append(total.damagedQuantity())
                 .append(" · Bruikbaar: ").append(total.usableQuantity()).append("</p>");
-        html.append("<table class=\"data\"><thead><tr><th style=\"width:24%\">Product</th><th style=\"width:9%\" class=\"num\">")
+        String per = sets ? "eenheid" : "stuk";
+        /* Eight columns on A4: every amount keeps to one line, the product name wraps. */
+        html.append("<table class=\"data products\"><thead><tr><th style=\"width:17%\">Product</th><th style=\"width:8%\" class=\"num\">")
                 .append(sets ? "Aantal" : "Stuks").append("</th>")
-                .append("<th class=\"num\">Begroot extern</th><th class=\"num\">Eindkost extern</th><th class=\"num\">Verschil</th>")
-                .append("<th class=\"num\">").append(sets ? "Extern / eenheid" : "Extern / stuk").append("</th><th class=\"num\">")
-                .append(sets ? "Met opslag / eenheid" : "Met opslag / stuk").append("</th></tr></thead><tbody>");
+                .append("<th style=\"width:12.5%\" class=\"num\">Begroot extern</th><th style=\"width:12.5%\" class=\"num\">Eindkost extern</th>")
+                .append("<th style=\"width:12.5%\" class=\"num\">Verschil</th>")
+                .append("<th style=\"width:12.5%\" class=\"num\">Extern / ").append(per).append("</th>")
+                .append("<th style=\"width:12.5%\" class=\"num\">Enrosed kost</th>")
+                .append("<th style=\"width:12.5%\" class=\"num\">Incl. Enrosed kost / ").append(per).append("</th></tr></thead><tbody>");
         for (var line : report.lines()) {
             html.append("<tr><td>").append(escape(line.productName())).append("</td><td class=\"num nowrap\">")
                     .append(isSet(line) ? setCount(line.unitCostQuantity()) : String.valueOf(line.unitCostQuantity()))
@@ -158,36 +171,47 @@ public class PdfPurchasePaymentsRenderer {
             differenceCell(html, line.varianceEur());
             if (isSet(line)) {
                 setCell(html, line.forecastExternalUnitEur(), line.forecastExternalPieceEur());
+                moneyCell(html, line.internalMarkupEur());
                 setCell(html, line.forecastPricingUnitEur(), line.forecastPricingPieceEur());
             } else if (sets) {
                 unitCell(html, line.forecastExternalUnitEur(), " /stuk");
+                moneyCell(html, line.internalMarkupEur());
                 unitCell(html, line.forecastPricingUnitEur(), " /stuk");
             } else {
                 unitCell(html, line.forecastExternalUnitEur());
+                moneyCell(html, line.internalMarkupEur());
                 unitCell(html, line.forecastPricingUnitEur());
             }
             html.append("</tr>");
         }
-        html.append("<tr class=\"sum\"><td>Totaal / gemiddeld</td><td class=\"num nowrap\">")
+        html.append("<tr class=\"sum\"><td>").append(average ? "Totaal / gemiddeld" : "Totaal")
+                .append("</td><td class=\"num nowrap\">")
                 .append(!sets || "PIECE".equals(setBasis) ? String.valueOf(total.unitCostQuantity())
                         : "DISPLAY".equals(setBasis) ? setCount(total.unitCostQuantity())
                         : count(total.unitCostPieceQuantity()) + " stuks")
                 .append("</td>");
         moneyCell(html, total.plannedExternalEur()); moneyCell(html, total.forecastExternalEur());
         differenceCell(html, total.varianceEur());
-        if (sets && "DISPLAY".equals(setBasis)) {
+        if (!average) {
+            perProductCell(html);
+            moneyCell(html, total.internalMarkupEur());
+            perProductCell(html);
+        } else if (sets && "DISPLAY".equals(setBasis)) {
             unitCell(html, total.forecastExternalUnitEur(), " /set");
+            moneyCell(html, total.internalMarkupEur());
             unitCell(html, total.forecastPricingUnitEur(), " /set");
         } else if (sets && "MIXED".equals(setBasis)) {
             unitCell(html, total.forecastExternalPieceEur(), " /stuk (gem.)");
+            moneyCell(html, total.internalMarkupEur());
             unitCell(html, total.forecastPricingPieceEur(), " /stuk (gem.)");
         } else {
             unitCell(html, total.forecastExternalUnitEur());
+            moneyCell(html, total.internalMarkupEur());
             unitCell(html, total.forecastPricingUnitEur());
         }
         html.append("</tr></tbody></table><table class=\"totals\"><tr><td>").append(basis).append(" extern</td><td>")
-                .append(money(total.forecastExternalEur())).append("</td></tr><tr><td>Interne Enrosed-opslag</td><td>")
-                .append(money(total.internalMarkupEur())).append("</td></tr><tr><td><b>Totaal met interne opslag</b></td><td>")
+                .append(money(total.forecastExternalEur())).append("</td></tr><tr><td>Enrosed kost <span class=\"muted small\">intern, verdeeld over de producten</span></td><td>")
+                .append(money(total.internalMarkupEur())).append("</td></tr><tr><td><b>Totaal incl. Enrosed kost</b></td><td>")
                 .append(money(total.forecastPricingEur())).append("</td></tr></table>");
         html.append("<div class=\"note\"><p><b>Berekening en verdeling</b></p>");
         if (!report.lines().isEmpty()) html.append("<p>").append(escape(report.lines().getFirst().allocationBasis())).append("</p>");
@@ -238,6 +262,10 @@ public class PdfPurchasePaymentsRenderer {
         html.append("<td class=\"num\">").append(perSet == null ? "n.v.t." : unit(perSet) + " /set")
                 .append(perPiece == null ? "" : "<br/>" + unit(perPiece) + " /stuk").append("</td>");
     }
+    /** The total row of a container of different products: no average, the figure is in each product's row. */
+    private static void perProductCell(StringBuilder html) {
+        html.append("<td class=\"num muted small\">per product</td>");
+    }
     private static String unit(BigDecimal value) { return "€ " + String.format(LOCALE, "%,.4f", value); }
     private static String count(int value) { return String.format(LOCALE, "%,d", value); }
     private static String setCount(int value) { return count(value) + (value == 1 ? " set" : " sets"); }
@@ -261,6 +289,30 @@ public class PdfPurchasePaymentsRenderer {
                 ? "sets als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
                 : "sets als hun aantal stuks geteld";
         return count(total.unitCostPieceQuantity()) + " " + state + " stuks (" + counted + ")";
+    }
+    /**
+     * What the cost is spread over when the products differ: the products
+     * first, then the same quantities as for one product ("3 producten
+     * (6.920 bestelde stuks)", "2 producten (1.400 bestelde stuks, sets als
+     * 12 rozen geteld)").
+     */
+    private static String productsText(PurchaseReconciliation.Totals total, String quantityBasis, boolean sets,
+                                       String setBasis) {
+        String products = total.productCount() == 1 ? "1 product" : total.productCount() + " producten";
+        String state = total.receiptRecorded() ? "bruikbare ontvangen" : "bestelde";
+        String quantities;
+        if (!sets || "PIECE".equals(setBasis)) {
+            quantities = count(total.unitCostQuantity()) + " " + quantityBasis;
+        } else if ("DISPLAY".equals(setBasis)) {
+            quantities = count(total.unitCostQuantity()) + " " + state + " " + (total.unitCostQuantity() == 1 ? "set" : "sets")
+                    + ", " + count(total.unitCostPieceQuantity()) + " stuks";
+        } else {
+            quantities = count(total.unitCostPieceQuantity()) + " " + state + " stuks, "
+                    + (total.setPieces() != null && total.setUnitOther() != null
+                            ? "sets als " + total.setPieces() + " " + total.setUnitOther() + " geteld"
+                            : "sets als hun aantal stuks geteld");
+        }
+        return products + " (" + quantities + ")";
     }
     private static void differenceCell(StringBuilder html, BigDecimal value) {
         html.append("<td class=\"num ").append(value.signum() > 0 ? "positive" : "negative").append("\">")
