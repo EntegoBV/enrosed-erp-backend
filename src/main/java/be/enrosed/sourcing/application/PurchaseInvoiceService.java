@@ -169,9 +169,12 @@ public class PurchaseInvoiceService {
     /**
      * "Toewijzen aan alle betalingen": every payment of the invoice's payee
      * names this invoice, each transfer of a payment in parts included, in
-     * one write. Column-only, like the pin of a second invoice: no diary line,
-     * no bank lock, so a payment already on the bank takes it too. Answers
-     * with every invoice of the container, as their payments moved.
+     * one write; a supplier invoice also takes the inspection paid through
+     * the supplier while no inspection invoice of its own exists, so no
+     * other supplier invoice keeps a part of the payments. Column-only, like
+     * the pin of a second invoice: no diary line, no bank lock, so a payment
+     * already on the bank takes it too. Answers with every invoice of the
+     * container, as their payments moved.
      */
     @Transactional
     public List<PurchaseInvoiceView> assignToAll(long orderId, long invoiceId) {
@@ -185,12 +188,17 @@ public class PurchaseInvoiceService {
     private void assignAll(PurchaseOrder order, PurchaseInvoice invoice) {
         List<PurchaseInvoice> all = invoices.forOrder(order.id());
         List<PurchasePayment> recorded = payments.forOrder(order.id());
+        boolean via = order.inspectionPaidViaSupplier();
+        /* The inspection paid through the supplier goes with the supplier's payments when it has no invoice of its own. */
+        boolean inspectionAlong = invoice.payee() == PurchasePayment.Payee.SUPPLIER && via
+                && all.stream().noneMatch(other -> other.payee() == PurchasePayment.Payee.SEPARATE);
         List<Long> moved = recorded.stream()
-                .filter(payment -> (payment.payee() == null ? PurchasePayment.Payee.SUPPLIER : payment.payee()) == invoice.payee())
+                .filter(payment -> (payment.payee() == null ? PurchasePayment.Payee.SUPPLIER : payment.payee()) == invoice.payee()
+                        || inspectionAlong && InvoiceAssignment.viaSupplier(payment, recorded, true)
+                        && InvoiceAssignment.mayCarry(invoice, payment.payee(), via))
                 .filter(payment -> !invoice.id().equals(payment.invoiceId()))
                 .map(PurchasePayment::id).filter(Objects::nonNull).toList();
         if (moved.isEmpty()) return;
-        boolean via = order.inspectionPaidViaSupplier();
         long before = recorded.stream()
                 .filter(payment -> invoice.id().equals(InvoiceAssignment.resolve(payment, all, recorded, via))).count();
         payments.setInvoice(moved, invoice.id());
@@ -396,7 +404,7 @@ public class PurchaseInvoiceService {
                     invoice.documentId() == null ? null : names.get(invoice.documentId()), invoice.notes(),
                     invoice.actor(), invoice.recordedAt(),
                     InvoiceAssignment.isPrimary(invoice, invoicesOfOrder),
-                    InvoiceAssignment.coversInspection(invoice, invoicesOfOrder, via),
+                    InvoiceAssignment.coversInspection(invoice, invoicesOfOrder, recorded, via),
                     paid.stream().map(PurchasePayment::id).filter(Objects::nonNull).sorted().toList(),
                     Money.money(paid.stream().map(PurchasePayment::amountEur).filter(Objects::nonNull)
                             .reduce(BigDecimal.ZERO, BigDecimal::add))));

@@ -1551,11 +1551,37 @@ the nacalculatie.
   open als tweede transactie.", "… Inspectie via leverancier € 300,00 toegevoegd op dezelfde
   transactie."; null on an identical retry). `/links` (several payments, Kosten & bank) is
   unchanged: two-cent rule, no following. The inspection split (D) is refused on a line that already
-  carries an inspection payment of the container.
+  carries an inspection payment of the container ("Deze transactie draagt al Inspectie € x (via
+  leverancier); een tweede afsplitsing kan niet. Maak de koppeling los om de inspectie te wijzigen.").
+- **USD/CNY payments on `bank-part` decide in their own currency** (review of round 2): the line holds
+  euro only and the payment's euro is a forecast at the order's rate, so a euro gap is the exchange
+  rate. Without `amount` (or with the payment's whole amount, or `higher: ADJUST`) the line is the
+  whole payment: `amountEur` := the line, `amount` kept, no "hoger" question either way. A smaller
+  `amount` in the payment's currency carves that part (at the payment's booked rate, then the part
+  takes the line's euro; the rest stays open at the booked rate; notice "Deel van deze betaling:
+  US$ 6.000,00 (€ 5.090,00) van US$ 12.000,00; de rest (US$ 6.000,00) blijft open als tweede
+  transactie."). A larger `amount` and `higher: INSPECTION` are refused (the inspection is split off
+  after the link). The ERP's link plan and Kosten & bank decide the same way.
+- **"Rest als inspectie" never books a second inspection**: refused (and left out of the 409 text)
+  when `withPaymentIds` names an inspection payment ("Op deze transactie staat al Inspectie € x (via
+  leverancier); een tweede inspectie kan niet. Kies 'Bedrag aanpassen naar € y'.") or when the
+  container's inspection paid through the supplier (`InvoiceAssignment.viaSupplier`) already reaches
+  `inspectionCostEur` ("Inspectie via leverancier staat al geboekt: € x van € y inspectiekost; …").
+- **"Transactie toevoegen"**: `bank-part` addressed to a payment whose transfers are all on the bank
+  answers 409 "Alle transacties van deze betaling zijn gekoppeld: kies 'Bedrag aanpassen naar
+  € 12.500,00' om deze transactie (€ 500,00) toe te voegen."; with `higher: ADJUST`
+  `PurchaseOrderService.addTransfer` adds a transfer of the line's euro (USD/CNY: `amount` as named or
+  at the group's own rate) on the line's day to the payment's group (one row becomes a group), with
+  its payee, term, settlement, description and invoice, and links it in the same transaction
+  (activity "Transactie toegevoegd aan de betaling", notice "Transactie van € 500,00 op 24/09/2026
+  toegevoegd; de betaling is nu € 12.500,00 (was € 12.000,00)."). The linked transfers never change,
+  so the bank lock on a linked payment's amount stays.
 - **One invoice for every part-payment**: `POST /api/purchase-orders/{id}/invoices/{invoiceId}/assign-all`
   names the invoice on every payment of its payee (each transfer of a payment in parts and payments
   already on the bank included; column-only, no diary line, one activity record) and answers every
-  invoice of the container. **Invoice file uploads go to the invoice**, never to a payment: a
+  invoice of the container. A supplier invoice also takes the inspection paid through the supplier
+  while no inspection invoice exists; `coversInspection` is true on the supplier invoice that
+  inspection resolves to (the primary while none is named). **Invoice file uploads go to the invoice**, never to a payment: a
   multipart `POST /api/purchase-orders/{id}/invoices` (the JSON fields as form fields plus `file` and
   `assignAll`) checks the data before keeping the file, stores it at container level
   (COMMERCIAL_INVOICE for the supplier, INVOICE otherwise) and creates the invoice holding it;
@@ -1567,7 +1593,9 @@ the nacalculatie.
   it the server notes say the cost per stuk or per set is per product (the round-1 note on a
   container average per piece is gone) and the payments PDF reads "verdeeld over n producten (…)",
   its total row "Totaal" with "per product" where an average stood. The piece figures stay in the
-  data.
+  data. The internal calculation PDF (`purchase.html`) uses the same rule
+  (`ReconciliationUnits.containerAverage` over the costing lines): "Gemiddeld per stuk" and the total
+  row's "Geland per stuk" only for like products, else "Per stuk · n producten · per product".
 - **Enrosed kost per product in the payments PDF**: columns "Extern / stuk", "Enrosed kost" (the
   line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per set
   and per stuk for sets); the total row keeps the total, the box below reads "Enrosed kost" and

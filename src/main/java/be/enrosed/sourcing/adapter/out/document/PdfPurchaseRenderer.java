@@ -22,6 +22,7 @@ import be.enrosed.sourcing.application.LandedCostCalculator;
 import be.enrosed.sourcing.application.InvoiceAssignment;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
+import be.enrosed.sourcing.application.ReconciliationUnits;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.OtherCost;
@@ -408,7 +409,9 @@ public class PdfPurchaseRenderer {
                             BigDecimal purchaseTotalEur, int missingPurchasePrices,
                             int missingEurPrices, int purchasePieces,
                             int purchaseCartons, BigDecimal totalDeliveryCostEur,
-                            String purchaseCbm) {
+                            String purchaseCbm,
+                            /* The different products, and whether one average per stuk over them means anything. */
+                            int productCount, boolean containerAverage) {
         boolean hasExtraColumn() {
             return lines.stream().anyMatch(line ->
                     line.extraRevenueEur() != null && line.extraRevenueEur().signum() != 0);
@@ -550,6 +553,9 @@ public class PdfPurchaseRenderer {
                     .data("purchaseCbm", prepared.purchaseCbm())
                     .data("hasExtraColumn", prepared.hasExtraColumn())
                     .data("hasSeparateColumn", prepared.hasSeparateColumn())
+                    /* An average per stuk over different products says nothing: then it is read per product. */
+                    .data("containerAverage", prepared.containerAverage())
+                    .data("productCount", prepared.productCount())
                     .data("breakdownColumns", prepared.breakdownColumns())
                     .data("landscapeProductMm", prepared.landscapeProductMm())
                     .data("productColumnMm", productColumnMm(options))
@@ -804,9 +810,11 @@ public class PdfPurchaseRenderer {
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
         totals.forEach((currency, amount) -> purchaseTotals.add(
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
+        List<Long> productIds = costing.lines().stream().map(LandedCost.Line::productId).toList();
         return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), purchaseTotalEur,
                 missingPrices, missingEurPrices, purchasePieces,
-                purchaseCartonCount, totalDeliveryCostEur, cbmText(purchaseCbmSum));
+                purchaseCartonCount, totalDeliveryCostEur, cbmText(purchaseCbmSum),
+                ReconciliationUnits.productCount(productIds), ReconciliationUnits.containerAverage(productIds, byId));
     }
 
     /**

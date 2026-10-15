@@ -127,6 +127,45 @@ class PurchaseInvoiceAssignPersistenceTest {
         assertEquals("Bij factuur TR-55 hoort al een bestand (transport.pdf); verwijder dat eerst", again.getMessage());
     }
 
+    /**
+     * Review of round 2: the inspection paid through the supplier goes along with the supplier's payments, so the
+     * proforma keeps no part of them and the invoice assigned to all of them is the one covering the inspection.
+     */
+    @Test
+    @TestTransaction
+    void theInspectionPaidThroughTheSupplierGoesAlong() {
+        PurchaseOrder order = container();
+        purchases.setInspectionViaSupplier(order.id(), true);
+        PurchasePayment goods = purchases.addPayment(order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("10000"),
+                Currency.EUR, "Aanbetaling 30%", Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED);
+        PurchasePayment inspection = purchases.addPayment(order.id(), LocalDate.of(2026, 8, 2), new BigDecimal("300"),
+                Currency.EUR, "Inspectie", Payee.SEPARATE);
+        /* A lab fee paid in a transfer of its own is not paid through the supplier: it stays where it is. */
+        PurchasePayment lab = purchases.addPayment(order.id(), LocalDate.of(2026, 8, 5), new BigDecimal("80"),
+                Currency.EUR, "Labo", Payee.SEPARATE);
+        long line = bank.importExternal(new BankStatementService.ExternalRequest(UUID.randomUUID().toString(),
+                "BE00000000000000", new BigDecimal("-80.00"), Instant.parse("2026-08-05T08:00:00Z"), "Europe/Brussels",
+                "Labo", "Lab", Instant.parse("2026-08-05T08:00:00Z"), false)).id();
+        bank.linkExisting(line, new BankStatementService.OutgoingLinks(List.of(lab.id()), null, null));
+        var proforma = invoices.add(order.id(), request(Payee.SUPPLIER, "PI-1", "31048.04"));
+        var commercial = invoices.add(order.id(), request(Payee.SUPPLIER, "CI-1", "31048.04"));
+        assertTrue(view(order, proforma.id()).coversInspection(), "the primary covers it until another is assigned");
+
+        var views = invoices.assignToAll(order.id(), commercial.id());
+
+        var assigned = views.stream().filter(view -> view.id().equals(commercial.id())).findFirst().orElseThrow();
+        var first = views.stream().filter(view -> view.id().equals(proforma.id())).findFirst().orElseThrow();
+        assertEquals(List.of(goods.id(), inspection.id()), assigned.paymentIds());
+        assertEquals(new BigDecimal("10300.00"), assigned.paidEur());
+        assertTrue(assigned.coversInspection());
+        assertEquals(List.of(), first.paymentIds(), "the proforma keeps no part of the payments");
+        assertEquals(0, first.paidEur().signum());
+        assertTrue(first.primary());
+        assertTrue(!first.coversInspection(), "the inspection went with the payments");
+        assertNull(purchases.payments(order.id()).stream().filter(payment -> payment.id().equals(lab.id()))
+                .findFirst().orElseThrow().invoiceId());
+    }
+
     /** Cosmetic: the list names an invoice's file even when that file was filed as another kind. */
     @Test
     @TestTransaction

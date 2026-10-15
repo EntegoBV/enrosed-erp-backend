@@ -58,33 +58,14 @@ public final class ReconciliationUnits {
         String sharedOther = null;
         boolean sizesAgree = true;
         boolean keysAgree = true;
-        /* One average over the container only for like products: one product, or one family sold alike. */
-        java.util.Set<Object> distinctProducts = new java.util.HashSet<>();
-        boolean alike = true;
-        Product first = null;
-        String firstUnit = null;
-        int firstPieces = 0;
-        String firstKey = null;
-        int index = 0;
         for (PurchaseReconciliation.Line line : report.lines()) {
             Product product = line.productId() == null ? null : products.get(line.productId());
-            distinctProducts.add(line.productId() == null ? "line-" + index : line.productId());
             Packaging packaging = product == null ? null : product.packaging();
             boolean set = packaging != null && packaging.soldAsDisplay();
             int pieces = set ? packaging.unitPieces() : 1;
             String key = packaging == null ? UnitNames.DEFAULT : packaging.unitKey();
             String one = packaging == null ? "stuk" : UnitNames.one(key, Language.NL);
             String other = packaging == null ? "stuks" : UnitNames.other(key, Language.NL);
-            if (index == 0) {
-                first = product;
-                firstUnit = set ? DISPLAY : PIECE;
-                firstPieces = pieces;
-                firstKey = key;
-            } else {
-                alike &= product != null && sameFamily(first, product) && firstUnit.equals(set ? DISPLAY : PIECE)
-                        && firstPieces == pieces && Objects.equals(firstKey, key);
-            }
-            index++;
             int pieceQuantity = line.unitCostQuantity() * pieces;
             BigDecimal linePricing = Money.nz(line.forecastPricingEur());
             lines.add(line.withPieces(set ? DISPLAY : PIECE, pieces, key, one, other, pieceQuantity,
@@ -114,13 +95,59 @@ public final class ReconciliationUnits {
                     perPiece(totals.forecastExternalEur(), unitCostPieces),
                     perPiece(totals.forecastPricingEur(), unitCostPieces));
         }
-        boolean average = distinctProducts.size() <= 1 || alike;
-        if (totals != null) totals = totals.withAverage(distinctProducts.size(), average);
+        List<Long> productIds = report.lines().stream().map(PurchaseReconciliation.Line::productId).toList();
+        int productCount = productCount(productIds);
+        boolean average = containerAverage(productIds, products);
+        if (totals != null) totals = totals.withAverage(productCount, average);
         List<String> notes = new ArrayList<>(report.notes() == null ? List.of() : report.notes());
         if (anySet) notes.add(SET_NOTE);
-        if (!average) notes.add(perProductNote(distinctProducts.size()));
+        if (!average) notes.add(perProductNote(productCount));
         return new PurchaseReconciliation(report.streams(), totals, List.copyOf(lines), List.copyOf(notes),
                 report.supplierInstalments());
+    }
+
+    /** The different products on these lines: lines of one product count once, a line without a product on its own. */
+    public static int productCount(List<Long> productIds) {
+        if (productIds == null) return 0;
+        java.util.Set<Object> distinct = new java.util.HashSet<>();
+        for (int index = 0; index < productIds.size(); index++) {
+            Long id = productIds.get(index);
+            distinct.add(id == null ? "line-" + index : id);
+        }
+        return distinct.size();
+    }
+
+    /**
+     * Whether one average per stuk or per set over these lines means
+     * anything: one product, or every line of the same product family, sales
+     * unit, set size and piece name. The screens and every PDF use this one
+     * rule; otherwise they read per product.
+     */
+    public static boolean containerAverage(List<Long> productIds, Map<Long, Product> productsById) {
+        if (productCount(productIds) <= 1) return true;
+        Map<Long, Product> products = productsById == null ? Map.of() : productsById;
+        Product first = null;
+        boolean firstSet = false;
+        int firstPieces = 0;
+        String firstKey = null;
+        for (int index = 0; index < productIds.size(); index++) {
+            Long id = productIds.get(index);
+            Product product = id == null ? null : products.get(id);
+            Packaging packaging = product == null ? null : product.packaging();
+            boolean set = packaging != null && packaging.soldAsDisplay();
+            int pieces = set ? packaging.unitPieces() : 1;
+            String key = packaging == null ? UnitNames.DEFAULT : packaging.unitKey();
+            if (index == 0) {
+                first = product;
+                firstSet = set;
+                firstPieces = pieces;
+                firstKey = key;
+            } else if (product == null || !sameFamily(first, product) || firstSet != set || firstPieces != pieces
+                    || !Objects.equals(firstKey, key)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Two products of one family: the same family entity, or the same family key when neither has one. */

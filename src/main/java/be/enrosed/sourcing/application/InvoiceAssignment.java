@@ -83,6 +83,26 @@ public final class InvoiceAssignment {
     }
 
     /**
+     * As above, read with the payments: the supplier invoice the inspection
+     * paid through the supplier resolves to covers it (one assigned to every
+     * payment takes it from the primary); while no such payment exists the
+     * primary does.
+     */
+    public static boolean coversInspection(PurchaseInvoice invoice, List<PurchaseInvoice> invoicesOfOrder,
+                                           List<PurchasePayment> paymentsOfOrder, boolean inspectionViaSupplier) {
+        if (!inspectionViaSupplier || invoice == null || invoice.payee() != PurchasePayment.Payee.SUPPLIER
+                || invoicesOfOrder.stream().anyMatch(other -> other.payee() == PurchasePayment.Payee.SEPARATE)) {
+            return false;
+        }
+        List<PurchasePayment> recorded = paymentsOfOrder == null ? List.of() : paymentsOfOrder;
+        List<Long> carriers = recorded.stream()
+                .filter(payment -> viaSupplier(payment, recorded, true))
+                .map(payment -> resolve(payment, invoicesOfOrder, recorded, true))
+                .filter(Objects::nonNull).distinct().toList();
+        return carriers.isEmpty() ? isPrimary(invoice, invoicesOfOrder) : carriers.contains(invoice.id());
+    }
+
+    /**
      * Whether a payment of this payee may name this invoice: its own payee's,
      * or for an inspection paid through the supplier a supplier invoice.
      */

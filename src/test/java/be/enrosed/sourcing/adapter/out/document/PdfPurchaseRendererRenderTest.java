@@ -162,6 +162,27 @@ class PdfPurchaseRendererRenderTest {
         }
     }
 
+    /** Review of round 2 (R2-4): no average per stuk over different products, as in the payments PDF. */
+    @Test
+    void theCalculationShowsNoAverageOverDifferentProducts() throws Exception {
+        var payable = new PurchaseOrderService.Payable(new BigDecimal("1300.00"), new BigDecimal("160.00"),
+                new BigDecimal("100.00"), false, false);
+        var mixed = renderer.render(order(2), costing(2, 990_001L), supplier(), true, List.of(), payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE);
+        try (var pdf = Loader.loadPDF(mixed.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
+            assertFalse(text.contains("Gemiddeld per stuk"), text);
+            assertTrue(text.contains("Per stuk 2 producten per product"), text);
+        }
+        var one = renderer.render(order(1), costing(1, 990_001L), supplier(), true, List.of(), payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE);
+        try (var pdf = Loader.loadPDF(one.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
+            assertTrue(text.contains("Gemiddeld per stuk"), text);
+            assertFalse(text.contains("per product"), text);
+        }
+    }
+
     @Test
     void internalDossierSurvivesManyLinesAcrossPages() throws Exception {
         int lineCount = 28;
@@ -1131,6 +1152,11 @@ class PdfPurchaseRendererRenderTest {
 
     /** Consistent-looking numbers; the exact arithmetic is the calculator's job. */
     static LandedCost costing(int lineCount) {
+        return costing(lineCount, 1L);
+    }
+
+    /** As above, the products numbered from {@code firstProductId}. */
+    static LandedCost costing(int lineCount, long firstProductId) {
         List<LandedCost.Line> lines = new ArrayList<>();
         BigDecimal totalEur = BigDecimal.ZERO;
         int pieces = 0;
@@ -1145,7 +1171,7 @@ class PdfPurchaseRendererRenderTest {
             BigDecimal destination = new BigDecimal("44.60");
             BigDecimal extra = new BigDecimal("89.30");
             BigDecimal total = customs.add(duty).add(destination).add(extra);
-            lines.add(new LandedCost.Line((long) index,
+            lines.add(new LandedCost.Line(firstProductId + index - 1,
                     "Preserved rose with stem - Rood " + index,
                     quantity, 10 + index, new BigDecimal("2.40"),
                     goodsUsd, goodsEur, origin, freight, customs,

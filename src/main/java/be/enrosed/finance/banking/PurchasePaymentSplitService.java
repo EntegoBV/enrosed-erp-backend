@@ -4,6 +4,7 @@ import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
+import be.enrosed.sourcing.application.InvoiceAssignment;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.PaymentTerms;
 import be.enrosed.sourcing.domain.PurchasePayment;
@@ -40,7 +41,9 @@ import java.util.Objects;
  *                takes the owner's choice (the payment's amount follows, or
  *                the rest is the inspection paid through the supplier), a
  *                smaller line is carved out with the rest left open in the
- *                group
+ *                group; a USD/CNY payment is whole unless a part is named in
+ *                its currency; a payment with every transfer on the bank
+ *                grows by the line on the owner's choice
  *   inspection   the inspection paid through the supplier split off a goods
  *                payment, on the same line, the line total unchanged
  *
@@ -56,6 +59,7 @@ public class PurchasePaymentSplitService {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     static final String LINKED_SUMMARY = "Betaling aan een banktransactie gekoppeld";
     static final String CARVED_SUMMARY = "Deel van de betaling aan een banktransactie gekoppeld";
+    static final String GROWN_SUMMARY = "Transactie toegevoegd aan de betaling";
     static final String CHANGED = "De betaling is intussen gewijzigd; vernieuw en probeer opnieuw";
 
     @Inject EntityManager em;
@@ -174,10 +178,13 @@ public class PurchasePaymentSplitService {
      * line more than the payment needs the owner's choice (the payment takes
      * the line's amount, or the rest is the inspection paid through the
      * supplier); a smaller line is carved out of the payment, the rest stays
-     * open as a second transfer of it. Other open payments named for the same
-     * transfer keep their amounts: the addressed payment (the goods) absorbs
-     * every difference, never the inspection. The root of a payment in parts
-     * names its one open transfer.
+     * open as a second transfer of it. A USD/CNY payment compares in its own
+     * currency (see {@link #linkForeign}). Other open payments named for the
+     * same transfer keep their amounts: the addressed payment (the goods)
+     * absorbs every difference, never the inspection. The root of a payment
+     * in parts names its one open transfer; a payment whose transfers are all
+     * on the bank grows by this one with the owner's ADJUST ("Transactie
+     * toevoegen").
      */
     @Transactional
     public SplitResult linkPart(long paymentId, PartRequest request) {
@@ -190,17 +197,23 @@ public class PurchasePaymentSplitService {
         var payment = lockPayment(paymentId);
         requireNoOffset(paymentId);
         if (Objects.equals(payment.bankStatementLineId, line.id)) return result(orderId, payment, List.of(line), null);
-        if (payment.bankStatementLineId != null && payment.groupId != null) {
-            var onLine = groupMemberOn(payment.groupId, line.id);
+        /* On the bank already: the group's one open transfer takes the line; with none open the payment grows. */
+        boolean grow = false;
+        if (payment.bankStatementLineId != null) {
+            long root = payment.groupId == null ? payment.id : payment.groupId;
+            var onLine = groupMemberOn(root, line.id);
             if (onLine != null) return result(orderId, onLine, List.of(line), null);
-            var open = em.createQuery("from PurchasePaymentEntity p where p.groupId=:root and p.bankStatementLineId is null",
-                    SourcingEntities.PurchasePaymentEntity.class).setParameter("root", payment.groupId).getResultList();
+            var open = em.createQuery("from PurchasePaymentEntity p where (p.groupId=:root or p.id=:root)"
+                            + " and p.bankStatementLineId is null", SourcingEntities.PurchasePaymentEntity.class)
+                    .setParameter("root", root).getResultList();
             if (open.size() == 1) {
                 payment = lockPayment(open.getFirst().id);
                 requireNoOffset(payment.id);
+            } else {
+                grow = open.isEmpty();
             }
         }
-        requireNotOnBank(payment);
+        if (!grow) requireNotOnBank(payment);
         requireFree(line);
         long goodsId = payment.id;
         List<SourcingEntities.PurchasePaymentEntity> others = otherParts(orderId, goodsId, request.withPaymentIds());
@@ -216,9 +229,13 @@ public class PurchasePaymentSplitService {
                     + eur(lineEur) + ")");
         }
         LocalDate day = day(line);
-        BigDecimal difference = target.subtract(payment.amountEur);
         PurchasePayment before = toDomain(payment);
         List<Long> otherIds = others.stream().map(other -> other.id).toList();
+        if (grow) return grow(orderId, payment, line, request, target, day, otherIds);
+        if (payment.currency != null && payment.currency != Currency.EUR) {
+            return linkForeign(orderId, payment, line, request, target, day, otherIds, before);
+        }
+        BigDecimal difference = target.subtract(payment.amountEur);
         boolean higher = difference.compareTo(BankAmountMatch.MAX_DIFFERENCE) > 0;
         if (!higher && difference.compareTo(BankAmountMatch.MAX_DIFFERENCE.negate()) >= 0
                 || higher && request.higher() == Higher.ADJUST) {
@@ -229,12 +246,12 @@ public class PurchasePaymentSplitService {
             return result(orderId, lockPayment(goodsId), List.of(line), followed(before, after));
         }
         if (higher) {
-            boolean eligible = inspectionRestAllowed(orderId, payment);
+            String refused = inspectionRestRefusal(orderId, payment, others, target);
             if (request.higher() == null) {
                 throw new BusinessRuleException("Transactie is " + eur(difference) + " hoger dan deze betaling: kies 'Bedrag aanpassen naar "
-                        + eur(target) + "'" + (eligible ? " of 'Rest als inspectie via leverancier'" : "") + ".");
+                        + eur(target) + "'" + (refused == null ? " of 'Rest als inspectie via leverancier'" : "") + ".");
             }
-            if (!eligible) throw new BusinessRuleException(PurchaseOrderService.INSPECTION_REST_REFUSED);
+            if (refused != null) throw new BusinessRuleException(refused);
             PurchasePayment after = purchases.followBankLine(orderId, goodsId, day, null, LINKED_SUMMARY);
             for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
             PurchasePayment inspection = purchases.addInspectionRest(orderId, goodsId, difference);
@@ -246,24 +263,103 @@ public class PurchasePaymentSplitService {
             return result(orderId, lockPayment(goodsId), List.of(line), dated == null ? rest : dated + " " + rest);
         }
         /* A smaller line: its part is carved out, the rest stays open in the group. */
-        List<BigDecimal> eurs = List.of(target, payment.amountEur.subtract(target));
-        if (eurs.stream().anyMatch(part -> part.signum() <= 0)) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
-        List<BigDecimal> amounts;
-        if (payment.currency == Currency.EUR || request.amount() == null) {
-            amounts = foreignParts(payment, eurs, java.util.Arrays.asList(null, null));
-        } else {
-            BigDecimal first = cents(request.amount());
-            BigDecimal rest = payment.amount.subtract(first);
-            if (first.signum() <= 0 || rest.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
-            amounts = List.of(first, rest);
-        }
         BigDecimal whole = payment.amountEur;
+        BigDecimal rest = whole.subtract(target);
         List<PurchasePayment> saved = purchases.splitPayment(orderId, goodsId, List.of(
-                new PurchaseOrderService.PaymentPart(amounts.get(0), eurs.get(0), day),
-                new PurchaseOrderService.PaymentPart(amounts.get(1), eurs.get(1), payment.paidOn)), CARVED_SUMMARY);
+                new PurchaseOrderService.PaymentPart(target, target, day),
+                new PurchaseOrderService.PaymentPart(rest, rest, payment.paidOn)), CARVED_SUMMARY);
         for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
         link(line, concat(saved.getFirst().id(), otherIds));
-        return result(orderId, lockPayment(goodsId), List.of(line), carved(eurs.get(0), whole));
+        return result(orderId, lockPayment(goodsId), List.of(line), carved(target, whole));
+    }
+
+    /**
+     * A USD/CNY payment and its transfer. The bank line holds euro only, and
+     * the payment's euro is a forecast at the order's rate, so a gap in euro
+     * is the exchange rate, never a part or a surplus: the line is the whole
+     * payment, which takes the bank's euro and keeps its own amount, unless
+     * the request names a smaller part in the payment's currency. That part
+     * is carved out at the payment's booked rate and then takes the bank's
+     * euro; the rest stays open at the booked rate. "Rest als inspectie" does
+     * not apply: the inspection is split off after the link.
+     */
+    private SplitResult linkForeign(long orderId, SourcingEntities.PurchasePaymentEntity payment,
+                                    BankStatementLineEntity line, PartRequest request, BigDecimal target,
+                                    LocalDate day, List<Long> otherIds, PurchasePayment before) {
+        Currency currency = payment.currency;
+        BigDecimal named = request.amount() == null ? null : cents(request.amount());
+        if (named != null && named.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
+        if (named != null && named.compareTo(payment.amount) > 0) {
+            throw new BusinessRuleException("Het deel (" + money(named, currency) + ") is meer dan de betaling ("
+                    + money(payment.amount, currency) + "); pas eerst het bedrag aan");
+        }
+        if (named == null || named.compareTo(payment.amount) == 0) {
+            if (request.higher() == Higher.INSPECTION) {
+                throw new BusinessRuleException("Een betaling in " + currency.name() + " neemt het eurobedrag van de transactie "
+                        + "over: een verschil in euro is koers, geen inspectie. Splits de inspectie na het koppelen af.");
+            }
+            PurchasePayment after = purchases.followBankLine(orderId, payment.id, day, target, LINKED_SUMMARY);
+            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            link(line, concat(payment.id, otherIds));
+            return result(orderId, lockPayment(payment.id), List.of(line), followed(before, after));
+        }
+        BigDecimal rest = payment.amount.subtract(named);
+        BigDecimal partBooked = payment.amountEur.multiply(named).divide(payment.amount, 2, RoundingMode.HALF_UP);
+        BigDecimal restEur = payment.amountEur.subtract(partBooked);
+        if (partBooked.signum() <= 0 || restEur.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
+        long goodsId = payment.id;
+        BigDecimal whole = payment.amount;
+        List<PurchasePayment> saved = purchases.splitPayment(orderId, goodsId, List.of(
+                new PurchaseOrderService.PaymentPart(named, partBooked, day),
+                new PurchaseOrderService.PaymentPart(rest, restEur, payment.paidOn)), CARVED_SUMMARY);
+        purchases.followBankLine(orderId, saved.getFirst().id(), day, target, CARVED_SUMMARY);
+        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        link(line, concat(saved.getFirst().id(), otherIds));
+        return result(orderId, lockPayment(goodsId), List.of(line), carvedForeign(named, target, whole, currency));
+    }
+
+    /**
+     * "Transactie toevoegen": every transfer of the payment is on the bank
+     * and one more left. With the owner's ADJUST the payment grows by a new
+     * transfer of this line (its euro, its day; a USD/CNY part as named or at
+     * the payment's own rate), in the payment's group with its payee, term,
+     * settlement and invoice; the linked transfers keep everything. Without
+     * that choice it is refused, saying what the payment would become.
+     */
+    private SplitResult grow(long orderId, SourcingEntities.PurchasePaymentEntity payment, BankStatementLineEntity line,
+                             PartRequest request, BigDecimal target, LocalDate day, List<Long> otherIds) {
+        long root = payment.groupId == null ? payment.id : payment.groupId;
+        List<SourcingEntities.PurchasePaymentEntity> group = em.createQuery(
+                        "from PurchasePaymentEntity p where p.groupId=:root or p.id=:root order by p.id",
+                        SourcingEntities.PurchasePaymentEntity.class)
+                .setParameter("root", root).getResultList();
+        BigDecimal totalEur = group.stream().map(member -> member.amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal total = group.stream().map(member -> member.amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (request.higher() != Higher.ADJUST) {
+            throw new BusinessRuleException("Alle transacties van deze betaling zijn gekoppeld: kies 'Bedrag aanpassen naar "
+                    + eur(totalEur.add(target)) + "' om deze transactie (" + eur(target) + ") toe te voegen.");
+        }
+        Currency currency = payment.currency == null ? Currency.EUR : payment.currency;
+        BigDecimal amount;
+        if (currency == Currency.EUR) {
+            amount = target;
+        } else if (request.amount() != null) {
+            amount = cents(request.amount());
+        } else {
+            amount = total.multiply(target).divide(totalEur, 2, RoundingMode.HALF_UP);
+        }
+        if (amount.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
+        PurchasePayment added = purchases.addTransfer(orderId, payment.id,
+                new PurchaseOrderService.PaymentPart(amount, target, day), GROWN_SUMMARY);
+        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        link(line, concat(added.id(), otherIds));
+        String notice = currency == Currency.EUR
+                ? "Transactie van " + eur(target) + " op " + DAY.format(day) + " toegevoegd; de betaling is nu "
+                        + eur(totalEur.add(target)) + " (was " + eur(totalEur) + ")."
+                : "Transactie van " + eur(target) + " (" + money(amount, currency) + ") op " + DAY.format(day)
+                        + " toegevoegd; de betaling is nu " + money(total.add(amount), currency) + " (was "
+                        + money(total, currency) + ").";
+        return result(orderId, lockPayment(added.id()), List.of(line), notice);
     }
 
     /** D: the inspection paid through the supplier, split off a goods payment on the same line. */
@@ -315,7 +411,7 @@ public class PurchasePaymentSplitService {
                     .setParameter("payee", PurchasePayment.Payee.SEPARATE).getResultStream().findFirst().orElse(null);
             if (carried != null) {
                 throw new BusinessRuleException("Deze transactie draagt al Inspectie " + eur(carried.amountEur)
-                        + " (via leverancier); pas die betaling aan in plaats van opnieuw af te splitsen");
+                        + " (via leverancier); een tweede afsplitsing kan niet. Maak de koppeling los om de inspectie te wijzigen.");
             }
         }
         if (partEur == null || partEur.signum() <= 0) throw new BusinessRuleException("Geef een inspectiebedrag groter dan nul op");
@@ -392,12 +488,39 @@ public class PurchasePaymentSplitService {
         return others;
     }
 
-    /** A goods payment to the supplier of a container with an inspection cost may book the rest as the inspection. */
-    private boolean inspectionRestAllowed(long orderId, SourcingEntities.PurchasePaymentEntity payment) {
-        if (payment.payee != null && payment.payee != PurchasePayment.Payee.SUPPLIER) return false;
-        if (payment.instalmentDue == PaymentTerms.Moment.FREIGHT) return false;
+    /**
+     * Why the rest of a larger line cannot be the inspection paid through the
+     * supplier; null when it can. Only a goods payment to the supplier (not
+     * the CIF freight term) of a container with an inspection cost, and never
+     * a second inspection: not when an inspection payment goes on the same
+     * transfer, nor when the inspection paid through the supplier already
+     * reaches the container's inspection cost.
+     */
+    private String inspectionRestRefusal(long orderId, SourcingEntities.PurchasePaymentEntity payment,
+                                         List<SourcingEntities.PurchasePaymentEntity> others, BigDecimal target) {
+        if (payment.payee != null && payment.payee != PurchasePayment.Payee.SUPPLIER
+                || payment.instalmentDue == PaymentTerms.Moment.FREIGHT) {
+            return PurchaseOrderService.INSPECTION_REST_REFUSED;
+        }
         var order = em.find(SourcingEntities.PurchaseOrderEntity.class, orderId);
-        return order != null && order.inspectionCostEur != null && order.inspectionCostEur.signum() > 0;
+        if (order == null || order.inspectionCostEur == null || order.inspectionCostEur.signum() <= 0) {
+            return PurchaseOrderService.INSPECTION_REST_REFUSED;
+        }
+        String adjust = " Kies 'Bedrag aanpassen naar " + eur(target) + "'.";
+        BigDecimal carried = others.stream().filter(other -> other.payee == PurchasePayment.Payee.SEPARATE)
+                .map(other -> other.amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (carried.signum() > 0) {
+            return "Op deze transactie staat al Inspectie " + eur(carried) + " (via leverancier); een tweede inspectie kan niet." + adjust;
+        }
+        List<PurchasePayment> recorded = purchases.payments(orderId);
+        boolean via = Boolean.TRUE.equals(order.inspectionViaSupplier);
+        BigDecimal booked = recorded.stream().filter(other -> InvoiceAssignment.viaSupplier(other, recorded, via))
+                .map(PurchasePayment::amountEur).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (booked.signum() > 0 && booked.compareTo(order.inspectionCostEur) >= 0) {
+            return "Inspectie via leverancier staat al geboekt: " + eur(booked) + " van " + eur(order.inspectionCostEur)
+                    + " inspectiekost; een tweede inspectie kan niet." + adjust;
+        }
+        return null;
     }
 
     /**
@@ -422,6 +545,12 @@ public class PurchasePaymentSplitService {
     static String carved(BigDecimal part, BigDecimal whole) {
         return "Deel van deze betaling: " + eur(part) + " van " + eur(whole) + "; de rest (" + eur(whole.subtract(part))
                 + ") blijft open als tweede transactie.";
+    }
+
+    /** The part named in a USD/CNY payment's own currency, with the euro the bank charged for it. */
+    static String carvedForeign(BigDecimal part, BigDecimal partEur, BigDecimal whole, Currency currency) {
+        return "Deel van deze betaling: " + money(part, currency) + " (" + eur(partEur) + ") van " + money(whole, currency)
+                + "; de rest (" + money(whole.subtract(part), currency) + ") blijft open als tweede transactie.";
     }
 
     /**

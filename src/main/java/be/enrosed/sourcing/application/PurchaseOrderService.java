@@ -1501,6 +1501,47 @@ public class PurchaseOrderService {
     }
 
     /**
+     * A payment whose transfers are all on the bank grows by one more
+     * transfer: a new row in its group (one row becomes a group with it), on
+     * the new transfer's day, with the payee, term, settlement, description
+     * and invoice of the payment. The rows already on the bank keep their
+     * money, day and link. The bank link of the new row is the caller's.
+     */
+    @Transactional
+    public PurchasePayment addTransfer(long orderId, long paymentId, PaymentPart part, String summary) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment original = storedPayment(orderId, paymentId);
+        if (offsetCreditFor(paymentId).isPresent()) {
+            throw new BusinessRuleException("Een verrekend leverancierstegoed is geen bankbetaling");
+        }
+        if (part == null || part.paidOn() == null || part.amount() == null || part.amountEur() == null
+                || money(part.amount()).signum() <= 0 || money(part.amountEur()).signum() <= 0) {
+            throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
+        }
+        long root = original.groupRoot();
+        List<PurchasePayment> group = original.groupId() == null ? List.of(original) : payments.get().inGroup(root);
+        if (group.stream().anyMatch(member -> member.bankStatementLineId() == null)) {
+            throw new BusinessRuleException("Koppel eerst de open transactie van deze betaling");
+        }
+        if (group.size() >= 10) throw new BusinessRuleException("Een betaling heeft hoogstens tien transacties");
+        if (original.groupId() == null) payments.get().setGroup(List.of(original.id()), root);
+        PurchasePayment added = payments.get().save(new PurchasePayment(null, orderId, part.paidOn(),
+                money(part.amount()), original.currency(), money(part.amountEur()), original.label(),
+                currentActor().displayName(), Instant.now(), original.payee(), original.settles(),
+                original.instalmentDue(), null, root, original.invoiceId()));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                appendNote(order.notes(), paymentNoteLine(added)), order.lines()));
+        BigDecimal before = group.stream().map(PurchasePayment::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        ActivityChangeSet changes = ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", before, before.add(added.amount()))
+                .add("payment.parts", "Transacties", group.size(), group.size() + 1)
+                .add("payment.date", "Betaald op", null, added.paidOn());
+        if (added.currency() != Currency.EUR) changes.add("payment.amountEur", "In euro", null, added.amountEur());
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, summary, changes.build());
+        return added;
+    }
+
+    /**
      * A payment that goes onto a bank line takes the line's day: one row is
      * one transfer on the bank's day. Its diary line follows; nothing else
      * changes. Unchanged when the day already agrees.
