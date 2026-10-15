@@ -942,8 +942,55 @@ class RailwayPreDeployMigrationContractTest {
         }
         assertFalse(line.contains("@Enumerated"), "the classification is plain text");
         assertRegisteredAfter(migration, "2026-10-16/cash-forecast-postgresql.sql");
+    }
+
+    @Test
+    void costHistoryBasisIsTwelveNullableColumnsAndAGuardedBackfillRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-16/product-cost-history-basis-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout = '10s'; set local statement_timeout = '60s';"));
+        assertTrue(sql.endsWith("commit;"));
+        String[] columns = {"kind varchar(16)", "sales_unit varchar(16)", "pieces_per_unit integer",
+                "unit_key varchar(40)", "extra_unit_cost numeric(19,4)", "goods_eur numeric(19,4)",
+                "origin_eur numeric(19,4)", "freight_eur numeric(19,4)", "duty_eur numeric(19,4)",
+                "destination_eur numeric(19,4)", "enrosed_eur numeric(19,4)", "separate_eur numeric(19,4)"};
+        for (String column : columns) {
+            assertTrue(sql.contains("alter table product_cost_history add column if not exists " + column + ";"), column);
+        }
+        assertEquals(12, sql.split("alter table ", -1).length - 1, "twelve nullable columns, nothing else changes");
+        assertFalse(sql.contains("not null"), "every new column is nullable");
+        assertFalse(sql.contains("create table"));
+        assertFalse(sql.contains("check"), "the kind and the sales unit are plain text");
+        assertFalse(sql.contains("references"), "no foreign key");
+        assertFalse(sql.contains("insert "), "no row is invented");
+        assertNonDestructive(sql);
+
+        /* The one-time backfill: the basis from the product's packaging as Packaging.salesUnit() reads it, the kind from
+           who wrote the row; each only where it is still empty, so a rerun and every newer row are left alone. */
+        assertEquals(2, sql.split("update ", -1).length - 1, "two backfills rewrite rows, nothing else does");
+        assertTrue(sql.contains("update product_cost_history set (sales_unit, pieces_per_unit, unit_key) = ( "
+                + "select case when p.packagingkind = 'display' and p.packagingsalesunit = 'display' then 'display' else 'piece' end, "
+                + "case when p.packagingkind = 'display' and p.packagingpiecesperunit > 1 then p.packagingpiecesperunit end, "
+                + "coalesce(nullif(lower(trim(p.packagingunitkey)), ''), 'stuk') "
+                + "from product p where p.id = product_cost_history.product_id) "
+                + "where sales_unit is null and exists (select 1 from product p where p.id = product_cost_history.product_id);"));
+        assertTrue(sql.contains("update product_cost_history set kind = case when applied_by = 'system' then 'seed' "
+                + "else 'apply' end where kind is null;"), "the first-start seed wrote 'system'; 'systeem' is a real apply");
+        assertFalse(sql.contains("goods_eur ="), "the parts are not guessed");
+        assertFalse(sql.contains("extra_unit_cost ="), "the extra unit cost is not guessed");
+
+        String entity = Files.readString(Path.of(
+                "src/main/java/be/enrosed/catalog/adapter/out/persistence/ProductCostHistoryEntity.java"));
+        for (String column : columns) {
+            String name = column.substring(0, column.indexOf(' '));
+            assertTrue(entity.contains("@Column(name = \"" + name + "\""), "the entity names " + name);
+        }
+        assertFalse(entity.contains("@Enumerated"), "no enum column that Hibernate would guard with a check");
+        assertEquals(3, entity.split("nullable = false", -1).length - 1, "only the three columns of 2026-09-08 are required");
+
+        assertRegisteredAfter(migration, "2026-10-16/bank-classification-postgresql.sql");
         String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
-        assertTrue(runner.endsWith("--file=/app/migrations/bank-classification-postgresql.sql\n"),
+        assertTrue(runner.endsWith("--file=/app/migrations/product-cost-history-basis-postgresql.sql\n"),
                 "the last file closes the command without a continuation backslash");
     }
 

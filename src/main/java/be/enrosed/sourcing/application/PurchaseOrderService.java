@@ -2,6 +2,7 @@ package be.enrosed.sourcing.application;
 
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductCostBreakdown;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeDto;
@@ -2696,6 +2697,9 @@ public class PurchaseOrderService {
     /**
      * Writes the calculated cost prices onto the products. From that moment
      * the sales side computes with them.
+     *
+     * Each cost goes into the product's history with the basis it holds on
+     * and what one unit was made of.
      */
     @Transactional
     public LandedCost applyToProducts(long id) {
@@ -2710,8 +2714,15 @@ public class PurchaseOrderService {
             BigDecimal exwPrice = ordered != null && ordered.exwPrice() != null ? ordered.exwPrice() : product.exwPrice();
             be.enrosed.shared.Currency exwCurrency = ordered != null && ordered.exwCurrency() != null
                     ? ordered.exwCurrency() : product.exwCurrency();
+            /* The same rule as the calculation: the line's extra unit cost, else the product's; in the EXW currency. */
+            BigDecimal extraUnitCost = ordered != null && ordered.extraUnitCost() != null
+                    ? ordered.extraUnitCost() : product.extraUnitCost();
+            ProductCostBreakdown breakdown = ProductCostBreakdown.perUnit(line.quantity(), line.goodsEur(),
+                    line.originEur(), line.freightEur(), line.dutyEur(), line.destinationEur(),
+                    line.extraRevenueEur(), line.separateEur());
             products.applyLandedCost(line.productId(), line.landedUnitEur(), order.number(), order.id(),
-                    line.quantity(), exwPrice, exwCurrency == null ? null : exwCurrency.name());
+                    line.quantity(), exwPrice, exwCurrency == null ? null : exwCurrency.name(),
+                    extraUnitCost, breakdown);
         }
         LOG.infof("Kostprijzen uit %s toegepast op %d product(en)", order.number(), result.lines().size());
         /* Into the diary: applying rewrites what the whole catalogue counts with. */

@@ -12,6 +12,8 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.PhotoRole;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
+import be.enrosed.catalog.domain.ProductCostBasis;
+import be.enrosed.catalog.domain.ProductCostBreakdown;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
@@ -659,7 +661,7 @@ public class ProductService {
                 source.packaging().dimensions(), null, source.packaging().piecesPerUnit(),
                 source.packaging().salesUnit(), source.packaging().unitKey(),
                 source.packaging().requestedOrderStep());
-        return create(new Product(
+        Product copy = create(new Product(
                 null, null, source.name(), source.dimensions(), packaging,
                 colour, size, colourHex,
                 source.description(),
@@ -682,6 +684,12 @@ public class ProductService {
                         .filter(text -> !text.isEmpty())
                         .toList(),
                 source.demo()));
+        /* The copy takes the cost along, so its history starts with that cost instead of empty. */
+        if (copy.id() != null && source.landedCostEur() != null && costHistory != null && costHistory.isResolvable()) {
+            costHistory.get().recordCopy(copy.id(), source.id(), source.landedCostEur(), source.landedCostSource(),
+                    ProductCostBasis.of(copy.packaging()));
+        }
+        return copy;
     }
 
     @Transactional
@@ -734,13 +742,27 @@ public class ProductService {
     @Transactional
     public void applyLandedCost(long productId, BigDecimal landedCostEur, String source,
                                 Long purchaseOrderId, Integer quantity, BigDecimal exwPrice, String exwCurrency) {
+        applyLandedCost(productId, landedCostEur, source, purchaseOrderId, quantity, exwPrice, exwCurrency,
+                null, null);
+    }
+
+    /**
+     * Writes the cost and keeps it in the history together with the basis it
+     * holds on (the product's packaging right now: per display or per piece)
+     * and what one unit was made of. The extra unit cost is in the EXW currency.
+     */
+    @Transactional
+    public void applyLandedCost(long productId, BigDecimal landedCostEur, String source,
+                                Long purchaseOrderId, Integer quantity, BigDecimal exwPrice, String exwCurrency,
+                                BigDecimal extraUnitCost, ProductCostBreakdown breakdown) {
         Product current = get(productId);
         Product updated = current.withLandedCost(landedCostEur, source);
         ensurePublishable(updated);
         products.save(updated);
         if (costHistory != null && costHistory.isResolvable()) {
             costHistory.get().record(productId, current.landedCostEur(), landedCostEur, source,
-                    purchaseOrderId, quantity, exwPrice, exwCurrency);
+                    purchaseOrderId, quantity, exwPrice, exwCurrency, extraUnitCost,
+                    ProductCostBasis.of(current.packaging()), breakdown);
         }
         queueWebsite();
     }

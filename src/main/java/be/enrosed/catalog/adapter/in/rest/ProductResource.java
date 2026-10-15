@@ -168,9 +168,10 @@ public class ProductResource {
         return familyDtos.from(variantLinks.link(id, request.variantProductId()).family());
     }
 
-    /** Copies a product, usually to make the same style in another colour. */
-    /** The pieces per location for one product, zeros included. */
-    /** The line of landed costs the product carried, newest first; never pruned. */
+    /**
+     * The line of landed costs the product carried, newest first; never pruned.
+     * Each row names its container as it is called today, also when it is in the trash.
+     */
     @GET
     @Path("/{id}/cost-history")
     public List<ProductCostHistoryDto> costHistory(@PathParam("id") long id) {
@@ -178,6 +179,7 @@ public class ProductResource {
         return costHistory.get().history(id).stream().map(ProductCostHistoryDto::of).toList();
     }
 
+    /** The pieces per location for one product, zeros included. */
     @GET
     @Path("/{id}/stock")
     public List<ProductStockDto> stockLevels(@PathParam("id") long id) {
@@ -265,6 +267,7 @@ public class ProductResource {
                                    String kind, String kindLabel, String reference, String actor,
                                    Long locationId, String locationName, Long purchaseOrderId) {}
 
+    /** Copies a product, usually to make the same style in another colour. */
     @POST
     @Path("/{id}/duplicate")
     public Response duplicate(@PathParam("id") long id, DuplicateRequest request) {
