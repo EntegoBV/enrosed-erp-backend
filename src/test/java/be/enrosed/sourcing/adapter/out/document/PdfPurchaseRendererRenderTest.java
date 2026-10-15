@@ -162,24 +162,76 @@ class PdfPurchaseRendererRenderTest {
         }
     }
 
-    /** Review of round 2 (R2-4): no average per stuk over different products, as in the payments PDF. */
+    /**
+     * Review of round 2 (R2-4) and the screen check after it: no average per
+     * stuk over different products; the calculation shows the lowest and
+     * highest of the products' own figures, and one product keeps its figure.
+     */
     @Test
     void theCalculationShowsNoAverageOverDifferentProducts() throws Exception {
         var payable = new PurchaseOrderService.Payable(new BigDecimal("1300.00"), new BigDecimal("160.00"),
                 new BigDecimal("100.00"), false, false);
-        var mixed = renderer.render(order(2), costing(2, 990_001L), supplier(), true, List.of(), payable,
+        LandedCost costing = costing(2, 990_001L);
+        var mixed = renderer.render(order(2), costing, supplier(), true, List.of(), payable,
                 PdfPurchaseRenderer.Layout.LANDSCAPE);
+        BigDecimal first = costing.lines().get(0).landedUnitEur();
+        BigDecimal second = costing.lines().get(1).landedUnitEur();
+        String range = be.enrosed.shared.DocumentFormat.moneyUnit(first.min(second)) + " – "
+                + be.enrosed.shared.DocumentFormat.unit(first.max(second));
         try (var pdf = Loader.loadPDF(mixed.content())) {
             String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
             assertFalse(text.contains("Gemiddeld per stuk"), text);
-            assertTrue(text.contains("Per stuk 2 producten per product"), text);
+            assertTrue(text.contains("Per stuk 2 producten " + range), range + " missing from " + text);
+            assertFalse(text.contains(be.enrosed.shared.DocumentFormat.unit(costing.totals().averageUnitEur())), text);
+            assertTrue(text.contains("per product"), "the total row has no average either: " + text);
         }
         var one = renderer.render(order(1), costing(1, 990_001L), supplier(), true, List.of(), payable,
                 PdfPurchaseRenderer.Layout.LANDSCAPE);
         try (var pdf = Loader.loadPDF(one.content())) {
             String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
-            assertTrue(text.contains("Gemiddeld per stuk"), text);
+            assertTrue(text.contains("Gemiddeld per stuk " + be.enrosed.shared.DocumentFormat.unit(
+                    costing(1, 990_001L).totals().averageUnitEur())), text);
             assertFalse(text.contains("per product"), text);
+            assertFalse(text.contains("per set"), text);
+        }
+    }
+
+    /** A container of one set: its landed unit cost is per set, and the calculation adds the cost per stuk. */
+    @Test
+    @TestTransaction
+    void theCalculationOfASetSaysPerSetAndAddsPerStuk() throws Exception {
+        Product roses = products.create(new Product(
+                null, "PO-PDF-SET-12", "Long stem rose box display",
+                new Dimensions(new BigDecimal("30"), new BigDecimal("20"), new BigDecimal("60")),
+                new Packaging(PackagingKind.DISPLAY,
+                        new Dimensions(new BigDecimal("32"), new BigDecimal("22"), new BigDecimal("62")),
+                        null, 12, be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"),
+                "Rood", null, null, "Testset voor PDF QA",
+                null, 7L, true,
+                null, null, null, 0, true,
+                null, null, PublicationState.DRAFT, PublicationState.DRAFT,
+                Barcodes.none(), "0603.19.70",
+                new Carton(new Dimensions(new BigDecimal("40"), new BigDecimal("40"),
+                        new BigDecimal("30")), 4, new BigDecimal("6.2")),
+                new BigDecimal("24.00"), Currency.USD, BigDecimal.ZERO,
+                null, null, BigDecimal.ZERO, null, 0, List.of(), List.of(), false));
+        LandedCost costing = costing(1, roses.id());
+        LandedCost.Line line = costing.lines().getFirst();
+        BigDecimal perStuk = line.totalEur().divide(BigDecimal.valueOf(line.quantity() * 12L), 4, RoundingMode.HALF_UP);
+        var payable = new PurchaseOrderService.Payable(new BigDecimal("1300.00"), new BigDecimal("160.00"),
+                new BigDecimal("100.00"), false, false);
+        var document = renderer.render(order(1), costing, supplier(), true, List.of(), payable,
+                PdfPurchaseRenderer.Layout.LANDSCAPE);
+        Path preview = Path.of("target/pdf-preview/purchase-one-set.pdf");
+        Files.createDirectories(preview.getParent());
+        Files.write(preview, document.content());
+        try (var pdf = Loader.loadPDF(document.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("[\\s\\u00A0]+", " ");
+            assertFalse(text.contains("Gemiddeld per stuk"), "the set figure is not per stuk: " + text);
+            assertTrue(text.contains("Per set " + be.enrosed.shared.DocumentFormat.unit(costing.totals().averageUnitEur())), text);
+            assertTrue(text.contains("Per stuk 12 rozen per set " + be.enrosed.shared.DocumentFormat.unit(perStuk)), text);
+            assertTrue(text.contains(be.enrosed.shared.DocumentFormat.moneyUnit(perStuk) + " /stuk"),
+                    "the line says its cost per stuk too: " + text);
         }
     }
 

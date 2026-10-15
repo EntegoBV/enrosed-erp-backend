@@ -1589,13 +1589,19 @@ the nacalculatie.
   that has none ("Bij factuur {number} hoort al een bestand (…); verwijder dat eerst" otherwise).
   The list endpoint now also names an invoice's file of another kind.
 - **No average over different products**: `Totals.productCount` and `Totals.containerAverage` (true
-  for one product, or every line of one product family, sales unit, set size and piece name). Without
-  it the server notes say the cost per stuk or per set is per product (the round-1 note on a
-  container average per piece is gone) and the payments PDF reads "verdeeld over n producten (…)",
-  its total row "Totaal" with "per product" where an average stood. The piece figures stay in the
-  data. The internal calculation PDF (`purchase.html`) uses the same rule
-  (`ReconciliationUnits.containerAverage` over the costing lines): "Gemiddeld per stuk" and the total
-  row's "Geland per stuk" only for like products, else "Per stuk · n producten · per product".
+  only for a container of one product; since the round-2 screen check also false for variants of one
+  family, because Emre said an average over several products "klopt niet"). Without it the server
+  notes say the cost per stuk or per set is per product (the round-1 note on a container average per
+  piece is gone) and the payments PDF reads "verdeeld over n producten (…)", its total row "Totaal"
+  with "per product" where an average stood (the PDF also checks the lines, so a report that skipped
+  `ReconciliationUnits.apply` never prints one; "/stuk (gem.)" is gone). The piece figures stay in
+  the data. The internal calculation PDF (`purchase.html`) uses the same rule
+  (`ReconciliationUnits.containerAverage` over the costing lines): one product keeps "Gemiddeld per
+  stuk" (a set: "Per set" and "Per stuk · 12 rozen per set", the table's set lines and total add "per
+  set" and the cost per stuk); several products show "Per stuk · n producten" with the range of their
+  own landed figures ("4,138 – 5,753 EUR", one figure when equal; all sets: "Per set" and "Per stuk"
+  ranges; sets next to pieces: per stuk) via `ReconciliationUnits.range`, the total row "per
+  product". Different duty rates read "5 % – 12 % per product" instead of "x % gemiddeld".
 - **Enrosed kost per product in the payments PDF**: columns "Extern / stuk", "Enrosed kost" (the
   line's `internalMarkupEur`, the same split as the screen) and "Incl. Enrosed kost / stuk" (per set
   and per stuk for sets); the total row keeps the total, the box below reads "Enrosed kost" and

@@ -117,32 +117,60 @@ class ReconciliationUnitsTest {
         assertEquals("stuks", report.lines().getFirst().unitOther());
     }
 
+    /**
+     * Round-2 screen check: an average over several products "klopt niet",
+     * also over variants of one family sold alike. One product keeps its
+     * figure, also when it sits on two lines.
+     */
     @Test
-    void productsOfOneFamilySoldAlikeKeepTheContainerAverage() {
+    void severalProductsNeverGetAContainerAverageEvenOfOneFamily() {
         Product red = family(product(5L, "Rose box red", BOX_OF_12), 77L);
         Product white = family(product(6L, "Rose box white", BOX_OF_12), 77L);
-        Product six = family(product(7L, "Rose box six", new Packaging(PackagingKind.DISPLAY, Dimensions.empty(), null, 6,
-                SalesUnit.DISPLAY, "roos")), 77L);
-        Product other = family(product(8L, "Tulip box", BOX_OF_12), 78L);
 
         var alike = ReconciliationUnits.apply(report(false, line(5L, 10, 10, "312.00", "330.00"),
                 line(6L, 20, 20, "624.00", "660.00")), Map.of(5L, red, 6L, white));
         assertEquals(2, alike.totals().productCount());
-        assertTrue(alike.totals().containerAverage(), "one family, one set of 12 roses");
-        assertEquals("DISPLAY", alike.totals().setBasis());
-        assertTrue(alike.notes().stream().noneMatch(note -> note.startsWith("Deze container heeft")), alike.notes().toString());
+        assertFalse(alike.totals().containerAverage(), "two variants of one family are two products");
+        assertEquals("DISPLAY", alike.totals().setBasis(), "the set basis is still shared");
+        assertTrue(alike.notes().contains(ReconciliationUnits.perProductNote(2)), alike.notes().toString());
 
-        var sizes = ReconciliationUnits.apply(report(false, line(5L, 10, 10, "312.00", "312.00"),
-                line(7L, 10, 10, "160.00", "160.00")), Map.of(5L, red, 7L, six));
-        assertFalse(sizes.totals().containerAverage(), "sets of 12 and of 6 have no common average");
+        var twice = ReconciliationUnits.apply(report(false, line(5L, 10, 10, "312.00", "312.00"),
+                line(5L, 5, 5, "160.00", "160.00")), Map.of(5L, red));
+        assertEquals(1, twice.totals().productCount());
+        assertTrue(twice.totals().containerAverage(), "one product on two lines keeps its figure");
 
-        var families = ReconciliationUnits.apply(report(false, line(5L, 10, 10, "312.00", "312.00"),
-                line(8L, 10, 10, "300.00", "300.00")), Map.of(5L, red, 8L, other));
-        assertFalse(families.totals().containerAverage(), "two families");
+        assertTrue(ReconciliationUnits.containerAverage(List.of()), "no lines: nothing to mix");
+        assertFalse(ReconciliationUnits.containerAverage(java.util.Arrays.asList(null, null)),
+                "two lines without a product are two products");
+    }
 
-        var unknown = ReconciliationUnits.apply(report(false, line(1L, 10, 10, "100.00", "100.00"),
-                line(2L, 10, 10, "50.00", "50.00")), Map.of(1L, BOWL, 2L, BOWL_TWO));
-        assertFalse(unknown.totals().containerAverage(), "no family known: different products");
+    /** Several products show the lowest and highest of their own figures instead of an average. */
+    @Test
+    void theRangeComparesSetsPerSetAndPiecesPerStuk() {
+        var sets = ReconciliationUnits.range(List.of(
+                new ReconciliationUnits.UnitFigure(new BigDecimal("31.2000"), new BigDecimal("2.6000"), true),
+                new ReconciliationUnits.UnitFigure(new BigDecimal("16.0000"), new BigDecimal("2.6667"), true)));
+        assertTrue(sets.perSet());
+        assertEquals(new BigDecimal("16.0000"), sets.low());
+        assertEquals(new BigDecimal("31.2000"), sets.high());
+        assertEquals(new BigDecimal("2.6000"), sets.pieceLow());
+        assertEquals(new BigDecimal("2.6667"), sets.pieceHigh());
+
+        var mixed = ReconciliationUnits.range(List.of(
+                new ReconciliationUnits.UnitFigure(new BigDecimal("31.2000"), new BigDecimal("2.6000"), true),
+                new ReconciliationUnits.UnitFigure(new BigDecimal("5.0000"), new BigDecimal("5.0000"), false)));
+        assertFalse(mixed.perSet(), "a set next to a bowl compares per stuk");
+        assertEquals(new BigDecimal("2.6000"), mixed.low());
+        assertEquals(new BigDecimal("5.0000"), mixed.high());
+
+        var same = ReconciliationUnits.range(List.of(
+                new ReconciliationUnits.UnitFigure(new BigDecimal("4.0000"), new BigDecimal("4.0000"), false),
+                new ReconciliationUnits.UnitFigure(new BigDecimal("4.0000"), new BigDecimal("4.0000"), false),
+                new ReconciliationUnits.UnitFigure(null, null, false)));
+        assertEquals(0, same.low().compareTo(same.high()), "the same figure for every product");
+
+        assertNull(ReconciliationUnits.range(List.of(new ReconciliationUnits.UnitFigure(null, null, false))));
+        assertNull(ReconciliationUnits.range(null));
     }
 
     @Test

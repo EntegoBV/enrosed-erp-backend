@@ -16,6 +16,7 @@ import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
 import be.enrosed.shared.Language;
 import be.enrosed.shared.PdfFonts;
+import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
 import be.enrosed.sourcing.application.LandedCostCalculator;
@@ -329,7 +330,9 @@ public class PdfPurchaseRenderer {
             /** "12 stuks per display" and "EAN …": the small lines under the packaging. */
             String packagingPieces, String packagingEan,
             /** Inspection and other costs spread into this line; zero while they stay apart. */
-            BigDecimal separateEur) {
+            BigDecimal separateEur,
+            /** A set (a display of 12 roses): its landed unit cost is per set, this is per stuk; null otherwise. */
+            BigDecimal landedPieceEur) {
 
         /** Compatibility for callers written before the packing column existed. */
         public LineView(
@@ -353,7 +356,7 @@ public class PdfPurchaseRenderer {
                     landedUnitEur, totalDeliveryCostEur, totalDeliveryUnitCostEur, purchaseUnitPrice,
                     purchaseLineTotal, purchaseUnitEur, purchaseLineTotalEur, purchaseCurrency, priceBasis,
                     purchasePriceAvailable, eurPriceAvailable, eurEquivalentAvailable, cbmText,
-                    0, null, null, null, null, null, null, null, null, null, null, null);
+                    0, null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -410,8 +413,12 @@ public class PdfPurchaseRenderer {
                             int missingEurPrices, int purchasePieces,
                             int purchaseCartons, BigDecimal totalDeliveryCostEur,
                             String purchaseCbm,
-                            /* The different products, and whether one average per stuk over them means anything. */
-                            int productCount, boolean containerAverage) {
+                            /* The different products, and whether one figure per stuk for the container means anything. */
+                            int productCount, boolean containerAverage,
+                            /* Under the landed total: the one product's figure, or the range of the products' own. */
+                            List<UnitRow> unitRows,
+                            /* One product sold as a set: the container's landed unit cost is per set. */
+                            boolean perSet) {
         boolean hasExtraColumn() {
             return lines.stream().anyMatch(line ->
                     line.extraRevenueEur() != null && line.extraRevenueEur().signum() != 0);
@@ -555,7 +562,9 @@ public class PdfPurchaseRenderer {
                     .data("hasSeparateColumn", prepared.hasSeparateColumn())
                     /* An average per stuk over different products says nothing: then it is read per product. */
                     .data("containerAverage", prepared.containerAverage())
-                    .data("productCount", prepared.productCount())
+                    .data("containerPerSet", prepared.perSet())
+                    .data("unitRows", prepared.unitRows())
+                    .data("dutyRateRange", dutyRateRange(costing))
                     .data("breakdownColumns", prepared.breakdownColumns())
                     .data("landscapeProductMm", prepared.landscapeProductMm())
                     .data("productColumnMm", productColumnMm(options))
@@ -804,17 +813,108 @@ public class PdfPurchaseRenderer {
                     !showOuterCarton || !showBarcode || product == null || product.barcodes() == null
                             ? null : blankToNull(product.barcodes().outer()),
                     packaging.pieces(), packaging.ean(),
-                    Money.nz(costingLine.separateEur())));
+                    Money.nz(costingLine.separateEur()),
+                    landedPieceEur(costingLine, product)));
         }
 
         List<PurchaseTotal> purchaseTotals = new ArrayList<>();
         totals.forEach((currency, amount) -> purchaseTotals.add(
                 new PurchaseTotal(currency.name(), DocumentFormat.money(amount))));
         List<Long> productIds = costing.lines().stream().map(LandedCost.Line::productId).toList();
+        int productCount = ReconciliationUnits.productCount(productIds);
+        boolean containerAverage = ReconciliationUnits.containerAverage(productIds);
+        boolean perSet = containerAverage && costing.lines().stream()
+                .anyMatch(line -> setPieces(byId.get(line.productId())) > 1);
         return new Prepared(List.copyOf(lines), List.copyOf(purchaseTotals), purchaseTotalEur,
                 missingPrices, missingEurPrices, purchasePieces,
                 purchaseCartonCount, totalDeliveryCostEur, cbmText(purchaseCbmSum),
-                ReconciliationUnits.productCount(productIds), ReconciliationUnits.containerAverage(productIds, byId));
+                productCount, containerAverage, unitRows(costing, byId, productCount, containerAverage), perSet);
+    }
+
+    /** A row under the landed total of the internal calculation: "Gemiddeld per stuk", "Per set", a range. */
+    public record UnitRow(String label, String note, String value) {}
+
+    /**
+     * What the internal calculation prints under its landed total. One
+     * product keeps its figure ("Gemiddeld per stuk"; a set "Per set" and
+     * "Per stuk"). Several products get no average: the lowest and highest
+     * of their own figures per stuk, or per set and per stuk when every
+     * product is a set; "per product" when none is known.
+     */
+    static List<UnitRow> unitRows(LandedCost costing, Map<Long, Product> byId, int productCount,
+                                  boolean containerAverage) {
+        LandedCost.Totals totals = costing.totals();
+        if (containerAverage) {
+            Product product = costing.lines().isEmpty() ? null : byId.get(costing.lines().getFirst().productId());
+            int pieces = setPieces(product);
+            if (pieces <= 1 || totals.pieces() <= 0) {
+                return List.of(new UnitRow("Gemiddeld per stuk", null, DocumentFormat.unit(totals.averageUnitEur())));
+            }
+            BigDecimal perPiece = Money.nz(totals.totalEur()).divide(
+                    BigDecimal.valueOf((long) totals.pieces() * pieces), Money.UNIT_SCALE, RoundingMode.HALF_UP);
+            return List.of(new UnitRow("Per set", null, DocumentFormat.unit(totals.averageUnitEur())),
+                    new UnitRow("Per stuk", pieces + " " + pieceNames(product) + " per set",
+                            DocumentFormat.unit(perPiece)));
+        }
+        List<ReconciliationUnits.UnitFigure> figures = new ArrayList<>();
+        for (LandedCost.Line line : costing.lines()) {
+            if (line.quantity() <= 0 || line.landedUnitEur() == null) continue;
+            Product product = byId.get(line.productId());
+            BigDecimal perPiece = landedPieceEur(line, product);
+            figures.add(new ReconciliationUnits.UnitFigure(line.landedUnitEur(),
+                    perPiece == null ? line.landedUnitEur() : perPiece, perPiece != null));
+        }
+        ReconciliationUnits.UnitRange range = ReconciliationUnits.range(figures);
+        String products = productCount + " producten";
+        if (range == null) return List.of(new UnitRow("Per stuk", products, "per product"));
+        if (range.perSet()) {
+            return List.of(new UnitRow("Per set", products, rangeText(range.low(), range.high())),
+                    new UnitRow("Per stuk", null, rangeText(range.pieceLow(), range.pieceHigh())));
+        }
+        boolean anySet = figures.stream().anyMatch(ReconciliationUnits.UnitFigure::set);
+        return List.of(new UnitRow("Per stuk", anySet ? products + " · sets per stuk" : products,
+                rangeText(range.low(), range.high())));
+    }
+
+    /**
+     * The duty rates of products with different rates ("0 % – 12 % per
+     * product"), where one effective rate over them would be an average that
+     * matches none; null when every line has the same rate.
+     */
+    static String dutyRateRange(LandedCost costing) {
+        List<BigDecimal> rates = costing.lines().stream().map(LandedCost.Line::dutyRatePct)
+                .filter(Objects::nonNull).toList();
+        BigDecimal low = rates.stream().min(BigDecimal::compareTo).orElse(null);
+        BigDecimal high = rates.stream().max(BigDecimal::compareTo).orElse(null);
+        if (low == null || low.compareTo(high) == 0) return null;
+        return DocumentFormat.pct(low) + " – " + DocumentFormat.pct(high) + " per product";
+    }
+
+    /** "2,58 – 8,06 EUR"; one figure when every product has the same. */
+    static String rangeText(BigDecimal low, BigDecimal high) {
+        if (low == null || high == null) return "per product";
+        return low.compareTo(high) == 0 ? DocumentFormat.unit(low)
+                : DocumentFormat.moneyUnit(low) + " – " + DocumentFormat.unit(high);
+    }
+
+    /** The pieces in one sales unit of a product sold as a set; 1 for a product sold per piece. */
+    static int setPieces(Product product) {
+        Packaging packaging = product == null ? null : product.packaging();
+        return packaging != null && packaging.soldAsDisplay() ? Math.max(1, packaging.unitPieces()) : 1;
+    }
+
+    /** "rozen" for a set of roses, "stuks" otherwise. */
+    private static String pieceNames(Product product) {
+        Packaging packaging = product == null ? null : product.packaging();
+        return packaging == null ? "stuks" : UnitNames.other(packaging.unitKey(), Language.NL);
+    }
+
+    /** A set line's landed cost per stuk: the line total over its pieces, never the rounded set figure divided. */
+    static BigDecimal landedPieceEur(LandedCost.Line line, Product product) {
+        int pieces = setPieces(product);
+        if (pieces <= 1 || line.quantity() <= 0 || line.totalEur() == null) return null;
+        return line.totalEur().divide(BigDecimal.valueOf((long) line.quantity() * pieces),
+                Money.UNIT_SCALE, RoundingMode.HALF_UP);
     }
 
     /**

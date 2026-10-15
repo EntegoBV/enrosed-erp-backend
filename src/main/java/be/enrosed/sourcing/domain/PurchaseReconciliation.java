@@ -145,14 +145,14 @@ public record PurchaseReconciliation(
             int productCount,
             /**
              * Whether a container-wide figure per stuk or per set means
-             * anything: one product, or every line of the same product
-             * family, sales unit, set size and piece name. Otherwise the
-             * screens and the PDF show the cost per product and never an
-             * average over different products.
+             * anything: only for a container of one product. With several
+             * products (variants of one family too) the screens and the PDFs
+             * show the cost per product, or the range of those figures, and
+             * never an average over them.
              */
             boolean containerAverage
     ) {
-        /** Compatibility for callers written before the container average was limited to like products. */
+        /** Compatibility for callers written before the container average was limited to one product. */
         public Totals(BigDecimal plannedExternalEur, BigDecimal paidEur, BigDecimal remainingEur,
                       BigDecimal forecastExternalEur, BigDecimal varianceEur, BigDecimal internalMarkupEur,
                       BigDecimal plannedPricingEur, BigDecimal forecastPricingEur, boolean finalized,

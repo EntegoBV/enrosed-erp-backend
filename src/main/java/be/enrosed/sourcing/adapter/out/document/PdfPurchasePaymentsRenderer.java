@@ -3,6 +3,7 @@ package be.enrosed.sourcing.adapter.out.document;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.PdfFonts;
+import be.enrosed.sourcing.application.ReconciliationUnits;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseReconciliation;
@@ -141,13 +142,16 @@ public class PdfPurchasePaymentsRenderer {
 
         boolean sets = report.lines().stream().anyMatch(PdfPurchasePaymentsRenderer::isSet);
         String setBasis = total.setBasis() == null ? "PIECE" : total.setBasis();
-        /* An average over different products says nothing: then every figure per stuk or per set is per product. */
-        boolean average = total.containerAverage();
+        /* An average over different products says nothing: then every figure per stuk or per set is per product.
+           The lines decide too, so a report that skipped the units never prints one. */
+        List<Long> productIds = report.lines().stream().map(PurchaseReconciliation.Line::productId).toList();
+        boolean average = total.containerAverage() && ReconciliationUnits.containerAverage(productIds);
+        int productCount = total.productCount() > 0 ? total.productCount() : ReconciliationUnits.productCount(productIds);
         html.append("<div class=\"page\"><div class=\"kicker\">").append(escape(order.number()))
                 .append(" / Kostprijs</div><h2>De kost per product</h2><p class=\"muted\">")
                 .append(basis).append(" verdeeld over ").append(average
                         ? quantityText(total, quantityBasis, sets, setBasis)
-                        : productsText(total, quantityBasis, sets, setBasis))
+                        : productsText(total, productCount, quantityBasis, sets, setBasis))
                 .append(". Alle externe kosten zijn inbegrepen, ook inspectie en extra betalingen.")
                 .append(average ? "" : " De kost per stuk of per set staat per product.")
                 .append(" De kolom Enrosed kost toont welk deel van de Enrosed kost op elk product is verdeeld.</p>");
@@ -200,10 +204,6 @@ public class PdfPurchasePaymentsRenderer {
             unitCell(html, total.forecastExternalUnitEur(), " /set");
             moneyCell(html, total.internalMarkupEur());
             unitCell(html, total.forecastPricingUnitEur(), " /set");
-        } else if (sets && "MIXED".equals(setBasis)) {
-            unitCell(html, total.forecastExternalPieceEur(), " /stuk (gem.)");
-            moneyCell(html, total.internalMarkupEur());
-            unitCell(html, total.forecastPricingPieceEur(), " /stuk (gem.)");
         } else {
             unitCell(html, total.forecastExternalUnitEur());
             moneyCell(html, total.internalMarkupEur());
@@ -296,9 +296,9 @@ public class PdfPurchasePaymentsRenderer {
      * (6.920 bestelde stuks)", "2 producten (1.400 bestelde stuks, sets als
      * 12 rozen geteld)").
      */
-    private static String productsText(PurchaseReconciliation.Totals total, String quantityBasis, boolean sets,
-                                       String setBasis) {
-        String products = total.productCount() == 1 ? "1 product" : total.productCount() + " producten";
+    private static String productsText(PurchaseReconciliation.Totals total, int productCount, String quantityBasis,
+                                       boolean sets, String setBasis) {
+        String products = productCount == 1 ? "1 product" : productCount + " producten";
         String state = total.receiptRecorded() ? "bruikbare ontvangen" : "bestelde";
         String quantities;
         if (!sets || "PIECE".equals(setBasis)) {

@@ -240,6 +240,88 @@ class PdfPurchaseRendererTest {
         assertEquals("Termijn: Zeevracht (CIF)", PdfPurchaseRenderer.paymentScopeLabel(freight));
     }
 
+    /**
+     * Round-2 screen check: no average over different products. One product
+     * keeps its figure (a set per set and per stuk); several show the range
+     * of their own figures, per stuk when sets sit next to pieces.
+     */
+    @Test
+    void theRowsUnderTheLandedTotalNeverAverageDifferentProducts() {
+        var costing = PdfPurchaseRendererRenderTest.costing(2, 1L);
+        var first = costing.lines().get(0);
+        var second = costing.lines().get(1);
+        Product roses = withPackaging(1L, new be.enrosed.catalog.domain.Packaging(
+                be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 12,
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"));
+        Product six = withPackaging(2L, new be.enrosed.catalog.domain.Packaging(
+                be.enrosed.catalog.domain.PackagingKind.DISPLAY, Dimensions.empty(), null, 6,
+                be.enrosed.catalog.domain.SalesUnit.DISPLAY, "roos"));
+        Product bowl = withPackaging(2L, be.enrosed.catalog.domain.Packaging.none());
+
+        var pieces = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(), 2, false);
+        assertEquals(1, pieces.size());
+        assertEquals("Per stuk", pieces.getFirst().label());
+        assertEquals("2 producten", pieces.getFirst().note());
+        assertEquals(PdfPurchaseRenderer.rangeText(first.landedUnitEur().min(second.landedUnitEur()),
+                first.landedUnitEur().max(second.landedUnitEur())), pieces.getFirst().value());
+        assertTrue(pieces.getFirst().value().contains(" – "), pieces.getFirst().value());
+
+        BigDecimal rosePiece = PdfPurchaseRenderer.landedPieceEur(first, roses);
+        assertEquals(first.totalEur().divide(BigDecimal.valueOf(first.quantity() * 12L), 4,
+                java.math.RoundingMode.HALF_UP), rosePiece);
+        var setAndBowl = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(1L, roses, 2L, bowl), 2, false);
+        assertEquals(1, setAndBowl.size());
+        assertEquals("2 producten · sets per stuk", setAndBowl.getFirst().note());
+        assertEquals(PdfPurchaseRenderer.rangeText(rosePiece.min(second.landedUnitEur()),
+                rosePiece.max(second.landedUnitEur())), setAndBowl.getFirst().value());
+
+        var twoSets = PdfPurchaseRenderer.unitRows(costing, java.util.Map.of(1L, roses, 2L, six), 2, false);
+        assertEquals(List.of("Per set", "Per stuk"), twoSets.stream().map(PdfPurchaseRenderer.UnitRow::label).toList());
+        BigDecimal sixPiece = PdfPurchaseRenderer.landedPieceEur(second, six);
+        assertEquals(PdfPurchaseRenderer.rangeText(rosePiece.min(sixPiece), rosePiece.max(sixPiece)),
+                twoSets.get(1).value());
+
+        var one = PdfPurchaseRendererRenderTest.costing(1, 1L);
+        var piece = PdfPurchaseRenderer.unitRows(one, java.util.Map.of(), 1, true);
+        assertEquals(List.of(new PdfPurchaseRenderer.UnitRow("Gemiddeld per stuk", null,
+                be.enrosed.shared.DocumentFormat.unit(one.totals().averageUnitEur()))), piece);
+        var set = PdfPurchaseRenderer.unitRows(one, java.util.Map.of(1L, roses), 1, true);
+        assertEquals(new PdfPurchaseRenderer.UnitRow("Per set", null,
+                be.enrosed.shared.DocumentFormat.unit(one.totals().averageUnitEur())), set.get(0));
+        assertEquals("12 rozen per set", set.get(1).note());
+
+        assertEquals("4,00 EUR", PdfPurchaseRenderer.rangeText(new BigDecimal("4.0000"), new BigDecimal("4.0000")),
+                "equal ends: one figure");
+        assertNull(PdfPurchaseRenderer.landedPieceEur(first, bowl), "a piece has no second figure");
+    }
+
+    /** Different duty rates are named as a range; one effective rate over them would be an average. */
+    @Test
+    void differentDutyRatesAreARangeNotAnAverage() {
+        var alike = PdfPurchaseRendererRenderTest.costing(2, 1L);
+        assertNull(PdfPurchaseRenderer.dutyRateRange(alike), "one rate for every line: the effective rate stays");
+        var lines = new java.util.ArrayList<>(alike.lines());
+        var second = lines.get(1);
+        lines.set(1, new be.enrosed.sourcing.domain.LandedCost.Line(second.productId(), second.productName(),
+                second.quantity(), second.cartons(), second.cbm(), second.goodsUsd(), second.goodsEur(),
+                second.originEur(), second.freightEur(), second.customsValueEur(), new BigDecimal("12.0"),
+                second.dutySource(), second.dutyEur(), second.destinationEur(), second.extraRevenueEur(),
+                second.totalEur(), second.landedUnitEur(), second.cbmShare(), second.valueShare(),
+                second.pieceShare(), second.separateEur()));
+        var mixed = new be.enrosed.sourcing.domain.LandedCost(lines, alike.totals(), alike.containerFill());
+        assertEquals("5 % – 12 % per product", PdfPurchaseRenderer.dutyRateRange(mixed).replace('\u00A0', ' '));
+    }
+
+    private static Product withPackaging(long id, be.enrosed.catalog.domain.Packaging packaging) {
+        return new Product(id, "SKU-" + id, "Product " + id, Dimensions.empty(), packaging,
+                null, null, null, null, null, 7L, true,
+                null, null, null, 0, true,
+                null, null, be.enrosed.catalog.domain.PublicationState.DRAFT,
+                be.enrosed.catalog.domain.PublicationState.DRAFT,
+                Barcodes.none(), null, Carton.empty(), BigDecimal.ONE, Currency.USD, BigDecimal.ZERO,
+                null, null, BigDecimal.ZERO, null, 0, List.of(), List.of(), false);
+    }
+
     private static be.enrosed.sourcing.domain.PurchaseOrder order(String goods, String transport) {
         return new be.enrosed.sourcing.domain.PurchaseOrder(
                 1L, "PO-PDF", null, 1L, LocalDate.now(),

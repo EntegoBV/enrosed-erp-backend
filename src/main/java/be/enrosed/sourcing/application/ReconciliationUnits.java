@@ -24,9 +24,10 @@ import java.util.Objects;
  * set. Those keep their meaning (sales and partner settlements multiply them
  * with sales quantities); the piece view is added: the line forecast over
  * its pieces, never a rounded set figure divided again. The container
- * average per piece counts every set with its pieces; it is shown only when
- * it means something (one product, or one family sold alike): different
- * products are read per product.
+ * average per piece counts every set with its pieces; it is shown only for a
+ * container of one product. Several products are read per product (an
+ * average over them matches none of them), with the range of their own
+ * figures where one line is wanted.
  */
 public final class ReconciliationUnits {
 
@@ -97,7 +98,7 @@ public final class ReconciliationUnits {
         }
         List<Long> productIds = report.lines().stream().map(PurchaseReconciliation.Line::productId).toList();
         int productCount = productCount(productIds);
-        boolean average = containerAverage(productIds, products);
+        boolean average = containerAverage(productIds);
         if (totals != null) totals = totals.withAverage(productCount, average);
         List<String> notes = new ArrayList<>(report.notes() == null ? List.of() : report.notes());
         if (anySet) notes.add(SET_NOTE);
@@ -118,44 +119,52 @@ public final class ReconciliationUnits {
     }
 
     /**
-     * Whether one average per stuk or per set over these lines means
-     * anything: one product, or every line of the same product family, sales
-     * unit, set size and piece name. The screens and every PDF use this one
-     * rule; otherwise they read per product.
+     * Whether one figure per stuk or per set for the whole container means
+     * anything: only when it holds one product. Several products, even
+     * variants of one family sold alike, are read per product; the screens
+     * and every PDF use this one rule.
      */
-    public static boolean containerAverage(List<Long> productIds, Map<Long, Product> productsById) {
-        if (productCount(productIds) <= 1) return true;
-        Map<Long, Product> products = productsById == null ? Map.of() : productsById;
-        Product first = null;
-        boolean firstSet = false;
-        int firstPieces = 0;
-        String firstKey = null;
-        for (int index = 0; index < productIds.size(); index++) {
-            Long id = productIds.get(index);
-            Product product = id == null ? null : products.get(id);
-            Packaging packaging = product == null ? null : product.packaging();
-            boolean set = packaging != null && packaging.soldAsDisplay();
-            int pieces = set ? packaging.unitPieces() : 1;
-            String key = packaging == null ? UnitNames.DEFAULT : packaging.unitKey();
-            if (index == 0) {
-                first = product;
-                firstSet = set;
-                firstPieces = pieces;
-                firstKey = key;
-            } else if (product == null || !sameFamily(first, product) || firstSet != set || firstPieces != pieces
-                    || !Objects.equals(firstKey, key)) {
-                return false;
-            }
-        }
-        return true;
+    public static boolean containerAverage(List<Long> productIds) {
+        return productCount(productIds) <= 1;
     }
 
-    /** Two products of one family: the same family entity, or the same family key when neither has one. */
-    static boolean sameFamily(Product left, Product right) {
-        if (left == null || right == null) return false;
-        if (Objects.equals(left.id(), right.id()) && left.id() != null) return true;
-        if (left.familyId() != null || right.familyId() != null) return Objects.equals(left.familyId(), right.familyId());
-        return left.familyKey() != null && !left.familyKey().isBlank() && left.familyKey().equals(right.familyKey());
+    /**
+     * One product's own figure: per sales unit, and per stuk (the same for a
+     * product sold per piece).
+     */
+    public record UnitFigure(BigDecimal perUnit, BigDecimal perPiece, boolean set) {}
+
+    /**
+     * The lowest and highest of the products' own figures: what a container
+     * of different products shows where one product shows its figure. Sets
+     * alone compare per set and per stuk; sets next to pieces compare per stuk.
+     * Equal ends mean every product has the same figure.
+     */
+    public record UnitRange(boolean perSet, BigDecimal low, BigDecimal high, BigDecimal pieceLow,
+                            BigDecimal pieceHigh) {}
+
+    /** The range over these figures; null when none is known. */
+    public static UnitRange range(List<UnitFigure> figures) {
+        List<UnitFigure> known = figures == null ? List.of()
+                : figures.stream().filter(figure -> figure != null && figure.perUnit() != null).toList();
+        if (known.isEmpty()) return null;
+        List<BigDecimal> pieces = known.stream()
+                .map(figure -> figure.set() ? figure.perPiece() : figure.perUnit())
+                .filter(Objects::nonNull).toList();
+        if (known.stream().allMatch(UnitFigure::set)) {
+            List<BigDecimal> sets = known.stream().map(UnitFigure::perUnit).toList();
+            return new UnitRange(true, min(sets), max(sets), min(pieces), max(pieces));
+        }
+        if (pieces.isEmpty()) return null;
+        return new UnitRange(false, min(pieces), max(pieces), min(pieces), max(pieces));
+    }
+
+    private static BigDecimal min(List<BigDecimal> values) {
+        return values.stream().min(BigDecimal::compareTo).orElse(null);
+    }
+
+    private static BigDecimal max(List<BigDecimal> values) {
+        return values.stream().max(BigDecimal::compareTo).orElse(null);
     }
 
     private static BigDecimal perPiece(BigDecimal amount, int pieces) {

@@ -324,7 +324,7 @@
       {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
       {#if hasSeparateColumn}<td class="r">{line.separateEur.money}</td>{/if}
       <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
-      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b></td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<br/><span class="tiny">per set</span><br/><span class="tiny">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
       {/if}
     </tr>
   {/for}
@@ -346,7 +346,7 @@
     {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
     {#if hasSeparateColumn}<td class="r">{costing.totals.separateCostsEur.money}</td>{/if}
     <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
-    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#else}<span class="tiny">per product</span>{/if}</td>
+    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<br/><span class="tiny">per set</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
     {/if}
   </tr>
   </tbody>
@@ -371,14 +371,13 @@
         <tr><td>{costLabels.seaFreightLabel} <span class="tiny">{costLabels.seaFreightRoute}</span></td>
             <td class="r">{costing.totals.freightEur.eur}</td></tr>
         <tr class="mini__sub"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
-        <tr><td>Invoerrechten <span class="tiny">{costing.totals.effectiveDutyPct.pct} gemiddeld</span></td>
+        <tr><td>Invoerrechten <span class="tiny">{#if dutyRateRange}{dutyRateRange}{#else}{costing.totals.effectiveDutyPct.pct} gemiddeld{/if}</span></td>
             <td class="r">{costing.totals.dutyEur.eur}</td></tr>
         <tr><td>{costLabels.destinationCostsLabel}</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
         <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
         {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label} <span class="tiny">{cost.note}</span></td><td class="r">{cost.amount.eur}</td></tr>{/for}{/if}
         <tr class="mini__grand"><td>{#if hasSeparateCosts}{separateCostsTotalLabel}{#else}Totaal geland{/if}</td><td class="r">{totalWithSeparateCostsEur.eur}</td></tr>
-        {#if containerAverage}<tr class="mini__avg"><td>Gemiddeld per stuk</td><td class="r">{costing.totals.averageUnitEur.unit}</td></tr>
-        {#else}<tr class="mini__avg"><td>Per stuk <span class="tiny">{productCount} producten</span></td><td class="r">per product</td></tr>{/if}
+        {#for row in unitRows}<tr class="mini__avg"><td>{row.label}{#if row.note} <span class="tiny">{row.note}</span>{/if}</td><td class="r">{row.value}</td></tr>{/for}
       </table>
     </td>
     <td class="card">

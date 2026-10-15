@@ -234,6 +234,14 @@ class PdfPurchasePaymentsRendererTest {
             assertTrue(text.contains("120,00") && text.contains("80,00") && text.contains("200,00"), text);
         }
 
+        var unmarked = report(List.of(vase, bowl), "PIECE", null, 300);
+        assertTrue(unmarked.totals().containerAverage(), "the old totals default to an average");
+        String unmarkedHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), unmarked, List.of());
+        assertFalse(unmarkedHtml.contains("Totaal / gemiddeld") || unmarkedHtml.contains("6,6667"),
+                "two products on the lines never get an average, whatever the totals say: " + unmarkedHtml);
+        assertTrue(unmarkedHtml.contains(">per product<")
+                && unmarkedHtml.contains("verdeeld over 2 producten (300 bestelde stuks)"), unmarkedHtml);
+
         var one = report(List.of(vase), "PIECE", null, 100);
         String oneHtml = renderer.html(order, PdfPurchaseRendererRenderTest.supplier(), one, List.of());
         assertTrue(oneHtml.contains("Totaal / gemiddeld"), oneHtml);
