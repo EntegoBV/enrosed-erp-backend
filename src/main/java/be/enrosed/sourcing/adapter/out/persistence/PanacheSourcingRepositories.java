@@ -371,6 +371,63 @@ public final class PanacheSourcingRepositories {
     }
 
     @ApplicationScoped
+    public static class PaymentBankAdjustmentAdapter implements SourcingRepositories.PaymentBankAdjustments {
+        /** Above this many ids one read of the (small) table beats a long IN list. */
+        private static final int IN_LIMIT = 500;
+        private final jakarta.persistence.EntityManager em;
+
+        public PaymentBankAdjustmentAdapter(jakarta.persistence.EntityManager em) {
+            this.em = em;
+        }
+
+        @Override
+        public java.util.Map<Long, PurchasePaymentBankAdjustment> find(java.util.Collection<Long> paymentIds) {
+            java.util.Map<Long, PurchasePaymentBankAdjustment> rows = new java.util.HashMap<>();
+            if (paymentIds == null || paymentIds.isEmpty()) return rows;
+            var ids = paymentIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+            if (ids.isEmpty()) return rows;
+            var query = ids.size() > IN_LIMIT
+                    ? em.createQuery("from PurchasePaymentBankAdjustmentEntity a", PurchasePaymentBankAdjustmentEntity.class)
+                    : em.createQuery("from PurchasePaymentBankAdjustmentEntity a where a.paymentId in :ids",
+                            PurchasePaymentBankAdjustmentEntity.class).setParameter("ids", ids);
+            var wanted = new java.util.HashSet<>(ids);
+            for (var entity : query.getResultList()) {
+                if (wanted.contains(entity.paymentId)) rows.put(entity.paymentId, toDomain(entity));
+            }
+            return rows;
+        }
+
+        @Override
+        public boolean insertIfAbsent(PurchasePaymentBankAdjustment row) {
+            if (em.find(PurchasePaymentBankAdjustmentEntity.class, row.paymentId()) != null) return false;
+            var entity = new PurchasePaymentBankAdjustmentEntity();
+            entity.paymentId = row.paymentId();
+            entity.fromAmountEur = row.fromAmountEur();
+            entity.fromPaidOn = row.fromPaidOn();
+            entity.bankStatementLineId = row.bankStatementLineId();
+            entity.adjustedAt = row.adjustedAt();
+            entity.actor = row.actor();
+            em.persist(entity);
+            em.flush();
+            return true;
+        }
+
+        @Override
+        public void delete(long paymentId) {
+            var entity = em.find(PurchasePaymentBankAdjustmentEntity.class, paymentId);
+            if (entity != null) {
+                em.remove(entity);
+                em.flush();
+            }
+        }
+
+        private static PurchasePaymentBankAdjustment toDomain(PurchasePaymentBankAdjustmentEntity entity) {
+            return new PurchasePaymentBankAdjustment(entity.paymentId, entity.fromAmountEur, entity.fromPaidOn,
+                    entity.bankStatementLineId, entity.adjustedAt, entity.actor);
+        }
+    }
+
+    @ApplicationScoped
     public static class SupplierAdapter implements SourcingRepositories.Suppliers {
 
         private final SupplierDao dao;

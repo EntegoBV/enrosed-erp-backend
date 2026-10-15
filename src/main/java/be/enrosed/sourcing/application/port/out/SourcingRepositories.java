@@ -46,6 +46,18 @@ public interface SourcingRepositories {
         }
     }
 
+    /**
+     * What payments were before they first followed their bank transaction. The first adjustment wins; only a hand
+     * edit of the amount or date and deleting the payment remove a row.
+     */
+    interface PaymentBankAdjustments {
+        /** The rows of these payments, by payment id; payments without one are absent. */
+        java.util.Map<Long, be.enrosed.sourcing.domain.PurchasePaymentBankAdjustment> find(java.util.Collection<Long> paymentIds);
+        /** Writes the row unless the payment already has one; true when it was written. */
+        boolean insertIfAbsent(be.enrosed.sourcing.domain.PurchasePaymentBankAdjustment row);
+        void delete(long paymentId);
+    }
+
     /** Credits the supplier owes on a container ("Tegoed leverancier"). */
     interface SupplierCredits {
         /** The credits noted on this order, oldest first. */

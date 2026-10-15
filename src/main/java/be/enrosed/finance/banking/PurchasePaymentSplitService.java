@@ -140,8 +140,7 @@ public class PurchasePaymentSplitService {
         if (lines.size() == 1) {
             BankStatementLineEntity line = lines.getFirst();
             PurchasePayment before = toDomain(payment);
-            PurchasePayment after = purchases.followBankLine(orderId, paymentId, day(line), line.amountEur.negate(),
-                    LINKED_SUMMARY);
+            PurchasePayment after = follow(orderId, paymentId, day(line), line.amountEur.negate(), LINKED_SUMMARY, line.id);
             link(line, List.of(paymentId));
             return result(orderId, lockPayment(paymentId), lines, followed(before, after));
         }
@@ -240,8 +239,8 @@ public class PurchasePaymentSplitService {
         if (!higher && difference.compareTo(BankAmountMatch.MAX_DIFFERENCE.negate()) >= 0
                 || higher && request.higher() == Higher.ADJUST) {
             /* The payment follows the transfer: its day and, the other parts kept, the rest of the line. */
-            PurchasePayment after = purchases.followBankLine(orderId, goodsId, day, target, LINKED_SUMMARY);
-            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            PurchasePayment after = follow(orderId, goodsId, day, target, LINKED_SUMMARY, line.id);
+            for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
             link(line, concat(goodsId, otherIds));
             return result(orderId, lockPayment(goodsId), List.of(line), followed(before, after));
         }
@@ -252,8 +251,8 @@ public class PurchasePaymentSplitService {
                         + eur(target) + "'" + (refused == null ? " of 'Rest als inspectie via leverancier'" : "") + ".");
             }
             if (refused != null) throw new BusinessRuleException(refused);
-            PurchasePayment after = purchases.followBankLine(orderId, goodsId, day, null, LINKED_SUMMARY);
-            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            PurchasePayment after = follow(orderId, goodsId, day, null, LINKED_SUMMARY, line.id);
+            for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
             PurchasePayment inspection = purchases.addInspectionRest(orderId, goodsId, difference);
             List<Long> linked = new ArrayList<>(concat(goodsId, otherIds));
             linked.add(inspection.id());
@@ -268,7 +267,7 @@ public class PurchasePaymentSplitService {
         List<PurchasePayment> saved = purchases.splitPayment(orderId, goodsId, List.of(
                 new PurchaseOrderService.PaymentPart(target, target, day),
                 new PurchaseOrderService.PaymentPart(rest, rest, payment.paidOn)), CARVED_SUMMARY);
-        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
         link(line, concat(saved.getFirst().id(), otherIds));
         return result(orderId, lockPayment(goodsId), List.of(line), carved(target, whole));
     }
@@ -298,8 +297,8 @@ public class PurchasePaymentSplitService {
                 throw new BusinessRuleException("Een betaling in " + currency.name() + " neemt het eurobedrag van de transactie "
                         + "over: een verschil in euro is koers, geen inspectie. Splits de inspectie na het koppelen af.");
             }
-            PurchasePayment after = purchases.followBankLine(orderId, payment.id, day, target, LINKED_SUMMARY);
-            for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+            PurchasePayment after = follow(orderId, payment.id, day, target, LINKED_SUMMARY, line.id);
+            for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
             link(line, concat(payment.id, otherIds));
             return result(orderId, lockPayment(payment.id), List.of(line), followed(before, after));
         }
@@ -313,7 +312,7 @@ public class PurchasePaymentSplitService {
                 new PurchaseOrderService.PaymentPart(named, partBooked, day),
                 new PurchaseOrderService.PaymentPart(rest, restEur, payment.paidOn)), CARVED_SUMMARY);
         purchases.followBankLine(orderId, saved.getFirst().id(), day, target, CARVED_SUMMARY);
-        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
         link(line, concat(saved.getFirst().id(), otherIds));
         return result(orderId, lockPayment(goodsId), List.of(line), carvedForeign(named, target, whole, currency));
     }
@@ -351,7 +350,7 @@ public class PurchasePaymentSplitService {
         if (amount.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
         PurchasePayment added = purchases.addTransfer(orderId, payment.id,
                 new PurchaseOrderService.PaymentPart(amount, target, day), GROWN_SUMMARY);
-        for (Long other : otherIds) purchases.followBankLine(orderId, other, day, null, LINKED_SUMMARY);
+        for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
         link(line, concat(added.id(), otherIds));
         String notice = currency == Currency.EUR
                 ? "Transactie van " + eur(target) + " op " + DAY.format(day) + " toegevoegd; de betaling is nu "
@@ -441,6 +440,19 @@ public class PurchasePaymentSplitService {
     }
 
     /** The bank service's own link, with its direction, two-cent, offset and exclusive-set guards. */
+    /**
+     * A whole payment follows its transaction (the line's day, and its euro when given) and remembers, the first
+     * time, what it was before: "aangepast aan de bank (was ...)". A carved part is a new transfer, not a payment
+     * that moved: those paths call {@link PurchaseOrderService#followBankLine} directly.
+     */
+    private PurchasePayment follow(long orderId, long paymentId, LocalDate day, BigDecimal amountEur, String summary,
+                                   long lineId) {
+        PurchasePayment before = toDomain(lockPayment(paymentId));
+        PurchasePayment after = purchases.followBankLine(orderId, paymentId, day, amountEur, summary);
+        purchases.recordBankAdjustment(before, lineId);
+        return after;
+    }
+
     private void link(BankStatementLineEntity line, List<Long> paymentIds) {
         bank.linkExisting(line.id, new BankStatementService.OutgoingLinks(paymentIds, null, null));
     }
