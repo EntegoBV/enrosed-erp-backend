@@ -2698,14 +2698,22 @@ public class PurchaseOrderService {
      * Writes the calculated cost prices onto the products. From that moment
      * the sales side computes with them.
      *
-     * Each cost goes into the product's history with the basis it holds on
-     * and what one unit was made of.
+     * A line that received nothing is skipped: its piece price is € 0, and
+     * writing that would wipe the cost the product carries. Each written
+     * cost goes into the product's history with the basis it holds on and
+     * what one unit was made of.
      */
     @Transactional
     public LandedCost applyToProducts(long id) {
         PurchaseOrder order = getForUpdate(id);
         LandedCost result = calculate(order);
+        int written = 0;
+        int skipped = 0;
         for (LandedCost.Line line : result.lines()) {
+            if (line.quantity() <= 0) {
+                skipped++;
+                continue;
+            }
             PurchaseOrderLine ordered = order.lines().stream()
                     .filter(candidate -> candidate.productId() != null && candidate.productId().equals(line.productId()))
                     .findFirst().orElse(null);
@@ -2723,15 +2731,17 @@ public class PurchaseOrderService {
             products.applyLandedCost(line.productId(), line.landedUnitEur(), order.number(), order.id(),
                     line.quantity(), exwPrice, exwCurrency == null ? null : exwCurrency.name(),
                     extraUnitCost, breakdown);
+            written++;
         }
-        LOG.infof("Kostprijzen uit %s toegepast op %d product(en)", order.number(), result.lines().size());
+        String skippedNote = skipped > 0 ? ", " + skipped + " overgeslagen (niets ontvangen)" : "";
+        LOG.infof("Kostprijzen uit %s toegepast op %d product(en)%s", order.number(), written, skippedNote);
         /* Into the diary: applying rewrites what the whole catalogue counts with. */
         String line = "Kostprijzen toegepast " + LocalDate.now().format(DAY) + ": "
-                + result.lines().size() + " product(en) bijgewerkt in de catalogus.";
+                + written + " product(en) bijgewerkt in de catalogus" + skippedNote + ".";
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                 order.stockBooked(), appendNote(order.notes(), line), order.lines()));
         recordActivity(ActivityLogService.ACTION_COSTS_APPLIED, order,
-                "Kostprijzen op " + result.lines().size() + " product(en) toegepast");
+                "Kostprijzen op " + written + " product(en) toegepast" + skippedNote);
         return result;
     }
 

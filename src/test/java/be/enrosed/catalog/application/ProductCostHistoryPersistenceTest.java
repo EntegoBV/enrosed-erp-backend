@@ -41,8 +41,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The cost history as applying a container writes it: once per change, with
- * the basis the cost holds on and what one unit was made of, and the
- * container's name also after it went to the trash.
+ * the basis the cost holds on and what one unit was made of; nothing for a
+ * line that received nothing; and the container's name also after it went
+ * to the trash.
  */
 @QuarkusTest
 @TestSecurity(user = "emre", roles = AdminIdentityProvider.ADMIN_ROLE)
@@ -122,6 +123,30 @@ class ProductCostHistoryPersistenceTest {
         assertEquals(first.id(), rows.getFirst().purchaseOrderId());
         assertEquals(0, dearer.compareTo(rows.getFirst().landedUnitEur()));
         assertEquals(0, dearer.compareTo(productService.get(diamond.id).landedCostEur()));
+    }
+
+    @Test @TestTransaction
+    void aLineThatReceivedNothingKeepsTheCostAndWritesNoRow() {
+        Supplier supplier = supplier();
+        ProductEntity missing = displayProduct(supplier, null);
+        missing.landedCostEur = new BigDecimal("2.5000");
+        missing.landedCostSource = "PO-OLD";
+        ProductEntity arrived = displayProduct(supplier, null);
+        entities.flush();
+        PurchaseOrder order = order(supplier, null,
+                new PurchaseOrderLine(null, missing.id, 0, new BigDecimal("1.20"), Currency.USD, null, null),
+                new PurchaseOrderLine(null, arrived.id, 50, new BigDecimal("1.20"), Currency.USD, null, null));
+
+        purchases.applyToProducts(order.id());
+
+        assertEquals(0, new BigDecimal("2.5").compareTo(productService.get(missing.id).landedCostEur()),
+                "a € 0 piece price would wipe the cost the product carries");
+        assertEquals("PO-OLD", productService.get(missing.id).landedCostSource());
+        assertTrue(history.history(missing.id).isEmpty());
+        assertEquals(1, history.history(arrived.id).size());
+        assertTrue(purchases.get(order.id()).notes()
+                        .contains("1 product(en) bijgewerkt in de catalogus, 1 overgeslagen (niets ontvangen)."),
+                purchases.get(order.id()).notes());
     }
 
     @Test @TestTransaction
