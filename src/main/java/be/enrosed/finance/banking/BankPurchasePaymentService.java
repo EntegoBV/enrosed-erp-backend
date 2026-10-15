@@ -53,6 +53,7 @@ public class BankPurchasePaymentService {
         var parts = request.payments().stream().map(BankPurchasePaymentService::checked).toList();
         var line = em.find(BankStatementLineEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (line == null) throw new NotFoundException("Bankbeweging", id);
+        bank.requireUnclassified(line);
         if (line.amountEur.signum() >= 0 || line.salesPaymentId != null) {
             throw new BusinessRuleException("Kies een vrije uitgaande banktransactie");
         }

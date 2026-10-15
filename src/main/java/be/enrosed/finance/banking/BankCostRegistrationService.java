@@ -37,6 +37,7 @@ public class BankCostRegistrationService {
         if(request.cost().id()!=null)throw new BusinessRuleException("Kies een bestaande kost via de factuurlijst");
         var line=em.find(BankStatementLineEntity.class,id,LockModeType.PESSIMISTIC_WRITE);
         if(line==null)throw new NotFoundException("Banktransactie",id);
+        bank.requireUnclassified(line);
         if(line.amountEur.signum()>=0)throw new BusinessRuleException("Een nieuwe uitgave hoort bij een uitgaande banktransactie");
         var clean=unpaid(request.cost());
         String hash=hash(line,clean);

@@ -16,6 +16,7 @@ public class OdooPurchaseImportService {
     @Inject OdooDocumentService documents;
     @Inject OdooCostImportStore store;
     @Inject OdooCostImportSlots slots;
+    @Inject be.enrosed.finance.banking.BankStatementService bank;
     public record Item(@JsonUnwrapped OdooDocumentService.Document document,Long companyCostId,boolean registered,boolean eligible,String unavailableReason) {}
     public record Page(List<Item> documents,long nextAfterId,boolean hasMore,boolean peppolSupported) {}
     public record Preview(OdooDocumentService.Document document,String snapshotHash,BigDecimal invoiceTotalEur,BigDecimal netEur,BigDecimal vatEur,
@@ -44,6 +45,7 @@ public class OdooPurchaseImportService {
         config.requireReady();
         if(request==null||request.odooInvoiceId()<=0||request.snapshotHash()==null||!request.snapshotHash().matches("[0-9a-f]{64}"))
             throw new BusinessRuleException("Open en controleer eerst het factuurvoorbeeld");
+        bank.requireUnclassified(store.line(lineId));
         var retry=store.completedRetry(config.sourceNamespace(),lineId,request.odooInvoiceId(),request.snapshotHash());
         if(retry!=null) {
             if(request.existingCompanyCostId()!=null&&request.existingCompanyCostId()!=retry.companyCostId())throw new BusinessRuleException("Deze bronfactuur hoort al bij een andere kost");

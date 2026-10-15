@@ -73,6 +73,44 @@ public class BankStatementService {
         return rows;
     }
 
+    /**
+     * The lines booked from a day on (00:00 Brussels), plus every older line that is still "te koppelen": the
+     * Kasprognose needs recent movements and every open line. "Open" is the described allocation (a classified
+     * line is not open), which is transient, so the filter runs here and never in SQL. Same order as {@link #list()}.
+     */
+    public List<BankStatementLineEntity> list(String from) {
+        if(from==null||from.isBlank())return list();
+        LocalDate day;
+        try { day=LocalDate.parse(from.strip()); }
+        catch(java.time.format.DateTimeParseException invalid) { throw new BusinessRuleException("Ongeldige datum voor from (JJJJ-MM-DD)"); }
+        Instant start=day.atStartOfDay(ZoneId.of("Europe/Brussels")).toInstant();
+        return list().stream().filter(row->!row.bookedAt.isBefore(start)||!row.allocated).toList();
+    }
+
+    /** The Dutch name of a "Boeken als" classification; null for none. */
+    public static String classificationLabel(String classification) {
+        if(classification==null)return null;
+        return switch(classification) {
+            case "INTERNAL_TRANSFER" -> "Interne overboeking";
+            case "VAT" -> "Btw";
+            case "LOAN" -> "Lening";
+            case "CAPITAL" -> "Kapitaal";
+            case "PRIVATE" -> "Privé";
+            case "OTHER" -> "Andere";
+            default -> classification;
+        };
+    }
+
+    /**
+     * A line booked as an internal transfer, VAT, a loan and so on carries no payment. Every link path calls this
+     * first, right after loading or locking the line and before any retry shortcut or allocation test: the
+     * described allocation of a classified line would otherwise answer "al gekoppeld".
+     */
+    public void requireUnclassified(BankStatementLineEntity row) {
+        if(row!=null&&row.classification!=null)
+            throw new BusinessRuleException("Deze banktransactie is geboekt als "+classificationLabel(row.classification)+"; maak dat eerst ongedaan");
+    }
+
     /** Each imported row commits independently. A failed/retried sync resumes from stable external identities. */
     @Transactional
     public ImportResult importExternal(ExternalRequest request) {
@@ -109,6 +147,7 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity linkExisting(long id,OutgoingLinks request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(request==null)throw new BusinessRuleException("Kies de betaling die bij deze banktransactie hoort");
         if(row.amountEur.signum()==0||row.salesPaymentId!=null)throw new BusinessRuleException("Kies een vrije banktransactie");
         var ids=request.purchasePaymentIds()==null?List.<Long>of():request.purchasePaymentIds();
@@ -189,6 +228,7 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity recordCostPayment(long id,CostAllocation request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(request==null||request.companyCostId()<=0)throw new BusinessRuleException("Kies de kost bij deze banktransactie");
         if(row.amountEur.signum()==0)throw new BusinessRuleException("Kies een banktransactie met een bedrag");
         var cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
@@ -255,6 +295,12 @@ public class BankStatementService {
     }
 
     private static void describe(BankStatementLineEntity row,AllocationAmounts amounts) {
+        if(row.classification!=null) {
+            /* Booked as a transfer, VAT, a loan...: explained in full, so it counts as allocated everywhere. */
+            row.allocated=true;row.allocationLabel=classificationLabel(row.classification);
+            row.allocatedAmountEur=row.amountEur;row.allocationDifferenceEur=BigDecimal.ZERO.setScale(2);
+            return;
+        }
         boolean purchase=amounts.purchases.containsKey(row.id),cost=amounts.costs.containsKey(row.id);
         row.allocated=row.salesPaymentId!=null||purchase||cost;
         row.allocationLabel=row.salesPaymentId!=null?"Verkoopfactuur":purchase&&cost?"Inkoop en kosten":purchase?"Inkoopbetaling":cost?"Kostbetaling":null;
@@ -326,6 +372,7 @@ public class BankStatementService {
     @Transactional
     public BankStatementLineEntity allocate(long id,Allocation request) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(describe(row).allocated) {
             if(request!=null&&row.salesPaymentId!=null&&Objects.equals(row.salesOrderId,request.salesOrderId())
                     &&(request.existingPaymentId()==null&&row.allocationCreatedPayment||Objects.equals(row.salesPaymentId,request.existingPaymentId())))return row;
@@ -387,6 +434,7 @@ public class BankStatementService {
     @Transactional
     public void delete(long id) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(row.source!=null)throw new BusinessRuleException("Een opgehaalde banktransactie kan niet worden verwijderd; je kunt alleen de koppeling losmaken");
         if(row.salesPaymentId!=null)throw new BusinessRuleException("Maak eerst de factuurkoppeling ongedaan");
         unlink(row.id);
