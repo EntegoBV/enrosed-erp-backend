@@ -145,6 +145,11 @@ ordinary local documents: `/bank-statements/{id}/allocation` for sales,
 and `/purchase-payment` for explicit purchase payment parts. The last endpoint requires
 original currency/amount and the actual EUR amount; a purchase reconciliation budget must
 not be presented as a separately registered supplier invoice or converted into fictional FX.
+`/purchase-share` shares one outgoing movement over containers in one transaction
+(`{parts:[{paymentId,amountEur,expectedAmountEur?} | {purchaseOrderId,amountEur,payee,instalmentDue,label}]}`):
+an open payment is linked and follows its part (grows, or is carved with the rest left open),
+a container without one gets a new EUR payment; the parts make the movement within EUR 0.02
+and an identical retry returns the same rows.
 
 The local cost-payment body is `{companyCostId,confirmNewPayment?:boolean}`. The optional
 flag defaults to false. A bank amount above the remaining cost plus EUR 0.02 is always
