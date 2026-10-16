@@ -22,7 +22,8 @@ import java.util.Map;
  *
  * Two kinds of notifications, and the distinction matters more than it seems:
  *  - **our move**: a customer is waiting on something from us (a delivery
- *    term, a freight amount, a proposal to review)
+ *    term, a freight amount, a proposal to review, the new version of a
+ *    quote after we adopted their change)
  *  - **the customer did something**: signed, rejected, or simply looked
  *
  * The first kind is work, the second is news. Mixing them means missing the
@@ -66,6 +67,8 @@ public class NotificationService {
         VRACHT,
         /** A change proposal awaits review. */
         VOORSTEL,
+        /** We adopted the customer's change; the customer waits for the new version. */
+        OPNIEUW_VERSTUREN,
         /** The customer signed. */
         GETEKEND,
         /** The customer rejected. */
@@ -94,11 +97,17 @@ public class NotificationService {
         var closedQuoteIds = OpenQuoteWork.closedQuoteIds(documents);
         Map<Long, WebOrders.Row> webOrderRows = webOrders != null && webOrders.isResolvable()
                 ? webOrders.get().indexStates() : Map.of();
+        /* The same answer as the sales list's "opnieuw versturen", from one read of the adopted proposals. */
+        Map<Long, Instant> resendSince = QuoteService.awaitsResendSince(documents, revisions.findApproved());
 
         for (SalesOrder order : documents) {
             if (order.isArchived() || closedQuoteIds.contains(order.id())) continue;
             String who = customerName(order);
             WebOrders.Row webOrder = order.id() == null || order.isClaimDocument() ? null : webOrderRows.get(order.id());
+            /* One item per document: once we adopted the customer's change, the new version is
+               what they wait for, whatever the website request or order read before. */
+            Instant awaitingResendSince = order.id() == null || order.isClaimDocument()
+                    ? null : resendSince.get(order.id());
 
             /* ---- our move ------------------------------------------------ */
 
@@ -110,6 +119,8 @@ public class NotificationService {
                                 "Bestelling geannuleerd door de klant",
                                 "De klant annuleerde websitebestelling " + order.number() + " op de website.",
                                 false, webOrder.customerCancelledAt()));
+                } else if (awaitingResendSince != null) {
+                    items.add(awaitingResend(order, who, awaitingResendSince));
                 } else if (order.status() == QuoteStatus.CONCEPT && webOrder.processingStartedAt() == null) {
                     items.add(new Notification(Kind.WEBSITE_AANVRAAG, order.id(), order.number(), who,
                             "Nieuwe websitebestelling",
@@ -129,6 +140,8 @@ public class NotificationService {
                             "De cijfers zijn gewijzigd sinds de verstuurde versie; de klant kan niet goedkeuren tot je opnieuw verstuurt.",
                             true, order.sentAt()));
                 }
+            } else if (awaitingResendSince != null) {
+                items.add(awaitingResend(order, who, awaitingResendSince));
             } else if (isWebsiteRequestAwaitingReview(order)) {
                 items.add(new Notification(Kind.WEBSITE_AANVRAAG,
                         order.id(), order.number(), who,
@@ -200,6 +213,18 @@ public class NotificationService {
 
         int actions = (int) items.stream().filter(Notification::actionNeeded).count();
         return new Feed(items, actions);
+    }
+
+    /**
+     * An adopted proposal put the quote back on concept: the customer waits
+     * for the new version until it goes out again. Waiting since the
+     * adoption, the moment the work landed on our side.
+     */
+    private static Notification awaitingResend(SalesOrder order, String who, Instant since) {
+        return new Notification(Kind.OPNIEUW_VERSTUREN, order.id(), order.number(), who,
+                "Wijziging nog versturen",
+                "Je nam de wijziging van de klant over; de klant wacht op de nieuwe versie.",
+                true, since);
     }
 
     /**

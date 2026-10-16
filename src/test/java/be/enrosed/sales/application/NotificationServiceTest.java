@@ -8,10 +8,13 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -132,6 +135,124 @@ class NotificationServiceTest {
         assertEquals(website.number(), views.get(1).sourceQuoteNumber(), "the cancelled invoice retains its history link");
     }
 
+    @Test
+    void anAdoptedProposalIsOneResendItemWaitingSinceTheLatestAdoption() {
+        SalesRepositories.Orders orders = mock(SalesRepositories.Orders.class);
+        SalesRepositories.Revisions revisions = mock(SalesRepositories.Revisions.class);
+        CustomerService customers = mock(CustomerService.class);
+        Instant sent = Instant.parse("2026-09-01T08:00:00Z");
+        SalesOrder adopted = order(41L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder resentSince = order(42L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null,
+                Instant.parse("2026-09-05T08:00:00Z"));
+        SalesOrder outAgain = order(43L, QuoteStatus.VERZONDEN, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder unhandled = order(44L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder archived = order(45L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent)
+                .withArchivedAt(Instant.now());
+        SalesOrder invoiced = order(46L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder invoice = order(47L, QuoteStatus.CONCEPT, null, DocumentType.FACTUUR, 46L, null);
+        List<SalesOrder> documents = List.of(adopted, resentSince, outAgain, unhandled, archived, invoiced, invoice);
+        when(orders.findAll()).thenReturn(documents);
+        when(revisions.findApproved()).thenReturn(List.of(
+                approved(1L, 41L, Instant.parse("2026-09-03T10:00:00Z")),
+                approved(2L, 41L, Instant.parse("2026-09-02T10:00:00Z")),
+                approved(3L, 42L, Instant.parse("2026-09-04T10:00:00Z")),
+                approved(4L, 43L, Instant.parse("2026-09-02T10:00:00Z")),
+                approved(5L, 44L, null),
+                approved(6L, 45L, Instant.parse("2026-09-02T10:00:00Z")),
+                approved(7L, 46L, Instant.parse("2026-09-02T10:00:00Z")),
+                approved(8L, 99L, Instant.parse("2026-09-02T10:00:00Z"))));
+        when(customers.get(9L)).thenReturn(new Customer(
+                9L, "Buyer BV", "Ana", "ana@example.com", null, null,
+                "BE", be.enrosed.shared.Language.EN, null, null, null,
+                "DAP", null, null, LocalDate.now()));
+
+        NotificationService.Feed feed = new NotificationService(orders, revisions,
+                mock(SalesRepositories.Events.class), customers).feed();
+
+        assertEquals(1, feed.items().size(), "only the quote adopted after its last send: " + feed.items());
+        NotificationService.Notification item = feed.items().getFirst();
+        assertEquals(NotificationService.Kind.OPNIEUW_VERSTUREN, item.kind());
+        assertEquals(41L, item.orderId());
+        assertEquals("ENR-2026-0041", item.orderNumber());
+        assertEquals("Buyer BV", item.customer());
+        assertEquals("Wijziging nog versturen", item.title());
+        assertEquals("Je nam de wijziging van de klant over; de klant wacht op de nieuwe versie.", item.detail());
+        assertTrue(item.actionNeeded());
+        assertEquals(Instant.parse("2026-09-03T10:00:00Z"), item.at(), "waiting since the latest adoption");
+        assertEquals(1, feed.actionCount());
+        /* The sales list's "opnieuw versturen" reads the same rule: one set of documents for the list and the bell. */
+        Set<Long> listed = new QuoteService(orders, revisions, null, null,
+                null, null, null, null, null, null).awaitsResendIds(documents);
+        assertEquals(Set.of(41L, 45L, 46L), listed,
+                "the list marks archived and invoiced quotes too and hides them itself; the bell leaves closed quotes out");
+    }
+
+    @Test
+    void theResendItemReplacesTheWebsiteItemOfTheSameDocument() {
+        SalesRepositories.Orders orders = mock(SalesRepositories.Orders.class);
+        SalesRepositories.Revisions revisions = mock(SalesRepositories.Revisions.class);
+        Instant sent = Instant.parse("2026-09-01T08:00:00Z");
+        Instant adoptedAt = Instant.parse("2026-09-02T10:00:00Z");
+        SalesOrder legacy = order(51L, QuoteStatus.CONCEPT,
+                SalesOrderService.WEBSITE_REQUEST_MARKER + " ENR-2026-0051", DocumentType.OFFERTE, null, sent);
+        SalesOrder inProcessing = order(52L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder untaken = order(53L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder cancelledByCustomer = order(54L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, sent);
+        SalesOrder freshOrder = order(55L, QuoteStatus.CONCEPT, null, DocumentType.OFFERTE, null, null);
+        when(orders.findAll()).thenReturn(List.of(legacy, inProcessing, untaken, cancelledByCustomer, freshOrder));
+        when(revisions.findApproved()).thenReturn(List.of(
+                approved(1L, 51L, adoptedAt), approved(2L, 52L, adoptedAt),
+                approved(3L, 53L, adoptedAt), approved(4L, 54L, adoptedAt)));
+        Instant placed = Instant.parse("2026-08-30T08:00:00Z");
+        Instant cancelledAt = Instant.now().minus(java.time.Duration.ofDays(1));
+        WebOrders web = mock(WebOrders.class);
+        when(web.indexStates()).thenReturn(Map.of(
+                52L, webOrder(52L, placed, null, Instant.parse("2026-08-31T08:00:00Z")),
+                53L, webOrder(53L, placed, null, null),
+                54L, webOrder(54L, placed, cancelledAt, null),
+                55L, webOrder(55L, placed, null, null)));
+        @SuppressWarnings("unchecked")
+        jakarta.enterprise.inject.Instance<WebOrders> webOrders = mock(jakarta.enterprise.inject.Instance.class);
+        when(webOrders.isResolvable()).thenReturn(true);
+        when(webOrders.get()).thenReturn(web);
+        NotificationService service = new NotificationService(orders, revisions,
+                mock(SalesRepositories.Events.class), mock(CustomerService.class));
+        service.webOrders = webOrders;
+
+        NotificationService.Feed feed = service.feed();
+
+        for (long id : List.of(51L, 52L, 53L, 54L, 55L))
+            assertEquals(1, feed.items().stream().filter(item -> item.orderId() == id).count(),
+                    "one item per document: " + feed.items());
+        for (long id : List.of(51L, 52L, 53L)) {
+            NotificationService.Notification item = feed.items().stream()
+                    .filter(candidate -> candidate.orderId() == id).findFirst().orElseThrow();
+            assertEquals(NotificationService.Kind.OPNIEUW_VERSTUREN, item.kind(), "document " + id);
+            assertEquals(adoptedAt, item.at());
+        }
+        NotificationService.Notification cancelled = feed.items().stream()
+                .filter(item -> item.orderId() == 54L).findFirst().orElseThrow();
+        assertEquals(NotificationService.Kind.AFGEWEZEN, cancelled.kind(), "a withdrawn order stays news, nothing to resend");
+        NotificationService.Notification fresh = feed.items().stream()
+                .filter(item -> item.orderId() == 55L).findFirst().orElseThrow();
+        assertEquals(NotificationService.Kind.WEBSITE_AANVRAAG, fresh.kind());
+        assertEquals("Nieuwe websitebestelling", fresh.title());
+        assertEquals(4, feed.actionCount());
+    }
+
+    private static WebOrders.Row webOrder(long id, Instant placedAt, Instant customerCancelledAt,
+                                          Instant processingStartedAt) {
+        return new WebOrders.Row(id, 9L, 70L, "buyer@login.example", "nl", 1, placedAt, null, null,
+                customerCancelledAt, processingStartedAt, processingStartedAt == null ? null : "emre",
+                processingStartedAt == null ? null : "KNOP", null, null, null, null, null, null, null);
+    }
+
+    private static QuoteRevision approved(long id, long orderId, Instant handledAt) {
+        return new QuoteRevision(id, orderId, RevisionStatus.GOEDGEKEURD,
+                Instant.parse("2026-09-01T12:00:00Z"), "Buyer", "Andere aantallen",
+                handledAt, "emre", null, List.of());
+    }
+
     private static QuoteRevision revision(long orderId) {
         return new QuoteRevision(orderId, orderId, RevisionStatus.IN_AFWACHTING,
                 Instant.parse("2026-09-10T08:00:00Z"), "Buyer", "Andere aantallen",
@@ -144,11 +265,16 @@ class NotificationServiceTest {
 
     private static SalesOrder order(long id, QuoteStatus status, String internalNotes,
                                     DocumentType docType, Long sourceQuoteId) {
+        return order(id, status, internalNotes, docType, sourceQuoteId, null);
+    }
+
+    private static SalesOrder order(long id, QuoteStatus status, String internalNotes,
+                                    DocumentType docType, Long sourceQuoteId, Instant sentAt) {
         LocalDate today = LocalDate.of(2026, 8, 27);
         return new SalesOrder(id, "ENR-2026-00" + id, 9L, "BE",
                 today, today.plusDays(30), status, "DAP", null, null,
                 MarkupMode.PRODUCT, BigDecimal.valueOf(45), null, null,
-                null, null, null, 0, null, null, null, internalNotes,
+                null, sentAt, null, 0, null, null, null, internalNotes,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
                 FreightPricingStrategy.COUNTRY_PALLET, null, null, null,
