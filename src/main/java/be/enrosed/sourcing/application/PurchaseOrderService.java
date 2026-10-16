@@ -784,6 +784,16 @@ public class PurchaseOrderService {
     }
 
     /**
+     * One bank transaction shared over several containers ("Verdelen over containers"): the container's history
+     * says which part was its own and which containers the same transfer paid. The payments' own diary lines and
+     * changes come from the follow, split and add paths; this is the one line that ties them together.
+     */
+    @Transactional
+    public void recordBankShare(long orderId, String summary) {
+        recordActivity(ActivityLogService.ACTION_UPDATED, get(orderId), summary);
+    }
+
+    /**
      * The payment sheet's correction: {@link #updatePayment} with every field, and a changed amount or day
      * forgets what the payment was before it followed the bank (the hand edit is the truth now).
      */
