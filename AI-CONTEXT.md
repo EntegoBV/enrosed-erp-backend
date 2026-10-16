@@ -1755,6 +1755,19 @@ the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it ne
   may name its own `purchaseOrderId` (the request's is the default and may be left out). The line, then every order in
   ascending id, are locked; the parts' total must make the line (two-cent rule); each part is a payment on its order;
   all are linked to the one line, which is the proof for every part. Identical retries answer the same ids.
+- **Verdelen over containers** (Emre, 2026-10-16: one transfer paid the instalments of three containers, some already
+  noted): `BankPurchaseShareService` + `POST /api/bank-statements/{id}/purchase-share` `{parts:[{paymentId, amountEur,
+  expectedAmountEur?} | {purchaseOrderId, amountEur, payee, instalmentDue, label, settles, invoiceId?}]}`, 1-10 parts,
+  one `@Transactional`. An open payment part is linked and follows the line's day (`followBankLine` +
+  `recordBankAdjustment`: same euro LINKED, more GREW, less CARVED through `splitPayment` with the rest left open in its
+  group); USD/CNY is whole (its euro becomes the part, its own amount stays); a container part gets a new EUR payment
+  (CREATED, ids ascend in request order). Locks: line, orders ascending, payments ascending; parts make the line within
+  EUR 0,02; every check (credit offset, already on the bank, changed `expectedAmountEur`) runs before any write; one
+  `bank.linkExisting` with every row, so its guards run unchanged. An identical retry answers the same rows without
+  writing; any other request on a line with purchase payments is refused ("Deze banktransactie is al aan een andere
+  betaling gekoppeld"). Each order gets one activity line
+  (`PurchaseOrderService.recordBankShare`), the line one bank audit ("Verdeeld over 3 containers: …"). No schema change.
+  The ERP sends it only when a part is an existing payment; `/purchase-payment` stays as it was.
 - **Migrations** `2026-10-16/cash-forecast-postgresql.sql` (the forecast table, the buffer, the due date, the account
   flag) and `bank-classification-postgresql.sql` (the classification columns with an index on the other leg, the
   adjustment table) run after `purchase-document-invoice-kind-postgresql.sql`, in that order. Additive: no update,
