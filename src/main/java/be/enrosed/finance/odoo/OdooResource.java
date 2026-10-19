@@ -13,6 +13,10 @@ import java.util.Map;
 public class OdooResource {
     @Inject OdooService service;
     @Inject OdooDocumentService documents;
+    @Inject OdooTicaCreditnoteImportService ticaCreditnotes;
+    @Inject OdooLincCostMatchService lincCosts;
+    @GET @Path("/tica-creditnotes/status") public OdooTicaCreditnoteImportService.Status ticaCreditnotesStatus() { return ticaCreditnotes.status(); }
+    @GET @Path("/linc-costs/status") public OdooLincCostMatchService.Status lincCostsStatus() { return lincCosts.status(); }
     @GET @Path("/status") public OdooService.Status status() { return service.status(); }
     @POST @Path("/check") public OdooService.Status check() { return service.check(); }
     @POST @Path("/bank-sync") public OdooService.SyncReport sync() { return service.syncBank(); }

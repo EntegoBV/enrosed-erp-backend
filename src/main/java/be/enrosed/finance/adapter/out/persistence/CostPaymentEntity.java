@@ -31,9 +31,11 @@ public class CostPaymentEntity {
     @Column(name = "note", length = 300) public String note;
     @Column(name = "recorded_at", nullable = false) public Instant recordedAt;
     @Column(name = "actor", length = 255) public String actor;
+    @org.hibernate.annotations.ColumnDefault("false")
+    @Column(name = "settlement_offset", nullable = false) public boolean settlementOffset;
 
     public CostPayment toDomain() {
-        return new CostPayment(id, companyCostId, paidOn, amountEur, account, bankStatementLineId, note, recordedAt, actor);
+        return new CostPayment(id, companyCostId, paidOn, amountEur, account, bankStatementLineId, note, recordedAt, actor, settlementOffset);
     }
 
     public void apply(CostPayment payment) {
@@ -45,5 +47,6 @@ public class CostPaymentEntity {
         note = payment.note();
         recordedAt = payment.recordedAt();
         actor = payment.actor();
+        settlementOffset = payment.settlementOffset();
     }
 }

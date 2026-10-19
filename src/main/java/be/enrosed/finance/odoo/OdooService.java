@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.time.Instant;
 import java.util.*;
 import static be.enrosed.finance.odoo.OdooBankMapper.*;
@@ -24,12 +25,16 @@ public class OdooService {
     @Inject BankStatementService bank;
     @Inject BankAccountService accounts;
     @Inject ObjectMapper json;
+    @ConfigProperty(name="enrosed.odoo.bank-auto-sync.enabled",defaultValue="true")
+    boolean bankAutoSyncEnabled=true;
 
     public record SyncReport(int scanned,int created,int updated,int unchanged,int conflicts,int skippedNonEur,
                              boolean complete,String message,String code) {}
     public record Status(boolean enabled,boolean configured,String code,String message,List<String> missingConfiguration,
                          boolean outboundEnabled,Instant lastCheckAt,Instant lastSyncAt,SyncReport lastSync,
-                         String companyName,Integer journalCount) {}
+                         String companyName,Integer journalCount,AutoBankSync autoBankSync) {}
+    public record AutoBankSync(boolean enabled,int intervalHours,int retryMinutes,Instant lastAttemptAt,
+                               Instant lastSuccessAt,Instant nextRunAt,String lastCode) {}
     record Journal(long id,String account,long currencyId) {}
     record Scope(String companyName,long eurCurrencyId,Map<Long,Journal> journals) {}
     public record VerifiedBankAccount(String sourceNamespace,long companyId,long journalId,String account) {}
@@ -58,7 +63,7 @@ public class OdooService {
         };
         return new Status(config.enabled,config.problem()==null,code,message,config.missing(),outbound!=null&&outbound.enabled&&outbound.sendEnabled,
                 saved==null?null:saved.lastCheckAt(),saved==null?null:saved.lastSyncAt(),lastSync,
-                scope==null?null:scope.companyName,scope==null?null:scope.journals.size());
+                scope==null?null:scope.companyName,scope==null?null:scope.journals.size(),autoBankSyncStatus());
     }
     public Status check() {
         if(config.problem()!=null)return status();
@@ -69,9 +74,27 @@ public class OdooService {
             state.checked(config.sourceNamespace(),"READY");return status(scope,"READY");
         } catch(OdooFailure failure) { state.checked(config.sourceNamespace(),failure.code);return status(null,failure.code); }
     }
-    public SyncReport syncBank() {
+    public boolean automaticBankSyncReady() { return bankAutoSyncEnabled&&config.problem()==null; }
+
+    private AutoBankSync autoBankSyncStatus() {
+        boolean ready=automaticBankSyncReady();
+        OdooSyncStateStore.BankSchedule saved=config.problem()==null?state.bankSchedule(config.sourceNamespace()):null;
+        return new AutoBankSync(ready,OdooSyncStateStore.BANK_INTERVAL_HOURS,OdooSyncStateStore.BANK_RETRY_MINUTES,
+                saved==null?null:saved.lastAttemptAt(),saved==null?null:saved.lastSuccessAt(),
+                !ready?null:saved==null||saved.nextRunAt()==null?Instant.now():saved.nextRunAt(),saved==null?null:saved.lastCode());
+    }
+
+    public SyncReport syncBank() { return syncBank(false); }
+
+    /** Empty means another instance/manual import owns the lease, or the durable next run is not due. */
+    public Optional<SyncReport> syncBankIfDue() {
+        if(!automaticBankSyncReady())return Optional.empty();
+        return Optional.ofNullable(syncBank(true));
+    }
+
+    private SyncReport syncBank(boolean automatic) {
         config.requireReady();String namespace=config.sourceNamespace(),owner=UUID.randomUUID().toString();
-        try { state.acquire(namespace,owner); }
+        try { if(!state.acquireBank(namespace,owner,automatic))return null; }
         catch(OdooFailure failure) { throw failure; }
         catch(RuntimeException raced) { throw new OdooFailure("BUSY"); }
         int scanned=0,created=0,updated=0,unchanged=0,conflicts=0,skipped=0;
@@ -109,7 +132,7 @@ public class OdooService {
         if(skipped>0)message+=" "+skipped+" regels overgeslagen omdat de bankvaluta geen EUR is.";
         if(conflicts>0)message+=" "+conflicts+" bronwijzigingen vragen controle; de gekoppelde lokale bankregels zijn behouden.";
         SyncReport report=new SyncReport(scanned,created,updated,unchanged,conflicts,skipped,complete,message,code);
-        try { state.finish(namespace,owner,json.writeValueAsString(report)); }
+        try { state.finishBank(namespace,owner,json.writeValueAsString(report),complete,code); }
         catch(OdooFailure failure) { throw failure; }
         catch(Exception failure) { throw new OdooFailure("UNAVAILABLE"); }
         return report;
