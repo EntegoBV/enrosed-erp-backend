@@ -1509,6 +1509,9 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   leave duplicate costs. `bank_cost_registration` retains the original request hash and
   cost identity even after local deletion; identical retries return the same IDs, changed
   or competing requests return coded 409. Normal validation is 422 on this endpoint.
+  Since 2026-10-19 unlinking the line (`DELETE …/links`, also deleting a manual line or the
+  Odoo import moving the payment) removes its receipt in the same transaction; the cost and
+  its payment stay, so the line can be registered again instead of answering 409.
   The request ID is transport-only. Attachments are uploaded afterwards to the returned
   cost, preserving its identity on upload retry. See the integration document for details.
 
@@ -1593,8 +1596,6 @@ the nacalculatie.
   word is "display", never "set" (identifiers such as `setBasis` stay): the payments PDF puts
   "displays" under the count and "per display" under the figure, because "/display" does not fit
   its 8 % and 12.5 % columns on one line.
-- Not removed on unlink (Codex's area, noted only): a `bank_cost_registration` receipt keeps a
-  line answering 409 after an unlink.
 - **Proforma (PI)** (2026-10-19, "Is dit de PI niet?"): kind `PROFORMA_INVOICE` "Proforma (PI)" is an
   invoice file of the SUPPLIER (room for ten like the other invoice kinds). It lists under
   `invoiceFiles` until an invoice holds it ("Gegevens invullen" makes it the supplier's invoice with

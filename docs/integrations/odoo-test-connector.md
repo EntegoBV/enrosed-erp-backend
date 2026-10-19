@@ -172,7 +172,8 @@ payment automatically.
 
 Keep the same request ID and exact submitted cost after an uncertain response. A durable
 `bank_cost_registration` receipt returns the original IDs for retries and refuses another
-registration on that bank movement, including after a local cost is deleted. It intentionally
+registration on that bank movement, including after a local cost is deleted; unlinking the
+movement removes the receipt with its links (the cost stays), so it can be registered again. It intentionally
 has no cascading financial foreign keys. A changed body, changed bank facts or removed link
 requires checking the existing registration; retry never silently recreates or rewrites it.
 The request ID is transport metadata and should not appear in product copy. Upload documents

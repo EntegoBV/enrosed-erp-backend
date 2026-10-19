@@ -629,7 +629,11 @@ public class BankStatementService {
                 .setParameter("id",costPaymentId).getResultStream().findFirst().orElse(null);
         if(parent!=null)em.find(CompanyCostEntity.class,parent,LockModeType.PESSIMISTIC_WRITE);
     }
-    /** What the line carried is open again once it goes; done on the managed rows so the session sees it at once. */
+    /**
+     * What the line carried is open again once it goes; done on the managed rows so the session sees it at once.
+     * The line's cost-registration receipt goes with its links (the cost and its payment stay), so the line can be
+     * registered again instead of answering 409.
+     */
     private void unlink(long id) {
         var purchaseIds=em.createQuery("select p.id from PurchasePaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList();
         var costIds=new TreeSet<>(em.createQuery("select p.companyCostId from CostPaymentEntity p where p.bankStatementLineId=:id",Long.class).setParameter("id",id).getResultList());
@@ -639,6 +643,8 @@ public class BankStatementService {
         for(var payment:em.createQuery("from PurchasePaymentEntity p where p.bankStatementLineId=:id",SourcingEntities.PurchasePaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
         for(var cost:em.createQuery("from CompanyCostEntity c where c.bankStatementLineId=:id",CompanyCostEntity.class).setParameter("id",id).getResultList())cost.bankStatementLineId=null;
         for(var payment:em.createQuery("from CostPaymentEntity p where p.bankStatementLineId=:id",CostPaymentEntity.class).setParameter("id",id).getResultList())payment.bankStatementLineId=null;
+        var receipt=em.find(BankCostRegistrationEntity.class,id);
+        if(receipt!=null)em.remove(receipt);
     }
     /** The list learns an outgoing counterparty once the line is in; a failure of the list never undoes the line. */
     private void learnParty(String counterparty) {

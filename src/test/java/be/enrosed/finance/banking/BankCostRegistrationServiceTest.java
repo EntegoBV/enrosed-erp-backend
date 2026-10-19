@@ -95,13 +95,24 @@ class BankCostRegistrationServiceTest {
         assertEquals("BANK_COST_REGISTRATION_CHANGED",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,request)).code);
         assertEquals(before,costCount());
     }
-    @Test @TestTransaction void unlinkingAndDeletingTheBankMovementKeepsTheOriginalCostAndReceipt() {
-        var row=line("-121");var request=request("Preserved after unlink");var saved=registration.register(row.id,request);
-        bank.unlinkExisting(row.id);long before=costCount();
-        assertEquals("BANK_COST_REGISTRATION_CHANGED",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,request)).code);
-        assertEquals(before,costCount());assertEquals(1,costs.paymentsOf(saved.cost().cost().id()).size());
+    /** Koppeling losmaken frees the line: the receipt goes with the link, the cost and its payment stay, a new registration works. */
+    @Test @TestTransaction void unlinkingRemovesTheReceiptKeepsTheCostAndTheLineCanBeRegisteredAgain() {
+        var row=line("-121");var saved=registration.register(row.id,request("Kept after unlink"));long first=saved.cost().cost().id();
+        bank.unlinkExisting(row.id);em.flush();
+        assertNull(em.find(BankCostRegistrationEntity.class,row.id));
+        assertEquals("Kept after unlink",costs.get(first).description());
+        assertEquals(1,costs.paymentsOf(first).size());assertNull(costs.paymentsOf(first).getFirst().bankStatementLineId());
+        long before=costCount();var request=request("Registered again");
+        var again=registration.register(row.id,request);var retry=registration.register(row.id,request);
+        assertEquals(before+1,costCount());assertNotEquals(first,again.cost().cost().id());assertTrue(again.line().allocated);
+        assertEquals(again.cost().cost().id(),em.find(BankCostRegistrationEntity.class,row.id).companyCostId);
+        assertEquals(again.cost().cost().id(),retry.cost().cost().id(),"the new receipt answers its own retry");
+        assertNull(costs.paymentsOf(first).getFirst().bankStatementLineId(),"the first cost stays off the line");
+    }
+    @Test @TestTransaction void deletingTheBankMovementRemovesItsReceiptAndKeepsTheCost() {
+        var row=line("-121");var saved=registration.register(row.id,request("Kept after delete"));
         bank.delete(row.id);em.flush();
-        assertNotNull(em.find(BankCostRegistrationEntity.class,row.id));assertNotNull(costs.get(saved.cost().cost().id()));
+        assertNull(em.find(BankCostRegistrationEntity.class,row.id));assertNotNull(costs.get(saved.cost().cost().id()));
         assertNull(em.find(BankStatementLineEntity.class,row.id));
     }
     @Test void concurrentIdenticalRetriesReturnTheSameCreatedIds() throws Exception {concurrent(true);}
