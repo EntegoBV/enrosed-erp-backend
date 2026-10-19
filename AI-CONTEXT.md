@@ -52,6 +52,26 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 ## Domain scenarios (the business rules, as discussed)
 
 ### Sales / quotes
+- **Shared invoice numbering**: set company `invoiceNumberPrefix=F`,
+  `partnerInvoiceNumberPattern=F-{jaar}-{nr}` and clear
+  `partnerInvoiceNextNumber` to put ordinary, advance and partner invoices in
+  one `F-<year>-0001` series. Use exactly `{nr}` here, without a digit suffix,
+  so both paths also continue earlier letter prefixes. Existing document
+  numbers and their IDs stay unchanged; quotes and credit notes keep their
+  own series. `Orders.lockNumbers()` holds the dedicated PostgreSQL transaction
+  advisory lock (H2 transaction-lifetime lock in tests) while selecting the
+  next number or checking a manually entered number, until save and commit.
+  Deleted and cancelled rows still reserve their numbers. A rolled-back
+  creation does not consume a number. No schema migration is required.
+- **Container sale margins**: `createFromPurchaseOrder` keeps the configured
+  container price (including `extraRevenueEur`) as the sale price, but removes
+  each landed-cost line's allocated `extraRevenueEur` from `unitCostEur`.
+  The remaining external cost is frozen on the sale and copied to its invoice;
+  editing without a replacement cost preserves it. On an ordered container
+  this remains a cost estimate, not a reconciliation of actual payments.
+- **Final invoice PDFs** label their financial total as total including VAT;
+  only the payment panel states the remaining claim, so a paid final invoice
+  never labels its original total as money still due.
 - Lifecycle: CONCEPT → VERZONDEN (mail with PDF + portal link) → customer
   BEKEKEN → AKKOORD (digital signature, name recorded) or AFGEWEZEN
   (rejected quotes can be reopened).

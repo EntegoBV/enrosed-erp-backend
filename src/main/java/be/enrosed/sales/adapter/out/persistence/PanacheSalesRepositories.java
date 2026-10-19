@@ -142,6 +142,7 @@ public final class PanacheSalesRepositories {
     public static class OrderAdapter implements SalesRepositories.Orders {
 
         private final SalesDaos.Orders dao;
+        @jakarta.inject.Inject SalesNumberingLock numberingLock;
 
         public OrderAdapter(SalesDaos.Orders dao) {
             this.dao = dao;
@@ -151,6 +152,9 @@ public final class PanacheSalesRepositories {
         public List<SalesOrder> findAll() {
             return dao.list("order by id desc").stream().map(SalesMapper::toDomain).toList();
         }
+
+        @Override
+        public void lockNumbers() { numberingLock.acquire(); }
 
         @Override
         public java.util.List<SalesRepositories.Orders.ReservedNumber> numbersIncludingDeleted() {

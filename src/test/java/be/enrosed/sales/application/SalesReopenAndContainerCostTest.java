@@ -40,6 +40,37 @@ class SalesReopenAndContainerCostTest {
     @Inject ObjectMapper mapper;
 
     @Test @TestTransaction
+    void containerRevenueStaysInTheSalePriceButNeverInflatesItsCostSnapshot() throws Exception {
+        Fixture f = fixture();
+        var container = entities.find(PurchaseOrderEntity.class, f.purchaseId());
+        container.extraRevenueEur = new BigDecimal("9900");
+        container.allocExtra = be.enrosed.sourcing.domain.Allocation.PIECES;
+        entities.flush(); entities.clear();
+        SalesOrder quote = sales.createFromPurchaseOrder(request(f, "0", null));
+        assertEquals(new BigDecimal("1100.0000"), quote.lines().getFirst().unitPriceEur());
+        assertEquals(new BigDecimal("1000.0000"), quote.lines().getFirst().unitCostEur());
+        assertEquals(money("108900"), sales.price(quote).totals().total());
+        assertEquals(money("9900"), sales.price(quote).totals().marginEur());
+
+        // A later container/product price cannot silently rewrite this historical margin.
+        entities.find(ProductEntity.class, f.productId()).landedCostEur = new BigDecimal("9000");
+        entities.flush(); entities.clear();
+        ObjectNode edit = mapper.valueToTree(sales.get(quote.id()));
+        ((ObjectNode) edit.withArray("lines").get(0)).remove("unitCostEur");
+        SalesOrder saved = sales.update(quote.id(), mapper.treeToValue(edit, SalesOrder.class));
+        assertEquals(new BigDecimal("1000.0000"), saved.lines().getFirst().unitCostEur());
+        SalesOrder invoice = sales.createInvoiceFrom(saved.id());
+        assertEquals(new BigDecimal("1000.0000"), invoice.lines().getFirst().unitCostEur());
+        assertEquals(money("9900"), sales.price(invoice).totals().marginEur());
+
+        var customerPrices = new SalesOrderService.FromPurchaseOrderRequest(f.purchaseId(), f.customerId(), "CUSTOMER", BigDecimal.ZERO,
+                false, null, null, false, List.of(), "CUSTOMER", null, SalesPurpose.STANDARD, SalesPaymentPlan.FULL);
+        SalesOrder ordinary = sales.createFromPurchaseOrder(customerPrices);
+        assertEquals(new BigDecimal("1000.0000"), ordinary.lines().getFirst().unitCostEur(),
+                "the cost basis is independent of the chosen sale-price mode");
+    }
+
+    @Test @TestTransaction
     void containerCostPreservesExactPiecesAndSkipsAutomaticTiersAndHandlingEvenAfterEditing() throws Exception {
         Fixture f = fixture();
         tier(TierScope.LINE, f.productId()); tier(TierScope.ORDER, null);

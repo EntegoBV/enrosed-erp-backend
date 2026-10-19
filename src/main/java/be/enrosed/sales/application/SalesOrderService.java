@@ -526,10 +526,15 @@ public class SalesOrderService {
                    pieces go on the quote, so the quote adds up to what the container cost us. */
                 if (cost.quantity() > 0) quantity = cost.quantity();
             }
-            /* The container's own landed cost is what this line cost us, whatever the product's
-               cost says later; the inspection and other costs are inside it since the calculation
-               spreads them over the pieces. */
-            if (!partner && cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) snapshot = cost.landedUnitEur();
+            /* The container price includes our own planned revenue. Retain that sales price above,
+               but keep it out of the external-cost snapshot used to measure the sale's margin.
+               Inspection and other costs already allocated into the line remain part of its cost. */
+            if (!partner && cost != null && cost.landedUnitEur() != null && cost.landedUnitEur().signum() > 0) {
+                snapshot = cost.landedUnitEur();
+                if (cost.quantity() > 0 && Money.nz(cost.extraRevenueEur()).signum() != 0)
+                    snapshot = Money.nz(cost.totalEur()).subtract(Money.nz(cost.extraRevenueEur()))
+                            .divide(BigDecimal.valueOf(cost.quantity()), 4, java.math.RoundingMode.HALF_UP);
+            }
             lines.add(new SalesOrderLine(null, line.productId(), quantity, unit, null, deliveryWeek, snapshot));
         }
         if (!partner && lines.isEmpty()) throw new BusinessRuleException("Deze inkooporder heeft geen regels met een aantal");
@@ -1996,6 +2001,7 @@ public class SalesOrderService {
         if (wanted == null || wanted.isBlank() || wanted.equals(current.number())) {
             return current.number();
         }
+        orders.lockNumbers();
         boolean taken = orders.numbersIncludingDeleted().stream()
                 .anyMatch(other -> !Objects.equals(other.id(), current.id())
                         && wanted.equalsIgnoreCase(other.number()));
@@ -3291,6 +3297,7 @@ public class SalesOrderService {
      * in settings and the numbering simply carries on under the new one.
      */
     private String nextNumber(String pattern, DocumentType series, Integer floor) {
+        orders.lockNumbers();
         int year = LocalDate.now().getYear();
         /* The plain series accept any letters in front, so a changed prefix carries on; a partner
            pattern is matched as written. The document type keeps the series apart: a credit note

@@ -41,6 +41,38 @@ class PartnerConceptInvoiceFlowTest {
     @Inject EntityManager entities;
 
     @Test @TestTransaction
+    void ordinaryAndPartnerInvoicesShareOneSequenceWhenConfiguredWithoutRenamingLegacyInvoices() {
+        var profile = entities.find(be.enrosed.shared.company.CompanyProfileEntity.class, 1L);
+        if (profile == null) {
+            profile = new be.enrosed.shared.company.CompanyProfileEntity();
+            entities.persist(profile);
+        }
+        profile.invoiceNumberPrefix = "F";
+        profile.partnerInvoiceNumberPattern = "F-{jaar}-{nr}";
+        profile.partnerInvoiceNextNumber = null;
+        entities.flush();
+        Fixture fixture = fixture("50");
+        SalesOrder legacy = sales.create(fixture.customerId(), "BE", "DAP", DocumentType.FACTUUR);
+        String legacyNumber = "partner/" + LocalDate.now().getYear() + "/900057";
+        entities.find(be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity.class, legacy.id()).number = legacyNumber;
+        entities.flush(); entities.clear();
+
+        SalesOrder ordinary = sales.create(fixture.customerId(), "BE", "DAP", DocumentType.FACTUUR);
+        int first = Integer.parseInt(ordinary.number().substring(ordinary.number().lastIndexOf('-') + 1));
+        SalesOrder partner = sales.createFromPurchaseOrder(request(fixture, plan(), SalesPurpose.PARTNER_ADVANCE));
+        var invoices = schedules.get(fixture.purchaseId()).rows().stream().map(row -> sales.get(row.invoiceId())).toList();
+        assertEquals(partner.id(), invoices.getFirst().id());
+        String prefix = "F-" + LocalDate.now().getYear() + "-";
+        assertEquals(List.of(prefix + String.format("%04d", first + 1), prefix + String.format("%04d", first + 2)),
+                invoices.stream().map(SalesOrder::number).toList());
+        SalesOrder after = sales.create(fixture.customerId(), "BE", "DAP", DocumentType.FACTUUR);
+        assertEquals(prefix + String.format("%04d", first + 3), after.number());
+        assertEquals(legacyNumber, sales.get(legacy.id()).number(), "configuring the shared series preserves historical identities");
+        assertEquals(invoices.getFirst().id(), sales.createFromPurchaseOrder(request(fixture, plan(), SalesPurpose.PARTNER_ADVANCE)).id(),
+                "a retried partner plan must keep the same invoices and not consume new numbers");
+    }
+
+    @Test @TestTransaction
     void plannedCreationProducesOnlyUnsentTermInvoicesAndRetriesReuseTheSameIds() {
         Fixture fixture = fixture("50");
         var request = request(fixture, plan(), SalesPurpose.PARTNER_ADVANCE);
