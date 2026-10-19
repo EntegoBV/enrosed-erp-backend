@@ -94,9 +94,9 @@ public class PurchasePaymentSplitService {
      *                          with the goods): they keep their amounts and take the line's day, the addressed payment
      *                          takes the rest of the line
      * @param expectedAmountEur the payment's euro as the screen saw it; a different stored amount is refused
-     * @param feeEur            the bank's fee in this line ("Waarvan transactiekosten"): it becomes a new
-     *                          "Transactiekosten" payment (Bijkomende kosten) on the same container and line, and
-     *                          the addressed payment takes the line without it; empty means none
+     * @param feeEur            the bank's fee in this line ("Waarvan transactiekosten"): it becomes the container's
+     *                          open "Transactiekosten" payment (Bijkomende kosten) or a new one, on the same line,
+     *                          and the addressed payment takes the line without it; empty means none
      */
     public record PartRequest(Long bankStatementLineId, BigDecimal amount, Higher higher, List<Long> withPaymentIds,
                               BigDecimal expectedAmountEur, BigDecimal feeEur) {
@@ -261,7 +261,7 @@ public class PurchasePaymentSplitService {
             /* The payment follows the transfer: its day and, the other parts and the fee kept, the rest of the line. */
             PurchasePayment after = follow(orderId, goodsId, day, target, LINKED_SUMMARY, line.id);
             for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-            link(line, withFee(orderId, day, fee, concat(goodsId, otherIds)));
+            link(line, withFee(orderId, line.id, day, fee, concat(goodsId, otherIds)));
             return result(orderId, lockPayment(goodsId), List.of(line), sentences(followed(before, after), feeNotice(orderId, fee)));
         }
         if (higher && request.higher() == Higher.FEE) {
@@ -269,7 +269,7 @@ public class PurchasePaymentSplitService {
             PurchasePayment after = follow(orderId, goodsId, day, null, LINKED_SUMMARY, line.id);
             for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
             BigDecimal costs = fee == null ? difference : difference.add(fee);
-            link(line, withFee(orderId, day, costs, concat(goodsId, otherIds)));
+            link(line, withFee(orderId, line.id, day, costs, concat(goodsId, otherIds)));
             return result(orderId, lockPayment(goodsId), List.of(line), sentences(followed(before, after), feeNotice(orderId, costs)));
         }
         if (higher) {
@@ -284,7 +284,7 @@ public class PurchasePaymentSplitService {
             PurchasePayment inspection = purchases.addInspectionRest(orderId, goodsId, difference);
             List<Long> linked = new ArrayList<>(concat(goodsId, otherIds));
             linked.add(inspection.id());
-            link(line, withFee(orderId, day, fee, linked));
+            link(line, withFee(orderId, line.id, day, fee, linked));
             String rest = "Inspectie via leverancier " + eur(inspection.amountEur()) + " toegevoegd op dezelfde transactie.";
             return result(orderId, lockPayment(goodsId), List.of(line),
                     sentences(followed(before, after), rest, feeNotice(orderId, fee)));
@@ -296,7 +296,7 @@ public class PurchasePaymentSplitService {
                 new PurchaseOrderService.PaymentPart(target, target, day),
                 new PurchaseOrderService.PaymentPart(rest, rest, payment.paidOn)), CARVED_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, withFee(orderId, day, fee, concat(saved.getFirst().id(), otherIds)));
+        link(line, withFee(orderId, line.id, day, fee, concat(saved.getFirst().id(), otherIds)));
         return result(orderId, lockPayment(goodsId), List.of(line), sentences(carved(target, whole), feeNotice(orderId, fee)));
     }
 
@@ -333,7 +333,7 @@ public class PurchasePaymentSplitService {
             }
             PurchasePayment after = follow(orderId, payment.id, day, target, LINKED_SUMMARY, line.id);
             for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-            link(line, withFee(orderId, day, fee, concat(payment.id, otherIds)));
+            link(line, withFee(orderId, line.id, day, fee, concat(payment.id, otherIds)));
             return result(orderId, lockPayment(payment.id), List.of(line),
                     sentences(followed(before, after), feeNotice(orderId, fee)));
         }
@@ -348,7 +348,7 @@ public class PurchasePaymentSplitService {
                 new PurchaseOrderService.PaymentPart(rest, restEur, payment.paidOn)), CARVED_SUMMARY);
         purchases.followBankLine(orderId, saved.getFirst().id(), day, target, CARVED_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, withFee(orderId, day, fee, concat(saved.getFirst().id(), otherIds)));
+        link(line, withFee(orderId, line.id, day, fee, concat(saved.getFirst().id(), otherIds)));
         return result(orderId, lockPayment(goodsId), List.of(line),
                 sentences(carvedForeign(named, target, whole, currency), feeNotice(orderId, fee)));
     }
@@ -387,7 +387,7 @@ public class PurchasePaymentSplitService {
         PurchasePayment added = purchases.addTransfer(orderId, payment.id,
                 new PurchaseOrderService.PaymentPart(amount, target, day), GROWN_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, withFee(orderId, day, fee, concat(added.id(), otherIds)));
+        link(line, withFee(orderId, line.id, day, fee, concat(added.id(), otherIds)));
         String notice = currency == Currency.EUR
                 ? "Transactie van " + eur(target) + " op " + DAY.format(day) + " toegevoegd; de betaling is nu "
                         + eur(totalEur.add(target)) + " (was " + eur(totalEur) + ")."
@@ -516,14 +516,31 @@ public class PurchasePaymentSplitService {
     }
 
     /**
-     * The payments to link, and with a fee a new "Transactiekosten" payment
-     * on the same container (Bijkomende kosten: no Afspraak, in the
-     * nacalculatie, out of the stock value, never a company cost), in euro on
-     * the line's day. It is written only here, right before the link.
+     * The payments to link, and with a fee the container's "Transactiekosten"
+     * payment (Bijkomende kosten: no Afspraak, in the nacalculatie, out of the
+     * stock value, never a company cost), in euro on the line's day. An open
+     * one of the container, such as the fee "Koppeling losmaken" left, goes on
+     * the line with this fee (one of the same amount first), so a relink never
+     * books the fee twice; else a new one is written, only here, right before
+     * the link.
      */
-    private List<Long> withFee(long orderId, LocalDate day, BigDecimal fee, List<Long> ids) {
+    private List<Long> withFee(long orderId, long lineId, LocalDate day, BigDecimal fee, List<Long> ids) {
         if (fee == null) return ids;
         List<Long> all = new ArrayList<>(ids);
+        List<SourcingEntities.PurchasePaymentEntity> open = em.createQuery("from PurchasePaymentEntity p"
+                        + " where p.orderId=:order and p.payee=:payee and p.label=:label and p.currency=:eur"
+                        + " and p.bankStatementLineId is null and p.groupId is null order by p.id",
+                        SourcingEntities.PurchasePaymentEntity.class)
+                .setParameter("order", orderId).setParameter("payee", PurchasePayment.Payee.OTHER)
+                .setParameter("label", FEE_LABEL).setParameter("eur", Currency.EUR).getResultStream()
+                .filter(candidate -> !ids.contains(candidate.id)).toList();
+        var reused = open.stream().filter(candidate -> candidate.amountEur.compareTo(fee) == 0).findFirst()
+                .orElse(open.isEmpty() ? null : open.getFirst());
+        if (reused != null) {
+            follow(orderId, reused.id, day, fee, LINKED_SUMMARY, lineId);
+            all.add(reused.id);
+            return all;
+        }
         all.add(purchases.addPayment(orderId, day, fee, Currency.EUR, FEE_LABEL, PurchasePayment.Payee.OTHER, false,
                 null).id());
         return all;

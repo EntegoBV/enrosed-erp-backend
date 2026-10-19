@@ -3,6 +3,14 @@
 -- extend only a single-column check that does not know PROFORMA_INVOICE yet, keeping its expression and every
 -- unrelated constraint. Then the files kept as 'Andere' with a proforma label become that kind; a rerun finds none
 -- left. Nothing is dropped for good; only those rows' kind is rewritten.
+--
+-- An image from before this release has no PROFORMA_INVOICE: Hibernate fails on such a row, so that
+-- container's view and documents answer 500. This backfill runs in the pre-deploy step, so that holds
+-- for the old image while it still serves during the deploy, and after any rollback.
+-- Rollback to an image before this release: before or right after starting it, run
+--   update purchase_document set kind = 'OTHER' where kind = 'PROFORMA_INVOICE';
+-- The label stays, so a redeploy turns the labelled files back into the kind; a PI uploaded
+-- under another label stays 'OTHER' and is set again by hand.
 BEGIN;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '60s';

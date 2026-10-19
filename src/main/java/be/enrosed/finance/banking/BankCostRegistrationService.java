@@ -42,8 +42,13 @@ public class BankCostRegistrationService {
         var clean=unpaid(request.cost());
         String hash=hash(line,clean);
         var receipt=em.find(BankCostRegistrationEntity.class,id);
-        if(receipt!=null) {
-            if(!receipt.requestId.equals(requestId))throw new Conflict("BANK_COST_REGISTRATION_EXISTS","Voor deze banktransactie werd al een kost aangemaakt. Vernieuw het overzicht en hergebruik die kost");
+        if(receipt!=null&&!receipt.requestId.equals(requestId)) {
+            var first=em.find(CompanyCostEntity.class,receipt.companyCostId);
+            if(first!=null&&bank.describe(line).allocated)throw new Conflict("BANK_COST_REGISTRATION_EXISTS","Voor deze banktransactie werd al een kost aangemaakt. Vernieuw het overzicht en hergebruik die kost");
+            // After "Koppeling losmaken" the cost stays paid: a second one would count the expense and its VAT twice.
+            if(first!=null)throw new Conflict("BANK_COST_REGISTRATION_EXISTS","Voor deze banktransactie bestaat al kost '"+first.description+"': koppel die opnieuw of verwijder die eerst");
+            // That cost was deleted: nothing counts twice, so a new request registers the line again on this receipt.
+        } else if(receipt!=null) {
             if(!receipt.requestHash.equals(hash))throw new Conflict("BANK_COST_REGISTRATION_CHANGED","De kost is al geregistreerd met andere gegevens. Herhaal het oorspronkelijke verzoek of open de bestaande kost");
             var cost=em.find(CompanyCostEntity.class,receipt.companyCostId,LockModeType.PESSIMISTIC_WRITE);
             if(cost==null)throw changedAfterRegistration();
@@ -60,8 +65,11 @@ public class BankCostRegistrationService {
         if(!BankAmountMatch.matches(line.amountEur,cost.totalInclEur().negate()))
             throw new BusinessRuleException("Het factuurtotaal mag maximaal € 0,02 afwijken van de banktransactie. Gebruik een bestaande kost voor een deelbetaling");
         var saved=bank.recordCostPayment(id,new BankStatementService.CostAllocation(cost.id()));
-        receipt=new BankCostRegistrationEntity();receipt.bankStatementLineId=id;receipt.requestId=requestId;
-        receipt.requestHash=hash;receipt.companyCostId=cost.id();receipt.createdAt=Instant.now();em.persist(receipt);em.flush();
+        boolean fresh=receipt==null;
+        if(fresh){receipt=new BankCostRegistrationEntity();receipt.bankStatementLineId=id;}
+        receipt.requestId=requestId;receipt.requestHash=hash;receipt.companyCostId=cost.id();receipt.createdAt=Instant.now();
+        if(fresh)em.persist(receipt);
+        em.flush();
         return new Result(saved,costs.view(costs.get(cost.id())));
     }
     private static Conflict changedAfterRegistration() {

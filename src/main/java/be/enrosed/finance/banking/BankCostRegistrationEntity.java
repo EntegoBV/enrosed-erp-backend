@@ -3,7 +3,7 @@ package be.enrosed.finance.banking;
 import jakarta.persistence.*;
 import java.time.Instant;
 
-/** A durable receipt for one bank-led cost creation, retained even when the local cost is removed later. */
+/** A durable receipt for one bank-led cost creation, retained when the line is unlinked or the local cost removed; only a new request may register the line again, once that cost is gone. */
 @Entity @Table(name="bank_cost_registration",uniqueConstraints=@UniqueConstraint(name="uq_bank_created_cost",columnNames="company_cost_id"))
 public class BankCostRegistrationEntity {
     @Id @Column(name="bank_statement_line_id") public Long bankStatementLineId;

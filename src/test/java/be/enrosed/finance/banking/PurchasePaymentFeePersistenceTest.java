@@ -98,6 +98,48 @@ class PurchasePaymentFeePersistenceTest {
         assertEquals(new BigDecimal("25.00"), fee(after).amountEur());
     }
 
+    /** Review 2026-10-20: the fee "Koppeling losmaken" left open goes back on the line; Bijkomende kosten never double. */
+    @Test
+    @TestTransaction
+    void aLinkAfterKoppelingLosmakenTakesTheOpenFeeAgain() {
+        PurchaseOrder order = container();
+        PurchasePayment goods = deposit(order, "10000.00");
+        long line = line("-10025.00", SEP_5);
+        var rest = new PurchasePaymentSplitService.PartRequest(line, null, PurchasePaymentSplitService.Higher.FEE, null,
+                new BigDecimal("10000.00"));
+        long booked = fee(splits.linkPart(goods.id(), rest).payments()).id();
+
+        /* "Rest als transactiekosten" again. */
+        bank.unlinkExisting(line);
+        em.flush();
+        var again = splits.linkPart(goods.id(), rest);
+        assertEquals(booked, fee(again.payments()).id(), "the open fee, not a second one");
+        assertEquals(line, fee(again.payments()).bankStatementLineId());
+        assertEquals(1, fees(order));
+        assertEquals(0, again.lines().getFirst().allocationDifferenceEur.signum());
+        assertEquals(new BigDecimal("25.00"), additionalPaid(order));
+
+        /* The same fee named in euro. */
+        bank.unlinkExisting(line);
+        em.flush();
+        var named = splits.linkPart(goods.id(), fee(line, null, null, "25"));
+        assertEquals(booked, fee(named.payments()).id());
+        assertEquals(1, fees(order));
+        assertEquals(new BigDecimal("25.00"), additionalPaid(order));
+
+        /* Another fee: the open one follows it. */
+        bank.unlinkExisting(line);
+        em.flush();
+        var other = splits.linkPart(goods.id(), fee(line, null, PurchasePaymentSplitService.Higher.ADJUST, "20"));
+        PurchasePayment followed = fee(other.payments());
+        assertEquals(booked, followed.id());
+        assertEquals(new BigDecimal("20.00"), followed.amountEur());
+        assertEquals(new BigDecimal("10005.00"), byId(other.payments(), goods.id()).amountEur());
+        assertEquals(1, fees(order));
+        assertEquals(new BigDecimal("20.00"), additionalPaid(order));
+        assertEquals(0, other.lines().getFirst().allocationDifferenceEur.signum());
+    }
+
     @Test
     @TestTransaction
     void aNamedFeeComesOffTheLineAndTheEuroPaymentTakesTheRest() {
@@ -226,6 +268,12 @@ class PurchasePaymentFeePersistenceTest {
 
     private long fees(PurchaseOrder order) {
         return purchases.payments(order.id()).stream().filter(payment -> payment.payee() == PurchasePayment.Payee.OTHER).count();
+    }
+
+    /** Bijkomende kosten paid in the nacalculatie. */
+    private BigDecimal additionalPaid(PurchaseOrder order) {
+        return purchases.reconciliation(order.id()).streams().stream()
+                .filter(stream -> stream.payee() == PurchasePayment.Payee.OTHER).findFirst().orElseThrow().paidEur();
     }
 
     private static void assertRefused(String message, org.junit.jupiter.api.function.Executable call) {

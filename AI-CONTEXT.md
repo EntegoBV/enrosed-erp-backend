@@ -1509,9 +1509,12 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   leave duplicate costs. `bank_cost_registration` retains the original request hash and
   cost identity even after local deletion; identical retries return the same IDs, changed
   or competing requests return coded 409. Normal validation is 422 on this endpoint.
-  Since 2026-10-19 unlinking the line (`DELETE …/links`, also deleting a manual line or the
-  Odoo import moving the payment) removes its receipt in the same transaction; the cost and
-  its payment stay, so the line can be registered again instead of answering 409.
+  Unlinking the line (`DELETE …/links`) keeps the receipt: its cost stays paid, so another
+  request answers 409 `BANK_COST_REGISTRATION_EXISTS` naming that cost ("koppel die opnieuw
+  of verwijder die eerst") and a pending retry 409 `…_CHANGED`. Once that cost is deleted, a
+  new request registers the line again on the same receipt (its own retries return its IDs;
+  the old request's retry still never recreates the deleted cost). Deleting a manual line
+  removes its receipt; the cost stays.
   The request ID is transport-only. Attachments are uploaded afterwards to the returned
   cost, preserving its identity on upload retry. See the integration document for details.
 
@@ -1602,6 +1605,13 @@ the nacalculatie.
   data until the commercial invoice corrects it). Migration `2026-10-19/purchase-document-proforma-kind-postgresql.sql`
   widens the kind check like the INVOICE one and turns `OTHER` files labelled PI / Proforma / Pro forma /
   Pro-forma / Proforma invoice / Pro forma invoice (trimmed, any case) into the kind; registered last.
+  **Deploy window, revert or image rollback**: code from before this change has no
+  `PROFORMA_INVOICE`, and Hibernate then fails on every such row, so that container's view and its
+  documents answer 500. The backfill runs in the pre-deploy step, so this holds while the old image
+  still serves during the deploy too. Before or right after starting an older image, run
+  `UPDATE purchase_document SET kind = 'OTHER' WHERE kind = 'PROFORMA_INVOICE';`. The label stays, so
+  a redeploy turns the labelled files back into the kind; a PI uploaded under another label stays
+  `OTHER` and is set again by hand. An invoice that holds such a file keeps it.
 - Migrations `2026-10-15/purchase-invoice-postgresql.sql` (table, two payment columns, the order
   flag, indexes; no backfill) and `purchase-document-invoice-kind-postgresql.sql` (the kind check
   learns INVOICE) run after `bank-cost-registration-postgresql.sql`; dev H2 widens
@@ -1647,7 +1657,10 @@ the nacalculatie.
   fee payment. Refused: fee ≤ 0, fee ≥ the line, more than two decimals, FEE on a whole USD/CNY link
   ("geef de transactiekosten op in euro"). Notice "… Transactiekosten € x bij {PO-nummer} op dezelfde
   transactie."; an identical retry returns before any write (the payment is on the line already).
-  Unlink keeps the fee payment and only frees it, like the inspection rest. `/purchase-payment` (a term
+  Unlink keeps the fee payment and only frees it, like the inspection rest; a later fee on `bank-part`
+  takes the container's open "Transactiekosten" payment (EUR, no group; one of the same amount first,
+  another amount it follows) instead of booking a second, so Bijkomende kosten never carry one bank fee
+  twice. `/purchase-payment` (a term
   + an OTHER "Transactiekosten" part) and `/purchase-share` (an open payment + a new OTHER part of the
   same order) already took this; tests pin both.
 - **USD/CNY payments on `bank-part` decide in their own currency** (review of round 2): the line holds

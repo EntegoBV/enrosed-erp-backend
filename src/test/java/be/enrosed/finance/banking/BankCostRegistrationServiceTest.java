@@ -95,19 +95,25 @@ class BankCostRegistrationServiceTest {
         assertEquals("BANK_COST_REGISTRATION_CHANGED",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,request)).code);
         assertEquals(before,costCount());
     }
-    /** Koppeling losmaken frees the line: the receipt goes with the link, the cost and its payment stay, a new registration works. */
-    @Test @TestTransaction void unlinkingRemovesTheReceiptKeepsTheCostAndTheLineCanBeRegisteredAgain() {
-        var row=line("-121");var saved=registration.register(row.id,request("Kept after unlink"));long first=saved.cost().cost().id();
+    /** Koppeling losmaken keeps the receipt while its cost exists: no second paid cost for one movement; once it is deleted the line registers again. */
+    @Test @TestTransaction void unlinkingKeepsTheReceiptWhileItsCostExistsAndTheLineRegistersAgainOnceItIsDeleted() {
+        var row=line("-121");var original=request("Kept after unlink");var saved=registration.register(row.id,original);long first=saved.cost().cost().id();
         bank.unlinkExisting(row.id);em.flush();
-        assertNull(em.find(BankCostRegistrationEntity.class,row.id));
-        assertEquals("Kept after unlink",costs.get(first).description());
+        assertEquals(first,em.find(BankCostRegistrationEntity.class,row.id).companyCostId);
         assertEquals(1,costs.paymentsOf(first).size());assertNull(costs.paymentsOf(first).getFirst().bankStatementLineId());
-        long before=costCount();var request=request("Registered again");
+        long before=costCount();
+        assertEquals("BANK_COST_REGISTRATION_CHANGED",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,original)).code,"the pending retry");
+        var refused=assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,request("Registered twice")));
+        assertEquals("BANK_COST_REGISTRATION_EXISTS",refused.code);
+        assertEquals("Voor deze banktransactie bestaat al kost 'Kept after unlink': koppel die opnieuw of verwijder die eerst",refused.getMessage());
+        assertEquals(before,costCount(),"no second cost for the same movement");
+        costs.delete(first);em.flush();
+        var request=request("Registered again");
         var again=registration.register(row.id,request);var retry=registration.register(row.id,request);
-        assertEquals(before+1,costCount());assertNotEquals(first,again.cost().cost().id());assertTrue(again.line().allocated);
+        assertEquals(before,costCount());assertNotEquals(first,again.cost().cost().id());assertTrue(again.line().allocated);
         assertEquals(again.cost().cost().id(),em.find(BankCostRegistrationEntity.class,row.id).companyCostId);
-        assertEquals(again.cost().cost().id(),retry.cost().cost().id(),"the new receipt answers its own retry");
-        assertNull(costs.paymentsOf(first).getFirst().bankStatementLineId(),"the first cost stays off the line");
+        assertEquals(again.cost().cost().id(),retry.cost().cost().id(),"the receipt answers the new request's retry");
+        assertEquals("BANK_COST_REGISTRATION_EXISTS",assertThrows(BankCostRegistrationService.Conflict.class,()->registration.register(row.id,original)).code);
     }
     @Test @TestTransaction void deletingTheBankMovementRemovesItsReceiptAndKeepsTheCost() {
         var row=line("-121");var saved=registration.register(row.id,request("Kept after delete"));
