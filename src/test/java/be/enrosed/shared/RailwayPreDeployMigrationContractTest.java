@@ -989,8 +989,35 @@ class RailwayPreDeployMigrationContractTest {
         assertEquals(3, entity.split("nullable = false", -1).length - 1, "only the three columns of 2026-09-08 are required");
 
         assertRegisteredAfter(migration, "2026-10-16/bank-classification-postgresql.sql");
+    }
+
+    @Test
+    void theDocumentKindCheckLearnsTheProformaAndTheProformaFilesMoveRegisteredLast() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-19/purchase-document-proforma-kind-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout = '10s'; set local statement_timeout = '60s';"));
+        assertTrue(sql.endsWith("commit;"));
+        assertTrue(sql.contains("to_regclass('purchase_document')"));
+        assertTrue(sql.contains("a.attname in ('kind')"));
+        assertTrue(sql.contains("position('''proforma_invoice''' in pg_get_expr(c.conbin, c.conrelid)) = 0"),
+                "only a check that does not know the quoted kind yet is widened");
+        assertTrue(sql.contains("check ((%s) or %i = %l) not valid"), "the old expression is kept and extended");
+        assertTrue(sql.contains("'proforma_invoice');"));
+        assertNonDestructive(sql);
+        /* The one backfill: the files kept as 'Andere' with a proforma label, the label read trimmed and in capitals. */
+        assertEquals(1, sql.split("update ", -1).length - 1, "one backfill rewrites rows, nothing else does");
+        assertTrue(sql.contains("update purchase_document set kind = 'proforma_invoice' where kind = 'other' and "
+                + "upper(trim(label)) in ('pi', 'proforma', 'pro forma', 'pro-forma', 'proforma invoice', 'pro forma invoice'); end;"),
+                "inside the guarded block, after the check learns the kind");
+        assertFalse(sql.contains("insert "));
+        assertFalse(sql.contains("references"));
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/AllocationDevSchemaFix.java"))
+                .contains("alter table purchase_document alter column kind varchar(32)"),
+                "the developer's H2 enum column takes the sixteen letters too");
+        assertRegisteredAfter(migration, "2026-10-16/product-cost-history-basis-postgresql.sql");
         String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
-        assertTrue(runner.endsWith("--file=/app/migrations/product-cost-history-basis-postgresql.sql\n"),
+        assertTrue(runner.endsWith("--file=/app/migrations/purchase-document-proforma-kind-postgresql.sql\n"),
                 "the last file closes the command without a continuation backslash");
     }
 

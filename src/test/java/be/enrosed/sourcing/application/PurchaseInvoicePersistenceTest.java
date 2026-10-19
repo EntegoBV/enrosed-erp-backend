@@ -16,7 +16,10 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.function.Supplier;
@@ -35,6 +38,7 @@ class PurchaseInvoicePersistenceTest {
     @Inject SupplierService suppliers;
     @Inject SourcingResource resource;
     @Inject EntityManager em;
+    @Inject com.fasterxml.jackson.databind.ObjectMapper json;
 
     private static final LocalDate INVOICED = LocalDate.of(2026, 8, 20);
 
@@ -261,6 +265,70 @@ class PurchaseInvoicePersistenceTest {
         assertTrue(firstView.invoiceFiles().isEmpty());
         assertTrue(secondView.invoices().isEmpty());
         assertEquals("invoice.pdf", secondView.invoiceFiles().getFirst().originalFilename());
+    }
+
+    /** Emre, 2026-10-19 ("Is dit de PI niet?"): the proforma is the supplier's invoice file until its data are filled in. */
+    @Test
+    @TestTransaction
+    void aProformaIsTheSuppliersInvoiceFileUntilItsDataAreFilledIn() throws Exception {
+        PurchaseOrder order = container();
+        PurchaseDocument proforma = file(order, PurchaseDocument.Kind.PROFORMA_INVOICE, null, "PI CULINAN.xlsx");
+        file(order, PurchaseDocument.Kind.PACKING_LIST, null, "packing.pdf");
+
+        var files = resource.getPurchaseOrder(order.id()).invoiceFiles();
+
+        assertEquals(List.of(proforma.id()), files.stream().map(PurchaseInvoiceService.InvoiceFileView::documentId).toList());
+        assertEquals(Payee.SUPPLIER, files.getFirst().payee());
+        assertEquals(PurchaseDocument.Kind.PROFORMA_INVOICE, files.getFirst().kind());
+        assertEquals("PROFORMA_INVOICE", json.readTree(json.writeValueAsString(files.getFirst())).get("kind").asText(),
+                "the screens read the kind's name");
+        assertEquals("Proforma (PI)", resource.documents(order.id()).stream()
+                .filter(document -> document.id().equals(proforma.id())).findFirst().orElseThrow().kindLabel());
+        var listed = resource.listPurchaseOrders().stream().filter(view -> view.order().id().equals(order.id()))
+                .findFirst().orElseThrow();
+        assertEquals(List.of(proforma.id()), listed.invoiceFiles().stream()
+                .map(PurchaseInvoiceService.InvoiceFileView::documentId).toList(), "the list reads the proforma too");
+
+        /* "Gegevens invullen" on the PI: it is the supplier's invoice with data until the commercial invoice corrects it. */
+        var invoice = invoices.add(order.id(), request(Payee.SUPPLIER, "PI-2026-118", "31048.04", proforma.id()));
+        assertEquals("PI CULINAN.xlsx", invoice.documentName());
+        assertTrue(resource.getPurchaseOrder(order.id()).invoiceFiles().isEmpty());
+    }
+
+    /** The 2026-10-19 migration: files kept as 'Andere' with a proforma label become proformas, nothing else moves. */
+    @Test
+    @TestTransaction
+    void theMigrationTurnsProformaLabelledFilesIntoProformas() throws IOException {
+        PurchaseOrder order = container();
+        List<PurchaseDocument> proformas = List.of(
+                file(order, PurchaseDocument.Kind.OTHER, "PI", "PI CULINAN.xlsx"),
+                file(order, PurchaseDocument.Kind.OTHER, " pro forma ", "a.pdf"),
+                file(order, PurchaseDocument.Kind.OTHER, "Pro-Forma", "b.pdf"),
+                file(order, PurchaseDocument.Kind.OTHER, "Proforma invoice", "c.pdf"),
+                file(order, PurchaseDocument.Kind.OTHER, "PRO FORMA INVOICE", "d.pdf"));
+        PurchaseOrder other = container();
+        PurchaseDocument proformaAlone = file(other, PurchaseDocument.Kind.OTHER, "proforma", "e.pdf");
+        List<PurchaseDocument> untouched = List.of(
+                file(other, PurchaseDocument.Kind.OTHER, "PIA", "f.pdf"),
+                file(other, PurchaseDocument.Kind.OTHER, "Proforma 2", "g.pdf"),
+                file(other, PurchaseDocument.Kind.OTHER, null, "h.pdf"),
+                file(other, PurchaseDocument.Kind.COMMERCIAL_INVOICE, "PI", "i.pdf"));
+
+        String script = Files.readString(Path.of("docs/migrations/2026-10-19/purchase-document-proforma-kind-postgresql.sql"));
+        int start = script.indexOf("UPDATE purchase_document");
+        em.flush();
+        assertEquals(6, em.createNativeQuery(script.substring(start, script.indexOf(';', start))).executeUpdate());
+        em.clear();
+
+        for (PurchaseDocument document : proformas) {
+            assertEquals(PurchaseDocument.Kind.PROFORMA_INVOICE, purchases.document(order.id(), document.id()).kind(), document.label());
+        }
+        assertEquals(PurchaseDocument.Kind.PROFORMA_INVOICE, purchases.document(other.id(), proformaAlone.id()).kind());
+        for (PurchaseDocument document : untouched) {
+            assertEquals(document.kind(), purchases.document(other.id(), document.id()).kind(), String.valueOf(document.label()));
+        }
+        assertEquals(5, resource.getPurchaseOrder(order.id()).invoiceFiles().stream()
+                .filter(file -> file.payee() == Payee.SUPPLIER && file.kind() == PurchaseDocument.Kind.PROFORMA_INVOICE).count());
     }
 
     private void refused(PurchaseOrder order, String message, Supplier<InvoiceRequest> request) {

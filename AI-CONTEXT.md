@@ -1543,8 +1543,8 @@ the nacalculatie.
   inspection only with the flag on); moving a payment to another payee silently clears a named
   invoice it may no longer carry. `PurchaseOrderView.invoices` carry `primary`,
   `coversInspection`, `paymentIds` and `paidEur`; `invoiceFiles` lists invoice files no invoice
-  holds yet (COMMERCIAL_INVOICE, INVOICE, OTHER labelled Factuur / Factuur inspectie / Factuur
-  transport) for "Gegevens invullen". The list endpoint reads invoices, invoice documents and
+  holds yet (COMMERCIAL_INVOICE, PROFORMA_INVOICE, INVOICE, OTHER labelled Factuur / Factuur
+  inspectie / Factuur transport) for "Gegevens invullen"; each carries its `kind`. The list endpoint reads invoices, invoice documents and
   products once for all containers (Kosten & bank reads it).
 - **Betaalbewijs**: the bank link is the proof (the ERP decides); `PAYMENT_PROOF` reads
   "Betaalbewijs". COMMERCIAL_INVOICE and INVOICE files are never proof. A credit offset is never
@@ -1595,6 +1595,12 @@ the nacalculatie.
   its 8 % and 12.5 % columns on one line.
 - Not removed on unlink (Codex's area, noted only): a `bank_cost_registration` receipt keeps a
   line answering 409 after an unlink.
+- **Proforma (PI)** (2026-10-19, "Is dit de PI niet?"): kind `PROFORMA_INVOICE` "Proforma (PI)" is an
+  invoice file of the SUPPLIER (room for ten like the other invoice kinds). It lists under
+  `invoiceFiles` until an invoice holds it ("Gegevens invullen" makes it the supplier's invoice with
+  data until the commercial invoice corrects it). Migration `2026-10-19/purchase-document-proforma-kind-postgresql.sql`
+  widens the kind check like the INVOICE one and turns `OTHER` files labelled PI / Proforma / Pro forma /
+  Pro-forma / Proforma invoice / Pro forma invoice (trimmed, any case) into the kind; registered last.
 - Migrations `2026-10-15/purchase-invoice-postgresql.sql` (table, two payment columns, the order
   flag, indexes; no backfill) and `purchase-document-invoice-kind-postgresql.sql` (the kind check
   learns INVOICE) run after `bank-cost-registration-postgresql.sql`; dev H2 widens

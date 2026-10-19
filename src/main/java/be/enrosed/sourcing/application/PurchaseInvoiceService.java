@@ -82,8 +82,9 @@ public class PurchaseInvoiceService {
                                       List<Long> paymentIds, BigDecimal paidEur) {}
 
     /**
-     * An invoice file from before invoices had data: a commercial invoice or
-     * an invoice document that no invoice holds yet, to fill in with one tap.
+     * An invoice file from before invoices had data: a commercial invoice, a
+     * proforma or an invoice document that no invoice holds yet, to fill in
+     * with one tap. {@code kind} lets the screens say "Proforma (PI)".
      */
     public record InvoiceFileView(Long documentId, PurchaseDocument.Kind kind, String label, String originalFilename,
                                   Long paymentId, PurchasePayment.Payee payee) {}
@@ -105,7 +106,7 @@ public class PurchaseInvoiceService {
      */
     public List<PurchaseDocument> invoiceDocuments(List<PurchaseInvoice> invoicesOfAll) {
         List<PurchaseDocument> found = new ArrayList<>(documents.ofKinds(List.of(PurchaseDocument.Kind.COMMERCIAL_INVOICE,
-                PurchaseDocument.Kind.INVOICE, PurchaseDocument.Kind.OTHER)));
+                PurchaseDocument.Kind.INVOICE, PurchaseDocument.Kind.PROFORMA_INVOICE, PurchaseDocument.Kind.OTHER)));
         Set<Long> have = found.stream().map(PurchaseDocument::id).filter(Objects::nonNull).collect(Collectors.toSet());
         List<Long> missing = invoicesOfAll == null ? List.of() : invoicesOfAll.stream().map(PurchaseInvoice::documentId)
                 .filter(Objects::nonNull).filter(id -> !have.contains(id)).distinct().toList();
@@ -413,9 +414,10 @@ public class PurchaseInvoiceService {
     }
 
     /**
-     * The invoice files that no invoice holds yet: commercial invoices and
-     * invoice documents, and the files the payment sheet once filed as
-     * "Factuur", "Factuur inspectie" or "Factuur transport". Pure.
+     * The invoice files that no invoice holds yet: commercial invoices,
+     * proformas (the supplier's) and invoice documents, and the files the
+     * payment sheet once filed as "Factuur", "Factuur inspectie" or "Factuur
+     * transport". Pure.
      */
     public static List<InvoiceFileView> files(List<PurchaseInvoice> invoicesOfOrder,
                                               List<PurchasePayment> paymentsOfOrder,
@@ -431,7 +433,8 @@ public class PurchaseInvoiceService {
             if (document.id() == null || held.contains(document.id()) || !isInvoiceFile(document)) continue;
             String label = document.label() == null ? null : document.label().strip();
             PurchasePayment.Payee payee;
-            if (document.kind() == PurchaseDocument.Kind.COMMERCIAL_INVOICE) payee = PurchasePayment.Payee.SUPPLIER;
+            if (document.kind() == PurchaseDocument.Kind.COMMERCIAL_INVOICE
+                    || document.kind() == PurchaseDocument.Kind.PROFORMA_INVOICE) payee = PurchasePayment.Payee.SUPPLIER;
             else if ("Factuur inspectie".equals(label)) payee = PurchasePayment.Payee.SEPARATE;
             else if ("Factuur transport".equals(label)) payee = PurchasePayment.Payee.LOGISTICS;
             else payee = document.paymentId() == null ? PurchasePayment.Payee.OTHER
@@ -443,7 +446,8 @@ public class PurchaseInvoiceService {
     }
 
     static boolean isInvoiceFile(PurchaseDocument document) {
-        if (document.kind() == PurchaseDocument.Kind.COMMERCIAL_INVOICE || document.kind() == PurchaseDocument.Kind.INVOICE) {
+        if (document.kind() == PurchaseDocument.Kind.COMMERCIAL_INVOICE || document.kind() == PurchaseDocument.Kind.INVOICE
+                || document.kind() == PurchaseDocument.Kind.PROFORMA_INVOICE) {
             return true;
         }
         return document.kind() == PurchaseDocument.Kind.OTHER && document.label() != null

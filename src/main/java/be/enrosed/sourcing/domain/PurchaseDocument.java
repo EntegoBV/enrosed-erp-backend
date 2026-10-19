@@ -26,6 +26,8 @@ public record PurchaseDocument(
         PAYMENT_PROOF, COMMERCIAL_INVOICE,
         /** An invoice that is not the supplier's commercial invoice: inspection, transport, a courier. */
         INVOICE,
+        /** The supplier's proforma (PI): an invoice file of the supplier until the commercial invoice arrives. */
+        PROFORMA_INVOICE,
         PACKING_LIST, BILL_OF_LADING, CUSTOMS, OTHER;
 
         public String dutchLabel() {
@@ -33,6 +35,7 @@ public record PurchaseDocument(
                 case PAYMENT_PROOF -> "Betaalbewijs";
                 case COMMERCIAL_INVOICE -> "Commercial invoice";
                 case INVOICE -> "Factuur";
+                case PROFORMA_INVOICE -> "Proforma (PI)";
                 case PACKING_LIST -> "Packing list";
                 case BILL_OF_LADING -> "Bill of lading";
                 case CUSTOMS -> "Douanedocument";

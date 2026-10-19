@@ -1135,7 +1135,8 @@ public class PurchaseOrderService {
             PurchaseDocument.Kind wanted = kind == null ? PurchaseDocument.Kind.OTHER : kind;
             long inKind = documents.get().forOrder(orderId).stream()
                     .filter(d -> d.paymentId() == null && d.kind() == wanted).count();
-            boolean invoiceFile = wanted == PurchaseDocument.Kind.COMMERCIAL_INVOICE || wanted == PurchaseDocument.Kind.INVOICE;
+            boolean invoiceFile = wanted == PurchaseDocument.Kind.COMMERCIAL_INVOICE || wanted == PurchaseDocument.Kind.INVOICE
+                    || wanted == PurchaseDocument.Kind.PROFORMA_INVOICE;
             if (invoiceFile && inKind >= 10) {
                 throw new BusinessRuleException("Per container horen hoogstens tien factuurbestanden");
             }
