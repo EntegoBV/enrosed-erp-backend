@@ -389,6 +389,42 @@ class BankPurchaseShareServiceTest {
         }
     }
 
+    /** 2026-10-19 (pin): two parts on one container, its open payment and a new "Transactiekosten" payment. */
+    @Test @TestTransaction
+    void anOpenPaymentAndItsTransactionCostsShareOneTransferOnOneContainer() {
+        var a = container(supplier("Fee share supplier"));
+        var open = deposit(a, "3070.20");
+        long line = line("-3095.20");
+        var request = request(
+                BankPurchaseShareService.SharePart.existing(open.id(), eur("3070.20"), eur("3070.20")),
+                BankPurchaseShareService.SharePart.created(a.id(), eur("25.00"), PurchasePayment.Payee.OTHER, null,
+                        "Transactiekosten"));
+
+        var result = service.share(line, request);
+
+        assertEquals(List.of(BankPurchaseShareService.Outcome.LINKED, BankPurchaseShareService.Outcome.CREATED),
+                result.parts().stream().map(BankPurchaseShareService.PartResult::outcome).toList());
+        assertEquals(open.id(), result.payments().getFirst().id(), "the open payment is linked, never a second one");
+        assertEquals(DAY, result.payments().getFirst().paidOn());
+        var fee = result.payments().get(1);
+        assertEquals(a.id(), fee.orderId());
+        assertEquals(PurchasePayment.Payee.OTHER, fee.payee());
+        assertEquals("Transactiekosten", fee.label());
+        assertEquals(eur("25.00"), fee.amountEur());
+        assertEquals(Currency.EUR, fee.currency());
+        assertNull(fee.instalmentDue());
+        assertEquals(DAY, fee.paidOn());
+        assertEquals(2, onLine(line));
+        assertTrue(result.line().allocated);
+        assertEquals(eur("0.00"), result.line().allocationDifferenceEur);
+        assertEquals(List.of("Banktransactie van 28/09/2026 (€ 3.095,20) verdeeld over 1 container · deze container € 3.095,20"),
+                shares(a));
+
+        var retry = service.share(line, request);
+        assertEquals(result.payments(), retry.payments(), "an identical retry answers the same rows");
+        assertEquals(2, purchases.payments(a.id()).size());
+    }
+
     private static BankPurchaseShareService.ShareRequest request(BankPurchaseShareService.SharePart... parts) {
         return new BankPurchaseShareService.ShareRequest(List.of(parts));
     }

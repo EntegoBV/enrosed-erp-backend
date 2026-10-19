@@ -72,6 +72,18 @@ class PurchasePaymentSplitResourceHttpTest {
                 java.util.List.of(), java.util.List.of()))).has("notice"));
     }
 
+    /** 2026-10-19: the transaction costs travel in the same body, as a choice or as a fee in euro. */
+    @Test
+    void aBankPartBodyCarriesTheTransactionCosts() throws Exception {
+        assertNull(json.readValue("{\"bankStatementLineId\":5}", PurchasePaymentSplitService.PartRequest.class).feeEur());
+        var rest = json.readValue("{\"bankStatementLineId\":5,\"higher\":\"FEE\"}", PurchasePaymentSplitService.PartRequest.class);
+        assertEquals(PurchasePaymentSplitService.Higher.FEE, rest.higher());
+        var named = json.readValue("{\"bankStatementLineId\":5,\"amount\":6000,\"higher\":null,\"withPaymentIds\":[],"
+                + "\"expectedAmountEur\":10250.00,\"feeEur\":25.50}", PurchasePaymentSplitService.PartRequest.class);
+        assertEquals(0, new java.math.BigDecimal("25.50").compareTo(named.feeEur()));
+        assertEquals(0, new java.math.BigDecimal("6000").compareTo(named.amount()));
+    }
+
     @Test
     void aMissingInvoiceKeepsTheStoredChoiceAndAnExplicitNullMeansAutomatic() throws Exception {
         var missing = json.readValue("{\"amount\":10}", SourcingResource.PaymentRequest.class);

@@ -7,6 +7,7 @@ import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities;
 import be.enrosed.sourcing.application.InvoiceAssignment;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.PaymentTerms;
+import be.enrosed.sourcing.domain.PurchaseOrderName;
 import be.enrosed.sourcing.domain.PurchasePayment;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -39,11 +40,13 @@ import java.util.Objects;
  *   bank-part    one line linked to a payment, which follows the line: a
  *                whole match takes the line's day and amount, a larger line
  *                takes the owner's choice (the payment's amount follows, or
- *                the rest is the inspection paid through the supplier), a
- *                smaller line is carved out with the rest left open in the
- *                group; a USD/CNY payment is whole unless a part is named in
- *                its currency; a payment with every transfer on the bank
- *                grows by the line on the owner's choice
+ *                the rest is the inspection paid through the supplier, or
+ *                the container's transaction costs), a smaller line is
+ *                carved out with the rest left open in the group; a USD/CNY
+ *                payment is whole unless a part is named in its currency; a
+ *                payment with every transfer on the bank grows by the line on
+ *                the owner's choice; a named fee in euro is the container's
+ *                transaction costs on the same line
  *   inspection   the inspection paid through the supplier split off a goods
  *                payment, on the same line, the line total unchanged
  *
@@ -61,6 +64,8 @@ public class PurchasePaymentSplitService {
     static final String CARVED_SUMMARY = "Deel van de betaling aan een banktransactie gekoppeld";
     static final String GROWN_SUMMARY = "Transactie toegevoegd aan de betaling";
     static final String CHANGED = "De betaling is intussen gewijzigd; vernieuw en probeer opnieuw";
+    /** The label of the bank's fee on a container transfer, booked as Bijkomende kosten. */
+    static final String FEE_LABEL = "Transactiekosten";
 
     @Inject EntityManager em;
     @Inject PurchaseOrderService purchases;
@@ -74,7 +79,9 @@ public class PurchasePaymentSplitService {
         /** "Bedrag aanpassen": the payment takes the line's amount. */
         ADJUST,
         /** "Rest als inspectie via leverancier": the rest becomes the inspection on the same line. */
-        INSPECTION
+        INSPECTION,
+        /** "Rest als transactiekosten": the rest becomes the container's transaction costs on the same line. */
+        FEE
     }
 
     /**
@@ -87,12 +94,21 @@ public class PurchasePaymentSplitService {
      *                          with the goods): they keep their amounts and take the line's day, the addressed payment
      *                          takes the rest of the line
      * @param expectedAmountEur the payment's euro as the screen saw it; a different stored amount is refused
+     * @param feeEur            the bank's fee in this line ("Waarvan transactiekosten"): it becomes a new
+     *                          "Transactiekosten" payment (Bijkomende kosten) on the same container and line, and
+     *                          the addressed payment takes the line without it; empty means none
      */
     public record PartRequest(Long bankStatementLineId, BigDecimal amount, Higher higher, List<Long> withPaymentIds,
-                              BigDecimal expectedAmountEur) {
+                              BigDecimal expectedAmountEur, BigDecimal feeEur) {
         /** A link without a choice: a whole match or a smaller line. */
         public PartRequest(Long bankStatementLineId, BigDecimal amount) {
-            this(bankStatementLineId, amount, null, null, null);
+            this(bankStatementLineId, amount, null, null, null, null);
+        }
+
+        /** Compatibility for callers written before a line could carry transaction costs. */
+        public PartRequest(Long bankStatementLineId, BigDecimal amount, Higher higher, List<Long> withPaymentIds,
+                           BigDecimal expectedAmountEur) {
+            this(bankStatementLineId, amount, higher, withPaymentIds, expectedAmountEur, null);
         }
     }
     /** {@code expectedAmountEur}: the goods payment's euro amount as the screen saw it. */
@@ -183,7 +199,9 @@ public class PurchasePaymentSplitService {
      * absorbs every difference, never the inspection. The root of a payment
      * in parts names its one open transfer; a payment whose transfers are all
      * on the bank grows by this one with the owner's ADJUST ("Transactie
-     * toevoegen").
+     * toevoegen"). A named fee comes off the line first and becomes the
+     * container's transaction costs on it; FEE puts a larger line's rest
+     * there too.
      */
     @Transactional
     public SplitResult linkPart(long paymentId, PartRequest request) {
@@ -221,28 +239,38 @@ public class PurchasePaymentSplitService {
             throw new BusinessRuleException(CHANGED);
         }
         BigDecimal lineEur = line.amountEur.negate();
+        BigDecimal fee = fee(request.feeEur(), lineEur);
         BigDecimal othersEur = others.stream().map(other -> other.amountEur).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal target = lineEur.subtract(othersEur);
+        BigDecimal target = lineEur.subtract(othersEur).subtract(fee == null ? BigDecimal.ZERO : fee);
         if (target.signum() <= 0) {
-            throw new BusinessRuleException("De andere betalingen (" + eur(othersEur) + ") zijn samen niet kleiner dan de banktransactie ("
-                    + eur(lineEur) + ")");
+            throw new BusinessRuleException((fee == null ? "De andere betalingen (" + eur(othersEur)
+                    : "De andere betalingen en de transactiekosten (" + eur(othersEur.add(fee)))
+                    + ") zijn samen niet kleiner dan de banktransactie (" + eur(lineEur) + ")");
         }
         LocalDate day = day(line);
         PurchasePayment before = toDomain(payment);
         List<Long> otherIds = others.stream().map(other -> other.id).toList();
-        if (grow) return grow(orderId, payment, line, request, target, day, otherIds);
+        if (grow) return grow(orderId, payment, line, request, target, day, otherIds, fee);
         if (payment.currency != null && payment.currency != Currency.EUR) {
-            return linkForeign(orderId, payment, line, request, target, day, otherIds, before);
+            return linkForeign(orderId, payment, line, request, target, day, otherIds, before, fee);
         }
         BigDecimal difference = target.subtract(payment.amountEur);
         boolean higher = difference.compareTo(BankAmountMatch.MAX_DIFFERENCE) > 0;
         if (!higher && difference.compareTo(BankAmountMatch.MAX_DIFFERENCE.negate()) >= 0
                 || higher && request.higher() == Higher.ADJUST) {
-            /* The payment follows the transfer: its day and, the other parts kept, the rest of the line. */
+            /* The payment follows the transfer: its day and, the other parts and the fee kept, the rest of the line. */
             PurchasePayment after = follow(orderId, goodsId, day, target, LINKED_SUMMARY, line.id);
             for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-            link(line, concat(goodsId, otherIds));
-            return result(orderId, lockPayment(goodsId), List.of(line), followed(before, after));
+            link(line, withFee(orderId, day, fee, concat(goodsId, otherIds)));
+            return result(orderId, lockPayment(goodsId), List.of(line), sentences(followed(before, after), feeNotice(orderId, fee)));
+        }
+        if (higher && request.higher() == Higher.FEE) {
+            /* "Rest als transactiekosten": the payment keeps its amount, the rest is the bank's fee on the container. */
+            PurchasePayment after = follow(orderId, goodsId, day, null, LINKED_SUMMARY, line.id);
+            for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
+            BigDecimal costs = fee == null ? difference : difference.add(fee);
+            link(line, withFee(orderId, day, costs, concat(goodsId, otherIds)));
+            return result(orderId, lockPayment(goodsId), List.of(line), sentences(followed(before, after), feeNotice(orderId, costs)));
         }
         if (higher) {
             String refused = inspectionRestRefusal(orderId, payment, others, target);
@@ -256,10 +284,10 @@ public class PurchasePaymentSplitService {
             PurchasePayment inspection = purchases.addInspectionRest(orderId, goodsId, difference);
             List<Long> linked = new ArrayList<>(concat(goodsId, otherIds));
             linked.add(inspection.id());
-            link(line, linked);
-            String dated = followed(before, after);
+            link(line, withFee(orderId, day, fee, linked));
             String rest = "Inspectie via leverancier " + eur(inspection.amountEur()) + " toegevoegd op dezelfde transactie.";
-            return result(orderId, lockPayment(goodsId), List.of(line), dated == null ? rest : dated + " " + rest);
+            return result(orderId, lockPayment(goodsId), List.of(line),
+                    sentences(followed(before, after), rest, feeNotice(orderId, fee)));
         }
         /* A smaller line: its part is carved out, the rest stays open in the group. */
         BigDecimal whole = payment.amountEur;
@@ -268,8 +296,8 @@ public class PurchasePaymentSplitService {
                 new PurchaseOrderService.PaymentPart(target, target, day),
                 new PurchaseOrderService.PaymentPart(rest, rest, payment.paidOn)), CARVED_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, concat(saved.getFirst().id(), otherIds));
-        return result(orderId, lockPayment(goodsId), List.of(line), carved(target, whole));
+        link(line, withFee(orderId, day, fee, concat(saved.getFirst().id(), otherIds)));
+        return result(orderId, lockPayment(goodsId), List.of(line), sentences(carved(target, whole), feeNotice(orderId, fee)));
     }
 
     /**
@@ -279,12 +307,14 @@ public class PurchasePaymentSplitService {
      * payment, which takes the bank's euro and keeps its own amount, unless
      * the request names a smaller part in the payment's currency. That part
      * is carved out at the payment's booked rate and then takes the bank's
-     * euro; the rest stays open at the booked rate. "Rest als inspectie" does
-     * not apply: the inspection is split off after the link.
+     * euro; the rest stays open at the booked rate. "Rest als inspectie" and
+     * "Rest als transactiekosten" do not apply: the inspection is split off
+     * after the link, the bank's fee is named in euro ({@code feeEur}) and
+     * then comes off the line before the payment takes its euro.
      */
     private SplitResult linkForeign(long orderId, SourcingEntities.PurchasePaymentEntity payment,
                                     BankStatementLineEntity line, PartRequest request, BigDecimal target,
-                                    LocalDate day, List<Long> otherIds, PurchasePayment before) {
+                                    LocalDate day, List<Long> otherIds, PurchasePayment before, BigDecimal fee) {
         Currency currency = payment.currency;
         BigDecimal named = request.amount() == null ? null : cents(request.amount());
         if (named != null && named.signum() <= 0) throw new BusinessRuleException("Elk deel moet groter dan nul zijn");
@@ -297,10 +327,15 @@ public class PurchasePaymentSplitService {
                 throw new BusinessRuleException("Een betaling in " + currency.name() + " neemt het eurobedrag van de transactie "
                         + "over: een verschil in euro is koers, geen inspectie. Splits de inspectie na het koppelen af.");
             }
+            if (request.higher() == Higher.FEE) {
+                throw new BusinessRuleException("Een betaling in " + currency.name() + " neemt het eurobedrag van de transactie "
+                        + "over: een verschil in euro is koers. Geef de transactiekosten op in euro.");
+            }
             PurchasePayment after = follow(orderId, payment.id, day, target, LINKED_SUMMARY, line.id);
             for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-            link(line, concat(payment.id, otherIds));
-            return result(orderId, lockPayment(payment.id), List.of(line), followed(before, after));
+            link(line, withFee(orderId, day, fee, concat(payment.id, otherIds)));
+            return result(orderId, lockPayment(payment.id), List.of(line),
+                    sentences(followed(before, after), feeNotice(orderId, fee)));
         }
         BigDecimal rest = payment.amount.subtract(named);
         BigDecimal partBooked = payment.amountEur.multiply(named).divide(payment.amount, 2, RoundingMode.HALF_UP);
@@ -313,8 +348,9 @@ public class PurchasePaymentSplitService {
                 new PurchaseOrderService.PaymentPart(rest, restEur, payment.paidOn)), CARVED_SUMMARY);
         purchases.followBankLine(orderId, saved.getFirst().id(), day, target, CARVED_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, concat(saved.getFirst().id(), otherIds));
-        return result(orderId, lockPayment(goodsId), List.of(line), carvedForeign(named, target, whole, currency));
+        link(line, withFee(orderId, day, fee, concat(saved.getFirst().id(), otherIds)));
+        return result(orderId, lockPayment(goodsId), List.of(line),
+                sentences(carvedForeign(named, target, whole, currency), feeNotice(orderId, fee)));
     }
 
     /**
@@ -326,7 +362,7 @@ public class PurchasePaymentSplitService {
      * that choice it is refused, saying what the payment would become.
      */
     private SplitResult grow(long orderId, SourcingEntities.PurchasePaymentEntity payment, BankStatementLineEntity line,
-                             PartRequest request, BigDecimal target, LocalDate day, List<Long> otherIds) {
+                             PartRequest request, BigDecimal target, LocalDate day, List<Long> otherIds, BigDecimal fee) {
         long root = payment.groupId == null ? payment.id : payment.groupId;
         List<SourcingEntities.PurchasePaymentEntity> group = em.createQuery(
                         "from PurchasePaymentEntity p where p.groupId=:root or p.id=:root order by p.id",
@@ -351,14 +387,14 @@ public class PurchasePaymentSplitService {
         PurchasePayment added = purchases.addTransfer(orderId, payment.id,
                 new PurchaseOrderService.PaymentPart(amount, target, day), GROWN_SUMMARY);
         for (Long other : otherIds) follow(orderId, other, day, null, LINKED_SUMMARY, line.id);
-        link(line, concat(added.id(), otherIds));
+        link(line, withFee(orderId, day, fee, concat(added.id(), otherIds)));
         String notice = currency == Currency.EUR
                 ? "Transactie van " + eur(target) + " op " + DAY.format(day) + " toegevoegd; de betaling is nu "
                         + eur(totalEur.add(target)) + " (was " + eur(totalEur) + ")."
                 : "Transactie van " + eur(target) + " (" + money(amount, currency) + ") op " + DAY.format(day)
                         + " toegevoegd; de betaling is nu " + money(total.add(amount), currency) + " (was "
                         + money(total, currency) + ").";
-        return result(orderId, lockPayment(added.id()), List.of(line), notice);
+        return result(orderId, lockPayment(added.id()), List.of(line), sentences(notice, feeNotice(orderId, fee)));
     }
 
     /** D: the inspection paid through the supplier, split off a goods payment on the same line. */
@@ -462,6 +498,49 @@ public class PurchasePaymentSplitService {
         all.add(first);
         all.addAll(rest);
         return all;
+    }
+
+    /**
+     * The bank's fee named in the line, in euro cents; null when none. It must
+     * leave something of the line for the payment.
+     */
+    private static BigDecimal fee(BigDecimal feeEur, BigDecimal lineEur) {
+        if (feeEur == null) return null;
+        BigDecimal fee = cents(feeEur);
+        if (fee.signum() <= 0) throw new BusinessRuleException("Geef transactiekosten groter dan nul op");
+        if (fee.compareTo(lineEur) >= 0) {
+            throw new BusinessRuleException("De transactiekosten (" + eur(fee) + ") moeten kleiner zijn dan de banktransactie ("
+                    + eur(lineEur) + ")");
+        }
+        return fee;
+    }
+
+    /**
+     * The payments to link, and with a fee a new "Transactiekosten" payment
+     * on the same container (Bijkomende kosten: no Afspraak, in the
+     * nacalculatie, out of the stock value, never a company cost), in euro on
+     * the line's day. It is written only here, right before the link.
+     */
+    private List<Long> withFee(long orderId, LocalDate day, BigDecimal fee, List<Long> ids) {
+        if (fee == null) return ids;
+        List<Long> all = new ArrayList<>(ids);
+        all.add(purchases.addPayment(orderId, day, fee, Currency.EUR, FEE_LABEL, PurchasePayment.Payee.OTHER, false,
+                null).id());
+        return all;
+    }
+
+    /** "Transactiekosten € 25,00 bij PO-2026-005 op dezelfde transactie."; null without a fee. */
+    private String feeNotice(long orderId, BigDecimal fee) {
+        if (fee == null) return null;
+        var order = em.find(SourcingEntities.PurchaseOrderEntity.class, orderId);
+        return FEE_LABEL + " " + eur(fee) + " bij " + PurchaseOrderName.display(orderId, order == null ? null : order.number, null)
+                + " op dezelfde transactie.";
+    }
+
+    /** The sentences that are there, one space apart; null when none. */
+    private static String sentences(String... parts) {
+        List<String> present = java.util.Arrays.stream(parts).filter(Objects::nonNull).toList();
+        return present.isEmpty() ? null : String.join(" ", present);
     }
 
     /** A member of the group already on this line: the retry of a link addressed to the group's root. */

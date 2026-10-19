@@ -1635,6 +1635,20 @@ the nacalculatie.
   unchanged: two-cent rule, no following. The inspection split (D) is refused on a line that already
   carries an inspection payment of the container ("Deze transactie draagt al Inspectie € x (via
   leverancier); een tweede afsplitsing kan niet. Maak de koppeling los om de inspectie te wijzigen.").
+- **Transactiekosten on `bank-part`** (2026-10-19, the bank's fee on a Chinese transfer): `higher: FEE`
+  ("Rest als transactiekosten", EUR payments) keeps the payment's amount and books the rest as a new
+  payment on the same container and line: payee OTHER (Bijkomende kosten: no Afspraak, in the
+  nacalculatie, out of the stock value, never a company cost), label "Transactiekosten", EUR,
+  `settles` false, no term, the line's day. `feeEur` (nullable, last `PartRequest` component; the 2- and
+  5-arg constructors stay) names the fee in the line: it is booked the same way and the addressed
+  payment follows line − others − fee by the usual rules (EUR exact or `higher`, smaller carved,
+  USD/CNY takes that euro, "Transactie toevoegen" grows by it); with FEE too the rest joins the same
+  fee payment. Refused: fee ≤ 0, fee ≥ the line, more than two decimals, FEE on a whole USD/CNY link
+  ("geef de transactiekosten op in euro"). Notice "… Transactiekosten € x bij {PO-nummer} op dezelfde
+  transactie."; an identical retry returns before any write (the payment is on the line already).
+  Unlink keeps the fee payment and only frees it, like the inspection rest. `/purchase-payment` (a term
+  + an OTHER "Transactiekosten" part) and `/purchase-share` (an open payment + a new OTHER part of the
+  same order) already took this; tests pin both.
 - **USD/CNY payments on `bank-part` decide in their own currency** (review of round 2): the line holds
   euro only and the payment's euro is a forecast at the order's rate, so a euro gap is the exchange
   rate. Without `amount` (or with the payment's whole amount, or `higher: ADJUST`) the line is the

@@ -271,6 +271,39 @@ class BankPurchasePaymentServiceTest {
         assertEquals(1, purchases.payments(order.id()).size());
     }
 
+    /** 2026-10-19 (pin): a new term and the bank's fee on one transfer, the fee as Bijkomende kosten of the same container. */
+    @Test @TestTransaction
+    void aTermAndItsTransactionCostsGoOnOneTransfer() {
+        var order = container();
+        var line = imported("-10025");
+        var request = new BankPurchasePaymentService.Request(order.id(), List.of(
+                new BankPurchasePaymentService.Payment(new BigDecimal("12000"), Currency.USD, "Aanbetaling 30%",
+                        PurchasePayment.Payee.SUPPLIER, false, PaymentTerms.Moment.ORDERED, new BigDecimal("10000")),
+                new BankPurchasePaymentService.Payment(new BigDecimal("25"), Currency.EUR, "Transactiekosten",
+                        PurchasePayment.Payee.OTHER, false, null, null)));
+
+        var result = service.record(line, request);
+
+        assertEquals(List.of(PurchasePayment.Payee.SUPPLIER, PurchasePayment.Payee.OTHER),
+                result.payments().stream().map(PurchasePayment::payee).toList());
+        assertTrue(result.payments().stream().allMatch(payment -> line.equals(payment.bankStatementLineId())
+                && DAY.equals(payment.paidOn()) && order.id().equals(payment.orderId())));
+        var goods = result.payments().getFirst();
+        assertEquals(new BigDecimal("12000.00"), goods.amount());
+        assertEquals(new BigDecimal("10000.00"), goods.amountEur(), "the goods take the line without the fee");
+        assertEquals(PaymentTerms.Moment.ORDERED, goods.instalmentDue());
+        var fee = result.payments().get(1);
+        assertEquals("Transactiekosten", fee.label());
+        assertEquals(Currency.EUR, fee.currency());
+        assertEquals(new BigDecimal("25.00"), fee.amountEur());
+        assertNull(fee.instalmentDue());
+        assertFalse(fee.settles());
+        assertTrue(result.line().allocated);
+        assertEquals(0, result.line().allocationDifferenceEur.signum());
+        assertEquals(result.payments(), service.record(line, request).payments(), "the same retry answers the same ids");
+        assertEquals(2, purchases.payments(order.id()).size());
+    }
+
     private PurchaseOrder container() {
         var supplier = suppliers.save(new Supplier(null, "Atomic transfer supplier", "CN", "Yiwu", null,
                 null, null, Currency.USD, "FOB", "Ningbo", 30, null));
