@@ -59,10 +59,42 @@ public final class ClosingVersionDiff {
     }
 
     public static Changes between(Rows current, Rows replaced) {
+        if (InventoryUnits.BASE_PIECE.equals(current.closing().quantityBasis)
+                != InventoryUnits.BASE_PIECE.equals(replaced.closing().quantityBasis)) {
+            current = physical(current);
+            replaced = physical(replaced);
+        }
         return new Changes(replaced.closing().id == null ? 0 : replaced.closing().id,
                 replaced.closing().versionNo == null ? 0 : replaced.closing().versionNo,
                 replaced.closing().totalValueEur, current.closing().totalValueEur,
                 articles(current, replaced), lots(current, replaced), movements(current, replaced), openings(current, replaced));
+    }
+
+    /** Compare on one basis while leaving both stored, possibly FINAL, versions untouched. */
+    private static Rows physical(Rows rows) {
+        if (InventoryUnits.BASE_PIECE.equals(rows.closing().quantityBasis)) return rows;
+        Map<Long, Integer> factors = new TreeMap<>();
+        rows.articles().forEach(article -> factors.put(article.productId, InventoryUnits.factor(article.salesUnit, article.piecesPerUnit)));
+        java.util.function.Function<Long, Integer> factor = id -> {
+            Integer value = factors.get(id);
+            if (value == null) throw new InventoryRefusal("EENHEID_ONTBREEKT", "De verpakkingseenheid ontbreekt in de eerdere inventarisversie");
+            return value;
+        };
+        StockClosingEntity closing = InventoryUnits.copy(rows.closing());
+        closing.quantityBasis = InventoryUnits.BASE_PIECE;
+        return new Rows(closing, rows.articles().stream().map(source -> {
+            StockClosingArticleEntity copy = InventoryUnits.copy(source);
+            copy.closingQuantity = InventoryUnits.quantity(copy.closingQuantity, factor.apply(copy.productId));
+            return copy;
+        }).toList(), rows.lots().stream().map(source -> {
+            StockClosingLotEntity copy = InventoryUnits.copy(source);
+            copy.unitValueEur = InventoryUnits.unitCost(copy.unitValueEur, factor.apply(copy.productId));
+            return copy;
+        }).toList(), rows.containers(), rows.movements().stream().map(source -> {
+            StockClosingMovementEntity copy = StockRoll.copy(source);
+            copy.effectiveDelta = InventoryUnits.quantity(copy.effectiveDelta, factor.apply(copy.productId));
+            return copy;
+        }).toList(), rows.layers().stream().map(layer -> InventoryUnits.layer(layer, factor.apply(layer.productId))).toList());
     }
 
     private static List<ArticleChange> articles(Rows current, Rows replaced) {

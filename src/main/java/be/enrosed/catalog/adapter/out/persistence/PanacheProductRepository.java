@@ -5,6 +5,7 @@ import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.domain.Product;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Objects;
@@ -54,10 +55,29 @@ public class PanacheProductRepository implements ProductRepository {
 
     @Override
     public Product save(Product product) {
-        ProductEntity entity = product.id() == null ? null : dao.findById(product.id());
+        ProductEntity entity = product.id() == null ? null : dao.findById(product.id(), LockModeType.PESSIMISTIC_WRITE);
+        if (entity != null) {
+            // Stock writers use this same lock; a previously read domain object must not restore stale stock.
+            entityManager.flush();
+            entityManager.refresh(entity, LockModeType.PESSIMISTIC_WRITE);
+        }
         if (entity == null) entity = new ProductEntity();
+        boolean existing = entity.id != null;
+        int stockBefore = entity.stockQuantity;
+        boolean inventoryKnownBefore = entity.inventoryKnown;
 
+        if (entity.id != null && (entity.packaging().salesUnit() != product.packaging().salesUnit()
+                || entity.packaging().unitPieces() != product.packaging().unitPieces())
+                && (count("select count(l) from StockLevelEntity l where l.productId = :productId and l.loosePieces <> 0", entity.id) > 0
+                || count("select count(m) from StockMovementEntity m where m.productId = :productId and m.ticaSaleId is not null", entity.id) > 0)) {
+            throw new be.enrosed.shared.BusinessRuleException(
+                    "Dit product heeft losse voorraad of TICA-voorraadboekingen; de vastgelegde voorraadbasis kan niet worden gewijzigd.");
+        }
         CatalogMapper.apply(product, entity);
+        if (existing) {
+            entity.stockQuantity = stockBefore;
+            entity.inventoryKnown = inventoryKnownBefore;
+        }
         CatalogMapper.applyPhotos(product, entity);
         CatalogMapper.applyTexts(product, entity);
 
@@ -102,6 +122,16 @@ public class PanacheProductRepository implements ProductRepository {
 
     @Override
     public void deleteById(long id) {
+        // A first channel price or stock posting may still be uncommitted; serialize before checking its references.
+        ProductEntity entity = dao.findById(id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) return;
+        if (count("select count(s) from TicaSale s where s.productId = :productId or s.stockProductId = :productId", id) > 0
+                || count("select count(m) from StockMovementEntity m where m.productId = :productId and m.ticaSaleId is not null", id) > 0
+                || count("select count(p) from ProductChannelPriceEntity p where p.productId = :productId", id) > 0
+                || count("select count(p) from ProductChannelPriceHistoryEntity p where p.productId = :productId", id) > 0) {
+            throw new be.enrosed.shared.BusinessRuleException(
+                    "Dit product heeft TICA-verkopen of kanaalprijshistorie. Zet het inactief om de historie te bewaren.");
+        }
         clearFeaturedReferences(id);
         /* Family images are merchandising content and outlive an individual SKU. */
         List<ProductFamilyPhotoEntity> linkedImages = entityManager.createQuery(

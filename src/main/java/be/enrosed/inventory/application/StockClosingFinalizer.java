@@ -179,6 +179,7 @@ public class StockClosingFinalizer {
         ActorRef who = actor.current();
         StockClosingEntity version = new StockClosingEntity();
         version.closingYear = replaced.closingYear;
+        version.quantityBasis = replaced.quantityBasis;
         version.versionNo = versions.stream().mapToInt(other -> other.versionNo).max().orElse(replaced.versionNo) + 1;
         version.closingDate = replaced.closingDate;
         version.cutoffAt = replaced.cutoffAt;

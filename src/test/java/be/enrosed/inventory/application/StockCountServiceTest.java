@@ -80,6 +80,67 @@ class StockCountServiceTest {
     @Inject PurchaseOrderService purchases;
     @Inject EntityManager em;
 
+    @Test @TestTransaction
+    void aCountBooksPhysicalStemsWithoutDiscardingTheElevenLoosePieces() {
+        StockLocation shelf = location("Losse stelen");
+        long productId = product("Doos twaalf stelen", true);
+        ProductEntity product = em.find(ProductEntity.class, productId);
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingSalesUnit = be.enrosed.catalog.domain.SalesUnit.DISPLAY;
+        product.packagingPiecesPerUnit = 12;
+        em.flush(); em.clear();
+        stock.setLevel(productId, shelf.id(), 7, 11, StockMovement.Kind.MANUAL_CORRECTION, "95 fysieke stelen");
+        Session session = counts.start(YEAR, shelf.id(), null, null);
+        Line line = line(session, productId);
+        assertEquals(95, line.liveQuantity());
+        assertEquals(InventoryUnits.BASE_PIECE, line.row().quantityBasis);
+        assertEquals("PIECE", line.row().salesUnit);
+        assertEquals(12, line.row().piecesPerUnit);
+        counts.saveLine(session.summary().count().id, line.row().id,
+                new LineWrite(94, "TELFOUT", null, line.row().revision, null, null));
+        counts.book(session.summary().count().id, counts.bookingCheck(session.summary().count().id).checkToken());
+        assertEquals(7, stock.quantityAt(productId, shelf.id()));
+        assertEquals(10, stock.loosePiecesAt(productId, shelf.id()));
+        assertEquals(94, stock.physicalQuantityAt(productId, shelf.id()));
+        assertEquals(94, counts.view(session.summary().count().id).lines().stream()
+                .filter(row -> row.row().productId == productId).findFirst().orElseThrow().row().bookedQuantity);
+    }
+
+    @Test @TestTransaction
+    void anOldOpenDisplayCountIsUpgradedOnceAndBookedSnapshotsAreNotRewritten() {
+        StockLocation shelf = location("Oude telling");
+        long productId = product("Twaalf stelen", true);
+        ProductEntity product = em.find(ProductEntity.class, productId);
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingSalesUnit = be.enrosed.catalog.domain.SalesUnit.DISPLAY;
+        product.packagingPiecesPerUnit = 12;
+        em.flush(); em.clear();
+        level(productId, shelf, 8);
+        Session session = counts.start(YEAR, shelf.id(), null, null);
+        Line line = line(session, productId);
+        line.row().quantityBasis = null;
+        line.row().salesUnit = "DISPLAY";
+        line.row().countedQuantity = 8; line.row().expectedQuantity = 8; line.row().difference = 0;
+        line.row().countedAt = java.time.Instant.now();
+        long countId = session.summary().count().id;
+        int originalRevision = line.row().revision;
+        em.flush(); em.clear();
+        Line converted = line(counts.view(countId), productId);
+        assertEquals(96, converted.row().countedQuantity);
+        assertEquals(originalRevision + 1, converted.row().revision);
+        assertEquals(converted.row().revision, line(counts.view(countId), productId).row().revision);
+        StockCountEntity count = em.find(StockCountEntity.class, countId);
+        count.status = "GEBOEKT";
+        converted.row().quantityBasis = null; converted.row().salesUnit = "DISPLAY";
+        converted.row().countedQuantity = 8; converted.row().bookedQuantity = 8;
+        em.flush(); em.clear();
+        Line frozen = line(counts.view(countId), productId);
+        assertEquals(8, frozen.row().countedQuantity);
+        assertEquals(8, frozen.row().bookedQuantity);
+        assertNull(frozen.row().quantityBasis);
+        assertEquals("DISPLAY", frozen.row().salesUnit);
+    }
+
     /* ------------------------------------------------------------------ start */
 
     @Test @TestTransaction

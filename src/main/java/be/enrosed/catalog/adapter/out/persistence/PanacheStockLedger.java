@@ -24,11 +24,24 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
         entity.reference = movement.reference();
         entity.actor = movement.actor();
         entity.purchaseOrderId = movement.purchaseOrderId();
+        entity.ticaSaleId = movement.ticaSaleId();
+        entity.ticaRevisionId = movement.ticaRevisionId();
+        entity.sourceSoldAt = movement.sourceSoldAt();
+        entity.looseDelta = movement.looseDelta();
+        entity.loosePiecesAfter = movement.loosePiecesAfter();
+        entity.unitPieces = movement.unitPieces();
+        entity.sourceQuantity = movement.sourceQuantity();
+        entity.sourceUnit = movement.sourceUnit();
         persist(entity);
     }
 
     @Override
     public boolean delete(long productId, long movementId) {
+        StockMovementEntity row = find("id = ?1 and productId = ?2", movementId, productId).firstResult();
+        if (row != null && row.ticaSaleId != null) {
+            throw new be.enrosed.shared.BusinessRuleException(
+                    "Een TICA-voorraadboeking hoort bij de verkoopbron en kan niet worden verwijderd.");
+        }
         return delete("id = ?1 and productId = ?2", movementId, productId) == 1;
     }
 
@@ -62,6 +75,9 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     private static StockMovement toDomain(StockMovementEntity entity) {
         return new StockMovement(entity.id, entity.productId, entity.locationId, entity.at,
                 entity.delta, entity.quantityAfter, entity.kind(), entity.reference, entity.actor,
-                entity.purchaseOrderId);
+                entity.purchaseOrderId, entity.ticaSaleId, entity.ticaRevisionId, entity.sourceSoldAt,
+                entity.looseDelta == null ? 0 : entity.looseDelta,
+                entity.loosePiecesAfter == null ? 0 : entity.loosePiecesAfter, entity.unitPieces,
+                entity.sourceQuantity, entity.sourceUnit);
     }
 }

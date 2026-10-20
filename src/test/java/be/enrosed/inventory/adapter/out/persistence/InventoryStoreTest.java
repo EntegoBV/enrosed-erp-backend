@@ -53,17 +53,17 @@ class InventoryStoreTest {
     @Test
     void aCountSessionAndItsLineReadBack() throws Exception {
         assertReadsBack(counts, new StockCountEntity(), 17);
-        assertReadsBack(countLines, new StockCountLineEntity(), 26);
+        assertReadsBack(countLines, new StockCountLineEntity(), 27);
     }
 
     @Test
     void anOpeningLayerReadsBack() throws Exception {
-        assertReadsBack(openingLayers, new StockOpeningLayerEntity(), 14);
+        assertReadsBack(openingLayers, new StockOpeningLayerEntity(), 16);
     }
 
     @Test
     void aClosingAndItsDecisionReadBack() throws Exception {
-        assertReadsBack(closings, new StockClosingEntity(), 52);
+        assertReadsBack(closings, new StockClosingEntity(), 53);
         assertReadsBack(decisions, new StockClosingDecisionEntity(), 22);
     }
 
@@ -95,7 +95,7 @@ class InventoryStoreTest {
     }
 
     @Test
-    void aUnitValueKeepsFourDecimals() {
+    void aUnitValueKeepsTwelveDecimalsForPhysicalPieces() {
         // Lot A of the first worked example: 2,5449 per piece, 930 pieces, 2.366,76.
         StockClosingLotEntity lot = new StockClosingLotEntity();
         lot.unitValueEur = new BigDecimal("2.5449");
@@ -124,15 +124,15 @@ class InventoryStoreTest {
         entityManager.flush();
         entityManager.clear();
 
-        assertEquals(new BigDecimal("2.5449"), lots.findById(lot.id).unitValueEur);
+        assertEquals(new BigDecimal("2.544900000000"), lots.findById(lot.id).unitValueEur);
         assertEquals(new BigDecimal("2366.76"), lots.findById(lot.id).lotCostEur);
-        assertEquals(new BigDecimal("2.5449"), layers.findById(layer.id).unitValueEur);
-        assertEquals(new BigDecimal("0.2025"), layers.findById(layer.id).unitEstimatedEur);
+        assertEquals(new BigDecimal("2.544900000000"), layers.findById(layer.id).unitValueEur);
+        assertEquals(new BigDecimal("0.202500000000"), layers.findById(layer.id).unitEstimatedEur);
         assertEquals(new BigDecimal("2366.76"), layers.findById(layer.id).valueEur);
-        assertEquals(new BigDecimal("2.5449"), openingLayers.findById(opening.id).unitValueEur);
-        assertEquals(new BigDecimal("2.5053"), articles.findById(article.id).averageUnitEur);
-        assertEquals(new BigDecimal("2.5449"), writeDowns.findById(writeDown.id).layerUnitEur);
-        assertEquals(new BigDecimal("0.5000"), writeDowns.findById(writeDown.id).marketUnitEur);
+        assertEquals(new BigDecimal("2.544900000000"), openingLayers.findById(opening.id).unitValueEur);
+        assertEquals(new BigDecimal("2.505300000000"), articles.findById(article.id).averageUnitEur);
+        assertEquals(new BigDecimal("2.544900000000"), writeDowns.findById(writeDown.id).layerUnitEur);
+        assertEquals(new BigDecimal("0.500000000000"), writeDowns.findById(writeDown.id).marketUnitEur);
         assertEquals(new BigDecimal("24.54"), writeDowns.findById(writeDown.id).amountEur);
         assertEquals(new BigDecimal("0.14000000"), containers.findById(container.id).cnyToUsd);
         assertEquals(new BigDecimal("0.92000000"), containers.findById(container.id).usdToEurGoods);
@@ -193,7 +193,7 @@ class InventoryStoreTest {
             return Instant.parse("2027-01-02T09:15:00Z").plusSeconds(ordinal);
         }
         if (type == BigDecimal.class) {
-            assertEquals(19, column.precision(), field.getName());
+            assertEquals(column.scale() == 12 ? 27 : 19, column.precision(), field.getName());
             return new BigDecimal("1234.56789012").add(BigDecimal.valueOf(ordinal))
                     .setScale(column.scale(), java.math.RoundingMode.HALF_UP);
         }

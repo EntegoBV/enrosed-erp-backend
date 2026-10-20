@@ -29,6 +29,8 @@ public final class TicaEntities {
         @Column(name = "coverage_from") public LocalDate coverageFrom;
         @Column(name = "coverage_to") public LocalDate coverageTo;
         @Column(name = "last_error", length = 500) public String lastError;
+        @Column(name = "stock_enabled") public Boolean stockEnabled = false;
+        @Column(name = "stock_from_date") public LocalDate stockFromDate;
     }
 
     @Entity(name = "TicaSale") @Table(name = "tica_sale", uniqueConstraints = @UniqueConstraint(name = "uk_tica_source_line",
@@ -56,6 +58,16 @@ public final class TicaEntities {
         @Column(nullable = false) public boolean active = true;
         @Column(name = "first_seen_at", nullable = false) public Instant firstSeenAt;
         @Column(name = "updated_at", nullable = false) public Instant updatedAt;
+        @Column(name = "stock_status", length = 40) public String stockStatus;
+        @Column(name = "stock_product_id") public Long stockProductId;
+        @Column(name = "stock_location_id") public Long stockLocationId;
+        /** Signed source sales quantity already reflected in stock: positive means sold. */
+        @Column(name = "stock_quantity") public Integer stockQuantity;
+        @Column(name = "stock_pieces") public Integer stockPieces;
+        @Column(name = "stock_unit_pieces") public Integer stockUnitPieces;
+        @Column(name = "stock_source_unit", length = 30) public String stockSourceUnit;
+        @Column(name = "stock_updated_at") public Instant stockUpdatedAt;
+        @Column(name = "stock_fingerprint", length = 64) public String stockFingerprint;
     }
 
     @Entity(name = "TicaNotice") @Table(name = "tica_notice", uniqueConstraints = @UniqueConstraint(name = "uk_tica_notice_key", columnNames = "notice_key"))

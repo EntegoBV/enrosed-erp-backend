@@ -19,11 +19,14 @@ import java.time.LocalDate;
 @Table(name = "stock_opening_layer")
 public class StockOpeningLayerEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) @Column(name = "id") public Long id;
+    /** Null preserves the historical ERP selling-unit basis; new snapshots use physical pieces. */
+    @Column(name = "quantity_basis", length = 24) public String quantityBasis;
+    @Column(name = "unit_pieces") public Integer unitPieces;
     @Column(name = "product_id") public Long productId;
     @Column(name = "sku", length = 120) public String sku;
     @Column(name = "product_name", length = 255) public String productName;
     @Column(name = "quantity") public Integer quantity;
-    @Column(name = "unit_value_eur", precision = 19, scale = 4) public BigDecimal unitValueEur;
+    @Column(name = "unit_value_eur", precision = 27, scale = 12) public BigDecimal unitValueEur;
     @Column(name = "as_of_date") public LocalDate asOfDate;
     @Column(name = "source", length = 500) public String source;
     @Column(name = "note", length = 1000) public String note;

@@ -650,7 +650,7 @@ public final class FifoValuer {
         row.layerLabel = layerLabel(layer, closingYears);
         row.quantity = pieces;
         row.layerUnitEur = layer.unitValueEur;
-        row.marketUnitEur = market.setScale(4, RoundingMode.HALF_UP);
+        row.marketUnitEur = market.setScale(12, RoundingMode.HALF_UP);
         row.amountEur = amount;
         row.reasonCode = decision.reasonCode();
         row.reason = decision.reason();

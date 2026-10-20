@@ -113,7 +113,7 @@ public class StockCountService {
 
     /** A session with the four figures of its progress. */
     public record Summary(StockCountEntity count, int lineCount, int countedCount, int differenceCount,
-                          int missingReasonCount) {}
+                          int missingReasonCount, String quantityBasis) {}
 
     /** An invoice that is not afgepunt (FACTUUR) or a container that is not bijgeboekt (CONTAINER), for one product. */
     public record OpenDocument(String kind, long id, String number, int quantity) {}
@@ -174,7 +174,7 @@ public class StockCountService {
         Set<Long> existing = products.list().stream().map(Product::id).collect(Collectors.toSet());
         Map<Long, Map<Long, Integer>> levels = new HashMap<>();
         for (StockLevel level : stock.allLevels()) {
-            levels.computeIfAbsent(level.location().id(), key -> new HashMap<>()).put(level.productId(), level.quantity());
+            levels.computeIfAbsent(level.location().id(), key -> new HashMap<>()).put(level.productId(), level.physicalQuantity());
         }
         List<StockCountEntity> ofYear = counts.list("countYear", shown);
         Map<Long, Summary> summaries = new HashMap<>();
@@ -316,7 +316,7 @@ public class StockCountService {
             row.documentsConfirmed = false;
         } else if (!write.countedQuantity().equals(row.countedQuantity) || Boolean.TRUE.equals(write.rebase())) {
             /* A new count: the book of this very moment is what the shelf is compared with. */
-            int live = stock.quantityAt(row.productId, count.locationId);
+            int live = stock.physicalQuantityAt(row.productId, count.locationId);
             int difference = write.countedQuantity() - live;
             requireNote(reason, note, difference);
             ActorRef who = actor.current();
@@ -405,10 +405,11 @@ public class StockCountService {
         /* Only the difference goes to the level of now; a line whose product is gone is left alone. */
         for (Line line : checked.counted()) {
             StockCountLineEntity row = line.row();
-            int live = stock.quantityAt(row.productId, count.locationId);
-            int target = live + row.difference;
+            int live = stock.physicalQuantityAt(row.productId, count.locationId);
+            int target = Math.addExact(live, row.difference);
             String label = row.difference == 0 ? "geen verschil" : CountReason.labelOf(row.reasonCode);
-            stock.setLevel(row.productId, count.locationId, target, StockMovement.Kind.STOCKTAKE,
+            int factor = stock.unitPieces(row.productId);
+            stock.setLevel(row.productId, count.locationId, Math.floorDiv(target, factor), Math.floorMod(target, factor), StockMovement.Kind.STOCKTAKE,
                     reference(count.ledgerRef, label));
             row.liveAtBooking = live;
             row.bookedDelta = row.difference;
@@ -455,12 +456,7 @@ public class StockCountService {
 
     /** The level as the database holds it now, not as this transaction read it earlier; the row stays locked until the commit. */
     private int lockedLevel(long productId, long locationId) {
-        StockLevelEntity level = entities.createQuery(
-                        "select l from StockLevelEntity l where l.productId = ?1 and l.locationId = ?2", StockLevelEntity.class)
-                .setParameter(1, productId).setParameter(2, locationId).getResultStream().findFirst().orElse(null);
-        if (level == null) return 0;
-        entities.refresh(level, LockModeType.PESSIMISTIC_WRITE);
-        return level.quantity;
+        return stock.physicalQuantityAt(productId, locationId);
     }
 
     private StockCountEntity require(long countId) {
@@ -478,6 +474,7 @@ public class StockCountService {
     private StockCountEntity lockOpen(long countId) {
         StockCountEntity count = lock(countId);
         requireOpen(count);
+        normalizeOpen(count);
         return count;
     }
 
@@ -518,7 +515,7 @@ public class StockCountService {
     private Map<Long, Integer> levelsAt(long locationId) {
         Map<Long, Integer> held = new HashMap<>();
         for (StockLevel level : stock.allLevels()) {
-            if (level.location().id() == locationId) held.put(level.productId(), level.quantity());
+            if (level.location().id() == locationId) held.put(level.productId(), level.physicalQuantity());
         }
         return held;
     }
@@ -541,12 +538,38 @@ public class StockCountService {
         row.categoryName = product.categoryId() == null ? null : cut(categoryNames.get(product.categoryId()), 255);
         row.familyId = product.familyId();
         row.unitKey = cut(product.packaging().unitKey(), 32);
-        row.salesUnit = product.packaging().salesUnit().name();
-        row.piecesPerUnit = product.packaging().isPresent() ? product.packaging().unitPieces() : null;
+        row.salesUnit = "PIECE";
+        row.piecesPerUnit = product.packaging().isPresent() ? InventoryUnits.factor(product) : null;
+        row.quantityBasis = InventoryUnits.BASE_PIECE;
         row.addedByHand = addedByHand;
         row.revision = 0;
         row.documentsConfirmed = false;
         return row;
+    }
+
+    /** Upgrade only editable sessions, under the session lock. BOOKED snapshots stay in their original units. */
+    private void normalizeOpen(StockCountEntity count) {
+        if (!STATUS_OPEN.equals(count.status)) return;
+        entities.lock(count, LockModeType.PESSIMISTIC_WRITE);
+        for (StockCountLineEntity row : lines.list("countId", count.id)) {
+            if (InventoryUnits.BASE_PIECE.equals(row.quantityBasis)) continue;
+            int factor = InventoryUnits.countFactor(row);
+            row.expectedQuantity = InventoryUnits.quantity(row.expectedQuantity, factor);
+            row.countedQuantity = InventoryUnits.quantity(row.countedQuantity, factor);
+            row.difference = InventoryUnits.quantity(row.difference, factor);
+            row.liveAtBooking = InventoryUnits.quantity(row.liveAtBooking, factor);
+            row.bookedDelta = InventoryUnits.quantity(row.bookedDelta, factor);
+            row.bookedQuantity = InventoryUnits.quantity(row.bookedQuantity, factor);
+            row.salesUnit = "PIECE";
+            row.piecesPerUnit = factor;
+            row.quantityBasis = InventoryUnits.BASE_PIECE;
+            row.revision = (row.revision == null ? 0 : row.revision) + 1;
+        }
+    }
+
+    private static int documentQuantity(StockCountLineEntity row, int quantity) {
+        return InventoryUnits.BASE_PIECE.equals(row.quantityBasis)
+                ? InventoryUnits.quantity(quantity, row.piecesPerUnit == null ? 1 : row.piecesPerUnit) : quantity;
     }
 
     private static void requireNote(CountReason reason, String note, int difference) {
@@ -587,10 +610,12 @@ public class StockCountService {
             different++;
             if (row.reasonCode == null) withoutReason++;
         }
-        return new Summary(count, listed, counted, different, withoutReason);
+        return new Summary(count, listed, counted, different, withoutReason,
+                rows.stream().allMatch(row -> InventoryUnits.BASE_PIECE.equals(row.quantityBasis)) ? InventoryUnits.BASE_PIECE : null);
     }
 
     private Session session(StockCountEntity count) {
+        normalizeOpen(count);
         Map<Long, Integer> live = levelsAt(count.locationId);
         Set<Long> existing = products.list().stream().map(Product::id).collect(Collectors.toSet());
         List<StockCountLineEntity> rows = lines.list("countId", count.id);
@@ -604,6 +629,7 @@ public class StockCountService {
                         .thenComparing(row -> row.id))
                 .map(row -> {
                     int quantity = live.getOrDefault(row.productId, 0);
+                    if (!open && !InventoryUnits.BASE_PIECE.equals(row.quantityBasis)) quantity = Math.floorDiv(quantity, InventoryUnits.countFactor(row));
                     boolean known = existing.contains(row.productId);
                     return new Line(row, quantity, open && known && moved(row, quantity),
                             open && known ? documents.of(row) : List.of());
@@ -627,7 +653,7 @@ public class StockCountService {
 
     /** One line as a save answers it; the documents are read only when the line has a difference they could explain. */
     private Line line(StockCountEntity count, StockCountLineEntity row) {
-        int live = stock.quantityAt(row.productId, count.locationId);
+        int live = stock.physicalQuantityAt(row.productId, count.locationId);
         boolean negative = differs(row) && row.difference < 0;
         boolean positive = differs(row) && row.difference > 0;
         return new Line(row, live, moved(row, live), documents(count, negative, positive).of(row));
@@ -641,6 +667,7 @@ public class StockCountService {
 
     /** The booking check of 4.5, on the lines whose product still exists. */
     private Checked check(StockCountEntity count, Map<Long, Product> existing) {
+        normalizeOpen(count);
         Map<Long, Integer> live = levelsAt(count.locationId);
         Documents documents = documents(count, true, true);
         List<StockCountLineEntity> rows = lines.list("countId = ?1 order by productId, id", count.id).stream()
@@ -659,7 +686,7 @@ public class StockCountService {
             if (!counted(row)) continue;
             int quantity = live.getOrDefault(row.productId, 0);
             int difference = row.difference == null ? 0 : row.difference;
-            int result = quantity + difference;
+            int result = Math.addExact(quantity, difference);
             Line line = new Line(row, quantity, moved(row, quantity), documents.of(row));
             counted.add(line);
             token.add(row.productId + ":" + quantity + ":" + row.revision);
@@ -699,6 +726,7 @@ public class StockCountService {
         return stock.movementsFor(row.productId).stream()
                 .filter(movement -> Objects.equals(movement.locationId(), locationId))
                 .filter(movement -> row.countedAt == null || movement.at().isAfter(row.countedAt))
+                .map(movement -> InventoryUnits.movement(movement, row.piecesPerUnit == null ? 1 : row.piecesPerUnit))
                 .sorted(Comparator.comparing(StockMovement::at)
                         .thenComparing(StockMovement::id, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
@@ -738,7 +766,7 @@ public class StockCountService {
             if (row.difference < 0) {
                 for (UnshippedInvoice invoice : invoices) {
                     Integer quantity = invoice.quantities().get(row.productId);
-                    if (quantity != null) open.add(new OpenDocument("FACTUUR", invoice.salesOrderId(), invoice.number(), quantity));
+                    if (quantity != null) open.add(new OpenDocument("FACTUUR", invoice.salesOrderId(), invoice.number(), documentQuantity(row, quantity)));
                 }
             } else {
                 for (UnbookedContainer container : containers) {
@@ -747,7 +775,7 @@ public class StockCountService {
                         open.add(new OpenDocument("CONTAINER", container.purchaseOrderId(),
                                 /* By the name the page and the refusal use; the number only when it has none. */
                                 container.displayName() == null || container.displayName().isBlank()
-                                        ? container.number() : container.displayName(), quantity));
+                                        ? container.number() : container.displayName(), documentQuantity(row, quantity)));
                     }
                 }
             }

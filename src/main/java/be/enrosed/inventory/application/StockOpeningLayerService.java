@@ -99,7 +99,9 @@ public class StockOpeningLayerService {
             layer.sku = cut(product.sku(), 120);
             layer.productName = cut(product.nameWithColour(), 255);
             layer.quantity = row.quantity();
-            layer.unitValueEur = row.unitValueEur().setScale(4, RoundingMode.HALF_UP);
+            layer.quantityBasis = InventoryUnits.BASE_PIECE;
+            layer.unitPieces = InventoryUnits.factor(product);
+            layer.unitValueEur = row.unitValueEur().setScale(12, RoundingMode.HALF_UP);
             layer.asOfDate = write.asOfDate();
             layer.source = source;
             layer.note = row.note() == null || row.note().isBlank() ? null : cut(row.note().strip(), 1000);

@@ -36,12 +36,12 @@ public class StockClosingLayerEntity {
     @Column(name = "sales_order_id") public Long salesOrderId;
     @Column(name = "capacity") public Integer capacity;
     @Column(name = "quantity") public Integer quantity;
-    @Column(name = "unit_value_eur", precision = 19, scale = 4) public BigDecimal unitValueEur;
-    @Column(name = "unit_goods_eur", precision = 19, scale = 4) public BigDecimal unitGoodsEur;
-    @Column(name = "unit_transport_eur", precision = 19, scale = 4) public BigDecimal unitTransportEur;
-    @Column(name = "unit_logistics_eur", precision = 19, scale = 4) public BigDecimal unitLogisticsEur;
-    @Column(name = "unit_separate_eur", precision = 19, scale = 4) public BigDecimal unitSeparateEur;
-    @Column(name = "unit_estimated_eur", precision = 19, scale = 4) public BigDecimal unitEstimatedEur;
+    @Column(name = "unit_value_eur", precision = 27, scale = 12) public BigDecimal unitValueEur;
+    @Column(name = "unit_goods_eur", precision = 27, scale = 12) public BigDecimal unitGoodsEur;
+    @Column(name = "unit_transport_eur", precision = 27, scale = 12) public BigDecimal unitTransportEur;
+    @Column(name = "unit_logistics_eur", precision = 27, scale = 12) public BigDecimal unitLogisticsEur;
+    @Column(name = "unit_separate_eur", precision = 27, scale = 12) public BigDecimal unitSeparateEur;
+    @Column(name = "unit_estimated_eur", precision = 27, scale = 12) public BigDecimal unitEstimatedEur;
     @Column(name = "value_eur", precision = 19, scale = 2) public BigDecimal valueEur;
     @Column(name = "estimated_eur", precision = 19, scale = 2) public BigDecimal estimatedEur;
     @Column(name = "write_down_quantity") public Integer writeDownQuantity;

@@ -57,9 +57,9 @@ public class StockResource {
         }
     }
 
-    public record LevelDto(long productId, long locationId, int quantity) {
+    public record LevelDto(long productId, long locationId, int quantity, int loosePieces, int piecesPerUnit) {
         static LevelDto from(StockLevel level) {
-            return new LevelDto(level.productId(), level.location().id(), level.quantity());
+            return new LevelDto(level.productId(), level.location().id(), level.quantity(), level.loosePieces(), level.piecesPerUnit());
         }
     }
 
@@ -98,7 +98,7 @@ public class StockResource {
     }
 
     public record StocktakeRequest(Long locationId, String reference, List<Count> counts) {
-        public record Count(Long productId, Integer quantity) {}
+        public record Count(Long productId, Integer quantity, Integer loosePieces) {}
     }
 
     /** A recount at one location: every listed product gets its counted figure, in one go. */
@@ -115,7 +115,9 @@ public class StockResource {
                 ? "Telling" : request.reference().trim();
         for (StocktakeRequest.Count count : request.counts()) {
             if (count.productId() == null || count.quantity() == null) continue;
-            stock.setLevel(count.productId(), request.locationId(), count.quantity(),
+            if (count.loosePieces() == null) stock.setLevel(count.productId(), request.locationId(), count.quantity(),
+                    StockMovement.Kind.STOCKTAKE, reference);
+            else stock.setLevel(count.productId(), request.locationId(), count.quantity(), count.loosePieces(),
                     StockMovement.Kind.STOCKTAKE, reference);
         }
         return Response.noContent().build();

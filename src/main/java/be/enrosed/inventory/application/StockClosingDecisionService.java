@@ -273,7 +273,7 @@ public class StockClosingDecisionService {
                 }
                 row.productId = write.productId();
                 row.quantity = write.quantity();
-                row.unitValueEur = write.unitValueEur().setScale(4, RoundingMode.HALF_UP);
+                row.unitValueEur = write.unitValueEur().setScale(12, RoundingMode.HALF_UP);
                 row.reasonCode = code.code();
                 stored.add(row);
             }

@@ -188,7 +188,7 @@ public class StockClosingService {
 
     public record OpeningLayerView(long id, long productId, String sku, String productName, int quantity,
                                    BigDecimal unitValueEur, LocalDate asOfDate, String source, String note,
-                                   String createdByName, Instant createdAt) {}
+                                   String createdByName, Instant createdAt, String quantityBasis, Integer unitPieces) {}
 
     /**
      * A closing as it is stored.
@@ -357,7 +357,8 @@ public class StockClosingService {
                 views.add(new OpeningLayerView(layer.openingLayerId, layer.productId, article == null ? null : article.sku,
                         article == null ? null : article.productName, layer.quantity, layer.unitValueEur, layer.receivedOn,
                         layer.openingSource, entered == null ? null : entered.note,
-                        entered == null ? null : entered.createdByName, entered == null ? null : entered.createdAt));
+                        entered == null ? null : entered.createdByName, entered == null ? null : entered.createdAt, closing.quantityBasis,
+                        article == null ? null : article.piecesPerUnit));
             }
             return views;
         }
@@ -368,7 +369,7 @@ public class StockClosingService {
             if (previous != null && !layer.asOfDate.isAfter(previous.closingDate)
                     && (consumed.contains(layer.id) || !valued.contains(layer.productId))) continue;
             views.add(new OpeningLayerView(layer.id, layer.productId, layer.sku, layer.productName, layer.quantity,
-                    layer.unitValueEur, layer.asOfDate, layer.source, layer.note, layer.createdByName, layer.createdAt));
+                    layer.unitValueEur, layer.asOfDate, layer.source, layer.note, layer.createdByName, layer.createdAt, layer.quantityBasis, layer.unitPieces));
         }
         return views;
     }
@@ -405,6 +406,7 @@ public class StockClosingService {
         closing.closingDate = date;
         closing.cutoffAt = InventoryClock.cutoffAt(date);
         closing.status = STATUS_CONCEPT;
+        closing.quantityBasis = InventoryUnits.BASE_PIECE;
         closing.createdBy = who.username();
         closing.createdByName = cut(who.displayName(), 120);
         closing.createdAt = Instant.now();
@@ -597,7 +599,7 @@ public class StockClosingService {
         Instant cutoff = InventoryClock.cutoffAt(closingDate);
         closing.cutoffAt = cutoff;
         List<StockClosingDecisionEntity> decided = decisions.of(closingId);
-        Index index = Index.of(decided);
+
         ClosingNotices notices = new ClosingNotices();
 
         StockClosingEntity previous = previousOf(closing);
@@ -615,6 +617,15 @@ public class StockClosingService {
 
         Map<Long, Product> productsById = new TreeMap<>();
         products.get().list().forEach(product -> productsById.put(product.id(), product));
+        if (!InventoryUnits.BASE_PIECE.equals(closing.quantityBasis)) {
+            for (StockClosingDecisionEntity decision : decided) {
+                if (decision.productId == null) continue;
+                int factor = snapshotFactor(closing, decision.productId, productsById);
+                decision.quantity = InventoryUnits.quantity(decision.quantity, factor);
+                decision.unitValueEur = InventoryUnits.unitCost(decision.unitValueEur, factor);
+            }
+        }
+        Index index = Index.of(decided);
         Map<Long, String> categoryNames = categories.list().stream().collect(Collectors.toMap(Category::id, Category::name));
         List<PurchaseOrder> orders = purchaseOrders.get().list().stream()
                 .sorted(Comparator.comparing(PurchaseOrder::id)).toList();
@@ -630,6 +641,7 @@ public class StockClosingService {
 
         /* ---- 1. the closing quantity per product and location: the booked count rolled to the closing date */
         StockRoll.Result roll = roll(closing, cutoff, now, productsById, orders, sales, index, notices);
+        closing.quantityBasis = InventoryUnits.BASE_PIECE;
         Map<Long, StockCountLineEntity> countLineById = new HashMap<>();
         List<StockCountService.Anchor> anchors = counts.anchors(closing.closingYear);
         anchors.forEach(anchor -> anchor.lines().forEach(line -> countLineById.put(line.id, line)));
@@ -645,7 +657,8 @@ public class StockClosingService {
         if (previous != null) {
             containers.list("closingId", previous.id).forEach(row -> before.put(row.purchaseOrderId, row));
             lots.list("closingId", previous.id).forEach(row -> lotBefore.put(row.purchaseOrderId + ":" + row.productId, row));
-            carried = layers.list("closingId = ?1 and block = ?2 order by productId, position, id", previous.id, FifoValuer.BLOCK_OWN);
+            carried = layers.list("closingId = ?1 and block = ?2 order by productId, position, id", previous.id, FifoValuer.BLOCK_OWN).stream()
+                    .map(layer -> InventoryUnits.layer(layer, snapshotFactor(previous, layer.productId, productsById))).toList();
             List<Long> chainIds = chain.stream().map(link -> link.id).toList();
             lots.list("closingId in ?1 and role = ?2", chainIds, ROLE_OWN).forEach(row -> known.add(row.purchaseOrderId));
         }
@@ -718,29 +731,31 @@ public class StockClosingService {
             List<StockClosingLotEntity> ownLots = new ArrayList<>();
             lotRows.put(row, ownLots);
             for (LotCost.Lot lot : cost.lots()) {
+                int factor = InventoryUnits.factor(productsById.get(lot.productId()));
                 StockClosingLotEntity lotRow = lotRow(order, role, lot);
+                normalizeLot(lotRow, factor);
                 String key = order.id() + ":" + lot.productId();
                 StockClosingLotEntity lastYear = lotBefore.get(key);
                 if (ROLE_PREVIOUS.equals(role)) {
                     lotRow.previousUnitValueEur = frozenUnit.get(key);
                     lotRow.previousClosingId = previous.id;
-                    if (lotRow.previousUnitValueEur != null && lotRow.previousUnitValueEur.compareTo(lot.unitValueEur()) != 0) {
+                    if (lotRow.previousUnitValueEur != null && lotRow.previousUnitValueEur.compareTo(lotRow.unitValueEur) != 0) {
                         changedLots++;
-                        changedValue = changedValue.add(lot.unitValueEur().subtract(lotRow.previousUnitValueEur)
+                        changedValue = changedValue.add(lotRow.unitValueEur.subtract(lotRow.previousUnitValueEur)
                                 .multiply(BigDecimal.valueOf(frozenQuantity.getOrDefault(key, 0))));
                     }
                 } else if (lastYear != null) {
-                    lotRow.previousUnitValueEur = lastYear.unitValueEur;
+                    lotRow.previousUnitValueEur = InventoryUnits.unitCost(lastYear.unitValueEur, snapshotFactor(previous, lot.productId(), productsById));
                     lotRow.previousClosingId = previous.id;
                 }
                 ownLots.add(lotRow);
                 FifoValuer.Lot valued = new FifoValuer.Lot(order.id(), cut(order.number(), 120), cut(order.displayName(), 255),
                         order.receivedOn(),
-                        lot.productId(), lot.capacity(), lot.unitValueEur(), lot.unitGoodsEur(), lot.unitTransportEur(),
-                        lot.unitLogisticsEur(), lot.unitSeparateEur(), lot.unitEstimatedEur());
+                        lot.productId(), lotRow.capacity, lotRow.unitValueEur, lotRow.unitGoodsEur, lotRow.unitTransportEur,
+                        lotRow.unitLogisticsEur, lotRow.unitSeparateEur, lotRow.unitEstimatedEur);
                 if (ROLE_OWN.equals(role) && lot.capacity() > 0) periodLots.add(valued);
-                if (ROLE_PARTNER.equals(role)) partnerLots.add(partnerLot(order, valued, row.partnerName, sales, cutoff, index));
-                if (transit) separateRows.add(transitRow(order, row, lot, payments, closingDate, index));
+                if (ROLE_PARTNER.equals(role)) partnerLots.add(partnerLot(order, valued, row.partnerName, sales, cutoff, index, factor));
+                if (transit) separateRows.add(transitRow(order, row, lot, payments, closingDate, index, factor));
             }
             if (!live) continue;
 
@@ -773,7 +788,7 @@ public class StockClosingService {
         List<FifoValuer.Invoice> invoiced = new ArrayList<>();
         for (SalesOrder invoice : invoices.candidates()) {
             invoiced.add(new FifoValuer.Invoice(invoice.id(), invoice.number(), invoice.orderDate(),
-                    customerNames.get(invoice.customerId()), ClosingSeparations.productQuantities(invoice),
+                    customerNames.get(invoice.customerId()), physicalQuantities(ClosingSeparations.productQuantities(invoice), productsById),
                     decidedOf(index.invoice(invoice.id())), ClosingSeparations.alreadyOut(invoice, roll.rows())));
         }
         for (SalesOrder invoice : invoices.older()) {
@@ -783,7 +798,7 @@ public class StockClosingService {
             row.documentNumber = cut(invoice.number(), 120);
             row.documentDate = invoice.orderDate();
             row.counterparty = cut(customerNames.get(invoice.customerId()), 255);
-            row.quantity = ClosingSeparations.productQuantities(invoice).values().stream().mapToInt(Integer::intValue).sum();
+            row.quantity = physicalQuantities(ClosingSeparations.productQuantities(invoice), productsById).values().stream().mapToInt(Integer::intValue).sum();
             row.automatic = false;
             separateRows.add(row);
         }
@@ -794,8 +809,8 @@ public class StockClosingService {
             valuedProducts.put(product.id(), new FifoValuer.Article(product.id(), cut(product.sku(), 120),
                     cut(product.nameWithColour(), 255),
                     product.categoryId() == null ? null : cut(categoryNames.get(product.categoryId()), 255),
-                    cut(product.packaging().unitKey(), 32), product.packaging().salesUnit().name(),
-                    product.packaging().isPresent() ? product.packaging().unitPieces() : null, product.demo(), product.active()));
+                    cut(product.packaging().unitKey(), 32), "PIECE",
+                    InventoryUnits.factor(product), product.demo(), product.active()));
         }
         Map<Long, List<FifoValuer.LocationQuantity>> quantities = new TreeMap<>();
         for (StockRoll.Position position : roll.positions()) {
@@ -811,9 +826,20 @@ public class StockClosingService {
                 .map(decision -> new FifoValuer.WriteDown(decision.id, decision.productId, decision.quantity,
                         decision.unitValueEur, decision.reasonCode, decision.reason, decision.decidedByName, decision.decidedAt))
                 .toList();
-        List<FifoValuer.Opening> openings = openingLayers.active().stream()
-                .map(layer -> new FifoValuer.Opening(layer.id, layer.productId, layer.quantity, layer.unitValueEur,
-                        layer.asOfDate, layer.source)).toList();
+        List<FifoValuer.Opening> openings = new ArrayList<>();
+        Set<Long> consumed = consumedOpenings(chain);
+        for (StockOpeningLayerEntity layer : openingLayers.active()) {
+            if (consumed.contains(layer.id)) continue;
+            if (!InventoryUnits.BASE_PIECE.equals(layer.quantityBasis) && layer.unitPieces == null
+                    && InventoryUnits.factor(productsById.get(layer.productId)) > 1) {
+                notices.forProduct(true, "BEGINWAARDE_EENHEID_ONTBREEKT", ClosingNotices.SEGMENT_VALUE, layer.productId, null,
+                        "Beginwaarde van " + layer.productName + " heeft geen vastgelegde verpakkingseenheid. Leg deze opnieuw vast in losse stuks met de waarde per los stuk.");
+                continue;
+            }
+            int factor = InventoryUnits.BASE_PIECE.equals(layer.quantityBasis) ? 1 : layer.unitPieces == null ? 1 : layer.unitPieces;
+            openings.add(new FifoValuer.Opening(layer.id, layer.productId, InventoryUnits.quantity(layer.quantity, factor),
+                    InventoryUnits.unitCost(layer.unitValueEur, factor), layer.asOfDate, layer.source));
+        }
         Map<Long, Integer> closingYears = new HashMap<>();
         closings.listAll().forEach(row -> closingYears.put(row.id, row.closingYear));
         Map<Long, BigDecimal> previousWriteDowns = new HashMap<>();
@@ -944,14 +970,14 @@ public class StockClosingService {
         Map<Long, Map<Long, Integer>> levels = new HashMap<>();
         for (StockLevel level : stockBook.allLevels()) {
             if (!productsById.containsKey(level.productId())) {
-                if (level.quantity() != 0) {
+                if (level.physicalQuantity() != 0) {
                     notices.forProduct(false, "VERWIJDERD_PRODUCT", ClosingNotices.SEGMENT_COUNT, level.productId(),
                             level.location().id(), "Voorraadstand van een verwijderd product (id " + level.productId() + ", "
-                                    + ClosingNotices.pieces(level.quantity()) + ") is niet opgenomen.");
+                                    + ClosingNotices.pieces(level.physicalQuantity()) + ") is niet opgenomen.");
                 }
                 continue;
             }
-            levels.computeIfAbsent(level.location().id(), key -> new HashMap<>()).put(level.productId(), level.quantity());
+            levels.computeIfAbsent(level.location().id(), key -> new HashMap<>()).put(level.productId(), level.physicalQuantity());
         }
 
         /* One read of the stock book covers every window and tells which uncounted location needs a count. */
@@ -963,7 +989,12 @@ public class StockClosingService {
             }
             if (anchor.base().bookedAt != null && anchor.base().bookedAt.isBefore(from)) from = anchor.base().bookedAt;
         }
-        List<StockMovement> book = stockBook.movementsBetween(from, now.plus(1, ChronoUnit.DAYS));
+        Map<Long, Integer> legacyFactors = new HashMap<>();
+        productsById.forEach((id, product) -> legacyFactors.put(id, InventoryUnits.factor(product)));
+        anchors.values().forEach(anchor -> anchor.lines().forEach(line -> legacyFactors.put(line.productId,
+                InventoryUnits.BASE_PIECE.equals(line.quantityBasis) ? (line.piecesPerUnit == null ? 1 : line.piecesPerUnit) : InventoryUnits.countFactor(line))));
+        List<StockMovement> book = stockBook.movementsBetween(from, now.plus(1, ChronoUnit.DAYS)).stream()
+                .map(movement -> InventoryUnits.movement(movement, legacyFactors.getOrDefault(movement.productId(), 1))).toList();
         Set<Long> movedSinceNewYear = book.stream().filter(movement -> movement.locationId() != null && !movement.at().isBefore(yearStart))
                 .map(StockMovement::locationId).collect(Collectors.toSet());
 
@@ -976,7 +1007,7 @@ public class StockClosingService {
                 anchor.corrections().forEach(correction -> refs.put(correction.id, correction.ledgerRef));
                 List<StockRoll.BookedLine> booked = anchor.lines().stream()
                         .filter(line -> line.bookedAt != null && line.bookedQuantity != null)
-                        .map(line -> new StockRoll.BookedLine(line.countId, line.id, line.productId, line.bookedQuantity, line.bookedAt))
+                        .map(line -> new StockRoll.BookedLine(line.countId, line.id, line.productId, InventoryUnits.quantity(line.bookedQuantity, InventoryUnits.countFactor(line)), line.bookedAt))
                         .toList();
                 locations.add(new StockRoll.Location(location.id(), location.name(), StockRoll.ANCHOR_COUNT, anchor.base().id,
                         refs, booked, null, anchor.base().bookedAt));
@@ -1021,6 +1052,15 @@ public class StockClosingService {
                 if (row.movementId != null && own.add(row.movementId)) previousRows.add(row);
             }
         }
+        previousRows = previousRows.stream().map(row -> {
+            StockClosingEntity owner = Objects.equals(row.closingId, closing.id) ? closing : closings.findById(row.closingId);
+            int factor = snapshotFactor(owner, row.productId, productsById);
+            StockClosingMovementEntity copy = StockRoll.copy(row);
+            copy.delta = InventoryUnits.quantity(copy.delta, factor);
+            copy.quantityAfter = InventoryUnits.quantity(copy.quantityAfter, factor);
+            copy.effectiveDelta = InventoryUnits.quantity(copy.effectiveDelta, factor);
+            return copy;
+        }).toList();
         Set<Long> inBook = book.stream().map(StockMovement::id).collect(Collectors.toCollection(HashSet::new));
         List<StockClosingMovementEntity> outside = previousRows.stream()
                 .filter(row -> row.bookedAt != null && !inBook.contains(row.movementId)).toList();
@@ -1032,7 +1072,7 @@ public class StockClosingService {
 
         StockRoll.Result roll = StockRoll.roll(new StockRoll.Input(closing.closingDate, cutoff, locations, names, book,
                 (productId, locationId, before) -> stockBook.lastMovementBefore(productId, locationId, before)
-                        .map(StockMovement::quantityAfter).orElse(null),
+                        .map(movement -> InventoryUnits.movement(movement, legacyFactors.getOrDefault(productId, 1)).quantityAfter()).orElse(null),
                 receipts, invoiceDates, flips, previousRows, inBook));
 
         Map<Long, String> lateReceipts = new TreeMap<>();
@@ -1290,6 +1330,39 @@ public class StockClosingService {
         return row;
     }
 
+    private int snapshotFactor(StockClosingEntity owner, long productId, Map<Long, Product> currentProducts) {
+        if (owner == null || InventoryUnits.BASE_PIECE.equals(owner.quantityBasis)) return 1;
+        StockClosingArticleEntity article = articles.find("closingId = ?1 and productId = ?2", owner.id, productId).firstResult();
+        if (article != null) return InventoryUnits.factor(article.salesUnit, article.piecesPerUnit);
+        if (owner.supersedesId != null) return snapshotFactor(closings.findById(owner.supersedesId), productId, currentProducts);
+        if (STATUS_CONCEPT.equals(owner.status)) return InventoryUnits.factor(currentProducts.get(productId));
+        throw new InventoryRefusal("EENHEID_ONTBREEKT", "De verpakkingseenheid ontbreekt in de definitieve inventaris van product " + productId);
+    }
+
+    private static Map<Long, Integer> physicalQuantities(Map<Long, Integer> quantities, Map<Long, Product> products) {
+        Map<Long, Integer> converted = new LinkedHashMap<>();
+        quantities.forEach((id, quantity) -> converted.put(id, InventoryUnits.quantity(quantity, InventoryUnits.factor(products.get(id)))));
+        return converted;
+    }
+
+    private static void normalizeLot(StockClosingLotEntity row, int factor) {
+        row.orderedQuantity = InventoryUnits.quantity(row.orderedQuantity, factor);
+        row.receivedQuantity = InventoryUnits.quantity(row.receivedQuantity, factor);
+        row.damagedQuantity = InventoryUnits.quantity(row.damagedQuantity, factor);
+        row.laterLostQuantity = InventoryUnits.quantity(row.laterLostQuantity, factor);
+        row.billedQuantity = InventoryUnits.quantity(row.billedQuantity, factor);
+        row.goodsDivisor = InventoryUnits.quantity(row.goodsDivisor, factor);
+        row.costDivisor = InventoryUnits.quantity(row.costDivisor, factor);
+        row.capacity = InventoryUnits.quantity(row.capacity, factor);
+        row.unitPriceEur = InventoryUnits.unitCost(row.unitPriceEur, factor);
+        row.unitGoodsEur = InventoryUnits.unitCost(row.unitGoodsEur, factor);
+        row.unitTransportEur = InventoryUnits.unitCost(row.unitTransportEur, factor);
+        row.unitLogisticsEur = InventoryUnits.unitCost(row.unitLogisticsEur, factor);
+        row.unitSeparateEur = InventoryUnits.unitCost(row.unitSeparateEur, factor);
+        row.unitValueEur = InventoryUnits.unitCost(row.unitValueEur, factor);
+        row.unitEstimatedEur = InventoryUnits.unitCost(row.unitEstimatedEur, factor);
+    }
+
     private static StockClosingLotEntity lotRow(PurchaseOrder order, String role, LotCost.Lot lot) {
         StockClosingLotEntity row = new StockClosingLotEntity();
         row.purchaseOrderId = order.id();
@@ -1346,9 +1419,9 @@ public class StockClosingService {
         /* A level read from the book has no moment that stays the same from one compute to the next. */
         row.anchoredAt = StockRoll.ANCHOR_COUNT.equals(position.anchor()) ? position.anchoredAt() : null;
         if (counted != null) {
-            row.expectedQuantity = counted.expectedQuantity;
-            row.countedQuantity = counted.countedQuantity;
-            row.countDifference = counted.difference;
+            row.expectedQuantity = InventoryUnits.quantity(counted.expectedQuantity, InventoryUnits.countFactor(counted));
+            row.countedQuantity = InventoryUnits.quantity(counted.countedQuantity, InventoryUnits.countFactor(counted));
+            row.countDifference = InventoryUnits.quantity(counted.difference, InventoryUnits.countFactor(counted));
             row.countReasonCode = counted.reasonCode;
             row.countReasonNote = counted.reasonNote;
             row.countedByName = counted.countedByName;
@@ -1370,8 +1443,8 @@ public class StockClosingService {
     }
 
     private static FifoValuer.PartnerLot partnerLot(PurchaseOrder order, FifoValuer.Lot lot, String partnerName,
-                                                    List<SalesOrder> sales, Instant cutoff, Index index) {
-        int shipped = ClosingSeparations.partnerShipped(order.id(), sales, cutoff).getOrDefault(lot.productId(), 0);
+                                                    List<SalesOrder> sales, Instant cutoff, Index index, int factor) {
+        int shipped = InventoryUnits.quantity(ClosingSeparations.partnerShipped(order.id(), sales, cutoff).getOrDefault(lot.productId(), 0), factor);
         StockClosingDecisionEntity quantity = index.partnerQuantity(order.id(), lot.productId());
         return new FifoValuer.PartnerLot(lot, partnerName, shipped, quantity == null ? null : quantity.quantity,
                 decidedOf(index.container(ClosingDecisionKind.PARTNER_CONTAINER, order.id())));
@@ -1379,7 +1452,7 @@ public class StockClosingService {
 
     /** One product of a container that was on the water: its ordered pieces at the unit value of its lot. */
     private static StockClosingSeparateEntity transitRow(PurchaseOrder order, StockClosingContainerEntity container, LotCost.Lot lot,
-                                                         List<PurchasePayment> payments, LocalDate closingDate, Index index) {
+                                                         List<PurchasePayment> payments, LocalDate closingDate, Index index, int factor) {
         StockClosingDecisionEntity decision = index.container(ClosingDecisionKind.TRANSIT, order.id());
         StockClosingSeparateEntity row = new StockClosingSeparateEntity();
         row.kind = FifoValuer.KIND_TRANSIT;
@@ -1391,8 +1464,8 @@ public class StockClosingService {
         row.productId = lot.productId();
         row.sku = cut(lot.sku(), 120);
         row.productName = cut(lot.productName(), 255);
-        row.quantity = lot.orderedQuantity();
-        row.unitValueEur = lot.unitValueEur();
+        row.quantity = InventoryUnits.quantity(lot.orderedQuantity(), factor);
+        row.unitValueEur = InventoryUnits.unitCost(lot.unitValueEur(), factor);
         row.valueEur = lot.unitValueEur().multiply(BigDecimal.valueOf(lot.orderedQuantity())).setScale(2, RoundingMode.HALF_UP);
         row.estimatedEur = lot.unitEstimatedEur().multiply(BigDecimal.valueOf(lot.orderedQuantity())).setScale(2, RoundingMode.HALF_UP);
         row.shippedOn = order.shippedOn();

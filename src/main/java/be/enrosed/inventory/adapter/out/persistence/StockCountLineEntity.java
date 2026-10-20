@@ -17,6 +17,8 @@ import java.time.Instant;
 @Table(name = "stock_count_line")
 public class StockCountLineEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) @Column(name = "id") public Long id;
+    /** Null preserves the historical ERP selling-unit basis; new snapshots use physical pieces. */
+    @Column(name = "quantity_basis", length = 24) public String quantityBasis;
     @Column(name = "count_id") public Long countId;
     @Column(name = "product_id") public Long productId;
     @Column(name = "sku", length = 120) public String sku;

@@ -14,9 +14,12 @@ import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -155,7 +158,12 @@ public class StockService {
         if (StockLocation.MAIN_CODE.equals(entity.code)) {
             throw new BusinessRuleException("Het magazijn kan niet verwijderd worden");
         }
-        boolean holdsStock = levels.list("locationId = ?1 and quantity <> 0", id).size() > 0;
+        if (locations.getEntityManager().createQuery(
+                "select count(l) from TicaStockLocation l where l.stockLocationId = :id", Long.class)
+                .setParameter("id", id).getSingleResult() > 0) {
+            throw new BusinessRuleException("Deze voorraadlocatie is gekoppeld aan TICA en blijft beschikbaar voor haar historie.");
+        }
+        boolean holdsStock = levels.list("locationId = ?1 and (quantity <> 0 or loosePieces <> 0)", id).size() > 0;
         if (holdsStock) {
             throw new BusinessRuleException(
                     "Er ligt nog voorraad op " + entity.name + "; verplaats die eerst");
@@ -169,13 +177,16 @@ public class StockService {
 
     /** One line per active location, zeros included, so the UI has a fixed shape. */
     public List<StockLevel> levelsFor(long productId) {
-        Map<Long, Integer> held = levels.list("productId", productId).stream()
-                .collect(Collectors.toMap(level -> level.locationId, level -> level.quantity));
+        Map<Long, StockLevelEntity> held = levels.list("productId", productId).stream()
+                .collect(Collectors.toMap(level -> level.locationId, level -> level));
+        int factor = unitPieces(productId);
         List<StockLevel> result = new ArrayList<>();
         for (StockLocation location : locations()) {
-            int quantity = held.getOrDefault(location.id(), 0);
-            if (!location.active() && quantity == 0) continue;
-            result.add(new StockLevel(productId, location, quantity));
+            StockLevelEntity level = held.get(location.id());
+            int quantity = level == null ? 0 : level.quantity;
+            int loose = loose(level);
+            if (!location.active() && quantity == 0 && loose == 0) continue;
+            result.add(new StockLevel(productId, location, quantity, loose, factor));
         }
         return result;
     }
@@ -186,20 +197,33 @@ public class StockService {
                 .collect(Collectors.toMap(StockLocation::id, location -> location));
         return levels.listAll().stream()
                 .filter(level -> byId.containsKey(level.locationId))
-                .map(level -> new StockLevel(level.productId, byId.get(level.locationId), level.quantity))
+                .map(level -> new StockLevel(level.productId, byId.get(level.locationId), level.quantity,
+                        loose(level), products.findById(level.productId) == null ? 1 : unitPieces(level.productId)))
                 .toList();
     }
 
     /** Sets the count at one location, as after a recount. */
     @Transactional
     public void setLevel(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference) {
+        requireProduct(productId);
+        setLevel(productId, locationId, quantity, loosePiecesAt(productId, locationId), kind, reference);
+    }
+
+    @Transactional
+    public void setLevel(long productId, long locationId, int quantity, int loosePieces,
+                         StockMovement.Kind kind, String reference) {
         if (quantity < 0) throw new BusinessRuleException("Voorraad kan niet negatief zijn");
         requireProduct(productId);
+        int factor = unitPieces(productId);
+        if (loosePieces < 0 || loosePieces >= factor) throw new BusinessRuleException("Losse stuks moeten tussen 0 en " + (factor - 1) + " liggen.");
         StockLocation location = location(locationId);
         int before = quantityAt(productId, locationId);
-        if (before == quantity && kind != StockMovement.Kind.STOCKTAKE) return;
-        write(productId, locationId, quantity);
-        book(productId, location, quantity - before, quantity, kind, reference);
+        int looseBefore = loosePiecesAt(productId, locationId);
+        if (before == quantity && looseBefore == loosePieces && kind != StockMovement.Kind.STOCKTAKE) return;
+        write(productId, locationId, quantity, loosePieces);
+        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), quantity - before, quantity,
+                kind, reference, actor.name(), null, null, null, null,
+                loosePieces - looseBefore, loosePieces, factor, null, null));
         recompute(productId);
     }
 
@@ -245,7 +269,8 @@ public class StockService {
         }
         write(productId, locationId, at - quantity);
         ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), -quantity, at - quantity,
-                kind, reference, actor.name(), purchaseOrderId));
+                kind, reference, actor.name(), purchaseOrderId, null, null, null,
+                0, loosePiecesAt(productId, locationId), unitPieces(productId), null, null));
         recompute(productId);
     }
 
@@ -287,6 +312,26 @@ public class StockService {
         recompute(productId);
     }
 
+    /** A source-owned delta; its original sales date is separate from the immutable booking time. */
+    @Transactional
+    public void applyTica(long productId, long locationId, int physicalDelta, long saleId, long revisionId,
+                          LocalDateTime soldAt, String reference, Instant bookedAt,
+                          BigDecimal sourceQuantity, String sourceUnit) {
+        if (physicalDelta == 0) return;
+        requireProduct(productId);
+        StockLocation location = location(locationId);
+        int factor = unitPieces(productId);
+        int before = quantityAt(productId, locationId), looseBefore = loosePiecesAt(productId, locationId);
+        int afterPieces = Math.addExact(Math.addExact(Math.multiplyExact(before, factor), looseBefore), physicalDelta);
+        int after = Math.floorDiv(afterPieces, factor), looseAfter = Math.floorMod(afterPieces, factor);
+        write(productId, locationId, after, looseAfter);
+        ledger.record(new StockMovement(null, productId, location.id(), bookedAt, after - before, after,
+                physicalDelta < 0 ? StockMovement.Kind.SALE : StockMovement.Kind.SALE_RETURN,
+                reference, "TICA-synchronisatie", null, saleId, revisionId, soldAt,
+                looseAfter - looseBefore, looseAfter, factor, sourceQuantity, sourceUnit));
+        recompute(productId);
+    }
+
     /** Books pieces that never reached the shelf - broken on arrival - so the damage is counted. */
     @Transactional
     public void noteDamagedOnArrival(long productId, long locationId, int quantity, String reference) {
@@ -295,7 +340,8 @@ public class StockService {
         StockLocation location = location(locationId);
         int at = quantityAt(productId, locationId);
         ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), -quantity, at,
-                StockMovement.Kind.DAMAGED, reference, actor.name()));
+                StockMovement.Kind.DAMAGED, reference, actor.name(), null, null, null, null,
+                0, loosePiecesAt(productId, locationId), unitPieces(productId), null, null));
     }
 
     /** Moves pieces from one location to another: two lines, one story. */
@@ -320,15 +366,43 @@ public class StockService {
         recompute(productId);
     }
 
+    @Transactional
     public int quantityAt(long productId, long locationId) {
         StockLevelEntity level = levels.find("productId = ?1 and locationId = ?2", productId, locationId)
                 .firstResult();
         return level == null ? 0 : level.quantity;
     }
 
+    @Transactional
+    public int loosePiecesAt(long productId, long locationId) {
+        return loose(levels.find("productId = ?1 and locationId = ?2", productId, locationId).firstResult());
+    }
+
+    public int unitPieces(long productId) {
+        ProductEntity product = products.findById(productId);
+        if (product == null) throw new NotFoundException("Product", productId);
+        return product.packaging().soldAsDisplay() ? product.packaging().unitPieces() : 1;
+    }
+
+    @Transactional
+    public void lockProduct(long productId) { requireProduct(productId); }
+
+    @Transactional
+    public int physicalQuantityAt(long productId, long locationId) {
+        requireProduct(productId);
+        return Math.addExact(Math.multiplyExact(quantityAt(productId, locationId), unitPieces(productId)),
+                loosePiecesAt(productId, locationId));
+    }
+
+    private static int loose(StockLevelEntity level) { return level == null || level.loosePieces == null ? 0 : level.loosePieces; }
+
     /* ------------------------------------------------------------ internals */
 
     private void write(long productId, long locationId, int quantity) {
+        write(productId, locationId, quantity, loosePiecesAt(productId, locationId));
+    }
+
+    private void write(long productId, long locationId, int quantity, int loosePieces) {
         StockLevelEntity level = levels.find("productId = ?1 and locationId = ?2", productId, locationId)
                 .firstResult();
         if (level == null) {
@@ -338,13 +412,15 @@ public class StockService {
             levels.persist(level);
         }
         level.quantity = quantity;
+        level.loosePieces = loosePieces;
         levels.flush();
     }
 
     private void book(long productId, StockLocation location, int delta, int after,
                       StockMovement.Kind kind, String reference) {
         ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), delta, after,
-                kind, reference, actor.name()));
+                kind, reference, actor.name(), null, null, null, null,
+                0, loosePiecesAt(productId, location.id()), unitPieces(productId), null, null));
     }
 
     /** The product's cached figure: the pieces a customer can order. */
@@ -353,20 +429,28 @@ public class StockService {
         if (product == null) return;
         int website = 0;
         for (StockLevel level : levelsFor(productId)) {
-            if (level.location().countsForWebsite()) website += level.quantity();
+            if (level.location().countsForWebsite()) website = Math.addExact(website, level.physicalQuantity());
         }
-        product.stockQuantity = website;
+        product.stockQuantity = Math.floorDiv(website, unitPieces(productId));
         product.inventoryKnown = true;
         products.flush();
         websiteRebuild.queue();
     }
 
     private void recomputeAll() {
-        for (ProductEntity product : products.listAll()) recompute(product.id);
+        for (ProductEntity product : products.list("order by id")) {
+            requireProduct(product.id);
+            recompute(product.id);
+        }
     }
 
     private void requireProduct(long productId) {
-        if (products.findById(productId) == null) throw new NotFoundException("Product", productId);
+        if (products.findById(productId, LockModeType.PESSIMISTIC_WRITE) == null)
+            throw new NotFoundException("Product", productId);
+        // A caller may have inspected a level before it acquired the common product lock.
+        // Flush our own earlier writes, then refresh levels under that lock before doing arithmetic.
+        levels.flush();
+        for (StockLevelEntity level : levels.list("productId", productId)) levels.getEntityManager().refresh(level);
     }
 
     private static String required(String value, String label) {

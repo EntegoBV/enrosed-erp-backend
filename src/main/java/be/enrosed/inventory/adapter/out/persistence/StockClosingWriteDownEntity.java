@@ -26,8 +26,8 @@ public class StockClosingWriteDownEntity {
     @Column(name = "layer_position") public Integer layerPosition;
     @Column(name = "layer_label", length = 255) public String layerLabel;
     @Column(name = "quantity") public Integer quantity;
-    @Column(name = "layer_unit_eur", precision = 19, scale = 4) public BigDecimal layerUnitEur;
-    @Column(name = "market_unit_eur", precision = 19, scale = 4) public BigDecimal marketUnitEur;
+    @Column(name = "layer_unit_eur", precision = 27, scale = 12) public BigDecimal layerUnitEur;
+    @Column(name = "market_unit_eur", precision = 27, scale = 12) public BigDecimal marketUnitEur;
     @Column(name = "amount_eur", precision = 19, scale = 2) public BigDecimal amountEur;
     @Column(name = "reason_code", length = 32) public String reasonCode;
     @Column(name = "reason", length = 1000) public String reason;

@@ -32,7 +32,7 @@ public class StockClosingLotEntity {
     @Column(name = "goods_divisor") public Integer goodsDivisor;
     @Column(name = "cost_divisor") public Integer costDivisor;
     @Column(name = "capacity") public Integer capacity;
-    @Column(name = "unit_price_eur", precision = 19, scale = 4) public BigDecimal unitPriceEur;
+    @Column(name = "unit_price_eur", precision = 27, scale = 12) public BigDecimal unitPriceEur;
     /** The weight used for each of the four shares; the transport key is null when the container is not CIF. */
     @Column(name = "goods_key_eur", precision = 19, scale = 2) public BigDecimal goodsKeyEur;
     @Column(name = "transport_key_eur", precision = 19, scale = 2) public BigDecimal transportKeyEur;
@@ -45,19 +45,19 @@ public class StockClosingLotEntity {
     @Column(name = "separate_eur", precision = 19, scale = 2) public BigDecimal separateEur;
     @Column(name = "lot_cost_eur", precision = 19, scale = 2) public BigDecimal lotCostEur;
     @Column(name = "estimated_eur", precision = 19, scale = 2) public BigDecimal estimatedEur;
-    @Column(name = "unit_goods_eur", precision = 19, scale = 4) public BigDecimal unitGoodsEur;
-    @Column(name = "unit_transport_eur", precision = 19, scale = 4) public BigDecimal unitTransportEur;
-    @Column(name = "unit_logistics_eur", precision = 19, scale = 4) public BigDecimal unitLogisticsEur;
-    @Column(name = "unit_separate_eur", precision = 19, scale = 4) public BigDecimal unitSeparateEur;
-    @Column(name = "unit_value_eur", precision = 19, scale = 4) public BigDecimal unitValueEur;
-    @Column(name = "unit_estimated_eur", precision = 19, scale = 4) public BigDecimal unitEstimatedEur;
+    @Column(name = "unit_goods_eur", precision = 27, scale = 12) public BigDecimal unitGoodsEur;
+    @Column(name = "unit_transport_eur", precision = 27, scale = 12) public BigDecimal unitTransportEur;
+    @Column(name = "unit_logistics_eur", precision = 27, scale = 12) public BigDecimal unitLogisticsEur;
+    @Column(name = "unit_separate_eur", precision = 27, scale = 12) public BigDecimal unitSeparateEur;
+    @Column(name = "unit_value_eur", precision = 27, scale = 12) public BigDecimal unitValueEur;
+    @Column(name = "unit_estimated_eur", precision = 27, scale = 12) public BigDecimal unitEstimatedEur;
     /** Split of the logistics share according to the calculation, for information only. */
     @Column(name = "calc_origin_eur", precision = 19, scale = 2) public BigDecimal calcOriginEur;
     @Column(name = "calc_freight_eur", precision = 19, scale = 2) public BigDecimal calcFreightEur;
     @Column(name = "calc_duty_eur", precision = 19, scale = 2) public BigDecimal calcDutyEur;
     @Column(name = "calc_destination_eur", precision = 19, scale = 2) public BigDecimal calcDestinationEur;
     @Column(name = "calc_duty_rate_pct", precision = 19, scale = 4) public BigDecimal calcDutyRatePct;
-    @Column(name = "previous_unit_value_eur", precision = 19, scale = 4) public BigDecimal previousUnitValueEur;
+    @Column(name = "previous_unit_value_eur", precision = 27, scale = 12) public BigDecimal previousUnitValueEur;
     @Column(name = "previous_closing_id") public Long previousClosingId;
     @Column(name = "status", length = 24) public String status;
 }

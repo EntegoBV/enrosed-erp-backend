@@ -1,6 +1,7 @@
 package be.enrosed.tica;
 
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
+import be.enrosed.catalog.application.ProductChannelPriceService;
 import be.enrosed.push.WebPushNotifier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.tica.TicaEntities.*;
@@ -20,11 +21,16 @@ public class TicaService {
     static final ZoneId ZONE = ZoneId.of("Europe/Brussels");
     private final EntityManager entities;
     private final WebPushNotifier push;
+    private final TicaStockService stock;
+    private final ProductChannelPriceService channelPrices;
     @ConfigProperty(name = "enrosed.tica.enabled", defaultValue = "false") boolean enabled;
     @ConfigProperty(name = "enrosed.tica.username", defaultValue = "TT_2132") String username;
     @ConfigProperty(name = "enrosed.tica.password") Optional<String> password;
 
-    public TicaService(EntityManager entities, WebPushNotifier push) { this.entities = entities; this.push = push; }
+    public TicaService(EntityManager entities, WebPushNotifier push, TicaStockService stock,
+                       ProductChannelPriceService channelPrices) {
+        this.entities = entities; this.push = push; this.stock = stock; this.channelPrices = channelPrices;
+    }
 
     /** Singleton seeding is retried outside the failed transaction when two instances start together. */
     void ensureSettings() {
@@ -48,7 +54,9 @@ public class TicaService {
                           String lineNumber, String description, String beeyondArticleNumber, String sku, String barcode,
                           BigDecimal quantity, BigDecimal discountPercent, BigDecimal grossTotal, BigDecimal netTotal,
                           BigDecimal vatRate, String transactionType, Long productId, String mappingStatus,
-                          Instant firstSeenAt, Instant updatedAt) {}
+                          Instant firstSeenAt, Instant updatedAt, String stockStatus, String stockMessage,
+                          Long stockProductId, Long stockLocationId, int stockQuantity, Instant stockUpdatedAt,
+                          int stockPieces, Integer stockUnitPieces, String stockSourceUnit) {}
     public record SalesDto(LocalDate from, LocalDate to, int page, int size, long totalLines, long transactionCount,
                            BigDecimal quantity, BigDecimal grossTotal, BigDecimal netTotal, long unmatchedLineCount,
                            List<SaleDto> lines) {}
@@ -164,6 +172,10 @@ public class TicaService {
             if (!present.contains(source(sale).key())) { sale.active = false; sale.updatedAt = now; }
         }
         Sale.flush();
+        stock.refreshProductMappings(now);
+        stock.lockRelevantProducts();
+        channelPrices.refreshTicaPrices();
+        stock.reconcileAll(now);
         settings.lastSuccessAt = now; settings.lastRangeFrom = claim.from(); settings.lastRangeTo = claim.to();
         if (settings.coverageFrom == null || settings.coverageTo == null || claim.from().isAfter(settings.coverageTo.plusDays(1))
                 || claim.to().isBefore(settings.coverageFrom.minusDays(1))) {
@@ -237,7 +249,15 @@ public class TicaService {
         Set<Long> ids = new HashSet<>(); for (Sale sale : sales) if (sale.productId != null) ids.add(sale.productId);
         Map<Long, BigDecimal> unitCosts = new HashMap<>();
         if (!ids.isEmpty()) for (ProductEntity product : entities.createQuery("from ProductEntity where id in :ids", ProductEntity.class)
-                .setParameter("ids", ids).getResultList()) if (product.landedCostEur != null) unitCosts.put(product.id, product.landedCostEur);
+                .setParameter("ids", ids).getResultList()) {
+            String unit = stock.sourceUnit(product);
+            if (product.landedCostEur != null && unit != null) {
+                BigDecimal cost = product.landedCostEur;
+                if (product.packaging().soldAsDisplay() && unit.equals("PIECE"))
+                    cost = cost.divide(BigDecimal.valueOf(product.packaging().unitPieces()), 8, java.math.RoundingMode.HALF_UP);
+                unitCosts.put(product.id, cost);
+            }
+        }
         Map<LocalDate, List<Sale>> days = new TreeMap<>();
         for (Sale sale : sales) days.computeIfAbsent(sale.soldAt.toLocalDate(), ignored -> new ArrayList<>()).add(sale);
         return days.entrySet().stream().map(entry -> {
@@ -255,7 +275,10 @@ public class TicaService {
     private static SaleDto dto(Sale s) { return new SaleDto(s.id, s.location, s.exhibitor, s.soldAt, s.transactionNumber,
             s.lineNumber, s.description, s.beeyondArticleNumber, s.sku, s.barcode, s.quantity, s.discountPercent,
             s.grossTotal, s.netTotal, s.vatRate, s.transactionType, s.productId,
-            s.productId == null ? "UNMATCHED" : "MATCHED", s.firstSeenAt, s.updatedAt); }
+            s.productId == null ? "UNMATCHED" : "MATCHED", s.firstSeenAt, s.updatedAt,
+            TicaStockService.status(s), TicaStockService.message(s), s.stockProductId, s.stockLocationId,
+            TicaStockService.quantity(s), s.stockUpdatedAt, TicaStockService.pieces(s),
+            s.stockUnitPieces, s.stockSourceUnit); }
     private static TicaCsvParser.Row source(Sale s) { return new TicaCsvParser.Row(s.location, s.exhibitor, s.soldAt,
             s.transactionNumber, s.lineNumber, s.description, s.beeyondArticleNumber, s.sku, s.barcode, s.quantity,
             s.discountPercent, s.grossTotal, s.netTotal, s.vatRate, s.transactionType); }

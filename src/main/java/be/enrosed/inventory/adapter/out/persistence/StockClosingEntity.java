@@ -19,6 +19,8 @@ import java.time.LocalDate;
 @Table(name = "stock_closing")
 public class StockClosingEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) @Column(name = "id") public Long id;
+    /** Null preserves the historical ERP selling-unit basis; new snapshots use physical pieces. */
+    @Column(name = "quantity_basis", length = 24) public String quantityBasis;
     @Column(name = "closing_year") public Integer closingYear;
     @Column(name = "version_no") public Integer versionNo;
     @Column(name = "closing_date") public LocalDate closingDate;

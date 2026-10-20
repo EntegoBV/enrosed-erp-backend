@@ -10,4 +10,5 @@ public class StockLevelEntity {
     @Column(nullable = false) public long productId;
     @Column(nullable = false) public long locationId;
     @Column(nullable = false) public int quantity;
+    @Column(name = "loose_pieces") public Integer loosePieces;
 }

@@ -33,14 +33,14 @@ public final class StockCountDtos {
     public record CountSummary(long id, int countYear, long locationId, String locationName, String status,
                                Long correctsCountId, String note, int lineCount, int countedCount, int differenceCount,
                                int missingReasonCount, String startedByName, Instant startedAt, String bookedByName,
-                               Instant bookedAt) {
+                               Instant bookedAt, String quantityBasis) {
         static CountSummary from(StockCountService.Summary summary) {
             if (summary == null) return null;
             StockCountEntity count = summary.count();
             return new CountSummary(count.id, count.countYear, count.locationId, count.locationName, count.status,
                     count.correctsCountId, count.note, summary.lineCount(), summary.countedCount(),
                     summary.differenceCount(), summary.missingReasonCount(), count.startedByName, count.startedAt,
-                    count.bookedByName, count.bookedAt);
+                    count.bookedByName, count.bookedAt, summary.quantityBasis());
         }
     }
 
@@ -72,7 +72,7 @@ public final class StockCountDtos {
                             int liveQuantity, Integer expectedQuantity, Integer countedQuantity, Integer difference,
                             String reasonCode, String reasonLabel, String reasonNote, String countedByName,
                             Instant countedAt, int revision, boolean moved, Integer bookedQuantity,
-                            List<OpenDocument> openDocuments, boolean documentsConfirmed) {
+                            List<OpenDocument> openDocuments, boolean documentsConfirmed, String quantityBasis) {
         static CountLine from(StockCountService.Line line) {
             StockCountLineEntity row = line.row();
             return new CountLine(row.id, row.productId, row.sku, row.productName, row.categoryName, row.familyId,
@@ -81,7 +81,7 @@ public final class StockCountDtos {
                     CountReason.labelOf(row.reasonCode), row.reasonNote, row.countedByName, row.countedAt,
                     row.revision == null ? 0 : row.revision, line.moved(), row.bookedQuantity,
                     line.openDocuments().stream().map(OpenDocument::from).toList(),
-                    Boolean.TRUE.equals(row.documentsConfirmed));
+                    Boolean.TRUE.equals(row.documentsConfirmed), row.quantityBasis);
         }
     }
 
@@ -115,7 +115,7 @@ public final class StockCountDtos {
     public record CountView(long id, int countYear, long locationId, String locationName, String status,
                             Long correctsCountId, String note, int lineCount, int countedCount, int differenceCount,
                             int missingReasonCount, String startedByName, Instant startedAt, String bookedByName,
-                            Instant bookedAt, Warnings warnings, List<Reason> reasons, List<CountLine> lines) {
+                            Instant bookedAt, Warnings warnings, List<Reason> reasons, List<CountLine> lines, String quantityBasis) {
         static CountView from(StockCountService.Session session) {
             CountSummary summary = CountSummary.from(session.summary());
             return new CountView(summary.id(), summary.countYear(), summary.locationId(), summary.locationName(),
@@ -123,7 +123,7 @@ public final class StockCountDtos {
                     summary.countedCount(), summary.differenceCount(), summary.missingReasonCount(),
                     summary.startedByName(), summary.startedAt(), summary.bookedByName(), summary.bookedAt(),
                     Warnings.from(session.warnings()), Reason.all(),
-                    session.lines().stream().map(CountLine::from).toList());
+                    session.lines().stream().map(CountLine::from).toList(), summary.quantityBasis());
         }
     }
 

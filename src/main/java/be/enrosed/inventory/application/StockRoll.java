@@ -302,6 +302,11 @@ public final class StockRoll {
                     row.defaultNote = "Ontvangen op " + DAY.format(receipt.receivedOn()) + ", bijgeboekt na de afsluitdatum";
                 }
                 receivedBeforeCount = at.isAfter(anchoredAt) && !receipt.receivedOn().isAfter(countDay);
+            } else if (movement.sourceSoldAt() != null && movement.ticaSaleId() != null) {
+                row.businessDate = movement.sourceSoldAt().toLocalDate();
+                row.businessDateSource = "TICA-verkoopdatum";
+                // Keep the immutable ledger booking date; a later import across the year boundary needs review.
+                row.review = !row.businessDate.isAfter(input.closingDate()) != at.isBefore(input.cutoffAt());
             } else if (invoiceDate != null) {
                 row.businessDate = invoiceDate;
                 row.businessDateSource = SOURCE_INVOICE;

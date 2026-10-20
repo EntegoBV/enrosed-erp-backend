@@ -187,12 +187,12 @@ public class ProductResource {
         return stock.levelsFor(id).stream()
                 .map(level -> new ProductStockDto(level.location().id(), level.location().code(),
                         level.location().name(), level.location().kind().dutchLabel(),
-                        level.location().countsForWebsite(), level.quantity()))
+                        level.location().countsForWebsite(), level.quantity(), level.loosePieces(), level.piecesPerUnit()))
                 .toList();
     }
 
     public record ProductStockDto(long locationId, String code, String name, String kindLabel,
-                                  boolean countsForWebsite, int quantity) {}
+                                  boolean countsForWebsite, int quantity, int loosePieces, int piecesPerUnit) {}
 
     /**
      * Manual stock correction at one location (the warehouse when none is
@@ -205,12 +205,16 @@ public class ProductResource {
             throw new BusinessRuleException("Geef het nieuwe aantal stuks op");
         }
         long locationId = request.locationId() != null ? request.locationId() : stock.mainLocation().id();
-        stock.setLevel(id, locationId, request.quantity(), StockMovement.Kind.MANUAL_CORRECTION,
-                request.reference());
+        if (request.loosePieces() == null)
+            stock.setLevel(id, locationId, request.quantity(), StockMovement.Kind.MANUAL_CORRECTION, request.reference());
+        else stock.setLevel(id, locationId, request.quantity(), request.loosePieces(),
+                StockMovement.Kind.MANUAL_CORRECTION, request.reference());
         return ProductDto.from(products.get(id));
     }
 
-    public record StockRequest(Integer quantity, Long locationId, String reference) {}
+    public record StockRequest(Integer quantity, Long locationId, String reference, Integer loosePieces) {
+        public StockRequest(Integer quantity, Long locationId, String reference) { this(quantity, locationId, reference, null); }
+    }
 
     /** Moves pieces between two locations. */
     @POST
@@ -251,7 +255,8 @@ public class ProductResource {
                 .map(m -> new StockMovementDto(m.id(), m.at(), m.delta(), m.quantityAfter(),
                         m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor(),
                         m.locationId(), m.locationId() == null ? null : names.get(m.locationId()),
-                        m.purchaseOrderId()))
+                        m.purchaseOrderId(), m.ticaSaleId(), m.sourceSoldAt(), m.ticaSaleId() == null,
+                        m.looseDelta(), m.loosePiecesAfter(), m.unitPieces(), m.sourceQuantity(), m.sourceUnit()))
                 .toList();
     }
 
@@ -265,7 +270,10 @@ public class ProductResource {
 
     public record StockMovementDto(Long id, java.time.Instant at, int delta, int quantityAfter,
                                    String kind, String kindLabel, String reference, String actor,
-                                   Long locationId, String locationName, Long purchaseOrderId) {}
+                                   Long locationId, String locationName, Long purchaseOrderId,
+                                   Long ticaSaleId, java.time.LocalDateTime sourceSoldAt, boolean deletable,
+                                   int looseDelta, int loosePiecesAfter, Integer unitPieces,
+                                   java.math.BigDecimal sourceQuantity, String sourceUnit) {}
 
     /** Copies a product, usually to make the same style in another colour. */
     @POST

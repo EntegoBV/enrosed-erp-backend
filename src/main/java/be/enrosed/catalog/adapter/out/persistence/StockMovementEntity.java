@@ -4,9 +4,13 @@ import be.enrosed.catalog.domain.StockMovement;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Entity
-@Table(name = "stock_movement", indexes = @Index(columnList = "productId, at"))
+@Table(name = "stock_movement", indexes = @Index(columnList = "productId, at"),
+        uniqueConstraints = @UniqueConstraint(name = "uk_stock_tica_revision_target",
+                columnNames = {"tica_revision_id", "productId", "locationId"}))
 public class StockMovementEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     public Long id;
@@ -32,4 +36,12 @@ public class StockMovementEntity {
     /** The container a later damage or shortage report points at; null otherwise. */
     @Column(name = "purchase_order_id")
     public Long purchaseOrderId;
+    @Column(name = "tica_sale_id") public Long ticaSaleId;
+    @Column(name = "tica_revision_id") public Long ticaRevisionId;
+    @Column(name = "source_sold_at") public LocalDateTime sourceSoldAt;
+    @Column(name = "loose_delta") public Integer looseDelta;
+    @Column(name = "loose_pieces_after") public Integer loosePiecesAfter;
+    @Column(name = "unit_pieces") public Integer unitPieces;
+    @Column(name = "source_quantity", precision = 15, scale = 3) public BigDecimal sourceQuantity;
+    @Column(name = "source_unit", length = 30) public String sourceUnit;
 }

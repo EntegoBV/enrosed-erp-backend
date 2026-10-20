@@ -30,7 +30,7 @@ public class StockClosingDecisionEntity {
     @Column(name = "choice", length = 24) public String choice;
     @Column(name = "flag") public Boolean flag;
     @Column(name = "quantity") public Integer quantity;
-    @Column(name = "unit_value_eur", precision = 19, scale = 4) public BigDecimal unitValueEur;
+    @Column(name = "unit_value_eur", precision = 27, scale = 12) public BigDecimal unitValueEur;
     @Column(name = "amount_eur", precision = 19, scale = 2) public BigDecimal amountEur;
     /** ACCRUAL: the open amount of the stream when the decision was taken; the decision is stale once it differs. */
     @Column(name = "basis_amount_eur", precision = 19, scale = 2) public BigDecimal basisAmountEur;

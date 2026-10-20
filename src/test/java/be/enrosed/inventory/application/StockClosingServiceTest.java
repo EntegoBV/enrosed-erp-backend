@@ -120,6 +120,102 @@ class StockClosingServiceTest {
     private Supplier supplier;
     private boolean bookOnReceipt = true;
 
+    @Test @TestTransaction
+    void aLegacyFrozenLayerCarriesItsOwnFactorAndValuesNinetyFivePhysicalStems() {
+        quiet();
+        long stem = product("Twaalf stelen");
+        ProductEntity product = em.find(ProductEntity.class, stem);
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingSalesUnit = be.enrosed.catalog.domain.SalesUnit.DISPLAY;
+        product.packagingPiecesPerUnit = 12;
+        em.flush(); em.clear();
+        StockClosingEntity legacy = new StockClosingEntity();
+        legacy.closingYear = YEAR1; legacy.versionNo = 1; legacy.closingDate = END1;
+        legacy.cutoffAt = InventoryClock.cutoffAt(END1); legacy.status = "DEFINITIEF";
+        legacy.totalValueEur = new BigDecimal("359.60");
+        em.persist(legacy); em.flush();
+        StockClosingArticleEntity frozenArticle = new StockClosingArticleEntity();
+        frozenArticle.closingId = legacy.id; frozenArticle.productId = stem; frozenArticle.salesUnit = "DISPLAY";
+        frozenArticle.piecesPerUnit = 12; frozenArticle.closingQuantity = 8; frozenArticle.ownQuantity = 8;
+        frozenArticle.costValueEur = new BigDecimal("359.60"); frozenArticle.writeDownEur = BigDecimal.ZERO;
+        em.persist(frozenArticle);
+        StockClosingLayerEntity frozenLayer = new StockClosingLayerEntity();
+        frozenLayer.closingId = legacy.id; frozenLayer.productId = stem; frozenLayer.block = FifoValuer.BLOCK_OWN;
+        frozenLayer.position = 1; frozenLayer.source = FifoValuer.SOURCE_OPENING; frozenLayer.originSource = FifoValuer.SOURCE_OPENING;
+        frozenLayer.capacity = 8; frozenLayer.quantity = 8; frozenLayer.unitValueEur = new BigDecimal("44.95");
+        frozenLayer.unitGoodsEur = BigDecimal.ZERO; frozenLayer.unitTransportEur = BigDecimal.ZERO;
+        frozenLayer.unitLogisticsEur = BigDecimal.ZERO; frozenLayer.unitSeparateEur = BigDecimal.ZERO;
+        frozenLayer.unitEstimatedEur = BigDecimal.ZERO; frozenLayer.valueEur = new BigDecimal("359.60");
+        frozenLayer.receivedOn = END1.minusYears(1); frozenLayer.openingSource = "Oude getekende inventaris";
+        em.persist(frozenLayer); em.flush();
+        stock.setLevel(stem, stock.mainLocation().id(), 7, 11, StockMovement.Kind.MANUAL_CORRECTION, "95 stelen");
+        countAll(YEAR2);
+        View view = closings.create(YEAR2, null);
+        assertEquals(InventoryUnits.BASE_PIECE, view.closing().quantityBasis);
+        assertEquals(95, article(view, stem).closingQuantity);
+        assertEquals(95, article(view, stem).ownQuantity);
+        assertMoney("355.85", article(view, stem).costValueEur);
+        StockClosingLayerEntity carried = layers(view, stem).getFirst();
+        assertEquals(95, carried.quantity);
+        assertEquals(0, InventoryUnits.unitCost(new BigDecimal("44.95"), 12).compareTo(carried.unitValueEur));
+        long legacyId = legacy.id, articleId = frozenArticle.id, layerId = frozenLayer.id;
+        em.flush(); em.clear();
+        assertNull(em.find(StockClosingEntity.class, legacyId).quantityBasis);
+        assertEquals(8, em.find(StockClosingArticleEntity.class, articleId).closingQuantity);
+        assertEquals("DISPLAY", em.find(StockClosingArticleEntity.class, articleId).salesUnit);
+        assertEquals(8, em.find(StockClosingLayerEntity.class, layerId).quantity);
+        assertMoney("44.95", em.find(StockClosingLayerEntity.class, layerId).unitValueEur);
+        assertMoney("355.85", article(closings.recompute(view.closing().id), stem).costValueEur);
+    }
+
+    @Test @TestTransaction
+    void currentDisplayLotsAndInvoicesUsePhysicalPiecesAndPerPieceCosts() {
+        quiet();
+        long stem = product("Stelen doos");
+        ProductEntity product = em.find(ProductEntity.class, stem);
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingSalesUnit = be.enrosed.catalog.domain.SalesUnit.DISPLAY;
+        product.packagingPiecesPerUnit = 12;
+        em.flush(); em.clear();
+        simpleContainer("Stelen", stem, 8, "10.00", END1.minusDays(30));
+        stock.setLevel(stem, stock.mainLocation().id(), 7, 11, StockMovement.Kind.MANUAL_CORRECTION, "1 steel verkocht");
+        countAll(YEAR1);
+        View view = closings.create(YEAR1, null);
+        assertEquals(95, article(view, stem).closingQuantity);
+        assertMoney("72.83", article(view, stem).costValueEur);
+        StockClosingLotEntity lot = view.lots().stream().filter(row -> row.productId == stem).findFirst().orElseThrow();
+        assertEquals(96, lot.capacity);
+        assertEquals(0, InventoryUnits.unitCost(new BigDecimal("9.20"), 12).compareTo(lot.unitValueEur));
+        SalesOrder invoice = invoice(stem, 1, END1.minusDays(2));
+        view = closings.recompute(view.closing().id);
+        StockClosingSeparateEntity separate = view.separates().stream().filter(row -> java.util.Objects.equals(row.salesOrderId, invoice.id())).findFirst().orElseThrow();
+        assertEquals(12, separate.quantity);
+    }
+
+    @Test @TestTransaction
+    void aLegacyOpeningWithoutAFrozenDisplayFactorRemainsVisibleAndBlocksFinalization() {
+        quiet();
+        long stem = product("Onbekende oude beginwaarde");
+        ProductEntity product = em.find(ProductEntity.class, stem);
+        product.packagingKind = be.enrosed.catalog.domain.PackagingKind.DISPLAY;
+        product.packagingSalesUnit = be.enrosed.catalog.domain.SalesUnit.DISPLAY;
+        product.packagingPiecesPerUnit = 12;
+        em.flush(); em.clear();
+        StockOpeningLayerEntity opening = new StockOpeningLayerEntity();
+        opening.productId = stem; opening.productName = "Oude stelen"; opening.quantity = 8;
+        opening.unitValueEur = new BigDecimal("44.95"); opening.asOfDate = END1.minusYears(1);
+        opening.source = "Oude invoer zonder eenheid"; opening.createdAt = Instant.now();
+        em.persist(opening); em.flush();
+        stock.setLevel(stem, stock.mainLocation().id(), 7, 11, StockMovement.Kind.MANUAL_CORRECTION, "95 stelen");
+        countAll(YEAR1);
+        View view = closings.create(YEAR1, null);
+        assertTrue(view.notices().stream().anyMatch(notice -> "BEGINWAARDE_EENHEID_ONTBREEKT".equals(notice.code())));
+        assertFalse(view.canFinalize());
+        assertTrue(view.openingLayers().stream().anyMatch(row -> row.id() == opening.id));
+        assertEquals(8, opening.quantity);
+        assertNull(opening.quantityBasis);
+    }
+
     /* -------------------------------------------------- create, rule, delete */
 
     @Test @TestTransaction
@@ -1385,7 +1481,7 @@ class StockClosingServiceTest {
         assertEquals(first, roses.get(0).originClosingId);
         assertEquals(c1, roses.get(0).purchaseOrderId);
         assertEquals(100, roses.get(0).capacity, "capped at what the previous closing froze");
-        assertEquals(new BigDecimal("1.8400"), roses.get(0).unitValueEur, "the frozen unit, not the 1,94 of today");
+        assertEquals(new BigDecimal("1.840000000000"), roses.get(0).unitValueEur, "the frozen unit, not the 1,94 of today");
         assertEquals(LocalDate.of(YEAR1, 11, 20), roses.get(0).receivedOn);
         assertEquals(YEAR1, resource.get(second).articles().stream().filter(row -> row.productId() == rose).findFirst().orElseThrow()
                 .layers().getFirst().originClosingYear());
@@ -1402,7 +1498,7 @@ class StockClosingServiceTest {
         StockClosingLotEntity compared = lot(year2, c1, rose);
         assertEquals("VORIG", compared.role);
         assertEquals(new BigDecimal("1.9400"), compared.unitValueEur);
-        assertEquals(new BigDecimal("1.8400"), compared.previousUnitValueEur);
+        assertMoney("1.8400", compared.previousUnitValueEur);
         assertEquals(first, compared.previousClosingId);
         assertNotice(year2, "PARTIJ_GEWIJZIGD", "WARNING", "waarde", "1 partij heeft nu een andere waarde per stuk dan in de"
                 + " afsluiting van " + YEAR1 + ": verschil € 10,00, niet verwerkt.");
@@ -1414,7 +1510,7 @@ class StockClosingServiceTest {
         assertEquals("BEGINWAARDE", carried.originSource);
         assertEquals(used.id, carried.openingLayerId);
         assertEquals("inventaris", carried.openingSource);
-        assertEquals(new BigDecimal("1.5000"), carried.unitValueEur);
+        assertMoney("1.5000", carried.unitValueEur);
         assertMoney("75.00", article(year2, old).openingEur);
         assertEquals(List.of(unused.id), year2.openingLayers().stream().map(StockClosingService.OpeningLayerView::id).toList());
         assertEquals(1, notices(year2, "BEGINWAARDE_BUITEN_PERIODE").size(), "only the one no closing used");

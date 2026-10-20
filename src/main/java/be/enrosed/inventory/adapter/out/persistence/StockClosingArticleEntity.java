@@ -42,7 +42,7 @@ public class StockClosingArticleEntity {
     @Column(name = "separate_eur", precision = 19, scale = 2) public BigDecimal separateEur;
     @Column(name = "opening_eur", precision = 19, scale = 2) public BigDecimal openingEur;
     @Column(name = "estimated_eur", precision = 19, scale = 2) public BigDecimal estimatedEur;
-    @Column(name = "average_unit_eur", precision = 19, scale = 4) public BigDecimal averageUnitEur;
+    @Column(name = "average_unit_eur", precision = 27, scale = 12) public BigDecimal averageUnitEur;
     @Column(name = "write_down_eur", precision = 19, scale = 2) public BigDecimal writeDownEur;
     @Column(name = "own_value_eur", precision = 19, scale = 2) public BigDecimal ownValueEur;
     @Column(name = "previous_write_down_eur", precision = 19, scale = 2) public BigDecimal previousWriteDownEur;

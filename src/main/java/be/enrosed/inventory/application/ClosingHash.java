@@ -60,7 +60,7 @@ public final class ClosingHash {
         StockClosingEntity closing = rows.closing();
         List<String> lines = new ArrayList<>();
         lines.add(line("HEAD", List.of(encode(closing.closingYear, 0), encode(closing.versionNo, 0), encode(closing.closingDate, 0),
-                encode(closing.cutoffAt, 0), encode(closing.previousClosingId, 0), encode(closing.supersedesId, 0),
+                encode(closing.quantityBasis, 0), encode(closing.cutoffAt, 0), encode(closing.previousClosingId, 0), encode(closing.supersedesId, 0),
                 encode(closing.ruleMethod, 0), encode(closing.ruleVersion, 0), encode(closing.ruleEffectiveFromYear, 0),
                 sha256(closing.ruleText == null ? "" : closing.ruleText))));
         table(lines, "LINE", rows.lines(), Set.of(), Comparator.comparing((StockClosingLineEntity row) -> row.productId, NULL_FIRST)

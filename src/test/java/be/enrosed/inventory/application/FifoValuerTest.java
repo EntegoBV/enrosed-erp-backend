@@ -107,7 +107,7 @@ class FifoValuerTest {
         assertEquals(1, lowered.layerPosition, "the dearest layer first");
         assertEquals(12, lowered.quantity);
         assertEquals(new BigDecimal("2.5449"), lowered.layerUnitEur);
-        assertEquals(new BigDecimal("0.5000"), lowered.marketUnitEur);
+        assertEquals(new BigDecimal("0.500000000000"), lowered.marketUnitEur);
         assertEquals(new BigDecimal("24.54"), lowered.amountEur);
         assertEquals("PO-2026-014 · ontvangen 20/11/2026", lowered.layerLabel);
         assertEquals(12, layers.get(0).writeDownQuantity);

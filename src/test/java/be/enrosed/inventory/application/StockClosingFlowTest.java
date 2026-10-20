@@ -383,10 +383,10 @@ class StockClosingFlowTest {
         List<StockClosingLayerEntity> carried = layers(year2, rose);
         assertEquals(1, carried.size());
         assertEquals("VORIG", carried.getFirst().source);
-        assertEquals(new BigDecimal("2.0240"), carried.getFirst().unitValueEur, "the unit value version 2 froze, not the one of today");
+        assertMoney("2.0240", carried.getFirst().unitValueEur, "the unit value version 2 froze, not the one of today");
         assertEquals(95, carried.getFirst().quantity);
         assertEquals(List.of("VORIG", "VORIG"), layers(year2, old).stream().map(layer -> layer.source).toList());
-        assertEquals(List.of(new BigDecimal("2.3000"), new BigDecimal("1.5000")),
+        assertEquals(List.of(new BigDecimal("2.300000000000"), new BigDecimal("1.500000000000")),
                 layers(year2, old).stream().map(layer -> layer.unitValueEur).toList());
         assertEquals("BEGINWAARDE", layers(year2, old).getLast().originSource);
         assertMoney("192.28", article(year2, rose).costValueEur, "95 x 2,0240");
@@ -424,7 +424,7 @@ class StockClosingFlowTest {
         assertNull(rebuilt.previousReplacedBy());
         assertNotice(rebuilt, "VORIGE_VERSIE_VERVANGEN", "WARNING", "afsluiten",
                 "Deze versie steunt op versie 3 van " + YEAR1 + "; de vorige versie steunde op versie 2.");
-        assertEquals(new BigDecimal("2.1240"), layers(rebuilt, rose).getFirst().unitValueEur);
+        assertMoney("2.1240", layers(rebuilt, rose).getFirst().unitValueEur);
         assertNotNull(notice(rebuilt, "VERSCHIL_MET_VORIGE_VERSIE"));
 
         /* A decision reason changed since the client read the figures: the hash no longer fits. */

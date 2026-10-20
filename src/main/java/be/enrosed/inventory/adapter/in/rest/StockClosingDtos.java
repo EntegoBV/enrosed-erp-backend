@@ -70,15 +70,15 @@ public final class StockClosingDtos {
     /* -------------------------------------------------- rule and opening */
 
     public record OpeningLayer(long id, long productId, String sku, String productName, int quantity, BigDecimal unitValueEur,
-                               LocalDate asOfDate, String source, String note, String createdByName, Instant createdAt) {
+                               LocalDate asOfDate, String source, String note, String createdByName, Instant createdAt, String quantityBasis, Integer unitPieces) {
         static OpeningLayer from(StockOpeningLayerEntity layer) {
             return new OpeningLayer(layer.id, layer.productId, layer.sku, layer.productName, layer.quantity, layer.unitValueEur,
-                    layer.asOfDate, layer.source, layer.note, layer.createdByName, layer.createdAt);
+                    layer.asOfDate, layer.source, layer.note, layer.createdByName, layer.createdAt, layer.quantityBasis, layer.unitPieces);
         }
 
         static OpeningLayer from(StockClosingService.OpeningLayerView layer) {
             return new OpeningLayer(layer.id(), layer.productId(), layer.sku(), layer.productName(), layer.quantity(),
-                    layer.unitValueEur(), layer.asOfDate(), layer.source(), layer.note(), layer.createdByName(), layer.createdAt());
+                    layer.unitValueEur(), layer.asOfDate(), layer.source(), layer.note(), layer.createdByName(), layer.createdAt(), layer.quantityBasis(), layer.unitPieces());
         }
     }
 
@@ -100,13 +100,13 @@ public final class StockClosingDtos {
     public record ClosingSummary(long id, int closingYear, int versionNo, LocalDate closingDate, String status,
                                  boolean superseded, BigDecimal totalValueEur, BigDecimal estimatedEur, int blockerCount,
                                  int warningCount, String correctionReason, String finalizedByName, Instant finalizedAt,
-                                 boolean hasFiles) {
+                                 boolean hasFiles, String quantityBasis) {
         static ClosingSummary from(StockClosingEntity closing) {
             return new ClosingSummary(closing.id, closing.closingYear, closing.versionNo, closing.closingDate, closing.status,
                     closing.supersededById != null, closing.totalValueEur, closing.estimatedEur,
                     closing.blockerCount == null ? 0 : closing.blockerCount, closing.warningCount == null ? 0 : closing.warningCount,
                     closing.correctionReason, closing.finalizedByName, closing.finalizedAt,
-                    closing.pdfStorageKey != null && closing.xlsxStorageKey != null);
+                    closing.pdfStorageKey != null && closing.xlsxStorageKey != null, closing.quantityBasis);
         }
     }
 
@@ -422,7 +422,7 @@ public final class StockClosingDtos {
                               List<Decision> decisions, List<OpeningLayer> openingLayers, List<Reason> writeDownReasons,
                               Instant computedAt, String dataSha256, String finalizedByName, Instant finalizedAt,
                               String signerName, String pdfSha256, String xlsxSha256, List<ClosingSummary> versions,
-                              boolean canFinalize, boolean canCorrect) {
+                              boolean canFinalize, boolean canCorrect, String quantityBasis) {
         static ClosingView from(StockClosingService.View view) {
             StockClosingEntity closing = view.closing();
             Index index = Index.of(view.decisions());
@@ -449,7 +449,7 @@ public final class StockClosingDtos {
                     Arrays.stream(WriteDownReason.values()).map(reason -> new Reason(reason.code(), reason.label())).toList(),
                     closing.computedAt, closing.dataSha256, closing.finalizedByName, closing.finalizedAt, closing.signerName,
                     closing.pdfSha256, closing.xlsxSha256, view.versions().stream().map(ClosingSummary::from).toList(),
-                    view.canFinalize(), view.canCorrect());
+                    view.canFinalize(), view.canCorrect(), closing.quantityBasis);
         }
     }
 

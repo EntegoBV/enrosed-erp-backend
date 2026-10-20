@@ -1,6 +1,8 @@
 package be.enrosed.catalog.domain;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 /**
  * One line in the stock book: what changed, to what, why and by whom.
@@ -28,7 +30,15 @@ public record StockMovement(
          * reported after receipt; the order's dossier and the next supplier
          * order read it back. Null for every other line.
          */
-        Long purchaseOrderId
+        Long purchaseOrderId,
+        Long ticaSaleId,
+        Long ticaRevisionId,
+        LocalDateTime sourceSoldAt,
+        int looseDelta,
+        int loosePiecesAfter,
+        Integer unitPieces,
+        BigDecimal sourceQuantity,
+        String sourceUnit
 ) {
     public enum Kind {
         PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO, SHORTAGE, SALE_RETURN;
@@ -52,6 +62,12 @@ public record StockMovement(
         public boolean isReceiptIssue() {
             return this == DAMAGED || this == SHORTAGE;
         }
+    }
+
+    public StockMovement(Long id, long productId, Long locationId, Instant at, int delta, int quantityAfter,
+                         Kind kind, String reference, String actor, Long purchaseOrderId) {
+        this(id, productId, locationId, at, delta, quantityAfter, kind, reference, actor, purchaseOrderId,
+                null, null, null, 0, 0, null, null, null);
     }
 
     /** Compatibility for lines written before a report could name its container. */
