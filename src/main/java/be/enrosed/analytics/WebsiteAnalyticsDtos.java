@@ -37,6 +37,8 @@ public final class WebsiteAnalyticsDtos {
     /**
      * The same window one period earlier, so the headline numbers can say up or down.
      * It stops at the same clock time, so this morning compares with yesterday morning.
+     * All zeros ("geen vergelijking") when the stored views do not reach back to its
+     * start: a partly filled window would read as growth.
      */
     public record Compare(long visits, long visitors, long sessions, long quoteSessions) {}
 

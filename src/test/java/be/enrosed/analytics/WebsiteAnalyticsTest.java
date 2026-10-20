@@ -259,6 +259,8 @@ class WebsiteAnalyticsTest {
             store(visitor, "/clock-check/", now.minusDays(1).withHour(9).withMinute(30), null);
             // Yesterday after this clock time: today has not got there yet, so it does not count.
             store(visitor, "/clock-check/", now.minusDays(1).withHour(11), null);
+            // Stored history before yesterday, so yesterday is a window to compare with.
+            store(visitor, "/clock-check/", now.minusDays(2).withHour(9), null);
         });
 
         Report report = service.report(1, now);
@@ -281,6 +283,66 @@ class WebsiteAnalyticsTest {
         assertEquals(200, report.pages().size(), "every product in every language fits; the cap was 40");
         assertEquals(205, report.kinds().stream().filter(kind -> kind.kind().equals("PRODUCT"))
                 .mapToLong(WebsiteAnalyticsDtos.KindRow::visits).sum());
+    }
+
+    @Test
+    void aWindowBeforeTheOldestStoredViewIsNoComparison() {
+        // Years back, so these are the oldest views in the table: the statistics "began" here.
+        ZonedDateTime first = day(5000).withHour(9);
+        String visitor = "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5";
+        ZonedDateTime now = first.plusDays(40).withHour(10);
+        QuarkusTransaction.requiringNew().run(() -> {
+            // In the 30 days before the month shown, which began 10 days before the first view.
+            store(visitor, "/history-check/", first, null);
+            store(visitor, "/history-check/", first.plusDays(5), null);
+            // In the month shown: yesterday and today.
+            store(visitor, "/history-check/", now.minusDays(1).withHour(9), null);
+            store(visitor, "/history-check/", now.withHour(9), null);
+        });
+
+        Report month = service.report(30, now);
+        assertEquals(2, month.totals().visits());
+        assertEquals(0, month.previous().visits(), "the 30 days before were partly stored: no comparison, not growth");
+        assertEquals(0, month.previous().visitors());
+        assertEquals(0, month.previous().sessions());
+        assertEquals(0, month.previous().quoteSessions());
+
+        Report today = service.report(1, now);
+        assertEquals(1, today.totals().visits());
+        assertEquals(1, today.previous().visits(), "yesterday lies after the oldest stored view, so it compares");
+    }
+
+    @Test
+    void theClicksAfterARefusedFirstPageStayOut() {
+        ZonedDateTime start = day(20).withHour(12);
+        String fromAi = "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6";
+        String fromErp = "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7";
+        String other = "b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8";
+        String inside = "https://www.enrosed.com/nl/products/";
+        // Opened from an AI answer; the next clicks carry enrosed.com as their referrer.
+        assertTrue(service.record(beacon("/nl/products/refused-ai-dome/", fromAi, "https://chatgpt.com/c/1"), start.toInstant()));
+        assertTrue(service.record(beacon("/nl/products/", fromAi, inside), start.plusMinutes(5).toInstant()));
+        assertTrue(service.record(beacon("/nl/quote/", fromAi, inside), start.plusMinutes(30).toInstant()));
+        // More than half an hour after its last page: a new visit, typed in, which counts.
+        assertTrue(service.record(beacon("/nl/refused-ai-return/", fromAi, null), start.plusMinutes(61).toInstant()));
+        // The same from the ERP.
+        assertTrue(service.record(beacon("/nl/refused-erp-check/", fromErp, "https://erp.enrosed.com/website"), start.toInstant()));
+        assertTrue(service.record(beacon("/nl/refused-erp-next/", fromErp, inside), start.plusMinutes(2).toInstant()));
+        // Somebody else at the same moment is not affected.
+        assertTrue(service.record(beacon("/nl/refused-other-check/", other, null), start.plusMinutes(3).toInstant()));
+
+        Report report = service.report(1, start.withHour(18));
+        assertEquals(List.of("/nl/refused-ai-return/", "/nl/refused-other-check/"),
+                report.pages().stream().map(WebsiteAnalyticsDtos.PageRow::path).sorted().toList(),
+                "the clicks after a page opened from an AI assistant or the ERP are refused with it");
+        assertEquals(2, report.totals().sessions());
+        assertEquals(Map.of("Rechtstreeks", 2L), report.sources().stream()
+                .collect(Collectors.toMap(SourceRow::source, SourceRow::visits)));
+    }
+
+    private static WebsiteAnalyticsDtos.VisitInput beacon(String path, String visitor, String referrer) {
+        return new WebsiteAnalyticsDtos.VisitInput(path, null, referrer, null, null, null, 1440, visitor,
+                "NL", "Utrecht", "DESKTOP");
     }
 
     private static ZonedDateTime day(int daysBack) {

@@ -19,7 +19,7 @@ public class WebsiteVisitRetentionJob {
 
     @Inject
     public WebsiteVisitRetentionJob(
-            @ConfigProperty(name = "enrosed.analytics.retention.days", defaultValue = "400") int retentionDays,
+            @ConfigProperty(name = "enrosed.analytics.retention.days", defaultValue = "731") int retentionDays,
             WebsiteVisitService visits) {
         this.retentionDays = Math.max(30, retentionDays);
         this.visits = visits;

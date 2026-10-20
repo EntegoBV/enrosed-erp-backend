@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -69,6 +70,13 @@ public class WebsiteVisitService {
     private final Set<String> internalReferrerHosts;
     /** AI assistants and the like: we open our own site from there while working; those visits are not customers. */
     private final Set<String> excludedReferrerHosts;
+    /**
+     * Visitors whose visit began on a refused page, with the time of its last
+     * page. In memory is enough: one backend instance, and the visitor hash
+     * changes every day anyway.
+     */
+    private final Map<String, Instant> excludedSessions = new ConcurrentHashMap<>();
+    private static final int EXCLUDED_SESSION_LIMIT = 10_000;
 
     @Inject
     public WebsiteVisitService(
@@ -187,13 +195,19 @@ public class WebsiteVisitService {
     /** Stores one page view; false when the beacon is not worth keeping. */
     @Transactional
     public boolean record(VisitInput input) {
+        return record(input, Instant.now());
+    }
+
+    /** The same, for a beacon that arrives at {@code now}. */
+    @Transactional
+    boolean record(VisitInput input, Instant now) {
         if (input == null) return false;
         String path = cleanPath(input.path());
         String visitor = lower(input.visitor());
         if (!contentPagePath(path) || visitor == null || !VISITOR.matcher(visitor).matches()) return false;
 
         WebsiteVisitEntity visit = new WebsiteVisitEntity();
-        visit.occurredAt = Instant.now();
+        visit.occurredAt = now;
         visit.visitor = visitor;
         visit.path = path;
         visit.pageKind = pageKind(path);
@@ -203,11 +217,12 @@ public class WebsiteVisitService {
         visit.city = trim(input.city(), 80);
         /* Accepted, but not kept: the beacon did its job, the number stays honest. */
         if (ownVisit(visit.country, visit.city)) return true;
-        if (Boolean.TRUE.equals(input.internal()) || internalReferrer(input.referrer())) return true;
+        if (continuesExcludedSession(visitor, now)) return true;
+        if (Boolean.TRUE.equals(input.internal()) || internalReferrer(input.referrer())) return excludeSession(visitor, now);
         visit.referrerHost = referrerHost(input.referrer());
-        if (excludedReferrer(visit.referrerHost)) return true;
+        if (excludedReferrer(visit.referrerHost)) return excludeSession(visitor, now);
         visit.source = trim(lower(input.utmSource()), 64);
-        if (excludedSource(visit.source)) return true;
+        if (excludedSource(visit.source)) return excludeSession(visitor, now);
         visit.medium = trim(lower(input.utmMedium()), 64);
         visit.campaign = trim(input.utmCampaign(), 120);
         visit.screenWidth = input.screenWidth() == null || input.screenWidth() <= 0 || input.screenWidth() > 20_000
@@ -215,6 +230,33 @@ public class WebsiteVisitService {
         String device = upper(input.device());
         visit.device = device != null && DEVICES.contains(device) ? device : deviceFor(visit.screenWidth);
         visit.persist();
+        return true;
+    }
+
+    /**
+     * A later page of a visit whose first page was refused: an AI assistant, the
+     * ERP or a preview build. Its clicks carry enrosed.com as referrer and would
+     * otherwise be stored as a visit of its own, booked as "Rechtstreeks". The
+     * visit goes on while its pages come less than half an hour apart, as in
+     * the report's sessions.
+     */
+    private boolean continuesExcludedSession(String visitor, Instant now) {
+        Instant lastSeen = excludedSessions.get(visitor);
+        if (lastSeen == null) return false;
+        if (Duration.between(lastSeen, now).compareTo(SESSION_GAP) > 0) {
+            excludedSessions.remove(visitor, lastSeen);
+            return false;
+        }
+        excludedSessions.merge(visitor, now, (seen, latest) -> seen.isAfter(latest) ? seen : latest);
+        return true;
+    }
+
+    /** Remembers a refused first page for the visit's next clicks; the beacon is accepted. */
+    private boolean excludeSession(String visitor, Instant now) {
+        if (excludedSessions.size() >= EXCLUDED_SESSION_LIMIT) {
+            excludedSessions.values().removeIf(seen -> Duration.between(seen, now).compareTo(SESSION_GAP) > 0);
+        }
+        if (excludedSessions.size() < EXCLUDED_SESSION_LIMIT) excludedSessions.put(visitor, now);
         return true;
     }
 
@@ -233,7 +275,12 @@ public class WebsiteVisitService {
         LocalDate today = at.toLocalDate();
         LocalDate firstDay = today.minusDays(days - 1L);
         Fold current = fold(firstDay, today, today.plusDays(1).atStartOfDay(ZONE).toInstant());
-        Fold previous = fold(firstDay.minusDays(days), firstDay.minusDays(1), at.minusDays(days).toInstant());
+        LocalDate previousFirstDay = firstDay.minusDays(days);
+        /* Before the oldest stored view (tracking began later, or the retention dropped it) a window is
+           only partly filled and would read as growth: then there is nothing to compare with. */
+        Fold previous = storedSince(previousFirstDay.atStartOfDay(ZONE).toInstant())
+                ? fold(previousFirstDay, firstDay.minusDays(1), at.minusDays(days).toInstant())
+                : null;
         long activeNow = activeVisitors(at.toInstant().minus(ACTIVE_WINDOW), at.toInstant());
 
         List<DayPoint> series = new ArrayList<>();
@@ -251,8 +298,8 @@ public class WebsiteVisitService {
                 sessions == 0 ? 0 : Math.round(current.bounces * 1000.0 / sessions) / 10.0,
                 current.timedSessions == 0 ? 0 : current.timedSeconds / current.timedSessions,
                 activeNow);
-        Compare compare = new Compare(previous.visits, previous.visitors.size(), previous.sessions,
-                previous.quoteSessions);
+        Compare compare = previous == null ? new Compare(0, 0, 0, 0)
+                : new Compare(previous.visits, previous.visitors.size(), previous.sessions, previous.quoteSessions);
         return new Report(days, firstDay.toString(), today.toString(), totals, compare, series, perHour,
                 // Room for every product in every language: the client groups a product's language pages into one row.
                 top(current.pages, 200, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
@@ -285,6 +332,14 @@ public class WebsiteVisitService {
         }
         fold.finish();
         return fold;
+    }
+
+    /** Whether the stored views reach back to that moment: the oldest one is not later. */
+    private boolean storedSince(Instant moment) {
+        Instant oldest = WebsiteVisitEntity.getEntityManager()
+                .createQuery("select min(v.occurredAt) from WebsiteVisitEntity v", Instant.class)
+                .getSingleResult();
+        return oldest != null && !oldest.isAfter(moment);
     }
 
     /** Distinct visitors seen between the two moments: the "right now" of the report. */
