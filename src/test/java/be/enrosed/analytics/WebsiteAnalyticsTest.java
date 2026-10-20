@@ -1,11 +1,17 @@
 package be.enrosed.analytics;
 
+import be.enrosed.analytics.WebsiteAnalyticsDtos.Report;
+import be.enrosed.analytics.WebsiteAnalyticsDtos.SourceRow;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
@@ -22,6 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WebsiteAnalyticsTest {
 
     private static final String VISITOR = "9f2c4d8e1a7b3c5d9f2c4d8e1a7b3c5d";
+
+    @Inject
+    WebsiteVisitService service;
 
     @Test
     void visitsAreCountedAndReported() {
@@ -207,5 +216,88 @@ class WebsiteAnalyticsTest {
         assertEquals("google.com", WebsiteVisitService.referrerHost("https://www.google.com/search?q=roses"));
         assertNull(WebsiteVisitService.referrerHost("https://enrosed.com/nl/"));
         assertEquals("MOBILE", WebsiteVisitService.deviceFor(390));
+    }
+
+    /*
+     * The three below fold rows stored on a day of their own, weeks back, and
+     * read the report as it was on that day: nothing else lands in their window.
+     */
+
+    @Test
+    void aSourceCountsOncePerSessionNotOncePerPage() {
+        ZonedDateTime now = day(50).withHour(15);
+        String google = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+        String instagram = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
+        QuarkusTransaction.requiringNew().run(() -> {
+            // From Google, then two clicks inside the site (their referrer is enrosed.com, stored as none).
+            store(google, "/", now.withHour(9), "google.com");
+            store(google, "/products/", now.withHour(9).withMinute(5), null);
+            store(google, "/products/source-check-dome/", now.withHour(9).withMinute(10), null);
+            // The same visitor back after more than half an hour: a new session, typed in.
+            store(google, "/nl/", now.withHour(11), null);
+            store(instagram, "/de/", now.withHour(10), "instagram.com");
+            store(instagram, "/de/quote/", now.withHour(10).withMinute(2), null);
+        });
+
+        Report report = service.report(1, now);
+        Map<String, Long> sources = report.sources().stream()
+                .collect(Collectors.toMap(SourceRow::source, SourceRow::visits));
+        assertEquals(Map.of("Google", 1L, "Instagram", 1L, "Rechtstreeks", 1L), sources,
+                "the clicks inside the site are not booked as Rechtstreeks");
+        assertEquals(6, report.totals().visits());
+        assertEquals(3, report.totals().sessions());
+        assertEquals(report.totals().sessions(), sources.values().stream().mapToLong(Long::longValue).sum(),
+                "the sources add up to the sessions");
+    }
+
+    @Test
+    void thePreviousWindowEndsAtTheSameClockTime() {
+        ZonedDateTime now = day(80).withHour(10);
+        String visitor = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3";
+        QuarkusTransaction.requiringNew().run(() -> {
+            store(visitor, "/clock-check/", now.withHour(9), null);
+            store(visitor, "/clock-check/", now.minusDays(1).withHour(9).withMinute(30), null);
+            // Yesterday after this clock time: today has not got there yet, so it does not count.
+            store(visitor, "/clock-check/", now.minusDays(1).withHour(11), null);
+        });
+
+        Report report = service.report(1, now);
+        assertEquals(1, report.totals().visits());
+        assertEquals(1, report.previous().visits(), "yesterday until 10 o'clock, not the whole of yesterday");
+        assertEquals(1, report.previous().sessions());
+    }
+
+    @Test
+    void theReportListsUpToTwoHundredPages() {
+        ZonedDateTime now = day(110).withHour(18);
+        String visitor = "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4";
+        QuarkusTransaction.requiringNew().run(() -> {
+            for (int index = 0; index < 205; index++) {
+                store(visitor, "/products/page-cap-" + index + "/", now.withHour(9).plusSeconds(index), null);
+            }
+        });
+
+        Report report = service.report(1, now);
+        assertEquals(200, report.pages().size(), "every product in every language fits; the cap was 40");
+        assertEquals(205, report.kinds().stream().filter(kind -> kind.kind().equals("PRODUCT"))
+                .mapToLong(WebsiteAnalyticsDtos.KindRow::visits).sum());
+    }
+
+    private static ZonedDateTime day(int daysBack) {
+        return ZonedDateTime.now(WebsiteVisitService.ZONE).minusDays(daysBack).withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private static void store(String visitor, String path, ZonedDateTime at, String referrerHost) {
+        WebsiteVisitEntity row = new WebsiteVisitEntity();
+        row.occurredAt = at.toInstant();
+        row.visitor = visitor;
+        row.path = path;
+        row.pageKind = WebsiteVisitService.pageKind(path);
+        row.locale = WebsiteVisitService.localeOf(path, null);
+        row.country = "DE";
+        row.city = "Berlin";
+        row.referrerHost = referrerHost;
+        row.device = "DESKTOP";
+        row.persist();
     }
 }

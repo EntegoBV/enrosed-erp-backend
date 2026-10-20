@@ -34,7 +34,10 @@ public final class WebsiteAnalyticsDtos {
                          long countries, double bounceRatePct, long avgSessionSeconds,
                          long activeNow) {}
 
-    /** The same window one period earlier, so the headline numbers can say up or down. */
+    /**
+     * The same window one period earlier, so the headline numbers can say up or down.
+     * It stops at the same clock time, so this morning compares with yesterday morning.
+     */
     public record Compare(long visits, long visitors, long sessions, long quoteSessions) {}
 
     public record DayPoint(String date, long visits, long visitors) {}
@@ -50,7 +53,11 @@ public final class WebsiteAnalyticsDtos {
 
     public record CityRow(String city, String country, long visits) {}
 
-    /** kind: DIRECT, SEARCH, SOCIAL, CAMPAIGN or SITE. */
+    /**
+     * kind: DIRECT, SEARCH, SOCIAL, CAMPAIGN or SITE. {@code visits} counts
+     * sessions (the name stays for the client): a source is booked on the
+     * session's first page, never on the clicks inside the site.
+     */
     public record SourceRow(String source, String kind, long visits) {}
 
     public record DeviceRow(String device, long visits) {}

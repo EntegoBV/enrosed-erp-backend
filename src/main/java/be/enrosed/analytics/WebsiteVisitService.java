@@ -219,12 +219,22 @@ public class WebsiteVisitService {
     }
 
     public Report report(int requestedDays) {
+        return report(requestedDays, ZonedDateTime.now(ZONE));
+    }
+
+    /**
+     * The report as it reads at {@code now}. Today is still running, so the
+     * previous window stops at the same clock time one period earlier: at
+     * 9 o'clock "Vandaag" compares with yesterday until 9, not all of it.
+     */
+    Report report(int requestedDays, ZonedDateTime now) {
         int days = Math.max(1, Math.min(requestedDays, 365));
-        LocalDate today = LocalDate.now(ZONE);
+        ZonedDateTime at = now.withZoneSameInstant(ZONE);
+        LocalDate today = at.toLocalDate();
         LocalDate firstDay = today.minusDays(days - 1L);
-        Fold current = fold(firstDay, today);
-        Fold previous = fold(firstDay.minusDays(days), firstDay.minusDays(1));
-        long activeNow = activeVisitors(Instant.now().minus(ACTIVE_WINDOW));
+        Fold current = fold(firstDay, today, today.plusDays(1).atStartOfDay(ZONE).toInstant());
+        Fold previous = fold(firstDay.minusDays(days), firstDay.minusDays(1), at.minusDays(days).toInstant());
+        long activeNow = activeVisitors(at.toInstant().minus(ACTIVE_WINDOW), at.toInstant());
 
         List<DayPoint> series = new ArrayList<>();
         current.perDay.forEach((day, count) -> series.add(new DayPoint(day.toString(), count[0],
@@ -244,7 +254,8 @@ public class WebsiteVisitService {
         Compare compare = new Compare(previous.visits, previous.visitors.size(), previous.sessions,
                 previous.quoteSessions);
         return new Report(days, firstDay.toString(), today.toString(), totals, compare, series, perHour,
-                top(current.pages, 40, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
+                // Room for every product in every language: the client groups a product's language pages into one row.
+                top(current.pages, 200, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
                 top(current.kinds, 10, (key, counter) -> new KindRow(key, counter.visits)),
                 top(current.countries, 40, (key, counter) -> new CountryRow(key.isEmpty() ? null : key, counter.visits, counter.visitors.size())),
                 top(current.cities, 12, (key, counter) -> new CityRow(key.substring(0, key.indexOf('|')), current.cityCountries.get(key), counter.visits)),
@@ -256,13 +267,15 @@ public class WebsiteVisitService {
                 top(current.exits, 8, (key, counter) -> new PageRow(key, pageKind(key), counter.visits, counter.visitors.size())),
                 new Funnel(sessions, current.productSessions, current.quoteSessions, current.contactSessions),
                 excludedCityLabels,
-                Instant.now().toString());
+                at.toInstant().toString());
     }
 
-    /** Fold only content visits, excluding legacy resource/error beacons without deleting them. */
-    private Fold fold(LocalDate firstDay, LocalDate lastDay) {
+    /**
+     * Fold only content visits, excluding legacy resource/error beacons without deleting them.
+     * The window starts at the first day's midnight and ends at {@code to} (exclusive).
+     */
+    private Fold fold(LocalDate firstDay, LocalDate lastDay, Instant to) {
         Instant from = firstDay.atStartOfDay(ZONE).toInstant();
-        Instant to = lastDay.plusDays(1).atStartOfDay(ZONE).toInstant();
         List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list(
                 "occurredAt >= ?1 and occurredAt < ?2 order by visitor, occurredAt", from, to);
         Fold fold = new Fold(firstDay, lastDay);
@@ -274,9 +287,9 @@ public class WebsiteVisitService {
         return fold;
     }
 
-    /** Distinct visitors seen since the given moment: the "right now" of the report. */
-    private long activeVisitors(Instant since) {
-        List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list("occurredAt >= ?1", since);
+    /** Distinct visitors seen between the two moments: the "right now" of the report. */
+    private long activeVisitors(Instant since, Instant until) {
+        List<WebsiteVisitEntity> rows = WebsiteVisitEntity.list("occurredAt >= ?1 and occurredAt <= ?2", since, until);
         Set<String> active = new HashSet<>();
         for (WebsiteVisitEntity row : rows) {
             if (reportableRow(row)) active.add(row.visitor);
@@ -296,9 +309,9 @@ public class WebsiteVisitService {
 
     /**
      * One pass over the views of a period, sorted by visitor and time. Views
-     * of one visitor less than half an hour apart form a session; when the
-     * session ends its first and last page, its length and how far it got
-     * are booked.
+     * of one visitor less than half an hour apart form a session; its source
+     * is booked when it begins, and when it ends its first and last page, its
+     * length and how far it got are booked.
      */
     private static final class Fold {
         final Map<LocalDate, long[]> perDay = new LinkedHashMap<>();
@@ -370,6 +383,11 @@ public class WebsiteVisitService {
                 sawQuote = false;
                 sawContact = false;
                 sessions++;
+                // Where the session came from, once: a click inside the site carries enrosed.com as its referrer
+                // and would otherwise book every next page as "Rechtstreeks". Sources count sessions.
+                String[] source = sourceOf(row);
+                sources.computeIfAbsent(source[0], key -> new Counter()).add(row.visitor);
+                sourceKinds.put(source[0], source[1]);
             }
             sessionPages++;
             lastSeen = row.occurredAt;
@@ -389,9 +407,6 @@ public class WebsiteVisitService {
                 cities.computeIfAbsent(key, k -> new Counter()).add(row.visitor);
                 cityCountries.put(key, row.country);
             }
-            String[] source = sourceOf(row);
-            sources.computeIfAbsent(source[0], key -> new Counter()).add(row.visitor);
-            sourceKinds.put(source[0], source[1]);
             devices.computeIfAbsent(row.device, key -> new Counter()).add(row.visitor);
             locales.computeIfAbsent(row.locale == null ? "en" : row.locale, key -> new Counter()).add(row.visitor);
         }
