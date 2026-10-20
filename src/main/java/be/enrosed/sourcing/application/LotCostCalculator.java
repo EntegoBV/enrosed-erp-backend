@@ -101,7 +101,7 @@ public class LotCostCalculator {
             return new PurchasePayment(payment.id(), payment.orderId(), payment.paidOn(), payment.amount(),
                     payment.currency(), value, payment.label(), payment.actor(), payment.recordedAt(),
                     payment.payee(), payment.settles(), payment.instalmentDue(), payment.bankStatementLineId(),
-                    payment.groupId(), payment.invoiceId());
+                    payment.groupId(), payment.invoiceId(), payment.origin());
         }).toList();
     }
 

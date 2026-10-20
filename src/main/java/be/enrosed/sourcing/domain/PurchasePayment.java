@@ -50,8 +50,19 @@ public record PurchasePayment(
          */
         Long groupId,
         /** The invoice chosen for this payment; null means automatic (the payee's only invoice). */
-        Long invoiceId
+        Long invoiceId,
+        /** Independently maintained payment provenance; absent means the ordinary bank workflow. */
+        PurchasePaymentOrigin origin
 ) {
+    /** Existing callers never write provenance through a financial payment update. */
+    public PurchasePayment(Long id, long orderId, LocalDate paidOn, BigDecimal amount, Currency currency,
+                           BigDecimal amountEur, String label, String actor, Instant recordedAt, Payee payee,
+                           boolean settles, PaymentTerms.Moment instalmentDue, Long bankStatementLineId,
+                           Long groupId, Long invoiceId) {
+        this(id, orderId, paidOn, amount, currency, amountEur, label, actor, recordedAt, payee, settles,
+                instalmentDue, bankStatementLineId, groupId, invoiceId, null);
+    }
+
     /**
      * Compatibility for new rows and read-only copies written before a
      * payment could be paid in parts or point at an invoice. Never use it to

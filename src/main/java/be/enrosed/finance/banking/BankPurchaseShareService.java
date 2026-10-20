@@ -53,6 +53,7 @@ public class BankPurchaseShareService {
 
     @Inject EntityManager em;
     @Inject PurchaseOrderService purchases;
+    @Inject be.enrosed.sourcing.application.PurchasePaymentOriginService origins;
     @Inject BankStatementService bank;
 
     /**
@@ -202,6 +203,7 @@ public class BankPurchaseShareService {
      * USD/CNY payment always goes whole: its euro becomes the part, its own amount stays.
      */
     private PartResult write(Part part, SourcingEntities.PurchasePaymentEntity payment, long lineId, LocalDate day) {
+        origins.requireBankEligible(payment.id);
         BigDecimal wasEur = payment.amountEur;
         LocalDate wasPaidOn = payment.paidOn;
         BigDecimal difference = part.amountEur().subtract(wasEur);

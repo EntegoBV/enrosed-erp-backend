@@ -100,6 +100,7 @@ public class FairSeed {
         for (Booking booking : bookings) {
             String name = booking.name().strip();
             String key = CostParty.keyOf(name);
+            // findByKey also resolves preserved merged names: bank spellings must not recreate list duplicates.
             if (key == null || name.length() > NAME_LENGTH || !seen.add(key) || parties.findByKey(key).isPresent()) continue;
             String channel = CostPartyService.FAIR_CATEGORY.equals(booking.category()) ? booking.salesChannel() : null;
             parties.save(new CostParty(null, name, booking.category(), booking.vatPct(), channel, null, Instant.now()));

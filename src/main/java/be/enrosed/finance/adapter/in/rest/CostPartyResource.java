@@ -1,6 +1,8 @@
 package be.enrosed.finance.adapter.in.rest;
 
 import be.enrosed.finance.application.CostPartyService;
+import be.enrosed.finance.application.CostParties;
+import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.finance.domain.CostParty;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
@@ -43,6 +45,27 @@ public class CostPartyResource {
     @Path("/{id}")
     public CostParty update(@PathParam("id") long id, CostParty party) {
         return parties.update(id, party);
+    }
+
+    public record MergeRequest(Long targetId) {}
+
+    @POST
+    @Path("/{id}/merge")
+    public CostParty merge(@PathParam("id") long id, MergeRequest request) {
+        if (request == null || request.targetId() == null) throw new BusinessRuleException("Kies de naam die je wilt behouden");
+        return parties.merge(id, request.targetId());
+    }
+
+    @GET
+    @Path("/{id}/aliases")
+    public List<CostParties.Alias> aliases(@PathParam("id") long id) {
+        return parties.aliases(id);
+    }
+
+    @POST
+    @Path("/{id}/restore")
+    public CostParty restore(@PathParam("id") long id) {
+        return parties.restore(id);
     }
 
     @DELETE

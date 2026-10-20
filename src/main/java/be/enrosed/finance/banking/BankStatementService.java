@@ -31,6 +31,7 @@ public class BankStatementService {
     @Inject CurrentActor actor;
     @Inject ActivityLogService activity;
     @Inject BankAccountService accounts;
+    @Inject be.enrosed.sourcing.application.PurchasePaymentOriginService paymentOrigins;
     @Inject be.enrosed.finance.application.CompanyCostService costs;
     /** The list "Aan wie" learns the counterparty of an outgoing movement; incoming money comes from customers, who are no payees. */
     @Inject Instance<CostPartyService> parties;
@@ -181,6 +182,7 @@ public class BankStatementService {
         for(long paymentId:ids.stream().sorted().toList()) {
             var payment=em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            paymentOrigins.requireBankEligible(paymentId);
             if(payment.amountEur.signum()<=0||row.amountEur.signum()>=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
             if(payment.bankStatementLineId!=null&&!payment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
             if(em.createQuery("select count(c) from be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseSupplierCreditEntity c where c.offsetPaymentId=:id",Long.class).setParameter("id",paymentId).getSingleResult()>0)
@@ -290,6 +292,7 @@ public class BankStatementService {
         for(long paymentId:ids.stream().sorted().toList()) {
             var payment=em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            paymentOrigins.requireBankEligible(paymentId);
             /* The link's own guards, checked before anything is created. */
             if(payment.bankStatementLineId!=null&&!payment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
             if(payment.amountEur.signum()<=0)throw new BusinessRuleException("De richting van de inkoopbetaling komt niet overeen met de banktransactie");
@@ -593,9 +596,14 @@ public class BankStatementService {
      */
     private void link(BankStatementLineEntity row,List<Long> paymentIds,Long costId,Long costPaymentId) {
         lockOutgoingParents(paymentIds,costId,costPaymentId);
-        for(Long paymentId:paymentIds==null?List.<Long>of():paymentIds) {
-            var payment=paymentId==null?null:em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId);
+        var ids=paymentIds==null?List.<Long>of():paymentIds;
+        if(!ids.isEmpty())for(Long orderId:em.createQuery("select distinct p.orderId from PurchasePaymentEntity p where p.id in :ids order by p.orderId",Long.class).setParameter("ids",ids).getResultList())
+            em.find(SourcingEntities.PurchaseOrderEntity.class,orderId,LockModeType.PESSIMISTIC_WRITE);
+        for(Long paymentId:ids.stream().sorted(java.util.Comparator.nullsFirst(Long::compareTo)).toList()) {
+            var payment=paymentId==null?null:em.find(SourcingEntities.PurchasePaymentEntity.class,paymentId,LockModeType.PESSIMISTIC_WRITE);
             if(payment==null)throw new BusinessRuleException("Betaling niet gevonden");
+            em.refresh(payment,LockModeType.PESSIMISTIC_WRITE);
+            paymentOrigins.requireBankEligible(paymentId);
             if(payment.bankStatementLineId!=null)throw new BusinessRuleException("Deze betaling is al aan een bankbeweging gekoppeld");
             // A credit offset never left the bank: no manual movement may carry it either.
             if(em.createQuery("select count(c) from be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseSupplierCreditEntity c where c.offsetPaymentId=:id",Long.class).setParameter("id",paymentId).getSingleResult()>0)

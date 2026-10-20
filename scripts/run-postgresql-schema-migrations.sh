@@ -157,4 +157,6 @@ exec psql \
     --file=/app/migrations/odoo-bank-auto-sync-postgresql.sql \
     --file=/app/migrations/purchase-document-proforma-kind-postgresql.sql \
     --file=/app/migrations/product-channel-price-postgresql.sql \
-    --file=/app/migrations/tica-stock-ledger-postgresql.sql
+    --file=/app/migrations/tica-stock-ledger-postgresql.sql \
+    --file=/app/migrations/cost-party-aliases-postgresql.sql \
+    --file=/app/migrations/purchase-payment-origin-postgresql.sql

@@ -708,13 +708,13 @@ public class PurchaseOrderService {
                              boolean creditOffset,
                              /** What the payment was before it first followed its bank transaction; null when it never did. */
                              BigDecimal bankAdjustedFromEur,
-                             LocalDate bankAdjustedFromOn) {
+                             LocalDate bankAdjustedFromOn, PurchasePaymentOrigin origin) {
         /** Compatibility for callers written before payments had groups and invoices. */
         public PaymentRow(Long id, long orderId, String orderNumber, String orderAlias, LocalDate paidOn,
                           BigDecimal amountEur, String label, be.enrosed.sourcing.domain.PurchasePayment.Payee payee,
                           Long bankStatementLineId) {
             this(id, orderId, orderNumber, orderAlias, paidOn, amountEur, label, payee, bankStatementLineId,
-                    null, null, null, false, null, null, null, false, null, null);
+                    null, null, null, false, null, null, null, false, null, null, null);
         }
     }
 
@@ -760,7 +760,7 @@ public class PurchaseOrderService {
                     order == null ? null : order.alias(), payment.paidOn(), payment.amountEur(), payment.label(), payment.payee(),
                     payment.bankStatementLineId(), payment.amount(), payment.currency(), payment.instalmentDue(),
                     payment.settles(), payment.groupId(), resolved, invoiceNumber, offsets.contains(payment.id()),
-                    adjustment == null ? null : adjustment.fromAmountEur(), adjustment == null ? null : adjustment.fromPaidOn());
+                    adjustment == null ? null : adjustment.fromAmountEur(), adjustment == null ? null : adjustment.fromPaidOn(), payment.origin());
         }).toList();
     }
 
@@ -1723,6 +1723,9 @@ public class PurchaseOrderService {
                                                  String label) {
         PurchaseOrder order = getForUpdate(orderId);
         PurchasePayment goods = storedPayment(orderId, paymentId);
+        if (goods.origin() != null) {
+            throw new BusinessRuleException("Inspectie afsplitsen is niet beschikbaar bij deze betaalbron; wijzig eerst de betaalbron naar Eigen bankrekening");
+        }
         if (goods.payee() != PurchasePayment.Payee.SUPPLIER || goods.instalmentDue() == PaymentTerms.Moment.FREIGHT
                 || offsetCreditFor(paymentId).isPresent()) {
             throw new BusinessRuleException("Splits de inspectie af van een goederenbetaling aan de leverancier");

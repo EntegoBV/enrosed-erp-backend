@@ -2,6 +2,7 @@ package be.enrosed.finance.domain;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -27,8 +28,22 @@ public record CostParty(
         String vatNumber,
         /** The VAT regime a cost to this party usually takes, learned from the first confirmed cost; null when none. */
         VatRegime vatRegime,
-        Instant createdAt
+        Instant createdAt,
+        /** Preserved names merged into this party, for suggestions and default lookup. */
+        List<String> aliases
 ) {
+    public CostParty {
+        aliases = aliases == null ? List.of() : List.copyOf(aliases);
+    }
+
+    public CostParty(Long id, String name, String category, BigDecimal vatPct, String salesChannel, String iban,
+                     String country, String vatNumber, VatRegime vatRegime, Instant createdAt) {
+        this(id, name, category, vatPct, salesChannel, iban, country, vatNumber, vatRegime, createdAt, List.of());
+    }
+
+    public CostParty withAliases(List<String> names) {
+        return new CostParty(id, name, category, vatPct, salesChannel, iban, country, vatNumber, vatRegime, createdAt, names);
+    }
     /** A party from before the regimes: country, VAT number and regime unknown. */
     public CostParty(Long id, String name, String category, BigDecimal vatPct, String salesChannel, String iban, Instant createdAt) {
         this(id, name, category, vatPct, salesChannel, iban, null, null, null, createdAt);

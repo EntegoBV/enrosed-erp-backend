@@ -4,16 +4,25 @@ import be.enrosed.finance.domain.CostParty;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 /** Where the list "Aan wie" is kept. */
 public interface CostParties {
-    /** Every party, by name regardless of case. */
+    /** Active parties, by name regardless of case; merged names remain available as aliases. */
     List<CostParty> findAll();
     /** By the matching key, see {@link CostParty#keyOf(String)}. */
     Optional<CostParty> findByKey(String key);
     Optional<CostParty> findById(long id);
     CostParty save(CostParty party);
     void deleteById(long id);
+    /** Locks in stable ID order, shared by edits, deletion, merge and restore. */
+    void lock(long... ids);
+    Long mergedInto(long id);
+    boolean isMergedKey(String key);
+    List<Alias> aliases(long targetId);
+    void setMergedInto(long sourceId, Long targetId, Instant at, String actor);
+
+    record Alias(CostParty party, long targetId, Instant mergedAt, String mergedBy) {}
     /**
      * Renames the party on every cost, recurring cost and bank line whose
      * stored spelling has the old name's key (see {@link CostParty#keyOf(String)}),

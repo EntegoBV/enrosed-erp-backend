@@ -1493,6 +1493,7 @@ public class PdfPurchaseRenderer {
 
     static String paymentLabel(PurchasePayment payment) {
         String label = notBlank(payment.label()) ? payment.label() : "Betaling";
+        if (payment.origin() != null) label += " · " + payment.origin().label();
         String scope = paymentScopeLabel(payment);
         return scope == null ? label : label + " - " + scope;
     }

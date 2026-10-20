@@ -69,6 +69,7 @@ public class PurchasePaymentSplitService {
 
     @Inject EntityManager em;
     @Inject PurchaseOrderService purchases;
+    @Inject be.enrosed.sourcing.application.PurchasePaymentOriginService paymentOrigins;
     @Inject BankStatementService bank;
 
     public record LineRef(Long bankStatementLineId, BigDecimal amount) {}
@@ -411,6 +412,7 @@ public class PurchasePaymentSplitService {
         BankStatementLineEntity line = lineId == null ? null : lockLines(List.of(lineId)).getFirst();
         lockOrder(orderId);
         var payment = lockPayment(paymentId);
+        paymentOrigins.requireBankEligible(paymentId);
         if (!Objects.equals(payment.bankStatementLineId, lineId)) throw new BusinessRuleException(CHANGED);
         BigDecimal partEur = request.amountEur() == null ? null : request.amountEur().setScale(2, RoundingMode.HALF_UP);
         BigDecimal expected = request.expectedAmountEur().setScale(2, RoundingMode.HALF_UP);
@@ -776,6 +778,7 @@ public class PurchasePaymentSplitService {
     }
 
     private void requireNoOffset(long paymentId) {
+        paymentOrigins.requireBankEligible(paymentId);
         if (em.createQuery("select count(c) from be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseSupplierCreditEntity c where c.offsetPaymentId=:id",
                 Long.class).setParameter("id", paymentId).getSingleResult() > 0) {
             throw new BusinessRuleException("Een verrekend leverancierstegoed is geen bankbetaling");

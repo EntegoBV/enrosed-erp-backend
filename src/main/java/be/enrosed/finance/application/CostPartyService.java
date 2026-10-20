@@ -5,6 +5,7 @@ import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -42,6 +43,7 @@ public class CostPartyService {
 
     @Inject
     Instance<ActivityLogService> activity;
+    @Inject CurrentActor currentActor;
 
     public CostPartyService(CostParties parties) {
         this.parties = parties;
@@ -67,6 +69,8 @@ public class CostPartyService {
     /** A rename runs through every booking whose spelling has the old name's key, and says how many of each kind followed. */
     @Transactional
     public CostParty update(long id, CostParty changes) {
+        parties.lock(id);
+        requireActive(id);
         CostParty current = get(id);
         CostParty clean = validated(changes, current.id(), current.createdAt());
         refuseDuplicate(clean, current.id());
@@ -83,9 +87,64 @@ public class CostPartyService {
 
     @Transactional
     public void delete(long id) {
+        parties.lock(id);
+        requireActive(id);
         CostParty party = get(id);
+        requireNoAliases(id);
         parties.deleteById(id);
         recordActivity(ActivityLogService.ACTION_DELETED, party, "Uit de lijst Aan wie gehaald; de boekingen blijven staan");
+    }
+
+    public List<CostParties.Alias> aliases(long id) {
+        get(id);
+        return parties.aliases(id);
+    }
+
+    /** Only the name-list relationship changes; source rows and all financial records stay intact. */
+    @Transactional
+    public CostParty merge(long sourceId, long targetId) {
+        if (sourceId == targetId) throw new BusinessRuleException("Kies een andere naam om mee samen te voegen");
+        parties.lock(sourceId, targetId);
+        CostParty source = get(sourceId);
+        CostParty target = get(targetId);
+        requireActive(targetId);
+        Long mergedInto = parties.mergedInto(sourceId);
+        if (Long.valueOf(targetId).equals(mergedInto)) return target;
+        requireActive(sourceId);
+        requireNoAliases(sourceId);
+        if (source.vatNumber() != null && target.vatNumber() != null && !source.vatNumber().equals(target.vatNumber())) {
+            throw new BusinessRuleException("Deze namen hebben verschillende btw-nummers; samenvoegen kan niet");
+        }
+        parties.setMergedInto(sourceId, targetId, Instant.now(), currentActor.name());
+        recordActivity(ActivityLogService.ACTION_UPDATED, source,
+                "Aan wie samengevoegd met " + target.name() + " (#" + targetId + "); oorspronkelijke naam en boekingen bewaard");
+        return get(targetId);
+    }
+
+    /** Restores the untouched original party row; no costs, documents or payments need to be reconstructed. */
+    @Transactional
+    public CostParty restore(long sourceId) {
+        Long targetId = parties.mergedInto(sourceId);
+        if (targetId == null) {
+            parties.lock(sourceId);
+        } else {
+            parties.lock(sourceId, targetId);
+        }
+        CostParty source = get(sourceId);
+        if (parties.mergedInto(sourceId) == null) return source;
+        parties.setMergedInto(sourceId, null, null, null);
+        recordActivity(ActivityLogService.ACTION_UPDATED, source, "Samengevoegde naam hersteld in de lijst Aan wie; boekingen behouden");
+        return get(sourceId);
+    }
+
+    private void requireActive(long id) {
+        if (parties.mergedInto(id) != null) throw new BusinessRuleException("Herstel deze samengevoegde naam voordat je hem bewerkt");
+    }
+
+    private void requireNoAliases(long id) {
+        if (!parties.aliases(id).isEmpty()) {
+            throw new BusinessRuleException("Herstel eerst de samengevoegde namen bij deze partij");
+        }
     }
 
     /**
@@ -122,6 +181,9 @@ public class CostPartyService {
     }
 
     private void refuseDuplicate(CostParty clean, Long ownId) {
+        if (parties.isMergedKey(CostParty.keyOf(clean.name()))) {
+            throw new BusinessRuleException("Deze naam is al samengevoegd; herstel hem bij de bewaarde partij");
+        }
         parties.findByKey(CostParty.keyOf(clean.name()))
                 .filter(other -> ownId == null || !ownId.equals(other.id()))
                 .ifPresent(other -> {

@@ -30,6 +30,10 @@ public class CostPartyEntity {
     @Column(length = 2) public String country;
     @Column(name = "vat_number", length = 20) public String vatNumber;
     @Column(name = "vat_regime", length = 24) public String vatRegime;
+    /** A reversible list merge; the original row and matching key are retained. */
+    @Column(name = "merged_into_id") public Long mergedIntoId;
+    @Column(name = "merged_at") public Instant mergedAt;
+    @Column(name = "merged_by", length = 64) public String mergedBy;
 
     public CostParty toDomain() {
         return new CostParty(id, name, category, vatPct, salesChannel, iban, country, vatNumber, VatRegime.parse(vatRegime), createdAt);

@@ -280,6 +280,7 @@ public final class PanacheSourcingRepositories {
 
     @ApplicationScoped
     public static class PaymentAdapter implements SourcingRepositories.Payments {
+        @jakarta.inject.Inject jakarta.persistence.EntityManager em;
         private final PurchasePaymentDao dao;
 
         public PaymentAdapter(PurchasePaymentDao dao) {
@@ -288,13 +289,13 @@ public final class PanacheSourcingRepositories {
 
         @Override
         public List<be.enrosed.sourcing.domain.PurchasePayment> forOrder(long orderId) {
-            return dao.list("orderId = ?1 order by paidOn, id", orderId).stream().map(PaymentAdapter::toDomain).toList();
+            return domains(dao.list("orderId = ?1 order by paidOn, id", orderId));
         }
 
         @Override
         public List<be.enrosed.sourcing.domain.PurchasePayment> since(java.time.LocalDate from) {
             var rows = from == null ? dao.list("order by paidOn, id") : dao.list("paidOn >= ?1 order by paidOn, id", from);
-            return rows.stream().map(PaymentAdapter::toDomain).toList();
+            return domains(rows);
         }
 
         @Override
@@ -323,12 +324,14 @@ public final class PanacheSourcingRepositories {
 
         @Override
         public boolean delete(long orderId, long paymentId) {
+            em.createQuery("delete from PurchasePaymentOriginEntity o where o.paymentId=:id and o.paymentId in (select p.id from PurchasePaymentEntity p where p.orderId=:order)")
+                    .setParameter("id", paymentId).setParameter("order", orderId).executeUpdate();
             return dao.delete("id = ?1 and orderId = ?2", paymentId, orderId) == 1;
         }
 
         @Override
         public List<be.enrosed.sourcing.domain.PurchasePayment> inGroup(long rootId) {
-            return dao.list("groupId = ?1 order by paidOn, id", rootId).stream().map(PaymentAdapter::toDomain).toList();
+            return domains(dao.list("groupId = ?1 order by paidOn, id", rootId));
         }
 
         /* The column writes below work on the managed rows, so the same transaction reads them at once. */
@@ -360,13 +363,28 @@ public final class PanacheSourcingRepositories {
 
         @Override
         public long deleteForOrder(long orderId) {
+            em.createQuery("delete from PurchasePaymentOriginEntity o where o.paymentId in (select p.id from PurchasePaymentEntity p where p.orderId=:order)")
+                    .setParameter("order", orderId).executeUpdate();
             return dao.delete("orderId", orderId);
         }
 
-        private static be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e) {
+        private List<be.enrosed.sourcing.domain.PurchasePayment> domains(List<SourcingEntities.PurchasePaymentEntity> rows) {
+            if (rows.isEmpty()) return List.of();
+            var origins = em.createQuery("from PurchasePaymentOriginEntity o where o.paymentId in :ids", PurchasePaymentOriginEntity.class)
+                    .setParameter("ids", rows.stream().map(e -> e.id).toList()).getResultList().stream().collect(java.util.stream.Collectors.toMap(o -> o.paymentId, o -> o.toDomain()));
+            return rows.stream().map(e -> toDomain(e, origins.get(e.id))).toList();
+        }
+
+        private be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e) {
+            var origin = em.find(PurchasePaymentOriginEntity.class, e.id);
+            return toDomain(e, origin == null ? null : origin.toDomain());
+        }
+
+        private static be.enrosed.sourcing.domain.PurchasePayment toDomain(SourcingEntities.PurchasePaymentEntity e,
+                be.enrosed.sourcing.domain.PurchasePaymentOrigin origin) {
             return new be.enrosed.sourcing.domain.PurchasePayment(e.id, e.orderId, e.paidOn, e.amount, e.currency,
                     e.amountEur, e.label, e.actor, e.recordedAt, e.payee, Boolean.TRUE.equals(e.settles), e.instalmentDue,
-                    e.bankStatementLineId, e.groupId, e.invoiceId);
+                    e.bankStatementLineId, e.groupId, e.invoiceId, origin);
         }
     }
 

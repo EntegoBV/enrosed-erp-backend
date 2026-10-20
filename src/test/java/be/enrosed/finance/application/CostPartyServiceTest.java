@@ -4,6 +4,7 @@ import be.enrosed.finance.domain.CostParty;
 import be.enrosed.finance.domain.VatRegime;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +43,10 @@ class CostPartyServiceTest {
                     party.createdAt());
         });
         when(parties.findByKey(any())).thenReturn(Optional.empty());
+        when(parties.mergedInto(org.mockito.ArgumentMatchers.anyLong())).thenReturn(null);
         service = new CostPartyService(parties);
+        service.currentActor = mock(CurrentActor.class);
+        when(service.currentActor.name()).thenReturn("emre");
     }
 
     @Test
@@ -191,5 +196,46 @@ class CostPartyServiceTest {
 
     private static CostParty argThatIsNew() {
         return org.mockito.ArgumentMatchers.argThat(party -> party != null && party.id() == null);
+    }
+
+    @Test
+    void mergeKeepsTargetDefaultsAndOnlyWritesTheReversibleRelationship() {
+        CostParty source = new CostParty(7L, "Linc & Partners", "OVERIG", BigDecimal.ZERO, null, null, Instant.now());
+        CostParty target = new CostParty(192L, "LINC & PARTNERS NV", "BOEKHOUDER", new BigDecimal("21"), null, null, Instant.now());
+        when(parties.findById(7)).thenReturn(Optional.of(source));
+        when(parties.findById(192)).thenReturn(Optional.of(target));
+
+        assertEquals(target, service.merge(7, 192));
+        verify(parties).lock(7, 192);
+        verify(parties).setMergedInto(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(192L), any(Instant.class), org.mockito.ArgumentMatchers.eq("emre"));
+        verify(parties, never()).save(any());
+        verify(parties, never()).deleteById(org.mockito.ArgumentMatchers.anyLong());
+        verify(parties, never()).renameEverywhere(any(), any());
+    }
+
+    @Test
+    void aMergedSpellingCannotBeRecreatedOrTakenByRenamingTheCanonicalParty() {
+        CostParty canonical = new CostParty(192L, "LINC & PARTNERS NV", null, null, null, null, Instant.now());
+        when(parties.findById(192)).thenReturn(Optional.of(canonical));
+        when(parties.findByKey("linc partners nv")).thenReturn(Optional.of(canonical));
+        when(parties.isMergedKey("linc partners nv")).thenReturn(true);
+        assertThrows(BusinessRuleException.class, () -> service.create(new CostParty(null, "Linc Partners NV", null, null, null, null, null)));
+        assertThrows(BusinessRuleException.class, () -> service.update(192, new CostParty(null, "Linc Partners NV", null, null, null, null, null)));
+        service.learn("Linc  Partners NV", null, null, null, null, null);
+        verify(parties, never()).save(any());
+    }
+
+    @Test
+    void aliasesProtectTheirTargetFromDeletionAndFurtherMergeChains() {
+        CostParty target = new CostParty(192L, "LINC & PARTNERS NV", null, null, null, null, Instant.now());
+        CostParty other = new CostParty(193L, "Ander bedrijf", null, null, null, null, Instant.now());
+        when(parties.findById(192)).thenReturn(Optional.of(target));
+        when(parties.findById(193)).thenReturn(Optional.of(other));
+        when(parties.aliases(192)).thenReturn(List.of(new CostParties.Alias(target, 192, Instant.now(), "emre")));
+        assertThrows(BusinessRuleException.class, () -> service.delete(192));
+        assertThrows(BusinessRuleException.class, () -> service.merge(192, 193));
+        assertThrows(BusinessRuleException.class, () -> service.merge(192, 192));
+        verify(parties, never()).deleteById(org.mockito.ArgumentMatchers.anyLong());
+        verify(parties, never()).setMergedInto(org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
     }
 }
