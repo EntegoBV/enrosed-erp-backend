@@ -23,18 +23,18 @@ import java.util.TreeSet;
 
 /**
  * "Boeken als": a bank transaction that pays no invoice or cost, booked as an
- * internal transfer between our own accounts, a VAT payment or refund of a
+ * internal transfer between our own accounts, a cancelled payment and its refund, a VAT payment or refund of a
  * quarter, a loan, capital, private money or something else (with a note).
  * A classified line counts as allocated everywhere (the described allocation
  * explains it in full), so it leaves "Te koppelen", an Odoo re-import that
  * changes its amount is a conflict, and every link path refuses it until it
- * is undone. The two legs of an internal transfer point at each other and are
+ * is undone. Both legs of an internal transfer or cancellation point at each other and are
  * booked and undone together. The classification is plain text, validated
  * here, so a later value needs no migration.
  */
 @ApplicationScoped
 public class BankLineClassificationService {
-    static final Set<String> CLASSIFICATIONS = Set.of("INTERNAL_TRANSFER", "VAT", "LOAN", "CAPITAL", "PRIVATE", "OTHER");
+    static final Set<String> CLASSIFICATIONS = Set.of("INTERNAL_TRANSFER", "CANCELLATION", "VAT", "LOAN", "CAPITAL", "PRIVATE", "OTHER");
     private static final int NOTE_LENGTH = 300;
     private static final int TRANSFER_DAYS = 5;
 
@@ -43,7 +43,7 @@ public class BankLineClassificationService {
     @Inject CurrentActor actor;
 
     public record Request(String classification, String note, Long transferLineId, String vatPeriod) {}
-    /** The classified line and, for an internal transfer, its other leg, by ascending id, described as the list describes them. */
+    /** The classified line and, for a transfer or cancellation, its other leg, by ascending id. */
     public record Result(List<BankStatementLineEntity> lines) {}
 
     @Transactional
@@ -60,7 +60,9 @@ public class BankLineClassificationService {
             /* A retry of the same booking answers what is there; anything else must be undone first. */
             if (line.classification.equals(classification) && Objects.equals(line.classificationNote, note)
                     && Objects.equals(line.vatPeriod, vatPeriod) && Objects.equals(line.transferLineId, requestedOther)) {
-                return result(line, line.transferLineId == null ? null : em.find(BankStatementLineEntity.class, line.transferLineId));
+                BankStatementLineEntity other = paired(line, locked);
+                if ("CANCELLATION".equals(classification)) requireCancellationPair(line, other);
+                return result(line, other);
             }
             throw new BusinessRuleException("Deze banktransactie is al geboekt als "
                     + BankStatementService.classificationLabel(line.classification) + "; maak dat eerst ongedaan");
@@ -77,19 +79,24 @@ public class BankLineClassificationService {
             throw new BusinessRuleException("Een btw-kwartaal hoort alleen bij een btw-betaling");
         }
         BankStatementLineEntity other = null;
+        boolean cancellation = classification.equals("CANCELLATION");
+        if (cancellation && requestedOther == null)
+            throw new BusinessRuleException("Kies de tegenboeking; een annulatie bestaat altijd uit twee banktransacties");
         if (requestedOther != null) {
-            if (!classification.equals("INTERNAL_TRANSFER")) {
-                throw new BusinessRuleException("Een andere kant hoort alleen bij een interne overboeking");
+            if (!classification.equals("INTERNAL_TRANSFER") && !cancellation) {
+                throw new BusinessRuleException("Een andere kant hoort alleen bij een interne overboeking of annulatie");
             }
             other = locked.stream().filter(row -> row.id.equals(requestedOther)).findFirst()
                     .orElseThrow(() -> new NotFoundException("Bankbeweging", requestedOther));
-            if (other.id == id || canonical(other.account).equals(canonical(line.account))) {
+            if (cancellation && other.id == id)
+                throw new BusinessRuleException("Kies een andere banktransactie als tegenboeking");
+            if (!cancellation && (other.id == id || canonical(other.account).equals(canonical(line.account)))) {
                 throw new BusinessRuleException("De andere kant van de overboeking moet op een andere eigen rekening staan");
             }
             if (other.amountEur.compareTo(line.amountEur.negate()) != 0) {
                 throw new BusinessRuleException("De andere kant moet het tegengestelde bedrag hebben");
             }
-            if (Math.abs(ChronoUnit.DAYS.between(day(line), day(other))) > TRANSFER_DAYS) {
+            if (!cancellation && Math.abs(ChronoUnit.DAYS.between(day(line), day(other))) > TRANSFER_DAYS) {
                 throw new BusinessRuleException("De andere kant ligt meer dan 5 dagen verder");
             }
             if (bank.describe(other).allocated) throw new BusinessRuleException("De andere kant is al gekoppeld of geboekt");
@@ -104,7 +111,7 @@ public class BankLineClassificationService {
         return result(line, other);
     }
 
-    /** Undoes the booking of this line and, for an internal transfer, of its other leg; nothing to do on an open line. */
+    /** Undoes this line and its paired transfer/cancellation atomically; nothing to do on an open line. */
     @Transactional
     public void unclassify(long id) {
         List<BankStatementLineEntity> locked = lock(id, null);
@@ -113,10 +120,10 @@ public class BankLineClassificationService {
         if (line.classification == null) return;
         if (line.ticaSettlementId != null || "TICA_SETTLEMENT".equals(line.classification))
             throw new BusinessRuleException("Maak de bankkoppeling los bij de TICA-afrekening.");
-        BankStatementLineEntity other = line.transferLineId == null ? null : locked.stream()
-                .filter(row -> row.id.equals(line.transferLineId) && "INTERNAL_TRANSFER".equals(row.classification)
-                        && Long.valueOf(id).equals(row.transferLineId))
-                .findFirst().orElse(null);
+        BankStatementLineEntity other = paired(line, locked);
+        if ("CANCELLATION".equals(line.classification)) requireCancellationPair(line, other);
+        else if (other != null && (!"INTERNAL_TRANSFER".equals(other.classification)
+                || !Long.valueOf(id).equals(other.transferLineId))) other = null;
         clear(line);
         if (other != null) clear(other);
         em.flush();
@@ -141,7 +148,23 @@ public class BankLineClassificationService {
             var row = em.find(BankStatementLineEntity.class, lineId, LockModeType.PESSIMISTIC_WRITE);
             if (row != null) rows.add(row);
         }
+        // A concurrent operation can change the stored partner between the scalar read and the locks.
+        // Do not acquire an unseen (possibly lower) id out of order or clear just one side of that new pair.
+        var current = rows.stream().filter(row -> row.id == id).findFirst().orElse(null);
+        if (current != null && !Objects.equals(current.transferLineId, storedOther)
+                && current.transferLineId != null && !ids.contains(current.transferLineId))
+            throw new BusinessRuleException("De bankkoppeling is ondertussen gewijzigd; vernieuw de transacties en probeer opnieuw");
         return rows;
+    }
+
+    private static BankStatementLineEntity paired(BankStatementLineEntity line, List<BankStatementLineEntity> locked) {
+        return line.transferLineId == null ? null : locked.stream().filter(row -> row.id.equals(line.transferLineId)).findFirst().orElse(null);
+    }
+
+    private static void requireCancellationPair(BankStatementLineEntity line, BankStatementLineEntity other) {
+        if (other == null || other.id.equals(line.id) || !"CANCELLATION".equals(other.classification)
+                || !line.id.equals(other.transferLineId) || line.amountEur.compareTo(other.amountEur.negate()) != 0)
+            throw new BusinessRuleException("De tegenboeking van deze annulatie klopt niet; controleer beide banktransacties");
     }
 
     private static void book(BankStatementLineEntity row, String classification, String note, Long other, String vatPeriod,

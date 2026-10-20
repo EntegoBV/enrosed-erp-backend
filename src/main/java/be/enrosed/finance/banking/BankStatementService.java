@@ -108,6 +108,7 @@ public class BankStatementService {
         if(classification==null)return null;
         return switch(classification) {
             case "INTERNAL_TRANSFER" -> "Interne overboeking";
+            case "CANCELLATION" -> "Annulatie";
             case "VAT" -> "Btw";
             case "LOAN" -> "Lening";
             case "CAPITAL" -> "Kapitaal";
@@ -334,6 +335,7 @@ public class BankStatementService {
     @Transactional
     public void unlinkExisting(long id) {
         var row=get(id,true);
+        requireUnclassified(row);
         if(row.salesPaymentId!=null)throw new BusinessRuleException("Maak de factuurkoppeling ongedaan via de factuur");
         unlink(id);row.allocatedAt=null;em.flush();audit(row,"Bankkoppeling losgemaakt; betaalregistraties behouden");
     }
@@ -544,7 +546,7 @@ public class BankStatementService {
 
     @Transactional
     public void unallocate(long id) {
-        var row=get(id,true);if(row.salesPaymentId==null)return;
+        var row=get(id,true);requireUnclassified(row);if(row.salesPaymentId==null)return;
         long paymentId=row.salesPaymentId,orderId=row.salesOrderId;boolean created=row.allocationCreatedPayment;
         row.salesPaymentId=null;row.salesOrderId=null;row.allocatedAt=null;row.allocationCreatedPayment=false;em.flush();
         if(created)incoming.delete(orderId,paymentId);

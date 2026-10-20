@@ -18,7 +18,7 @@ public class BankStatementResource {
     @Inject BankLineClassificationService classifications;
     /** {@code from} (YYYY-MM-DD): the lines from that day on plus every older line still to link; without it every line. */
     @GET public List<BankStatementLineEntity> list(@QueryParam("from") String from){return service.list(from);}
-    /** "Boeken als": an internal transfer, VAT, a loan, capital, private money or something else. */
+    /** "Boeken als": an internal transfer, cancellation pair, VAT, a loan, capital, private money or something else. */
     @POST @Path("/{id}/classification") public BankLineClassificationService.Result classify(@PathParam("id") long id,BankLineClassificationService.Request request){return classifications.classify(id,request);}
     @DELETE @Path("/{id}/classification") public void unclassify(@PathParam("id") long id){classifications.unclassify(id);}
     @POST public BankStatementLineEntity create(BankStatementService.ManualRequest request){return service.create(request);}

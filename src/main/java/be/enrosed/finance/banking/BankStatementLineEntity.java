@@ -32,7 +32,7 @@ public class BankStatementLineEntity {
      */
     @Column(name = "classification", length = 24) public String classification;
     @Column(name = "classification_note", length = 300) public String classificationNote;
-    /** The other leg of an internal transfer; the two lines point at each other. */
+    /** The other leg of an internal transfer or cancellation; the two lines point at each other. */
     @Column(name = "transfer_line_id") public Long transferLineId;
     /** The VAT quarter a VAT payment or refund settles: 'YYYY-Qn'. */
     @Column(name = "vat_period", length = 7) public String vatPeriod;
