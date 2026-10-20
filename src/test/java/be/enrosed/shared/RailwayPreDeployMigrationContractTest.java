@@ -1015,7 +1015,7 @@ class RailwayPreDeployMigrationContractTest {
                 "src/main/java/be/enrosed/sourcing/adapter/out/persistence/AllocationDevSchemaFix.java"))
                 .contains("alter table purchase_document alter column kind varchar(32)"),
                 "the developer's H2 enum column takes the sixteen letters too");
-        assertRegisteredAfter(migration, "2026-10-16/product-cost-history-basis-postgresql.sql");
+        assertRegisteredAfter(migration, "2026-10-19/odoo-bank-auto-sync-postgresql.sql");
         String runner = Files.readString(Path.of("scripts/run-postgresql-schema-migrations.sh"));
         assertTrue(runner.endsWith("--file=/app/migrations/purchase-document-proforma-kind-postgresql.sql\n"),
                 "the last file closes the command without a continuation backslash");

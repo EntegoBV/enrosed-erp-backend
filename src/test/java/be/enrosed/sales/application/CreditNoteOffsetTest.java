@@ -159,8 +159,8 @@ class CreditNoteOffsetTest {
         var invoice = issued(customer, "100");
         var cn = sales.issueInvoice(credit(invoice, "40").id());
 
-        bank.create(entry("KBC", "-48.40", BankStatementService.Direction.OUTGOING, "refund"));
-        var outgoing = bank.list().getFirst();
+        /* The created line itself: other suites may leave bank lines that list first. */
+        var outgoing = bank.create(entry("KBC", "-48.40", BankStatementService.Direction.OUTGOING, "refund"));
         var match = bank.suggestions(outgoing.id).stream().filter(m -> m.salesOrderId() == cn.id()).findFirst().orElseThrow();
         assertEquals(new BigDecimal("48.40"), match.openEur());
         assertNull(match.existingPaymentId());
