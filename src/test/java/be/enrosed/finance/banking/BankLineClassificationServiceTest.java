@@ -29,6 +29,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
@@ -149,7 +152,7 @@ class BankLineClassificationServiceTest {
                 "Een btw-kwartaal hoort alleen bij een btw-betaling");
         long in = imported(SAVINGS, "5000.00", AT);
         refused(() -> classifications.classify(out, request("LOAN", null, in, null)),
-                "Een andere kant hoort alleen bij een interne overboeking");
+                "Een andere kant hoort alleen bij een interne overboeking of annulatie");
         assertThrows(NotFoundException.class, () -> classifications.classify(out, request("INTERNAL_TRANSFER", null, 987654321L, null)));
         long sameAccount = imported(KBC, "5000.00", AT);
         refused(() -> classifications.classify(out, request("INTERNAL_TRANSFER", null, sameAccount, null)),
@@ -220,6 +223,124 @@ class BankLineClassificationServiceTest {
         assertEquals(new BigDecimal("-50.00"), line(line).amountEur);
     }
 
+    @Test @TestTransaction
+    void aCancellationAlwaysPairsThePaymentAndRefundWithoutFinancialDocuments() {
+        long out = imported(KBC, "-279.96", AT);
+        long in = imported(KBC, "279.96", AT.plusSeconds(86400 * 45));
+        long costsBefore = count("CompanyCostEntity"), paymentsBefore = count("CostPaymentEntity");
+        var result = classifications.classify(in, request("CANCELLATION", "Bestelling geannuleerd", out, null));
+        assertEquals(List.of(out, in), result.lines().stream().map(row -> row.id).toList());
+        for (var row : result.lines()) {
+            assertEquals("CANCELLATION", row.classification); assertEquals("Annulatie", row.allocationLabel);
+            assertTrue(row.allocated); assertEquals(0, row.allocationDifferenceEur.signum());
+            assertEquals(row.amountEur, row.allocatedAmountEur);
+            assertNull(row.salesPaymentId); assertNull(row.salesOrderId); assertNull(row.vatPeriod);
+        }
+        assertEquals(in, line(out).transferLineId); assertEquals(out, line(in).transferLineId);
+        assertEquals(2, classifications.classify(out, request("CANCELLATION", "Bestelling geannuleerd", in, null)).lines().size());
+        assertEquals(1, audits(out).size(), "retry creates no second audit or financial booking");
+        assertEquals(costsBefore, count("CompanyCostEntity")); assertEquals(paymentsBefore, count("CostPaymentEntity"));
+        assertTrue(bank.list().stream().filter(row -> row.id == out || row.id == in).allMatch(row -> row.allocated));
+        classifications.unclassify(out);
+        for (long id : List.of(out, in)) {
+            var row = described(id); assertFalse(row.allocated); assertNull(row.classification); assertNull(row.transferLineId);
+        }
+        classifications.unclassify(in);
+        long elsewhere = imported(SAVINGS, "279.96", AT.plusSeconds(86400 * 90));
+        assertEquals(2, classifications.classify(out, request("CANCELLATION", null, elsewhere, null)).lines().size(),
+                "a refund on another own account is allowed, without a date window");
+    }
+
+    @Test @TestTransaction
+    void cancellationRejectsMissingSelfUnequalOrAlreadyUsedCounterEntries() {
+        long out = imported(KBC, "-279.96", AT);
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, null, null)),
+                "Kies de tegenboeking; een annulatie bestaat altijd uit twee banktransacties");
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, out, null)),
+                "Kies een andere banktransactie als tegenboeking");
+        long partial = imported(KBC, "279.95", AT);
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, partial, null)),
+                "De andere kant moet het tegengestelde bedrag hebben");
+        long sameDirection = imported(KBC, "-279.96", AT);
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, sameDirection, null)),
+                "De andere kant moet het tegengestelde bedrag hebben");
+        long in = imported(KBC, "279.96", AT);
+        classifications.classify(in, request("OTHER", "Bestaande boeking", null, null));
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, in, null)),
+                "De andere kant is al gekoppeld of geboekt");
+        refused(() -> classifications.classify(in, request("CANCELLATION", null, out, null)),
+                "Deze banktransactie is al geboekt als Andere; maak dat eerst ongedaan");
+        classifications.unclassify(in);
+        var tica = line(in); tica.classification = "TICA_SETTLEMENT"; tica.ticaSettlementId = 987654321L; em.flush();
+        refused(() -> classifications.classify(out, request("CANCELLATION", null, in, null)),
+                "De andere kant is al gekoppeld of geboekt");
+        assertNull(line(out).classification); assertNull(line(partial).classification);
+        long expense = imported(KBC, "-279.96", AT);
+        bank.recordCostPayment(expense, new BankStatementService.CostAllocation(cost("279.96").id()));
+        long refund = imported(KBC, "279.96", AT);
+        refused(() -> classifications.classify(refund, request("CANCELLATION", null, expense, null)),
+                "De andere kant is al gekoppeld of geboekt");
+        assertNull(line(refund).classification);
+    }
+
+    @Test @TestTransaction
+    void cancellationBlocksOtherPaymentPathsAndReimportKeepsThePair() {
+        String source = "cancelled:" + UUID.randomUUID();
+        var original = new BankStatementService.ExternalRequest(source, KBC, new BigDecimal("-279.96"), AT,
+                "Europe/Brussels", "Orderref", "Merchant", AT, false);
+        long out = bank.importExternal(original).id(), in = imported(KBC, "279.96", AT);
+        classifications.classify(out, request("CANCELLATION", null, in, null));
+        assertEquals(BankStatementService.ImportOutcome.UNCHANGED, bank.importExternal(original).outcome());
+        var changed = new BankStatementService.ExternalRequest(source, KBC, new BigDecimal("-279.95"), AT,
+                "Europe/Brussels", "Orderref", "Merchant", AT.plusSeconds(10), false);
+        assertEquals(BankStatementService.ImportOutcome.CONFLICT, bank.importExternal(changed).outcome());
+        var metadata = new BankStatementService.ExternalRequest(source, KBC, original.amountEur(), AT,
+                "Europe/Brussels", "Orderref aangevuld", "Merchant", AT.plusSeconds(20), false);
+        assertEquals(BankStatementService.ImportOutcome.UPDATED, bank.importExternal(metadata).outcome());
+        assertEquals(in, line(out).transferLineId); assertEquals(out, line(in).transferLineId);
+        assertEquals("Orderref aangevuld", line(out).reference);
+        String message = "Deze banktransactie is geboekt als Annulatie; maak dat eerst ongedaan";
+        refused(() -> bank.allocate(in, new BankStatementService.Allocation(1L, null)), message);
+        refused(() -> bank.recordCostPayment(out, new BankStatementService.CostAllocation(cost("279.96").id())), message);
+        refused(() -> bank.linkExisting(out, new BankStatementService.OutgoingLinks(List.of(), null, null)), message);
+        refused(() -> bank.unlinkExisting(out), message);
+        refused(() -> bank.unallocate(in), message);
+        refused(() -> bank.delete(out), message);
+    }
+
+    @Test
+    void concurrentCancellationsCannotUseOneRefundTwice() throws Exception {
+        long[] ids = QuarkusTransaction.requiringNew().call(() -> new long[]{imported(KBC, "-50.00", AT),
+                imported(KBC, "-50.00", AT), imported(KBC, "50.00", AT)});
+        var ready = new CountDownLatch(2); var start = new CountDownLatch(1);
+        java.util.function.LongFunction<CompletableFuture<Boolean>> attempt = id -> CompletableFuture.supplyAsync(() -> {
+            ready.countDown();
+            try {
+                if (!start.await(5, TimeUnit.SECONDS)) throw new AssertionError("Concurrent test did not start");
+                classifications.classify(id, request("CANCELLATION", null, ids[2], null)); return true;
+            } catch (BusinessRuleException alreadyUsed) { return false; }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+        });
+        try {
+            var a = attempt.apply(ids[0]); var b = attempt.apply(ids[1]);
+            assertTrue(ready.await(5, TimeUnit.SECONDS)); start.countDown();
+            boolean first = a.get(10, TimeUnit.SECONDS), second = b.get(10, TimeUnit.SECONDS);
+            assertNotEquals(first, second, "only one payment can own the refund");
+            QuarkusTransaction.requiringNew().run(() -> {
+                long winner = first ? ids[0] : ids[1], unused = first ? ids[1] : ids[0];
+                assertEquals(winner, line(ids[2]).transferLineId); assertEquals(ids[2], line(winner).transferLineId);
+                assertNull(line(unused).classification); assertNull(line(unused).transferLineId);
+                classifications.unclassify(ids[2]);
+                assertNull(line(winner).classification); assertNull(line(ids[2]).classification);
+            });
+        } finally {
+            start.countDown();
+            QuarkusTransaction.requiringNew().run(() -> {
+                for (long id : ids) { var row = line(id); if (row != null) em.remove(row); }
+            });
+        }
+    }
+
     @Test @TestSecurity(user = "emre", roles = "admin")
     void theEndpointsBookAndUndoAndTheCostRegistrationAnswers422() {
         long line = QuarkusTransaction.requiringNew().call(() -> manual("CLASSIFY-HTTP", "-30.00", AT));
@@ -256,6 +377,8 @@ class BankLineClassificationServiceTest {
     private BankStatementLineEntity line(long id) {
         return em.find(BankStatementLineEntity.class, id);
     }
+
+    private long count(String entity) { return em.createQuery("select count(e) from " + entity + " e", Long.class).getSingleResult(); }
 
     private BankStatementLineEntity described(long id) {
         return bank.list().stream().filter(row -> row.id == id).findFirst().orElseThrow();
