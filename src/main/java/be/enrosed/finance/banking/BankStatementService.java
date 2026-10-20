@@ -34,6 +34,7 @@ public class BankStatementService {
     @Inject be.enrosed.finance.application.CompanyCostService costs;
     /** The list "Aan wie" learns the counterparty of an outgoing movement; incoming money comes from customers, who are no payees. */
     @Inject Instance<CostPartyService> parties;
+    @Inject Instance<be.enrosed.tica.TicaSettlementGuard> ticaSettlements;
 
     public enum Direction { INCOMING, OUTGOING }
     /**
@@ -112,6 +113,7 @@ public class BankStatementService {
             case "CAPITAL" -> "Kapitaal";
             case "PRIVATE" -> "Privé";
             case "OTHER" -> "Andere";
+            case "TICA_SETTLEMENT" -> "TICA-afrekening";
             default -> classification;
         };
     }
@@ -206,6 +208,7 @@ public class BankStatementService {
                 total=total.add(cost.toDomain().totalInclEur());
             }
         }
+        requireNotTicaOffset(cost == null ? null : cost.id);
         if(costPayment!=null) {
             if(costPayment.bankStatementLineId!=null&&!costPayment.bankStatementLineId.equals(id))throw new BusinessRuleException("Deze betaling is al aan een andere banktransactie gekoppeld");
             // The payment follows before its amount joins the total, so the two-cent check reads the followed amount.
@@ -344,6 +347,7 @@ public class BankStatementService {
         if(row.amountEur.signum()==0)throw new BusinessRuleException("Kies een banktransactie met een bedrag");
         var cost=em.find(CompanyCostEntity.class,request.companyCostId(),LockModeType.PESSIMISTIC_WRITE);
         if(cost==null)throw new BusinessRuleException("Kost niet gevonden");
+        requireNotTicaOffset(cost.id);
         if(describe(row).allocated) {
             var linked=em.createQuery("from CostPaymentEntity p where p.bankStatementLineId=:id",CostPaymentEntity.class).setParameter("id",id).getResultList();
             if(row.salesPaymentId==null&&linked.size()==1&&Objects.equals(linked.getFirst().companyCostId,cost.id)
@@ -409,7 +413,9 @@ public class BankStatementService {
         if(row.classification!=null) {
             /* Booked as a transfer, VAT, a loan...: explained in full, so it counts as allocated everywhere. */
             row.allocated=true;row.allocationLabel=classificationLabel(row.classification);
-            row.allocatedAmountEur=row.amountEur;row.allocationDifferenceEur=BigDecimal.ZERO.setScale(2);
+            row.allocatedAmountEur="TICA_SETTLEMENT".equals(row.classification) && row.ticaSettlementAmountEur != null
+                    ? row.ticaSettlementAmountEur : row.amountEur;
+            row.allocationDifferenceEur=row.amountEur.subtract(row.allocatedAmountEur);
             return;
         }
         boolean purchase=amounts.purchases.containsKey(row.id),cost=amounts.costs.containsKey(row.id);
@@ -630,7 +636,10 @@ public class BankStatementService {
         }
         Long parent=costPaymentId==null?costId:em.createQuery("select p.companyCostId from CostPaymentEntity p where p.id=:id",Long.class)
                 .setParameter("id",costPaymentId).getResultStream().findFirst().orElse(null);
-        if(parent!=null)em.find(CompanyCostEntity.class,parent,LockModeType.PESSIMISTIC_WRITE);
+        if(parent!=null) { em.find(CompanyCostEntity.class,parent,LockModeType.PESSIMISTIC_WRITE); requireNotTicaOffset(parent); }
+    }
+    private void requireNotTicaOffset(Long costId) {
+        if(ticaSettlements!=null&&ticaSettlements.isResolvable())ticaSettlements.get().requireEditableCost(costId);
     }
     /**
      * What the line carried is open again once it goes; done on the managed rows so the session sees it at once.

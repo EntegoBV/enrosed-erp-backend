@@ -20,7 +20,7 @@ class OdooServiceTest {
     }
     OdooService service() {
         var service=spy(new OdooService());service.client=mock(OdooClient.class);service.config=OdooClientTest.config();
-        service.state=mock(OdooSyncStateStore.class);service.bank=mock(BankStatementService.class);service.json=json;
+        service.state=mock(OdooSyncStateStore.class);when(service.state.acquireBank(anyString(),anyString(),anyBoolean())).thenReturn(true);service.bank=mock(BankStatementService.class);service.json=json;
         service.accounts=mock(BankAccountService.class);
         doReturn(new OdooService.Scope("Enrosed",1,Map.of(8L,new OdooService.Journal(8,"BE123",1),9L,new OdooService.Journal(9,"USD",2)))).when(service).scope();
         when(service.client.fields("account.bank.statement.line")).thenReturn(Set.copyOf(OdooService.BANK_FIELDS));
@@ -57,7 +57,7 @@ class OdooServiceTest {
         when(service.client.search(eq("account.bank.statement.line"),anyList(),eq(OdooService.BANK_FIELDS),eq(200),eq("id asc")))
                 .thenReturn(rows("["+row(1,true,8,1)+"]")).thenThrow(new OdooFailure("RATE_LIMITED"));
         var report=service.syncBank();assertFalse(report.complete());assertEquals("RATE_LIMITED",report.code());assertEquals(1,report.created());
-        verify(service.state).finish(anyString(),anyString(),contains("RATE_LIMITED"));
+        verify(service.state).finishBank(anyString(),anyString(),contains("RATE_LIMITED"),eq(false),eq("RATE_LIMITED"));
     }
     @Test void rejectsForeignCompanyOrCurrencyAndFractionalCentsBeforeImport() throws Exception {
         JsonNode good=rows(row(1,false,8,1));

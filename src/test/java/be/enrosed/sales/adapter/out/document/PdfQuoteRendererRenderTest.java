@@ -177,6 +177,43 @@ class PdfQuoteRendererRenderTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void paidFinalInvoiceKeepsItsFinancialTotalSeparateFromTheRemainingPayment() throws Exception {
+        var invoice = order(DocumentType.FACTUUR, "F-2026-0043", 1);
+        var billing = mock(be.enrosed.sales.application.SalesAdvanceBillingService.class);
+        Instance<be.enrosed.sales.application.SalesAdvanceBillingService> billingInstance = mock(Instance.class);
+        when(billingInstance.isResolvable()).thenReturn(true);
+        when(billingInstance.get()).thenReturn(billing);
+        renderer.advanceBilling = billingInstance;
+        when(billing.presentation(invoice)).thenReturn(new be.enrosed.sales.application.SalesAdvanceBillingService.Presentation(
+                new be.enrosed.sales.application.SalesAdvanceBillingService.Billing(
+                        be.enrosed.sales.application.SalesAdvanceBilling.Stage.FINAL, 147L, "OF-2026-0042", null, null), List.of()));
+        var incoming = mock(be.enrosed.sales.application.IncomingPaymentService.class);
+        Instance<be.enrosed.sales.application.IncomingPaymentService> paymentsInstance = mock(Instance.class);
+        when(paymentsInstance.isResolvable()).thenReturn(true);
+        when(paymentsInstance.get()).thenReturn(incoming);
+        renderer.incomingPayments = paymentsInstance;
+        for (var price : List.of(priced(1), withVat(priced(1), VatTreatment.INTRACOMMUNAUTAIR))) {
+            var total = price.totals().totalInclVat();
+            when(incoming.summary(invoice, price)).thenReturn(new be.enrosed.sales.domain.SalesPaymentSummary(
+                    total, total, bd("0"), bd("0"), bd("0"), be.enrosed.sales.domain.SalesPaymentSummary.Status.PAID,
+                    List.of(), List.of(), false));
+            for (var language : List.of(Language.NL, Language.EN)) {
+                var document = renderer.render(invoice, price, customer(language), null, language, SalesPdfOptions.defaults());
+                try (var pdf = Loader.loadPDF(document.content())) {
+                    String text = textOf(pdf);
+                    var labels = be.enrosed.shared.DocumentText.of(language);
+                    assertTrue(text.contains(labels.get("totalInclVat").toLowerCase() + " "
+                            + be.enrosed.shared.DocumentFormat.eur(total).toLowerCase()), text);
+                    assertTrue(text.contains(labels.get("toPay").toLowerCase() + " 0,00 eur"), text);
+                    assertTrue(text.contains(labels.get("paymentSettled").toLowerCase()), text);
+                    assertFalse(text.contains(labels.get("advanceStillToPay").toLowerCase()), text);
+                }
+            }
+        }
+    }
+
+    @Test
     void invoicePaymentReferencesReplaceSlashesWithoutRenumberingTheDocument() throws Exception {
         for (Language language : List.of(Language.NL, Language.EN)) {
             for (var plan : be.enrosed.sales.domain.SalesPaymentPlan.values()) {

@@ -31,6 +31,8 @@ public interface SalesRepositories {
 
     interface Orders {
         List<SalesOrder> findAll();
+        /** Serialises number selection and manual renumbering until the surrounding transaction completes. */
+        default void lockNumbers() {}
         /** A number a document holds, deleted rows included; the type says which series it belongs to. */
         record ReservedNumber(long id, String number, DocumentType docType) {
             public boolean invoice() { return docType == DocumentType.FACTUUR; }

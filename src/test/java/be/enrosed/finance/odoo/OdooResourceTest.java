@@ -12,12 +12,18 @@ import static org.junit.jupiter.api.Assertions.*;
 @QuarkusTest
 class OdooResourceTest {
     @Inject OdooSyncStateStore store;
-    @Test void configurationIsNotPublic() { given().get("/api/odoo/status").then().statusCode(401); }
+    @Test void configurationIsNotPublic() {
+        given().get("/api/odoo/status").then().statusCode(401);
+        given().get("/api/odoo/tica-creditnotes/status").then().statusCode(401);
+        given().get("/api/odoo/linc-costs/status").then().statusCode(401);
+    }
     @Test @TestSecurity(user="test-admin",roles="admin")
     void disabledConfigurationAndExplicitSyncRefusalAreHonestAndSecretFree() {
         given().get("/api/odoo/status").then().statusCode(200).body("enabled",is(false)).body("code",is("DISABLED"))
                 .body("outboundEnabled",is(false)).body("apiKey",nullValue());
         given().contentType("application/json").post("/api/odoo/bank-sync").then().statusCode(503).body("code",is("DISABLED"));
+        given().get("/api/odoo/tica-creditnotes/status").then().statusCode(200).body("enabled",is(false)).body("pendingCount",is(0));
+        given().get("/api/odoo/linc-costs/status").then().statusCode(200).body("configured",is(false)).body("lastCode",is("DISABLED"));
     }
     @Test void persistentLeaseRejectsConcurrentOwnerAndCanBeRetriedAfterFinish() {
         String key="test-"+UUID.randomUUID(),owner=UUID.randomUUID().toString();

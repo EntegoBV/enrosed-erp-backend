@@ -51,6 +51,10 @@ public class OdooCostImportStore {
             throw new BusinessRuleException("Deze banktransactie hoort bij een andere Odoo-administratie");
     }
     public LocalPlan plan(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,Long selectedCostId) {
+        if(OdooTicaCreditnoteImportService.isTicaCreditnote(snapshot)
+                ||em.createQuery("select count(s) from TicaSettlement s where s.sourceKey=:key",Long.class)
+                    .setParameter("key",OdooTicaCreditnoteImportService.sourceKey(snapshot.namespace(),snapshot.document().id())).getSingleResult()>0)
+            return new LocalPlan(null,List.of(),null,"Deze TICA-creditnota is een verkoopafrekening. Verwerk ze via TICA-afrekeningen, niet als kost.",null);
         var line=line(lineId);
         if(line.classification!=null)return new LocalPlan(null,List.of(),null,"Deze banktransactie is geboekt als "
                 +BankStatementService.classificationLabel(line.classification)+"; maak dat eerst ongedaan",null);
@@ -145,6 +149,8 @@ public class OdooCostImportStore {
 
     @Transactional
     public Result register(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,String requestedHash,Long selectedCostId,String category,List<Downloaded> files) {
+        if(OdooTicaCreditnoteImportService.isTicaCreditnote(snapshot))
+            throw new BusinessRuleException("Deze TICA-creditnota is een verkoopafrekening. Verwerk ze via TICA-afrekeningen, niet als kost.");
         if(!Objects.equals(snapshot.hash(),requestedHash))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
         var binding=em.find(OdooCostImportEntity.class,snapshot.namespace()+":"+snapshot.document().id(),LockModeType.PESSIMISTIC_WRITE);
         if(binding==null||binding.companyId!=snapshot.companyId())throw new OdooFailure("INVALID_RESPONSE");

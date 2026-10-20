@@ -73,6 +73,7 @@ public class CompanyCostService {
     @Inject
     Instance<be.enrosed.finance.banking.BankStatementService> banking;
     @Inject Instance<be.enrosed.finance.odoo.OdooCostImportStore> imported;
+    @Inject Instance<be.enrosed.tica.TicaSettlementGuard> ticaSettlements;
 
     public CompanyCostService(CompanyCosts costs, CostPayments payments) {
         this.costs = costs;
@@ -81,7 +82,12 @@ public class CompanyCostService {
 
     /** A cost as the screen gets it: its fields at the top level, its payments and what they add up to. */
     public record CostView(@JsonUnwrapped CompanyCost cost, List<CostPayment> payments, BigDecimal paidEur,
-                           BigDecimal openEur, BigDecimal cashTotalEur) {}
+                           BigDecimal openEur, BigDecimal cashTotalEur,
+                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Long ticaSettlementId) {
+        public CostView(CompanyCost cost, List<CostPayment> payments, BigDecimal paidEur, BigDecimal openEur, BigDecimal cashTotalEur) {
+            this(cost, payments, paidEur, openEur, cashTotalEur, null);
+        }
+    }
 
     /** What the payments of a cost add up to and the "Betaald op" they imply. */
     public record PaymentTotals(BigDecimal paidEur, BigDecimal openEur, LocalDate paidOn) {}
@@ -122,13 +128,22 @@ public class CompanyCostService {
     }
 
     public CostView view(CompanyCost cost) {
-        return view(cost, cost.id() == null ? List.of() : payments.findByCost(cost.id()));
+        CostView result = view(cost, cost.id() == null ? List.of() : payments.findByCost(cost.id()));
+        Long settlement = cost.id() == null ? null : ticaCostLinks(List.of(cost.id())).get(cost.id());
+        return new CostView(result.cost(), result.payments(), result.paidEur(), result.openEur(), result.cashTotalEur(), settlement);
     }
 
     /** One query for the payments of every cost in the list. */
     public List<CostView> views(List<CompanyCost> list) {
         Map<Long, List<CostPayment>> byCost = payments.findByCosts(list.stream().map(CompanyCost::id).filter(id -> id != null).toList());
-        return list.stream().map(cost -> view(cost, byCost.getOrDefault(cost.id(), List.of()))).toList();
+        Map<Long, Long> settlements = ticaCostLinks(list.stream().map(CompanyCost::id).filter(java.util.Objects::nonNull).toList());
+        return list.stream().map(cost -> {
+            CostView base = view(cost, byCost.getOrDefault(cost.id(), List.of()));
+            return new CostView(base.cost(), base.payments(), base.paidEur(), base.openEur(), base.cashTotalEur(), settlements.get(cost.id()));
+        }).toList();
+    }
+    private Map<Long, Long> ticaCostLinks(java.util.Collection<Long> ids) {
+        return ticaSettlements != null && ticaSettlements.isResolvable() ? ticaSettlements.get().costLinks(ids) : Map.of();
     }
 
     public List<CostPayment> paymentsOf(long costId) {
@@ -186,6 +201,7 @@ public class CompanyCostService {
      */
     @Transactional
     public CompanyCost update(long id, CompanyCost changes) {
+        requireNotTicaCost(id);
         if(changes==null)throw new BusinessRuleException("Geen kostgegevens meegestuurd");
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         boolean sourceDocument=imported!=null&&imported.isResolvable()&&imported.get().isImported(id);
@@ -234,6 +250,7 @@ public class CompanyCostService {
     /** Settles what is still open on a day: the accountant's invoice was paid, the direct debit went through. */
     @Transactional
     public CompanyCost markPaid(long id, LocalDate paidOn) {
+        requireNotTicaCost(id);
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         PaymentTotals totals = totalsOf(current, payments.findByCost(id));
         if (totals.openEur().signum() == 0) throw new BusinessRuleException("Deze kost is al volledig betaald");
@@ -250,6 +267,7 @@ public class CompanyCostService {
      */
     @Transactional
     public CostView setDueDate(long id, LocalDate dueDate) {
+        requireNotTicaCost(id);
         CompanyCost current = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         requireDueDate(current.date(), dueDate);
         if (java.util.Objects.equals(dueDate, current.dueDate())) return view(current);
@@ -271,6 +289,7 @@ public class CompanyCostService {
 
     @Transactional
     public CostView addPayment(long costId, CostPayment request) {
+        requireNotTicaCost(costId);
         CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment clean = paymentChecked(request,cost.totalInclEur().signum());
         CostPayment saved = payments.save(new CostPayment(null, costId, clean.paidOn(), clean.amountEur(), clean.account(), null,
@@ -283,6 +302,7 @@ public class CompanyCostService {
     /** A payment on the bank keeps its amount, date and account: unlink it before correcting those facts. */
     @Transactional
     public CostView updatePayment(long costId, long paymentId, CostPayment request) {
+        requireNotTicaCost(costId);
         CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment current = paymentOf(costId, paymentId);
         CostPayment clean = paymentChecked(request,cost.totalInclEur().signum());
@@ -300,6 +320,7 @@ public class CompanyCostService {
     /** A standalone banked payment may be removed; a shared transfer must first be explicitly unlinked. */
     @Transactional
     public CostView deletePayment(long costId, long paymentId) {
+        requireNotTicaCost(costId);
         CompanyCost cost = costs.findByIdForUpdate(costId).orElseThrow(() -> new NotFoundException("Kost", costId));
         CostPayment removed = paymentOf(costId, paymentId);
         requireExclusiveBankLink(removed.bankStatementLineId(), costId, paymentId);
@@ -319,6 +340,7 @@ public class CompanyCostService {
 
     @Transactional
     public void delete(long id) {
+        requireNotTicaCost(id);
         CompanyCost cost = costs.findByIdForUpdate(id).orElseThrow(() -> new NotFoundException("Kost", id));
         var bankIds = new java.util.HashSet<Long>();
         if (cost.bankStatementLineId() != null) bankIds.add(cost.bankStatementLineId());
@@ -363,6 +385,10 @@ public class CompanyCostService {
     }
 
     /** A payment as the form sends it: a positive amount in cents, a day not in the future, short texts; the bank link is the bank's. */
+    private void requireNotTicaCost(long id) {
+        if (ticaSettlements != null && ticaSettlements.isResolvable()) ticaSettlements.get().requireEditableCost(id);
+    }
+
     private static CostPayment paymentChecked(CostPayment request,int costDirection) {
         if (request == null) throw new BusinessRuleException("Geen betaling meegestuurd");
         if (request.amountEur() == null || request.amountEur().signum()==0 || request.amountEur().signum()!=(costDirection<0?-1:1)) {

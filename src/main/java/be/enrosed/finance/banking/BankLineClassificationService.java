@@ -111,6 +111,8 @@ public class BankLineClassificationService {
         BankStatementLineEntity line = locked.stream().filter(row -> row.id == id).findFirst()
                 .orElseThrow(() -> new NotFoundException("Bankbeweging", id));
         if (line.classification == null) return;
+        if (line.ticaSettlementId != null || "TICA_SETTLEMENT".equals(line.classification))
+            throw new BusinessRuleException("Maak de bankkoppeling los bij de TICA-afrekening.");
         BankStatementLineEntity other = line.transferLineId == null ? null : locked.stream()
                 .filter(row -> row.id.equals(line.transferLineId) && "INTERNAL_TRANSFER".equals(row.classification)
                         && Long.valueOf(id).equals(row.transferLineId))

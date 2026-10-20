@@ -20,8 +20,14 @@ public record CostPayment(
         Long bankStatementLineId,
         String note,
         Instant recordedAt,
-        String actor
+        String actor,
+        /** Explicit non-cash offset against an intermediary settlement; never match to an outgoing bank line. */
+        boolean settlementOffset
 ) {
+    public CostPayment(Long id, Long companyCostId, LocalDate paidOn, BigDecimal amountEur, String account,
+                       Long bankStatementLineId, String note, Instant recordedAt, String actor) {
+        this(id, companyCostId, paidOn, amountEur, account, bankStatementLineId, note, recordedAt, actor, false);
+    }
     /** True once the bank service linked this payment to a bank line. */
     public boolean onTheBank() {
         return bankStatementLineId != null;

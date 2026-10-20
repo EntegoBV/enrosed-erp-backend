@@ -22,12 +22,20 @@ WORKDIR /app
 # The PostgreSQL client keeps that path independent from Quarkus/Hibernate, so
 # schema validation cannot run before the additive DDL has been applied.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client \
+    && apt-get install -y --no-install-recommends postgresql-client tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Quarkus fast-jar layout: lib/ changes rarely, app code often — copy in
 # that order so image pushes stay small.
 COPY --from=build /build/target/quarkus-app/lib/ ./lib/
+
+# Install the matching headless browser at image build time. TICA exports use
+# short-lived browser processes; no credentials or browser profiles enter the image.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN java -cp './lib/main/*' com.microsoft.playwright.CLI install --with-deps --only-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 COPY --from=build /build/target/quarkus-app/*.jar ./
 COPY --from=build /build/target/quarkus-app/app/ ./app/
 COPY --from=build /build/target/quarkus-app/quarkus/ ./quarkus/
@@ -117,6 +125,10 @@ COPY docs/migrations/2026-10-15/purchase-document-invoice-kind-postgresql.sql ./
 COPY docs/migrations/2026-10-16/cash-forecast-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-16/bank-classification-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-16/product-cost-history-basis-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-19/tica-sales-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-19/tica-settlement-documents-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-19/tica-settlements-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-19/odoo-bank-auto-sync-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-19/purchase-document-proforma-kind-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
@@ -133,4 +145,5 @@ ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -Xms128m -Xmx3g \
 # Railway injects PORT; application.properties picks it up.
 EXPOSE 8080
 ENV QUARKUS_PROFILE=prod
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["java", "-jar", "quarkus-run.jar"]

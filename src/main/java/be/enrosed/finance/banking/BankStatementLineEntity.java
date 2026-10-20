@@ -38,6 +38,9 @@ public class BankStatementLineEntity {
     @Column(name = "vat_period", length = 7) public String vatPeriod;
     @Column(name = "classified_at") public Instant classifiedAt;
     @Column(name = "classified_by", length = 255) public String classifiedBy;
+    /** Receipt of an intermediary settlement: never a second sales invoice. */
+    @Column(name = "tica_settlement_id", unique = true) public Long ticaSettlementId;
+    @Column(name = "tica_settlement_amount_eur", precision = 19, scale = 2) public BigDecimal ticaSettlementAmountEur;
     /** Local allocations, never inferred from the provider's reconciliation flag. */
     @Transient public boolean allocated;
     @Transient public String allocationLabel;

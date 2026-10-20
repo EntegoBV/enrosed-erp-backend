@@ -151,4 +151,8 @@ exec psql \
     --file=/app/migrations/cash-forecast-postgresql.sql \
     --file=/app/migrations/bank-classification-postgresql.sql \
     --file=/app/migrations/product-cost-history-basis-postgresql.sql \
+    --file=/app/migrations/tica-sales-postgresql.sql \
+    --file=/app/migrations/tica-settlement-documents-postgresql.sql \
+    --file=/app/migrations/tica-settlements-postgresql.sql \
+    --file=/app/migrations/odoo-bank-auto-sync-postgresql.sql \
     --file=/app/migrations/purchase-document-proforma-kind-postgresql.sql
