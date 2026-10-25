@@ -127,6 +127,94 @@ class ProductCostHistoryPersistenceTest {
     }
 
     @Test @TestTransaction
+    void reapplyingAtTheSameCostFillsTheMissingPartsOfThatContainersRowOnly() {
+        Supplier supplier = supplier();
+        ProductEntity rose = displayProduct(supplier, "roos");
+        PurchaseOrder older = order(supplier, null, new PurchaseOrderLine(null, rose.id, 60,
+                new BigDecimal("1.50"), Currency.USD, null, null));
+        PurchaseOrder order = order(supplier, null, new PurchaseOrderLine(null, rose.id, 120,
+                new BigDecimal("1.20"), Currency.USD, new BigDecimal("0.10"), null));
+        withCosts(order.id(), "1000");
+        purchases.applyToProducts(older.id());
+        purchases.applyToProducts(order.id());
+        /* Both rows as written before 2026-10-16: no parts. */
+        List<ProductCostEntry> before = history.history(rose.id);
+        assertEquals(2, before.size());
+        before.forEach(row -> withoutParts(row.id()));
+        entities.clear();
+        ProductCostEntry newest = history.history(rose.id).getFirst();
+        assertNull(newest.breakdown());
+
+        LandedCost.Line line = purchases.applyToProducts(order.id()).lines().getFirst();
+        entities.flush();
+        entities.clear();
+
+        List<ProductCostEntry> rows = history.history(rose.id);
+        assertEquals(2, rows.size(), "the same container at the same cost still adds no row");
+        ProductCostEntry filled = rows.getFirst();
+        assertEquals(newest.id(), filled.id());
+        assertEquals("APPLY", filled.kind());
+        assertEquals(newest.appliedAt(), filled.appliedAt(), "the row keeps the day it was applied");
+        assertEquals(0, newest.landedUnitEur().compareTo(filled.landedUnitEur()));
+        assertEquals(partsOf(line), filled.breakdown(), "all seven parts of this container");
+        assertEquals(older.id(), rows.get(1).purchaseOrderId());
+        assertNull(rows.get(1).breakdown(), "another container's row is left alone");
+
+        /* A row that has its parts is never rewritten. */
+        entities.find(ProductCostHistoryEntity.class, filled.id()).goodsEur = new BigDecimal("9.9999");
+        entities.flush();
+        purchases.applyToProducts(order.id());
+        entities.flush();
+        entities.clear();
+        rows = history.history(rose.id);
+        assertEquals(2, rows.size());
+        assertEquals(new BigDecimal("9.9999"), rows.getFirst().breakdown().goodsEur());
+        assertEquals(partsOf(line).freightEur(), rows.getFirst().breakdown().freightEur());
+    }
+
+    @Test @TestTransaction
+    void aStartRowWithoutPartsTakesThemAndAnotherCostIsStillAReapply() {
+        Supplier supplier = supplier();
+        ProductEntity dome = displayProduct(supplier, "stolp");
+        PurchaseOrder order = order(supplier, null, new PurchaseOrderLine(null, dome.id, 18,
+                new BigDecimal("6.00"), Currency.USD, null, null));
+        withCosts(order.id(), "800");
+        purchases.applyToProducts(order.id());
+        /* The one row the first start wrote: this container, no quantity, no parts. */
+        long start = history.history(dome.id).getFirst().id();
+        ProductCostHistoryEntity seed = entities.find(ProductCostHistoryEntity.class, start);
+        seed.kind = "SEED";
+        seed.appliedBy = "system";
+        seed.quantity = null;
+        seed.exwPrice = null;
+        seed.exwCurrency = null;
+        entities.flush();
+        withoutParts(start);
+
+        LandedCost.Line line = purchases.applyToProducts(order.id()).lines().getFirst();
+        entities.flush();
+        entities.clear();
+        List<ProductCostEntry> rows = history.history(dome.id);
+        assertEquals(1, rows.size());
+        assertEquals("SEED", rows.getFirst().kind());
+        assertEquals("system", rows.getFirst().appliedBy());
+        assertNull(rows.getFirst().quantity(), "only the parts are filled in");
+        assertEquals(partsOf(line), rows.getFirst().breakdown());
+
+        /* Another cost from the same container: a new row with its own parts, the start row stays as it was. */
+        withoutParts(start);
+        withCosts(order.id(), "1400");
+        LandedCost.Line dearer = purchases.applyToProducts(order.id()).lines().getFirst();
+        entities.flush();
+        entities.clear();
+        rows = history.history(dome.id);
+        assertEquals(List.of("REAPPLY", "SEED"), rows.stream().map(ProductCostEntry::kind).toList());
+        assertEquals(0, dearer.landedUnitEur().compareTo(rows.getFirst().landedUnitEur()));
+        assertEquals(partsOf(dearer), rows.getFirst().breakdown());
+        assertNull(rows.get(1).breakdown(), "parts of another cost do not belong to the start row");
+    }
+
+    @Test @TestTransaction
     void aLineThatReceivedNothingKeepsTheCostAndWritesNoRow() {
         Supplier supplier = supplier();
         ProductEntity missing = displayProduct(supplier, null);
@@ -345,6 +433,28 @@ class ProductCostHistoryPersistenceTest {
             entities.flush();
         }
         return purchases.get(id);
+    }
+
+    /** Container costs that make every part of the line count. */
+    private void withCosts(long orderId, String freightUsd) {
+        PurchaseOrderEntity row = entities.find(PurchaseOrderEntity.class, orderId);
+        row.freightUsd = new BigDecimal(freightUsd);
+        row.destinationCostsEur = new BigDecimal("300");
+        row.extraRevenueEur = new BigDecimal("120");
+        entities.flush();
+    }
+
+    /** A row as every apply before 2026-10-16 wrote it. */
+    private void withoutParts(long rowId) {
+        ProductCostHistoryEntity row = entities.find(ProductCostHistoryEntity.class, rowId);
+        row.goodsEur = row.originEur = row.freightEur = row.dutyEur = null;
+        row.destinationEur = row.enrosedEur = row.separateEur = null;
+        entities.flush();
+    }
+
+    private static ProductCostBreakdown partsOf(LandedCost.Line line) {
+        return ProductCostBreakdown.perUnit(line.quantity(), line.goodsEur(), line.originEur(), line.freightEur(),
+                line.dutyEur(), line.destinationEur(), line.extraRevenueEur(), line.separateEur());
     }
 
     private static BigDecimal perUnit(BigDecimal total, int quantity) {

@@ -40,7 +40,8 @@ import java.util.Objects;
  * Every row keeps the basis it was applied on (per display or per piece)
  * and, for a container, what one unit was made of. Applying the same
  * container again with the same cost adds nothing: the history shows what
- * changed, not how often the button was pressed.
+ * changed, not how often the button was pressed. It only fills in the parts
+ * of a row written before they were kept.
  */
 @ApplicationScoped
 public class ProductCostHistoryService {
@@ -81,7 +82,8 @@ public class ProductCostHistoryService {
     /**
      * Adds the row for a cost written onto a product. Nothing is added when
      * the product's newest row is this same container at this same cost and
-     * the product still carries it; the same container at another cost is a
+     * the product still carries it; when that row has no parts yet, it takes
+     * the parts of this call. The same container at another cost is a
      * re-apply, anything else (another container, an older one again) is an
      * apply. A copy's first row only names the container its cost came from:
      * the copy's own first apply from that container is an apply, never a
@@ -97,6 +99,8 @@ public class ProductCostHistoryService {
                 && purchaseOrderId.equals(latest.purchaseOrderId)
                 && !ProductCostKind.COPY.name().equals(latest.kind);
         if (sameContainer && sameCost(latest.landedUnitEur, landedUnitEur) && sameCost(previous, landedUnitEur)) {
+            /* A row from before the parts were kept takes them now: same container, same cost, so they belong to it. */
+            if (breakdown != null && !breakdown.isEmpty() && partsOf(latest).isEmpty()) breakdown(latest, breakdown);
             return;
         }
         ProductCostHistoryEntity row = new ProductCostHistoryEntity();
@@ -254,6 +258,11 @@ public class ProductCostHistoryService {
         row.separateEur = parts.separateEur();
     }
 
+    private static ProductCostBreakdown partsOf(ProductCostHistoryEntity row) {
+        return new ProductCostBreakdown(row.goodsEur, row.originEur, row.freightEur,
+                row.dutyEur, row.destinationEur, row.enrosedEur, row.separateEur);
+    }
+
     private ActorRef currentActor() {
         return actor != null && actor.isResolvable() ? actor.get().current() : ActorRef.SYSTEM;
     }
@@ -261,8 +270,7 @@ public class ProductCostHistoryService {
     private static ProductCostEntry toDomain(ProductCostHistoryEntity row) {
         ProductCostBasis basis = row.salesUnit == null && row.piecesPerUnit == null && row.unitKey == null
                 ? null : new ProductCostBasis(row.salesUnit, row.piecesPerUnit, row.unitKey);
-        ProductCostBreakdown parts = new ProductCostBreakdown(row.goodsEur, row.originEur, row.freightEur,
-                row.dutyEur, row.destinationEur, row.enrosedEur, row.separateEur);
+        ProductCostBreakdown parts = partsOf(row);
         /* A developer database never runs the backfill: an unmarked row reads by the same rule the migration used. */
         String kind = row.kind != null ? row.kind : ProductCostKind.legacy(row.appliedBy).name();
         return new ProductCostEntry(row.id, row.productId, row.appliedAt, row.landedUnitEur, row.previousLandedUnitEur,
