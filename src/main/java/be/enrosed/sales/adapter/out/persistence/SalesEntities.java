@@ -353,6 +353,9 @@ public final class SalesEntities {
         @Column(name = "requested_quantity") public Integer requestedQuantity;
         /** The order step this line was last rounded to; null on rows from before it was remembered. */
         @Column(name = "unitsperorderstep") public Integer unitsPerOrderStep;
+        /** The batch stock cost of one piece when the goods left; null before shipment or without batches
+            (docs/migrations/2026-10-25/stock-batches-postgresql.sql). */
+        @Column(name = "stock_cost_eur", precision = 19, scale = 4) public BigDecimal stockCostEur;
     }
 
     @Entity(name = "QuoteRevisionEntity")

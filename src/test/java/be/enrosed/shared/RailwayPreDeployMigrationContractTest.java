@@ -1019,6 +1019,117 @@ class RailwayPreDeployMigrationContractTest {
         assertRegisteredAfter(migration, "2026-10-19/odoo-bank-auto-sync-postgresql.sql");
     }
 
+    /* The round of 2026-10-25 registers three files in a fixed chain: purchase-payment-origin -> product-supplier
+       -> stock-batches -> odoo-document-mark (the batch file reads product_supplier_id). */
+
+    @Test
+    void productSupplierRowsAreOneAdditiveTableThreeLineColumnsAndSelfHealingBackfills() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-25/product-supplier-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout = '10s'; set local statement_timeout = '120s';"));
+        assertTrue(sql.endsWith("commit;"), "every backfill runs in the one transaction");
+        assertEquals(1, sql.split("create table if not exists ", -1).length - 1, "one new table");
+        assertEntityNamesEveryColumn(sql, "product_supplier", "ProductSupplierEntity", 15,
+                "src/main/java/be/enrosed/catalog/adapter/out/persistence/");
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/catalog/adapter/out/persistence/ProductSupplierEntity.java"))
+                .contains("@UniqueConstraint(name = \"uk_product_supplier\""),
+                "the entity names the unique pair like the migration, so a schema update adds no second one");
+
+        /* The purchase order line names its row and freezes version and reference; all three nullable. */
+        for (String column : new String[] {"product_supplier_id bigint", "supplier_version_label varchar(60)",
+                "supplier_reference varchar(120)"}) {
+            assertTrue(sql.contains("alter table purchase_order_line add column if not exists " + column + ";"), column);
+        }
+        assertEquals(3, sql.split("alter table ", -1).length - 1, "three line columns, no other table changes");
+        String sourcing = Files.readString(Path.of(
+                "src/main/java/be/enrosed/sourcing/adapter/out/persistence/SourcingEntities.java"));
+        for (String field : new String[] {
+                "@Column(name = \"product_supplier_id\") public Long productSupplierId;",
+                "@Column(name = \"supplier_version_label\", length = 60) public String supplierVersionLabel;",
+                "@Column(name = \"supplier_reference\", length = 120) public String supplierReference;"}) {
+            assertTrue(sourcing.contains(field), "the line names " + field);
+        }
+
+        /* Rerunnable backfills: they only fill what is still empty or disagrees with the product card. */
+        String[] inserts = sql.split("insert into product_supplier", -1);
+        assertEquals(3, inserts.length, "exactly two inserts invent rows");
+        for (int i = 1; i < inserts.length; i++) {
+            String insert = inserts[i].substring(0, inserts[i].indexOf(';'));
+            assertTrue(insert.contains("not exists"), "insert " + i + " skips rows that already exist");
+        }
+        assertTrue(inserts[2].substring(0, inserts[2].indexOf(';')).contains("and p.supplierid is not null"),
+                "step 2 only for products with a supplier of their own, so no product has rows but no Voorkeur");
+        assertEquals(6, sql.split("update ", -1).length - 1, "1a, 1b, 1d, the line links and the two freezes");
+        assertTrue(sql.contains("s.supplier_id <> p.supplierid"), "1a: a Voorkeur of another supplier is cleared");
+        assertTrue(sql.contains("and not exists (select 1 from product_supplier x where x.product_id = p.id and x.preferred)"),
+                "1b sets a Voorkeur only where none is left");
+        assertTrue(sql.contains("is distinct from"), "1d touches only a row that disagrees with the card");
+        assertTrue(sql.contains("l.product_supplier_id is null"), "a linked line keeps its row");
+        assertTrue(sql.contains("l.extraunitcost is null"), "a frozen extra cost is never overwritten");
+        assertTrue(sql.contains("l.exwprice is null and l.exwcurrency is null"), "a line's own price pair stays");
+        assertFalse(sql.contains("references"), "no foreign key: a product delete removes its rows in code");
+        assertFalse(sql.contains("check"), "plain varchar instead of enum checks");
+        assertNonDestructive(sql);
+        assertRegisteredAfter(migration, "2026-10-20/purchase-payment-origin-postgresql.sql");
+    }
+
+    @Test
+    void stockBatchesAreThreeAdditiveTablesAndOneNullableSalesColumnRegisteredAfterProductSuppliers() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-25/stock-batches-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.startsWith("begin; set local lock_timeout"));
+        assertTrue(sql.endsWith("commit;"));
+        for (String table : new String[] {"stock_batch", "stock_batch_move", "stock_batch_run"}) {
+            assertTrue(sql.contains("create table if not exists " + table + " ("), table);
+        }
+        assertEquals(3, sql.split("create table if not exists ", -1).length - 1, "three tables, no other");
+        assertEquals(1, sql.split("alter table ", -1).length - 1, "one existing table gains one column");
+        assertTrue(sql.contains("alter table sales_order_line add column if not exists stock_cost_eur numeric(19,4);"));
+        assertEquals(1, sql.split("not null", -1).length - 1, "every column is nullable; only the partial index says it");
+        assertTrue(sql.contains("where purchase_order_line_id is not null"), "one batch per container line");
+        assertFalse(sql.contains("check"), "kinds, owners and cost states are plain strings");
+        assertFalse(sql.contains("references"), "no foreign keys, so dev H2 and PostgreSQL behave the same");
+        assertFalse(sql.contains("update "), "no existing row is rewritten: batches start through the app");
+        assertFalse(sql.contains("insert "), "no row is invented");
+        assertFalse(sql.contains("drop "));
+
+        /* The scale the entities declare: schema strategy "update" would otherwise alter a plain numeric column. */
+        java.util.regex.Matcher numeric = java.util.regex.Pattern.compile("numeric(\\(\\d+,\\s*\\d+\\))?").matcher(sql);
+        int amounts = 0;
+        while (numeric.find()) {
+            amounts++;
+            assertEquals("numeric(19,4)", numeric.group().replace(" ", ""), "a money column: " + numeric.group());
+        }
+        assertEquals(12, amounts, "9 in stock_batch, 2 in stock_batch_move, 1 on sales_order_line");
+
+        String entities = "src/main/java/be/enrosed/catalog/adapter/out/persistence/";
+        assertEntityNamesEveryColumn(sql, "stock_batch", "StockBatchEntity", 29, entities);
+        assertEntityNamesEveryColumn(sql, "stock_batch_move", "StockBatchMoveEntity", 17, entities);
+        assertEntityNamesEveryColumn(sql, "stock_batch_run", "StockBatchRunEntity", 10, entities);
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/be/enrosed/sales/adapter/out/persistence/SalesEntities.java"))
+                .contains("@Column(name = \"stock_cost_eur\", precision = 19, scale = 4)"),
+                "the sales line names the migrated column, nullable: dev H2 adds it to a filled table");
+        assertNonDestructive(sql);
+        assertRegisteredAfter(migration, "2026-10-25/product-supplier-postgresql.sql");
+    }
+
+    @Test
+    void invoiceFinderMarksAreAdditiveAndRegistered() throws IOException {
+        Path migration = Path.of("docs/migrations/2026-10-25/odoo-document-mark-postgresql.sql");
+        String sql = normalizedSql(migration);
+        assertTrue(sql.contains("create table if not exists odoo_document_mark"));
+        assertEntityNamesEveryColumn(sql, "odoo_document_mark", "OdooDocumentMarkEntity", 8,
+                "src/main/java/be/enrosed/finance/invoices/");
+        assertFalse(sql.contains("update "), "no existing row is rewritten");
+        assertFalse(sql.contains("insert "), "no mark is invented");
+        assertFalse(sql.contains("references"), "no foreign key");
+        assertNonDestructive(sql);
+        /* PREVIOUS: the file directly before it in the chain. */
+        assertRegisteredAfter(migration, "2026-10-25/stock-batches-postgresql.sql");
+    }
+
     /** Neither rewrites a row nor adds a database guard that a later value or a purge would trip over. */
     private static void assertNoRewriteNoGuardNoForeignKey(String sql) {
         assertFalse(sql.contains("update "), "no existing row is rewritten");

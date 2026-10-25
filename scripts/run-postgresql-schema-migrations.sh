@@ -159,4 +159,7 @@ exec psql \
     --file=/app/migrations/product-channel-price-postgresql.sql \
     --file=/app/migrations/tica-stock-ledger-postgresql.sql \
     --file=/app/migrations/cost-party-aliases-postgresql.sql \
-    --file=/app/migrations/purchase-payment-origin-postgresql.sql
+    --file=/app/migrations/purchase-payment-origin-postgresql.sql \
+    --file=/app/migrations/product-supplier-postgresql.sql \
+    --file=/app/migrations/stock-batches-postgresql.sql \
+    --file=/app/migrations/odoo-document-mark-postgresql.sql

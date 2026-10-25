@@ -171,6 +171,13 @@ public final class SourcingEntities {
         /** What was wrong on arrival, as noted at the shelf. */
         @Column(length = 500)
         public String issueNote;
+        /* Since 2026-10-25, all nullable (docs/migrations/2026-10-25/product-supplier-postgresql.sql). */
+        /** The product_supplier row this line is bought on; null on lines without a row. */
+        @Column(name = "product_supplier_id") public Long productSupplierId;
+        /** The row's version label, frozen when the order is placed. */
+        @Column(name = "supplier_version_label", length = 60) public String supplierVersionLabel;
+        /** The supplier's own reference, frozen when the order is placed. */
+        @Column(name = "supplier_reference", length = 120) public String supplierReference;
     }
     /** One amount paid on a purchase order, kept as it left the bank. Named so the bank service can query it in HQL. */
     @Entity(name = "PurchasePaymentEntity")
