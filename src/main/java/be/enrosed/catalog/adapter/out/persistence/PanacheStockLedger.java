@@ -13,7 +13,7 @@ import java.util.Optional;
 public class PanacheStockLedger implements StockLedger, PanacheRepository<StockMovementEntity> {
 
     @Override
-    public void record(StockMovement movement) {
+    public Long record(StockMovement movement) {
         StockMovementEntity entity = new StockMovementEntity();
         entity.productId = movement.productId();
         entity.locationId = movement.locationId();
@@ -33,6 +33,7 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
         entity.sourceQuantity = movement.sourceQuantity();
         entity.sourceUnit = movement.sourceUnit();
         persist(entity);
+        return entity.id;
     }
 
     @Override

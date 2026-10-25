@@ -13,6 +13,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -22,6 +23,9 @@ import java.util.Set;
  * figure becomes its level there, and ledger lines from before get that
  * location too. Idempotent - products that already have a level are left
  * alone - and invisible to a user who never adds a second location.
+ *
+ * A level created here for a product with a stock figure gets its pieces as a "Voorraad bij aanmaak" Telling batch
+ * once batches are running, so such a product never starts with a difference against its batches.
  */
 @ApplicationScoped
 public class StockLocationBackfill {
@@ -33,20 +37,39 @@ public class StockLocationBackfill {
     private final CatalogDaos.Products products;
     private final PanacheStockLedger movements;
     private final EntityManager entityManager;
+    private final StockBatchService batches;
 
     public StockLocationBackfill(StockService stock, StockDaos.Levels levels, CatalogDaos.Products products,
-                                 PanacheStockLedger movements, EntityManager entityManager) {
+                                 PanacheStockLedger movements, EntityManager entityManager,
+                                 StockBatchService batches) {
         this.stock = stock;
         this.levels = levels;
         this.products = products;
         this.movements = movements;
         this.entityManager = entityManager;
+        this.batches = batches;
     }
 
     @Transactional
     void onStart(@Observes StartupEvent event) {
         widenMovementKind();
         StockLocation main = stock.mainLocation();
+        int moved = seedMissingLevels(main);
+        long relabelled = movements.update("locationId = ?1 where locationId is null", main.id());
+        if (moved > 0 || relabelled > 0) {
+            LOG.infof("Voorraadlocaties: %d product(en) naar %s gezet, %d boekingen gelabeld",
+                    moved, main.name(), relabelled);
+        }
+    }
+
+    /**
+     * Gives every product without a level one at {@code main} from its stock figure, without a stock movement; the
+     * pieces of such a level go into a Telling batch ({@link StockBatchService#found}, a no-op until batches run).
+     *
+     * @return the products that got a level
+     */
+    @Transactional
+    int seedMissingLevels(StockLocation main) {
         Set<Long> covered = new HashSet<>();
         for (StockLevelEntity level : levels.listAll()) covered.add(level.productId);
 
@@ -58,13 +81,14 @@ public class StockLocationBackfill {
             level.locationId = main.id();
             level.quantity = Boolean.TRUE.equals(product.inventoryKnown) ? Math.max(0, product.stockQuantity) : 0;
             levels.persist(level);
+            if (level.quantity > 0) {
+                int factor = product.packaging().soldAsDisplay() ? product.packaging().unitPieces() : 1;
+                batches.found(product.id, Math.multiplyExact(level.quantity, factor), "Voorraad bij aanmaak",
+                        Instant.now());
+            }
             moved++;
         }
-        long relabelled = movements.update("locationId = ?1 where locationId is null", main.id());
-        if (moved > 0 || relabelled > 0) {
-            LOG.infof("Voorraadlocaties: %d product(en) naar %s gezet, %d boekingen gelabeld",
-                    moved, main.name(), relabelled);
-        }
+        return moved;
     }
 
     /**

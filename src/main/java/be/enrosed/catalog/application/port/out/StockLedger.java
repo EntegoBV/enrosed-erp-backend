@@ -9,7 +9,8 @@ import java.util.Optional;
 /** The stock book: append-only, newest first when read. */
 public interface StockLedger {
 
-    void record(StockMovement movement);
+    /** Appends a line; returns its id (null when nothing is kept). */
+    Long record(StockMovement movement);
 
     List<StockMovement> forProduct(long productId);
 
@@ -36,7 +37,7 @@ public interface StockLedger {
 
     /** For pure unit tests: nothing is kept. */
     StockLedger NONE = new StockLedger() {
-        @Override public void record(StockMovement movement) {}
+        @Override public Long record(StockMovement movement) { return null; }
         @Override public List<StockMovement> forProduct(long productId) { return List.of(); }
         @Override public List<StockMovement> forPurchaseOrder(long purchaseOrderId) { return List.of(); }
         @Override public boolean delete(long productId, long movementId) { return false; }
