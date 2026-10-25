@@ -51,6 +51,24 @@ public class ProductSupplierAgreementService {
     public record ApplicabilityRequest(String revision, List<Long> productIds) {}
     public record UnlinkRequest(String revision) {}
 
+    /**
+     * The agreement of one supplier of the product. supplierId null or the product's preferred: {@link #resolve(long)}
+     * (colour-sharing links included); another supplier with a row: that row's own note and photos.
+     */
+    @Transactional
+    public ResolvedAgreement resolve(long productId, Long supplierId) {
+        ProductEntity target = product(productId);
+        if (supplierId == null || Objects.equals(supplierId, target.supplierId)) return resolve(productId);
+        throw new UnsupportedOperationException("BE-S1 step 2");
+    }
+
+    @Transactional
+    public Snapshot get(long productId, Long supplierId) {
+        ProductEntity target = product(productId);
+        if (supplierId == null || Objects.equals(supplierId, target.supplierId)) return get(productId);
+        throw new UnsupportedOperationException("BE-S1 step 2");
+    }
+
     @Transactional
     public ResolvedAgreement resolve(long productId) {
         ProductEntity target = product(productId);

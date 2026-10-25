@@ -558,6 +558,26 @@ public record Product(
                 markupPct, fixedSalesPriceEur, stockQuantity, photos, texts, demo);
     }
 
+    /** The five supplier and purchase columns, as the preferred supplier row describes them. */
+    public Product withPurchaseMirror(PurchaseMirror mirror) {
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
+                description, categoryId, mirror.supplierId(), mirror.supplierNote(), active, familyId,
+                canonicalVariantKey, canonicalBarcode, variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
+                carton, mirror.exwPrice(), mirror.exwCurrency(), mirror.extraUnitCost(), landedCostEur,
+                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity, photos, texts, demo);
+    }
+
+    /** The price as one supplier sells it (EXW amount, currency, extra unit cost); the supplier stays. */
+    public Product withPurchasePrice(BigDecimal newExwPrice, Currency newExwCurrency, BigDecimal newExtraUnitCost) {
+        return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,
+                description, categoryId, supplierId, supplierNote, active, familyId,
+                canonicalVariantKey, canonicalBarcode, variantPosition, inventoryKnown,
+                familyKey, publicHandle, websiteStatus, orderAppStatus, barcodes, hsCode,
+                carton, newExwPrice, newExwCurrency, newExtraUnitCost, landedCostEur,
+                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity, photos, texts, demo);
+    }
+
     /** Synchronizes the family-owned operational category cache without touching supplier data. */
     public Product withCategoryId(Long newCategoryId) {
         return new Product(id, sku, name, dimensions, packaging, colour, variantSize, colourHex,

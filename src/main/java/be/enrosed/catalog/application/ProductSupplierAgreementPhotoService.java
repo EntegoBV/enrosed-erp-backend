@@ -52,6 +52,15 @@ public class ProductSupplierAgreementPhotoService {
         this.deleteCleanup = deleteCleanup;
     }
 
+    /** The photos of one supplier of the product; supplierId null = the product's preferred (today's list). */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public List<AgreementPhoto> list(long productId, Long supplierId) {
+        if (supplierId == null) return list(productId);
+        ProductEntity product = product(productId, false);
+        if (Objects.equals(product.supplierId, supplierId)) return list(productId);
+        throw new UnsupportedOperationException("BE-S1 step 2");
+    }
+
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<AgreementPhoto> list(long productId) {
         ProductEntity product = product(productId, false);

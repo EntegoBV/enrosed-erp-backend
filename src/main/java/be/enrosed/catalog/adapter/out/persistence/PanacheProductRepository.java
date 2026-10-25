@@ -3,10 +3,12 @@ package be.enrosed.catalog.adapter.out.persistence;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.application.CategoryPublicKey;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.PurchaseMirror;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,6 +43,24 @@ public class PanacheProductRepository implements ProductRepository {
     @Override
     public Optional<Product> findById(long id) {
         return Optional.ofNullable(dao.findById(id)).map(CatalogMapper::toDomain);
+    }
+
+    @Override
+    public List<Product> findAllById(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return dao.list("id in ?1", ids).stream().map(CatalogMapper::toDomain).toList();
+    }
+
+    /** One targeted update of exactly the five mirror columns; the managed entity is refreshed afterwards. */
+    @Override
+    public void updatePurchaseMirror(long productId, PurchaseMirror mirror) {
+        ProductEntity entity = dao.findById(productId);
+        if (entity == null) throw new be.enrosed.shared.NotFoundException("Product", productId);
+        entityManager.flush();
+        dao.update("supplierId = ?1, supplierNote = ?2, exwPrice = ?3, exwCurrency = ?4, extraUnitCost = ?5 "
+                        + "where id = ?6", mirror.supplierId(), mirror.supplierNote(), mirror.exwPrice(),
+                mirror.exwCurrency(), mirror.extraUnitCost(), productId);
+        entityManager.refresh(entity);
     }
 
     @Override
@@ -221,6 +241,7 @@ public class PanacheProductRepository implements ProductRepository {
     }
 
     private void deleteProductOwnedMetadata(long productId) {
+        deleteByProductId("ProductSupplierEntity", productId);
         deleteByProductId("ProductExternalIdentifierEntity", productId);
         deleteByProductId("ProductPriceObservationEntity", productId);
         deleteByProductId("ProductProvenanceEntity", productId);

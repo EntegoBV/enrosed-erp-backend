@@ -4,6 +4,7 @@ import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.application.port.out.ProductRepository;
+import be.enrosed.catalog.application.port.out.ProductSupplierRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Carton;
@@ -15,7 +16,9 @@ import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.ProductCostBasis;
 import be.enrosed.catalog.domain.ProductCostBreakdown;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductSupplier;
 import be.enrosed.catalog.domain.ProductText;
+import be.enrosed.catalog.domain.PurchaseMirror;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
@@ -119,6 +122,9 @@ public class ProductService {
     Instance<MediaService> mediaRegistry;
     @Inject
     Instance<PublishedFamilyGalleryGuard> publishedFamilyGallery;
+    /* The suppliers of a product; pure unit tests run without it and keep today's behaviour. */
+    @Inject
+    Instance<ProductSupplierRepository> productSuppliers;
 
     @Inject
     public ProductService(
@@ -172,6 +178,32 @@ public class ProductService {
 
     public List<Product> listBySupplier(long supplierId) {
         return products.findBySupplier(supplierId);
+    }
+
+    /** A product and what one supplier offers it at (its row, or a legacy offer computed from the product). */
+    public record Offered(Product product, ProductSupplier offer) {}
+
+    /**
+     * Products supplierId makes: rows of it whose product exists (active or inactive) plus legacy products whose own
+     * supplier it is and that have no row of it; loaded with findBySupplier(supplierId) + findAllById(row product ids).
+     */
+    public List<Offered> offeredBy(long supplierId) {
+        throw new UnsupportedOperationException("BE-S1 step 2");
+    }
+
+    /** Family + product locks as update() takes them; returns the product as it is now. */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public Product lockForPurchaseWrite(long productId) {
+        throw new UnsupportedOperationException("BE-S1 step 2");
+    }
+
+    /**
+     * Writes only the five mirror columns (updatePurchaseMirror). No validator, no ensurePublishable, no website
+     * rebuild, no activity. When supplierId changes it first calls supplierAgreements.beforeProductChange(before, after).
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public void writePurchaseMirror(long productId, PurchaseMirror mirror) {
+        throw new UnsupportedOperationException("BE-S1 step 2");
     }
 
     public Product get(long id) {
