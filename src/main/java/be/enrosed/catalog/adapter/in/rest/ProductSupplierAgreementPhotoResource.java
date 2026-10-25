@@ -14,6 +14,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -39,21 +40,28 @@ public class ProductSupplierAgreementPhotoResource {
         this.photos = photos;
     }
 
+    /** supplierId: that supplier's photos of the product; omitted = the preferred supplier's. */
     @GET
-    public List<AgreementPhotoDto> list(@PathParam("productId") long productId) {
-        return photos.list(productId).stream().map(AgreementPhotoDto::from).toList();
+    public List<AgreementPhotoDto> list(@PathParam("productId") long productId,
+                                        @QueryParam("supplierId") Long supplierId) {
+        List<AgreementPhoto> found = supplierId == null
+                ? photos.list(productId) : photos.list(productId, supplierId);
+        return found.stream().map(AgreementPhotoDto::from).toList();
     }
 
     @POST
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     public Response upload(
             @PathParam("productId") long productId,
+            @QueryParam("supplierId") Long supplierId,
             @RestForm("file") FileUpload file,
             @RestForm("caption") String caption) throws IOException {
         if (file == null) throw new BadRequestException("Geen bestand meegestuurd");
         AgreementPhoto created;
         try (InputStream data = Files.newInputStream(file.uploadedFile())) {
-            created = photos.upload(productId, file.fileName(), data, caption);
+            created = supplierId == null
+                    ? photos.upload(productId, file.fileName(), data, caption)
+                    : photos.upload(productId, supplierId, file.fileName(), data, caption);
         }
         return Response.status(Response.Status.CREATED)
                 .entity(AgreementPhotoDto.from(created))
@@ -99,8 +107,10 @@ public class ProductSupplierAgreementPhotoResource {
     @PUT
     @Path("/order")
     public List<AgreementPhotoDto> reorder(
-            @PathParam("productId") long productId, List<Long> photoIdsInOrder) {
-        return photos.reorder(productId, photoIdsInOrder).stream()
+            @PathParam("productId") long productId, @QueryParam("supplierId") Long supplierId,
+            List<Long> photoIdsInOrder) {
+        return (supplierId == null ? photos.reorder(productId, photoIdsInOrder)
+                : photos.reorder(productId, supplierId, photoIdsInOrder)).stream()
                 .map(AgreementPhotoDto::from)
                 .toList();
     }

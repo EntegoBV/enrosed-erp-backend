@@ -91,11 +91,26 @@ public class ProductResource {
         this(products, barcodes, variantLinks, familyDtos, stock, null);
     }
 
+    /**
+     * Without supplierId: every product, unchanged. With supplierId: the products that supplier makes (its rows,
+     * active or inactive, plus products whose own supplier it is without a row yet); on this URL only the purchase
+     * fields are that supplier's ("bij deze leverancier") and {@code offer} is filled; supplierId stays the product's
+     * preferred. Inactive offers stay in, so existing purchase lines keep their name, carton and stock.
+     */
     @GET
     public List<ProductDto> list(@QueryParam("supplierId") Long supplierId) {
-        var found = supplierId == null ? products.list() : products.listBySupplier(supplierId);
-        if (supplierId != null && overviewOrder != null) found = overviewOrder.sort(found);
-        return found.stream().map(ProductDto::from).toList();
+        if (supplierId == null) return products.list().stream().map(ProductDto::from).toList();
+        List<ProductService.Offered> offered = products.offeredBy(supplierId);
+        Map<Long, be.enrosed.catalog.domain.ProductSupplier> offers = new java.util.HashMap<>();
+        offered.forEach(item -> offers.put(item.product().id(), item.offer()));
+        List<be.enrosed.catalog.domain.Product> found = offered.stream().map(ProductService.Offered::product).toList();
+        if (overviewOrder != null) found = overviewOrder.sort(found);
+        return found.stream().map(product -> {
+            be.enrosed.catalog.domain.ProductSupplier offer = offers.get(product.id());
+            return ProductDto.from(product.withPurchasePrice(offer.exwPrice(), offer.exwCurrency(),
+                            offer.extraUnitCost()))
+                    .withOffer(ProductDto.ProductSupplierOfferDto.of(offer));
+        }).toList();
     }
 
     /** The units a product can be sold per ("stuk", "bowl", ...), in pick-list order, in Dutch. */

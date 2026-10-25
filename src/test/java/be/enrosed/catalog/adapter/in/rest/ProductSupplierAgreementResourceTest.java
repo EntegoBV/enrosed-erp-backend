@@ -14,7 +14,7 @@ class ProductSupplierAgreementResourceTest {
         var photo=new AgreementPhoto(7,1,9,0,"Reference","real.png","image/png",123,80,60);
         var value=new Snapshot(2,1,9L,8L,"product:1:supplier:9",true,true,"revision","Private",List.of(photo),List.of(),List.of());
         when(service.get(2)).thenReturn(value);
-        var response=new ProductSupplierAgreementResource(service).get(2);
+        var response=new ProductSupplierAgreementResource(service).get(2, null);
         assertEquals("no-store",response.getHeaderString("Cache-Control"));
         var dto=(ProductSupplierAgreementResource.AgreementDto)response.getEntity();
         assertEquals(1,dto.sourceProductId()); assertTrue(dto.inherited());

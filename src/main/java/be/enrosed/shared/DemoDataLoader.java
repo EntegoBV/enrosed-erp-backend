@@ -3,6 +3,8 @@ package be.enrosed.shared;
 import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.HsCodeService;
 import be.enrosed.catalog.application.ProductService;
+import be.enrosed.catalog.application.ProductSupplierService;
+import be.enrosed.catalog.application.ProductSupplierWrite;
 import be.enrosed.catalog.domain.*;
 import be.enrosed.sales.application.CountryService;
 import be.enrosed.sales.application.CountryDefaults;
@@ -17,6 +19,7 @@ import be.enrosed.sourcing.domain.*;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -60,6 +63,10 @@ public class DemoDataLoader {
     /** Opt-in only: an empty production database must never silently recreate test business data. */
     @ConfigProperty(name = "enrosed.demo-data.enabled", defaultValue = "false")
     boolean enabled;
+
+    /* A product made by two suppliers ("versies"): the demo shows the second one on p09. */
+    @Inject
+    ProductSupplierService productSuppliers;
 
     public DemoDataLoader(CategoryService categories, HsCodeService hsCodes, ProductService products,
                           SupplierService suppliers, PurchaseOrderService purchaseOrders,
@@ -157,6 +164,12 @@ public class DemoDataLoader {
         attachPhoto(p08, "P08.jpg");
         attachPhoto(p09, "P09.jpg");
         attachPhoto(p10, "P10.jpg");
+
+        /* Glass dome p09 is also made by Culinan, in thicker glass: a second supplier row beside the
+           Yiwu Voorkeur that create made. */
+        productSuppliers.add(p09.id(), new ProductSupplierWrite(culinan.id(), "B · dikker glas", "CUL-GD-10",
+                new BigDecimal("2.10"), Currency.USD, new BigDecimal("0.15"), 600, 45,
+                "Glass 3 mm, gold rim.", null), culinan.name());
 
         /* ---- inkooporders ---------------------------------------------- */
         /* Yiwu delivers EXW: we pay factory -> port of Ningbo. */

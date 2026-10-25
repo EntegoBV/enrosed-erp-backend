@@ -4,10 +4,12 @@ import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductSupplierAgreementPhotoEntity;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
+import be.enrosed.catalog.application.port.out.ProductSupplierRepository;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
@@ -23,9 +25,10 @@ import java.util.Objects;
 /**
  * Manages the ordered, English-captioned evidence photos agreed with a product's supplier.
  *
- * <p>Every operation derives its supplier scope from the product at request time. Rows from a
- * former supplier are retained as history, but their metadata and bytes both become inaccessible
- * until that supplier is assigned to the product again.</p>
+ * <p>Every operation derives its supplier scope from the product at request time: supplier S is in
+ * scope for product P when S is P's own (preferred) supplier or P has a supplier row of S (active or
+ * inactive). Photos of a supplier out of scope are retained as history, but their metadata and bytes
+ * both become inaccessible until that supplier is added to the product again.</p>
  */
 @ApplicationScoped
 public class ProductSupplierAgreementPhotoService {
@@ -37,6 +40,10 @@ public class ProductSupplierAgreementPhotoService {
     private final PhotoStorage storage;
     private final Event<ProductPhotoCleanup.UploadReady> uploadCleanup;
     private final Event<ProductPhotoCleanup.DeleteReady> deleteCleanup;
+
+    /* The product's supplier rows; without them only the product's own supplier is in scope. */
+    @Inject
+    Instance<ProductSupplierRepository> supplierRows;
 
     @Inject
     public ProductSupplierAgreementPhotoService(
@@ -57,8 +64,10 @@ public class ProductSupplierAgreementPhotoService {
     public List<AgreementPhoto> list(long productId, Long supplierId) {
         if (supplierId == null) return list(productId);
         ProductEntity product = product(productId, false);
-        if (Objects.equals(product.supplierId, supplierId)) return list(productId);
-        throw new UnsupportedOperationException("BE-S1 step 2");
+        if (!inScope(product, supplierId)) throw new NotFoundException("Leveranciersafspraakfoto", supplierId);
+        return currentEntities(productId, supplierId).stream()
+                .map(ProductSupplierAgreementPhotoService::toView)
+                .toList();
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -73,10 +82,17 @@ public class ProductSupplierAgreementPhotoService {
     @Transactional
     public AgreementPhoto upload(
             long productId, String filename, InputStream data, String englishCaption) {
+        return upload(productId, null, filename, data, englishCaption);
+    }
+
+    /** supplierId null = the product's preferred supplier (today's behaviour). */
+    @Transactional
+    public AgreementPhoto upload(
+            long productId, Long requestedSupplierId, String filename, InputStream data, String englishCaption) {
         String caption = normalizeCaption(englishCaption);
         PhotoUploadPolicy.ValidatedPhoto upload = PhotoUploadPolicy.validate(filename, data);
         ProductEntity product = product(productId, true);
-        long supplierId = requiredSupplier(product);
+        long supplierId = writableSupplier(product, requestedSupplierId);
 
         PhotoStorage.Stored stored = storage.store(
                 upload.originalFilename(), upload.contentType(), upload.bytes());
@@ -125,8 +141,14 @@ public class ProductSupplierAgreementPhotoService {
     /** The request must name every photo in the current supplier scope exactly once. */
     @Transactional
     public List<AgreementPhoto> reorder(long productId, List<Long> photoIdsInOrder) {
+        return reorder(productId, null, photoIdsInOrder);
+    }
+
+    /** supplierId null = the product's preferred supplier (today's behaviour). */
+    @Transactional
+    public List<AgreementPhoto> reorder(long productId, Long requestedSupplierId, List<Long> photoIdsInOrder) {
         ProductEntity product = product(productId, true);
-        long supplierId = requiredSupplier(product);
+        long supplierId = writableSupplier(product, requestedSupplierId);
         List<ProductSupplierAgreementPhotoEntity> current = currentEntities(productId, supplierId);
         List<Long> wanted = photoIdsInOrder == null
                 ? List.of() : new ArrayList<>(photoIdsInOrder);
@@ -147,8 +169,8 @@ public class ProductSupplierAgreementPhotoService {
     @Transactional
     public void delete(long productId, long photoId) {
         ProductEntity product = product(productId, true);
-        long supplierId = requiredSupplier(product);
         ProductSupplierAgreementPhotoEntity target = currentEntity(product, photoId);
+        long supplierId = target.supplierId;
         String storageKey = target.storageKey;
         photos.delete(target);
         photos.flush();
@@ -156,6 +178,17 @@ public class ProductSupplierAgreementPhotoService {
         List<ProductSupplierAgreementPhotoEntity> remaining = currentEntities(productId, supplierId);
         applyOrder(remaining, remaining.stream().map(photo -> photo.id).toList());
         deleteCleanup.fire(new ProductPhotoCleanup.DeleteReady(List.of(storageKey)));
+    }
+
+    /** Called when a supplier row leaves the product: that supplier's photos of this product go with it. */
+    @Transactional
+    public void deleteAllForProductSupplier(long productId, long supplierId) {
+        List<ProductSupplierAgreementPhotoEntity> all = currentEntities(productId, supplierId);
+        if (all.isEmpty()) return;
+        List<String> storageKeys = all.stream().map(photo -> photo.storageKey).distinct().toList();
+        all.forEach(photos::delete);
+        photos.flush();
+        deleteCleanup.fire(new ProductPhotoCleanup.DeleteReady(storageKeys));
     }
 
     /** Called by product deletion; unlike normal reads, this deliberately includes old suppliers. */
@@ -179,15 +212,25 @@ public class ProductSupplierAgreementPhotoService {
 
     private ProductSupplierAgreementPhotoEntity currentEntity(
             ProductEntity product, long photoId) {
-        if (product.supplierId == null) {
-            throw new NotFoundException("Leveranciersafspraakfoto", photoId);
-        }
-        long supplierId = product.supplierId;
-        return photos.find(
-                        "id = ?1 and productId = ?2 and supplierId = ?3",
-                        photoId, product.id, supplierId)
+        return photos.find("id = ?1 and productId = ?2", photoId, product.id)
                 .firstResultOptional()
+                .filter(photo -> inScope(product, photo.supplierId))
                 .orElseThrow(() -> new NotFoundException("Leveranciersafspraakfoto", photoId));
+    }
+
+    /** S is in scope for P when S is P's own supplier or P has a row of S (active or inactive). */
+    private boolean inScope(ProductEntity product, long supplierId) {
+        if (product.supplierId != null && product.supplierId == supplierId) return true;
+        return supplierRows != null && supplierRows.isResolvable()
+                && supplierRows.get().find(product.id, supplierId).isPresent();
+    }
+
+    private long writableSupplier(ProductEntity product, Long requestedSupplierId) {
+        if (requestedSupplierId == null) return requiredSupplier(product);
+        if (!inScope(product, requestedSupplierId)) {
+            throw new BusinessRuleException("Voeg deze leverancier eerst toe aan het product");
+        }
+        return requestedSupplierId;
     }
 
     private List<ProductSupplierAgreementPhotoEntity> currentEntities(

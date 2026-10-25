@@ -66,8 +66,33 @@ public record ProductDto(
         BigDecimal pieceCbm,
         BigDecimal computedSalesPriceEur,
         /** Sales units one order step moves (OrderSteps), so a client need not derive it. */
-        Integer unitsPerOrderStep
+        Integer unitsPerOrderStep,
+        /**
+         * Only on {@code GET /api/products?supplierId=X}: what X offers this product at (its row, or a legacy offer
+         * with id null). On that URL the purchase fields above are X's too; null everywhere else, ignored on writes.
+         */
+        ProductSupplierOfferDto offer
 ) {
+
+    /** One supplier's offer of a product: purchasing only, never on the website, catalogue, quotes or invoices. */
+    public record ProductSupplierOfferDto(Long id, long supplierId, boolean preferred, boolean active,
+            String versionLabel, String supplierReference, BigDecimal exwPrice, Currency exwCurrency,
+            BigDecimal extraUnitCost, Integer moq, Integer leadTimeDays) {
+        static ProductSupplierOfferDto of(ProductSupplier offer) {
+            return new ProductSupplierOfferDto(offer.id(), offer.supplierId(), offer.preferred(), offer.active(),
+                    offer.versionLabel(), offer.supplierReference(), offer.exwPrice(), offer.exwCurrency(),
+                    offer.extraUnitCost(), offer.moq(), offer.leadTimeDays());
+        }
+    }
+
+    public ProductDto withOffer(ProductSupplierOfferDto value) {
+        return new ProductDto(id, sku, name, dimensions, packaging, colour, variantSize, colourHex, description,
+                categoryId, supplierId, supplierNote, active, demo, familyId, canonicalVariantKey, canonicalBarcode,
+                variantPosition, inventoryKnown, familyKey, publicHandle, websiteStatus, orderAppStatus,
+                barcodeInner, barcodeOuter, hsCode, carton, exwPrice, exwCurrency, extraUnitCost, landedCostEur,
+                landedCostSource, markupPct, fixedSalesPriceEur, stockQuantity, photos, texts, publicationIssues,
+                describedAs, cartonCbm, pieceCbm, computedSalesPriceEur, unitsPerOrderStep, value);
+    }
 
     /** Legacy wire names; displayed as B × D × H in this unchanged value order. */
     public record DimensionsDto(BigDecimal lengthCm, BigDecimal widthCm, BigDecimal heightCm, BigDecimal weightKg) {
@@ -274,15 +299,19 @@ public record ProductDto(
                 photos, texts,
                 product.publicationIssues(),
                 product.describe(), carton.cbm(), carton.pieceCbm(), product.computedSalesPriceEur(),
-                OrderSteps.unitsPerStep(product));
+                OrderSteps.unitsPerStep(product), null);
     }
 
     public Product toDomain(Long id) {
-        return toDomain(id, null, null, null, null);
+        return toDomain(id, null, null, null, null, true);
     }
 
+    /**
+     * @param defaultCurrency a new product without EXW currency gets USD; an update passes null through, which the
+     *                        service reads as "keep the stored currency"
+     */
     private Product toDomain(Long id, Integer preservedPiecesPer20Ft, SalesUnit preservedSalesUnit,
-                             String preservedUnitKey, OrderStep preservedOrderStep) {
+                             String preservedUnitKey, OrderStep preservedOrderStep, boolean defaultCurrency) {
         DimensionsDto size = dimensions == null
                 ? new DimensionsDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO) : dimensions;
         CartonDto box = carton == null
@@ -320,7 +349,7 @@ public record ProductDto(
                         box.piecesPerCarton() == null ? 1 : box.piecesPerCarton(), box.weightKg(),
                         box.piecesPerHc(), box.piecesPer20FtProvided()
                                 ? box.piecesPer20Ft() : preservedPiecesPer20Ft),
-                exwPrice, exwCurrency == null ? Currency.USD : exwCurrency, extraUnitCost,
+                exwPrice, exwCurrency == null && defaultCurrency ? Currency.USD : exwCurrency, extraUnitCost,
                 landedCostEur, landedCostSource,
                 markupPct, fixedSalesPriceEur,
                 stockQuantity == null ? 0 : stockQuantity,
@@ -338,7 +367,7 @@ public record ProductDto(
     public Product toDomainForUpdate(Product current) {
         Product changes = toDomain(current.id(), current.carton() == null
                 ? null : current.carton().piecesPer20Ft(), current.packaging().salesUnit(),
-                current.packaging().unitKey(), current.packaging().requestedOrderStep());
+                current.packaging().unitKey(), current.packaging().requestedOrderStep(), false);
         if (inventoryKnown == null) {
             changes = changes.withCanonicalIdentity(
                     changes.familyId(), changes.canonicalVariantKey(), changes.canonicalBarcode(),
