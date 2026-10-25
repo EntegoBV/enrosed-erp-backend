@@ -757,7 +757,9 @@ public class ProductService {
                                 BigDecimal extraUnitCost, ProductCostBreakdown breakdown) {
         Product current = get(productId);
         Product updated = current.withLandedCost(landedCostEur, source);
-        ensurePublishable(updated);
+        /* A live product may carry open publication points (a missing handle or swatch); a new cost must not wait for
+           those, or one such product blocks the whole container. Only a point the cost itself brings in refuses. */
+        ensureNoNewPublicationIssues(current, updated);
         products.save(updated);
         if (costHistory != null && costHistory.isResolvable()) {
             costHistory.get().record(productId, current.landedCostEur(), landedCostEur, source,
@@ -1319,6 +1321,18 @@ public class ProductService {
                 throw new BusinessRuleException("Publieke handle " + publicHandle + " bestaat al");
             }
         });
+    }
+
+    /** Like ensurePublishable, but only for points the change adds: what was already open stays a publication task. */
+    private static void ensureNoNewPublicationIssues(Product before, Product after) {
+        boolean published = after.publicationState(CatalogChannel.WEBSITE) == PublicationState.PUBLISHED
+                || after.publicationState(CatalogChannel.ORDER_APP) == PublicationState.PUBLISHED;
+        if (!published) return;
+        List<String> added = new ArrayList<>(after.publicationIssues());
+        added.removeAll(before.publicationIssues());
+        if (!added.isEmpty()) {
+            throw new BusinessRuleException("Product kan nog niet gepubliceerd worden: " + String.join("; ", added));
+        }
     }
 
     private static void ensurePublishable(Product product) {

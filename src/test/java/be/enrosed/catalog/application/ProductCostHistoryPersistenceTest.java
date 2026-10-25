@@ -247,6 +247,32 @@ class ProductCostHistoryPersistenceTest {
     }
 
     @Test @TestTransaction
+    void aLiveProductWithOpenPublicationPointsStillTakesTheContainerCost() {
+        /* PO-2026-005 on 2026-10-25: one live product missing its handle and swatch rolled back the whole apply. */
+        Supplier supplier = supplier();
+        ProductEntity live = displayProduct(supplier, "stolp");
+        live.websiteStatus = be.enrosed.catalog.domain.PublicationState.PUBLISHED;
+        ProductEntity draft = displayProduct(supplier, "stolp");
+        entities.flush();
+        assertFalse(productService.get(live.id).publicationIssues().isEmpty(), "the live product has open points");
+        PurchaseOrder order = order(supplier, null,
+                new PurchaseOrderLine(null, live.id, 18, new BigDecimal("8.50"), Currency.USD, null, null),
+                new PurchaseOrderLine(null, draft.id, 96, new BigDecimal("8.50"), Currency.USD, null, null));
+        withCosts(order.id(), "6000");
+
+        LandedCost result = purchases.applyToProducts(order.id());
+
+        for (ProductEntity product : List.of(live, draft)) {
+            LandedCost.Line line = result.lines().stream().filter(l -> l.productId().equals(product.id)).findFirst().orElseThrow();
+            assertEquals(0, line.landedUnitEur().compareTo(productService.get(product.id).landedCostEur()));
+            assertEquals(order.number(), productService.get(product.id).landedCostSource());
+            assertEquals(1, history.history(product.id).size());
+        }
+        assertEquals(be.enrosed.catalog.domain.PublicationState.PUBLISHED,
+                productService.get(live.id).publicationState(be.enrosed.catalog.domain.CatalogChannel.WEBSITE));
+    }
+
+    @Test @TestTransaction
     void aTrashedContainerKeepsItsNameAndReadsAsGone() {
         Supplier supplier = supplier();
         ProductEntity product = displayProduct(supplier, null);

@@ -86,6 +86,20 @@ class ProductServicePublicationTest {
     }
 
     @Test
+    void aContainerCostLandsOnALiveProductWhoseOpenPublicationPointsItDoesNotTouch() {
+        /* Live on the website while its description is missing: the point stays open, the cost still lands. */
+        repository.add(product(1L, "ENR-P01", null, "rode-roos",
+                PublicationState.PUBLISHED, PublicationState.DRAFT, true));
+        assertFalse(repository.findById(1L).orElseThrow().publicationIssues().isEmpty());
+
+        service.applyLandedCost(1L, new BigDecimal("10.3858"), "PO-2026-005");
+
+        Product saved = repository.findById(1L).orElseThrow();
+        assertEquals(0, new BigDecimal("10.3858").compareTo(saved.landedCostEur()));
+        assertEquals("PO-2026-005", saved.landedCostSource());
+    }
+
+    @Test
     void normalizesAndProtectsUniquePublicHandles() {
         repository.add(product(1L, "ENR-P01", "Beschrijving", "rode-roos",
                 PublicationState.DRAFT, PublicationState.DRAFT, true));
