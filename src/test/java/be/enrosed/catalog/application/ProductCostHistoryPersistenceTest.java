@@ -144,6 +144,8 @@ class ProductCostHistoryPersistenceTest {
         entities.clear();
         ProductCostEntry newest = history.history(rose.id).getFirst();
         assertNull(newest.breakdown());
+        assertNull(newest.extraUnitCost());
+        assertEquals("USD", newest.exwCurrency(), "EXW price and currency were kept then");
 
         LandedCost.Line line = purchases.applyToProducts(order.id()).lines().getFirst();
         entities.flush();
@@ -157,6 +159,8 @@ class ProductCostHistoryPersistenceTest {
         assertEquals(newest.appliedAt(), filled.appliedAt(), "the row keeps the day it was applied");
         assertEquals(0, newest.landedUnitEur().compareTo(filled.landedUnitEur()));
         assertEquals(partsOf(line), filled.breakdown(), "all seven parts of this container");
+        assertEquals(0, new BigDecimal("0.10").compareTo(filled.extraUnitCost()), "the goods part includes it, so the row names it");
+        assertEquals("USD", filled.exwCurrency());
         assertEquals(older.id(), rows.get(1).purchaseOrderId());
         assertNull(rows.get(1).breakdown(), "another container's row is left alone");
 
@@ -177,7 +181,7 @@ class ProductCostHistoryPersistenceTest {
         Supplier supplier = supplier();
         ProductEntity dome = displayProduct(supplier, "stolp");
         PurchaseOrder order = order(supplier, null, new PurchaseOrderLine(null, dome.id, 18,
-                new BigDecimal("6.00"), Currency.USD, null, null));
+                new BigDecimal("6.00"), Currency.USD, new BigDecimal("0.25"), null));
         withCosts(order.id(), "800");
         purchases.applyToProducts(order.id());
         /* The one row the first start wrote: this container, no quantity, no parts. */
@@ -198,8 +202,11 @@ class ProductCostHistoryPersistenceTest {
         assertEquals(1, rows.size());
         assertEquals("SEED", rows.getFirst().kind());
         assertEquals("system", rows.getFirst().appliedBy());
-        assertNull(rows.getFirst().quantity(), "only the parts are filled in");
+        assertNull(rows.getFirst().quantity(), "the quantity of then is not proven by the cost");
+        assertNull(rows.getFirst().exwPrice());
         assertEquals(partsOf(line), rows.getFirst().breakdown());
+        assertEquals(0, new BigDecimal("0.25").compareTo(rows.getFirst().extraUnitCost()), "part of the goods");
+        assertEquals("USD", rows.getFirst().exwCurrency(), "the extra unit cost comes with its currency");
 
         /* Another cost from the same container: a new row with its own parts, the start row stays as it was. */
         withoutParts(start);
@@ -212,6 +219,7 @@ class ProductCostHistoryPersistenceTest {
         assertEquals(0, dearer.landedUnitEur().compareTo(rows.getFirst().landedUnitEur()));
         assertEquals(partsOf(dearer), rows.getFirst().breakdown());
         assertNull(rows.get(1).breakdown(), "parts of another cost do not belong to the start row");
+        assertNull(rows.get(1).extraUnitCost());
     }
 
     @Test @TestTransaction
@@ -444,11 +452,12 @@ class ProductCostHistoryPersistenceTest {
         entities.flush();
     }
 
-    /** A row as every apply before 2026-10-16 wrote it. */
+    /** A row as every apply before 2026-10-16 wrote it: no parts, no extra unit cost (EXW price and currency stay). */
     private void withoutParts(long rowId) {
         ProductCostHistoryEntity row = entities.find(ProductCostHistoryEntity.class, rowId);
         row.goodsEur = row.originEur = row.freightEur = row.dutyEur = null;
         row.destinationEur = row.enrosedEur = row.separateEur = null;
+        row.extraUnitCost = null;
         entities.flush();
     }
 

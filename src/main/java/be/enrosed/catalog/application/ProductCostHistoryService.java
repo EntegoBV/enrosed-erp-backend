@@ -83,9 +83,9 @@ public class ProductCostHistoryService {
      * Adds the row for a cost written onto a product. Nothing is added when
      * the product's newest row is this same container at this same cost and
      * the product still carries it; when that row has no parts yet, it takes
-     * the parts of this call. The same container at another cost is a
-     * re-apply, anything else (another container, an older one again) is an
-     * apply. A copy's first row only names the container its cost came from:
+     * the parts of this call and, when it has none, its extra unit cost. The
+     * same container at another cost is a re-apply, anything else (another
+     * container, an older one again) is an apply. A copy's first row only names the container its cost came from:
      * the copy's own first apply from that container is an apply, never a
      * re-apply, and is always written.
      */
@@ -100,7 +100,15 @@ public class ProductCostHistoryService {
                 && !ProductCostKind.COPY.name().equals(latest.kind);
         if (sameContainer && sameCost(latest.landedUnitEur, landedUnitEur) && sameCost(previous, landedUnitEur)) {
             /* A row from before the parts were kept takes them now: same container, same cost, so they belong to it. */
-            if (breakdown != null && !breakdown.isEmpty() && partsOf(latest).isEmpty()) breakdown(latest, breakdown);
+            if (breakdown != null && !breakdown.isEmpty() && partsOf(latest).isEmpty()) {
+                breakdown(latest, breakdown);
+                /* Its goods part includes the extra unit cost, so the row names it, in its currency, as a new row would. */
+                if (latest.extraUnitCost == null && extraUnitCost != null
+                        && (latest.exwCurrency == null || latest.exwCurrency.equals(exwCurrency))) {
+                    latest.extraUnitCost = extraUnitCost;
+                    latest.exwCurrency = exwCurrency;
+                }
+            }
             return;
         }
         ProductCostHistoryEntity row = new ProductCostHistoryEntity();
