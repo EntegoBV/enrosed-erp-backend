@@ -230,6 +230,20 @@ public final class PanacheSalesRepositories {
             entity.archivedAt = at;
             dao.flush();
         }
+
+        /* On the managed line entities (no bulk update), so a later save of the managed order never writes a stale
+           value over it; save() itself never writes this column. */
+        @Override
+        public void setLineStockCost(long orderId, long productId, java.math.BigDecimal unitCostEur) {
+            SalesOrderEntity entity = dao.findById(orderId);
+            if (entity == null) return;
+            for (SalesOrderLineEntity line : entity.lines) {
+                if (line.productId != null && line.productId == productId && !line.unavailable) {
+                    line.stockCostEur = unitCostEur;
+                }
+            }
+            dao.flush();
+        }
     }
 
     @ApplicationScoped

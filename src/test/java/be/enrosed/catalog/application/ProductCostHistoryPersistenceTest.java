@@ -117,7 +117,14 @@ class ProductCostHistoryPersistenceTest {
         assertEquals("voor Frans", rows.getFirst().containerName(), "the Herkenbare naam wins");
         assertNull(rows.getFirst().extraUnitCost(), "neither the line nor the product has an extra unit cost");
 
+        /* Since the batches round an older container keeps a newer container's card, unless the product is named
+           ("Ook op de productkaart"). */
+        BigDecimal newerCard = productService.get(diamond.id).landedCostEur();
         purchases.applyToProducts(first.id());
+        assertEquals(3, history.history(diamond.id).size(), "the newer container's card is kept: no row");
+        assertEquals(0, newerCard.compareTo(productService.get(diamond.id).landedCostEur()));
+        assertEquals(second.number(), productService.get(diamond.id).landedCostSource());
+        purchases.applyToProducts(first.id(), new PurchaseOrderService.ApplyRequest(List.of(diamond.id)));
         rows = history.history(diamond.id);
         assertEquals(4, rows.size(), "an older container after a newer one is a real change");
         assertEquals("APPLY", rows.getFirst().kind());

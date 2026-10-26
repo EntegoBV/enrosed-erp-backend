@@ -235,7 +235,7 @@ class PartnerInvoiceIntegrityTest {
         var finalInvoice = put(invoice(2).asPartnerSettlement().withPaymentState(QuoteStatus.UITGEREIKT, null));
         var shipped = service.shipGoods(finalInvoice.id());
         assertEquals(oldShipment, shipped.goodsShippedAt());
-        verify(products, never()).sellStock(anyLong(), anyInt(), anyString());
+        verify(products, never()).sellStock(anyLong(), anyInt(), anyString(), any());
         assertThrows(BusinessRuleException.class, () -> service.shipGoods(finalInvoice.id()));
     }
 
@@ -245,11 +245,11 @@ class PartnerInvoiceIntegrityTest {
         put(invoice(2, Instant.parse("2026-07-02T13:45:00Z")));
         var finalInvoice = put(invoice(3).asPartnerSettlement().withPaymentState(QuoteStatus.UITGEREIKT, null));
         assertThrows(BusinessRuleException.class, () -> service.shipGoods(finalInvoice.id()));
-        verify(products, never()).sellStock(anyLong(), anyInt(), anyString());
+        verify(products, never()).sellStock(anyLong(), anyInt(), anyString(), any());
         stored.remove(1L); stored.remove(2L);
         service.shipGoods(finalInvoice.id());
         assertThrows(BusinessRuleException.class, () -> service.shipGoods(finalInvoice.id()));
-        verify(products).sellStock(9L, 4, "PARTNER-3");
+        verify(products).sellStock(eq(9L), eq(4), eq("PARTNER-3"), any());
         verify(orders, times(3)).lockById(3L);
     }
 

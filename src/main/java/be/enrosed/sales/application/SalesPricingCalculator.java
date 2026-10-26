@@ -171,9 +171,14 @@ public class SalesPricingCalculator {
                documents, a product that had no cost yet) reads today's cost. */
             /* A credit note keeps the cost its line was written with, an explicit zero included: a
                price correction reverses revenue, not cost. */
-            BigDecimal landedUnit = allocated != null ? allocated.landedUnitCost()
+            BigDecimal expectedUnit = allocated != null ? allocated.landedUnitCost()
                     : line.hasUnitCost() || order.isCreditNote() && line.unitCostEur() != null ? Money.nz(line.unitCostEur())
                     : Money.nz(product.landedCostEur());
+            /* After shipment the margin uses what the pieces that left cost (FIFO over the batches); the documents
+               with their own cost rule keep the expected cost. */
+            boolean fromStock = allocated == null && line.stockCostEur() != null && !order.isCreditNote()
+                    && !order.isPartnerDeal() && order.markupMode() != MarkupMode.CONTAINER_COST;
+            BigDecimal landedUnit = fromStock ? line.stockCostEur() : expectedUnit;
             if (landedUnit.signum() == 0 && !line.isUnavailable() && !order.isCreditNote()) withoutCost.add(product.sku());
             BigDecimal lineCost = allocated == null ? landedUnit.multiply(BigDecimal.valueOf(quantity)) : allocated.costTotal();
 
@@ -219,7 +224,8 @@ public class SalesPricingCalculator {
                     line.isUnavailable() || estimate.earliestDate() == null ? null : estimate.earliestDate().toString(),
                     line.isUnavailable() ? null : manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
                     line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity(),
-                    product.packaging().orderStep(), step));
+                    product.packaging().orderStep(), step,
+                    Money.unit(expectedUnit), fromStock ? Money.unit(line.stockCostEur()) : null));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);

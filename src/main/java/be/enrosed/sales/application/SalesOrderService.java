@@ -97,6 +97,12 @@ public class SalesOrderService {
     /** The container side, for a quote made straight from a purchase order. */
     @Inject
     Instance<be.enrosed.sourcing.application.PurchaseOrderService> purchaseOrders;
+    /** Which container's pieces leave at shipment and what they cost; absent in the hand-built tests. */
+    @Inject
+    Instance<be.enrosed.catalog.application.StockBatchService> stockBatches;
+    /** The product's unit in pieces, for the stock cost per sales unit; absent in the hand-built tests. */
+    @Inject
+    Instance<be.enrosed.catalog.application.StockService> stock;
     /** The letters in front of document numbers live in the company settings. */
     @Inject
     Instance<be.enrosed.shared.company.CompanyProfileService> companyProfile;
@@ -1277,10 +1283,26 @@ public class SalesOrderService {
                 if (entirelyHistorical) shippedAt = shippedAdvances.stream().map(SalesOrder::goodsShippedAt).max(Instant::compareTo).orElseThrow();
             }
         }
+        boolean batchesOn = stockBatches != null && stockBatches.isResolvable() && stock != null && stock.isResolvable()
+                && stockBatches.get().active();
+        /* A partner settlement takes its partner batch first, a container sale its container's batch. */
+        Long pin = invoice.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? invoice.linkedPurchaseOrderId()
+                : invoice.sourcePurchaseOrderId();
+        if (batchesOn && purchaseOrders != null && purchaseOrders.isResolvable()) {
+            List<Long> leaving = quantitiesToBook.entrySet().stream().filter(entry -> entry.getValue() > 0)
+                    .map(Map.Entry::getKey).toList();
+            if (!leaving.isEmpty()) purchaseOrders.get().refreshCalculatedBatches(leaving);
+        }
         for (var entry : quantitiesToBook.entrySet()) if (entry.getValue() > 0)
-            products.sellStock(entry.getKey(), entry.getValue(), invoice.number());
+            products.sellStock(entry.getKey(), entry.getValue(), invoice.number(),
+                    be.enrosed.catalog.domain.StockBatchContext.sale(invoice.id(), pin));
         ActorRef actor = currentActor();
         SalesOrder shipped = orders.save(withGoodsShipped(invoice, shippedAt));
+        if (batchesOn && stockCostEligible(invoice)) {
+            stampStockCosts(invoice);
+            /* Re-read: the managed lines carry the stamp, so the answer shows the stock cost and margin at once. */
+            shipped = get(id);
+        }
         String summary = entirelyHistorical ? "Levering overgenomen uit historische voorschotfacturen; voorraad was al afgepunt"
                 : historicalShipment ? "Historische voorraadboeking verrekend; resterende stukken afgepunt" : "Bestelling verzonden - voorraad afgepunt";
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.BESTELLING_VERZONDEN,
@@ -1288,6 +1310,38 @@ public class SalesOrderService {
                 summary, null));
         recordActivity(SALES_ACTION_SHIPPED, shipped, historicalShipment ? summary : "Bestelling verzonden en voorraad afgepunt");
         return shipped;
+    }
+
+    /** Only a regular invoice takes its margin from the batches; partner deals and container-cost documents keep theirs. */
+    private static boolean stockCostEligible(SalesOrder invoice) {
+        return invoice.purpose() == SalesPurpose.STANDARD && !invoice.isPartnerDeal()
+                && invoice.markupMode() != MarkupMode.CONTAINER_COST;
+    }
+
+    /**
+     * Writes on each product's lines what the pieces that just left cost, per sales unit: the batch takes of this
+     * shipment, pieces without a batch or a cost at the line's expected cost. A container sale counts without the
+     * Enrosed kost (as its quote does).
+     */
+    private void stampStockCosts(SalesOrder invoice) {
+        Map<Long, be.enrosed.catalog.domain.StockBatchSaleCost> taken = stockBatches.get().saleCost(invoice.id());
+        boolean exclEnrosed = invoice.sourcePurchaseOrderId() != null && invoice.partnerPurchaseOrderId() == null;
+        for (var entry : taken.entrySet()) {
+            long productId = entry.getKey();
+            be.enrosed.catalog.domain.StockBatchSaleCost cost = entry.getValue();
+            if (cost.pieces() <= 0) continue;
+            int factor = Math.max(1, stock.get().unitPieces(productId));
+            BigDecimal expected = invoice.lines().stream()
+                    .filter(line -> !line.isUnavailable() && Objects.equals(line.productId(), productId))
+                    .findFirst().filter(SalesOrderLine::hasUnitCost).map(SalesOrderLine::unitCostEur).orElse(null);
+            if (expected == null) expected = Money.nz(products.get(productId).landedCostEur());
+            BigDecimal value = Money.nz(exclEnrosed ? cost.valueExclEnrosedEur() : cost.valueEur())
+                    .add(expected.multiply(BigDecimal.valueOf(cost.piecesWithoutCost()))
+                            .divide(BigDecimal.valueOf(factor), 10, java.math.RoundingMode.HALF_UP));
+            BigDecimal perUnit = value.multiply(BigDecimal.valueOf(factor))
+                    .divide(BigDecimal.valueOf(cost.pieces()), 4, java.math.RoundingMode.HALF_UP);
+            orders.setLineStockCost(invoice.id(), productId, perUnit);
+        }
     }
 
     private static SalesOrder withGoodsShipped(SalesOrder order, java.time.Instant at) {
@@ -2264,7 +2318,8 @@ public class SalesOrderService {
             SalesOrderLine source = stored.get(line.productId());
             lines.add(new CreditNoteProposal.ProposalLine(line.productId(), line.description(), line.sku(), line.photoUrl(), "st",
                     line.quantity(), already, suggested, netUnit(priced, line),
-                    source == null || source.unitCostEur() == null ? line.landedUnitCost() : source.unitCostEur()));
+                    source != null && source.stockCostEur() != null ? source.stockCostEur()
+                            : source == null || source.unitCostEur() == null ? line.landedUnitCost() : source.unitCostEur()));
         }
         BigDecimal total = Money.money(priced.totals().totalInclVat());
         BigDecimal alreadyCredited = existing.stream().map(note -> Money.money(price(note).totals().totalInclVat()))
@@ -2348,6 +2403,7 @@ public class SalesOrderService {
                         + unitText(invoicedUnit) + ")");
             SalesOrderLine source = stored.get(line.productId());
             BigDecimal unitCost = reason == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
+                    : source != null && source.stockCostEur() != null ? source.stockCostEur()
                     : source != null && source.unitCostEur() != null ? source.unitCostEur() : Money.unit(invoicedLine.landedUnitCost());
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unitPrice, BigDecimal.ZERO, null,
                     unitCost, false, null));
@@ -2426,7 +2482,8 @@ public class SalesOrderService {
         int pieces = 0;
         for (SalesOrderLine line : creditNote.lines()) {
             if (line.isUnavailable() || line.quantity() <= 0) continue;
-            products.returnStock(line.productId(), line.quantity(), creditNote.number());
+            products.returnStock(line.productId(), line.quantity(), creditNote.number(),
+                    be.enrosed.catalog.domain.StockBatchContext.saleReturn(creditNote.id(), original.id()));
             pieces += line.quantity();
         }
         SalesOrder saved = orders.save(creditNote.withGoodsReturnedAt(Instant.now()));
@@ -2564,7 +2621,7 @@ public class SalesOrderService {
             if (line == null || line.unitCostEur() != null) return line;
             SalesOrderLine source = original.get(line.productId());
             BigDecimal cost = creditNote.creditReason() == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
-                    : source == null ? null : source.unitCostEur();
+                    : source == null ? null : source.stockCostEur() != null ? source.stockCostEur() : source.unitCostEur();
             return cost == null ? line : line.withUnitCost(cost);
         }).toList();
         return creditNote.withLinesAndPallets(lines, List.of());
