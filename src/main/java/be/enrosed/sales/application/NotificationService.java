@@ -44,6 +44,7 @@ public class NotificationService {
     @Inject Instance<WebOrders> webOrders;
     @Inject Instance<WebOrderDeliveries> deliveries;
     @Inject Instance<SalesOrderService> salesOrders;
+    @Inject Instance<be.enrosed.sourcing.tracking.ContainerArrivalReminders> containerArrivals;
     /** How long the news that a customer cancelled their own order stays in the feed. */
     private static final Duration CUSTOMER_CANCEL_NEWS = Duration.ofDays(14);
 
@@ -74,7 +75,9 @@ public class NotificationService {
         /** The customer rejected. */
         AFGEWEZEN,
         /** The customer viewed the quote. */
-        BEKEKEN
+        BEKEKEN,
+        /** A tracked purchase approaches its currently planned arrival. */
+        CONTAINER_AANKOMST
     }
 
     public record Notification(
@@ -86,8 +89,22 @@ public class NotificationService {
             String detail,
             /** Do we need to act, or is this just news? */
             boolean actionNeeded,
-            Instant at
-    ) {}
+            Instant at,
+            String url,
+            /** Stable event identity when several reminders concern the same order. */
+            String notificationId
+    ) {
+        /** Compatibility for existing sales-only notifications. */
+        public Notification(Kind kind, Long orderId, String orderNumber, String customer, String title,
+                            String detail, boolean actionNeeded, Instant at) {
+            this(kind, orderId, orderNumber, customer, title, detail, actionNeeded, at, null, null);
+        }
+
+        public Notification(Kind kind, Long orderId, String orderNumber, String customer, String title,
+                            String detail, boolean actionNeeded, Instant at, String url) {
+            this(kind, orderId, orderNumber, customer, title, detail, actionNeeded, at, url, null);
+        }
+    }
 
     public record Feed(List<Notification> items, int actionCount) {}
 
@@ -205,6 +222,9 @@ public class NotificationService {
                             : revision.proposedBy() + " stelt een wijziging voor.",
                     true, revision.proposedAt()));
         });
+
+        if (containerArrivals != null && containerArrivals.isResolvable())
+            items.addAll(containerArrivals.get().feed(Instant.now()));
 
         /* Newest first; notifications without a timestamp go to the back
            instead of the top - a null should not read as "just now". */

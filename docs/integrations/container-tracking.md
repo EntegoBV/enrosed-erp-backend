@@ -16,6 +16,12 @@ The feed response has `configured: true` while accountless tracking is enabled, 
 
 Without a source-specific stored HTTPS link, the external carrier lookup opens the accountless [track-trace container directory](https://www.track-trace.com/container). This is a manual lookup link, not a background data API.
 
+## Accountless Evergreen date lookup
+
+An explicitly recorded Evergreen master B/L (`EGLV` plus twelve digits) can also use the documented public [bexy MCP](https://bexy.io/mcp) endpoint, without an account or key. The server performs the MCP initialize/initialized/`track-shipment` sequence against the fixed HTTPS endpoint. It checks the echoed B/L and selected ISO container number, requires a unique container selection, and accepts only a `carrier_eta` explicitly ending at `port_of_discharge`. Container owner prefixes alone do not select a carrier.
+
+This is a lookup of bexy's cached carrier record, not a request to refresh Evergreen. `data_as_of` is retained as `dateSourceCheckedAt`; an HTTP response received now cannot conceal that the source is older than 24 hours. Expired or mismatched records retain the saved purchase dates and show the rejection reason. The per-order/per-shipment date snapshot has its own persisted six-hour schedule; manual checks have a fifteen-minute cooldown, and the global tracking disable flag also disables these requests. Failures keep the last successful date observation. Bexy loaded/onboard status is never treated as proof of actual ship departure.
+
 ## Optional full container provider and activation
 
 The connector uses the official [ShipsGo v2 API](https://api.shipsgo.com/docs/v2/) with `X-Shipsgo-User-Token`. Configure `SHIPSGO_API_TOKEN` on the **test** Railway backend service to activate. Keep this value in server configuration; never put it in frontend variables, source, screenshots or logs. The current rollout does not create a ShipsGo account or buy a subscription.
@@ -33,6 +39,16 @@ ShipsGo GeoJSON returns route segments and ports. A `CURRENT` LineString's `prop
 The map uses OpenStreetMap with attribution and validated coordinates. If the provider is unconfigured, has no position, or fails, the UI explains this rather than showing a fabricated position.
 
 ## Rollout boundary and verification
+
+### Transport dates saved on the purchase
+
+Tracking rows include `orderExpectedArrival` and `orderShippedOn`, read from the canonical purchase again after a refresh. `dateSource`, `dateSourceCheckedAt` and `dateError` describe the independent date observation and any reason it could not be applied. A successful ERP request does not make an old provider cache fresh: automatic date changes require a source check within 24 hours and no more than five minutes in the future.
+
+The date synchronizer requires the exact shipment identity, both operational route ports and a current voyage anchor. Existing departure dates permit at most three days of source correction; without one, the source voyage must begin after the purchase date. Source voyages older than 180 days, impossible arrival windows, mismatched linked ships and unrecognised routes preserve the saved dates. Null or blank legacy port fields use the existing purchase domain defaults (Ningbo / Rotterdam), while the locked write still checks that the recorded route fields have not changed.
+
+Only actual departure evidence at the configured **origin** can update `shippedOn`. ShipsGo's actual origin `DEPA` is usable; loaded/onboard evidence can anchor an ETA to the voyage but cannot invent a departure. Voydar can supply an actual origin departure only with a recognised port timezone and an unambiguous voyage; a transit stop such as Singapore on a Ningbo–Rotterdam shipment cannot replace the original shipping date. Without an existing departure date, a Voydar departure must occur after the ship was associated with the purchase. Voydar itself has no machine-readable ETA.
+
+Database writes lock and recheck the exact reference, recorded route, order date, status, notes and existing transport dates after the network request. Concurrent manual changes win. Received, archived, deleted and concept purchases are not changed. Only `shippedOn` and `expectedArrival` are written, with an idempotent audit entry; this code never invokes the purchase lifecycle, marks an order received, books stock or creates a payment. Arrival reminders read the resulting canonical `expectedArrival` independently.
 
 Publish backend and frontend only to their existing remote `test` branches. Confirm deployment completion separately from Git publication and verify the test URLs on phone and desktop. Production (`main`) is outside this rollout.
 

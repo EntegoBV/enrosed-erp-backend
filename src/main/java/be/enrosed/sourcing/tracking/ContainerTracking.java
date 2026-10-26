@@ -18,20 +18,35 @@ public final class ContainerTracking {
     public record Reference(String key, String number, boolean container) {}
     public record Point(double lat, double lon) {}
     public record Position(double lat, double lon, String kind, String recordedAt) {}
-    public record Event(String id, String status, String location, String occurredAt, boolean actual, String source, String sourceUrl) {
+    public record Event(String id, String status, String location, String occurredAt, boolean actual, String source, String sourceUrl,
+                        String kind, String locationCode) {
         public Event(String id, String status, String location, String occurredAt, boolean actual) {
-            this(id, status, location, occurredAt, actual, null, null);
+            this(id, status, location, occurredAt, actual, null, null, null, null);
+        }
+        public Event(String id, String status, String location, String occurredAt, boolean actual, String source, String sourceUrl) {
+            this(id, status, location, occurredAt, actual, source, sourceUrl, null, null);
         }
     }
+    /** Structured carrier evidence for column-only date synchronisation; missing evidence means keep the order. */
+    public record DateEvidence(String originCode, String originName, String destinationCode, String destinationName,
+                               String actualDepartureAt, String expectedArrivalDate, String vesselImo, String voyage,
+                               String voyageStartedOn, String containerNumber, String bookingNumber) {}
     public record Observation(String status, String carrier, String vessel, String eta, String location,
                               Position position, List<Point> route, List<Event> events,
-                              Instant providerCheckedAt, Instant providerUpdatedAt) {}
+                              Instant providerCheckedAt, Instant providerUpdatedAt, DateEvidence dateEvidence) {
+        public Observation(String status, String carrier, String vessel, String eta, String location,
+                           Position position, List<Point> route, List<Event> events, Instant providerCheckedAt, Instant providerUpdatedAt) {
+            this(status, carrier, vessel, eta, location, position, route, events, providerCheckedAt, providerUpdatedAt, null);
+        }
+    }
     public record Row(long orderId, String orderNumber, String containerName, String trackingReference,
                       String orderStatus, String status, String statusLabel, String carrier, String vessel,
                       String eta, String location, Position position, List<Point> route, List<Event> events,
                       Instant checkedAt, Instant updatedAt, Instant nextCheckAt, Instant changedAt,
                       String error, String trackingUrl, Instant providerCheckedAt, Instant providerUpdatedAt,
-                      String source, String vesselImo, boolean automatic) {}
+                      String source, String vesselImo, boolean automatic,
+                      java.time.LocalDate orderExpectedArrival, java.time.LocalDate orderShippedOn,
+                      String dateSource, Instant dateSourceCheckedAt, String dateError) {}
     public record Feed(String provider, boolean configured, int intervalHours, List<Row> containers, boolean shipsGoConfigured) {}
 
     /** Recognise a number inside existing carrier links, but never fetch those user-controlled URLs. */
@@ -80,6 +95,7 @@ public final class ContainerTracking {
             case "UNCONFIGURED" -> "Trackingdienst nog niet gekoppeld";
             case "UNSUPPORTED" -> "Trackingreferentie aanvullen";
             case "VESSEL_TRACKING" -> "Schip gekoppeld";
+            case "CARRIER_SCHEDULE" -> "Rederijplanning beschikbaar";
             case "PENDING", "NEW" -> "Eerste controle afwachten";
             case "INPROGRESS" -> "Wachten op de rederij";
             case "BOOKED" -> "Geboekt";

@@ -71,6 +71,24 @@ class ContainerTrackingTest {
         assertEquals("SHANGHAI", observation.location());
     }
 
+    @Test void carrierDateEvidenceUsesActualOriginDepartureNotTransitOrEstimatedEvents() throws Exception {
+        var shipment = json.readTree("""
+          {"status":"SAILING","booking_number":"EGLV143650155115","checked_at":"2026-10-26 09:00:00",
+           "route":{"port_of_loading":{"location":{"code":"CNNGB","name":"NINGBO"}},
+                    "port_of_discharge":{"location":{"code":"NLRTM","name":"ROTTERDAM"},"date_of_discharge":"2026-11-12T12:00:00+01:00"}},
+           "containers":[{"number":"EGSU0162841","movements":[
+             {"event":"LOAD","status":"ACT","timestamp":"2026-10-05T12:00:00+08:00","location":{"code":"CNNGB","name":"NINGBO"}},
+             {"event":"DEPA","status":"ACT","timestamp":"2026-10-06T00:20:00+08:00","location":{"code":"CNNGB","name":"NINGBO"},"vessel":{"imo":9975791},"voyage":"1419-004W"},
+             {"event":"DEPA","status":"ACT","timestamp":"2026-10-15T12:46:00+08:00","location":{"code":"SGSIN","name":"SINGAPORE"}},
+             {"event":"DEPA","status":"EST","timestamp":"2026-10-04T12:00:00+08:00","location":{"code":"CNNGB","name":"NINGBO"}}]}]}
+          """);
+        var result = ShipsGoClient.parse(shipment, json.readTree("{}"), reference("EGSU0162841"));
+        assertEquals("2026-10-06T00:20:00+08:00", result.dateEvidence().actualDepartureAt());
+        assertEquals("2026-10-05", result.dateEvidence().voyageStartedOn());
+        assertEquals("2026-11-12", result.dateEvidence().expectedArrivalDate());
+        assertEquals("9975791", result.dateEvidence().vesselImo());
+    }
+
     @Test void portIsLabelledAsPortAndInvalidOrMismatchedCoordinatesAreRejected() throws Exception {
         var shipment = json.readTree("{\"status\":\"ARRIVED\",\"containers\":[{\"number\":\"MSCU1234567\"}]}");
         var geo = json.readTree("""

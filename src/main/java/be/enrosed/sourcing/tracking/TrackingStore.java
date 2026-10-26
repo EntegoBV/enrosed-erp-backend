@@ -75,7 +75,7 @@ public class TrackingStore {
         try {
             // Provider check timestamps alone are not a cargo update. Compare only meaningful data.
             Observation businessData = new Observation(observation.status(), observation.carrier(), observation.vessel(),
-                    observation.eta(), observation.location(), observation.position(), observation.route(), observation.events(), null, null);
+                    observation.eta(), observation.location(), observation.position(), observation.route(), observation.events(), null, null, observation.dateEvidence());
             String fingerprint = hash(json.writeValueAsString(businessData));
             if (!Objects.equals(entity.fingerprint, fingerprint)) entity.changedAt = now;
             entity.observationJson = json.writeValueAsString(observation);
