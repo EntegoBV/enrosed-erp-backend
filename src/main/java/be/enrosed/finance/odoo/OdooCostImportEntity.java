@@ -3,7 +3,11 @@ package be.enrosed.finance.odoo;
 import jakarta.persistence.*;
 import java.time.Instant;
 
-/** One durable source identity; a removed local cost must never make its source appear new again. */
+/**
+ * One durable source identity; a removed local cost must never make its source appear new again to automation. Only the
+ * user's own registration (OdooPurchaseImportService) releases the binding of a deleted cost and binds the new one, in
+ * one transaction (FIX2, 2026-10-26).
+ */
 @Entity @Table(name="odoo_cost_import",uniqueConstraints={
         @UniqueConstraint(name="uq_odoo_cost_source",columnNames={"source_namespace","company_id","odoo_move_id"}),
         @UniqueConstraint(name="uq_odoo_cost_local",columnNames="company_cost_id")})

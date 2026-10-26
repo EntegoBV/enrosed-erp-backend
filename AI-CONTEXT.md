@@ -1508,7 +1508,9 @@ scheduled job was touched, and `StockLedger` only gained two readers.
   `OdooCostImportStore`. See `docs/integrations/odoo-test-connector.md` for REST contracts.
 - Source identity `(namespace, company, move ID)` and local cost are unique in
   `odoo_cost_import`; failed registration leaves only a retryable empty identity reservation.
-  Keep that provenance if a local cost is deleted. No Odoo write occurs during this import.
+  Keep that provenance if a local cost is deleted: automation (Linc sync, TICA) never imports that source again.
+  Only the user's own registration releases the binding of a deleted cost and books a new cost on it, in one
+  transaction (FIX2, 2026-10-26). No Odoo write occurs during this import.
 - Original gross/net/VAT and provider draft/posted state are retained. Supplier credits are
   negative costs/payments. Mixed-tax invoices do not acquire a fictional single tax rate;
   classification/deductibility remain unconfirmed. Original source fields cannot be locally edited.

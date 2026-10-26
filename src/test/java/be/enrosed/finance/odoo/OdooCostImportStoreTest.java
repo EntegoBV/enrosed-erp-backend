@@ -22,6 +22,7 @@ class OdooCostImportStoreTest {
     @Inject BankStatementService bank;
     @Inject EntityManager em;
     @Inject OdooCostImportSlots slots;
+    @Inject be.enrosed.media.MediaService media;
     static final String NS="incoming-test", HASH="a".repeat(64);
     static BigDecimal money(String value){return new BigDecimal(value).setScale(2);}
     OdooDocumentService.PurchaseSnapshot snapshot(long id,String type,String party,String reference,String date,String net,String vat,String total) {
@@ -35,6 +36,15 @@ class OdooCostImportStoreTest {
     }
     void slot(OdooDocumentService.PurchaseSnapshot source){var row=new OdooCostImportEntity();row.id=NS+":"+source.document().id();row.namespace=NS;row.companyId=1;row.moveId=source.document().id();row.createdAt=Instant.now();em.persist(row);em.flush();}
     OdooCostImportStore.Result register(BankStatementLineEntity line,OdooDocumentService.PurchaseSnapshot source,Long existing){slot(source);return store.register(line.id,source,HASH,existing,null,List.of());}
+    /** The source as Odoo lists it with one XML attachment, and that file as the user's registration downloads it. */
+    OdooDocumentService.PurchaseSnapshot withXml(OdooDocumentService.PurchaseSnapshot source){
+        var d=source.document();var document=new OdooDocumentService.Document(d.id(),d.name(),d.reference(),d.partner(),d.date(),d.moveType(),d.state(),d.currency(),
+                d.total(),d.peppolState(),d.peppolMessageId(),List.of(new OdooDocumentService.Attachment(d.id(),"invoice-"+d.id()+".xml","application/xml",40,"XML")));
+        return new OdooDocumentService.PurchaseSnapshot(source.namespace(),source.companyId(),document,source.partnerId(),source.partnerVat(),source.supplierCountry(),
+                source.netEur(),source.vatEur(),source.totalEur(),source.sourceUpdatedAt(),source.hash());
+    }
+    OdooCostImportStore.Downloaded xml(long id){return new OdooCostImportStore.Downloaded(id,"XML",new OdooDocumentService.Download("invoice-"+id+".xml","application/xml",
+            ("<Invoice><ID>synthetic-"+id+"</ID></Invoice>").getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
 
     @Test @TestTransaction void newDraftBillPreservesAmountsAndCompletedRetryNeverCreatesAnotherPayment(){
         var source=invoice(2001);var row=line("-121.02","2026-09-08");var result=register(row,source,null);
@@ -128,6 +138,46 @@ class OdooCostImportStoreTest {
         assertEquals(1,cost.payments().size());assertEquals(row.id,cost.payments().getFirst().bankStatementLineId());assertEquals(money("0"),cost.openEur());
         assertEquals("XML",store.source(again.companyCostId()).documents().getFirst().kind());
         assertEquals(again.companyCostId(),store.completedRetry(NS,row.id,2015,HASH).companyCostId());
+    }
+
+    /** FIX2 review: the reported case is a supplier credit note (Helloprint C327510, − € 95,58), refunded on a bank line of its own. */
+    @Test @TestTransaction void aDeletedSupplierCreditNoteIsBookedAgainAsANegativeCostWithItsRefund(){
+        var source=snapshot(2016,"in_refund","Credit Supplier","CN-2016","2026-09-01","-78.99","-16.59","-95.58");var first=register(line("95.60","2026-09-08"),source,null);
+        costs.delete(first.companyCostId());
+        assertTrue(store.plan(line("95.58","2026-09-09").id,source,null).unavailableReason().contains("lokale kost is verwijderd"));
+        var refund=line("95.58","2026-09-10");var plan=store.plan(refund.id,source,null,true);
+        assertNull(plan.unavailableReason());assertNull(plan.companyCostId());assertEquals(money("-95.58"),plan.paymentAmountEur());
+        var again=store.register(refund.id,source,HASH,null,null,List.of(),true);
+        assertNotEquals(first.companyCostId(),again.companyCostId());assertFalse(again.alreadyRegistered());assertEquals(money("0"),again.differenceEur());
+        var cost=costs.view(costs.get(again.companyCostId()));
+        assertEquals(money("-95.58"),cost.cashTotalEur());assertEquals(money("-95.58"),cost.paidEur());assertEquals(money("0"),cost.openEur());
+        assertEquals(1,cost.payments().size());assertEquals(refund.id,cost.payments().getFirst().bankStatementLineId());
+        assertEquals(money("-95.58"),cost.payments().getFirst().amountEur());assertEquals(again.companyCostId(),store.find(NS,2016).companyCostId);
+    }
+    /** FIX2 review: the deleted cost's invoice stays in the library; archived there since, booking again restores it instead of failing. */
+    @Test @TestTransaction void anArchivedInvoiceFileComesBackWhenTheUserBooksTheInvoiceAgain(){
+        var source=withXml(invoice(2017));var row=line("-121","2026-09-08");slot(source);
+        var first=store.register(row.id,source,HASH,null,null,List.of(xml(2017)));long asset=store.source(first.companyCostId()).documents().getFirst().mediaAssetId();
+        costs.delete(first.companyCostId());media.archive(asset); // the orphaned invoice tidied away in Documenten & media
+        var again=store.register(row.id,source,HASH,null,null,List.of(xml(2017)),true);
+        assertEquals(1,again.documentsSaved());assertEquals(asset,store.source(again.companyCostId()).documents().getFirst().mediaAssetId());
+        var file=media.get(asset);assertFalse(file.archived());
+        assertTrue(file.links().stream().anyMatch(link->link.targetType()==be.enrosed.media.MediaTargetType.COMPANY_COST&&link.targetId()==again.companyCostId()));
+    }
+    /** FIX2 review: prepared while the cost still existed (deleted in another tab since), so no files were taken: preview again. */
+    @Test @TestTransaction void aRegistrationWithoutTheInvoiceFilesIsPreviewedAgainWhenTheCostWasDeletedMeanwhile(){
+        var source=withXml(invoice(2018));var row=line("-121","2026-09-08");slot(source);
+        var first=store.register(row.id,source,HASH,null,null,List.of(xml(2018)));costs.delete(first.companyCostId());
+        assertEquals("PURCHASE_PREVIEW_CHANGED",assertThrows(OdooFailure.class,()->store.register(row.id,source,HASH,null,null,List.of(),true)).code);
+        assertEquals(first.companyCostId(),store.find(NS,2018).companyCostId); // nothing released
+    }
+    /** FIX2 review: a stale preview names the deleted cost as the one to keep: preview again, not "Kies een bestaande kost". */
+    @Test @TestTransaction void aRegistrationNamingTheDeletedCostIsPreviewedAgain(){
+        var source=withXml(invoice(2019));var row=line("-121","2026-09-08");slot(source);
+        var first=store.register(row.id,source,HASH,null,null,List.of(xml(2019)));costs.delete(first.companyCostId());
+        assertEquals("PURCHASE_PREVIEW_CHANGED",assertThrows(OdooFailure.class,
+                ()->store.register(row.id,source,HASH,first.companyCostId(),null,List.of(xml(2019)),true)).code);
+        assertEquals(first.companyCostId(),store.find(NS,2019).companyCostId);
     }
 
     @Test @TestTransaction void historicalInvalidBankAmountCannotBeUsedForSourceAssociation(){

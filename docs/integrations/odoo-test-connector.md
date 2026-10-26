@@ -114,7 +114,10 @@ is posted, changed or paid by this workflow.
   Peppol evidence, supplier identity and exact source net/VAT/gross remain available.
 
 A unique source namespace/company/move identity prevents duplicate registration and is
-retained even if the local cost is later deleted. Existing-cost candidates require explicit
+retained even if the local cost is later deleted; automation never imports that source again.
+Only the user's own preview/registration above treats it as unregistered: it releases the
+binding of the deleted cost and books a new cost in the same transaction (an archived copy of
+its PDF/XML is restored; a request prepared before the delete answers PURCHASE_PREVIEW_CHANGED). Existing-cost candidates require explicit
 selection and financial validation; monthly invoices are not merged by amount alone.
 A provider refresh before registration rejects a changed preview. Downloads occur before
 one DB transaction creates/adopts the cost, reuses/creates its payment, links the selected

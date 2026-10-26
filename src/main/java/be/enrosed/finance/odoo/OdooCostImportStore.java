@@ -173,7 +173,15 @@ public class OdooCostImportStore {
         if(!Objects.equals(snapshot.hash(),requestedHash))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
         var binding=em.find(OdooCostImportEntity.class,snapshot.namespace()+":"+snapshot.document().id(),LockModeType.PESSIMISTIC_WRITE);
         if(binding==null||binding.companyId!=snapshot.companyId())throw new OdooFailure("INVALID_RESPONSE");
-        if(again&&costRemoved(binding))release(binding);
+        if(again&&costRemoved(binding)) {
+            // Prepared while the cost still existed (deleted in another tab since): that request took no files and may name
+            // the deleted cost. Booked as it stands, the new cost would keep no PDF/XML for good (a registered binding never
+            // downloads again), so the user previews again; nothing is released or booked (FIX2 review).
+            boolean filesMissing=files.isEmpty()&&snapshot.document().attachments()!=null
+                    &&snapshot.document().attachments().stream().anyMatch(file->Set.of("PDF","XML").contains(file.kind()));
+            if(filesMissing||binding.companyCostId.equals(selectedCostId))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
+            release(binding);
+        }
         boolean registered=binding.companyCostId!=null;
         if(registered&&selectedCostId!=null&&!binding.companyCostId.equals(selectedCostId))throw new BusinessRuleException("Deze bronfactuur hoort al bij een andere kost");
         if(registered&&!binding.snapshotHash.equals(snapshot.hash()))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
@@ -219,6 +227,10 @@ public class OdooCostImportStore {
                         :new MediaUploadPolicy.ValidatedFile(safeFilename(file.file().name()),"application/octet-stream",MediaKind.DOCUMENT,file.file().bytes());
                 if(file.kind().equals("PDF")&&!validated.contentType().equals("application/pdf"))throw new BusinessRuleException("De ontvangen PDF heeft een ongeldig bestandsformaat");
                 var asset=media.upload(file.file().name(),validated).asset();
+                // The same bytes may sit archived in the library (a deleted cost's invoice, tidied away since). The user books
+                // this invoice himself, so its file comes back, with its own "Bestand hersteld" line, instead of the whole
+                // registration failing on an archived link (FIX2 review). Automation keeps the refusal.
+                if(again&&asset.archived())media.restore(asset.id());
                 media.link(asset.id(),new MediaDtos.LinkRequest(MediaTargetType.COMPANY_COST,costId,MediaRole.INVOICE));
                 saved.add(new SavedDocument(file.attachmentId(),asset.id(),file.file().name(),file.kind()));
             }
