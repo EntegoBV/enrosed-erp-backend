@@ -103,8 +103,6 @@ class PurchaseOrderForecastPersistenceTest {
             refused(concept.id(), new Write(null, null, null, null, null, days, null, null, null, null),
                     "De betaaltermijn moet tussen 0 en 365 dagen liggen");
         }
-        refused(partner.id(), new Write(null, null, null, null, null, null, null, true, null, null),
-                "Een partnercontainer volgt het voorschotschema; kies geen prijs of tempo");
         refused(shipped.id(), new Write(null, null, null, null, null, null, null, null, TODAY.plusDays(3), null),
                 "Deze container is al vertrokken; de vertrekdatum staat op de order");
         refused(ordered.id(), new Write(null, null, null, null, null, null, null, null, ordered.orderDate().minusDays(1), null),
@@ -134,15 +132,27 @@ class PurchaseOrderForecastPersistenceTest {
     }
 
     @Test @TestTransaction
-    void aPartnerContainerTakesOnlyTheShipDate() {
+    void aPartnerContainerStoresPriceAndPaceWithoutChangingTheAgreement() {
         var partner = order(PurchaseOrderStatus.BESTELD);
-        entity(partner.id()).partnerCustomerId = 424242L;
+        var agreement = entity(partner.id());
+        agreement.partnerCustomerId = 424242L;
+        agreement.partnerCostPct = new BigDecimal("50");
+        agreement.partnerSharePct = new BigDecimal("50");
         em.flush();
-        var saved = forecasts.save(partner.id(), new Write(null, null, null, null, null, null, null, null,
-                partner.orderDate().plusDays(20), null));
-        assertEquals(partner.orderDate().plusDays(20), saved.expectedShipOn());
-        refused(partner.id(), new Write(null, new BigDecimal("50"), null, null, null, null, null, null,
-                partner.orderDate().plusDays(20), null), "Een partnercontainer volgt het voorschotschema; kies geen prijs of tempo");
+        var saved = forecasts.save(partner.id(), new Write("MARKUP_PCT", new BigDecimal("100"), null,
+                "EXTERNAL", 16, 30, false, true, partner.orderDate().plusDays(20), null));
+        em.flush(); em.clear();
+        var loaded = forecasts.list().stream().filter(row -> row.orderId().equals(partner.id())).findFirst().orElseThrow();
+        assertEquals(saved, loaded);
+        assertEquals(new BigDecimal("100.00"), loaded.markupPct(), "50% sales margin is a 100% markup");
+        assertEquals(16, loaded.sellWeeks());
+        assertEquals(30, loaded.paymentDays());
+        assertEquals(Boolean.TRUE, loaded.included());
+        assertEquals(0, new BigDecimal("50").compareTo(entity(partner.id()).partnerCostPct));
+        assertEquals(0, new BigDecimal("50").compareTo(entity(partner.id()).partnerSharePct));
+        assertEquals(424242L, entity(partner.id()).partnerCustomerId);
+        forecasts.delete(partner.id());
+        assertTrue(forecasts.list().stream().noneMatch(row -> row.orderId().equals(partner.id())));
     }
 
     @Test @TestTransaction
