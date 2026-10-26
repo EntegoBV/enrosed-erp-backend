@@ -56,6 +56,7 @@ class StockBatchServiceTest {
     @Inject StockService stock;
     @Inject ProductService products;
     @Inject StockLocationBackfill locationBackfill;
+    @Inject be.enrosed.inventory.application.StockBatchViews views;
     @Inject EntityManager entities;
 
     /** Purchase order and line ids far above anything the shared test database holds. */
@@ -289,6 +290,76 @@ class StockBatchServiceTest {
             assertTrue(batch.piecesLeft() <= batch.piecesIn(), "a batch never holds more than came in");
         }
         assertEquals(0, batches.totals(product).differencePieces());
+    }
+
+    /* -------------------------------------------- (5b) review fix: own before partner */
+
+    @Test
+    @TestTransaction
+    void aReturnWithoutTakesGoesBackIntoOwnBatchesNeverIntoAPartnersPiecesShippedBeforeTheStart() {
+        long main = main();
+        long product = product(1, "2.5");
+        stock.add(product, main, 120, StockMovement.Kind.MANUAL_CORRECTION, "Voorraad vóór de start");
+        start();
+        /* Contract example (B): our container (01/06) and partner container P (10/06) each had 40 pieces leave
+           before the start, P's on a partner settlement. */
+        batches.writeBackfill(product, List.of(
+                new StockBatchService.BackfillBatch(StockBatch.Kind.RECEIPT, StockBatch.Owner.OWN, base + 1,
+                        base + 11, "PO-OWN", 5L, null, LocalDate.of(2026, 6, 1), null, 1, 100, 60, cost("2"), null),
+                new StockBatchService.BackfillBatch(StockBatch.Kind.RECEIPT, StockBatch.Owner.PARTNER, base + 2,
+                        base + 21, "PO-P", 5L, null, LocalDate.of(2026, 6, 10), null, 1, 100, 60, cost("3"), null)),
+                0, null, Instant.now());
+        assertEquals(0, batches.totals(product).differencePieces());
+
+        /* A credit note on our own invoice shipped before the start: that invoice has no takes. */
+        stock.add(product, main, 5, StockMovement.Kind.SALE_RETURN, "C-OWN",
+                StockBatchContext.saleReturn(base + 81, base + 80));
+        assertEquals(65, byTitle(product, "PO-OWN").piecesLeft(), "our pieces come back into our batch");
+        assertEquals(60, byTitle(product, "PO-P").piecesLeft(), "the partner's batch is untouched");
+
+        /* More back than our batch ever gave: the rest is ours too, never the partner's shipped pieces. */
+        stock.add(product, main, 40, StockMovement.Kind.SALE_RETURN, "C-OWN-2",
+                StockBatchContext.saleReturn(base + 82, base + 80));
+        assertEquals(100, byTitle(product, "PO-OWN").piecesLeft());
+        assertEquals(60, byTitle(product, "PO-P").piecesLeft());
+        assertEquals(5, byTitle(product, "Telling").piecesLeft());
+        assertEquals(StockBatch.Owner.OWN, byTitle(product, "Telling").owner());
+        assertEquals(0, batches.totals(product).differencePieces());
+    }
+
+    /* ------------------------------------------ (11b) review fix: deleted products */
+
+    @Test
+    @TestTransaction
+    void stockLeftOnADeletedProductNeverShowsInTheCheckNorStopsHerstellen() {
+        long main = main();
+        long kept = product(1, "2");
+        long gone = product(1, "2");
+        start();
+        stock.add(kept, main, 10, StockMovement.Kind.PURCHASE_RECEIPT, "PO-1",
+                receipt(kept, 1, "PO-1", false, JAN, cost("2")));
+        stock.setLevel(gone, main, 7, 0, StockMovement.Kind.MANUAL_CORRECTION, "Hand");
+        assertNull(checkRow(gone));
+        /* A product without documents can be deleted; its batches and moves go, its stock level rows stay. */
+        entities.createQuery("delete from StockBatchMoveEntity m where m.productId = :p").setParameter("p", gone)
+                .executeUpdate();
+        entities.createQuery("delete from StockBatchEntity b where b.productId = :p").setParameter("p", gone)
+                .executeUpdate();
+        entities.remove(entities.find(ProductEntity.class, gone));
+        entities.flush();
+        entities.clear();
+        assertEquals(1L, entities.createQuery("select count(l) from StockLevelEntity l where l.productId = :p",
+                Long.class).setParameter("p", gone).getSingleResult(), "the orphan level is there");
+
+        assertNull(checkRow(gone), "a product that no longer exists has nothing to check");
+        batches.pause();
+        stock.sell(kept, main, 2, "F-PAUSED");
+        batches.resume();
+        assertEquals(2, checkRow(kept).differencePieces());
+        views.repair(List.of());
+        assertNull(checkRow(kept), "Herstellen without ids repairs every listed product");
+        views.repair(List.of(gone));
+        assertNull(checkRow(gone));
     }
 
     /* ------------------------------------------------------------------ (6) */

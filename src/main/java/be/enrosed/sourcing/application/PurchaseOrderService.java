@@ -2626,12 +2626,8 @@ public class PurchaseOrderService {
                 parts.add((damagedAfter - damagedBefore) + " beschadigd bijgemeld");
             }
             if (current.isStockBooked()) {
-                int extraDamaged = damagedAfter - damagedBefore;
-                if (extraDamaged > 0) {
-                    /* Pinned to this container's batch; the movement itself names no container (the line counts it). */
-                    products.takeOutDamaged(stored.productId(), extraDamaged, current.number(),
-                            current.receivingLocationId(), current.id());
-                }
+                /* The count first: pieces that turn up (even broken ones) land on this container's batch before the
+                   extra damage leaves it, so a sold-out batch never makes another container pay for its breakage. */
                 int countDelta = countAfter - countBefore;
                 if (countDelta != 0) {
                     BatchSource source = null;
@@ -2641,6 +2637,12 @@ public class PurchaseOrderService {
                     }
                     products.receiveStock(stored.productId(), countDelta, current.number() + " correctie",
                             current.receivingLocationId(), StockBatchContext.receipt(source));
+                }
+                int extraDamaged = damagedAfter - damagedBefore;
+                if (extraDamaged > 0) {
+                    /* Pinned to this container's batch; the movement itself names no container (the line counts it). */
+                    products.takeOutDamaged(stored.productId(), extraDamaged, current.number(),
+                            current.receivingLocationId(), current.id());
                 }
                 int usableDelta = (countAfter - damagedAfter) - (countBefore - damagedBefore);
                 parts.add("voorraad " + (usableDelta > 0 ? "+" : "") + usableDelta);

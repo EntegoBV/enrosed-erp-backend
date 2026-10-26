@@ -398,7 +398,10 @@ public class StockBatchService {
         return new StockBatchTotals(productId, stock, batchPieces, unassigned);
     }
 
-    /** Only products whose batches differ from their stock; empty before the start. */
+    /**
+     * Only products whose batches differ from their stock; empty before the start. A product that no longer exists is
+     * left out (its stock level rows outlive a delete, its batches do not; the start leaves them out too).
+     */
     public List<StockBatchTotals> check() {
         if (!started()) return List.of();
         Map<Long, long[]> stock = new HashMap<>();
@@ -428,6 +431,7 @@ public class StockBatchService {
         Map<Long, Integer> factors = factors(ids);
         List<StockBatchTotals> result = new ArrayList<>();
         for (Long id : ids) {
+            if (!factors.containsKey(id)) continue; // deleted product
             long[] held = stock.getOrDefault(id, new long[]{0, 0});
             int stockPieces = Math.toIntExact(held[0] * factors.getOrDefault(id, 1) + held[1]);
             StockBatchTotals totals = new StockBatchTotals(id, stockPieces,
@@ -619,8 +623,10 @@ public class StockBatchService {
     /**
      * Goods coming back: every restore links one take and gives back at most its open pieces, so a batch never holds
      * more than came in. (1) the preferred document's open takes, most recent first, then its open unassigned takes
-     * (resolved); (2) open SALE/BACKFILL takes on this product's batches, most recent first; (3) open unassigned takes,
-     * oldest first (resolved); (4) the rest is found ("Retour zonder herkomst").
+     * (resolved); (2) open SALE/BACKFILL takes on this product's own batches, most recent first, then open SALE takes
+     * on partner batches (own before partner: a partner's BACKFILL take is pieces its settlements shipped before the
+     * start, never ours to give back); (3) open unassigned takes, oldest first (resolved); (4) the rest is found
+     * ("Retour zonder herkomst").
      */
     private void restore(long productId, int pieces, String kind, Long preferSalesOrderId, Long preferTicaSaleId,
                          Ids ids) {
@@ -640,8 +646,21 @@ public class StockBatchService {
             remaining = resolve(open(unassignedTakes), remaining, kind, ids);
         }
         if (remaining > 0) {
-            remaining = restoreInto(moves.list("productId = ?1 and batchId is not null and pieces < 0 and kind in ?2",
-                    productId, List.of(SALE, BACKFILL)), remaining, kind, ids);
+            List<StockBatchMoveEntity> own = new ArrayList<>();
+            List<StockBatchMoveEntity> partner = new ArrayList<>();
+            Map<Long, Boolean> partnerBatch = new HashMap<>();
+            for (StockBatchMoveEntity take : moves.list(
+                    "productId = ?1 and batchId is not null and pieces < 0 and kind in ?2",
+                    productId, List.of(SALE, BACKFILL))) {
+                boolean ofPartner = partnerBatch.computeIfAbsent(take.batchId, id -> {
+                    StockBatchEntity batch = batches.findById(id);
+                    return batch != null && isPartner(batch);
+                });
+                if (!ofPartner) own.add(take);
+                else if (SALE.equals(take.kind)) partner.add(take);
+            }
+            remaining = restoreInto(own, remaining, kind, ids);
+            remaining = restoreInto(partner, remaining, kind, ids);
         }
         if (remaining > 0) remaining = resolve(openUnassigned(productId), remaining, kind, ids);
         if (remaining > 0) found(productId, remaining, "Retour zonder herkomst", kind, ids);

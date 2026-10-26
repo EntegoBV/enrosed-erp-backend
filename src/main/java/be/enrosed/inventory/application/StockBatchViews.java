@@ -326,7 +326,8 @@ public class StockBatchViews {
 
     /**
      * "Herstellen": books the listed products' differences (all of {@link #check()} when none are named), in one
-     * transaction; refused while paused or before the start. Returns the check list afterwards.
+     * transaction; refused while paused or before the start. A named product that no longer exists has nothing to
+     * repair and is skipped. Returns the check list afterwards.
      */
     @Transactional
     public List<CheckRow> repair(Collection<Long> productIds) {
@@ -335,7 +336,8 @@ public class StockBatchViews {
         if (run.paused()) throw new BusinessRuleException("Batches staan op pauze.");
         List<Long> ids = productIds == null || productIds.isEmpty()
                 ? batches.check().stream().map(StockBatchTotals::productId).toList()
-                : productIds.stream().filter(Objects::nonNull).distinct().toList();
+                : productIds.stream().filter(Objects::nonNull).distinct()
+                        .filter(id -> productOrNull(id) != null).toList();
         for (Long id : ids) batches.repair(id);
         return check();
     }

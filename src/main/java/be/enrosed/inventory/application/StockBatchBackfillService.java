@@ -390,6 +390,7 @@ public class StockBatchBackfillService {
 
         Instant startedAt = null;
         if (write) {
+            refuseWhenStockMovedMeanwhile(booked, productIds);
             String note = "Batches opgebouwd: " + rows.size() + " producten, " + batchCount + " batches"
                     + (notBooked.isEmpty() ? "" : "; niet bijgeboekt: "
                     + notBooked.stream().map(NotBooked::orderNumber).filter(Objects::nonNull)
@@ -535,6 +536,31 @@ public class StockBatchBackfillService {
     private Set<Long> levelProducts() {
         return new TreeSet<>(entities.createQuery("select distinct l.productId from StockLevelEntity l", Long.class)
                 .getResultList());
+    }
+
+    /**
+     * The start reads the booked containers and the products with stock before it locks those products one by one
+     * (up to 600 s). A container booked, or a first stock figure set, in between has no planned batch while its pieces
+     * are in the levels read under the lock: they would land on older batches or Beginvoorraad and the container would
+     * never get its batch. Read both again once every lock is held; when they changed, nothing is saved.
+     */
+    private void refuseWhenStockMovedMeanwhile(List<PurchaseOrder> booked, Set<Long> written) {
+        Set<Long> bookedBefore = booked.stream().map(PurchaseOrder::id).collect(Collectors.toCollection(TreeSet::new));
+        Set<Long> bookedNow = new TreeSet<>(entities.createQuery("select o.id from "
+                        + "be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseOrderEntity o "
+                        + "where o.status = :received and (o.stockBooked is null or o.stockBooked = true)", Long.class)
+                .setParameter("received", PurchaseOrderStatus.ONTVANGEN).getResultList());
+        Set<Long> newStock = levelProducts();
+        newStock.removeAll(written);
+        if (!newStock.isEmpty()) {
+            /* Levels of deleted products stay behind; the start and the check leave them out. */
+            newStock.retainAll(entities.createQuery("select p.id from ProductEntity p where p.id in :ids", Long.class)
+                    .setParameter("ids", newStock).getResultList());
+        }
+        if (!bookedNow.equals(bookedBefore) || !newStock.isEmpty()) {
+            throw new BusinessRuleException("Batches opbouwen gestopt: intussen is een container geboekt of voorraad "
+                    + "gezet. Er is niets bewaard; start opnieuw.");
+        }
     }
 
     private void refuseWhenStarted() {

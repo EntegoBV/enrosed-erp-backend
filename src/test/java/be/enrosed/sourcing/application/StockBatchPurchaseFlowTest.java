@@ -168,6 +168,30 @@ class StockBatchPurchaseFlowTest {
     }
 
     @Test @TestTransaction
+    void extraPiecesFoundBrokenOnASoldOutContainerStayOnThatContainer() {
+        Supplier supplier = supplier("Laat");
+        ProductEntity piece = product(supplier, 1);
+        start();
+        PurchaseOrder older = booked(supplier, AUG, null, line(piece, 100, "1.00"));
+        PurchaseOrder newer = booked(supplier, SEP, null, line(piece, 100, "1.10"));
+        Long unloaded = purchases.get(older.id()).receivingLocationId();
+        stock.sell(piece.id, unloaded != null ? unloaded : stock.mainLocation().id(), 100, "F-LAAT");
+        assertEquals(0, batches.forPurchaseOrder(older.id()).getFirst().piecesLeft(), "FIFO sold the older one out");
+
+        /* Five more pieces turn up on the older container, all five broken: the shelf does not change. */
+        correct(older.id(), piece.id, 105, 5);
+
+        StockBatch batch = batches.forPurchaseOrder(older.id()).getFirst();
+        assertEquals(105, batch.piecesIn());
+        assertEquals(0, batch.piecesLeft());
+        assertEquals(5, batch.lostPieces(), "the broken pieces are that container's");
+        StockBatch other = batches.forPurchaseOrder(newer.id()).getFirst();
+        assertEquals(100, other.piecesLeft(), "the newer container loses nothing");
+        assertEquals(0, other.lostPieces());
+        assertTrue(batches.check().stream().noneMatch(row -> row.productId() == piece.id));
+    }
+
+    @Test @TestTransaction
     void applyingWritesTheBatchesAlwaysAndAnOlderContainerKeepsANewerCardUnlessItIsNamed() {
         Supplier supplier = supplier("Toepassen");
         ProductEntity piece = product(supplier, 1);
