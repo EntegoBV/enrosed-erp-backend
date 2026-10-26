@@ -98,14 +98,8 @@ public class PurchaseOrderForecastService {
         }
         PurchaseOrderForecastEntity stored = em.find(PurchaseOrderForecastEntity.class, orderId);
         PurchaseOrderForecastEntity before = stored == null ? new PurchaseOrderForecastEntity() : stored;
-        if (order.partnerCustomerId() != null
-                && (changed(priceMode, before.priceMode) || changed(markupPct, before.markupPct)
-                || changed(perUnit, before.markupEurPerUnit) || changed(costBasis, before.costBasis)
-                || changed(write.sellWeeks(), before.sellWeeks) || changed(write.paymentDays(), before.paymentDays)
-                || changed(write.seasonal(), before.seasonal) || changed(write.included(), before.included)
-                || changed(write.orderDateOverride(), before.orderDateOverride))) {
-            throw new BusinessRuleException("Een partnercontainer volgt het voorschotschema; kies geen prijs of tempo");
-        }
+        /* Partner financing and profit sharing are applied by the forecast calculation.
+         * They do not prevent choosing a price, margin or selling pace for the scenario. */
         if (changed(write.expectedShipOn(), before.expectedShipOn)) {
             if (order.status() == PurchaseOrderStatus.ONDERWEG || order.status() == PurchaseOrderStatus.ONTVANGEN) {
                 throw new BusinessRuleException("Deze container is al vertrokken; de vertrekdatum staat op de order");
