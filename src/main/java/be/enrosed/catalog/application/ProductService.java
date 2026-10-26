@@ -4,6 +4,7 @@ import be.enrosed.catalog.adapter.out.persistence.CanonicalCatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductFamilyEntity;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.application.port.out.ProductRepository;
+import be.enrosed.catalog.application.port.out.ProductSupplierRepository;
 import be.enrosed.catalog.domain.Barcodes;
 import be.enrosed.catalog.domain.CatalogChannel;
 import be.enrosed.catalog.domain.Carton;
@@ -15,7 +16,9 @@ import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.ProductCostBasis;
 import be.enrosed.catalog.domain.ProductCostBreakdown;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductSupplier;
 import be.enrosed.catalog.domain.ProductText;
+import be.enrosed.catalog.domain.PurchaseMirror;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.Language;
@@ -119,6 +122,9 @@ public class ProductService {
     Instance<MediaService> mediaRegistry;
     @Inject
     Instance<PublishedFamilyGalleryGuard> publishedFamilyGallery;
+    /* The suppliers of a product; pure unit tests run without it and keep today's behaviour. */
+    @Inject
+    Instance<ProductSupplierRepository> productSuppliers;
 
     @Inject
     public ProductService(
@@ -170,8 +176,71 @@ public class ProductService {
                 && family.websiteStatus == PublicationState.PUBLISHED;
     }
 
+    /** The products supplierId makes (its rows plus legacy products); see {@link #offeredBy}. */
     public List<Product> listBySupplier(long supplierId) {
-        return products.findBySupplier(supplierId);
+        return offeredBy(supplierId).stream().map(Offered::product).toList();
+    }
+
+    /** A product and what one supplier offers it at (its row, or a legacy offer computed from the product). */
+    public record Offered(Product product, ProductSupplier offer) {}
+
+    /**
+     * Products supplierId makes: rows of it whose product exists (active or inactive) plus legacy products whose own
+     * supplier it is and that have no row of it; loaded with findBySupplier(supplierId) + findAllById(row product ids).
+     */
+    public List<Offered> offeredBy(long supplierId) {
+        List<Product> own = products.findBySupplier(supplierId);
+        if (!rowsResolvable()) {
+            return own.stream().map(product -> new Offered(product, ProductSupplier.preferredOf(product))).toList();
+        }
+        List<ProductSupplier> rowsOfSupplier = productSuppliers.get().findBySupplier(supplierId);
+        Map<Long, Product> byId = new LinkedHashMap<>();
+        own.forEach(product -> byId.put(product.id(), product));
+        Set<Long> missing = rowsOfSupplier.stream().map(ProductSupplier::productId)
+                .filter(productId -> !byId.containsKey(productId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        products.findAllById(missing).forEach(product -> byId.put(product.id(), product));
+        return ProductSupplierOffers.of(supplierId, byId.values(), rowsOfSupplier).entrySet().stream()
+                .map(entry -> new Offered(byId.get(entry.getKey()), entry.getValue()))
+                .toList();
+    }
+
+    /** Family + product locks as update() takes them; returns the product as it is now. */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public Product lockForPurchaseWrite(long productId) {
+        Product observed = get(productId);
+        lockFamilies(observed.familyId());
+        if (familyWrites != null) {
+            Long lockedFamilyId = familyWrites.lockProduct(productId);
+            if (!Objects.equals(lockedFamilyId, observed.familyId())) {
+                throw new BusinessRuleException(
+                        "Product is gelijktijdig naar een andere familie verplaatst; laad het opnieuw");
+            }
+        }
+        return get(productId);
+    }
+
+    /**
+     * Writes only the five mirror columns (updatePurchaseMirror). No validator, no ensurePublishable, no website
+     * rebuild, no activity. When supplierId changes it first calls supplierAgreements.beforeProductChange(before, after).
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public void writePurchaseMirror(long productId, PurchaseMirror mirror) {
+        Product before = get(productId);
+        if (PurchaseMirror.of(before).sameAs(mirror)) return;
+        if (!Objects.equals(before.supplierId(), mirror.supplierId())
+                && supplierAgreements != null && supplierAgreements.isResolvable()) {
+            supplierAgreements.get().beforeProductChange(before, before.withPurchaseMirror(mirror));
+        }
+        products.updatePurchaseMirror(productId, mirror);
+    }
+
+    private boolean rowsResolvable() {
+        return productSuppliers != null && productSuppliers.isResolvable();
+    }
+
+    private static <T> T keep(T requested, T current) {
+        return requested != null ? requested : current;
     }
 
     public Product get(long id) {
@@ -218,6 +287,10 @@ public class ProductService {
         ensureUniqueHandle(prepared.publicHandle(), null);
         ensurePublishable(prepared);
         Product saved = products.save(prepared);
+        if (saved.id() != null && saved.supplierId() != null && rowsResolvable()) {
+            /* The product's own supplier becomes its first row, the Voorkeur. */
+            ProductSupplierRules.promote(productSuppliers.get(), ProductSupplier.preferredOf(saved), Instant.now());
+        }
         consumePoolCodes(saved);
         validateFamilies(prepared.familyId());
         syncFamilyPhotos(saved.id(), prepared.familyId());
@@ -313,6 +386,7 @@ public class ProductService {
 
             Product saved = products.save(candidate);
             Product updated = saved.id() == null ? saved : get(saved.id());
+            syncSharedPurchaseRow(source, updated, fields);
             updatedIds.add(updated.id());
             List<ActivityChangeDto> changes = productChanges(target, updated);
             if (changes.isEmpty()) {
@@ -337,6 +411,21 @@ public class ProductService {
         return new SharedFieldsResult(updatedIds, updatedIds.size());
     }
 
+    /** A colour bought from the source's supplier that took its price or note: its Voorkeur row follows. */
+    private void syncSharedPurchaseRow(Product source, Product target, Set<SharedField> fields) {
+        if (!rowsResolvable() || target.id() == null || target.supplierId() == null
+                || !Objects.equals(source.supplierId(), target.supplierId())
+                || !(fields.contains(SharedField.PURCHASE_PRICE) || fields.contains(SharedField.SUPPLIER_NOTE))) {
+            return;
+        }
+        ProductSupplierRepository rows = productSuppliers.get();
+        ProductSupplierRules.ensureOwnRow(rows, target, Instant.now()).ifPresent(row -> {
+            if (PurchaseMirror.of(row).sameAs(PurchaseMirror.of(target))) return;
+            rows.save(row.withPurchase(target.exwPrice(), target.exwCurrency(), target.extraUnitCost(),
+                    target.supplierNote()));
+        });
+    }
+
     private static void requireSharedFieldFamily(
             Product product, long expectedFamilyId, String label) {
         if (product.familyId() == null) {
@@ -359,6 +448,9 @@ public class ProductService {
             Product source, Product target, Set<SharedField> fields) {
         boolean name = fields.contains(SharedField.NAME);
         boolean description = fields.contains(SharedField.DESCRIPTION);
+        /* A price belongs to a supplier: only colours bought from the same (preferred) supplier take it. */
+        boolean samePurchasePrice = fields.contains(SharedField.PURCHASE_PRICE)
+                && Objects.equals(source.supplierId(), target.supplierId());
 
         Packaging packaging = target.packaging();
         if (fields.contains(SharedField.PACKAGING)) {
@@ -404,12 +496,9 @@ public class ProductService {
                 target.barcodes(),
                 fields.contains(SharedField.HS_CODE) ? source.hsCode() : target.hsCode(),
                 fields.contains(SharedField.CARTON) ? source.carton() : target.carton(),
-                fields.contains(SharedField.PURCHASE_PRICE)
-                        ? source.exwPrice() : target.exwPrice(),
-                fields.contains(SharedField.PURCHASE_PRICE)
-                        ? source.exwCurrency() : target.exwCurrency(),
-                fields.contains(SharedField.PURCHASE_PRICE)
-                        ? source.extraUnitCost() : target.extraUnitCost(),
+                samePurchasePrice ? source.exwPrice() : target.exwPrice(),
+                samePurchasePrice ? source.exwCurrency() : target.exwCurrency(),
+                samePurchasePrice ? source.extraUnitCost() : target.extraUnitCost(),
                 target.landedCostEur(),
                 target.landedCostSource(),
                 fields.contains(SharedField.SALES_PRICE)
@@ -507,9 +596,31 @@ public class ProductService {
             }
         }
         Product current = get(id);
+        /* Null = keep for the four purchase fields: a client that leaves them out (the suppliers editor, which edits
+           them as rows) never clears them. The note keeps its own rule in supplierNoteForUpdate. */
+        changes = changes.withPurchaseMirror(new PurchaseMirror(
+                keep(changes.supplierId(), current.supplierId()),
+                changes.supplierNote(),
+                keep(changes.exwPrice(), current.exwPrice()),
+                keep(changes.exwCurrency(), current.exwCurrency()),
+                keep(changes.extraUnitCost(), current.extraUnitCost())));
         Product merged = mergeUpdate(current, changes, familyExplicit);
         if (supplierAgreements != null && supplierAgreements.isResolvable()) {
             supplierAgreements.get().beforeProductChange(current, merged);
+        }
+        if (rowsResolvable()) {
+            /* The product's purchase columns copy its Voorkeur row: a changed value lands on that row (last write
+               wins), a changed supplier becomes the Voorkeur. Unchanged values only heal a product without its row. */
+            ProductSupplierRepository rows = productSuppliers.get();
+            PurchaseMirror before = PurchaseMirror.of(current);
+            PurchaseMirror after = PurchaseMirror.of(merged);
+            if (after.sameAs(before)) {
+                ProductSupplierRules.ensureOwnRow(rows, current, Instant.now());
+            } else if (after.supplierId() != null) {
+                ProductSupplier target = ProductSupplierRules.applyProductEdit(rows, current, before, after,
+                        Instant.now());
+                merged = merged.withPurchaseMirror(PurchaseMirror.of(target));
+            }
         }
         /* A series shares one category. Changing it on one variant moves the
            whole series - the alternative, silently snapping back to the old
@@ -637,6 +748,7 @@ public class ProductService {
     @Transactional
     public Product duplicate(long id, String newColour, String newColourHex, String newVariantSize) {
         Product source = get(id);
+        if (rowsResolvable()) ProductSupplierRules.ensureOwnRow(productSuppliers.get(), source, Instant.now());
         String requestedColour = normalizeOptional(newColour);
         /* Same colour in another case is the same colour - compare in capitals. */
         String requestedHex = normalizeOptional(newColourHex);
@@ -684,12 +796,30 @@ public class ProductService {
                         .filter(text -> !text.isEmpty())
                         .toList(),
                 source.demo()));
+        copySupplierRows(source, copy);
         /* The copy takes the cost along, so its history starts with that cost instead of empty. */
         if (copy.id() != null && source.landedCostEur() != null && costHistory != null && costHistory.isResolvable()) {
             costHistory.get().recordCopy(copy.id(), source.id(), source.landedCostEur(), source.landedCostSource(),
                     ProductCostBasis.of(copy.packaging()));
         }
         return copy;
+    }
+
+    /**
+     * A colour copy is made by the same suppliers: every active row of the source except the one create made (same
+     * supplier), not preferred, with all its values and note. Agreement photos are not copied (as today).
+     */
+    private void copySupplierRows(Product source, Product copy) {
+        if (copy.id() == null || source.id() == null || !rowsResolvable()) return;
+        ProductSupplierRepository rows = productSuppliers.get();
+        for (ProductSupplier row : rows.findByProduct(source.id())) {
+            if (!row.active() || Objects.equals(row.supplierId(), copy.supplierId())) continue;
+            if (rows.find(copy.id(), row.supplierId()).isPresent()) continue;
+            rows.save(new ProductSupplier(null, copy.id(), row.supplierId(), false, true, row.versionLabel(),
+                    row.supplierReference(), row.exwPrice(), row.exwCurrency(), row.extraUnitCost(), row.moq(),
+                    row.leadTimeDays(), row.supplierNote(), null, null));
+        }
+        rows.flush();
     }
 
     @Transactional

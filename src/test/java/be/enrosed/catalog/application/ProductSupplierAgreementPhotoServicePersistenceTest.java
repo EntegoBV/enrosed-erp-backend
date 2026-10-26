@@ -2,6 +2,7 @@ package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductSupplierAgreementPhotoEntity;
+import be.enrosed.catalog.adapter.out.persistence.ProductSupplierEntity;
 import be.enrosed.catalog.application.ProductSupplierAgreementPhotoService.AgreementPhoto;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.shared.BusinessRuleException;
@@ -148,6 +149,80 @@ class ProductSupplierAgreementPhotoServicePersistenceTest {
         entityManager.flush();
         photoReferences.deleteIfUnreferenced(stored.storageKey);
         assertTrue(!storage.exists(stored.storageKey));
+    }
+
+    @Test
+    @TestTransaction
+    void aSecondSupplierWithARowKeepsItsOwnSeriesAndPhotoUrlsStayByIdOnly() throws Exception {
+        ProductEntity product = product("AGREEMENT-SECOND-SUPPLIER", 101L);
+        supplierRow(product.id, 202L);
+        AgreementPhoto preferred = photos.upload(product.id, "preferred.png",
+                new ByteArrayInputStream(FIRST_PNG), "Preferred sample");
+
+        AgreementPhoto front = photos.upload(product.id, 202L, "front.png",
+                new ByteArrayInputStream(FIRST_PNG), "Second front");
+        AgreementPhoto back = photos.upload(product.id, 202L, "back.png",
+                new ByteArrayInputStream(SECOND_PNG), "Second back");
+
+        assertEquals(202L, front.supplierId());
+        assertEquals(0, front.position(), "each supplier has its own ordered series");
+        assertEquals(List.of(front.id(), back.id()),
+                photos.list(product.id, 202L).stream().map(AgreementPhoto::id).toList());
+        assertEquals(List.of(preferred.id()),
+                photos.list(product.id).stream().map(AgreementPhoto::id).toList(),
+                "no supplier = the preferred supplier's series, as today");
+        assertEquals(List.of(back.id(), front.id()), photos.reorder(product.id, 202L,
+                List.of(back.id(), front.id())).stream().map(AgreementPhoto::id).toList());
+
+        assertArrayEquals(FIRST_PNG, photos.open(product.id, front.id()).data().readAllBytes());
+        assertEquals("Second close-up", photos.updateCaption(product.id, front.id(), "Second close-up").caption());
+        photos.delete(product.id, back.id());
+        List<AgreementPhoto> left = photos.list(product.id, 202L);
+        assertEquals(List.of(front.id()), left.stream().map(AgreementPhoto::id).toList());
+        assertEquals(0, left.getFirst().position(), "delete renumbers the photo's own supplier series");
+        assertEquals(0, photos.list(product.id).getFirst().position());
+    }
+
+    @Test
+    @TestTransaction
+    void aSupplierWithoutARowIsOutOfScopeForReadsAndWrites() {
+        ProductEntity product = product("AGREEMENT-NO-ROW", 101L);
+        ProductSupplierAgreementPhotoEntity stray = new ProductSupplierAgreementPhotoEntity();
+        stray.productId = product.id;
+        stray.supplierId = 303L;
+        stray.storageKey = "stray-key";
+        stray.originalFilename = "stray.png";
+        stray.contentType = "image/png";
+        stray.sizeBytes = 12;
+        stray.position = 0;
+        entityManager.persist(stray);
+        entityManager.flush();
+
+        BusinessRuleException refused = assertThrows(BusinessRuleException.class,
+                () -> photos.upload(product.id, 303L, "front.png",
+                        new ByteArrayInputStream(FIRST_PNG), "Front"));
+        assertEquals("Voeg deze leverancier eerst toe aan het product", refused.getMessage());
+        assertThrows(BusinessRuleException.class, () -> photos.reorder(product.id, 303L, List.of(stray.id)));
+        assertThrows(NotFoundException.class, () -> photos.list(product.id, 303L));
+        assertThrows(NotFoundException.class, () -> photos.get(product.id, stray.id));
+        assertThrows(NotFoundException.class, () -> photos.open(product.id, stray.id));
+        assertThrows(NotFoundException.class, () -> photos.updateCaption(product.id, stray.id, "Hidden"));
+        assertThrows(NotFoundException.class, () -> photos.delete(product.id, stray.id));
+
+        supplierRow(product.id, 303L);
+        assertEquals(List.of(stray.id), photos.list(product.id, 303L).stream().map(AgreementPhoto::id).toList(),
+                "an inactive row brings the supplier back in scope");
+    }
+
+    private void supplierRow(long productId, long supplierId) {
+        ProductSupplierEntity row = new ProductSupplierEntity();
+        row.productId = productId;
+        row.supplierId = supplierId;
+        row.active = false;
+        row.createdAt = java.time.Instant.now();
+        row.updatedAt = row.createdAt;
+        entityManager.persist(row);
+        entityManager.flush();
     }
 
     private ProductEntity product(String sku, Long supplierId) {

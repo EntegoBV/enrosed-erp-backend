@@ -1,7 +1,9 @@
 package be.enrosed.catalog.application.port.out;
 
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.PurchaseMirror;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +33,22 @@ public interface ProductRepository {
                 .toList();
     }
     Optional<Product> findById(long id);
+
+    /** The products with these ids that exist; empty ids give an empty list. */
+    default List<Product> findAllById(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return findAll().stream().filter(product -> product.id() != null && ids.contains(product.id())).toList();
+    }
+
+    /**
+     * Writes only the five supplier and purchase columns (the copy of the preferred supplier row). Persistent
+     * adapters override this with one targeted update, so no other column, translation or photo is rewritten.
+     */
+    default void updatePurchaseMirror(long productId, PurchaseMirror mirror) {
+        Product current = findById(productId)
+                .orElseThrow(() -> new be.enrosed.shared.NotFoundException("Product", productId));
+        save(current.withPurchaseMirror(mirror));
+    }
     Optional<Product> findBySku(String sku);
     Optional<Product> findByPublicHandle(String publicHandle);
     Product save(Product product);

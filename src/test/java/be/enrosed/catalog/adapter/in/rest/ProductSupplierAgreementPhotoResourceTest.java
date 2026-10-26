@@ -67,7 +67,7 @@ class ProductSupplierAgreementPhotoResourceTest {
         resource.updateCaption(4L, 8L,
                 new ProductSupplierAgreementPhotoResource.CaptionRequest(
                         "Approved colour reference"));
-        resource.reorder(4L, List.of(8L));
+        resource.reorder(4L, null, List.of(8L));
         assertEquals(204, resource.delete(4L, 8L).getStatus());
 
         verify(service).updateCaption(4L, 8L, "Approved colour reference");

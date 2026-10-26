@@ -162,6 +162,41 @@ class ProductSupplierAgreementServiceTest {
                 "a stale command must not remove a link outside its acquired family scope");
     }
 
+    @Test @TestTransaction
+    void aNonPreferredSupplierHasItsOwnAgreementFromItsRowWithoutColourLinks() {
+        long family=family("agreement-second-supplier");
+        var source=product("AGR-SECOND-SOURCE",family,101L,"Preferred source");
+        var sibling=product("AGR-SECOND-SIBLING",family,101L,"Sibling");
+        link(source,sibling);
+        var row=new ProductSupplierEntity(); row.productId=sibling.id; row.supplierId=202L; row.active=true;
+        row.supplierNote="Second supplier: glass 3 mm"; row.createdAt=java.time.Instant.now(); row.updatedAt=row.createdAt;
+        em.persist(row); em.flush();
+        var photo=photos.upload(sibling.id,202L,"second.png",new ByteArrayInputStream(PNG),"Second supplier sample");
+
+        var own=agreements.resolve(sibling.id,202L);
+        assertTrue(own.available());
+        assertEquals("Second supplier: glass 3 mm",own.note());
+        assertEquals(sibling.id,own.sourceProductId());
+        assertEquals(202L,own.supplierId());
+        assertEquals("product:"+sibling.id+":supplier:202",own.groupKey());
+        assertEquals(List.of(photo.id()),own.photos().stream().map(ProductSupplierAgreementPhotoService.AgreementPhoto::id).toList());
+        assertEquals(List.of(sibling.id),own.variants().stream().map(ProductSupplierAgreementService.Variant::productId).toList(),
+                "another supplier's agreement is never shared between colours");
+        var snapshot=agreements.get(sibling.id,202L);
+        assertFalse(snapshot.inherited()); assertTrue(snapshot.available());
+        assertEquals("Second supplier: glass 3 mm",snapshot.note());
+        assertEquals(List.of(sibling.id),snapshot.eligibleVariants().stream().map(ProductSupplierAgreementService.Variant::productId).toList());
+        assertNotNull(snapshot.revision());
+        row.supplierNote="Changed"; row.updatedAt=java.time.Instant.now().plusSeconds(1); em.flush();
+        assertNotEquals(snapshot.revision(),agreements.get(sibling.id,202L).revision());
+
+        assertEquals(agreements.resolve(sibling.id),agreements.resolve(sibling.id,101L),
+                "the preferred supplier's agreement is today's, links included");
+        assertEquals(agreements.resolve(sibling.id),agreements.resolve(sibling.id,null));
+        assertTrue(agreements.resolve(sibling.id).variants().size()>1 || agreements.get(sibling.id).inherited());
+        assertFalse(agreements.resolve(sibling.id,303L).available(),"no row: nothing to show");
+    }
+
     private void link(ProductEntity source,ProductEntity target) {
         agreements.updateApplicability(source.id,new ProductSupplierAgreementService.ApplicabilityRequest(
                 agreements.get(source.id).revision(),List.of(source.id,target.id)));

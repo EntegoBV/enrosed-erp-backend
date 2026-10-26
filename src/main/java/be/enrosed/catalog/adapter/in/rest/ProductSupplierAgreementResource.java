@@ -16,8 +16,10 @@ import java.util.List;
 public class ProductSupplierAgreementResource {
     private final ProductSupplierAgreementService agreements;
     public ProductSupplierAgreementResource(ProductSupplierAgreementService agreements) { this.agreements = agreements; }
-    @GET public Response get(@PathParam("productId") long id) {
-        return Response.ok(AgreementDto.from(agreements.get(id))).header("Cache-Control", "no-store").build();
+    /** supplierId: the agreement of that supplier of the product; omitted = the preferred supplier's. */
+    @GET public Response get(@PathParam("productId") long id, @QueryParam("supplierId") Long supplierId) {
+        return Response.ok(AgreementDto.from(supplierId == null
+                ? agreements.get(id) : agreements.get(id, supplierId))).header("Cache-Control", "no-store").build();
     }
     @PUT @Path("/applicability") public AgreementDto update(
             @PathParam("productId") long id, ApplicabilityRequest request) {

@@ -4,12 +4,16 @@ import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import be.enrosed.catalog.adapter.out.persistence.ProductEntity;
 import be.enrosed.catalog.adapter.out.persistence.ProductSupplierAgreementLinkEntity;
 import be.enrosed.catalog.application.ProductSupplierAgreementPhotoService.AgreementPhoto;
+import be.enrosed.catalog.application.port.out.ProductSupplierRepository;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductSupplier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityLogService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
@@ -28,6 +32,10 @@ public class ProductSupplierAgreementService {
     private final EntityManager entities;
     private final ObjectMapper json;
     private final ActivityLogService activity;
+
+    /* The product's supplier rows: a non-preferred supplier's own agreement lives on its row. */
+    @Inject
+    Instance<ProductSupplierRepository> supplierRows;
 
     public ProductSupplierAgreementService(CatalogDaos.Products products,
             ProductFamilyWriteGuard locks,
@@ -50,6 +58,38 @@ public class ProductSupplierAgreementService {
             List<AgreementPhoto> photos, List<Variant> variants, List<Variant> eligibleVariants) {}
     public record ApplicabilityRequest(String revision, List<Long> productIds) {}
     public record UnlinkRequest(String revision) {}
+
+    /**
+     * The agreement of one supplier of the product. supplierId null or the product's preferred: {@link #resolve(long)}
+     * (colour-sharing links included); another supplier with a row: that row's own note and photos.
+     */
+    @Transactional
+    public ResolvedAgreement resolve(long productId, Long supplierId) {
+        ProductEntity target = product(productId);
+        if (supplierId == null || Objects.equals(supplierId, target.supplierId)) return resolve(productId);
+        String key = "product:" + productId + ":supplier:" + supplierId;
+        Optional<ProductSupplier> row = supplierRow(productId, supplierId);
+        if (row.isEmpty()) {
+            return new ResolvedAgreement(key, productId, supplierId, target.familyId, null, List.of(), List.of(), false);
+        }
+        String note = row.get().supplierNote();
+        List<AgreementPhoto> own = photos.list(productId, supplierId);
+        return new ResolvedAgreement(key, productId, supplierId, target.familyId, note, own,
+                List.of(ownVariant(target, note, own)), true);
+    }
+
+    /** Like {@link #get(long)}; another supplier's agreement is its row's own, never shared between colours. */
+    @Transactional
+    public Snapshot get(long productId, Long supplierId) {
+        ProductEntity target = product(productId);
+        if (supplierId == null || Objects.equals(supplierId, target.supplierId)) return get(productId);
+        ResolvedAgreement value = resolve(productId, supplierId);
+        Optional<ProductSupplier> row = supplierRow(productId, supplierId);
+        Variant self = ownVariant(target, value.note(), value.photos());
+        return new Snapshot(productId, productId, supplierId, target.familyId, value.groupKey(), false,
+                value.available(), rowRevision(productId, supplierId, row.orElse(null), value.photos()),
+                value.note(), value.photos(), value.variants(), List.of(self));
+    }
 
     @Transactional
     public ResolvedAgreement resolve(long productId) {
@@ -194,6 +234,28 @@ public class ProductSupplierAgreementService {
                 be.enrosed.catalog.adapter.out.persistence.ProductSupplierAgreementPhotoEntity.class)
                 .setParameter("ids", ids).getResultList()) entities.refresh(row);
         return current;
+    }
+
+    private Optional<ProductSupplier> supplierRow(long productId, long supplierId) {
+        if (supplierRows == null || !supplierRows.isResolvable()) return Optional.empty();
+        return supplierRows.get().find(productId, supplierId);
+    }
+
+    private static Variant ownVariant(ProductEntity target, String note, List<AgreementPhoto> own) {
+        return new Variant(target.id, target.sku, target.name, target.colour,
+                note != null && !note.isBlank() || !own.isEmpty());
+    }
+
+    /** SHA-256 over (productId, supplier, row.updatedAt, note, photo ids/positions/captions). */
+    private String rowRevision(long productId, long supplierId, ProductSupplier row, List<AgreementPhoto> own) {
+        List<Object> state = new ArrayList<>();
+        state.add(productId); state.add(supplierId);
+        state.add(row == null || row.updatedAt() == null ? null : row.updatedAt().toString());
+        state.add(row == null ? null : row.supplierNote());
+        for (AgreementPhoto photo : own) state.add(Arrays.asList(photo.id(), photo.position(), photo.caption()));
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(json.writeValueAsBytes(state))); }
+        catch (Exception e) { throw new IllegalStateException("Kan afsprakenrevisie niet berekenen", e); }
     }
 
     private ProductEntity product(long id) {

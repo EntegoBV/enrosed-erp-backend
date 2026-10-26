@@ -11,6 +11,7 @@ import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.PackagingKind;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.PurchaseMirror;
 import be.enrosed.catalog.domain.ProductText;
 import be.enrosed.catalog.domain.PublicationState;
 import be.enrosed.shared.BusinessRuleException;
@@ -85,9 +86,11 @@ class ProductSharedFieldsTest {
         assertEquals(target.packaging().barcode(), updated.packaging().barcode(),
                 "a colour variant keeps its own packaging EAN");
         assertEquals(target.carton(), updated.carton(), "CARTON was not selected");
-        assertEquals(source.exwPrice(), updated.exwPrice());
-        assertEquals(source.exwCurrency(), updated.exwCurrency());
-        assertEquals(source.extraUnitCost(), updated.extraUnitCost());
+        /* The target is bought from supplier 9, the source from supplier 7: a purchase price belongs to its
+           supplier, so it only travels between colours of the same (preferred) supplier. */
+        assertEquals(target.exwPrice(), updated.exwPrice(), "another supplier keeps its own EXW price");
+        assertEquals(target.exwCurrency(), updated.exwCurrency());
+        assertEquals(target.extraUnitCost(), updated.extraUnitCost());
         assertEquals(target.markupPct(), updated.markupPct(), "SALES_PRICE was not selected");
         assertEquals(target.fixedSalesPriceEur(), updated.fixedSalesPriceEur());
         assertEquals(target.hsCode(), updated.hsCode(), "HS_CODE was not selected");
@@ -118,6 +121,25 @@ class ProductSharedFieldsTest {
         assertEquals("Alte Beschreibung", german.description(),
                 "an incomplete source never erases an existing target translation");
         assertEquals("Rosa", german.colour());
+    }
+
+    @Test
+    void purchasePriceReachesAColourBoughtFromTheSameSupplier() {
+        Product source = source(1L, 42L);
+        Product other = target(2L, 42L);
+        Product target = other.withPurchaseMirror(new PurchaseMirror(source.supplierId(), other.supplierNote(),
+                other.exwPrice(), other.exwCurrency(), other.extraUnitCost()));
+        products.add(source);
+        products.add(target);
+
+        service.applySharedFields(source.id(), 42L, List.of(target.id()),
+                Set.of(ProductService.SharedField.PURCHASE_PRICE));
+
+        Product updated = service.get(target.id());
+        assertEquals(source.exwPrice(), updated.exwPrice());
+        assertEquals(source.exwCurrency(), updated.exwCurrency());
+        assertEquals(source.extraUnitCost(), updated.extraUnitCost());
+        assertEquals(target.supplierNote(), updated.supplierNote(), "SUPPLIER_NOTE was not selected");
     }
 
     @Test
