@@ -158,9 +158,10 @@ class InvoiceFinderServiceTest {
         assertEquals("NEW", row(page, "odoo:" + fx.m2).status());
         assertTrue(row(page, "odoo:" + fx.m2).odoo().registrable());
         InvoiceRow removed = row(page, "odoo:" + fx.m5);
-        assertEquals("HANDLED", removed.status());
+        assertEquals("NEW", removed.status(), "its cost was deleted: not booked any more");
         assertEquals("COST_REMOVED", removed.statusReason());
-        assertEquals("COST_REMOVED", removed.odoo().blockedBy());
+        assertNull(removed.odoo().blockedBy());
+        assertTrue(removed.odoo().registrable());
         assertEquals("TICA", row(page, "odoo:" + fx.m6).status());
         assertEquals(List.of(new InvoiceRow.Link("TICA", fx.ticaSettlement, "TICA", null, null)), row(page, "odoo:" + fx.m6).links());
         assertEquals(List.of(), row(page, "odoo:" + fx.m7).links(), "a TICA move without settlement has no TICA link");
@@ -185,9 +186,10 @@ class InvoiceFinderServiceTest {
     @Test
     void newInOdooExcludesEveryKnownMoveAndAllOnlyTheRegisteredOnes() {
         InvoiceFinderService.Page fresh = find("IN", "ODOO_NEW", fx.token, null, 100);
-        assertEquals(List.of("odoo:" + fx.m2), keys(fresh), "M1/M3 are matched, the rest is excluded");
+        assertEquals(List.of("odoo:" + fx.m2, "odoo:" + fx.m5), keys(fresh),
+                "M1/M3 are matched, M5 (its cost was deleted) is new again, the rest is excluded");
         assertEquals(0, fresh.erpCount());
-        assertEquals(Set.of(fx.m4, fx.m5, fx.m6, fx.m7, fx.m8, fx.m9), fx.odoo.queries.getFirst().excludeMoveIds());
+        assertEquals(Set.of(fx.m4, fx.m6, fx.m7, fx.m8, fx.m9), fx.odoo.queries.getFirst().excludeMoveIds());
 
         fx.odoo.queries.clear();
         find("IN", "ALL", fx.token, null, 100);

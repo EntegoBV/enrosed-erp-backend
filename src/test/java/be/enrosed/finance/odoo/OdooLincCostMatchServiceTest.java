@@ -97,6 +97,21 @@ class OdooLincCostMatchServiceTest {
         verify(documents, times(1)).download(documentId, 22);
     }
 
+    /** FIX2 (2026-10-26): only the user books a deleted cost's source again; the sync leaves it for review. */
+    @Test void aDeletedCostIsNeverImportedAgainByTheSync() {
+        addBank(507);
+        long costId = service.syncIfDue().orElseThrow().items().getFirst().companyCostId();
+        costs.delete(costId);
+        makeDue(); var again = service.syncIfDue().orElseThrow();
+        assertEquals("REVIEW_EXISTING_COST", again.items().getFirst().code(), again.toString());
+        assertEquals(0, again.registered());
+        assertEquals(costId, imports.find(config.sourceNamespace(), documentId).companyCostId, "the binding keeps the deleted cost");
+        assertEquals(0L, QuarkusTransaction.requiringNew().call(() -> em.createQuery(
+                "select count(c) from CompanyCostEntity c where c.reference = :reference", Long.class)
+                .setParameter("reference", reference).getSingleResult()), "no new cost");
+        verify(documents, times(1)).download(documentId, 22);
+    }
+
     @Test void missingInvoiceOrMissingBankNeverCreatesAnExpense() {
         addBank(502); hasInvoice = false;
         var withoutInvoice = service.syncIfDue().orElseThrow(); assertEquals(0, withoutInvoice.scanned());

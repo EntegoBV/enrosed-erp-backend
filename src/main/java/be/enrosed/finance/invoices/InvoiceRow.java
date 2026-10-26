@@ -42,7 +42,7 @@ public record InvoiceRow(
         String salesPurpose,
         /** PAID | PARTIAL | OPEN | OVERDUE | SETTLED | NO_DATA | NEW | HANDLED | CONTAINER | TICA | CANCELLED. */
         String status,
-        /** COST_REMOVED | BEFORE_START | null. */
+        /** COST_REMOVED (with NEW: its cost was deleted in ENROSED) | BEFORE_START | null. */
         String statusReason,
         /** UPLOAD | MANUAL | ODOO | ENROSED. */
         String origin,
@@ -82,7 +82,7 @@ public record InvoiceRow(
 
     public record OdooFacts(long moveId, String name, String moveType, String state, String paymentState,
                             boolean registrable,
-                            /** OUTGOING | CANCELLED | NO_DATE | ZERO | NOT_EUR | TICA | MARKED | COST_REMOVED | DEMO | null. */
+                            /** OUTGOING | CANCELLED | NO_DATE | ZERO | NOT_EUR | TICA | MARKED | DEMO | null. */
                             String blockedBy,
                             MarkView mark) {}
 

@@ -189,13 +189,17 @@ class InvoiceFinderResourceTest {
         assertTrue(marks.all(fx.namespace).keySet().containsAll(List.of(fx.m8, fx.m9)));
         assertFalse(marks.all(fx.namespace).containsKey(fx.m2), "a refused mark writes nothing");
 
-        // A move whose cost was deleted may be marked; clearing shows the reason again.
+        // A move whose cost was deleted may be marked, the mark changed and cleared; it is then new again, reason as info.
         given().contentType("application/json").body(Map.of("resolution", "HANDLED")).put("/api/invoice-finder/odoo/" + fx.m5 + "/mark")
                 .then().statusCode(200).body("key", equalTo("odoo:" + fx.m5)).body("status", equalTo("HANDLED"))
                 .body("statusReason", nullValue()).body("odoo.blockedBy", equalTo("MARKED"))
                 .body("odoo.mark.markedBy", equalTo("test-admin"));
+        given().contentType("application/json").body(Map.of("resolution", "CONTAINER", "purchaseOrderId", fx.orderA.id()))
+                .put("/api/invoice-finder/odoo/" + fx.m5 + "/mark").then().statusCode(200)
+                .body("status", equalTo("CONTAINER")).body("container.id", equalTo(fx.orderA.id().intValue()));
         given().delete("/api/invoice-finder/odoo/" + fx.m5 + "/mark").then().statusCode(200)
-                .body("status", equalTo("HANDLED")).body("statusReason", equalTo("COST_REMOVED")).body("odoo.mark", nullValue());
+                .body("status", equalTo("NEW")).body("statusReason", equalTo("COST_REMOVED")).body("odoo.mark", nullValue())
+                .body("odoo.blockedBy", nullValue()).body("odoo.registrable", equalTo(true));
 
         // PUT, replace, DELETE, DELETE again.
         Map<String, Object> body = new HashMap<>();
@@ -208,12 +212,13 @@ class InvoiceFinderResourceTest {
                 .body("links[0].type", equalTo("CONTAINER")).body("odoo.registrable", equalTo(false));
         given().contentType("application/json").body(Map.of("resolution", "HANDLED")).put("/api/invoice-finder/odoo/" + fx.m2 + "/mark")
                 .then().statusCode(200).body("status", equalTo("HANDLED")).body("container", nullValue());
-        given().get("/api/invoice-finder?scope=ODOO_NEW&q=" + fx.token + PERIOD).then().statusCode(200).body("rows.size()", equalTo(0));
+        given().get("/api/invoice-finder?scope=ODOO_NEW&q=" + fx.token + PERIOD).then().statusCode(200)
+                .body("rows.key", contains("odoo:" + fx.m5));
         given().delete("/api/invoice-finder/odoo/" + fx.m2 + "/mark").then().statusCode(200)
                 .body("status", equalTo("NEW")).body("odoo.mark", nullValue()).body("odoo.registrable", equalTo(true));
         given().delete("/api/invoice-finder/odoo/" + fx.m2 + "/mark").then().statusCode(200).body("status", equalTo("NEW"));
         given().get("/api/invoice-finder?scope=ODOO_NEW&q=" + fx.token + PERIOD).then().statusCode(200)
-                .body("rows.key", contains("odoo:" + fx.m2));
+                .body("rows.key", contains("odoo:" + fx.m2, "odoo:" + fx.m5));
     }
 
     private static void markRefused(long moveId, Map<String, Object> body, int status, String code) {

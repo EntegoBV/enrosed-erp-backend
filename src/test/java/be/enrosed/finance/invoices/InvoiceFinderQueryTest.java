@@ -31,7 +31,8 @@ class InvoiceFinderQueryTest {
     void exclusionsPerScope() {
         OdooInvoiceSearch.Query newOnes = InvoiceFinderService.odooQuery(request("IN", "ODOO_NEW", null, null), dedup(),
                 Optional.empty(), WORDS, null);
-        assertEquals(Set.of(1L, 2L, 3L, 4L, 6L, 7L), newOnes.excludeMoveIds(), "registered ∪ removed ∪ tica ∪ marks");
+        assertEquals(Set.of(1L, 3L, 4L, 6L, 7L), newOnes.excludeMoveIds(),
+                "registered ∪ tica ∪ marks: the move of a deleted cost (2) is new again");
         assertEquals(Set.of("in_invoice", "in_refund"), newOnes.moveTypes());
         assertEquals("IN", newOnes.direction());
         assertEquals(WORDS, newOnes.words());
@@ -110,14 +111,17 @@ class InvoiceFinderQueryTest {
     }
 
     @Test
-    void incomingStatusOrderCancelledTicaMarkCostRemovedBeforeStartNew() {
+    void incomingStatusOrderCancelledTicaMarkBeforeStartNew() {
         ErpInvoiceRows.Dedup dedup = dedup();
         LocalDate old = START.minusDays(10);
         assertStatus("CANCELLED", null, move(3, "in_refund", "cancel", null, old, null), dedup, Optional.of(START));
         assertStatus("TICA", null, move(3, "in_refund", "posted", null, old, null), dedup, Optional.of(START));
         assertStatus("HANDLED", null, move(6, "in_invoice", "posted", null, old, null), dedup, Optional.of(START));
         assertStatus("CONTAINER", null, move(7, "in_invoice", "posted", null, old, null), dedup, Optional.of(START));
-        assertStatus("HANDLED", "COST_REMOVED", move(2, "in_invoice", "posted", null, old, null), dedup, Optional.of(START));
+        // A deleted cost books nothing: the move follows the start date like any unbooked move, the reason is information.
+        assertStatus("HANDLED", "BEFORE_START", move(2, "in_invoice", "posted", null, old, null), dedup, Optional.of(START));
+        assertStatus("NEW", "COST_REMOVED", move(2, "in_invoice", "posted", null, START, null), dedup, Optional.of(START));
+        assertStatus("NEW", "COST_REMOVED", move(2, "in_invoice", "posted", null, old, null), dedup, Optional.empty());
         assertStatus("HANDLED", "BEFORE_START", move(8, "in_invoice", "posted", null, old, null), dedup, Optional.of(START));
         assertStatus("NEW", null, move(8, "in_invoice", "draft", null, START, null), dedup, Optional.of(START));
         assertStatus("NEW", null, move(8, "in_invoice", "posted", null, old, null), dedup, Optional.empty());
@@ -160,7 +164,8 @@ class InvoiceFinderQueryTest {
         assertEquals("NOT_EUR", InvoiceFinderService.blockedBy(usd, dedup, false));
         assertEquals("TICA", InvoiceFinderService.blockedBy(move(3, "in_refund", "posted", null, START, null), dedup, false));
         assertEquals("MARKED", InvoiceFinderService.blockedBy(move(6, "in_invoice", "posted", null, START, null), dedup, false));
-        assertEquals("COST_REMOVED", InvoiceFinderService.blockedBy(move(2, "in_invoice", "posted", null, START, null), dedup, false));
+        assertNull(InvoiceFinderService.blockedBy(move(2, "in_invoice", "posted", null, START, null), dedup, false),
+                "a deleted cost blocks nothing: registering books a new one");
         assertEquals("DEMO", InvoiceFinderService.blockedBy(move(8, "in_invoice", "posted", null, START, null), dedup, true));
         assertNull(InvoiceFinderService.blockedBy(move(8, "in_invoice", "draft", null, START, null), dedup, false));
     }

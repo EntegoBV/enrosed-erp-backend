@@ -285,7 +285,7 @@ public class InvoiceFinderService {
             case "IN/ODOO_NEW" -> {
                 types = IN_TYPES;
                 exclude.addAll(dedup.registered().keySet());
-                exclude.addAll(dedup.removed());
+                // A move whose cost was deleted in ENROSED is not booked any more: it is new again (FIX2, 2026-10-26).
                 exclude.addAll(dedup.ticaMoves());
                 exclude.addAll(dedup.marks().keySet());
                 if (newSince != null && newSince.isPresent() && (from == null || from.isBefore(newSince.get())))
@@ -320,7 +320,11 @@ public class InvoiceFinderService {
                 request.to(), Collections.unmodifiableSet(exclude), only, after, request.limit());
     }
 
-    /** Pure, unit-tested: status + statusReason of an incoming/outgoing Odoo move (§3.4). */
+    /**
+     * Pure, unit-tested: status + statusReason of an incoming/outgoing Odoo move (§3.4). A move whose cost was deleted in
+     * ENROSED is simply not booked (FIX2, 2026-10-26): it follows the rules of any unbooked move and, when that makes it
+     * NEW, keeps COST_REMOVED only as information ("kost eerder verwijderd"), as Nieuw in Odoo lists it.
+     */
     static String[] odooStatus(OdooInvoiceSearch.Move move, ErpInvoiceRows.Dedup dedup, Optional<LocalDate> newSince,
                                LocalDate today) {
         if ("cancel".equals(move.state())) return new String[] {"CANCELLED", null};
@@ -328,10 +332,9 @@ public class InvoiceFinderService {
             if (dedup.ticaMoves().contains(move.id())) return new String[] {"TICA", null};
             OdooDocumentMarks.Mark mark = dedup.marks().get(move.id());
             if (mark != null) return new String[] {OdooDocumentMarks.CONTAINER.equals(mark.resolution()) ? "CONTAINER" : "HANDLED", null};
-            if (dedup.removed().contains(move.id())) return new String[] {"HANDLED", "COST_REMOVED"};
             if (newSince != null && newSince.isPresent() && move.date() != null && move.date().isBefore(newSince.get()))
                 return new String[] {"HANDLED", "BEFORE_START"};
-            return new String[] {"NEW", null};
+            return new String[] {"NEW", dedup.removed().contains(move.id()) ? "COST_REMOVED" : null};
         }
         String payment = move.paymentState() == null ? "" : move.paymentState();
         return switch (payment) {
@@ -343,7 +346,10 @@ public class InvoiceFinderService {
         };
     }
 
-    /** Why an incoming move cannot be registered as a cost here, first reason in the contract's order; null: it can. */
+    /**
+     * Why an incoming move cannot be registered as a cost here, first reason in the contract's order; null: it can. A
+     * deleted cost blocks nothing any more (FIX2): registering books a new cost (OdooCostImportStore, again = true).
+     */
     static String blockedBy(OdooInvoiceSearch.Move move, ErpInvoiceRows.Dedup dedup, boolean demo) {
         if (!IN_TYPES.contains(move.moveType())) return "OUTGOING";
         if (!"draft".equals(move.state()) && !"posted".equals(move.state())) return "CANCELLED";
@@ -352,7 +358,6 @@ public class InvoiceFinderService {
         if (!"EUR".equals(move.currency())) return "NOT_EUR";
         if (dedup.ticaMoves().contains(move.id())) return "TICA";
         if (dedup.marks().containsKey(move.id())) return "MARKED";
-        if (dedup.removed().contains(move.id())) return "COST_REMOVED";
         if (demo) return "DEMO";
         return null;
     }

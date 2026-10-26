@@ -106,6 +106,30 @@ class OdooCostImportStoreTest {
         assertTrue(store.source(result.companyCostId()).documents().getFirst().mediaAssetId()>0);
     }
 
+    /** FIX2 (2026-10-26): the source of a deleted cost is booked again only by the user, as a new cost bound to it. */
+    @Test @TestTransaction void aDeletedCostIsBookedAgainByTheUserAsANewCostAndNeverByAutomation(){
+        var source=invoice(2015);var row=line("-121","2026-09-08");
+        var xml=new OdooCostImportStore.Downloaded(15,"XML",new OdooDocumentService.Download("invoice-2015.xml","application/xml",
+                "<Invoice><ID>synthetic-2015</ID></Invoice>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        slot(source);var first=store.register(row.id,source,HASH,null,null,List.of(xml));
+        costs.delete(first.companyCostId()); // as the app deletes a cost: payments, media link, then the cost
+        assertTrue(store.costRemoved(store.find(NS,2015)));
+        // Automation: still refused, the binding keeps the deleted cost, no retry counts as finished.
+        assertTrue(store.plan(row.id,source,null).unavailableReason().contains("lokale kost is verwijderd"));
+        assertNull(store.completedRetry(NS,row.id,2015,HASH));
+        assertEquals(first.companyCostId(),store.find(NS,2015).companyCostId);
+        // The user, on the same bank line: the plan of a new booking, then a new cost bound to the source.
+        var plan=store.plan(row.id,source,null,true);
+        assertNull(plan.unavailableReason());assertNull(plan.companyCostId());assertEquals(money("121"),plan.paymentAmountEur());
+        var again=store.register(row.id,source,HASH,null,null,List.of(xml),true);
+        assertNotEquals(first.companyCostId(),again.companyCostId());assertFalse(again.alreadyRegistered());assertEquals(1,again.documentsSaved());
+        var binding=store.find(NS,2015);assertEquals(again.companyCostId(),binding.companyCostId);assertFalse(store.costRemoved(binding));
+        var cost=costs.view(costs.get(again.companyCostId()));
+        assertEquals(1,cost.payments().size());assertEquals(row.id,cost.payments().getFirst().bankStatementLineId());assertEquals(money("0"),cost.openEur());
+        assertEquals("XML",store.source(again.companyCostId()).documents().getFirst().kind());
+        assertEquals(again.companyCostId(),store.completedRetry(NS,row.id,2015,HASH).companyCostId());
+    }
+
     @Test @TestTransaction void historicalInvalidBankAmountCannotBeUsedForSourceAssociation(){
         var source=invoice(2013);long id=costs.createImported(source,null).id();var row=line("-121","2026-09-08");bank.recordCostPayment(row.id,new BankStatementService.CostAllocation(id));
         var payment=em.find(CostPaymentEntity.class,costs.view(costs.get(id)).payments().getFirst().id());payment.amountEur=money("100");em.flush();

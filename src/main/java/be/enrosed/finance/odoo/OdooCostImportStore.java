@@ -38,6 +38,10 @@ public class OdooCostImportStore {
         return em.createQuery("select count(i) from OdooCostImportEntity i where i.companyCostId=:id",Long.class).setParameter("id",costId).getSingleResult()>0;
     }
     public OdooCostImportEntity find(String namespace,long moveId) {return em.find(OdooCostImportEntity.class,namespace+":"+moveId);}
+    /** Registered once, but its local cost has been deleted in ENROSED since (FIX2, 2026-10-26). */
+    public boolean costRemoved(OdooCostImportEntity row) {
+        return row!=null&&row.companyCostId!=null&&em.find(CompanyCostEntity.class,row.companyCostId)==null;
+    }
     public BankStatementLineEntity line(long id) {
         var line=em.find(BankStatementLineEntity.class,id);if(line==null)throw new NotFoundException("Banktransactie",id);return line;
     }
@@ -50,7 +54,15 @@ public class OdooCostImportStore {
         if("ODOO".equals(line.source)&&(line.sourceId==null||!line.sourceId.startsWith(namespace+":")))
             throw new BusinessRuleException("Deze banktransactie hoort bij een andere Odoo-administratie");
     }
-    public LocalPlan plan(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,Long selectedCostId) {
+    /** The plan of automation (Linc): a source whose local cost was deleted stays refused, never imported again by itself. */
+    public LocalPlan plan(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,Long selectedCostId) {return plan(lineId,snapshot,selectedCostId,false);}
+    /**
+     * {@code again}: the user books this source himself (a bank line's preview and registration). A registration whose local
+     * cost was deleted then counts as none, so the plan is that of a new booking; {@link #register} releases the old binding
+     * in the same transaction. Automation passes false: the entity's rule (a removed local cost never makes its source new
+     * again) holds for every automatic path, not for an explicit user action (FIX2, 2026-10-26).
+     */
+    public LocalPlan plan(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,Long selectedCostId,boolean again) {
         if(OdooTicaCreditnoteImportService.isTicaCreditnote(snapshot)
                 ||em.createQuery("select count(s) from TicaSettlement s where s.sourceKey=:key",Long.class)
                     .setParameter("key",OdooTicaCreditnoteImportService.sourceKey(snapshot.namespace(),snapshot.document().id())).getSingleResult()>0)
@@ -61,7 +73,7 @@ public class OdooCostImportStore {
         requireBankSource(line,snapshot.namespace());
         if(line.amountEur.signum()!=-snapshot.totalEur().signum())return new LocalPlan(null,List.of(),null,"De richting van deze banktransactie past niet bij de factuur of creditnota",null);
         var registration=find(snapshot.namespace(),snapshot.document().id());
-        Long costId=registration==null?null:registration.companyCostId;
+        Long costId=registration==null||again&&costRemoved(registration)?null:registration.companyCostId;
         var candidates=costId==null?candidates(snapshot,lineId):List.<Candidate>of();
         if(costId==null&&selectedCostId!=null) {
             if(candidates.stream().noneMatch(candidate->candidate.id()==selectedCostId))throw new BusinessRuleException("Kies een bestaande kost die bij deze bronfactuur hoort");
@@ -140,6 +152,7 @@ public class OdooCostImportStore {
     public Result completedRetry(String namespace,long lineId,long moveId,String requestedHash) {
         var row=find(namespace,moveId);
         if(row==null||row.companyCostId==null||!Objects.equals(row.snapshotHash,requestedHash))return null;
+        if(costRemoved(row))return null; // its cost was deleted: what follows is a new booking, never a finished one
         var source=snapshot(row);var plan=plan(lineId,source,row.companyCostId);
         if(plan.unavailableReason()!=null)return null;
         boolean linked=payments(row.companyCostId).stream().anyMatch(payment->Objects.equals(payment.bankStatementLineId,lineId));
@@ -147,13 +160,20 @@ public class OdooCostImportStore {
         return result(lineId,row,true,plan.paymentAmountEur());
     }
 
+    /** Automation's registration (Linc): see {@link #plan(long,OdooDocumentService.PurchaseSnapshot,Long)}. */
     @Transactional
     public Result register(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,String requestedHash,Long selectedCostId,String category,List<Downloaded> files) {
+        return register(lineId,snapshot,requestedHash,selectedCostId,category,files,false);
+    }
+    /** {@code again}: the user's own registration, see {@link #plan(long,OdooDocumentService.PurchaseSnapshot,Long,boolean)}. */
+    @Transactional
+    public Result register(long lineId,OdooDocumentService.PurchaseSnapshot snapshot,String requestedHash,Long selectedCostId,String category,List<Downloaded> files,boolean again) {
         if(OdooTicaCreditnoteImportService.isTicaCreditnote(snapshot))
             throw new BusinessRuleException("Deze TICA-creditnota is een verkoopafrekening. Verwerk ze via TICA-afrekeningen, niet als kost.");
         if(!Objects.equals(snapshot.hash(),requestedHash))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
         var binding=em.find(OdooCostImportEntity.class,snapshot.namespace()+":"+snapshot.document().id(),LockModeType.PESSIMISTIC_WRITE);
         if(binding==null||binding.companyId!=snapshot.companyId())throw new OdooFailure("INVALID_RESPONSE");
+        if(again&&costRemoved(binding))release(binding);
         boolean registered=binding.companyCostId!=null;
         if(registered&&selectedCostId!=null&&!binding.companyCostId.equals(selectedCostId))throw new BusinessRuleException("Deze bronfactuur hoort al bij een andere kost");
         if(registered&&!binding.snapshotHash.equals(snapshot.hash()))throw new OdooFailure("PURCHASE_PREVIEW_CHANGED");
@@ -168,7 +188,7 @@ public class OdooCostImportStore {
             if(payments(target).stream().anyMatch(payment->payment.bankStatementLineId!=null&&!bankIds.contains(payment.bankStatementLineId)))
                 throw new BusinessRuleException("Een betaling is intussen gekoppeld; vernieuw het factuurvoorbeeld");
         }
-        LocalPlan plan=plan(lineId,snapshot,target);
+        LocalPlan plan=plan(lineId,snapshot,target,again);
         if(plan.unavailableReason()!=null)throw new BusinessRuleException(plan.unavailableReason());
         if(plan.companyCostId()==null&&!plan.existingCandidates().isEmpty())throw new BusinessRuleException("Deze factuur lijkt al als kost geregistreerd; kies de bestaande kost");
         if(target!=null) {
@@ -206,6 +226,14 @@ public class OdooCostImportStore {
         }
         var payment=payments(costId).stream().filter(value->Objects.equals(value.bankStatementLineId,lineId)).findFirst().orElseThrow();
         return result(lineId,binding,registered,payment.amountEur);
+    }
+    /**
+     * Frees a binding whose local cost was deleted (cost id, snapshot, saved documents), so this registration binds the
+     * new cost. Only ever inside the registration's own transaction: released alone, the row would look like a retryable
+     * empty slot and let automation import the source again.
+     */
+    private static void release(OdooCostImportEntity binding) {
+        binding.companyCostId=null;binding.snapshotHash=null;binding.snapshotJson=null;binding.documentsJson=null;binding.registeredAt=null;
     }
     private Result result(long lineId,OdooCostImportEntity binding,boolean registered,BigDecimal amount) {
         var line=bank.list().stream().filter(value->value.id==lineId).findFirst().orElseThrow();
