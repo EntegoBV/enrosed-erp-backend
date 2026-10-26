@@ -330,6 +330,47 @@ class InvoiceFinderServiceTest {
     }
 
     @Test
+    void clearingAMarkWhileOdooFailsLeavesTheMarkAsItWas() {
+        try {
+            finder.mark(fx.m2, new InvoiceFinderService.MarkRequest("HANDLED", null, "test"));
+            assertTrue(marks.all(fx.odoo.namespace).containsKey(fx.m2));
+            fx.odoo.failWith = "UNAVAILABLE";
+            assertThrows(be.enrosed.finance.odoo.OdooFailure.class, () -> finder.clearMark(fx.m2));
+            assertTrue(marks.all(fx.odoo.namespace).containsKey(fx.m2),
+                    "the refusal the screen shows is true: the mark is still there");
+            fx.odoo.failWith = null;
+            InvoiceRow cleared = finder.clearMark(fx.m2);
+            assertEquals("NEW", cleared.status());
+            assertFalse(marks.all(fx.odoo.namespace).containsKey(fx.m2));
+        } finally {
+            fx.odoo.failWith = null;
+            marks.clear(fx.odoo.namespace, fx.m2);
+        }
+    }
+
+    @Test
+    void newInOdooForAContainerAsksOdooNothingSinceItsMarkedMovesAreNeverNew() {
+        InvoiceFinderService.Page page = find("IN", "ODOO_NEW", null, fx.orderA.id(), 100);
+        assertEquals(List.of(), keys(page));
+        assertTrue(fx.odoo.queries.isEmpty(), "every move marked to the container is excluded: no Odoo call");
+        assertTrue(page.odoo().included());
+    }
+
+    @Test
+    void aSearchOdooCannotTakeAsksOdooNothingInsteadOfListingEveryMove() {
+        for (String q : new String[] {"1/2", "&", "-"}) {
+            fx.odoo.queries.clear();
+            InvoiceFinderService.Page page = find("IN", "ALL", q, null, 100);
+            assertTrue(fx.odoo.queries.isEmpty(), q + ": no word survives for Odoo, so Odoo is not asked");
+            assertTrue(page.rows().stream().noneMatch(row -> "ODOO".equals(row.source())), q);
+        }
+        fx.odoo.queries.clear();
+        find("IN", "ALL", fx.token + " 1/2", null, 100);
+        assertEquals(List.of(fx.token), fx.odoo.queries.getFirst().words().stream().map(OdooInvoiceSearch.Word::text)
+                .toList(), "a search with one usable word still asks Odoo for that word");
+    }
+
+    @Test
     void periodFiltersOnTheSortDate() {
         InvoiceFinderService.Page page = finder.find(new InvoiceFinderService.Query("IN", "ALL", fx.token, d(10), d(12), null,
                 null, 100));

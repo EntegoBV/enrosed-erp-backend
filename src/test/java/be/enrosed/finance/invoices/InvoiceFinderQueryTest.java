@@ -78,6 +78,19 @@ class InvoiceFinderQueryTest {
         assertEquals(Set.of(7L), marked.onlyMoveIds());
         assertNull(InvoiceFinderService.odooQuery(request("IN", "ALL", null, 42L), dedup(), Optional.empty(), WORDS, null));
         assertNull(InvoiceFinderService.odooQuery(request("OUT", "ALL", null, 42L), dedup(), Optional.empty(), WORDS, null));
+        assertNull(InvoiceFinderService.odooQuery(request("IN", "ODOO_NEW", null, 41L), dedup(), Optional.empty(), WORDS,
+                null), "Nieuw in Odoo excludes every marked move, so a container's marked moves can never come");
+    }
+
+    @Test
+    void typedWordsOdooCannotTakeMakeNoCallButNoWordsAtAllAskEverything() {
+        for (String q : List.of("1/2", "&", "- / -")) {
+            InvoiceFinderService.Query typed = new InvoiceFinderService.Query("IN", "ALL", q, null, null, null, null, 50);
+            assertNull(InvoiceFinderService.odooQuery(typed, dedup(), Optional.empty(),
+                    InvoiceSearchText.odooWords(q, Map.of()), null), q);
+        }
+        InvoiceFinderService.Query none = new InvoiceFinderService.Query("IN", "ALL", "", null, null, null, null, 50);
+        assertNotNull(InvoiceFinderService.odooQuery(none, dedup(), Optional.empty(), List.of(), null));
     }
 
     @Test

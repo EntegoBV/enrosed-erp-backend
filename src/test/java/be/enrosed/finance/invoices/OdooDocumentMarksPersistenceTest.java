@@ -52,6 +52,37 @@ class OdooDocumentMarksPersistenceTest {
         assertEquals(1,marks.all(other).size(),"another namespace keeps its marks");
     }
 
+    /** Two first marks of one move at once: the later one replaces the earlier, it never fails on the key. */
+    @Test void twoFirstMarksOfOneMoveAtOnceEndAsOneMark() throws Exception {
+        String ns=token();
+        java.util.concurrent.CountDownLatch inserted=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Future<?> first=pool.submit(()->QuarkusTransaction.requiringNew().run(()->{
+                marks.put(ns,77,"HANDLED",null,"eerst","emre");
+                em.flush();
+                inserted.countDown();
+                try { release.await(20,java.util.concurrent.TimeUnit.SECONDS); }
+                catch(InterruptedException stop) { Thread.currentThread().interrupt(); }
+            }));
+            assertTrue(inserted.await(20,java.util.concurrent.TimeUnit.SECONDS),"the first insert is written, not committed");
+            java.util.concurrent.Future<OdooDocumentMarks.Mark> second=
+                    pool.submit(()->marks.put(ns,77,"CONTAINER",41L,"tweede","berat"));
+            Thread.sleep(500); // the second one found no row and now waits on the first one's key
+            release.countDown();
+            first.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            OdooDocumentMarks.Mark mark=second.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals("CONTAINER",mark.resolution());
+            var row=stored(ns,77);
+            assertEquals("CONTAINER",row.resolution);assertEquals(41L,row.purchaseOrderId);assertEquals("berat",row.markedBy);
+            assertEquals(1,marks.all(ns).size());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
     @Test void theStoreKeepsRowsValidForTheMigrationChecks() {
         String ns=token();
         assertThrows(IllegalArgumentException.class,()->marks.put(ns,1,"CONTAINER",null,null,"emre"));

@@ -23,6 +23,7 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -271,6 +272,8 @@ public class InvoiceFinderService {
     /** Pure, unit-tested: the Odoo query of a request page (exclusions, start date, words, cursor). null: no Odoo call. */
     static OdooInvoiceSearch.Query odooQuery(Query request, ErpInvoiceRows.Dedup dedup, Optional<LocalDate> newSince,
                                              List<OdooInvoiceSearch.Word> words, OdooInvoiceSearch.Cursor after) {
+        /* Words were typed but none is usable for Odoo ("1/2", "&"): asking Odoo without words would list every move. */
+        if ((words == null || words.isEmpty()) && !InvoiceSearchText.words(request.q()).isEmpty()) return null;
         Set<String> types;
         Set<Long> exclude = new TreeSet<>();
         LocalDate from = request.from();
@@ -310,7 +313,7 @@ public class InvoiceFinderService {
             for (OdooDocumentMarks.Mark mark : dedup.marks().values())
                 if (OdooDocumentMarks.CONTAINER.equals(mark.resolution()) && request.orderId().equals(mark.purchaseOrderId()))
                     only.add(mark.moveId());
-            if (only.isEmpty()) return null;
+            if (only.isEmpty() || exclude.containsAll(only)) return null; // nothing Odoo could answer
             only = Collections.unmodifiableSet(only);
         }
         return new OdooInvoiceSearch.Query(request.direction(), new TreeSet<>(types), words == null ? List.of() : words, from,
@@ -431,6 +434,12 @@ public class InvoiceFinderService {
 
     private InvoiceRow odooRow(long moveId) {
         OdooInvoices.Availability availability = connectedOrFail();
+        return odooRow(moveId, availability, () -> findMove(moveId));
+    }
+
+    /** The row of an Odoo key from the database first; {@code lookup} asks Odoo for the move only when needed. */
+    private InvoiceRow odooRow(long moveId, OdooInvoices.Availability availability,
+                               Supplier<OdooInvoiceSearch.Move> lookup) {
         ErpInvoiceRows.Dedup dedup = erpRows.dedup(availability.namespace());
         Long costId = dedup.registered().get(moveId);
         if (costId != null) {
@@ -442,7 +451,7 @@ public class InvoiceFinderService {
             Optional<InvoiceRow> sales = byKey(erpRows.build("OUT", false), "so:" + salesId);
             if (sales.isPresent()) return sales.get();
         }
-        OdooInvoiceSearch.Move move = odoo.find(moveId);
+        OdooInvoiceSearch.Move move = lookup.get();
         if (move == null) throw new NotFoundException("Odoo-factuur", moveId);
         ErpInvoiceRows.Built built = erpRows.build(IN_TYPES.contains(move.moveType()) ? "IN" : "OUT", true);
         String matched = built.match() == null ? null : built.match().keyFor(move);
@@ -451,6 +460,18 @@ public class InvoiceFinderService {
             if (row.isPresent()) return row.get();
         }
         return odooRow(move, dedup, availability, newSince(), LocalDate.now(ErpInvoiceRows.BRUSSELS));
+    }
+
+    /**
+     * One move from Odoo within the list's budget ({@link #ODOO_BUDGET}); a hanging Odoo answers UNAVAILABLE instead of
+     * holding the request for the client's own timeout.
+     */
+    private OdooInvoiceSearch.Move findMove(long moveId) {
+        try {
+            return OdooDeadline.await(OdooDeadline.start(() -> odoo.find(moveId)), Instant.now().plus(ODOO_BUDGET));
+        } catch (TimeoutException late) {
+            throw new OdooFailure("UNAVAILABLE");
+        }
     }
 
     private OdooInvoices.Availability connectedOrFail() {
@@ -475,7 +496,7 @@ public class InvoiceFinderService {
             throw InvoiceFinderErrors.invalid("INVALID_MARK", "Afgehandeld hoort bij geen container.");
         if (note != null && note.length() > 200)
             throw InvoiceFinderErrors.invalid("INVALID_MARK", "De notitie mag maximaal 200 tekens bevatten.");
-        OdooInvoiceSearch.Move move = odoo.find(moveId);
+        OdooInvoiceSearch.Move move = findMove(moveId);
         if (move == null) throw new NotFoundException("Odoo-factuur", moveId);
         if (!IN_TYPES.contains(move.moveType())) throw InvoiceFinderErrors.invalid("NOT_INCOMING");
         if ("cancel".equals(move.state())) throw new BusinessRuleException("Deze factuur is geannuleerd in Odoo.");
@@ -492,12 +513,16 @@ public class InvoiceFinderService {
                 LocalDate.now(ErpInvoiceRows.BRUSSELS));
     }
 
-    /** Idempotent: clears the mark when there is one and answers the row as it stands now. */
+    /**
+     * Idempotent: clears the mark when there is one and answers the row as it stands now. Odoo is asked for the move
+     * before the mark is cleared, so a failing Odoo leaves the mark as it was and the refusal the screen shows is true.
+     */
     public InvoiceRow clearMark(long moveId) {
         OdooInvoices.Availability availability = connectedOrFail();
         if (moveId <= 0) throw new OdooFailure("INVALID_REQUEST");
+        OdooInvoiceSearch.Move move = findMove(moveId);
         marks.clear(availability.namespace(), moveId);
-        return odooRow(moveId);
+        return odooRow(moveId, availability, () -> move);
     }
 
     // ------------------------------------------------------------------------------------------------------------ files
