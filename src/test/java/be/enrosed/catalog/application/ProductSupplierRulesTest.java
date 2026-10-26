@@ -173,6 +173,46 @@ class ProductSupplierRulesTest {
     }
 
     @Test
+    void aSupplierSwitchToAHistoryRowFillsWhatThatRowNeverKnewFromTheEdit() {
+        FakeRows rows = new FakeRows();
+        rows.put(new ProductSupplier(null, 1L, A, true, true, null, null, price("2.35"), Currency.USD, price("0.10"),
+                null, null, null, null, null));
+        /* The migration's step 2: bought from B in 2024, inactive, priced as last ordered, no extra cost, no note. */
+        rows.put(new ProductSupplier(null, 1L, B, false, false, null, null, price("1.80"), Currency.USD, null,
+                null, null, null, null, null));
+        Product current = ProductSupplierOffersTest.product(1L, A, "2.35").withPurchasePrice(price("2.35"),
+                Currency.USD, price("0.10"));
+        PurchaseMirror before = PurchaseMirror.of(current);
+        PurchaseMirror after = new PurchaseMirror(B, null, before.exwPrice(), before.exwCurrency(),
+                before.extraUnitCost());
+
+        ProductSupplier preferred = ProductSupplierRules.applyProductEdit(rows, current, before, after, NOW);
+
+        assertEquals(B, preferred.supplierId());
+        assertTrue(preferred.preferred());
+        assertTrue(preferred.active());
+        assertEquals(0, price("1.80").compareTo(preferred.exwPrice()), "B keeps the price it was bought at");
+        assertEquals(0, price("0.10").compareTo(preferred.extraUnitCost()),
+                "the card's extra cost is not lost: the history row never had one");
+
+        /* A row without any price takes the edit's pair whole. */
+        FakeRows priceless = new FakeRows();
+        priceless.put(new ProductSupplier(null, 2L, A, true, true, null, null, price("2.10"), Currency.EUR,
+                price("0.20"), null, null, null, null, null));
+        priceless.put(new ProductSupplier(null, 2L, B, false, true, null, null, null, null, price("0.05"),
+                null, null, null, null, null));
+        Product second = ProductSupplierOffersTest.product(2L, A, "2.10").withPurchasePrice(price("2.10"),
+                Currency.EUR, price("0.20"));
+        PurchaseMirror secondBefore = PurchaseMirror.of(second);
+        ProductSupplier onB = ProductSupplierRules.applyProductEdit(priceless, second, secondBefore,
+                new PurchaseMirror(B, null, secondBefore.exwPrice(), secondBefore.exwCurrency(),
+                        secondBefore.extraUnitCost()), NOW);
+        assertEquals(0, price("2.10").compareTo(onB.exwPrice()));
+        assertEquals(Currency.EUR, onB.exwCurrency());
+        assertEquals(0, price("0.05").compareTo(onB.extraUnitCost()), "a row's own extra cost stays");
+    }
+
+    @Test
     void aSupplierSwitchToANewSupplierCreatesItsRowFromTheEditAsVoorkeur() {
         FakeRows rows = new FakeRows();
         Product current = ProductSupplierOffersTest.product(1L, A, "2.35");

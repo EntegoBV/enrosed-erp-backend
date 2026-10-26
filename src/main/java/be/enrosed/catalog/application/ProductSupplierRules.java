@@ -130,7 +130,8 @@ public final class ProductSupplierRules {
      *     <li>on an existing target only what differs from {@code before} is written (amounts by compareTo), so a
      *     supplier switch from an old tab keeps that supplier's own price and note, and on the same supplier a
      *     changed value lands on the Voorkeur row (last write wins). A switch that carries no note keeps the row's
-     *     note (the product PUT drops an echoed note on a supplier change);</li>
+     *     note (the product PUT drops an echoed note on a supplier change). A price pair or extra cost the row does
+     *     not have (null) is taken from {@code after};</li>
      *     <li>target not preferred (or new) -> promote; changed -> save; else nothing is written.</li>
      * </ol>
      */
@@ -164,6 +165,17 @@ public final class ProductSupplierRules {
         }
         if (!PurchaseMirror.sameAmount(after.extraUnitCost(), before.extraUnitCost())
                 && !PurchaseMirror.sameAmount(after.extraUnitCost(), extra)) {
+            extra = after.extraUnitCost();
+            changed = true;
+        }
+        /* What the row never knew (a history row of the migration has no extra cost; a row may have no price) comes
+           from the edit, so a switch from an old tab never empties the card. The pair travels whole. */
+        if (price == null && after.exwPrice() != null) {
+            price = after.exwPrice();
+            currency = after.exwCurrency();
+            changed = true;
+        }
+        if (extra == null && after.extraUnitCost() != null) {
             extra = after.extraUnitCost();
             changed = true;
         }

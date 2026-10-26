@@ -91,13 +91,19 @@ UPDATE purchase_order_line l
    AND s.product_id = l.productid AND s.supplier_id = o.supplierid
    AND l.product_supplier_id IS NULL;
 
--- 4. Placed lines stop following the live product: what they calculate with today is frozen on the line.
+-- 4. Placed lines stop following the live product: what they calculate with today is frozen on the line. A line
+--    follows the product card only while its container's supplier is the product's own or had no row before this run
+--    (created_at = now() marks the rows this transaction made; on the first run that is every row, so every placed
+--    line is frozen as the old app calculated it). A line priced from another supplier's row is left to that row.
 UPDATE purchase_order_line l
    SET extraunitcost = coalesce(p.extraunitcost, 0)
   FROM purchase_order o, product p
  WHERE o.id = l.order_id AND p.id = l.productid
    AND o.status <> 'CONCEPT'
-   AND l.extraunitcost IS NULL;
+   AND l.extraunitcost IS NULL
+   AND (o.supplierid IS NULL OR o.supplierid = p.supplierid
+        OR NOT EXISTS (SELECT 1 FROM product_supplier s
+                        WHERE s.product_id = p.id AND s.supplier_id = o.supplierid AND s.created_at <> now()));
 
 UPDATE purchase_order_line l
    SET exwprice = p.exwprice, exwcurrency = coalesce(p.exwcurrency, 'USD')
@@ -105,6 +111,9 @@ UPDATE purchase_order_line l
  WHERE o.id = l.order_id AND p.id = l.productid
    AND o.status <> 'CONCEPT'
    AND l.exwprice IS NULL AND l.exwcurrency IS NULL
-   AND p.exwprice IS NOT NULL;
+   AND p.exwprice IS NOT NULL
+   AND (o.supplierid IS NULL OR o.supplierid = p.supplierid
+        OR NOT EXISTS (SELECT 1 FROM product_supplier s
+                        WHERE s.product_id = p.id AND s.supplier_id = o.supplierid AND s.created_at <> now()));
 
 COMMIT;

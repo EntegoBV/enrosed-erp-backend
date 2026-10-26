@@ -1068,6 +1068,13 @@ class RailwayPreDeployMigrationContractTest {
         assertTrue(sql.contains("l.product_supplier_id is null"), "a linked line keeps its row");
         assertTrue(sql.contains("l.extraunitcost is null"), "a frozen extra cost is never overwritten");
         assertTrue(sql.contains("l.exwprice is null and l.exwcurrency is null"), "a line's own price pair stays");
+        String freezeGuard = "and (o.supplierid is null or o.supplierid = p.supplierid or not exists (select 1 from "
+                + "product_supplier s where s.product_id = p.id and s.supplier_id = o.supplierid and s.created_at <> now()))";
+        assertEquals(2, sql.split(java.util.regex.Pattern.quote(freezeGuard), -1).length - 1,
+                "both freezes copy the card only onto lines the card prices: own supplier, or no row older than this run "
+                        + "(a later deploy never writes the Voorkeur's price onto another supplier's container)");
+        assertTrue(sql.indexOf(freezeGuard) > sql.indexOf("set product_supplier_id = s.id"),
+                "the freezes stay last, so the history rows of step 2 read the lines' own prices");
         assertFalse(sql.contains("references"), "no foreign key: a product delete removes its rows in code");
         assertFalse(sql.contains("check"), "plain varchar instead of enum checks");
         assertNonDestructive(sql);
