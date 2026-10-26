@@ -1827,3 +1827,57 @@ the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it ne
   adjustment table) run after `purchase-document-invoice-kind-postgresql.sql`, in that order. Additive: no update,
   insert, check or foreign key. **Rollout: backend first**; the ERP hides every phase-2 control until
   `/api/cash-forecast/settings` answers.
+
+## Batches (2026-10-25)
+
+Which container's pieces are still on the shelf and at what cost; the margin of a shipped sale uses the cost of the
+batches its pieces left (Emre: "the leaving batch, FIFO"). The catalogue/website price keeps following the product
+card, never a batch. Contract: the round's `batches/contract.md`; code in `catalog` (core), `sourcing`/`sales`
+(writers) and `inventory` (reads, start, REST).
+
+- **Model**: `stock_batch` = pieces that entered together with one cost. `RECEIPT` (one per booked purchase-order
+  line, key `purchase_order_line_id`, carries the line's `product_supplier_id`), `OPENING` ("Beginvoorraad", made only
+  by the start) and `COUNT` ("Telling": found pieces, untraceable returns; one per product per day and cost). Owner
+  `PARTNER` for a partner container, else `OWN`. Quantities are physical pieces; the cost is per selling unit of the
+  batch (`unit_pieces` frozen at birth, same scale as `product.landedCostEur`), incl. the Enrosed kost, with the figure
+  without it and the seven parts beside it. States `APPLIED` (Kostprijzen toepassen), `CALCULATED` (the container's
+  calculation, refreshed at each shipment), `CARD`, `NONE`. Every change is a signed `stock_batch_move` written in the
+  same transaction as its stock movement; `batch_id` null = "zonder batch" (a take no batch could give).
+  `link_move_id` means, by shape: a restore of a take, a settle of an unassigned take by a later own receipt, or an
+  unassigned take resolved without a batch. `pieces_in`/`pieces_left` are caches of the moves.
+- **Invariant per product** (`GET /api/stock-batches/check`): Σ `pieces_left` − open unassigned pieces = Σ over every
+  location of `quantity × factor + loose`. Company-wide FIFO: locations and transfers do not matter.
+- **FIFO**: own Beginvoorraad first, then own batches by `received_on` (unknown first), id; partner batches only when
+  the own ones are empty; the rest unassigned. A known container (damage on a container, a container sale, a partner
+  settlement) pins the take to its batch first.
+- **Start** ("Batches opbouwen", `POST /api/stock-batches/backfill?dryRun=true|false`, default dry run;
+  `StockBatchBackfillService`): nothing writes before the start; every hook is a no-op until a `stock_batch_run` row
+  exists. The dry run reads only, no locks. The real run (one transaction, 600 s) locks every product before reading its
+  levels; per booked line a batch with the newest `product_cost_history` row of (product, container), kinds
+  APPLY/REAPPLY/SEED only (a COPY row carries another product's cost), converted from the row's basis (per display only
+  when applied per display) to today's unit, else the calculation of today. The shelf fills from the newest batch down
+  (the `FifoValuer` rule): partner pieces first (usable − what its advances/settlements shipped by the run), then own
+  newest first; the rest one OPENING batch at the card cost; negative locations one unassigned BACKFILL move. Older
+  pieces get one BACKFILL move per batch. Each written product must hold the invariant, else the whole start rolls
+  back. A second start is refused ("Batches zijn al gestart op dd/mm/jjjj."). Received-but-not-booked containers are
+  listed, never batched. On production: dry run first, report to Emre, start only on his word.
+- **Pause** (`POST /pause`, `/resume`, latest run's `paused_at`): every hook stops at once, stock work never fails on a
+  batch bug, shipments stamp no stock cost; the drift shows in `/check`. The first response to any batch error.
+- **Repair** ("Herstellen", `POST /check/repair {productIds}`, empty = every product in the check; only while active):
+  too few batch pieces → found into today's Telling batch at the card cost; too many → a FIFO take of kind `REPAIR`.
+- **Reset** (on Emre's word only; no button): `POST /api/stock-batches/reset` with `{"confirm":"RESET"}`, or the same
+  by SQL, in this order:
+
+```sql
+begin;
+delete from stock_batch_move;
+delete from stock_batch;
+delete from stock_batch_run;
+update sales_order_line set stock_cost_eur = null where stock_cost_eur is not null;
+commit;
+```
+  Afterwards the dry run and the start can run again.
+- **REST** (`/api/stock-batches`, admin only): `GET /status`, `/products/{id}`, `/{batchId}/moves?limit=1..500`,
+  `/purchase-orders/{id}` (rows in line order, live-only `costs`, `stale` = batch cost and today's calculation differ in
+  cents), `/sales-orders/{id}` (the takes of the shipment per batch), `/check`; `POST /pause`, `/resume`,
+  `/check/repair`, `/backfill`, `/reset`. Business refusals answer 409.
