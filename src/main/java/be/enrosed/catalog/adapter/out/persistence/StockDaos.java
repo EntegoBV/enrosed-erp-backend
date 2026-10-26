@@ -3,7 +3,7 @@ package be.enrosed.catalog.adapter.out.persistence;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 
-/** Panache repositories for stock locations and the pieces that lie there. */
+/** Panache repositories for stock locations, the pieces that lie there and the batches they came in. */
 public final class StockDaos {
 
     private StockDaos() {}
@@ -16,4 +16,13 @@ public final class StockDaos {
 
     @ApplicationScoped
     public static class BarcodePool implements PanacheRepository<BarcodePoolEntity> {}
+
+    @ApplicationScoped
+    public static class Batches implements PanacheRepository<StockBatchEntity> {}
+
+    @ApplicationScoped
+    public static class BatchMoves implements PanacheRepository<StockBatchMoveEntity> {}
+
+    @ApplicationScoped
+    public static class BatchRuns implements PanacheRepository<StockBatchRunEntity> {}
 }

@@ -6,6 +6,7 @@ import be.enrosed.catalog.adapter.out.persistence.StockDaos;
 import be.enrosed.catalog.adapter.out.persistence.StockLevelEntity;
 import be.enrosed.catalog.adapter.out.persistence.StockLocationEntity;
 import be.enrosed.catalog.application.port.out.StockLedger;
+import be.enrosed.catalog.domain.StockBatchContext;
 import be.enrosed.catalog.domain.StockLevel;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.catalog.domain.StockMovement;
@@ -35,6 +36,10 @@ import java.util.stream.Collectors;
  * the locations that count for the website - what a customer can order.
  * What lies at a sales point is there to be sold on the spot and is only
  * seen here, per location.
+ *
+ * Every writer that changes a count tells {@link StockBatchService} what happened, after the line is in the book and
+ * in the same transaction (a failing batch hook rolls the booking back; "Pauzeren" makes every hook a no-op).
+ * Transfers and damage noted on arrival do not touch batches.
  */
 @ApplicationScoped
 public class StockService {
@@ -47,16 +52,18 @@ public class StockService {
     private final StockLedger ledger;
     private final CurrentActor actor;
     private final WebsiteRebuildService websiteRebuild;
+    private final StockBatchService batches;
 
     public StockService(StockDaos.Locations locations, StockDaos.Levels levels,
                         CatalogDaos.Products products, StockLedger ledger, CurrentActor actor,
-                        WebsiteRebuildService websiteRebuild) {
+                        WebsiteRebuildService websiteRebuild, StockBatchService batches) {
         this.locations = locations;
         this.levels = levels;
         this.products = products;
         this.ledger = ledger;
         this.actor = actor;
         this.websiteRebuild = websiteRebuild;
+        this.batches = batches;
     }
 
     /* ------------------------------------------------------------ locations */
@@ -221,20 +228,38 @@ public class StockService {
         int looseBefore = loosePiecesAt(productId, locationId);
         if (before == quantity && looseBefore == loosePieces && kind != StockMovement.Kind.STOCKTAKE) return;
         write(productId, locationId, quantity, loosePieces);
-        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), quantity - before, quantity,
-                kind, reference, actor.name(), null, null, null, null,
+        Instant now = Instant.now();
+        Long movementId = ledger.record(new StockMovement(null, productId, location.id(), now, quantity - before,
+                quantity, kind, reference, actor.name(), null, null, null, null,
                 loosePieces - looseBefore, loosePieces, factor, null, null));
+        int physicalDelta = Math.subtractExact(
+                Math.addExact(Math.multiplyExact(quantity, factor), loosePieces),
+                Math.addExact(Math.multiplyExact(before, factor), looseBefore));
+        batches.onCount(productId, movementId, kind, physicalDelta, reference, now);
         recompute(productId);
     }
 
     /** Adds pieces at a location - a purchase receipt, or a correction by delta. */
     @Transactional
     public void add(long productId, long locationId, int delta, StockMovement.Kind kind, String reference) {
+        add(productId, locationId, delta, kind, reference, StockBatchContext.NONE);
+    }
+
+    /**
+     * The same, saying where the pieces came from for the batches: the container line of a receipt, or the invoice
+     * whose pieces come back on a credit note.
+     */
+    @Transactional
+    public void add(long productId, long locationId, int delta, StockMovement.Kind kind, String reference,
+                    StockBatchContext batch) {
         requireProduct(productId);
         StockLocation location = location(locationId);
         int after = quantityAt(productId, locationId) + delta;
         write(productId, locationId, after);
-        book(productId, location, delta, after, kind, reference);
+        Instant now = Instant.now();
+        Long movementId = book(productId, location, delta, after, kind, reference, now);
+        batches.onAdd(productId, movementId, kind, Math.multiplyExact(delta, unitPieces(productId)), batch,
+                reference, now);
         recompute(productId);
     }
 
@@ -256,6 +281,17 @@ public class StockService {
     @Transactional
     public void takeOut(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference,
                         Long purchaseOrderId) {
+        takeOut(productId, locationId, quantity, kind, reference, purchaseOrderId,
+                StockBatchContext.pinned(purchaseOrderId));
+    }
+
+    /**
+     * The same with the batch context; the movement keeps {@code purchaseOrderId} as given, the batches are taken
+     * from the context's container first, else from {@code purchaseOrderId}'s.
+     */
+    @Transactional
+    public void takeOut(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference,
+                        Long purchaseOrderId, StockBatchContext batch) {
         if (kind != StockMovement.Kind.DAMAGED && kind != StockMovement.Kind.DEMO
                 && kind != StockMovement.Kind.SHORTAGE) {
             throw new BusinessRuleException("Alleen beschadigd, te weinig geleverd of demo kan zo uit de voorraad");
@@ -268,9 +304,15 @@ public class StockService {
             throw new BusinessRuleException("Op " + location.name() + " liggen maar " + at + " stuks");
         }
         write(productId, locationId, at - quantity);
-        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), -quantity, at - quantity,
-                kind, reference, actor.name(), purchaseOrderId, null, null, null,
+        Instant now = Instant.now();
+        Long movementId = ledger.record(new StockMovement(null, productId, location.id(), now, -quantity,
+                at - quantity, kind, reference, actor.name(), purchaseOrderId, null, null, null,
                 0, loosePiecesAt(productId, locationId), unitPieces(productId), null, null));
+        StockBatchContext context = batch == null ? StockBatchContext.NONE : batch;
+        Long pin = context.pinPurchaseOrderId() != null ? context.pinPurchaseOrderId() : purchaseOrderId;
+        batches.onTake(productId, movementId, kind, Math.multiplyExact(quantity, unitPieces(productId)),
+                new StockBatchContext(pin, context.salesOrderId(), context.returnOfSalesOrderId(), context.receipt()),
+                reference, now);
         recompute(productId);
     }
 
@@ -303,12 +345,21 @@ public class StockService {
      */
     @Transactional
     public void sell(long productId, long locationId, int quantity, String reference) {
+        sell(productId, locationId, quantity, reference, StockBatchContext.NONE);
+    }
+
+    /** The same, naming the sales document (and the container a container sale is pinned to) for the batches. */
+    @Transactional
+    public void sell(long productId, long locationId, int quantity, String reference, StockBatchContext batch) {
         if (quantity <= 0) throw new BusinessRuleException("Geef een aantal groter dan nul op");
         requireProduct(productId);
         StockLocation location = location(locationId);
         int at = quantityAt(productId, locationId);
         write(productId, locationId, at - quantity);
-        book(productId, location, -quantity, at - quantity, StockMovement.Kind.SALE, reference);
+        Instant now = Instant.now();
+        Long movementId = book(productId, location, -quantity, at - quantity, StockMovement.Kind.SALE, reference, now);
+        batches.onTake(productId, movementId, StockMovement.Kind.SALE, Math.multiplyExact(quantity, unitPieces(productId)),
+                batch, reference, now);
         recompute(productId);
     }
 
@@ -325,10 +376,11 @@ public class StockService {
         int afterPieces = Math.addExact(Math.addExact(Math.multiplyExact(before, factor), looseBefore), physicalDelta);
         int after = Math.floorDiv(afterPieces, factor), looseAfter = Math.floorMod(afterPieces, factor);
         write(productId, locationId, after, looseAfter);
-        ledger.record(new StockMovement(null, productId, location.id(), bookedAt, after - before, after,
-                physicalDelta < 0 ? StockMovement.Kind.SALE : StockMovement.Kind.SALE_RETURN,
+        Long movementId = ledger.record(new StockMovement(null, productId, location.id(), bookedAt, after - before,
+                after, physicalDelta < 0 ? StockMovement.Kind.SALE : StockMovement.Kind.SALE_RETURN,
                 reference, "TICA-synchronisatie", null, saleId, revisionId, soldAt,
                 looseAfter - looseBefore, looseAfter, factor, sourceQuantity, sourceUnit));
+        batches.onTica(productId, movementId, physicalDelta, saleId, reference, bookedAt);
         recompute(productId);
     }
 
@@ -416,9 +468,15 @@ public class StockService {
         levels.flush();
     }
 
-    private void book(long productId, StockLocation location, int delta, int after,
+    private Long book(long productId, StockLocation location, int delta, int after,
                       StockMovement.Kind kind, String reference) {
-        ledger.record(new StockMovement(null, productId, location.id(), Instant.now(), delta, after,
+        return book(productId, location, delta, after, kind, reference, Instant.now());
+    }
+
+    /** Writes the book line; returns its id for the batch moves it causes. */
+    private Long book(long productId, StockLocation location, int delta, int after,
+                      StockMovement.Kind kind, String reference, Instant at) {
+        return ledger.record(new StockMovement(null, productId, location.id(), at, delta, after,
                 kind, reference, actor.name(), null, null, null, null,
                 0, loosePiecesAt(productId, location.id()), unitPieces(productId), null, null));
     }
