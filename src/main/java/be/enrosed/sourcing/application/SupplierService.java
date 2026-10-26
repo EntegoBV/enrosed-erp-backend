@@ -30,6 +30,9 @@ public class SupplierService {
     Instance<ActivityLogService> activity;
     @Inject
     Instance<SourcingRepositories.PurchaseOrders> purchaseOrders;
+    /* Who makes what since several suppliers per product; pure unit tests run without, counting product cards. */
+    @Inject
+    Instance<be.enrosed.catalog.application.ProductSupplierService> productSuppliers;
 
     public SupplierService(SourcingRepositories.Suppliers suppliers, ProductRepository products) {
         this.suppliers = suppliers;
@@ -81,10 +84,10 @@ public class SupplierService {
     @Transactional
     public void delete(long id) {
         Supplier supplier = get(id);
-        long attached = products.countBySupplier(id);
-        if (attached > 0) {
-            throw new BusinessRuleException(
-                    "Er hangen nog " + attached + " product(en) aan " + supplier.name());
+        be.enrosed.catalog.application.ProductSupplierService.SupplierUsage usage = usage(id);
+        if (usage.products() > 0) {
+            throw new BusinessRuleException("Er hangen nog " + usage.products() + " product(en) aan " + supplier.name()
+                    + (usage.inactive() == 0 ? "" : ", waarvan " + usage.inactive() + " op inactief"));
         }
         if (purchaseOrders != null && purchaseOrders.isResolvable()
                 && purchaseOrders.get().referencesSupplierIncludingDeleted(id))
@@ -93,8 +96,17 @@ public class SupplierService {
         recordActivity(ActivityLogService.ACTION_DELETED, supplier, "Leverancier verwijderd");
     }
 
+    /** Products this supplier makes: its rows (active and inactive) of existing products plus legacy products. */
     public long productCount(long supplierId) {
-        return products.countBySupplier(supplierId);
+        return usage(supplierId).products();
+    }
+
+    private be.enrosed.catalog.application.ProductSupplierService.SupplierUsage usage(long supplierId) {
+        if (productSuppliers != null && productSuppliers.isResolvable()) {
+            return productSuppliers.get().usage(supplierId);
+        }
+        return new be.enrosed.catalog.application.ProductSupplierService.SupplierUsage(
+                products.countBySupplier(supplierId), 0);
     }
 
     private static Supplier normalize(Supplier supplier, String country) {

@@ -433,7 +433,7 @@
           </td>
           <td class="product__copy">
             <div class="product__name">{line.productName}</div>
-            <div class="product__ids">{#if line.sku}SKU {line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}</div>
+            <div class="product__ids">{#if line.sku}SKU {line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.supplierReference}{#if line.sku || line.ean} · {/if}Your ref. {line.supplierReference}{/if}</div>
           </td>
         </tr>
         {#if line.productSize || line.packagingText || line.colour}<tr><td colspan="2" class="product__facts-cell">
@@ -496,7 +496,7 @@
       <td>
         <div class="agreement-head__kicker">Agreed product instruction</div>
         <div class="agreement-head__name">{line.productName}</div>
-        <div class="agreement-head__meta">{#if line.sku}SKU {line.sku} · {/if}{#if line.ean}EAN {line.ean} · {/if}{line.orderedQuantity} pcs · {line.orderedCartons} cartons{#if line.lineCbm} · {line.lineCbm}{/if}</div>
+        <div class="agreement-head__meta">{#if line.sku}SKU {line.sku} · {/if}{#if line.ean}EAN {line.ean} · {/if}{#if line.supplierReference}Your ref. {line.supplierReference} · {/if}{line.orderedQuantity} pcs · {line.orderedCartons} cartons{#if line.lineCbm} · {line.lineCbm}{/if}</div>
       </td>
     </tr></table>
   </th></tr>

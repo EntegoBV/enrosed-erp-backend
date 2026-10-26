@@ -851,7 +851,9 @@ class PurchaseOrderServiceTest {
         BusinessRuleException exception = assertThrows(BusinessRuleException.class,
                 () -> service(new InMemoryOrders(concept), products).update(10L, concept));
 
-        assertTrue(exception.getMessage().contains("hoort niet bij de gekozen leverancier"));
+        assertTrue(exception.getMessage().contains(" wordt niet gemaakt door "), exception.getMessage());
+        assertTrue(exception.getMessage().endsWith("Voeg die leverancier eerst toe aan het product."),
+                exception.getMessage());
     }
 
     @Test
@@ -879,7 +881,7 @@ class PurchaseOrderServiceTest {
 
         BusinessRuleException exception = assertThrows(BusinessRuleException.class,
                 () -> service.update(10L, replacedByNewLine));
-        assertTrue(exception.getMessage().contains("hoort niet bij de gekozen leverancier"));
+        assertTrue(exception.getMessage().contains(" wordt niet gemaakt door "), exception.getMessage());
     }
 
     @Test

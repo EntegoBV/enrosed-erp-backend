@@ -537,6 +537,16 @@ public final class PanacheSourcingRepositories {
                     .setParameter("id", supplierId).getSingleResult()).longValue() > 0;
         }
 
+        /* Native, so the soft-delete restriction on the order does not hide trashed containers. */
+        @Override
+        public long linesUsingProductSupplierIncludingDeleted(long rowId, long productId, long supplierId) {
+            return ((Number) dao.getEntityManager().createNativeQuery(
+                            "select count(*) from purchase_order_line l join purchase_order o on o.id = l.order_id "
+                                    + "where l.product_supplier_id = :row or (l.productid = :product and o.supplierid = :supplier)")
+                    .setParameter("row", rowId).setParameter("product", productId).setParameter("supplier", supplierId)
+                    .getSingleResult()).longValue();
+        }
+
         @Override
         public Optional<PurchaseOrder> findById(long id) {
             return dao.find("id = ?1", id).firstResultOptional().filter(entity -> entity.deletedAt == null).map(PurchaseOrderAdapter::toDomain);
@@ -656,6 +666,9 @@ public final class PanacheSourcingRepositories {
                 target.receiptUnitValueEur = line.receiptUnitValueEur();
                 target.issueNote = line.issueNote();
                 target.extraShareEur = line.extraShareEur();
+                target.productSupplierId = line.productSupplierId();
+                target.supplierVersionLabel = line.supplierVersionLabel();
+                target.supplierReference = line.supplierReference();
             }
 
             if (entity.id == null) dao.persist(entity);
@@ -683,7 +696,8 @@ public final class PanacheSourcingRepositories {
                 lines.add(new PurchaseOrderLine(line.id, line.productId, line.quantity,
                         line.exwPrice, line.exwCurrency, line.extraUnitCost,
                         line.orderedQuantity, line.priceBasis, line.damagedQuantity,
-                        line.receiptUnitValueEur, line.issueNote, line.extraShareEur));
+                        line.receiptUnitValueEur, line.issueNote, line.extraShareEur,
+                        line.productSupplierId, line.supplierVersionLabel, line.supplierReference));
             }
             return new PurchaseOrder(entity.id, entity.number, entity.alias,
                     entity.supplierId, entity.orderDate,

@@ -419,10 +419,11 @@ public class LotCostCalculator {
                 continue;
             }
             Row row = byProduct.computeIfAbsent(line.productId(), id -> new Row(id, product));
-            BigDecimal exwPrice = line.exwPrice() != null ? line.exwPrice() : product.exwPrice();
-            BigDecimal extraUnit = line.extraUnitCost() != null ? line.extraUnitCost() : product.extraUnitCost();
-            Currency currency = line.exwCurrency() != null ? line.exwCurrency() : product.exwCurrency();
-            if (currency == null) currency = Currency.USD;
+            /* The products arrive priced as the container's supplier sells them (LotCostService). */
+            PurchasePrice price = PurchasePriceResolver.price(line, product);
+            BigDecimal exwPrice = price.exwPrice();
+            BigDecimal extraUnit = price.extraUnitCost();
+            Currency currency = price.exwCurrency();
             /* The product's own price, never the family-levelled goods value: each item is valued on its own. */
             BigDecimal priceEur = PurchaseOrderService.euroAtOrderRate(order,
                     Money.nz(exwPrice).add(Money.nz(extraUnit)), currency);

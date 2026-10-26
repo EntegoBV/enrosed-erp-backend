@@ -49,6 +49,9 @@ public class LandedCostCalculator {
     private final CurrencyConverter currencies;
     private final HsCodeService hsCodes;
     private final ProductOverviewOrder productOrder;
+    /* What the order's supplier asks per product; hand-built calculators (pure tests) price as before. */
+    @Inject
+    jakarta.enterprise.inject.Instance<PurchasePriceResolver> prices;
 
     @Inject
     public LandedCostCalculator(
@@ -69,6 +72,10 @@ public class LandedCostCalculator {
         return calculate(order, productsById, PurchaseOrderLine::received);
     }
 
+    private PurchasePriceResolver resolver() {
+        return prices != null && prices.isResolvable() ? prices.get() : PurchasePriceResolver.legacy();
+    }
+
     /**
      * Recalculates the complete order on the immutable quantity agreed with
      * the supplier. This is intentionally a set-wide calculation: fixed
@@ -83,6 +90,9 @@ public class LandedCostCalculator {
     private LandedCost calculate(PurchaseOrder order, Map<Long, Product> productsById,
                                  ToIntFunction<PurchaseOrderLine> quantityFor) {
 
+        /* The products as this container's supplier sells them (its own row per product). */
+        productsById = resolver().forOrder(order, productsById);
+
         /* ---- 1. Goederenwaarde per regel ------------------------------- */
         List<Working> working = new ArrayList<>();
 
@@ -93,10 +103,10 @@ public class LandedCostCalculator {
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
             int quantity = Math.max(0, quantityFor.applyAsInt(line));
 
-            BigDecimal exwPrice = line.exwPrice() != null ? line.exwPrice() : product.exwPrice();
-            Currency exwCurrency = line.exwCurrency() != null ? line.exwCurrency() : product.exwCurrency();
-            BigDecimal extraUnit = line.extraUnitCost() != null ? line.extraUnitCost() : product.extraUnitCost();
-            if (exwCurrency == null) exwCurrency = Currency.USD;
+            PurchasePrice price = PurchasePriceResolver.price(line, product);
+            BigDecimal exwPrice = price.exwPrice();
+            Currency exwCurrency = price.exwCurrency();
+            BigDecimal extraUnit = price.extraUnitCost();
 
             BigDecimal unitUsd = currencies
                     .toUsd(Money.nz(exwPrice), exwCurrency, order.cnyToUsd(), order.usdToEurGoods())

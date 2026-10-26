@@ -10,6 +10,7 @@ import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
+import be.enrosed.catalog.domain.ProductSupplier;
 import be.enrosed.shared.Brand;
 import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
@@ -22,6 +23,7 @@ import be.enrosed.sourcing.application.CurrencyConverter;
 import be.enrosed.sourcing.application.LandedCostCalculator;
 import be.enrosed.sourcing.application.InvoiceAssignment;
 import be.enrosed.sourcing.application.PurchaseOrderService;
+import be.enrosed.sourcing.application.PurchasePriceResolver;
 import be.enrosed.sourcing.application.PurchaseReconciliationCalculator;
 import be.enrosed.sourcing.application.ReconciliationUnits;
 import be.enrosed.sourcing.domain.ContainerType;
@@ -142,6 +144,14 @@ public class PdfPurchaseRenderer {
 
     @Inject
     ProductSupplierAgreementService effectiveSupplierAgreements;
+
+    /* What the order's supplier asks per product (its row); hand-built renderers in pure tests price as before. */
+    @Inject
+    Instance<PurchasePriceResolver> prices;
+
+    private PurchasePriceResolver resolver() {
+        return prices != null && prices.isResolvable() ? prices.get() : PurchasePriceResolver.legacy();
+    }
 
     public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
                                @Location("purchase-portrait.html") Template portraitTemplate,
@@ -378,7 +388,9 @@ public class PdfPurchaseRenderer {
             int position, String colour, String productSize, String packagingText,
             String cartonSize, String cartonWeight, String cartonEan,
             /** "12 pieces per display" and "EAN …": the small lines under the packaging. */
-            String packagingPieces, String packagingEan) {
+            String packagingPieces, String packagingEan,
+            /** The supplier's own article code ("Your ref."): the line's snapshot, a concept's live row. */
+            String supplierReference) {
         /** The line has an instruction, reference images or a history worth their own block. */
         public boolean hasAgreement() {
             return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty() || !priorIssues.isEmpty();
@@ -607,14 +619,17 @@ public class PdfPurchaseRenderer {
     }
 
     private SupplierPrepared prepareSupplier(PurchaseOrder order, LandedCost costing) {
-        Map<Long, Product> byId = products.list().stream()
+        Map<Long, Product> catalog = products.list().stream()
                 .filter(product -> product.id() != null)
                 .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        /* Who makes what at this supplier (its rows, else the product's own supplier), read once. */
+        Map<Long, ProductSupplier> offers = resolver().offersFor(order.supplierId(), catalog);
+        Map<Long, Product> byId = PurchasePriceResolver.priced(offers, catalog);
         Map<Long, LandedCost.Line> costingLines = costing.lines().stream()
                 .filter(line -> line.productId() != null)
                 .collect(Collectors.toMap(LandedCost.Line::productId, Function.identity(), (left, right) -> left));
         Map<String, String> photoCache = new HashMap<>();
-        Map<Long, List<SupplierAgreementPhotoView>> agreementPhotoCache = new HashMap<>();
+        Map<String, List<SupplierAgreementPhotoView>> agreementPhotoCache = new HashMap<>();
         Map<Long, ProductSupplierAgreementService.ResolvedAgreement> resolvedAgreements = new HashMap<>();
         Map<String, SupplierAgreementGroup> groupedAgreements = new java.util.LinkedHashMap<>();
         List<SupplierLineView> lines = new ArrayList<>();
@@ -633,19 +648,26 @@ public class PdfPurchaseRenderer {
             int orderedCartons = product == null || product.carton() == null
                     ? (costingLine == null ? 0 : Math.max(0, costingLine.cartons()))
                     : product.carton().cartonsFor(orderedQuantity);
-            boolean matchingSupplier = product != null && order.supplierId() != null
-                    && Objects.equals(product.supplierId(), order.supplierId());
+            /* The supplier makes it (its row, or the product's own supplier): its agreement may print. */
+            ProductSupplier offer = product == null ? null : offers.get(product.id());
+            boolean matchingSupplier = product != null && order.supplierId() != null && offer != null;
             Carton carton = product == null ? null : product.carton();
             PackagingFacts packaging = supplierPackaging(product);
 
             if (matchingSupplier) {
-                var agreement = resolvedAgreements.computeIfAbsent(product.id(), effectiveSupplierAgreements::resolve);
+                /* The Voorkeur's agreement (colour-shared links included), or another supplier's row's own. */
+                boolean voorkeur = Objects.equals(product.supplierId(), order.supplierId());
+                var agreement = resolvedAgreements.computeIfAbsent(product.id(), id -> voorkeur
+                        ? effectiveSupplierAgreements.resolve(id)
+                        : effectiveSupplierAgreements.resolve(id, order.supplierId()));
                 if (agreement.available() && Objects.equals(agreement.supplierId(), order.supplierId())
                         && (notBlank(agreement.note()) || !agreement.photos().isEmpty())) {
                     var group = groupedAgreements.computeIfAbsent(agreement.groupKey(), key ->
                             new SupplierAgreementGroup("A" + (groupedAgreements.size() + 1), new ArrayList<>(),
                                     noteLines(agreement.note()), agreementPhotoCache.computeIfAbsent(
-                                            agreement.sourceProductId(), this::supplierAgreementPhotoViews)));
+                                            agreement.sourceProductId() + ":" + agreement.supplierId(),
+                                            ignored -> supplierAgreementPhotoViews(agreement.sourceProductId(),
+                                                    voorkeur ? null : agreement.supplierId()))));
                     group.appliesTo().add("Line " + position + " · " + supplierProductName(product)
                             + " · SKU " + product.sku() + " · " + supplierColour(product)
                             + " · " + orderedQuantity + " pcs");
@@ -660,7 +682,8 @@ public class PdfPurchaseRenderer {
                     List.of(), List.of(),
                     orderLine.productId() == null ? List.of()
                             : be.enrosed.sourcing.application.ReceiptIssues.forProduct(history,
-                                    reportedMovements(orderLine.productId()), orderLine.productId(), order.id()),
+                                    reportedMovements(orderLine.productId()), orderLine.productId(), order.id(),
+                                    order.supplierId()),
                     orderedQuantity, orderedCartons, cartonCbm(product),
                     lineCbm(product, orderedCartons), lineCbmValue(product, orderedCartons),
                     price.amount(), price.currency(),
@@ -672,7 +695,8 @@ public class PdfPurchaseRenderer {
                     carton == null ? null : dimensionValue(carton.dimensions()),
                     carton == null ? null : DocumentFormat.kg(carton.weightKg()),
                     product == null || product.barcodes() == null ? null : blankToNull(product.barcodes().outer()),
-                    packaging.pieces(), packaging.ean()));
+                    packaging.pieces(), packaging.ean(),
+                    supplierReference(order, orderLine, offer)));
         }
         return new SupplierPrepared(List.copyOf(lines), groupedAgreements.values().stream()
                 .map(group -> new SupplierAgreementGroup(group.reference(), List.copyOf(group.appliesTo()),
@@ -685,10 +709,19 @@ public class PdfPurchaseRenderer {
         return locations.get().movementsFor(productId);
     }
 
-    private List<SupplierAgreementPhotoView> supplierAgreementPhotoViews(long productId) {
+    /** The line's own snapshot; a concept line, not placed yet, prints the row's reference as it is now. */
+    private static String supplierReference(PurchaseOrder order, PurchaseOrderLine line, ProductSupplier offer) {
+        String snapshot = line == null ? null : blankToNull(line.supplierReference());
+        if (snapshot != null) return snapshot;
+        if (order.status() != PurchaseOrderStatus.CONCEPT || offer == null) return null;
+        return blankToNull(offer.supplierReference());
+    }
+
+    /** The reference images of one supplier's agreement on its source product; null = that product's Voorkeur. */
+    private List<SupplierAgreementPhotoView> supplierAgreementPhotoViews(long productId, Long supplierId) {
         List<SupplierAgreementPhotoView> views = new ArrayList<>();
-        for (ProductSupplierAgreementPhotoService.AgreementPhoto photo
-                : supplierAgreementPhotos.list(productId)) {
+        for (ProductSupplierAgreementPhotoService.AgreementPhoto photo : supplierId == null
+                ? supplierAgreementPhotos.list(productId) : supplierAgreementPhotos.list(productId, supplierId)) {
             String dataUri = null;
             try (InputStream data = supplierAgreementPhotos.open(productId, photo.id()).data()) {
                 dataUri = imageEncoder.encodeContained(data.readAllBytes(), 900, 600, Color.WHITE);
@@ -718,9 +751,10 @@ public class PdfPurchaseRenderer {
     private Prepared prepare(PurchaseOrder order, LandedCost costing,
                              boolean includeOrderedCosts, boolean showOuterCarton,
                              boolean showBarcode) {
-        Map<Long, Product> byId = products.list().stream()
+        /* The products as this container's supplier sells them, before the agreed unit price is read. */
+        Map<Long, Product> byId = resolver().forOrder(order, products.list().stream()
                 .filter(product -> product.id() != null)
-                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left)));
         LandedCost orderedCosting = includeOrderedCosts
                 ? landedCosts.calculateForOrderedQuantities(order, byId) : null;
         Map<Long, LandedCost.Line> orderedCostsByProduct = orderedCosting == null

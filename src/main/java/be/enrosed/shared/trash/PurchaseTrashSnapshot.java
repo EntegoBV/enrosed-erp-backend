@@ -7,10 +7,13 @@ import be.enrosed.sales.application.CustomerService;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.trash.DeletedItemDtos.*;
 import be.enrosed.sourcing.application.LandedCostCalculator;
+import be.enrosed.sourcing.application.PurchasePriceResolver;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.LandedCost;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -28,6 +31,9 @@ public class PurchaseTrashSnapshot {
     private final CustomerService customers;
     private final StockService stock;
     private final LandedCostCalculator calculator;
+    /* What the order's supplier asks per product (its row); hand-built snapshots in pure tests price as before. */
+    @Inject
+    Instance<PurchasePriceResolver> prices;
 
     public PurchaseTrashSnapshot(SourcingRepositories.Suppliers suppliers, SourcingRepositories.Documents documents,
                                  ProductService products, CustomerService customers, StockService stock,
@@ -47,9 +53,12 @@ public class PurchaseTrashSnapshot {
 
     public Snapshot snapshot(PurchaseOrder order) {
         Map<Long, Product> catalog = products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
+        /* Priced as the container's supplier sells each product: a row's price counts as a price. */
+        Map<Long, Product> priced = (prices != null && prices.isResolvable() ? prices.get()
+                : PurchasePriceResolver.legacy()).forOrder(order, catalog);
         boolean complete = positive(order.cnyToUsd()) && positive(order.usdToEurGoods())
                 && order.lines().stream().allMatch(line -> {
-                    Product product = catalog.get(line.productId());
+                    Product product = priced.get(line.productId());
                     return product != null && (line.exwPrice() != null || product.exwPrice() != null);
                 });
         LandedCost costing = complete ? calculator.calculate(order, catalog) : null;
