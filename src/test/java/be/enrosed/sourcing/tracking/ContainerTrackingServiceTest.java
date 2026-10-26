@@ -19,6 +19,8 @@ class ContainerTrackingServiceTest {
     private ShipsGoClient provider;
     private VesselLinkStore links;
     private VoydarClient voydar;
+    private BexyClient bexy;
+    private TrackingDateSync dateSync;
 
     @BeforeEach void prepare() {
         service = new ContainerTrackingService();
@@ -27,8 +29,12 @@ class ContainerTrackingServiceTest {
         service.provider = provider = mock(ShipsGoClient.class);
         service.links = links = mock(VesselLinkStore.class);
         service.voydar = voydar = mock(VoydarClient.class);
+        service.bexy = bexy = mock(BexyClient.class);
+        service.dateSync = dateSync = mock(TrackingDateSync.class);
         when(links.all()).thenReturn(Map.of());
         when(store.all()).thenReturn(Map.of());
+        when(orders.findById(anyLong())).thenAnswer(call -> orders.findAll().stream()
+                .filter(order -> order.id().equals(call.getArgument(0))).findFirst());
     }
 
     @Test void feedShowsEveryTrackedLivePurchaseIncludingUnsupportedButNeverCallsProvider() {
@@ -131,6 +137,72 @@ class ContainerTrackingServiceTest {
         assertNotNull(result.error());
         assertNull(result.nextCheckAt());
         verify(store, never()).acquire(any());
+    }
+
+    @Test void accountlessCarrierDatesHaveOwnScheduleAndPersistRejectedWriteReason() {
+        var active = order(38, "BL: EGLV143650155115 | EGSU0162841", PurchaseOrderStatus.ONDERWEG);
+        when(orders.findAll()).thenReturn(List.of(active));
+        when(store.acquire(any())).thenReturn("lease");
+        var observation = new Observation("CARRIER_SCHEDULE", "Evergreen", "EVER ALLY", "2026-11-12",
+                null, null, List.of(), List.of(), Instant.now(), null);
+        when(bexy.fetch(active)).thenReturn(observation);
+        when(dateSync.shipment(eq(active), eq(observation), any(), eq("Evergreen via bexy"))).thenReturn("Handmatige wijziging blijft behouden.");
+        service.syncDue();
+        var dates = ContainerTrackingService.dateReference(active);
+        verify(bexy).fetch(active);
+        verify(store).success(eq(dates), eq(observation), any());
+        verify(store).failed(eq(dates), eq("Handmatige wijziging blijft behouden."), any());
+        verify(provider, never()).create(any()); verify(voydar, never()).fetch(anyString(), any());
+    }
+
+    @Test void refreshReturnsCanonicalDatesAfterSourceSyncAndGlobalDisableAlsoStopsDateSource() {
+        var active = order(38, "BL: EGLV143650155115 | EGSU0162841", PurchaseOrderStatus.ONDERWEG);
+        var changed = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().convertValue(
+                Map.of("id", 38, "number", "PO-38", "trackingReference", active.trackingReference(), "status", "ONDERWEG",
+                        "expectedArrival", "2026-11-12", "shippedOn", "2026-10-05"), PurchaseOrder.class);
+        when(orders.findAll()).thenReturn(List.of(active));
+        doReturn(Optional.of(changed)).when(orders).findById(38L);
+        service.enabled = false;
+        service.syncDue();
+        Row row = service.refresh(38);
+        assertEquals(java.time.LocalDate.of(2026, 11, 12), row.orderExpectedArrival());
+        assertEquals(java.time.LocalDate.of(2026, 10, 5), row.orderShippedOn());
+        verifyNoInteractions(bexy); verifyNoInteractions(dateSync); verify(store, never()).acquire(any());
+    }
+
+    @Test void refreshRereadsSavedHeaderAfterTheSourceWasApplied() {
+        var active = order(38, "BL: EGLV143650155115 | EGSU0162841", PurchaseOrderStatus.ONDERWEG);
+        var changed = TrackingDateSyncTest.order(Map.of("expectedArrival", "2026-11-12"));
+        when(orders.findAll()).thenReturn(List.of(active));
+        doReturn(Optional.of(active), Optional.of(changed)).when(orders).findById(38L);
+        when(store.acquire(any())).thenReturn("lease");
+        var data = TrackingDateSyncTest.observation(TrackingDateSyncTest.evidence(null, "2026-11-12"), Instant.now());
+        when(bexy.fetch(active)).thenReturn(data);
+        Row row = service.refresh(38);
+        verify(dateSync).shipment(eq(active), eq(data), any(), eq("Evergreen via bexy"));
+        assertEquals(java.time.LocalDate.of(2026, 11, 12), row.orderExpectedArrival());
+    }
+
+    @Test void dateSnapshotIsIsolatedByOrderAndShipmentReference() {
+        var first = order(38, "BL: EGLV143650155115 | EGSU0162841", PurchaseOrderStatus.ONDERWEG);
+        var next = order(39, first.trackingReference(), PurchaseOrderStatus.ONDERWEG);
+        var corrected = order(38, "BL: EGLV143650155116 | EGSU0162841", PurchaseOrderStatus.ONDERWEG);
+        assertNotEquals(ContainerTrackingService.dateReference(first), ContainerTrackingService.dateReference(next));
+        assertNotEquals(ContainerTrackingService.dateReference(first), ContainerTrackingService.dateReference(corrected));
+    }
+
+    @Test void carrierOnlyRowShowsSuccessfulCheckSeparatelyFromCachedSourceAge() {
+        var active = TrackingDateSyncTest.order(Map.of("expectedArrival", "2026-11-12"));
+        when(orders.findAll()).thenReturn(List.of(active));
+        Instant fetched = Instant.now(), sourceChecked = fetched.minusSeconds(7200);
+        var data = TrackingDateSyncTest.observation(TrackingDateSyncTest.evidence(null, "2026-11-12"), sourceChecked);
+        var snapshot = new TrackingStore.Snapshot(null, data, fetched, fetched, fetched, fetched.plusSeconds(21600), null, false);
+        when(store.all()).thenReturn(Map.of(ContainerTrackingService.dateReference(active).key(), snapshot));
+        Row row = service.feed().containers().getFirst();
+        assertEquals("CARRIER_SCHEDULE", row.status()); assertEquals("Evergreen", row.carrier()); assertEquals("EVER ALLY", row.vessel());
+        assertEquals(fetched, row.checkedAt()); assertEquals(fetched, row.updatedAt()); assertEquals(fetched, row.changedAt());
+        assertEquals(sourceChecked, row.dateSourceCheckedAt()); assertNull(row.providerCheckedAt()); assertNull(row.position());
+        assertNull(row.error()); assertEquals("Evergreen via bexy", row.dateSource());
     }
 
     private PurchaseOrder order(long id, String ref, PurchaseOrderStatus status) {

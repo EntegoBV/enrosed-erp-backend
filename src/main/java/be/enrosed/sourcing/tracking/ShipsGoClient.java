@@ -113,7 +113,9 @@ public class ShipsGoClient {
             String location = text(movement.path("location"), "name");
             boolean actual = "ACT".equals(text(movement, "status"));
             String key = text(container, "number") + ":" + event + ":" + time + ":" + location;
-            events.add(new Event(hash(key).substring(0, 20), eventLabel(event), location, time, actual));
+            events.add(new Event(hash(key).substring(0, 20), eventLabel(event), location, time, actual,
+                    null, null, "DEPA".equals(event) ? "DEPARTURE" : "ARRV".equals(event) ? "ARRIVAL" : event,
+                    text(movement.path("location"), "code")));
             Instant at = instant(time);
             if (actual && at != null && (lastActualAt == null || at.isAfter(lastActualAt))) {
                 lastActual = movement;
@@ -153,7 +155,41 @@ public class ShipsGoClient {
         }
         String eta = iso(text(shipment.path("route").path("port_of_discharge"), "date_of_discharge"));
         return new Observation(status, text(shipment.path("carrier"), "name"), vessel, eta, location, position,
-                List.copyOf(route), List.copyOf(events), instant(text(shipment, "checked_at")), instant(text(shipment, "updated_at")));
+                List.copyOf(route), List.copyOf(events), instant(text(shipment, "checked_at")), instant(text(shipment, "updated_at")),
+                dateEvidence(shipment, containers));
+    }
+
+    private static DateEvidence dateEvidence(JsonNode shipment, List<JsonNode> containers) {
+        if (containers.size() != 1) return null;
+        JsonNode origin = shipment.path("route").path("port_of_loading").path("location");
+        JsonNode destination = shipment.path("route").path("port_of_discharge").path("location");
+        String originCode = text(origin, "code"), originName = text(origin, "name");
+        List<JsonNode> departures = new ArrayList<>();
+        List<String> startDates = new ArrayList<>();
+        for (JsonNode movement : containers.getFirst().path("movements")) {
+            if (!"ACT".equals(text(movement, "status"))) continue;
+            JsonNode location = movement.path("location");
+            boolean fromOrigin = originCode != null && originCode.equals(text(location, "code"))
+                    || TrackingDateSync.samePort(originName, text(location, "code"), text(location, "name"));
+            if (!fromOrigin) continue;
+            String kind = text(movement, "event"), date = localDate(text(movement, "timestamp"));
+            if (date == null) continue;
+            if ("LOAD".equals(kind) || "DEPA".equals(kind)) startDates.add(date);
+            if ("DEPA".equals(kind)) departures.add(movement);
+        }
+        JsonNode departure = departures.size() == 1 ? departures.getFirst() : null;
+        String actualDeparture = departure == null ? null : text(departure, "timestamp");
+        String vesselImo = departure == null || !departure.path("vessel").path("imo").isIntegralNumber()
+                ? null : departure.path("vessel").path("imo").asText();
+        return new DateEvidence(originCode, originName, text(destination, "code"), text(destination, "name"), actualDeparture,
+                localDate(text(shipment.path("route").path("port_of_discharge"), "date_of_discharge")),
+                vesselImo, departure == null ? null : text(departure, "voyage"), startDates.stream().sorted().findFirst().orElse(null),
+                text(containers.getFirst(), "number"), text(shipment, "booking_number"));
+    }
+
+    private static String localDate(String value) {
+        try { return value == null ? null : OffsetDateTime.parse(value).toLocalDate().toString(); }
+        catch (java.time.format.DateTimeParseException invalid) { return null; }
     }
 
     private static Point point(JsonNode coordinate) {

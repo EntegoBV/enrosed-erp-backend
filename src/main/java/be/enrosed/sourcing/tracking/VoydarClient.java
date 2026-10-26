@@ -117,7 +117,7 @@ public class VoydarClient {
                     }
                 }
                 events.add(new Event(hash(id).substring(0, 24), arrival ? "Schip aangekomen" : "Schip vertrokken",
-                        location, time.toString(), true, attribution, sourceUrl));
+                        location, time.toString(), true, attribution, sourceUrl, arrival ? "ARRIVAL" : "DEPARTURE", portCode(sourceUrl)));
             }
             return observed(vessel, events);
         } catch (Exception failure) {
@@ -163,6 +163,11 @@ public class VoydarClient {
                     && (uri.getPort() == -1 || uri.getPort() == 443) && (uri.getPath().startsWith("/port/") || uri.getPath().startsWith("/vessel/"))
                     ? uri.toASCIIString() : null;
         } catch (IllegalArgumentException failure) { return null; }
+    }
+    private static String portCode(String value) {
+        if (value == null) return null;
+        var match = Pattern.compile("https://www\\.voydar\\.com/port/([a-zA-Z]{2}[a-zA-Z0-9]{3})(?:[-/].*)?").matcher(value);
+        return match.matches() ? match.group(1).toUpperCase(Locale.ROOT) : null;
     }
     private static String header(HttpResponse<?> response, String name, int limit) {
         return response.headers().firstValue(name).filter(value -> value.length() <= limit && !value.contains("\r") && !value.contains("\n")).orElse(null);
