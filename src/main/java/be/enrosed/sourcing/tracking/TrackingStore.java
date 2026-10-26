@@ -16,7 +16,12 @@ import static be.enrosed.sourcing.tracking.ContainerTracking.*;
 public class TrackingStore {
     @Inject ObjectMapper json;
     public record Snapshot(Long shipmentId, Observation observation, Instant checkedAt, Instant updatedAt,
-                           Instant changedAt, Instant nextCheckAt, String error, boolean terminal) {}
+                           Instant changedAt, Instant nextCheckAt, String error, boolean terminal, String etag, String lastModified) {
+        public Snapshot(Long shipmentId, Observation observation, Instant checkedAt, Instant updatedAt,
+                        Instant changedAt, Instant nextCheckAt, String error, boolean terminal) {
+            this(shipmentId, observation, checkedAt, updatedAt, changedAt, nextCheckAt, error, terminal, null, null);
+        }
+    }
 
     @Transactional
     public String acquire(Instant now) {
@@ -59,6 +64,13 @@ public class TrackingStore {
         applySuccess(entity, observation, now, json);
     }
 
+    @Transactional
+    public void feedSuccess(Reference reference, Observation observation, Instant now, String etag, String lastModified) {
+        TrackingEntity entity = entity(reference);
+        applySuccess(entity, observation, now, json);
+        entity.etag = etag; entity.lastModified = lastModified;
+    }
+
     static void applySuccess(TrackingEntity entity, Observation observation, Instant now, ObjectMapper json) {
         try {
             // Provider check timestamps alone are not a cargo update. Compare only meaningful data.
@@ -97,7 +109,7 @@ public class TrackingStore {
         try {
             Observation data = entity.observationJson == null ? null : json.readValue(entity.observationJson, Observation.class);
             return new Snapshot(entity.shipmentId, data, entity.checkedAt, entity.updatedAt, entity.changedAt,
-                    entity.nextCheckAt, entity.lastError, entity.terminal);
+                    entity.nextCheckAt, entity.lastError, entity.terminal, entity.etag, entity.lastModified);
         } catch (JsonProcessingException failure) { throw new IllegalStateException("Unable to read tracking observation", failure); }
     }
 }

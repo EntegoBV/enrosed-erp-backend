@@ -14,4 +14,10 @@ public class ContainerTrackingResource {
     @GET public ContainerTracking.Feed feed() { return service.feed(); }
     @POST @Path("/{orderId}/refresh")
     public ContainerTracking.Row refresh(@PathParam("orderId") long orderId) { return service.refresh(orderId); }
+    public record VesselRequest(String imo, String trackingReference) {}
+    @PUT @Path("/{orderId}/vessel") @Consumes(MediaType.APPLICATION_JSON)
+    public ContainerTracking.Row vessel(@PathParam("orderId") long orderId, VesselRequest request) {
+        if (request == null) throw new BadRequestException("Vul een IMO-nummer in of verwijder de koppeling.");
+        return service.setVessel(orderId, request.imo(), request.trackingReference());
+    }
 }

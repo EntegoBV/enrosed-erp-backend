@@ -2,7 +2,21 @@
 
 The ERP page `/purchasing/tracking` lists non-archived purchase orders with a tracking reference. It reads persisted backend observations rather than issuing carrier requests from the browser. The server checks eligible references every six hours and records the last successful data, attempted check, next check and meaningful change separately. Errors must leave the last successful observation visible with its age.
 
-## Provider and activation
+## Accountless ship updates (Voydar)
+
+The optional vessel association uses the official [Voydar Atom feeds](https://www.voydar.com/developers/feeds), which require neither an account nor an API key. [Voydar terms, section 13](https://www.voydar.com/terms) allow these feeds in apps with a link back to each entry. The ERP retains each displayed event's source attribution and Voydar source URL. It fetches only `https://www.voydar.com/feeds/vessel/{IMO}`; the IMO must be seven digits with a valid checksum. No arbitrary URL is fetched, and no coordinates are scraped from an iframe.
+
+Staff link or remove a known ship with `PUT /api/container-tracking/{orderId}/vessel` and `{ "imo": "9811000", "trackingReference": "<current reference>" }` (IMO here is an example, never a default). A null IMO removes the association. The optional reference acts as a stale-form guard: a changed reference returns 409. The saved association belongs to that order and its current tracking reference; changing the reference does not inherit the ship. This never rewrites the original tracking reference. A ship should be taken from that container's actual bill of lading or confirmed carrier information, never inferred from a similar reference.
+
+The backend checks linked ships every six hours, including when ShipsGo is not configured. A durable shared cache enforces at least fifteen minutes between attempts for the same IMO across orders and manual refreshes, matching Voydar's minimum interval. HTTP 304 and an empty Atom feed are valid responses; earlier known port-call events are retained. Network failures retain the last successful observation. XML parsing disables DTDs and external entities; responses are capped at 1 MB with a 25-second complete-body timeout. Feed-generation timestamps do not count as shipment changes.
+
+Only arrival/departure events are displayed, excluding name, ownership and sanctions changes. The voyage window begins at the order's known departure day (`shippedOn`, UTC midnight); without that date it starts at the time the ship was linked. Historical port calls before the voyage are omitted. Voydar's public feed provides ship port calls, **not proof that the container remains on that ship**, container milestones, a verified container ETA or machine-readable coordinates. The source remains labelled `VOYDAR`, status `VESSEL_TRACKING` (Schip gekoppeld); ETA and position fields remain null. A separately attributed official Voydar embed may display the ship map without pretending it is a container observation.
+
+The feed response has `configured: true` while accountless tracking is enabled, plus `shipsGoConfigured` for the optional paid integration. Setting `CONTAINER_TRACKING_ENABLED=false` disables external checks for both providers; stored observations and vessel associations remain viewable. Each row reports `source`, `vesselImo` and `automatic`; an unlinked row is not automatically tracked merely because the feature is available.
+
+Without a source-specific stored HTTPS link, the external carrier lookup opens the accountless [track-trace container directory](https://www.track-trace.com/container). This is a manual lookup link, not a background data API.
+
+## Optional full container provider and activation
 
 The connector uses the official [ShipsGo v2 API](https://api.shipsgo.com/docs/v2/) with `X-Shipsgo-User-Token`. Configure `SHIPSGO_API_TOKEN` on the **test** Railway backend service to activate. Keep this value in server configuration; never put it in frontend variables, source, screenshots or logs. The current rollout does not create a ShipsGo account or buy a subscription.
 
@@ -22,7 +36,7 @@ The map uses OpenStreetMap with attribution and validated coordinates. If the pr
 
 Publish backend and frontend only to their existing remote `test` branches. Confirm deployment completion separately from Git publication and verify the test URLs on phone and desktop. Production (`main`) is outside this rollout.
 
-Local map QA may use clearly named fictitious fixtures on localhost. Such fixtures must never be added to the live database or presented as real tracking. Without a provider token, end-to-end carrier observations and the passage of a real six-hour interval remain unverified even when connector tests and UI checks pass.
+Local map QA may use clearly named fictitious fixtures on localhost. Such fixtures must never be added to the live database or presented as real tracking. Without a ShipsGo token, full carrier/container observations remain unverified. Voydar can be verified independently for an explicitly linked real ship; passing connector tests does not prove that a real six-hour scheduled interval has elapsed.
 
 ## Alternative researched
 

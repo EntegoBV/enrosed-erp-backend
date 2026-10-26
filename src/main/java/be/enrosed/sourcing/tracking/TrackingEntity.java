@@ -18,4 +18,6 @@ public class TrackingEntity extends PanacheEntityBase {
     @Column(name = "next_check_at") public Instant nextCheckAt;
     @Column(name = "last_error", length = 500) public String lastError;
     @Column(name = "terminal", nullable = false) public boolean terminal;
+    @Column(name = "etag", length = 500) public String etag;
+    @Column(name = "last_modified", length = 200) public String lastModified;
 }

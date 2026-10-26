@@ -163,4 +163,5 @@ exec psql \
     --file=/app/migrations/product-supplier-postgresql.sql \
     --file=/app/migrations/stock-batches-postgresql.sql \
     --file=/app/migrations/odoo-document-mark-postgresql.sql \
-    --file=/app/migrations/container-tracking-postgresql.sql
+    --file=/app/migrations/container-tracking-postgresql.sql \
+    --file=/app/migrations/container-vessel-link-postgresql.sql
