@@ -121,7 +121,7 @@ class SalesOrderLifecycleActivityTest {
         SalesOrder shipped = service.shipGoods(70L);
 
         assertNotNull(shipped.goodsShippedAt());
-        verify(products).sellStock(9L, 2, "F-2026-0070");
+        verify(products).sellStock(eq(9L), eq(2), eq("F-2026-0070"), any());
         verify(activityLog).record(SalesOrderService.SALES_ACTION_SHIPPED,
                 SalesOrderService.SALES_ORDER_ACTIVITY_TYPE, "70", "F-2026-0070",
                 "Bestelling verzonden en voorraad afgepunt");

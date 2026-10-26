@@ -58,6 +58,11 @@ public interface SalesRepositories {
         default void setArchivedAt(long id, java.time.Instant at) {
             throw new UnsupportedOperationException("archive not supported by this adapter");
         }
+        /**
+         * Writes the stock cost of the pieces that left at shipment on every available line of this product. Kept
+         * apart from {@link #save}, which never writes it, so no client input can change it.
+         */
+        default void setLineStockCost(long orderId, long productId, java.math.BigDecimal unitCostEur) {}
     }
 
     interface Revisions {

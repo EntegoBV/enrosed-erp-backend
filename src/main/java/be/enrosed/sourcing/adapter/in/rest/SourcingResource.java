@@ -840,11 +840,18 @@ public class SourcingResource {
         return view(copy, purchaseOrders.calculate(copy), List.of());
     }
 
-    /** Writes the calculated cost prices onto the products. */
+    /** The products whose card carries a newer container's cost and still take this one ("Ook op de productkaart"). */
+    public record ApplyBody(List<Long> overwriteNewerProductIds) {}
+
+    /**
+     * Writes the calculated cost prices onto this container's batches and the products. A missing body or field is an
+     * empty list: today's {@code {}} keeps working, with the newer-card guard on.
+     */
     @POST
     @Path("/purchase-orders/{id}/apply")
-    public LandedCost applyToProducts(@PathParam("id") long id) {
-        return purchaseOrders.applyToProducts(id);
+    public LandedCost applyToProducts(@PathParam("id") long id, ApplyBody body) {
+        return purchaseOrders.applyToProducts(id, new PurchaseOrderService.ApplyRequest(
+                body == null ? null : body.overwriteNewerProductIds()));
     }
 
     private PurchaseOrderView view(PurchaseOrder order, LandedCost costing,

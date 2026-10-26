@@ -87,11 +87,20 @@ public class PanacheProductRepository implements ProductRepository {
         boolean inventoryKnownBefore = entity.inventoryKnown;
 
         if (entity.id != null && (entity.packaging().salesUnit() != product.packaging().salesUnit()
-                || entity.packaging().unitPieces() != product.packaging().unitPieces())
-                && (count("select count(l) from StockLevelEntity l where l.productId = :productId and l.loosePieces <> 0", entity.id) > 0
-                || count("select count(m) from StockMovementEntity m where m.productId = :productId and m.ticaSaleId is not null", entity.id) > 0)) {
-            throw new be.enrosed.shared.BusinessRuleException(
-                    "Dit product heeft losse voorraad of TICA-voorraadboekingen; de vastgelegde voorraadbasis kan niet worden gewijzigd.");
+                || entity.packaging().unitPieces() != product.packaging().unitPieces())) {
+            if (count("select count(l) from StockLevelEntity l where l.productId = :productId and l.loosePieces <> 0", entity.id) > 0
+                    || count("select count(m) from StockMovementEntity m where m.productId = :productId and m.ticaSaleId is not null", entity.id) > 0) {
+                throw new be.enrosed.shared.BusinessRuleException(
+                        "Dit product heeft losse voorraad of TICA-voorraadboekingen; de vastgelegde voorraadbasis kan niet worden gewijzigd.");
+            }
+            /* Once batches are started (paused or not), levels and batches are in pieces of the old basis and are
+               never converted: any count left, negatives included, refuses the change. */
+            if (batchesStarted()
+                    && (count("select count(l) from StockLevelEntity l where l.productId = :productId and l.quantity <> 0", entity.id) > 0
+                    || count("select count(b) from StockBatchEntity b where b.productId = :productId and b.piecesLeft <> 0", entity.id) > 0)) {
+                throw new be.enrosed.shared.BusinessRuleException(
+                        "Dit product heeft voorraad in batches; de voorraadbasis kan niet worden gewijzigd. Tel de voorraad eerst op 0.");
+            }
         }
         CatalogMapper.apply(product, entity);
         if (existing) {
@@ -241,6 +250,8 @@ public class PanacheProductRepository implements ProductRepository {
     }
 
     private void deleteProductOwnedMetadata(long productId) {
+        deleteByProductId("StockBatchMoveEntity", productId);
+        deleteByProductId("StockBatchEntity", productId);
         deleteByProductId("ProductSupplierEntity", productId);
         deleteByProductId("ProductExternalIdentifierEntity", productId);
         deleteByProductId("ProductPriceObservationEntity", productId);
@@ -266,6 +277,12 @@ public class PanacheProductRepository implements ProductRepository {
                         productId),
                 count("select count(l) from QuoteRevisionLineEntity l where l.productId = :productId",
                         productId));
+    }
+
+    /** A batch start is recorded (a stock_batch_run row), paused or not. */
+    private boolean batchesStarted() {
+        return entityManager.createQuery("select count(r) from StockBatchRunEntity r", Long.class)
+                .getSingleResult() > 0;
     }
 
     private long count(String query, long productId) {

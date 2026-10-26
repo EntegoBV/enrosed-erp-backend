@@ -21,6 +21,11 @@ import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import be.enrosed.catalog.domain.Carton;
+import be.enrosed.catalog.application.StockBatchService;
+import be.enrosed.catalog.domain.BatchCost;
+import be.enrosed.catalog.domain.BatchSource;
+import be.enrosed.catalog.domain.StockBatch;
+import be.enrosed.catalog.domain.StockBatchContext;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -102,6 +107,9 @@ public class PurchaseOrderService {
     /* What the order's supplier asks per product (its row); pure unit tests run without, which prices as before. */
     @Inject
     Instance<PurchasePriceResolver> prices;
+    /* Which container's pieces are left and at what cost; pure unit tests run without, which books as before. */
+    @Inject
+    Instance<StockBatchService> batches;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -2093,9 +2101,13 @@ public class PurchaseOrderService {
         if (order.isStockBooked()) {
             throw new BusinessRuleException("De voorraad van deze container is al bijgeboekt");
         }
+        /* Every booked line becomes a batch with this container's calculation of today (Berekend); before the start
+           of batches nothing is calculated here and the hooks write nothing. */
+        LandedCost costing = batchesActive() ? calculate(order) : null;
         for (PurchaseOrderLine line : order.lines()) {
             if (line.usable() > 0) {
-                products.receiveStock(line.productId(), line.usable(), order.number(), order.receivingLocationId());
+                products.receiveStock(line.productId(), line.usable(), order.number(), order.receivingLocationId(),
+                        StockBatchContext.receipt(batchSource(order, line, costing)));
             }
             if (line.damaged() > 0) {
                 products.noteDamagedOnArrival(line.productId(), line.damaged(), order.number(),
@@ -2584,6 +2596,7 @@ public class PurchaseOrderService {
     private List<String> bookLateDamage(PurchaseOrder current, PurchaseOrder changes) {
         List<String> notes = new ArrayList<>();
         Map<Long, Product> byId = productNames(current);
+        LandedCost[] costing = new LandedCost[1];
         for (PurchaseOrderLine incoming : changes.lines()) {
             PurchaseOrderLine stored = current.lines().stream()
                     .filter(line -> incoming.id() != null && incoming.id().equals(line.id()))
@@ -2615,13 +2628,19 @@ public class PurchaseOrderService {
             if (current.isStockBooked()) {
                 int extraDamaged = damagedAfter - damagedBefore;
                 if (extraDamaged > 0) {
+                    /* Pinned to this container's batch; the movement itself names no container (the line counts it). */
                     products.takeOutDamaged(stored.productId(), extraDamaged, current.number(),
-                            current.receivingLocationId());
+                            current.receivingLocationId(), current.id());
                 }
                 int countDelta = countAfter - countBefore;
                 if (countDelta != 0) {
+                    BatchSource source = null;
+                    if (batchesActive()) {
+                        if (costing[0] == null) costing[0] = calculate(current);
+                        source = batchSource(current, stored, costing[0]);
+                    }
                     products.receiveStock(stored.productId(), countDelta, current.number() + " correctie",
-                            current.receivingLocationId());
+                            current.receivingLocationId(), StockBatchContext.receipt(source));
                 }
                 int usableDelta = (countAfter - damagedAfter) - (countBefore - damagedBefore);
                 parts.add("voorraad " + (usableDelta > 0 ? "+" : "") + usableDelta);
@@ -2834,23 +2853,52 @@ public class PurchaseOrderService {
     }
 
     /**
-     * Writes the calculated cost prices onto the products. From that moment
+     * What "Kostprijzen toepassen" may do beyond its default: the products whose card carries a newer container's cost
+     * and still takes this one (the user ticked "Ook op de productkaart").
+     */
+    public record ApplyRequest(List<Long> overwriteNewerProductIds) {
+        public static final ApplyRequest NONE = new ApplyRequest(List.of());
+
+        public ApplyRequest {
+            overwriteNewerProductIds = overwriteNewerProductIds == null ? List.of()
+                    : overwriteNewerProductIds.stream().filter(Objects::nonNull).toList();
+        }
+    }
+
+    /** Applies with the card guard on: a card with a newer container's cost is kept. */
+    public LandedCost applyToProducts(long id) {
+        return applyToProducts(id, ApplyRequest.NONE);
+    }
+
+    /**
+     * Writes the calculated cost prices onto this container's batches and onto the products. From that moment
      * the sales side computes with them.
      *
      * A line that received nothing is skipped: its piece price is € 0, and
-     * writing that would wipe the cost the product carries. Each written
-     * cost goes into the product's history with the basis it holds on and
-     * what one unit was made of.
+     * writing that would wipe the cost the product carries. Per line the
+     * batches of this container always take the cost (Toegepast); the
+     * product card only when it does not carry a newer container's cost, or
+     * when the request names the product. Each written card cost goes into
+     * the product's history with the basis it holds on and what one unit was
+     * made of. One transaction: a batch or card error rolls the whole apply back.
      */
     @Transactional
-    public LandedCost applyToProducts(long id) {
+    public LandedCost applyToProducts(long id, ApplyRequest request) {
         PurchaseOrder order = getForUpdate(id);
+        Set<Long> overwriteNewer = new HashSet<>((request == null ? ApplyRequest.NONE : request).overwriteNewerProductIds());
         Map<Long, Product> byId = productsById();
         LandedCost result = calculate(order, byId);
         /* The EXW and extra cost the history row records: the line's, else what this container's supplier asks. */
         Map<Long, Product> priced = pricedProducts(order, byId);
+        boolean withBatches = batches != null && batches.isResolvable()
+                && locationNames != null && locationNames.isResolvable();
+        Instant appliedAt = Instant.now();
+        String appliedBy = actorName();
         int written = 0;
         int skipped = 0;
+        int kept = 0;
+        int batchPieces = 0;
+        boolean batchWritten = false;
         for (LandedCost.Line line : result.lines()) {
             if (line.quantity() <= 0) {
                 skipped++;
@@ -2866,6 +2914,22 @@ public class PurchaseOrderService {
             BigDecimal exwPrice = agreed.exwPrice();
             be.enrosed.shared.Currency exwCurrency = agreed.exwCurrency();
             BigDecimal extraUnitCost = agreed.extraUnitCost();
+            /* This container's batches always take its cost; pieces that already left keep theirs. */
+            if (withBatches) {
+                StockBatchService.AppliedBatchCost applied = batches.get().applyCost(order.id(), line.productId(),
+                        BatchCosts.of(line, StockBatch.CostState.APPLIED, appliedAt, appliedBy),
+                        locationNames.get().unitPieces(line.productId()));
+                if (applied.batches() > 0) {
+                    batchWritten = true;
+                    batchPieces += applied.piecesLeft();
+                }
+            }
+            /* The guard only decides whether the card is written; when it is, the call is exactly today's. */
+            boolean newerOnCard = ContainerNumbers.isNewer(product.landedCostSource(), order.number());
+            if (newerOnCard && !overwriteNewer.contains(line.productId())) {
+                kept++;
+                continue;
+            }
             ProductCostBreakdown breakdown = ProductCostBreakdown.perUnit(line.quantity(), line.goodsEur(),
                     line.originEur(), line.freightEur(), line.dutyEur(), line.destinationEur(),
                     line.extraRevenueEur(), line.separateEur());
@@ -2874,16 +2938,80 @@ public class PurchaseOrderService {
                     extraUnitCost, breakdown);
             written++;
         }
+        String keptNote = kept > 0 ? ", " + kept + " productkaart(en) met een nieuwere container behouden" : "";
         String skippedNote = skipped > 0 ? ", " + skipped + " overgeslagen (niets ontvangen)" : "";
-        LOG.infof("Kostprijzen uit %s toegepast op %d product(en)%s", order.number(), written, skippedNote);
+        String batchNote = batchWritten ? "; batches: " + batchPieces + " stuks op voorraad" : "";
+        LOG.infof("Kostprijzen uit %s toegepast op %d product(en)%s%s%s", order.number(), written, keptNote,
+                skippedNote, batchNote);
         /* Into the diary: applying rewrites what the whole catalogue counts with. */
         String line = "Kostprijzen toegepast " + LocalDate.now().format(DAY) + ": "
-                + written + " product(en) bijgewerkt in de catalogus" + skippedNote + ".";
+                + written + " product(en) bijgewerkt in de catalogus" + keptNote + skippedNote + batchNote + ".";
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
                 order.stockBooked(), appendNote(order.notes(), line), order.lines()));
         recordActivity(ActivityLogService.ACTION_COSTS_APPLIED, order,
-                "Kostprijzen op " + written + " product(en) toegepast" + skippedNote);
+                "Kostprijzen op " + written + " product(en) toegepast"
+                        + (kept > 0 ? ", " + kept + " productkaart(en) behouden" : "") + skippedNote
+                        + (batchWritten ? "; batches " + batchPieces + " st" : ""));
         return result;
+    }
+
+    /**
+     * Puts today's calculation on the live CALCULATED batches of these products, before a shipment takes them: one
+     * calculation per distinct container over all of them. Applied batches never change here. No-op unless batches
+     * are active.
+     */
+    @Transactional
+    public void refreshCalculatedBatches(java.util.Collection<Long> productIds) {
+        if (productIds == null || productIds.isEmpty() || !batchesActive()) return;
+        StockBatchService service = batches.get();
+        Map<Long, Set<Long>> productsByContainer = new java.util.LinkedHashMap<>();
+        for (Long productId : new java.util.LinkedHashSet<>(productIds)) {
+            if (productId == null) continue;
+            for (StockBatch batch : service.calculatedLive(productId)) {
+                if (batch.purchaseOrderId() == null) continue;
+                productsByContainer.computeIfAbsent(batch.purchaseOrderId(), key -> new java.util.LinkedHashSet<>())
+                        .add(productId);
+            }
+        }
+        if (productsByContainer.isEmpty()) return;
+        Map<Long, Product> byId = productsById();
+        be.enrosed.catalog.application.StockService stock = locationNames.get();
+        for (Map.Entry<Long, Set<Long>> entry : productsByContainer.entrySet()) {
+            PurchaseOrder order = orders.findById(entry.getKey()).orElse(null);
+            if (order == null) continue;
+            LandedCost costing = calculate(order, byId);
+            for (Long productId : entry.getValue()) {
+                BatchCost cost = BatchCosts.of(costLine(costing, productId), StockBatch.CostState.CALCULATED,
+                        null, null);
+                if (cost.unitCostEur() != null) {
+                    service.refreshCalculated(order.id(), productId, cost, stock.unitPieces(productId));
+                }
+            }
+        }
+    }
+
+    /** Batches are started and not paused, and stock is here: only then is a batch cost worth calculating. */
+    private boolean batchesActive() {
+        return batches != null && batches.isResolvable() && locationNames != null && locationNames.isResolvable()
+                && batches.get().active();
+    }
+
+    /** The container line as its batch remembers it, with the line's cost from {@code costing} (Berekend). */
+    private static BatchSource batchSource(PurchaseOrder order, PurchaseOrderLine line, LandedCost costing) {
+        if (costing == null || order.id() == null || line.id() == null) return null;
+        return new BatchSource(order.id(), line.id(), order.number(), order.supplierId(), line.productSupplierId(),
+                order.isPartnerContainer(), order.receivedOn(),
+                BatchCosts.of(costLine(costing, line.productId()), StockBatch.CostState.CALCULATED, null, null));
+    }
+
+    private static LandedCost.Line costLine(LandedCost costing, Long productId) {
+        if (costing == null || productId == null) return null;
+        return costing.lines().stream().filter(candidate -> productId.equals(candidate.productId()))
+                .findFirst().orElse(null);
+    }
+
+    private String actorName() {
+        return actor != null && actor.isResolvable() ? actor.get().name() : ActorRef.SYSTEM.username();
     }
 
     private ActorRef currentActor() {

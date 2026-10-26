@@ -1098,7 +1098,8 @@ class PurchaseOrderServiceTest {
         }
 
         @Override
-        public void receiveStock(long productId, int delta, String reference, Long locationId) {
+        public void receiveStock(long productId, int delta, String reference, Long locationId,
+                                 be.enrosed.catalog.domain.StockBatchContext batch) {
             assertEquals(1L, productId);
             assertTrue(reference != null && !reference.isBlank(),
                     "a receipt books stock under its purchase order number");

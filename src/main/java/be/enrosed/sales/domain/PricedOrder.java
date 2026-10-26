@@ -81,8 +81,39 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
              * product's, and 1 where the document keeps exact pieces (partner deal, container cost,
              * credit note, a split part). A client snaps to this and copies no exemption rules.
              */
-            int unitsPerOrderStep
+            int unitsPerOrderStep,
+
+            /**
+             * The cost the line expects (the quote snapshot, the split allocation or the card): what
+             * {@code landedUnitCost} was before the goods left. Internal side.
+             */
+            BigDecimal expectedUnitCost,
+            /**
+             * The batch cost of the pieces that left at shipment when the margin uses it; null before shipment and
+             * where the document keeps its own rule (credit note, partner deal, container cost, split part).
+             * {@code landedUnitCost} is what the margin uses. Internal side.
+             */
+            BigDecimal stockUnitCost
     ) {
+        /** A line priced without a stock cost: the expected cost is the one the margin uses. */
+        public Line(Long productId, String sku, String description, String customerDescription, String photoUrl,
+                    int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer,
+                    int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg,
+                    BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent,
+                    BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice,
+                    BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct,
+                    Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity,
+                    boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate,
+                    String deliveryWeek, String deliveryExplanation, boolean unavailable, Integer requestedQuantity,
+                    OrderStep orderStep, int unitsPerOrderStep) {
+            this(productId, sku, description, customerDescription, photoUrl, quantity, cartons, cartonsPerPallet,
+                    pallets, cartonsPerLayer, palletLayers, calculatedPalletHeightCm, cbm, weightKg, unitPrice, gross,
+                    tierPercent, manualPercent, discountPct, discountAmount, net, netUnitPrice, landedUnitCost,
+                    costTotal, marginEur, marginPct, nextTierAtQuantity, nextTierPercent, stockQuantity,
+                    inventoryKnown, inStock, shortfall, deliveryDate, deliveryWeek, deliveryExplanation, unavailable,
+                    requestedQuantity, orderStep, unitsPerOrderStep, landedUnitCost, null);
+        }
+
         public Line withFinalMargin(BigDecimal allocatedCost, BigDecimal discountedNet) {
             BigDecimal margin = discountedNet.subtract(allocatedCost);
             BigDecimal percent = discountedNet.signum() > 0
@@ -93,7 +124,8 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
                     cbm, weightKg, unitPrice, gross, tierPercent, manualPercent, discountPct, discountAmount,
                     net, netUnitPrice, landedUnitCost, allocatedCost, margin, percent, nextTierAtQuantity,
                     nextTierPercent, stockQuantity, inventoryKnown, inStock, shortfall, deliveryDate,
-                    deliveryWeek, deliveryExplanation, unavailable, requestedQuantity, orderStep, unitsPerOrderStep);
+                    deliveryWeek, deliveryExplanation, unavailable, requestedQuantity, orderStep, unitsPerOrderStep,
+                    expectedUnitCost, stockUnitCost);
         }
 
         public Line(Long productId, String sku, String description, /** * The same description in the customer's language, for the quote * and the portal. Without a translation it is simply identical. */ String customerDescription, String photoUrl, int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer, int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg, BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent, BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice, BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct, Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity, boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate, String deliveryWeek, String deliveryExplanation) {
