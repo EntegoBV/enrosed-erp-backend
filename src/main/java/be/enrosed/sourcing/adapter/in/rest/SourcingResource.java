@@ -209,12 +209,13 @@ public class SourcingResource {
                 dateFilter(to, "Einddatum"), supplierId, productId, orderId);
     }
 
-    /** Earlier containers on which this product arrived short or damaged, newest first. */
+    /** Earlier containers on which this product arrived short or damaged, newest first; one supplier's when given. */
     @GET
     @Path("/purchase-orders/receipt-issues")
     public List<ReceiptIssues.ReceiptIssue> receiptIssues(@QueryParam("productId") long productId,
-                                                          @QueryParam("excludeOrderId") Long excludeOrderId) {
-        return purchaseOrders.receiptIssuesFor(productId, excludeOrderId);
+                                                          @QueryParam("excludeOrderId") Long excludeOrderId,
+                                                          @QueryParam("supplierId") Long supplierId) {
+        return purchaseOrders.receiptIssuesFor(productId, excludeOrderId, supplierId);
     }
 
     @GET
@@ -286,7 +287,8 @@ public class SourcingResource {
     @Path("/purchase-orders/{id}/preview")
     public PurchaseOrderView previewPurchaseOrder(@PathParam("id") long id, PurchaseOrder order) {
         PurchaseOrder stored = purchaseOrders.get(id);
-        PurchaseOrder draft = withServerMetadata(order, id, stored);
+        /* The supplier link on the lines is server-owned: the draft shows what its next save would store. */
+        PurchaseOrder draft = purchaseOrders.withServerSupplierLinks(withServerMetadata(order, id, stored), stored);
         return view(draft, purchaseOrders.calculate(draft), List.of());
     }
 

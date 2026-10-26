@@ -27,7 +27,17 @@ public final class ReceiptIssues {
     public record ReceiptIssue(long orderId, String orderNumber, LocalDate receivedOn, int ordered,
                                int received, int damaged, int missing, String note,
                                /** Reported after receipt, while unpacking; part of {@code damaged}/{@code missing}. */
-                               int laterDamaged, int laterMissing, String laterNote) {
+                               int laterDamaged, int laterMissing, String laterNote,
+                               /** The container's supplier; the product page names it when there are several. */
+                               Long supplierId) {
+        /** Compatibility for callers written before the issue named its container's supplier. */
+        public ReceiptIssue(long orderId, String orderNumber, LocalDate receivedOn, int ordered,
+                            int received, int damaged, int missing, String note,
+                            int laterDamaged, int laterMissing, String laterNote) {
+            this(orderId, orderNumber, receivedOn, ordered, received, damaged, missing, note,
+                    laterDamaged, laterMissing, laterNote, null);
+        }
+
         /** Compatibility for callers written before reports could follow the receipt. */
         public ReceiptIssue(long orderId, String orderNumber, LocalDate receivedOn, int ordered,
                             int received, int damaged, int missing, String note) {
@@ -51,6 +61,16 @@ public final class ReceiptIssues {
      */
     public static List<ReceiptIssue> forProduct(List<PurchaseOrder> orders, List<StockMovement> movements,
                                                 long productId, Long excludeOrderId) {
+        return forProduct(orders, movements, productId, excludeOrderId, null);
+    }
+
+    /**
+     * The same history, from containers of one supplier only when {@code supplierId} is given: a supplier's
+     * order warns about what went wrong on its own containers, never another factory's (later reports against
+     * other containers are dropped with them). Null keeps every supplier, as the product page shows it.
+     */
+    public static List<ReceiptIssue> forProduct(List<PurchaseOrder> orders, List<StockMovement> movements,
+                                                long productId, Long excludeOrderId, Long supplierId) {
         Map<Long, Later> later = new LinkedHashMap<>();
         for (StockMovement move : movements) {
             if (move.productId() != productId || move.purchaseOrderId() == null || !move.kind().isReceiptIssue()) continue;
@@ -66,6 +86,7 @@ public final class ReceiptIssues {
         for (PurchaseOrder order : orders) {
             if (order.status() != PurchaseOrderStatus.ONTVANGEN) continue;
             if (excludeOrderId != null && Objects.equals(order.id(), excludeOrderId)) continue;
+            if (supplierId != null && !Objects.equals(order.supplierId(), supplierId)) continue;
             Later extra = order.id() == null ? null : later.remove(order.id());
             for (PurchaseOrderLine line : order.lines()) {
                 if (line.productId() == null || line.productId() != productId) continue;
@@ -78,7 +99,8 @@ public final class ReceiptIssues {
                 if (damaged == 0 && missing == 0 && laterDamaged == 0 && laterMissing == 0) continue;
                 issues.add(new ReceiptIssue(order.id(), order.number(), order.receivedOn(), ordered, received,
                         damaged + laterDamaged, missing + laterMissing, line.issueNote(),
-                        laterDamaged, laterMissing, extra == null ? null : extra.note(order.number())));
+                        laterDamaged, laterMissing, extra == null ? null : extra.note(order.number()),
+                        order.supplierId()));
                 extra = null;
             }
         }

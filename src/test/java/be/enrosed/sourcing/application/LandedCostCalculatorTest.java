@@ -66,6 +66,49 @@ class LandedCostCalculatorTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void aContainerOfTheSecondSupplierPricesAtThatSuppliersRowAndTheVoorkeursAtItsOwn() {
+        /* One product, two suppliers (2026-10-25): A (1L) is the Voorkeur at 19.2 + 0.5, B (2L) asks 17.0 + 0.3. */
+        LandedCostCalculator calculator = calculator(new BigDecimal("10"));
+        PurchasePriceResolver resolver = PurchasePriceResolverTest.resolver(List.of(
+                PurchasePriceResolverTest.row(21L, 1L, 2L, true, "17.0", Currency.USD, "0.3")));
+        jakarta.enterprise.inject.Instance<PurchasePriceResolver> prices =
+                mock(jakarta.enterprise.inject.Instance.class);
+        when(prices.isResolvable()).thenReturn(true);
+        when(prices.get()).thenReturn(resolver);
+        calculator.prices = prices;
+        PurchaseOrder ofA = excelOrder();
+        PurchaseOrder ofB = new PurchaseOrder(
+                2L, "PO-2026-B", null, 2L, ofA.orderDate(), ofA.status(), ofA.containerType(),
+                ofA.cnyToUsd(), ofA.usdToEurGoods(), ofA.usdToEurTransport(), ofA.freightUsd(),
+                ofA.originCosts(), ofA.originCurrency(), ofA.destinationCostsEur(), ofA.defaultDutyRatePct(),
+                ofA.extraRevenueEur(), ofA.allocFreight(), ofA.allocOrigin(), ofA.allocDestination(),
+                ofA.allocExtra(), ofA.departurePort(), ofA.destinationPort(), ofA.notes(), ofA.lines());
+
+        LandedCost atA = calculator.calculate(ofA, Map.of(1L, preservedRose()));
+        LandedCost atB = calculator.calculate(ofB, Map.of(1L, preservedRose()));
+
+        /* Excel G14 stays: 1968 x (19,2 + 0,5) = 38.769,60 USD. */
+        assertEquals(new BigDecimal("38769.60"), atA.totals().goodsUsd());
+        /* B: 1968 x (17,0 + 0,3) = 34.046,40 USD. */
+        assertEquals(new BigDecimal("34046.40"), atB.totals().goodsUsd());
+        /* A hand-built calculator (no resolver) prices B's container at the product card, as before. */
+        assertEquals(new BigDecimal("38769.60"), calculator(new BigDecimal("10"))
+                .calculate(ofB, Map.of(1L, preservedRose())).totals().goodsUsd());
+        /* A line's own price still wins over the row. */
+        PurchaseOrder linePriced = new PurchaseOrder(
+                3L, "PO-2026-B2", null, 2L, ofA.orderDate(), ofA.status(), ofA.containerType(),
+                ofA.cnyToUsd(), ofA.usdToEurGoods(), ofA.usdToEurTransport(), ofA.freightUsd(),
+                ofA.originCosts(), ofA.originCurrency(), ofA.destinationCostsEur(), ofA.defaultDutyRatePct(),
+                ofA.extraRevenueEur(), ofA.allocFreight(), ofA.allocOrigin(), ofA.allocDestination(),
+                ofA.allocExtra(), ofA.departurePort(), ofA.destinationPort(), ofA.notes(),
+                List.of(new PurchaseOrderLine(1L, 1L, 1968, new BigDecimal("16.0"), Currency.USD,
+                        BigDecimal.ZERO, 1968)));
+        assertEquals(new BigDecimal("31488.00"), calculator.calculate(linePriced, Map.of(1L, preservedRose()))
+                .totals().goodsUsd());
+    }
+
+    @Test
     @DisplayName("reproduceert de Excel-kostprijsberekening tot op de cent")
     void reproducesExcel() {
         LandedCost result = calculator(new BigDecimal("10")).calculate(

@@ -67,6 +67,9 @@ class PdfPurchaseRendererRenderTest {
     @Inject ProductService products;
     @Inject ProductSupplierAgreementPhotoService supplierAgreementPhotos;
     @Inject StockService stock;
+    @Inject be.enrosed.catalog.application.ProductSupplierService productSuppliers;
+    @Inject be.enrosed.sourcing.application.SupplierService supplierService;
+    @Inject PurchaseOrderService purchaseOrders;
 
     @Test
     void internalDossierUsesRemainingSupplierBalanceAfterOnlyFirstMilestoneCloses() throws Exception {
@@ -929,6 +932,97 @@ class PdfPurchaseRendererRenderTest {
                     "agreement photos for another supplier must never enter the PDF");
             assertFalse(text.contains("agreed product instruction"), text);
         }
+    }
+
+    /** One product, two suppliers (2026-10-25): each supplier's order is about that supplier only. */
+    @Test
+    @TestTransaction
+    void aSecondSuppliersOrderPrintsItsReferenceItsOwnAgreementAndOnlyItsOwnEarlierIssues() throws Exception {
+        Supplier a = supplierService.save(new Supplier(null, "Versie A " + java.util.UUID.randomUUID(), "CN",
+                "Yiwu", null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        Supplier b = supplierService.save(new Supplier(null, "Versie B " + java.util.UUID.randomUUID(), "CN",
+                "Kunming", null, null, null, Currency.USD, "FOB", "Ningbo", 30, null));
+        Product product = createProductWithPhoto("ONLY FOR SUPPLIER A.", a.id());
+        try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
+            supplierAgreementPhotos.upload(product.id(), "a.jpg", image, "PHOTO OF SUPPLIER A");
+        }
+        var bRow = productSuppliers.add(product.id(), new be.enrosed.catalog.application.ProductSupplierWrite(
+                b.id(), "B · dikker glas", "CULGD10", new BigDecimal("2.10"), Currency.USD, null, null, null,
+                "ONLY FOR SUPPLIER B.", null), b.name());
+        try (InputStream image = getClass().getResourceAsStream("/seed-images/P05.jpg")) {
+            supplierAgreementPhotos.upload(product.id(), b.id(), "b.jpg", image, "PHOTO OF SUPPLIER B");
+        }
+        PurchaseOrder earlierOfA = receivedWithDamage(a, product, "CRACKED AT A");
+        PurchaseOrder earlierOfB = receivedWithDamage(b, product, "CRUSHED AT B");
+
+        PurchaseOrder base = portraitOrder(product.id());
+        PurchaseOrder ofB = withSupplier(base, b.id(), List.of(base.lines().getFirst()
+                .withSupplierLink(bRow.id(), "B · dikker glas", "CULGD10")));
+        PurchaseOrder ofA = withSupplier(base, a.id(), base.lines());
+
+        String atB = supplierText(ofB, b, product);
+        assertTrue(atB.contains("your ref. culgd10"), atB);
+        assertTrue(atB.contains("only for supplier b."), atB);
+        assertTrue(atB.contains("photo of supplier b"), atB);
+        assertFalse(atB.contains("only for supplier a."), atB);
+        assertFalse(atB.contains("photo of supplier a"), atB);
+        assertTrue(atB.contains("crushed at b") && atB.contains(earlierOfB.number().toLowerCase()), atB);
+        assertFalse(atB.contains("cracked at a"), atB);
+        assertFalse(atB.contains(earlierOfA.number().toLowerCase() + " "), atB);
+        assertFalse(atB.contains("dikker glas"), "the version label never prints: " + atB);
+
+        String atA = supplierText(ofA, a, product);
+        assertTrue(atA.contains("only for supplier a."), atA);
+        assertTrue(atA.contains("photo of supplier a"), atA);
+        assertTrue(atA.contains("cracked at a"), atA);
+        assertFalse(atA.contains("only for supplier b."), atA);
+        assertFalse(atA.contains("photo of supplier b"), atA);
+        assertFalse(atA.contains("crushed at b"), atA);
+        assertFalse(atA.contains("your ref."), "A's row has no reference: " + atA);
+
+        /* A concept of B not saved since the row got its reference prints the row's reference as it is now. */
+        PurchaseOrder conceptOfB = withStatus(withSupplier(base, b.id(), base.lines()), PurchaseOrderStatus.CONCEPT);
+        assertTrue(supplierText(conceptOfB, b, product).contains("your ref. culgd10"));
+    }
+
+    private String supplierText(PurchaseOrder order, Supplier supplier, Product product) throws Exception {
+        PdfPurchaseRenderer.Document document = renderer.render(
+                order, portraitCosting(product.id()), supplier, false, List.of(),
+                new PurchaseOrderService.Payable(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, false),
+                PdfPurchaseRenderer.Layout.PORTRAIT, PdfPurchaseRenderer.Audience.SUPPLIER);
+        try (PDDocument pdf = Loader.loadPDF(document.content())) {
+            return new PDFTextStripper().getText(pdf).toLowerCase().replaceAll("\\s+", " ");
+        }
+    }
+
+    private PurchaseOrder receivedWithDamage(Supplier supplier, Product product, String note) {
+        PurchaseOrder concept = purchaseOrders.create(supplier.id(), new BigDecimal("0.14"), new BigDecimal("0.90"),
+                BigDecimal.TEN);
+        PurchaseOrder placed = purchaseOrders.update(concept.id(), concept.withReceipt(PurchaseOrderStatus.BESTELD,
+                null, null, false, null, List.of(new PurchaseOrderLine(null, product.id(), 100, null, null, null,
+                        null)))).order();
+        return purchaseOrders.receive(placed.id(), new PurchaseOrderService.Receipt(List.of(
+                new PurchaseOrderService.ReceivedLine(product.id(), 100, 3, null, note)), false, null,
+                LocalDate.now(java.time.ZoneId.of("Europe/Brussels")), null));
+    }
+
+    private static PurchaseOrder withSupplier(PurchaseOrder base, long supplierId, List<PurchaseOrderLine> lines) {
+        return new PurchaseOrder(
+                base.id(), base.number(), base.alias(), supplierId,
+                base.orderDate(), base.status(), base.containerType(), base.cnyToUsd(),
+                base.usdToEurGoods(), base.usdToEurTransport(), base.freightUsd(),
+                base.originCosts(), base.originCurrency(), base.destinationCostsEur(),
+                base.defaultDutyRatePct(), base.extraRevenueEur(), base.allocFreight(),
+                base.allocOrigin(), base.allocDestination(), base.allocExtra(),
+                base.departurePort(), base.destinationPort(), base.receivingLocationId(),
+                base.groupVariants(), base.expectedArrival(), base.receivedOn(),
+                base.paidTotalEur(), base.stockBooked(), base.paymentTerms(), base.shippedOn(),
+                base.trackingReference(), base.createdBy(), base.createdAt(), base.notes(), lines);
+    }
+
+    private static PurchaseOrder withStatus(PurchaseOrder base, PurchaseOrderStatus status) {
+        return base.withReceipt(status, base.receivedOn(), base.paidTotalEur(), base.stockBooked(), base.notes(),
+                base.lines());
     }
 
     @Test

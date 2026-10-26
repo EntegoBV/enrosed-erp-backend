@@ -128,6 +128,17 @@ public interface SourcingRepositories {
         default boolean referencesSupplierIncludingDeleted(long supplierId) {
             return findAll().stream().anyMatch(order -> Long.valueOf(supplierId).equals(order.supplierId()));
         }
+        /**
+         * Purchase lines that name this supplier row, or carry its product on a container of its supplier,
+         * trashed containers included (the persistent adapter counts them; this fallback sees live ones only).
+         */
+        default long linesUsingProductSupplierIncludingDeleted(long rowId, long productId, long supplierId) {
+            return findAll().stream().mapToLong(order -> order.lines().stream()
+                    .filter(line -> Long.valueOf(rowId).equals(line.productSupplierId())
+                            || (Long.valueOf(productId).equals(line.productId())
+                                && Long.valueOf(supplierId).equals(order.supplierId())))
+                    .count()).sum();
+        }
         Optional<PurchaseOrder> findById(long id);
         /**
          * Number and "Herkenbare naam" of many orders at once, without their

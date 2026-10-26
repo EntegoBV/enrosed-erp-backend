@@ -45,7 +45,9 @@ public class LotCostService {
                 LotCostCalculator.normalised(order, payments), productsById);
         List<StockMovement> laterLoss = order.id() == null || stock == null || !stock.isResolvable()
                 ? List.of() : stock.get().movementsForPurchaseOrder(order.id());
-        return calculator.calculate(new LotCost.Input(order, options, productsById, received,
+        /* The goods value per product at what this container's supplier asks for it. */
+        Map<Long, Product> priced = orders.pricedProducts(order, productsById);
+        return calculator.calculate(new LotCost.Input(order, options, priced, received,
                 payable.supplierEur(), payable.supplierFreightEur(), payments,
                 orders.supplierCredits(order.id()), reconciliation.streams(), laterLoss));
     }

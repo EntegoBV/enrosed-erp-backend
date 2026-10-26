@@ -107,7 +107,9 @@ public class PdfPurchaseInspectionRenderer {
             });
             String reference = null;
             if (options.includeSupplierAgreements() && product != null && order.supplierId() != null) {
-                var agreement = resolved.computeIfAbsent(product.id(), agreements::resolve);
+                /* This supplier's own agreement for the product: the Voorkeur's (colour-shared) one, or its row's. */
+                var agreement = resolved.computeIfAbsent(product.id(), id -> Objects.equals(product.supplierId(),
+                        order.supplierId()) ? agreements.resolve(id) : agreements.resolve(id, order.supplierId()));
                 if (agreement != null && agreement.available()
                         && ((agreement.note() != null && !agreement.note().isBlank()) || !agreement.photos().isEmpty())
                         && Objects.equals(agreement.supplierId(), order.supplierId())) {

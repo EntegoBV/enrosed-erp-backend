@@ -3,6 +3,7 @@ package be.enrosed.sourcing.application;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.ProductCostBreakdown;
+import be.enrosed.catalog.domain.ProductSupplier;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeDto;
@@ -98,6 +99,9 @@ public class PurchaseOrderService {
     be.enrosed.shared.trash.DeletedItemsService deletedItems;
     @Inject
     Instance<be.enrosed.catalog.application.CatalogMutationLock> catalogMutationLock;
+    /* What the order's supplier asks per product (its row); pure unit tests run without, which prices as before. */
+    @Inject
+    Instance<PurchasePriceResolver> prices;
     private final LandedCostCalculator calculator;
 
     public PurchaseOrderService(SourcingRepositories.PurchaseOrders orders,
@@ -145,6 +149,18 @@ public class PurchaseOrderService {
         return products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
     }
 
+    /**
+     * The products as this order's supplier sells them: the purchase price fields of each product replaced by
+     * that supplier's row (one query). Products the supplier has no row for stay as they are.
+     */
+    public Map<Long, Product> pricedProducts(PurchaseOrder order, Map<Long, Product> byId) {
+        return resolver().forOrder(order, byId);
+    }
+
+    private PurchasePriceResolver resolver() {
+        return prices != null && prices.isResolvable() ? prices.get() : PurchasePriceResolver.legacy();
+    }
+
     /** The same calculation on the quantities agreed with the supplier, whatever arrived. */
     public LandedCost calculateForOrderedQuantities(PurchaseOrder order) {
         Map<Long, Product> byId = products.list().stream()
@@ -176,7 +192,8 @@ public class PurchaseOrderService {
         List<PurchaseOrderLine> budgetLines = order.lines().stream().map(line -> new PurchaseOrderLine(
                 line.id(), line.productId(), line.ordered(), line.exwPrice(), line.exwCurrency(),
                 line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(), line.damagedQuantity(),
-                line.receiptUnitValueEur(), line.issueNote(), line.extraShareEur())).toList();
+                line.receiptUnitValueEur(), line.issueNote(), line.extraShareEur(),
+                line.productSupplierId(), line.supplierVersionLabel(), line.supplierReference())).toList();
         boolean sameQuantities = order.lines().stream().allMatch(line -> line.quantity() == line.ordered());
         PurchaseOrder budgetOrder = sameQuantities ? order : order.withReceipt(order.status(), order.receivedOn(),
                 order.paidTotalEur(), order.stockBooked(), order.notes(), budgetLines);
@@ -306,9 +323,11 @@ public class PurchaseOrderService {
                 source.allocFreight(), source.allocOrigin(), source.allocDestination(),
                 source.allocExtra(), source.departurePort(), source.destinationPort(), source.notes(),
                 source.lines().stream()
+                        /* The copy keeps each line's supplier row; its first save refreshes label and reference. */
                         .map(line -> new PurchaseOrderLine(null, line.productId(), line.quantity(),
                                 line.exwPrice(), line.exwCurrency(), line.extraUnitCost(), null,
-                                line.priceBasis()).withExtraShare(line.extraShareEur()))
+                                line.priceBasis()).withExtraShare(line.extraShareEur())
+                                .withSupplierLink(line.productSupplierId(), null, null))
                         .toList()).withInspectionCost(source.inspectionCostEur()).withSeparateAllocation(source.allocSeparate())
                 .withOtherCosts(source.otherCosts())
                 .withFreightViaSupplier(source.freightViaSupplier())
@@ -385,6 +404,9 @@ public class PurchaseOrderService {
         Set<Long> seenProducts = new HashSet<>();
         boolean placingNow = current.status() == PurchaseOrderStatus.CONCEPT
                 && changes.status() != PurchaseOrderStatus.CONCEPT;
+        /* Who makes what: the order supplier's rows (one query), else the product's own supplier. */
+        Map<Long, ProductSupplier> offers = resolver().offersFor(changes.supplierId(), byId);
+        String supplierName = supplierName(changes.supplierId());
 
         for (PurchaseOrderLine line : changes.lines()) {
             if (line == null || line.productId() == null) {
@@ -398,18 +420,31 @@ public class PurchaseOrderService {
             if (product == null) {
                 throw new BusinessRuleException("Product " + line.productId() + " bestaat niet meer");
             }
-            if (!Objects.equals(product.supplierId(), changes.supplierId())
-                    && !keepsHistoricalSupplierLine(current, changes, line, placingNow)) {
-                throw new BusinessRuleException("Product " + product.sku()
-                        + " hoort niet bij de gekozen leverancier");
+            PurchaseOrderLine storedLine = storedLine(current, line);
+            ProductSupplier offer = offers.get(product.id());
+            boolean historical = keepsHistoricalSupplierLine(current, changes, line, placingNow);
+            if (offer == null && !historical) {
+                throw new BusinessRuleException("Product " + product.sku() + " wordt niet gemaakt door "
+                        + supplierName + ". Voeg die leverancier eerst toe aan het product.");
+            }
+            if (offer != null && !offer.active() && !historical && (storedLine == null || placingNow)) {
+                throw new BusinessRuleException("Product " + product.sku() + ": " + supplierName
+                        + " staat op inactief. Zet die leverancier weer actief of haal de regel weg.");
             }
             if (line.quantity() < 0) {
                 throw new BusinessRuleException("Een besteld of ontvangen aantal kan niet negatief zijn");
             }
             requireNonNegative(line.exwPrice(), "EXW-prijs");
             requireNonNegative(line.extraUnitCost(), "Extra kost per stuk");
+            /* Placing, or a line added to an order that is already placed: what the supplier asks now is frozen. */
+            boolean snapshot = placingNow || (changes.status() != PurchaseOrderStatus.CONCEPT
+                    && current.status() != PurchaseOrderStatus.CONCEPT && storedLine == null);
+            /* Already placed and stored: an older client may omit what was frozen; storage wins. */
+            boolean keepStored = !snapshot && current.status() != PurchaseOrderStatus.CONCEPT && storedLine != null;
             LinePurchasePrice purchasePrice = purchasePriceForSave(
-                    current, line, product, placingNow);
+                    current, line, product, offer, snapshot);
+            BigDecimal extraUnitCost = extraUnitCostForSave(line, product, offer, storedLine, snapshot, keepStored);
+            SupplierLink link = supplierLinkForSave(offer, storedLine, snapshot, keepStored);
 
             Carton carton = product.carton() == null ? Carton.empty() : product.carton();
             int perCarton = Math.max(1, carton.piecesPerCarton());
@@ -427,10 +462,11 @@ public class PurchaseOrderService {
             }
             /* Saved as entered; the warning is the whole intervention. */
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), requested,
-                    purchasePrice.amount(), purchasePrice.currency(), line.extraUnitCost(),
+                    purchasePrice.amount(), purchasePrice.currency(), extraUnitCost,
                     orderedQuantityFor(current, changes, line, requested), line.priceBasis(),
                     line.damagedQuantity(), storedReceiptUnitValue(current, line), cleanIssueNote(line.issueNote()),
-                    line.extraShareEur() == null ? null : line.extraShareEur().setScale(2, RoundingMode.HALF_UP)));
+                    line.extraShareEur() == null ? null : line.extraShareEur().setScale(2, RoundingMode.HALF_UP),
+                    link.productSupplierId(), link.versionLabel(), link.reference()));
         }
 
         /* One product may carry less than nothing when another carries more; the container as a whole may not. */
@@ -531,13 +567,15 @@ public class PurchaseOrderService {
 
     /**
      * Price and currency are one agreement: never combine a line currency with
-     * a product amount (or vice versa). When a draft is placed, a line without
-     * an override snapshots the then-current product purchase-price pair.
+     * a product amount (or vice versa). When a draft is placed, or a line is
+     * added to an order already placed, a line without an override snapshots
+     * the pair the order's supplier asks then (its row; else the product's).
      */
     private LinePurchasePrice purchasePriceForSave(PurchaseOrder current,
                                                    PurchaseOrderLine incoming,
                                                    Product product,
-                                                   boolean placingNow) {
+                                                   ProductSupplier offer,
+                                                   boolean snapshot) {
         boolean hasAmount = incoming.exwPrice() != null;
         boolean hasCurrency = incoming.exwCurrency() != null;
         if (hasAmount != hasCurrency) {
@@ -548,8 +586,10 @@ public class PurchaseOrderService {
             return new LinePurchasePrice(incoming.exwPrice(), incoming.exwCurrency());
         }
 
-        if (placingNow) {
-            return completePrice(product.exwPrice(), product.exwCurrency());
+        if (snapshot) {
+            return offer != null
+                    ? completePrice(offer.exwPrice(), offer.exwCurrency())
+                    : completePrice(product.exwPrice(), product.exwCurrency());
         }
 
         /* Once placed, a full PUT from an older client may omit the snapshot.
@@ -570,6 +610,84 @@ public class PurchaseOrderService {
         return amount == null || currency == null
                 ? new LinePurchasePrice(null, null)
                 : new LinePurchasePrice(amount, currency);
+    }
+
+    /**
+     * The extra cost per piece, the same shape as the price: what the client sends wins; placing (or a line added
+     * to a placed order) freezes what the supplier's row asks, 0 when nothing, so a later product or row edit never
+     * moves a placed container; a stored placed line keeps its value; a concept follows live (null).
+     */
+    private static BigDecimal extraUnitCostForSave(PurchaseOrderLine incoming, Product product, ProductSupplier offer,
+                                                   PurchaseOrderLine stored, boolean snapshot, boolean keepStored) {
+        if (incoming.extraUnitCost() != null) return incoming.extraUnitCost();
+        if (snapshot) return Money.nz(offer != null ? offer.extraUnitCost() : product.extraUnitCost());
+        if (keepStored) return stored.extraUnitCost();
+        return null;
+    }
+
+    /** The row a line is bought on and what it says, as the line keeps it. */
+    private record SupplierLink(Long productSupplierId, String versionLabel, String reference) {}
+
+    /**
+     * Server-owned, never from the client: the row is the order supplier's (else the one the line already named);
+     * label and reference follow the row live on a concept, are frozen when placed, and stay once stored.
+     */
+    private static SupplierLink supplierLinkForSave(ProductSupplier offer, PurchaseOrderLine stored,
+                                                    boolean snapshot, boolean keepStored) {
+        Long rowId = offer != null && offer.id() != null ? offer.id()
+                : stored == null ? null : stored.productSupplierId();
+        if (keepStored) return new SupplierLink(rowId, stored.supplierVersionLabel(), stored.supplierReference());
+        return new SupplierLink(rowId, offer == null ? null : offer.versionLabel(),
+                offer == null ? null : offer.supplierReference());
+    }
+
+    /** The stored line with the same id and product, or null for a new line. */
+    private static PurchaseOrderLine storedLine(PurchaseOrder current, PurchaseOrderLine incoming) {
+        if (incoming.id() == null) return null;
+        return current.lines().stream()
+                .filter(line -> incoming.id().equals(line.id())
+                        && Objects.equals(line.productId(), incoming.productId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** The supplier's name for a message; its number when it is gone. */
+    private String supplierName(Long supplierId) {
+        if (supplierId == null) return "deze leverancier";
+        return suppliers.findById(supplierId).map(Supplier::name).orElse("leverancier " + supplierId);
+    }
+
+    /**
+     * A draft on screen (the preview) shows the supplier link the next save would store: what the client sent is
+     * replaced by the same rules as a save, without refusing anything.
+     */
+    public PurchaseOrder withServerSupplierLinks(PurchaseOrder draft, PurchaseOrder stored) {
+        if (draft == null || draft.lines() == null) return draft;
+        PurchaseOrder current = stored == null ? draft : stored;
+        Map<Long, Product> byId = new HashMap<>();
+        for (PurchaseOrderLine line : draft.lines()) {
+            if (line == null || line.productId() == null || byId.containsKey(line.productId())) continue;
+            try {
+                byId.put(line.productId(), products.get(line.productId()));
+            } catch (NotFoundException missing) {
+                /* A gone product keeps no link on screen. */
+            }
+        }
+        Map<Long, ProductSupplier> offers = resolver().offersFor(draft.supplierId(), byId);
+        boolean placingNow = current.status() == PurchaseOrderStatus.CONCEPT
+                && draft.status() != PurchaseOrderStatus.CONCEPT;
+        List<PurchaseOrderLine> lines = new ArrayList<>();
+        for (PurchaseOrderLine line : draft.lines()) {
+            if (line == null) { lines.add(null); continue; }
+            PurchaseOrderLine storedLine = storedLine(current, line);
+            boolean snapshot = placingNow || (draft.status() != PurchaseOrderStatus.CONCEPT
+                    && current.status() != PurchaseOrderStatus.CONCEPT && storedLine == null);
+            boolean keepStored = !snapshot && current.status() != PurchaseOrderStatus.CONCEPT && storedLine != null;
+            SupplierLink link = supplierLinkForSave(offers.get(line.productId()), storedLine, snapshot, keepStored);
+            lines.add(line.withSupplierLink(link.productSupplierId(), link.versionLabel(), link.reference()));
+        }
+        return draft.withReceipt(draft.status(), draft.receivedOn(), draft.paidTotalEur(), draft.stockBooked(),
+                draft.notes(), lines);
     }
 
     /**
@@ -1951,7 +2069,8 @@ public class PurchaseOrderService {
             }
             lines.add(new PurchaseOrderLine(line.id(), line.productId(), received, line.exwPrice(),
                     line.exwCurrency(), line.extraUnitCost(), ordered, line.priceBasis(), damaged,
-                    receiptUnitValue, received != ordered || damaged > 0 ? issueNote : null, line.extraShareEur()));
+                    receiptUnitValue, received != ordered || damaged > 0 ? issueNote : null, line.extraShareEur(),
+                    line.productSupplierId(), line.supplierVersionLabel(), line.supplierReference()));
         }
 
         String notes = appendReceiptNote(order.notes(), day, remarks, receipt.note());
@@ -2201,7 +2320,8 @@ public class PurchaseOrderService {
                 .map(line -> line.id() != null && line.id() == lineId
                         ? new PurchaseOrderLine(line.id(), line.productId(), line.quantity(), line.exwPrice(),
                                 line.exwCurrency(), line.extraUnitCost(), line.orderedQuantity(), line.priceBasis(),
-                                line.damagedQuantity(), normalized, line.issueNote(), line.extraShareEur())
+                                line.damagedQuantity(), normalized, line.issueNote(), line.extraShareEur(),
+                                line.productSupplierId(), line.supplierVersionLabel(), line.supplierReference())
                         : line)
                 .toList();
         orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(),
@@ -2246,11 +2366,12 @@ public class PurchaseOrderService {
             }
         }
 
+        /* The products as this container's supplier sells them, as the calculation reads them. */
+        Map<Long, Product> priced = pricedProducts(order, byId);
         Map<Long, BigDecimal> values = new HashMap<>();
         for (PurchaseOrderLine line : order.lines()) {
-            Product product = byId.get(line.productId());
-            BigDecimal price = line.exwPrice() != null
-                    ? line.exwPrice() : product == null ? null : product.exwPrice();
+            Product product = priced.get(line.productId());
+            BigDecimal price = PurchasePriceResolver.price(line, product).exwPrice();
             if (price == null) {
                 values.put(line.productId(), null);
                 continue;
@@ -2276,14 +2397,12 @@ public class PurchaseOrderService {
         return values;
     }
 
-    /** Pure-test and zero-quantity fallback matching the calculator's goods conversion. */
+    /** Pure-test and zero-quantity fallback matching the calculator's goods conversion; product already priced. */
     private static BigDecimal directPurchaseUnitEur(PurchaseOrder order, PurchaseOrderLine line,
                                                     Product product, BigDecimal price) {
-        Currency currency = line.exwCurrency() != null
-                ? line.exwCurrency() : product == null ? null : product.exwCurrency();
-        if (currency == null) currency = Currency.USD;
-        BigDecimal extra = line.extraUnitCost() != null
-                ? line.extraUnitCost() : product == null ? null : product.extraUnitCost();
+        PurchasePrice agreed = PurchasePriceResolver.price(line, product);
+        Currency currency = agreed.exwCurrency();
+        BigDecimal extra = agreed.extraUnitCost();
         BigDecimal amount = price.add(Money.nz(extra));
         BigDecimal eur = switch (currency) {
             case EUR -> amount;
@@ -2526,7 +2645,13 @@ public class PurchaseOrderService {
      * shows it and the supplier order prints it as a warning.
      */
     public List<ReceiptIssues.ReceiptIssue> receiptIssuesFor(long productId, Long excludeOrderId) {
-        return ReceiptIssues.forProduct(orders.findAll(), products.stockMovements(productId), productId, excludeOrderId);
+        return receiptIssuesFor(productId, excludeOrderId, null);
+    }
+
+    /** The same, only from containers of this supplier when one is given (its PDF warns about its own). */
+    public List<ReceiptIssues.ReceiptIssue> receiptIssuesFor(long productId, Long excludeOrderId, Long supplierId) {
+        return ReceiptIssues.forProduct(orders.findAll(), products.stockMovements(productId), productId,
+                excludeOrderId, supplierId);
     }
 
     /** What the warehouse may report against a received container. */
@@ -2720,7 +2845,10 @@ public class PurchaseOrderService {
     @Transactional
     public LandedCost applyToProducts(long id) {
         PurchaseOrder order = getForUpdate(id);
-        LandedCost result = calculate(order);
+        Map<Long, Product> byId = productsById();
+        LandedCost result = calculate(order, byId);
+        /* The EXW and extra cost the history row records: the line's, else what this container's supplier asks. */
+        Map<Long, Product> priced = pricedProducts(order, byId);
         int written = 0;
         int skipped = 0;
         for (LandedCost.Line line : result.lines()) {
@@ -2731,14 +2859,13 @@ public class PurchaseOrderService {
             PurchaseOrderLine ordered = order.lines().stream()
                     .filter(candidate -> candidate.productId() != null && candidate.productId().equals(line.productId()))
                     .findFirst().orElse(null);
-            /* The factory price on the line, or the product's own when the line inherits it. */
+            /* The factory price on the line, or the order supplier's own when the line inherits it. */
             Product product = products.get(line.productId());
-            BigDecimal exwPrice = ordered != null && ordered.exwPrice() != null ? ordered.exwPrice() : product.exwPrice();
-            be.enrosed.shared.Currency exwCurrency = ordered != null && ordered.exwCurrency() != null
-                    ? ordered.exwCurrency() : product.exwCurrency();
-            /* The same rule as the calculation: the line's extra unit cost, else the product's; in the EXW currency. */
-            BigDecimal extraUnitCost = ordered != null && ordered.extraUnitCost() != null
-                    ? ordered.extraUnitCost() : product.extraUnitCost();
+            /* The same rule as the calculation, per field; extra in the EXW currency. */
+            PurchasePrice agreed = PurchasePriceResolver.price(ordered, priced.getOrDefault(line.productId(), product));
+            BigDecimal exwPrice = agreed.exwPrice();
+            be.enrosed.shared.Currency exwCurrency = agreed.exwCurrency();
+            BigDecimal extraUnitCost = agreed.extraUnitCost();
             ProductCostBreakdown breakdown = ProductCostBreakdown.perUnit(line.quantity(), line.goodsEur(),
                     line.originEur(), line.freightEur(), line.dutyEur(), line.destinationEur(),
                     line.extraRevenueEur(), line.separateEur());

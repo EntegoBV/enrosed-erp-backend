@@ -41,8 +41,26 @@ public record PurchaseOrderLine(
         /** What was wrong on arrival, in our own words: "glass domes cracked, inner box too thin". */
         String issueNote,
         /** The Enrosed kost this line carries when the buyer spreads it by hand; null when a key spreads it. */
-        BigDecimal extraShareEur
+        BigDecimal extraShareEur,
+        /**
+         * The product's supplier row ("versie") at the container's supplier; server-owned, never taken from a
+         * client body. Kept through receipt, valuation and copies.
+         */
+        Long productSupplierId,
+        /** That row's version label: live on a concept, snapshotted when the order is placed. Purchasing only. */
+        String supplierVersionLabel,
+        /** The supplier's own reference for the product, like the label; prints on that supplier's PDF. */
+        String supplierReference
 ) {
+    /** Compatibility for callers written before a line named its supplier row. */
+    public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
+                             Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
+                             PriceBasis priceBasis, Integer damagedQuantity, BigDecimal receiptUnitValueEur,
+                             String issueNote, BigDecimal extraShareEur) {
+        this(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity, priceBasis,
+                damagedQuantity, receiptUnitValueEur, issueNote, extraShareEur, null, null, null);
+    }
+
     /** Compatibility for callers written before the hand-spread Enrosed kost existed. */
     public PurchaseOrderLine(Long id, Long productId, int quantity, BigDecimal exwPrice,
                              Currency exwCurrency, BigDecimal extraUnitCost, Integer orderedQuantity,
@@ -52,10 +70,18 @@ public record PurchaseOrderLine(
                 damagedQuantity, receiptUnitValueEur, issueNote, null);
     }
 
-    /** The same line with its hand-spread Enrosed kost set; null clears it. */
+    /** The same line with its hand-spread Enrosed kost set; null clears it. The supplier link stays. */
     public PurchaseOrderLine withExtraShare(BigDecimal value) {
         return new PurchaseOrderLine(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity,
-                priceBasis, damagedQuantity, receiptUnitValueEur, issueNote, value);
+                priceBasis, damagedQuantity, receiptUnitValueEur, issueNote, value,
+                productSupplierId, supplierVersionLabel, supplierReference);
+    }
+
+    /** The same line naming its supplier row, with that row's version label and reference. */
+    public PurchaseOrderLine withSupplierLink(Long productSupplierId, String versionLabel, String reference) {
+        return new PurchaseOrderLine(id, productId, quantity, exwPrice, exwCurrency, extraUnitCost, orderedQuantity,
+                priceBasis, damagedQuantity, receiptUnitValueEur, issueNote, extraShareEur,
+                productSupplierId, versionLabel, reference);
     }
 
     /** Compatibility for callers written before the arrival note existed. */
