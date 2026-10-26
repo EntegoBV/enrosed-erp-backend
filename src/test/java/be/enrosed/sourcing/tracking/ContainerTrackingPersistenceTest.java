@@ -16,6 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class ContainerTrackingPersistenceTest {
     @Inject TrackingStore store;
     @Inject EntityManager entities;
+    @Inject VesselLinkStore links;
+    @Inject be.enrosed.sourcing.application.PurchaseOrderService purchases;
+    @Inject be.enrosed.sourcing.application.SupplierService suppliers;
     private static final Instant NOW = Instant.parse("2026-10-26T10:00:00Z");
 
     @Test @TestTransaction
@@ -47,7 +50,37 @@ class ContainerTrackingPersistenceTest {
         given().get("/api/container-tracking").then().statusCode(401);
         given().auth().preemptive().basic("emre", "named-auth-test-password")
                 .get("/api/container-tracking").then().statusCode(200)
-                .body("provider", equalTo("ShipsGo"), "configured", equalTo(false), "intervalHours", equalTo(6));
+                .body("provider", equalTo("Voydar / ShipsGo"), "configured", equalTo(true), "shipsGoConfigured", equalTo(false), "intervalHours", equalTo(6));
         given().post("/api/container-tracking/999999/refresh").then().statusCode(401);
+        given().contentType("application/json").body("{\"imo\":\"9811000\"}")
+                .put("/api/container-tracking/999999/vessel").then().statusCode(401);
+    }
+
+    @Test @TestTransaction
+    void vesselBindingPersistsWithoutChangingReferenceAndNoLongerAppliesWhenReferenceChanges() {
+        var supplier = suppliers.save(new be.enrosed.sourcing.domain.Supplier(null, "Tracking test supplier", "CN", "Ningbo",
+                null, null, null, be.enrosed.shared.Currency.USD, "FOB", "Ningbo", 30, null));
+        var order = purchases.create(supplier.id(), new java.math.BigDecimal("0.14"), new java.math.BigDecimal("0.9"), java.math.BigDecimal.ZERO);
+        var entity = entities.find(be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity.class, order.id());
+        entity.trackingReference = "SZ260703903";
+        entities.flush(); entities.clear();
+        links.save(order.id(), "9811000");
+        entities.flush(); entities.clear();
+        var original = purchases.get(order.id());
+        var link = links.find(original);
+        assertEquals("9811000", link.imo());
+        assertEquals("SZ260703903", original.trackingReference());
+        links.save(order.id(), "9811000");
+        assertEquals(link.linkedAt(), links.find(original).linkedAt(), "Same linkage keeps its voyage window");
+        assertThrows(jakarta.ws.rs.ClientErrorException.class, () -> links.save(order.id(), "9722716", "OUTDATED-REFERENCE"));
+        assertEquals("9811000", links.find(original).imo());
+        assertThrows(jakarta.ws.rs.BadRequestException.class, () -> links.save(order.id(), "9811001"));
+        entity = entities.find(be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity.class, order.id());
+        entity.trackingReference = "DIFFERENT-REFERENCE";
+        entities.flush(); entities.clear();
+        assertNull(links.find(purchases.get(order.id())));
+        links.save(order.id(), null);
+        entities.flush(); entities.clear();
+        assertNull(links.find(purchases.get(order.id())));
     }
 }

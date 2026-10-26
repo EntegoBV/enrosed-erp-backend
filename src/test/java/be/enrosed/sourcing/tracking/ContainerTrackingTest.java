@@ -22,8 +22,8 @@ class ContainerTrackingTest {
         assertNull(reference("javascript:alert(1)"));
         assertNull(reference("MSCU1234567 and MSCU9999999"));
         assertFalse(reference("BL: MSCU1234567").container());
-        assertEquals("https://shipsgo.com/ocean", sourceLink("javascript:alert(1)"));
-        assertEquals("https://shipsgo.com/ocean", sourceLink("https://user:secret@example.com/track"));
+        assertEquals("https://www.track-trace.com/container", sourceLink("javascript:alert(1)"));
+        assertEquals("https://www.track-trace.com/container", sourceLink("https://user:secret@example.com/track"));
     }
 
     @Test void aReusedContainerOnAnotherPurchaseNeverGetsThePreviousVoyagesSnapshotOrProviderIdentity() {

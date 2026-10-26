@@ -18,7 +18,11 @@ public final class ContainerTracking {
     public record Reference(String key, String number, boolean container) {}
     public record Point(double lat, double lon) {}
     public record Position(double lat, double lon, String kind, String recordedAt) {}
-    public record Event(String id, String status, String location, String occurredAt, boolean actual) {}
+    public record Event(String id, String status, String location, String occurredAt, boolean actual, String source, String sourceUrl) {
+        public Event(String id, String status, String location, String occurredAt, boolean actual) {
+            this(id, status, location, occurredAt, actual, null, null);
+        }
+    }
     public record Observation(String status, String carrier, String vessel, String eta, String location,
                               Position position, List<Point> route, List<Event> events,
                               Instant providerCheckedAt, Instant providerUpdatedAt) {}
@@ -26,8 +30,9 @@ public final class ContainerTracking {
                       String orderStatus, String status, String statusLabel, String carrier, String vessel,
                       String eta, String location, Position position, List<Point> route, List<Event> events,
                       Instant checkedAt, Instant updatedAt, Instant nextCheckAt, Instant changedAt,
-                      String error, String trackingUrl, Instant providerCheckedAt, Instant providerUpdatedAt) {}
-    public record Feed(String provider, boolean configured, int intervalHours, List<Row> containers) {}
+                      String error, String trackingUrl, Instant providerCheckedAt, Instant providerUpdatedAt,
+                      String source, String vesselImo, boolean automatic) {}
+    public record Feed(String provider, boolean configured, int intervalHours, List<Row> containers, boolean shipsGoConfigured) {}
 
     /** Recognise a number inside existing carrier links, but never fetch those user-controlled URLs. */
     public static Reference reference(String raw) {
@@ -60,12 +65,12 @@ public final class ContainerTracking {
 
     static String sourceLink(String raw) {
         try {
-            if (raw == null) return "https://shipsgo.com/ocean";
+            if (raw == null) return "https://www.track-trace.com/container";
             URI uri = URI.create(raw.strip());
             if ("https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null && uri.getUserInfo() == null)
                 return uri.toASCIIString();
         } catch (IllegalArgumentException ignored) { }
-        return "https://shipsgo.com/ocean";
+        return "https://www.track-trace.com/container";
     }
 
     static boolean terminal(String status) { return "EMPTY_RETURN".equals(status); }
@@ -74,6 +79,7 @@ public final class ContainerTracking {
         return switch (status == null ? "" : status) {
             case "UNCONFIGURED" -> "Trackingdienst nog niet gekoppeld";
             case "UNSUPPORTED" -> "Trackingreferentie aanvullen";
+            case "VESSEL_TRACKING" -> "Schip gekoppeld";
             case "PENDING", "NEW" -> "Eerste controle afwachten";
             case "INPROGRESS" -> "Wachten op de rederij";
             case "BOOKED" -> "Geboekt";

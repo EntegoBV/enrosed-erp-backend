@@ -17,12 +17,17 @@ class ContainerTrackingServiceTest {
     private SourcingRepositories.PurchaseOrders orders;
     private TrackingStore store;
     private ShipsGoClient provider;
+    private VesselLinkStore links;
+    private VoydarClient voydar;
 
     @BeforeEach void prepare() {
         service = new ContainerTrackingService();
         service.orders = orders = mock(SourcingRepositories.PurchaseOrders.class);
         service.store = store = mock(TrackingStore.class);
         service.provider = provider = mock(ShipsGoClient.class);
+        service.links = links = mock(VesselLinkStore.class);
+        service.voydar = voydar = mock(VoydarClient.class);
+        when(links.all()).thenReturn(Map.of());
         when(store.all()).thenReturn(Map.of());
     }
 
@@ -34,10 +39,65 @@ class ContainerTrackingServiceTest {
         when(orders.findAll()).thenReturn(List.of(unknown, received, archived, empty));
         Feed feed = service.feed();
         assertEquals(2, feed.containers().size());
+        assertTrue(feed.configured()); assertFalse(feed.shipsGoConfigured());
         assertEquals("UNCONFIGURED", feed.containers().getFirst().status());
         assertEquals("UNSUPPORTED", feed.containers().getLast().status());
         assertNull(feed.containers().getLast().position());
         verify(provider, never()).create(any()); verify(provider, never()).fetch(anyLong(), any());
+    }
+
+    @Test void accountlessSchedulerUsesPublicFeedWithoutShipsGoAndDoesNotRepollSameVesselWithinFifteenMinutes() {
+        var active = order(1, "SZ260703903", PurchaseOrderStatus.ONDERWEG);
+        var received = order(2, "another-ref", PurchaseOrderStatus.ONTVANGEN);
+        var linkedAt = Instant.now().minusSeconds(100);
+        var link = new VesselLinkStore.Link(VesselLinkStore.binding(active.trackingReference()), "9811000", linkedAt);
+        when(orders.findAll()).thenReturn(List.of(active, received));
+        when(links.find(active)).thenReturn(link);
+        when(store.acquire(any())).thenReturn("lease");
+        var feedRef = ContainerTrackingService.vesselFeedReference(link.imo());
+        var raw = new Observation("VESSEL_TRACKING", null, "TEST VESSEL", null, "Port",
+                null, List.of(), List.of(new Event("old", "Schip aangekomen", "Old port", linkedAt.minusSeconds(1).toString(), true),
+                new Event("new", "Schip vertrokken", "Port", linkedAt.plusSeconds(1).toString(), true)), null, null);
+        when(store.find(feedRef.key())).thenReturn(new TrackingStore.Snapshot(null, raw, Instant.now().minusSeconds(50),
+                Instant.now().minusSeconds(50), linkedAt, Instant.now().plusSeconds(1000), null, false));
+        service.syncDue();
+        verify(provider, never()).create(any()); verify(provider, never()).fetch(anyLong(), any());
+        verify(voydar, never()).fetch(anyString(), any());
+        var observation = org.mockito.ArgumentCaptor.forClass(Observation.class);
+        verify(store).success(eq(ContainerTrackingService.trackingReference(active, link)), observation.capture(), any());
+        assertEquals(List.of("new"), observation.getValue().events().stream().map(Event::id).toList());
+        assertNull(observation.getValue().eta()); assertNull(observation.getValue().position());
+    }
+
+    @Test void accountlessSchedulerFetchesDueVesselAndPersistsSixHourSnapshot() {
+        var active = order(1, "SZ260703903", PurchaseOrderStatus.ONDERWEG);
+        var link = new VesselLinkStore.Link(VesselLinkStore.binding(active.trackingReference()), "9811000", Instant.now().minusSeconds(30));
+        when(orders.findAll()).thenReturn(List.of(active)); when(links.find(active)).thenReturn(link);
+        when(store.acquire(any())).thenReturn("lease");
+        var feedRef = ContainerTrackingService.vesselFeedReference(link.imo());
+        var data = VoydarClient.empty(link.imo());
+        when(store.find(feedRef.key())).thenReturn(null,
+                new TrackingStore.Snapshot(null, data, Instant.now(), Instant.now(), Instant.now(), Instant.now().plusSeconds(21600), null, false));
+        when(voydar.fetch(link.imo(), null)).thenReturn(new VoydarClient.Result(data, "etag", null));
+        service.syncDue();
+        verify(voydar).fetch(link.imo(), null);
+        verify(store).feedSuccess(eq(feedRef), eq(data), any(), eq("etag"), isNull());
+        verify(store).success(eq(ContainerTrackingService.trackingReference(active, link)), any(), any());
+    }
+
+    @Test void globalDisableStopsBothSourcesButRetainsLinkedVesselAndSavedData() {
+        var active = order(1, "SZ260703903", PurchaseOrderStatus.ONDERWEG);
+        var link = new VesselLinkStore.Link(VesselLinkStore.binding(active.trackingReference()), "9811000", Instant.now());
+        when(orders.findAll()).thenReturn(List.of(active)); when(links.find(active)).thenReturn(link);
+        when(links.all()).thenReturn(Map.of(1L, link));
+        service.enabled = false;
+        service.syncDue();
+        Row refreshed = service.refresh(1);
+        assertEquals("9811000", refreshed.vesselImo()); assertFalse(refreshed.automatic());
+        assertTrue(refreshed.error().contains("staat uit")); assertFalse(service.feed().configured());
+        verify(store, never()).acquire(any());
+        verify(voydar, never()).fetch(anyString(), any());
+        verify(provider, never()).fetch(anyLong(), any()); verify(provider, never()).create(any());
     }
 
     @Test void scheduledRefreshSkipsReceivedAndUnsupportedAndKeepsRemoteIdentityOnRetry() {
