@@ -37,8 +37,21 @@ public record SalesOrderLine(
          * product's step or carton content therefore never re-prices a sent or paid document.
          * Null on lines from before the step was remembered: they follow the product's step.
          */
-        Integer unitsPerOrderStep
+        Integer unitsPerOrderStep,
+
+        /**
+         * What the pieces cost that left stock for this line at shipment (FIFO over the batches); written by the
+         * server only, null before shipment or before batches started.
+         */
+        BigDecimal stockCostEur
 ) {
+    /** A line without a stock cost (before shipment, or as a client sends it: the server never takes it from one). */
+    public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
+                          BigDecimal manualDiscountPct, String deliveryWeek, BigDecimal unitCostEur,
+                          Boolean unavailable, Integer requestedQuantity, Integer unitsPerOrderStep) {
+        this(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur,
+                unavailable, requestedQuantity, unitsPerOrderStep, null);
+    }
     /** A line written before its order step was remembered; it follows the product's step. */
     public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
                           BigDecimal manualDiscountPct, String deliveryWeek, BigDecimal unitCostEur,
@@ -61,14 +74,14 @@ public record SalesOrderLine(
     }
 
     public SalesOrderLine withUnitCost(BigDecimal unitCost) {
-        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost, unavailable, requestedQuantity, unitsPerOrderStep);
+        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost, unavailable, requestedQuantity, unitsPerOrderStep, stockCostEur);
     }
     public boolean isUnavailable() { return Boolean.TRUE.equals(unavailable); }
     public SalesOrderLine withAvailability(boolean value, int activeQuantity, Integer remembered) {
-        return new SalesOrderLine(id, productId, activeQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, value, remembered, unitsPerOrderStep);
+        return new SalesOrderLine(id, productId, activeQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, value, remembered, unitsPerOrderStep, stockCostEur);
     }
     /** The same line rounded to, and remembering, an order step; null forgets the step. */
     public SalesOrderLine withOrderStep(int roundedQuantity, Integer step) {
-        return new SalesOrderLine(id, productId, roundedQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, unavailable, requestedQuantity, step);
+        return new SalesOrderLine(id, productId, roundedQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, unavailable, requestedQuantity, step, stockCostEur);
     }
 }

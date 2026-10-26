@@ -36,6 +36,7 @@ import be.enrosed.catalog.adapter.out.persistence.CategoryEntity;
 import be.enrosed.catalog.adapter.out.persistence.CatalogDaos;
 import jakarta.enterprise.inject.Instance;
 import be.enrosed.shared.security.CurrentActor;
+import be.enrosed.catalog.domain.StockBatchContext;
 import be.enrosed.catalog.domain.StockMovement;
 import be.enrosed.catalog.application.port.out.StockLedger;
 import be.enrosed.media.MediaLegacySourceType;
@@ -933,19 +934,36 @@ public class ProductService {
 
     /** Pieces found broken after booking: they leave the shelf as damaged. */
     public void takeOutDamaged(long productId, int quantity, String reference, Long locationId) {
+        takeOutDamaged(productId, quantity, reference, locationId, null);
+    }
+
+    /**
+     * Extra damage on a booked receipt: pinned to that container's batch; the movement still carries no purchase order
+     * id (it must not show twice in "Schade en tekorten", the line's damagedQuantity already counts it).
+     */
+    public void takeOutDamaged(long productId, int quantity, String reference, Long locationId,
+                               Long pinPurchaseOrderId) {
         if (quantity <= 0 || stock == null || !stock.isResolvable()) return;
         StockService service = stock.get();
         long where = locationId != null ? locationId : service.mainLocation().id();
-        service.takeOut(productId, where, quantity, be.enrosed.catalog.domain.StockMovement.Kind.DAMAGED, reference);
+        service.takeOut(productId, where, quantity, StockMovement.Kind.DAMAGED, reference, null,
+                StockBatchContext.pinned(pinPurchaseOrderId));
     }
 
     /** @param locationId where the container was unloaded; null means the warehouse */
     @Transactional
     public void receiveStock(long productId, int delta, String reference, Long locationId) {
+        receiveStock(productId, delta, reference, locationId, StockBatchContext.NONE);
+    }
+
+    /** The same, naming the container line the pieces came on (the batch they become). */
+    @Transactional
+    public void receiveStock(long productId, int delta, String reference, Long locationId, StockBatchContext batch) {
         if (stock != null && stock.isResolvable()) {
             StockService service = stock.get();
             long where = locationId != null ? locationId : service.mainLocation().id();
-            service.add(productId, where, delta, StockMovement.Kind.PURCHASE_RECEIPT, reference);
+            service.add(productId, where, delta, StockMovement.Kind.PURCHASE_RECEIPT, reference,
+                    batch == null ? StockBatchContext.NONE : batch);
             return;
         }
         if (!products.adjustStock(productId, delta)) {
@@ -963,10 +981,17 @@ public class ProductService {
      */
     @Transactional
     public void sellStock(long productId, int quantity, String reference) {
+        sellStock(productId, quantity, reference, StockBatchContext.NONE);
+    }
+
+    /** The same, naming the sales document (and the container a container sale is pinned to) for the batches. */
+    @Transactional
+    public void sellStock(long productId, int quantity, String reference, StockBatchContext batch) {
         if (quantity <= 0) return;
         if (stock != null && stock.isResolvable()) {
             StockService service = stock.get();
-            service.sell(productId, service.mainLocation().id(), quantity, reference);
+            service.sell(productId, service.mainLocation().id(), quantity, reference,
+                    batch == null ? StockBatchContext.NONE : batch);
             return;
         }
         if (!products.adjustStock(productId, -quantity)) {
@@ -983,10 +1008,17 @@ public class ProductService {
      */
     @Transactional
     public void returnStock(long productId, int quantity, String reference) {
+        returnStock(productId, quantity, reference, StockBatchContext.NONE);
+    }
+
+    /** The same, naming the credit note and the invoice whose pieces come back (they restore its batch takes). */
+    @Transactional
+    public void returnStock(long productId, int quantity, String reference, StockBatchContext batch) {
         if (quantity <= 0) return;
         if (stock != null && stock.isResolvable()) {
             StockService service = stock.get();
-            service.add(productId, service.mainLocation().id(), quantity, StockMovement.Kind.SALE_RETURN, reference);
+            service.add(productId, service.mainLocation().id(), quantity, StockMovement.Kind.SALE_RETURN, reference,
+                    batch == null ? StockBatchContext.NONE : batch);
             return;
         }
         if (!products.adjustStock(productId, quantity)) {
