@@ -137,6 +137,7 @@ COPY docs/migrations/2026-10-20/purchase-payment-origin-postgresql.sql ./migrati
 COPY docs/migrations/2026-10-25/product-supplier-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-25/stock-batches-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-25/odoo-document-mark-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-26/container-tracking-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink
