@@ -411,7 +411,7 @@ public class PublicFamilyCatalogResource {
                 eyebrow.value(), description.value(), mobileName.value(), navigationName.value(),
                 footerName.value(),
                 primary == null ? null : publicFeaturedProductId(
-                        primary.collection.featuredProductId, null, primary.collection, null, channel),
+                        primary.collection.featuredProductId, null, primary.collection, category, channel),
                 Collections.unmodifiableMap(sources),
                 categoryPhotoUrl(category), categoryPhotoWidth(category), categoryPhotoHeight(category));
     }
