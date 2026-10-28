@@ -288,7 +288,7 @@ public class PublicFamilyCatalogResource {
         return new PublicFamilyCatalogDto.FamilyDto(
                 family.id, family.familyKey, family.publicHandle, name.value(), summary.value(),
                 description.value(), format.value(), highlights.value(), category, family.productPosition,
-                publicFeaturedProductId(family.cardFeaturedProductId, family.id, null, channel),
+                publicFeaturedProductId(family.cardFeaturedProductId, family.id, null, null, channel),
                 tags.value(), status(family, channel).name(),
                 new PublicFamilyCatalogDto.SeoDto(seoTitle.value(), seoDescription.value()), dimensions,
                 packages, images, publicVariants, Collections.unmodifiableMap(textSources),
@@ -411,7 +411,7 @@ public class PublicFamilyCatalogResource {
                 eyebrow.value(), description.value(), mobileName.value(), navigationName.value(),
                 footerName.value(),
                 primary == null ? null : publicFeaturedProductId(
-                        primary.collection.featuredProductId, null, primary.collection, channel),
+                        primary.collection.featuredProductId, null, primary.collection, null, channel),
                 Collections.unmodifiableMap(sources),
                 categoryPhotoUrl(category), categoryPhotoWidth(category), categoryPhotoHeight(category));
     }
@@ -449,7 +449,7 @@ public class PublicFamilyCatalogResource {
                 CategoryPublicKey.from(category.code), name.value(), category.position,
                 eyebrow.value(), description.value(), mobileName.value(), navigationName.value(),
                 footerName.value(), publicFeaturedProductId(
-                        category.featuredProductId, null, null, channel),
+                        category.featuredProductId, null, null, category, channel),
                 Collections.unmodifiableMap(sources),
                 categoryPhotoUrl(category), categoryPhotoWidth(category), categoryPhotoHeight(category));
     }
@@ -481,7 +481,7 @@ public class PublicFamilyCatalogResource {
     /** Never expose a stored merchandising id that the public variant graph cannot resolve. */
     private Long publicFeaturedProductId(
             Long productId, Long requiredFamilyId, ProductCollectionEntity requiredCollection,
-            CatalogChannel channel) {
+            CategoryEntity requiredCategory, CatalogChannel channel) {
         if (productId == null) return null;
         ProductEntity product = products.findById(productId);
         if (product == null || !product.active || product.demo || product.familyId == null) return null;
@@ -499,6 +499,13 @@ public class PublicFamilyCatalogResource {
                                 && Objects.equals(item.collection.id, requiredCollection.id)
                         || Objects.equals(item.collection.collectionKey,
                                 requiredCollection.collectionKey)))) {
+            return null;
+        }
+        /* A family moved to another category can leave the old category pointing at it. */
+        if (requiredCategory != null && !Objects.equals(family.categoryId, requiredCategory.id)
+                && (family.categoryKey == null || family.categoryKey.isBlank()
+                        || !CategoryPublicKey.from(requiredCategory.code).equals(
+                                CategoryPublicKey.from(family.categoryKey)))) {
             return null;
         }
         List<ProductEntity> members = products.list(
