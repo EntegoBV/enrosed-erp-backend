@@ -111,6 +111,8 @@ public class ProductService {
     Instance<FamilyCollectionAlignmentService> familyCollections;
     @Inject
     Instance<FamilyMemberCacheService> familyMembers;
+    @Inject
+    Instance<FeaturedProductSelectionService> featuredProducts;
     /* The company's free EAN list; a saved product's codes leave it. */
     @Inject
     Instance<BarcodePoolService> barcodePool;
@@ -1532,6 +1534,11 @@ public class ProductService {
         }
         if (familyMembers != null && familyMembers.isResolvable()) familyMembers.get().sync(family);
         families.flush();
+        /* The old category may still feature one of the moved variants, not only the saved one. */
+        if (!unchanged && featuredProducts != null && featuredProducts.isResolvable()) {
+            featuredProducts.get().clearInvalidReferencesForFamily(family);
+            families.flush();
+        }
     }
 
     private Product canonicalFamilyMetadata(Product product) {
