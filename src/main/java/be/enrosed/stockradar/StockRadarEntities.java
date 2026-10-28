@@ -24,24 +24,34 @@ public final class StockRadarEntities {
         @Column(name = "store_key", nullable = false, length = 40, unique = true)
         public String storeKey;
         /** Deliverable within the configured window; null until the first successful read. */
+        @Column(name = "available")
         public Boolean available;
+        @Column(name = "in_stock")
         public Boolean inStock;
-        @Column(length = 300)
+        @Column(name = "status_text", length = 300)
         public String statusText;
+        @Column(name = "delivery_by")
         public LocalDate deliveryBy;
-        @Column(precision = 10, scale = 2)
+        @Column(name = "price_eur", precision = 10, scale = 2)
         public BigDecimal priceEur;
-        @Column(length = 600)
+        @Column(name = "found_url", length = 600)
         public String foundUrl;
+        @Column(name = "checked_at")
         public Instant checkedAt;
         /** When `available` last flipped. */
+        @Column(name = "changed_at")
         public Instant changedAt;
+        @Column(name = "notified_at")
         public Instant notifiedAt;
-        @Column(length = 500)
+        @Column(name = "last_error", length = 500)
         public String lastError;
+        @Column(name = "error_count")
         public Integer errorCount;
+        @Column(name = "check_count")
         public Long checkCount;
+        @Column(name = "last_push_status")
         public Integer lastPushStatus;
+        @Column(name = "last_mail_status")
         public Integer lastMailStatus;
 
         public static StoreStateEntity byKey(String key) {
