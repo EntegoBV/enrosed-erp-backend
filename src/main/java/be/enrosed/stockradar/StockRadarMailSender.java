@@ -40,8 +40,23 @@ public class StockRadarMailSender {
         this.json = json;
     }
 
+    /** The provider's HTTP status (0 = local mailer, -1 = nothing sent) and, on a refusal, the provider's own words. */
+    public record Result(int status, String detail) {}
+
+    private volatile String lastDetail;
+
     /** Returns the provider's HTTP status, 0 for the local mailer, -1 when nothing could be sent. */
     public int send(String to, String subject, String text) {
+        return sendWithDetail(to, subject, text).status();
+    }
+
+    public Result sendWithDetail(String to, String subject, String text) {
+        lastDetail = null;
+        int status = deliver(to, subject, text);
+        return new Result(status, lastDetail);
+    }
+
+    private int deliver(String to, String subject, String text) {
         if (to == null || to.isBlank()) return -2;
         String key = brevoApiKey.orElse("").trim();
         try {
@@ -60,13 +75,15 @@ public class StockRadarMailSender {
             HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 300) {
                 String detail = response.body() == null ? "" : response.body();
-                LOG.warnf("Voorraadradar-mail geweigerd (%d): %s", response.statusCode(), detail.substring(0, Math.min(200, detail.length())));
+                lastDetail = detail.substring(0, Math.min(300, detail.length()));
+                LOG.warnf("Voorraadradar-mail geweigerd (%d): %s", response.statusCode(), lastDetail);
             }
             return response.statusCode();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return -1;
         } catch (Exception failure) {
+            lastDetail = failure.getClass().getSimpleName();
             LOG.warnf("Voorraadradar-mail niet verstuurd: %s", failure.getClass().getSimpleName());
             return -1;
         }

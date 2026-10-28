@@ -61,10 +61,10 @@ public final class StockRadarStores {
             new Store("vandenborre", "Vanden Borre", "Levering of Click&Collect · sku 7592493", Method.BROWSER,
                     "https://www.vandenborre.be/smartphone/iphone-duo-256gb-sw",
                     "https://www.vandenborre.be/smartphone/iphone-duo-256gb-sw", 150, LIST_PRICE, StockRadarStores::vandenBorre),
-            new Store("amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.HTTP,
+            new Store("amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.BROWSER,
                     "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE",
                     "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", 90, LIST_PRICE, StockRadarStores::amazon),
-            new Store("bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.HTTP,
+            new Store("bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.BROWSER,
                     "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb",
                     "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb", 120, LIST_PRICE, StockRadarStores::bolSearch));
 
@@ -133,8 +133,8 @@ public final class StockRadarStores {
             release = firstGroup(Pattern.compile("\"releaseDate\":\"(\\d{4}-\\d{2}-\\d{2})"), object);
         }
         if (status == null) {
-            if (containsAny(html, "Access Denied", "Toegang geweigerd", "Reference #")) throw new FetchFailure("MediaMarkt blokkeert de controle (Akamai)");
-            throw new IllegalStateException("Pagina niet herkend (geen bezorgstatus voor artikel " + productId + ")");
+            if (looksBlocked(html, page.text())) throw new FetchFailure("MediaMarkt blokkeert de controle (Akamai): " + pageTitle(html));
+            throw new IllegalStateException("Pagina niet herkend (geen bezorgstatus voor artikel " + productId + "): " + pageTitle(html));
         }
         // The promised date is only rendered text: the browser's text is the product's own; in raw HTML, look after the article number.
         String text = page.text() != null ? page.text() : stripTags(html);
@@ -166,8 +166,8 @@ public final class StockRadarStores {
         String html = page.html() == null ? "" : page.html();
         String availability = firstGroup(CB_AVAILABILITY, html);
         if (availability == null) {
-            if (containsAny(html, "Access Denied", "cf-browser-verification")) throw new FetchFailure("Coolblue blokkeert de controle");
-            throw new IllegalStateException("Pagina niet herkend (geen JSON-LD aanbod)");
+            if (looksBlocked(html, page.text())) throw new FetchFailure("Coolblue blokkeert de controle: " + pageTitle(html));
+            throw new IllegalStateException("Pagina niet herkend (geen JSON-LD aanbod): " + pageTitle(html));
         }
         String text = page.text() == null ? html.replace("\\\"", "\"") : page.text();
         LocalDate by = dayMonth(firstGroup(CB_FROM, text), today);
@@ -194,7 +194,8 @@ public final class StockRadarStores {
     /** Rendered text: "Pre order", "Levertijd > 3 weken", "Verwachte levering eind januari 2027" or "Op voorraad". */
     static Observation krefel(Page page, LocalDate today) {
         String text = page.text() == null ? stripTags(page.html()) : page.text();
-        if (!containsAny(text, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt)");
+        if (looksBlocked(page.html(), text)) throw new FetchFailure("Winkel blokkeert de controle: " + pageTitle(page.html()));
+        if (!containsAny(text, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt): " + pageTitle(page.html()));
         boolean preorder = containsAny(text, "Pre order", "Pre-order", "Preorder");
         boolean inStockWord = containsAny(text, "Op voorraad", "In voorraad") && !containsAny(text, "Niet op voorraad");
         String lead = firstGroup(Pattern.compile("(Levertijd[^\\n]{0,40})"), text);
@@ -234,7 +235,8 @@ public final class StockRadarStores {
     /** Rendered text: "Levering aan huis : binnen minstens 3 weken", "Click&Collect : …", or "Op voorraad". */
     static Observation vandenBorre(Page page, LocalDate today) {
         String text = page.text() == null ? stripTags(page.html()) : page.text();
-        if (!containsAny(text, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt)");
+        if (looksBlocked(page.html(), text)) throw new FetchFailure("Winkel blokkeert de controle: " + pageTitle(page.html()));
+        if (!containsAny(text, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt): " + pageTitle(page.html()));
         String home = firstGroup(Pattern.compile("Levering aan huis\\s*:\\s*([^\\n]{2,60}?)(?=\\s+(?:Gratis|Express|Afhaling|Click)|\\n|$)"), text);
         String collect = firstGroup(Pattern.compile("Click&Collect\\s*:[\\s\\S]{0,220}?((?:binnen|na|vanaf)[^\\n.]{3,40}|morgen|vandaag|niet mogelijk)"), text);
         boolean inStockWord = containsAny(text, "Op voorraad", "In voorraad") && !containsAny(text, "Niet op voorraad");
@@ -256,13 +258,12 @@ public final class StockRadarStores {
     /** The #availability block and the delivery block of the buy box. */
     static Observation amazon(Page page, LocalDate today) {
         String html = page.html() == null ? "" : page.html();
-        if (containsAny(html, "Type the characters you see", "api-services-support@amazon.com", "Enter the characters you see below"))
-            throw new FetchFailure("Amazon vraagt een captcha (controle geblokkeerd)");
+        if (looksBlocked(html, page.text())) throw new FetchFailure("Amazon vraagt een robotcontrole (geblokkeerd): " + pageTitle(html));
         String availability = stripTags(firstGroup(Pattern.compile("(?s)<div id=\"availability\"[^>]*>(.*?)</div>"), html));
         String delivery = stripTags(firstGroup(Pattern.compile("(?s)id=\"mir-layout-DELIVERY_BLOCK[^\"]*\"[^>]*>(.*?)</div>\\s*</div>"), html));
         String deliveryAttr = firstGroup(Pattern.compile("data-csa-c-delivery-time=\"([^\"]+)\""), html);
         if (availability.isBlank() && delivery.isBlank() && deliveryAttr == null) {
-            if (!containsAny(html, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt)");
+            if (!containsAny(html, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt): " + pageTitle(html));
             availability = containsAny(html, "Momenteel niet beschikbaar") ? "Momenteel niet beschikbaar" : "Geen koopblok";
         }
         String lower = availability.toLowerCase(Locale.ROOT);
@@ -286,7 +287,8 @@ public final class StockRadarStores {
     /** bol.com has no iPhone Duo yet: watch the search results until a white 256 GB listing appears. */
     static Observation bolSearch(Page page, LocalDate today) {
         String html = page.html() == null ? "" : page.html();
-        if (!containsAny(html, "Zoekresultaten", "zoekresultaten", "searchtext")) throw new IllegalStateException("Pagina niet herkend (geen zoekresultaten)");
+        if (looksBlocked(html, page.text())) throw new FetchFailure("bol.com blokkeert de controle: " + pageTitle(html));
+        if (!containsAny(html, "Zoekresultaten", "zoekresultaten", "searchtext")) throw new IllegalStateException("Pagina niet herkend (geen zoekresultaten): " + pageTitle(html));
         Matcher matcher = BOL_LINK.matcher(html);
         while (matcher.find()) {
             String slug = matcher.group(2).toLowerCase(Locale.ROOT);

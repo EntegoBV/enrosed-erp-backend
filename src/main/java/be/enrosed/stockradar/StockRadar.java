@@ -145,4 +145,18 @@ public final class StockRadar {
     }
 
     static List<String> lines(String text) { return text == null ? List.of() : List.of(text.split("\\r?\\n")); }
+
+    /** The page title, for an error that says which page a shop served instead of the product. */
+    static String pageTitle(String html) {
+        String title = stripTags(firstGroup(Pattern.compile("(?is)<title[^>]*>(.*?)</title>"), html == null ? "" : html));
+        return title.length() > 80 ? title.substring(0, 80) + "…" : title;
+    }
+
+    /** A bot gate instead of the shop: Amazon's robot check, Akamai's "Access Denied", Cloudflare's challenge. */
+    static boolean looksBlocked(String html, String text) {
+        return containsAny(html, "Type the characters you see", "Enter the characters you see below", "api-services-support@amazon.com",
+                "not a robot", "Access Denied", "Toegang geweigerd", "cf-browser-verification", "challenge-platform", "Reference #18.",
+                "Even geduld", "Just a moment")
+                || containsAny(text, "not a robot", "Access Denied", "Toegang geweigerd", "Even geduld");
+    }
 }
