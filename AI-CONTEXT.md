@@ -35,7 +35,9 @@ hidden at a double-tap.
 
 Quarkus 3.38 on Java 25
 (`JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home`,
-run `mvn quarkus:dev`, test `mvn test`). Hexagonal-lite per feature:
+run `mvn quarkus:dev`). There are no automated tests: Emre had them all
+removed on 2026-10-28; do not write or run tests, check changes by building
+and trying them live. Hexagonal-lite per feature:
 
 ```
 be.enrosed.catalog | sales | sourcing | shared
