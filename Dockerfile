@@ -29,10 +29,11 @@ RUN apt-get update \
 # that order so image pushes stay small.
 COPY --from=build /build/target/quarkus-app/lib/ ./lib/
 
-# Install the matching headless browser at image build time. TICA exports use
-# short-lived browser processes; no credentials or browser profiles enter the image.
+# Install the matching headless browsers at image build time. TICA exports use
+# short-lived browser processes; the stock radar reads shops that refuse the
+# headless shell with the full Chromium. No credentials or profiles enter the image.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN java -cp './lib/main/*' com.microsoft.playwright.CLI install --with-deps --only-shell chromium \
+RUN java -cp './lib/main/*' com.microsoft.playwright.CLI install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
@@ -140,6 +141,7 @@ COPY docs/migrations/2026-10-25/odoo-document-mark-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-26/container-tracking-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-26/container-vessel-link-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-26/container-arrival-reminders-postgresql.sql ./migrations/
+COPY docs/migrations/2026-10-28/stock-radar-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

@@ -1885,3 +1885,49 @@ commit;
   `/purchase-orders/{id}` (rows in line order, live-only `costs`, `stale` = batch cost and today's calculation differ in
   cents), `/sales-orders/{id}` (the takes of the shipment per batch), `/check`; `POST /pause`, `/resume`,
   `/check/repair`, `/backfill`, `/reset`. Business refusals answer 409.
+
+## Voorraadradar / stock radar (2026-10-28, test branch)
+
+A personal bot for Emre: watches one product (iPhone Duo, 256 GB, Star White,
+Apple part `MK2D4ZD/A`, EAN 0195951406084) at ten BE/NL shop pages and pushes +
+mails him when a shop can deliver or hand it over within
+`enrosed.stockradar.max-delivery-days` (3). Package `be.enrosed.stockradar`.
+
+- **Shops and parsers** (`StockRadarStores`): Apple Store Brussel (R486) via
+  `/be-nl/shop/retail/pickup-message` (the `fulfillment-messages` endpoint
+  answers 541 in the BE store), Apple online via `/be-nl/shop/delivery-message`,
+  MediaMarkt BE 2253422 (HTTP, the SSR Apollo object
+  `"CofrDeliveryFeature:Media:nl:<article>":{` → `deliveryStatus`; loose page
+  texts also carry recommended products and a translation table, never read
+  them), MediaMarkt NL 1914026 (Akamai 403 over HTTP → headless shell, flaky),
+  Coolblue BE/NL 986123 (JSON-LD offer `availability` + "Geleverd vanaf"),
+  Krëfel 51008017 (answers 500 to curl and to the headless shell → full
+  Chromium after a home-page visit), Vanden Borre `iphone-duo-256gb-sw`
+  (client-rendered → shell), Amazon.com.be B0HJB16BGD (`#availability` +
+  delivery block), bol.com (no listing yet → the search page is watched for a
+  white 256 GB product). Amazon.nl does not sell it.
+- **Verdict**: `Observation(inStock, deliveryBy, statusText, priceEur,
+  foundUrl)`; available = inStock and (no date or date ≤ today + N). Pre-orders
+  with a later date are "Later leverbaar", not available (Emre, 2026-10-28).
+- **Timing** (`StockRadarService`): one `@Scheduled` tick every
+  `enrosed.stockradar.every` (10 s); each shop has its own interval (Apple
+  pickup 20 s, Apple delivery/MediaMarkt BE/Coolblue BE 60 s, Coolblue NL and
+  Amazon 90 s, bol 120 s, browser shops 150-180 s) with ±15 % jitter,
+  `STOCK_RADAR_SPEED` multiplies all of them. HTTP shops run in parallel on
+  virtual threads; browser shops on one background thread (shell batch, then
+  full-Chromium batch) so Chromium never delays Apple.
+- **State**: table `stock_radar_store` (one row per shop key; migration
+  `docs/migrations/2026-10-28/stock-radar-postgresql.sql`). Only a flip of
+  `available` notifies (push to the devices of `enrosed.stockradar.notify-user`
+  = emre through `StockRadarPushSender`, which bypasses `enrosed.push.enabled`
+  because test keeps that off; mail to `enrosed.stockradar.mail-to` =
+  emre@entego.be through `StockRadarMailSender`, a direct Brevo POST that
+  ignores `quarkus.mailer.mock` for the same reason).
+- **REST** `/api/stock-radar` (`GET`, `POST /check`, `POST /{key}/check`,
+  `POST /test-notification`): only the notified user gets an answer, anyone
+  else a 404; the frontend lists the page for that user only.
+- **Switches**: `STOCK_RADAR_ENABLED` (default true on deployed environments,
+  false in dev), `STOCK_RADAR_PUSH_ENABLED`, `STOCK_RADAR_MAIL_ENABLED`,
+  `STOCK_RADAR_BROWSER_ENABLED`, `STOCK_RADAR_SPEED`. The Dockerfile installs
+  the full Chromium next to the headless shell for this.
+- **CLI check without the app**: `java -cp 'target/quarkus-app/lib/main/*:target/quarkus-app/lib/boot/*:target/quarkus-app/app/*' be.enrosed.stockradar.StockRadarProbe [keys] [--no-browser]`.
