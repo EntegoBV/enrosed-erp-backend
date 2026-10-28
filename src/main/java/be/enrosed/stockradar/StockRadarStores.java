@@ -37,7 +37,7 @@ public final class StockRadarStores {
     public static final List<Store> STORES = List.of(
             new Store("apple-brussels", "Apple Store Brussel", "Afhalen in de winkel", Method.HTTP,
                     "https://www.apple.com/be-nl/shop/retail/pickup-message?pl=true&parts.0=" + APPLE_PART + "&location=1000",
-                    "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 20, LIST_PRICE, StockRadarStores::applePickup),
+                    "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 60, LIST_PRICE, StockRadarStores::applePickup),
             new Store("apple-online", "Apple online", "Levering", Method.HTTP,
                     "https://www.apple.com/be-nl/shop/delivery-message?parts.0=" + APPLE_PART + "&mt=regular",
                     "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 60, LIST_PRICE, StockRadarStores::appleDelivery),
@@ -54,7 +54,7 @@ public final class StockRadarStores {
                     "https://www.coolblue.be/nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
             new Store("coolblue-nl", "Coolblue Nederland", "Levering · art. 986123", Method.HTTP,
                     "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html",
-                    "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html", 90, LIST_PRICE, StockRadarStores::coolblue),
+                    "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
             new Store("krefel", "Krëfel", "Levering · art. 51008017", Method.CHROME,
                     "https://www.krefel.be/nl/p/51008017-apple-iphone-duo-256gb-star-white",
                     "https://www.krefel.be/nl/p/51008017-apple-iphone-duo-256gb-star-white", 180, LIST_PRICE, StockRadarStores::krefel),
@@ -63,7 +63,7 @@ public final class StockRadarStores {
                     "https://www.vandenborre.be/smartphone/iphone-duo-256gb-sw", 150, LIST_PRICE, StockRadarStores::vandenBorre),
             new Store("amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.BROWSER,
                     "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE",
-                    "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", 90, LIST_PRICE, StockRadarStores::amazon),
+                    "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", 120, LIST_PRICE, StockRadarStores::amazon),
             new Store("bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.BROWSER,
                     "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb",
                     "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb", 120, LIST_PRICE, StockRadarStores::bolSearch));

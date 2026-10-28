@@ -229,6 +229,11 @@ public class StockRadarService {
         } catch (RuntimeException failure) {
             LOG.warnf("Voorraadradar-fout niet opgeslagen voor %s", store.key());
         }
+        // A shop that blocks or breaks is asked again later, not harder: 2x, 4x, 8x the rhythm, at most ten minutes.
+        if (errors > 0) {
+            long factor = Math.min(10, 1L << Math.min(4, errors));
+            nextCheck.put(store.key(), now.plusSeconds(Math.min(600, interval(store) * factor)));
+        }
         if (errors <= 3 || errors % 50 == 0) LOG.infof("Voorraadradar %s: %s (%d na elkaar)", store.key(), text, errors);
     }
 

@@ -59,7 +59,7 @@ public final class StockRadarHttpFetcher {
             if ("gzip".equalsIgnoreCase(response.headers().firstValue("Content-Encoding").orElse(""))) bytes = gunzip(bytes);
             String body = new String(bytes, StandardCharsets.UTF_8);
             int status = response.statusCode();
-            if (status == 403 || status == 429 || status == 503) throw new FetchFailure("Winkel blokkeert de controle (HTTP " + status + ")");
+            if (status == 403 || status == 429 || status == 503 || status == 541) throw new FetchFailure("Winkel blokkeert de controle (HTTP " + status + ")");
             if (status == 404) throw new FetchFailure("Productpagina niet gevonden (HTTP 404) - artikelnummer nakijken");
             if (status >= 400) throw new FetchFailure("Winkel antwoordde met HTTP " + status);
             return new Page(status, body, null);
