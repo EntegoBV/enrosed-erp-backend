@@ -125,6 +125,10 @@ public class StockRadarService {
                     if (store.method() != Method.HTTP && !due.contains(store) && nextCheck.get(store.key()).isBefore(now.plusSeconds(BROWSER_ROUND_SECONDS))) due.add(store);
                 }
             }
+            /* Models that read one page are asked together, in one request. */
+            for (Store store : StockRadarStores.STORES) {
+                if (!due.contains(store) && due.stream().anyMatch(other -> other.url().equals(store.url()))) due.add(store);
+            }
             if (!due.isEmpty()) run(due, now);
         } finally {
             ticking.set(false);
@@ -159,10 +163,11 @@ public class StockRadarService {
 
     private void runHttp(List<Store> stores) {
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Map<String, Future<Object>> byUrl = new java.util.HashMap<>();
             Map<Store, Future<Object>> pending = new java.util.LinkedHashMap<>();
-            for (Store store : stores) pending.put(store, executor.submit(() -> {
-                try { return http.fetch(store.url()); } catch (RuntimeException failure) { return failure; }
-            }));
+            for (Store store : stores) pending.put(store, byUrl.computeIfAbsent(store.url(), url -> executor.submit(() -> {
+                try { return http.fetch(url); } catch (RuntimeException failure) { return failure; }
+            })));
             for (Map.Entry<Store, Future<Object>> entry : pending.entrySet()) {
                 Object result;
                 try { result = entry.getValue().get(35, TimeUnit.SECONDS); }
@@ -178,7 +183,7 @@ public class StockRadarService {
         for (Method method : List.of(Method.BROWSER, Method.CHROME)) {
             List<Store> batch = stores.stream().filter(store -> store.method() == method).toList();
             if (batch.isEmpty()) continue;
-            Map<String, Object> results = browser.fetchAll(batch.stream().map(Store::url).toList(), browserTimeoutSeconds, method == Method.CHROME);
+            Map<String, Object> results = browser.fetchAll(batch.stream().map(Store::url).distinct().toList(), browserTimeoutSeconds, method == Method.CHROME);
             for (Store store : batch) record(store, results.get(store.url()), Instant.now());
         }
     }
@@ -261,9 +266,10 @@ public class StockRadarService {
     private void notify(Store store, Observation seen, boolean available, Instant now) {
         String price = seen.priceEur() == null ? "" : " · € " + formatEuro(seen.priceEur());
         String link = seen.foundUrl() != null ? seen.foundUrl() : store.orderUrl();
+        String phone = "iPhone Duo " + store.model().label();
         String title = available
-                ? "📱 iPhone Duo beschikbaar bij " + store.name()
-                : "iPhone Duo weer weg bij " + store.name();
+                ? "📱 " + phone + " beschikbaar bij " + store.name()
+                : phone + " weer weg bij " + store.name();
         String body = available
                 ? seen.statusText() + price + " · " + store.kindLabel()
                 : seen.statusText();
@@ -276,7 +282,7 @@ public class StockRadarService {
         }
         if (mailEnabled) {
             String text = String.join("\n",
-                    StockRadarStores.PRODUCT,
+                    store.model().product(),
                     "",
                     (available ? "BESCHIKBAAR bij " : "Niet meer beschikbaar bij ") + store.name() + " (" + store.kindLabel() + ")",
                     "Status: " + seen.statusText(),
@@ -316,7 +322,7 @@ public class StockRadarService {
                     : "Push: verstuurd naar " + statuses.size() + " toestel(len).";
             int mailStatus = mailEnabled ? mail.send(mailTo, "Voorraadradar staat aan", String.join("\n",
                     "De Enrosed voorraadradar draait.",
-                    "Bewaakt: " + StockRadarStores.PRODUCT + " bij " + StockRadarStores.STORES.size() + " winkels, elke minuut.",
+                    "Bewaakt: " + StockRadarStores.WATCHED + ", elke minuut.",
                     "Zodra een winkel het toestel binnen " + maxDeliveryDays + " dagen kan leveren of laten afhalen, krijg je een mail en een pushmelding.",
                     devices)) : -2;
             LOG.infof("Voorraadradar: startbericht verstuurd (push %s, mail %d naar %s)", statuses, mailStatus, mailTo);
@@ -335,7 +341,7 @@ public class StockRadarService {
     public MailTest sendTestMail() {
         StockRadarMailSender.Result result = mail.sendWithDetail(mailTo, "Voorraadradar: testmelding", String.join("\n",
                 "Dit is een testmelding van de Enrosed voorraadradar.",
-                "Bewaakt: " + StockRadarStores.PRODUCT,
+                "Bewaakt: " + StockRadarStores.WATCHED,
                 "Zodra een winkel het toestel binnen " + maxDeliveryDays + " dagen kan leveren of laten afhalen, krijg je zo'n mail en een pushmelding.",
                 "", "Verstuurd op " + ZonedDateTime.now(BRUSSELS).format(STAMP) + "."));
         return new MailTest(result.status(), mailTo, result.detail());
@@ -347,7 +353,7 @@ public class StockRadarService {
 
     // -------------------------------------------------------------------- feed
 
-    public record Row(String key, String name, String kindLabel, String method, String url, String orderUrl, int intervalSeconds,
+    public record Row(String key, String name, String model, String kindLabel, String method, String url, String orderUrl, int intervalSeconds,
                       Boolean available, Boolean inStock, String statusText, LocalDate deliveryBy, BigDecimal priceEur, String foundUrl,
                       Instant checkedAt, Instant changedAt, Instant notifiedAt, Instant nextCheckAt, String lastError,
                       int errorCount, long checkCount, Integer lastPushStatus, Integer lastMailStatus) {}
@@ -361,7 +367,7 @@ public class StockRadarService {
         List<Row> list = new ArrayList<>();
         for (Store store : StockRadarStores.STORES) {
             StoreStateEntity row = rows.get(store.key());
-            list.add(new Row(store.key(), store.name(), store.kindLabel(), store.method().name().toLowerCase(java.util.Locale.ROOT), store.url(), store.orderUrl(), interval(store),
+            list.add(new Row(store.key(), store.name(), store.model().label(), store.kindLabel(), store.method().name().toLowerCase(java.util.Locale.ROOT), store.url(), store.orderUrl(), interval(store),
                     row == null ? null : row.available, row == null ? null : row.inStock, row == null ? null : row.statusText,
                     row == null ? null : row.deliveryBy, row == null ? null : row.priceEur, row == null ? null : row.foundUrl,
                     row == null ? null : row.checkedAt, row == null ? null : row.changedAt, row == null ? null : row.notifiedAt,
@@ -371,8 +377,8 @@ public class StockRadarService {
         }
         int devices;
         try { devices = push.deviceCount(notifyUser); } catch (RuntimeException failure) { devices = 0; }
-        return new Feed(enabled, pushEnabled, mailEnabled, browserEnabled, notifyUser, mailTo, maxDeliveryDays, StockRadarStores.PRODUCT,
-                StockRadarStores.APPLE_PART, devices, lastTickAt, Instant.now(), list);
+        return new Feed(enabled, pushEnabled, mailEnabled, browserEnabled, notifyUser, mailTo, maxDeliveryDays, StockRadarStores.WATCHED,
+                StockRadarStores.DUO_256.applePart() + ", " + StockRadarStores.DUO_512.applePart(), devices, lastTickAt, Instant.now(), list);
     }
 
     /**

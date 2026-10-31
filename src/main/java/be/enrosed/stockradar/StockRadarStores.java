@@ -28,47 +28,57 @@ public final class StockRadarStores {
 
     private StockRadarStores() {}
 
-    public static final String PRODUCT = "iPhone Duo · 256 GB · Sterrenwit (Star White)";
-    /** Apple part number of iPhone Duo 256 GB Star White in the EU store. */
-    public static final String APPLE_PART = "MK2D4ZD/A";
+    public static final Model DUO_256 = new Model("", "256 GB", "iPhone Duo · 256 GB · Sterrenwit (Star White)", "MK2D4ZD/A", new BigDecimal("2339.00"), "256");
+    public static final Model DUO_512 = new Model("-512", "512 GB", "iPhone Duo · 512 GB · Sterrenwit (Star White)", "MK2F4ZD/A", new BigDecimal("2589.00"), "512");
+    public static final String WATCHED = "iPhone Duo · Sterrenwit (Star White) · 256 GB en 512 GB";
     /** Apple Store Brussels. */
     public static final String APPLE_STORE = "R486";
-    static final BigDecimal LIST_PRICE = new BigDecimal("2339.00");
+    private static final String APPLE_PARTS = "parts.0=" + DUO_256.applePart() + "&parts.1=" + DUO_512.applePart();
+    private static final String APPLE_ORDER = "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo";
+    private static final String BOL_SEARCH = "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo";
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    public static final List<Store> STORES = List.of(
-            new Store("apple-brussels", "Apple Store Brussel", "Afhalen in de winkel", Method.HTTP,
-                    "https://www.apple.com/be-nl/shop/retail/pickup-message?pl=true&parts.0=" + APPLE_PART + "&location=1000",
-                    "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 60, LIST_PRICE, StockRadarStores::applePickup),
-            new Store("apple-online", "Apple online", "Levering", Method.HTTP,
-                    "https://www.apple.com/be-nl/shop/delivery-message?parts.0=" + APPLE_PART + "&mt=regular",
-                    "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 60, LIST_PRICE, StockRadarStores::appleDelivery),
-            new Store("mediamarkt-be", "MediaMarkt België", "Levering · art. 2253422", Method.BROWSER,
-                    "https://www.mediamarkt.be/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html",
-                    "https://www.mediamarkt.be/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html", 60, LIST_PRICE,
-                    (page, today) -> mediaMarkt(page, today, "2253422")),
-            new Store("mediamarkt-nl", "MediaMarkt Nederland", "Levering · art. 1914026", Method.BROWSER,
-                    "https://www.mediamarkt.nl/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html",
-                    "https://www.mediamarkt.nl/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html", 60, LIST_PRICE,
-                    (page, today) -> mediaMarkt(page, today, "1914026")),
-            new Store("coolblue-be", "Coolblue België", "Levering of winkel · art. 986123", Method.HTTP,
-                    "https://www.coolblue.be/nl/product/986123/apple-iphone-duo-256gb-wit.html",
-                    "https://www.coolblue.be/nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
-            new Store("coolblue-nl", "Coolblue Nederland", "Levering of winkel · art. 986123", Method.HTTP,
-                    "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html",
-                    "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
-            new Store("krefel", "Krëfel", "Levering · art. 51008017", Method.CHROME,
-                    "https://www.krefel.be/nl/p/51008017-apple-iphone-duo-256gb-star-white",
-                    "https://www.krefel.be/nl/p/51008017-apple-iphone-duo-256gb-star-white", 60, LIST_PRICE, StockRadarStores::krefel),
-            new Store("vandenborre", "Vanden Borre", "Levering of Click&Collect · sku 7592493", Method.BROWSER,
-                    "https://www.vandenborre.be/smartphone/iphone-duo-256gb-sw",
-                    "https://www.vandenborre.be/smartphone/iphone-duo-256gb-sw", 60, LIST_PRICE, StockRadarStores::vandenBorre),
-            new Store("amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.BROWSER,
-                    "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE",
-                    "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", 60, LIST_PRICE, StockRadarStores::amazon),
-            new Store("bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.BROWSER,
-                    "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb",
-                    "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo+256gb", 60, LIST_PRICE, StockRadarStores::bolSearch));
+    public static final List<Store> STORES = java.util.stream.Stream.of(
+            shops(DUO_256, "2253422", "_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html",
+                    "1914026", "_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html",
+                    "986123", "apple-iphone-duo-256gb-wit.html", "51008017", "51008017-apple-iphone-duo-256gb-star-white",
+                    "7592493", "iphone-duo-256gb-sw"),
+            shops(DUO_512, "2253425", "_apple-iphone-duo-5g-512-gb-esim-star-white-2253425.html",
+                    "1914022", "_apple-iphone-duo-5g-512-gb-esim-star-white-512-gb-star-white-1914022.html",
+                    "986125", "apple-iphone-duo-512gb-wit.html", "51008019", "51008019-apple-iphone-duo-512gb-star-white",
+                    "7592418", "iphone-duo-512gb-sw"),
+            /* Amazon.com.be lists no 512 GB (2026-10-31). */
+            List.of(store(DUO_256, "amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.BROWSER,
+                    "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", (page, today) -> amazon(page, today, DUO_256))))
+            .flatMap(List::stream).toList();
+
+    private static List<Store> shops(Model model, String mmBe, String mmBePage, String mmNl, String mmNlPage,
+                                     String coolblue, String coolblueSlug, String krefel, String krefelSlug, String vandenBorreSku, String vandenBorreSlug) {
+        String mmBeUrl = "https://www.mediamarkt.be/nl/product/" + mmBePage;
+        String mmNlUrl = "https://www.mediamarkt.nl/nl/product/" + mmNlPage;
+        return List.of(
+                new Store("apple-brussels" + model.key(), "Apple Store Brussel", "Afhalen in de winkel", Method.HTTP,
+                        "https://www.apple.com/be-nl/shop/retail/pickup-message?pl=true&" + APPLE_PARTS + "&location=1000", APPLE_ORDER, 60, model,
+                        (page, today) -> applePickup(page, today, model)),
+                new Store("apple-online" + model.key(), "Apple online", "Levering", Method.HTTP,
+                        "https://www.apple.com/be-nl/shop/delivery-message?" + APPLE_PARTS + "&mt=regular", APPLE_ORDER, 60, model,
+                        (page, today) -> appleDelivery(page, today, model)),
+                store(model, "mediamarkt-be", "MediaMarkt België", "Levering · art. " + mmBe, Method.BROWSER, mmBeUrl, (page, today) -> mediaMarkt(page, today, mmBe, model)),
+                store(model, "mediamarkt-nl", "MediaMarkt Nederland", "Levering · art. " + mmNl, Method.BROWSER, mmNlUrl, (page, today) -> mediaMarkt(page, today, mmNl, model)),
+                store(model, "coolblue-be", "Coolblue België", "Levering of winkel · art. " + coolblue, Method.HTTP,
+                        "https://www.coolblue.be/nl/product/" + coolblue + "/" + coolblueSlug, (page, today) -> coolblue(page, today, model)),
+                store(model, "coolblue-nl", "Coolblue Nederland", "Levering of winkel · art. " + coolblue, Method.HTTP,
+                        "https://www.coolblue.nl/product/" + coolblue + "/" + coolblueSlug, (page, today) -> coolblue(page, today, model)),
+                store(model, "krefel", "Krëfel", "Levering · art. " + krefel, Method.CHROME,
+                        "https://www.krefel.be/nl/p/" + krefelSlug, (page, today) -> krefel(page, today, model)),
+                store(model, "vandenborre", "Vanden Borre", "Levering of Click&Collect · sku " + vandenBorreSku, Method.BROWSER,
+                        "https://www.vandenborre.be/smartphone/" + vandenBorreSlug, StockRadarStores::vandenBorre),
+                store(model, "bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.BROWSER, BOL_SEARCH, (page, today) -> bolSearch(page, today, model)));
+    }
+
+    private static Store store(Model model, String key, String name, String kind, Method method, String url, Checker checker) {
+        return new Store(key + model.key(), name, kind, method, url, url, 60, model, checker);
+    }
 
     public static Store byKey(String key) {
         for (Store store : STORES) if (store.key().equals(key)) return store;
@@ -78,7 +88,7 @@ public final class StockRadarStores {
     // ------------------------------------------------------------------ Apple
 
     /** apple.com retail pickup-message: per store the pickupDisplay of the part. */
-    static Observation applePickup(Page page, LocalDate today) {
+    static Observation applePickup(Page page, LocalDate today, Model model) {
         JsonNode root = json(page.html());
         JsonNode stores = root.path("body").path("stores");
         JsonNode chosen = null;
@@ -89,28 +99,28 @@ public final class StockRadarStores {
             String error = root.path("body").path("errorMessage").asText("");
             throw new IllegalStateException(error.isBlank() ? "Apple gaf geen gegevens voor Apple Store Brussel" : stripTags(error));
         }
-        JsonNode part = chosen.path("partsAvailability").path(APPLE_PART);
-        if (part.isMissingNode()) throw new IllegalStateException("Apple kent het artikelnummer niet (" + APPLE_PART + ")");
+        JsonNode part = chosen.path("partsAvailability").path(model.applePart());
+        if (part.isMissingNode()) throw new IllegalStateException("Apple kent het artikelnummer niet (" + model.applePart() + ")");
         String display = part.path("pickupDisplay").asText("");
         String quote = stripTags(part.path("pickupSearchQuote").asText(""));
         boolean in = "available".equalsIgnoreCase(display);
         String storeName = chosen.path("storeName").asText("Brussels");
         String text = (quote.isBlank() ? (in ? "Beschikbaar voor afhalen" : "Momenteel niet beschikbaar") : quote) + " · Apple " + storeName;
-        return new Observation(in, in ? today : null, text, LIST_PRICE, null);
+        return new Observation(in, in ? today : null, text, model.listPrice(), null);
     }
 
     /** apple.com delivery-message: the first delivery option carries the promised date as yyyyMMdd. */
-    static Observation appleDelivery(Page page, LocalDate today) {
+    static Observation appleDelivery(Page page, LocalDate today, Model model) {
         JsonNode root = json(page.html());
-        JsonNode regular = root.path("body").path("content").path("deliveryMessage").path(APPLE_PART).path("regular");
-        if (regular.isMissingNode()) throw new IllegalStateException("Apple gaf geen leverinformatie voor " + APPLE_PART);
+        JsonNode regular = root.path("body").path("content").path("deliveryMessage").path(model.applePart()).path("regular");
+        if (regular.isMissingNode()) throw new IllegalStateException("Apple gaf geen leverinformatie voor " + model.applePart());
         boolean buyable = regular.path("isBuyable").asBoolean(regular.path("buyability").path("isBuyable").asBoolean(true));
         LocalDate by = yyyyMmDd(regular.path("deliveryOptionMessages").path(0).path("encodedUpperDateString").asText(""));
         String sticky = stripTags(regular.path("stickyMessageSTH").asText(""));
         String option = stripTags(regular.path("deliveryOptionMessages").path(0).path("displayName").asText(""));
         String text = !sticky.isBlank() ? sticky : !option.isBlank() ? "Levering " + option : by == null ? "Geen leverdatum" : "Levering " + by;
         if (!buyable) text = "Niet te bestellen · " + text;
-        return new Observation(buyable && by != null, by, text, LIST_PRICE, null);
+        return new Observation(buyable && by != null, by, text, model.listPrice(), null);
     }
 
     // ------------------------------------------------------------- MediaMarkt
@@ -123,7 +133,7 @@ public final class StockRadarStores {
      * ("CofrDeliveryFeature:Media:nl:<article>"), never the page's loose
      * texts - those also carry recommended products and a translation table.
      */
-    static Observation mediaMarkt(Page page, LocalDate today, String productId) {
+    static Observation mediaMarkt(Page page, LocalDate today, String productId, Model model) {
         String html = page.html() == null ? "" : page.html();
         int anchor = html.indexOf("\"CofrDeliveryFeature:Media:nl:" + productId + "\":{");
         String status = null;
@@ -156,7 +166,7 @@ public final class StockRadarStores {
         if (by != null) label.append(" · bezorging vanaf ").append(by);
         if (preorder && in) label.append(" · pre-order");
         BigDecimal price = euro(firstGroup(MM_PRICE, html));
-        return new Observation(in, by, label.toString(), price == null ? LIST_PRICE : price, null);
+        return new Observation(in, by, label.toString(), price == null ? model.listPrice() : price, null);
     }
 
     // --------------------------------------------------------------- Coolblue
@@ -188,7 +198,7 @@ public final class StockRadarStores {
      * Stock in a store ("Nog sneller op te halen in 1 winkel") is on the page
      * per location and counts on its own, whatever the online promise says.
      */
-    static Observation coolblue(Page page, LocalDate today) {
+    static Observation coolblue(Page page, LocalDate today, Model model) {
         String html = page.html() == null ? "" : page.html();
         String availability = firstGroup(CB_AVAILABILITY, html);
         if (availability == null) {
@@ -214,11 +224,11 @@ public final class StockRadarStores {
         };
         BigDecimal price = euro(firstGroup(CB_OFFER_PRICE, html));
         String storeRows = firstGroup(CB_STORES, text);
-        if (storeRows == null) return new Observation(in, by, label + " · winkelvoorraad niet leesbaar", price == null ? LIST_PRICE : price, null);
+        if (storeRows == null) return new Observation(in, by, label + " · winkelvoorraad niet leesbaar", price == null ? model.listPrice() : price, null);
         List<String> stocked = coolblueStores(storeRows, firstGroup(CB_PICKUP, text));
-        if (stocked.isEmpty()) return new Observation(in, by, label, price == null ? LIST_PRICE : price, null);
+        if (stocked.isEmpty()) return new Observation(in, by, label, price == null ? model.listPrice() : price, null);
         String where = "In " + stocked.size() + (stocked.size() == 1 ? " winkel" : " winkels") + " op voorraad: " + String.join(", ", stocked);
-        return new Observation(true, today, where + " · online: " + label, price == null ? LIST_PRICE : price, null, stocked);
+        return new Observation(true, today, where + " · online: " + label, price == null ? model.listPrice() : price, null, stocked);
     }
 
     /** The named stores with stock. A location without a name counts only if it takes pickups: 234, 562 and 242 are no shops. */
@@ -247,13 +257,13 @@ public final class StockRadarStores {
      * its title to the variants: the rest of the page holds generic promises
      * ("morgen geleverd") and other products.
      */
-    static Observation krefel(Page page, LocalDate today) {
+    static Observation krefel(Page page, LocalDate today, Model model) {
         String whole = page.text() == null ? stripTags(page.html()) : page.text();
         if (!containsAny(whole, "iPhone Duo")) {
             if (looksBlocked(page.html(), whole)) throw new FetchFailure("Winkel blokkeert de controle: " + pageTitle(page.html()));
             throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt): " + pageTitle(page.html()));
         }
-        String text = block(whole, "iPhone Duo 256GB", "Variaties", 2500);
+        String text = block(whole, "iPhone Duo " + model.size() + "GB", "Variaties", 2500);
         boolean preorder = containsAny(text, "Pre order", "Pre-order", "Preorder");
         boolean inStockWord = containsAny(text, "Op voorraad", "In voorraad") && !containsAny(text, "Niet op voorraad");
         String lead = firstGroup(Pattern.compile("(Levertijd[^\\n]{0,40})"), text);
@@ -343,7 +353,7 @@ public final class StockRadarStores {
     // ----------------------------------------------------------------- Amazon
 
     /** The #availability block and the delivery block of the buy box. */
-    static Observation amazon(Page page, LocalDate today) {
+    static Observation amazon(Page page, LocalDate today, Model model) {
         String html = page.html() == null ? "" : page.html();
         if (!containsAny(html, "iPhone Duo")) {
             if (looksBlocked(html, page.text())) throw new FetchFailure("Amazon blokkeert de controle (" + pageTitle(html) + ")");
@@ -365,7 +375,7 @@ public final class StockRadarStores {
         String whole = firstGroup(Pattern.compile("<span class=\"a-price-whole\">([0-9.,]+)"), html);
         String fraction = firstGroup(Pattern.compile("<span class=\"a-price-fraction\">([0-9]{2})"), html);
         BigDecimal price = whole == null ? null : euro(whole.replace(",", "").replace(".", "") + "," + (fraction == null ? "00" : fraction));
-        return new Observation(in, by, label.toString(), price == null ? LIST_PRICE : price, null);
+        return new Observation(in, by, label.toString(), price == null ? model.listPrice() : price, null);
     }
 
     // -------------------------------------------------------------- bol.com
@@ -373,8 +383,8 @@ public final class StockRadarStores {
     private static final Pattern BOL_LINK = Pattern.compile("href=\"(/be/nl/p/([^\"/]+)/(\\d{8,20})/)[^\"]*\"");
     private static final Pattern BOL_PRICE = Pattern.compile("De prijs van dit product is '([0-9]+)' euro(?: en '([0-9]{1,2})' cent)?");
 
-    /** bol.com has no iPhone Duo yet: watch the search results until a white 256 GB listing appears. */
-    static Observation bolSearch(Page page, LocalDate today) {
+    /** bol.com has no iPhone Duo yet: watch the search results until a white listing of this size appears. */
+    static Observation bolSearch(Page page, LocalDate today, Model model) {
         String html = page.html() == null ? "" : page.html();
         if (!containsAny(html, "Zoekresultaten", "zoekresultaten", "searchtext")) {
             if (looksBlocked(html, page.text())) throw new FetchFailure("bol.com blokkeert de controle: " + pageTitle(html));
@@ -387,7 +397,7 @@ public final class StockRadarStores {
         }
         while (matcher.find()) {
             String slug = matcher.group(2).toLowerCase(Locale.ROOT);
-            if (!slug.contains("iphone-duo") || !slug.contains("256")) continue;
+            if (!slug.contains("iphone-duo") || !slug.contains(model.size())) continue;
             if (!(slug.contains("wit") || slug.contains("white") || slug.contains("sterrenwit"))) continue;
             if (containsAny(slug, "hoes", "case", "screen", "protector", "folie", "glas", "glass", "cover", "lader", "kabel", "charger",
                     "magsafe-duo", "bescherm", "houder", "standaard", "folio", "sleeve", "pack")) continue;
@@ -406,11 +416,11 @@ public final class StockRadarStores {
             if (by == null && promise != null) by = dayMonth(promise, today);
             boolean in = !preorder && !unavailable && (promise != null || containsAny(window, "Op voorraad"));
             Matcher price = BOL_PRICE.matcher(window);
-            BigDecimal priceEur = price.find() ? euro(price.group(1) + "," + (price.group(2) == null ? "00" : String.format("%02d", Integer.parseInt(price.group(2))))) : LIST_PRICE;
+            BigDecimal priceEur = price.find() ? euro(price.group(1) + "," + (price.group(2) == null ? "00" : String.format("%02d", Integer.parseInt(price.group(2))))) : model.listPrice();
             String label = "In het assortiment" + (preorder ? " · pre-order" : "") + (unavailable ? " · niet leverbaar" : "") + (promise != null ? " · " + promise : "");
             return new Observation(in, by, label, priceEur, url);
         }
-        return new Observation(false, null, "Nog niet in het assortiment van bol.com", LIST_PRICE, null);
+        return new Observation(false, null, "Nog niet in het assortiment van bol.com", model.listPrice(), null);
     }
 
     private static JsonNode json(String body) {

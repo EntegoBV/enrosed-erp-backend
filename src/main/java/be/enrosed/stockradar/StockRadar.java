@@ -9,7 +9,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The stock radar: one product (iPhone Duo, 256 GB, Star White) watched at a
+ * The stock radar: the white iPhone Duo in 256 GB and 512 GB, watched at a
  * handful of Belgian and Dutch shops. Pure records and parsing helpers; the
  * service owns timing, persistence and notifications.
  */
@@ -20,9 +20,12 @@ public final class StockRadar {
     /** How a shop page is read: a plain HTTP request, the headless Chromium shell, or the full Chromium (for shops that detect the shell). */
     public enum Method { HTTP, BROWSER, CHROME }
 
-    /** One watched shop. */
+    /** One watched model: {@code key} is the suffix of its shops' keys, {@code size} how shops write it in a name (256, 512). */
+    public record Model(String key, String label, String product, String applePart, BigDecimal listPrice, String size) {}
+
+    /** One watched page: a shop for one model. Two models may share a page (Apple answers for both in one request). */
     public record Store(String key, String name, String kindLabel, Method method, String url, String orderUrl,
-                        int intervalSeconds, BigDecimal listPriceEur, Checker checker) {}
+                        int intervalSeconds, Model model, Checker checker) {}
 
     /**
      * What one page read said. A missing delivery date means "no date was

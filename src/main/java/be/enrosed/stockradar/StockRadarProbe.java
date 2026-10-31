@@ -36,7 +36,7 @@ public final class StockRadarProbe {
         for (Method method : List.of(Method.BROWSER, Method.CHROME)) {
             List<Store> batch = rendered.stream().filter(store -> store.method() == method).toList();
             if (batch.isEmpty()) continue;
-            Map<String, Object> results = new StockRadarBrowserFetcher().fetchAll(batch.stream().map(Store::url).toList(), 40, method == Method.CHROME);
+            Map<String, Object> results = new StockRadarBrowserFetcher().fetchAll(batch.stream().map(Store::url).distinct().toList(), 40, method == Method.CHROME);
             for (Store store : batch) {
                 try {
                     Page page = StockRadarBrowserFetcher.page(results.get(store.url()));

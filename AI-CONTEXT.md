@@ -1888,8 +1888,9 @@ commit;
 
 ## Voorraadradar / stock radar (2026-10-28, on production since 2026-10-31)
 
-A personal bot for Emre: watches one product (iPhone Duo, 256 GB, Star White,
-Apple part `MK2D4ZD/A`, EAN 0195951406084) at ten BE/NL shop pages and pushes +
+A personal bot for Emre: watches the white iPhone Duo in 256 GB (Apple part
+`MK2D4ZD/A`, EAN 0195951406084) and 512 GB (`MK2F4ZD/A`, `StockRadar.Model`; a
+shop's keys get `-512`; Amazon.com.be lists no 512 GB) at BE/NL shop pages and pushes +
 mails him when a shop can deliver or hand it over within
 `enrosed.stockradar.max-delivery-days` (3). Package `be.enrosed.stockradar`.
 
@@ -1923,7 +1924,9 @@ mails him when a shop can deliver or hand it over within
   again at 2x, 4x, 8x its rhythm, at most ten minutes. `STOCK_RADAR_SPEED`
   multiplies all of them. HTTP shops run in parallel on virtual threads;
   browser shops due within 30 s share one round on one background thread
-  (shell batch, then full-Chromium batch), not one launch per shop. "Nu
+  (shell batch, then full-Chromium batch), not one launch per shop. Models that
+  read one page (Apple's two endpoints, bol's search) are asked together in one
+  request, so Apple gets no more traffic for the second model. "Nu
   controleren" keeps the same rule: a shop asked under a minute ago is skipped.
 - **Browser** (`StockRadarBrowserFetcher`): runs beside the live ERP, so it gets
   an empty environment and reaches the shops' own domains only. A watchdog
