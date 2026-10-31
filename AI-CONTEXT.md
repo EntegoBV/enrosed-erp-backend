@@ -1901,7 +1901,11 @@ mails him when a shop can deliver or hand it over within
   texts also carry recommended products and a translation table, never read
   them), MediaMarkt NL 1914026 (Akamai 403 over HTTP → headless shell, flaky),
   Coolblue BE/NL 986123 (JSON-LD offer `availability` + the `"promise"` field;
-  the page's translation table always holds "Morgen bezorgd"), Krëfel 51008017
+  the page's translation table always holds "Morgen bezorgd". Store stock, "Nog
+  sneller op te halen in N winkels", is `storeAvailabilities` per stock location:
+  `OnStock` counts as available today, whatever the online promise says, and a
+  store joining an available shop alerts again; names in `CB_STORE_NAMES`, from
+  the store pages), Krëfel 51008017
   (answers 500 to curl and to the headless shell → full Chromium after a
   home-page visit; only the block from the title to "Variaties"), Vanden Borre
   `iphone-duo-256gb-sw` (client-rendered → shell; only up to the availability

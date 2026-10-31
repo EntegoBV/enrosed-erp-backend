@@ -24,11 +24,18 @@ public final class StockRadar {
     public record Store(String key, String name, String kindLabel, Method method, String url, String orderUrl,
                         int intervalSeconds, BigDecimal listPriceEur, Checker checker) {}
 
-    /** What one page read said. A missing delivery date means "no date was promised". */
-    public record Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, String foundUrl) {
+    /**
+     * What one page read said. A missing delivery date means "no date was
+     * promised". {@code places} names the physical stores that have it now; a
+     * store that joins them is news of its own, even when the shop already counted.
+     */
+    public record Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, String foundUrl, List<String> places) {
         public Observation {
             if (statusText == null || statusText.isBlank()) statusText = inStock ? "Op voorraad" : "Niet beschikbaar";
             if (statusText.length() > 280) statusText = statusText.substring(0, 277) + "…";
+        }
+        public Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, String foundUrl) {
+            this(inStock, deliveryBy, statusText, priceEur, foundUrl, List.of());
         }
         public static Observation out(String text, BigDecimal price) { return new Observation(false, null, text, price, null); }
     }

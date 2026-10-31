@@ -65,6 +65,7 @@ public class StockRadarService {
     private final StockRadarBrowserFetcher browser = new StockRadarBrowserFetcher();
     private final Map<String, Instant> nextCheck = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastAsked = new ConcurrentHashMap<>();
+    private final Map<String, java.util.Set<String>> lastPlaces = new ConcurrentHashMap<>();
     private final AtomicBoolean ticking = new AtomicBoolean();
     private final AtomicBoolean browserBusy = new AtomicBoolean();
     private final AtomicBoolean greeted = new AtomicBoolean();
@@ -195,7 +196,10 @@ public class StockRadarService {
             Observation seen = store.checker().check(page, today);
             boolean available = seen.inStock() && (seen.deliveryBy() == null || !seen.deliveryBy().isAfter(today.plusDays(Math.max(0, maxDeliveryDays))));
             Transition transition = QuarkusTransaction.requiringNew().call(() -> persist(store, seen, available, now));
-            if (transition.alert()) notify(store, seen, available, now);
+            java.util.Set<String> places = java.util.Set.copyOf(seen.places());
+            java.util.Set<String> earlier = lastPlaces.put(store.key(), places);
+            boolean newPlace = available && earlier != null && !earlier.containsAll(places);
+            if (transition.alert() || newPlace) notify(store, seen, available, now);
             else if (transition.checks() % 50 == 1) LOG.infof("Voorraadradar %s: %s", store.key(), seen.statusText());
         } catch (FetchFailure failure) {
             recordError(store, failure.getMessage(), now);

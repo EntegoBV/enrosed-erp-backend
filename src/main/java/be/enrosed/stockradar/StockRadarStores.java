@@ -12,6 +12,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,10 +51,10 @@ public final class StockRadarStores {
                     "https://www.mediamarkt.nl/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html",
                     "https://www.mediamarkt.nl/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html", 60, LIST_PRICE,
                     (page, today) -> mediaMarkt(page, today, "1914026")),
-            new Store("coolblue-be", "Coolblue België", "Levering · art. 986123", Method.HTTP,
+            new Store("coolblue-be", "Coolblue België", "Levering of winkel · art. 986123", Method.HTTP,
                     "https://www.coolblue.be/nl/product/986123/apple-iphone-duo-256gb-wit.html",
                     "https://www.coolblue.be/nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
-            new Store("coolblue-nl", "Coolblue Nederland", "Levering · art. 986123", Method.HTTP,
+            new Store("coolblue-nl", "Coolblue Nederland", "Levering of winkel · art. 986123", Method.HTTP,
                     "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html",
                     "https://www.coolblue.nl/product/986123/apple-iphone-duo-256gb-wit.html", 60, LIST_PRICE, StockRadarStores::coolblue),
             new Store("krefel", "Krëfel", "Levering · art. 51008017", Method.CHROME,
@@ -163,11 +165,28 @@ public final class StockRadarStores {
     private static final Pattern CB_OFFER_PRICE = Pattern.compile("\"@type\":\"Offer\",\"priceCurrency\":\"EUR\",\"price\":\"?([0-9]+(?:\\.[0-9]+)?)");
     private static final Pattern CB_FROM = Pattern.compile("(?:Geleverd|Bezorgd) vanaf ([0-9]{1,2} [a-z]+)");
     private static final Pattern CB_PROMISE = Pattern.compile("\"promise\":\"([^\"$][^\"]{2,80})\"");
+    private static final Pattern CB_STORES = Pattern.compile("\"storeAvailabilities\":\\[(.*?)]", Pattern.DOTALL);
+    private static final Pattern CB_STORE = Pattern.compile("\"stockLocationId\":\"(\\d+)\",\"availabilityState\":\"(\\w+)\"");
+    private static final Pattern CB_PICKUP = Pattern.compile("\"availableForPickup\":\\[(.*?)]", Pattern.DOTALL);
+    private static final Pattern CB_PICKUP_STORE = Pattern.compile("\"stockLocationId\":\"(\\d+)\",\"isAvailableForPickup\":true");
+    /** Coolblue's stock location numbers, from its store pages (2026-10-31). */
+    private static final Map<String, String> CB_STORE_NAMES = Map.ofEntries(
+            Map.entry("373", "Brugge"), Map.entry("490", "Drogenbos"), Map.entry("215", "Gent"), Map.entry("558", "Gosselies"),
+            Map.entry("271", "Hasselt"), Map.entry("408", "Hognoul"), Map.entry("307", "Kuurne"), Map.entry("369", "Mechelen"),
+            Map.entry("380", "Olen"), Map.entry("430", "Schoten"), Map.entry("303", "Wilrijk"), Map.entry("152", "Zaventem"),
+            Map.entry("470", "Alkmaar"), Map.entry("283", "Almere"), Map.entry("398", "Amsterdam West"), Map.entry("141", "Amsterdam Zuidas"),
+            Map.entry("550", "Apeldoorn"), Map.entry("219", "Arnhem"), Map.entry("384", "Breda"), Map.entry("518", "Cruquius"),
+            Map.entry("349", "Den Bosch"), Map.entry("176", "Den Haag"), Map.entry("121", "Eindhoven"), Map.entry("538", "Ekkersrijt"),
+            Map.entry("327", "Groningen"), Map.entry("211", "Haarlem"), Map.entry("390", "Hengelo"), Map.entry("394", "Leeuwarden"),
+            Map.entry("522", "Leiden"), Map.entry("458", "Middelburg"), Map.entry("319", "Nijmegen"), Map.entry("299", "Rotterdam Alexandrium"),
+            Map.entry("404", "Rotterdam Centrum"), Map.entry("554", "Sittard-Geleen"), Map.entry("190", "Tilburg"), Map.entry("365", "Utrecht"));
 
     /**
      * The JSON-LD offer says InStock / BackOrder / PreOrder / OutOfStock; the
      * product's "promise" field adds the date. Never the page's loose words:
      * its translation table always holds "Morgen bezorgd" and "morgen in huis".
+     * Stock in a store ("Nog sneller op te halen in 1 winkel") is on the page
+     * per location and counts on its own, whatever the online promise says.
      */
     static Observation coolblue(Page page, LocalDate today) {
         String html = page.html() == null ? "" : page.html();
@@ -194,7 +213,28 @@ public final class StockRadarStores {
             default -> availability + (by == null ? "" : " · " + by);
         };
         BigDecimal price = euro(firstGroup(CB_OFFER_PRICE, html));
-        return new Observation(in, by, label, price == null ? LIST_PRICE : price, null);
+        String storeRows = firstGroup(CB_STORES, text);
+        if (storeRows == null) return new Observation(in, by, label + " · winkelvoorraad niet leesbaar", price == null ? LIST_PRICE : price, null);
+        List<String> stocked = coolblueStores(storeRows, firstGroup(CB_PICKUP, text));
+        if (stocked.isEmpty()) return new Observation(in, by, label, price == null ? LIST_PRICE : price, null);
+        String where = "In " + stocked.size() + (stocked.size() == 1 ? " winkel" : " winkels") + " op voorraad: " + String.join(", ", stocked);
+        return new Observation(true, today, where + " · online: " + label, price == null ? LIST_PRICE : price, null, stocked);
+    }
+
+    /** The named stores with stock. A location without a name counts only if it takes pickups: 234, 562 and 242 are no shops. */
+    private static List<String> coolblueStores(String storeRows, String pickupRows) {
+        Set<String> pickup = new java.util.HashSet<>();
+        Matcher takesPickup = CB_PICKUP_STORE.matcher(pickupRows == null ? "" : pickupRows);
+        while (takesPickup.find()) pickup.add(takesPickup.group(1));
+        List<String> stocked = new ArrayList<>();
+        Matcher row = CB_STORE.matcher(storeRows);
+        while (row.find()) {
+            if (!"OnStock".equals(row.group(2))) continue;
+            String name = CB_STORE_NAMES.get(row.group(1));
+            if (name != null) stocked.add(name);
+            else if (pickup.contains(row.group(1))) stocked.add("winkel " + row.group(1));
+        }
+        return stocked;
     }
 
     // ----------------------------------------------------------------- Krëfel
