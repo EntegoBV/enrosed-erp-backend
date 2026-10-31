@@ -35,25 +35,25 @@ public final class StockRadarStores {
     public static final String APPLE_STORE = "R486";
     private static final String APPLE_PARTS = "parts.0=" + DUO_256.applePart() + "&parts.1=" + DUO_512.applePart();
     private static final String APPLE_ORDER = "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo";
-    private static final String BOL_SEARCH = "https://www.bol.com/be/nl/s/?searchtext=apple+iphone+duo";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     public static final List<Store> STORES = java.util.stream.Stream.of(
             shops(DUO_256, "2253422", "_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html",
                     "1914026", "_apple-iphone-duo-5g-256-gb-esim-star-white-256-gb-star-white-1914026.html",
                     "986123", "apple-iphone-duo-256gb-wit.html", "51008017", "51008017-apple-iphone-duo-256gb-star-white",
-                    "7592493", "iphone-duo-256gb-sw"),
+                    "7592493", "iphone-duo-256gb-sw", "9300000386857691", "apple-iphone-duo-256gb-star-white"),
             shops(DUO_512, "2253425", "_apple-iphone-duo-5g-512-gb-esim-star-white-2253425.html",
                     "1914022", "_apple-iphone-duo-5g-512-gb-esim-star-white-512-gb-star-white-1914022.html",
                     "986125", "apple-iphone-duo-512gb-wit.html", "51008019", "51008019-apple-iphone-duo-512gb-star-white",
-                    "7592418", "iphone-duo-512gb-sw"),
+                    "7592418", "iphone-duo-512gb-sw", "9300000386857686", "apple-iphone-duo-512gb-star-white"),
             /* Amazon.com.be lists no 512 GB (2026-10-31). */
             List.of(store(DUO_256, "amazon-be", "Amazon.com.be", "Levering · ASIN B0HJB16BGD", Method.BROWSER,
                     "https://www.amazon.com.be/dp/B0HJB16BGD?language=nl_BE", (page, today) -> amazon(page, today, DUO_256))))
             .flatMap(List::stream).toList();
 
     private static List<Store> shops(Model model, String mmBe, String mmBePage, String mmNl, String mmNlPage,
-                                     String coolblue, String coolblueSlug, String krefel, String krefelSlug, String vandenBorreSku, String vandenBorreSlug) {
+                                     String coolblue, String coolblueSlug, String krefel, String krefelSlug, String vandenBorreSku, String vandenBorreSlug,
+                                     String bol, String bolSlug) {
         String mmBeUrl = "https://www.mediamarkt.be/nl/product/" + mmBePage;
         String mmNlUrl = "https://www.mediamarkt.nl/nl/product/" + mmNlPage;
         return List.of(
@@ -73,7 +73,8 @@ public final class StockRadarStores {
                         "https://www.krefel.be/nl/p/" + krefelSlug, (page, today) -> krefel(page, today, model)),
                 store(model, "vandenborre", "Vanden Borre", "Levering of Click&Collect · sku " + vandenBorreSku, Method.BROWSER,
                         "https://www.vandenborre.be/smartphone/" + vandenBorreSlug, StockRadarStores::vandenBorre),
-                store(model, "bol-be", "bol.com", "Zoekresultaten (nog niet in het assortiment)", Method.BROWSER, BOL_SEARCH, (page, today) -> bolSearch(page, today, model)));
+                store(model, "bol-be", "bol.com", "Levering · product " + bol, Method.BROWSER,
+                        "https://www.bol.com/be/nl/p/" + bolSlug + "/" + bol + "/", (page, today) -> bolProduct(page, today, model)));
     }
 
     private static Store store(Model model, String key, String name, String kind, Method method, String url, Checker checker) {
@@ -380,47 +381,39 @@ public final class StockRadarStores {
 
     // -------------------------------------------------------------- bol.com
 
-    private static final Pattern BOL_LINK = Pattern.compile("href=\"(/be/nl/p/([^\"/]+)/(\\d{8,20})/)[^\"]*\"");
-    private static final Pattern BOL_PRICE = Pattern.compile("De prijs van dit product is '([0-9]+)' euro(?: en '([0-9]{1,2})' cent)?");
+    private static final Pattern BOL_PROMISE = Pattern.compile("((?:Uiterlijk [0-9]{1,2} [a-z]+|Overmorgen|Morgen|Vandaag|[a-z]+dag)[^\\n]{0,20}in huis)");
+    private static final Pattern BOL_PRICE = Pattern.compile("(?m)^([0-9][0-9.]*),(?:-|[0-9]{2})$");
+    private static final Pattern BOL_SELLER = Pattern.compile("Verkoop door ([^\\n]+?)(?: beoordeeld[^\\n]*)?\\n");
 
-    /** bol.com has no iPhone Duo yet: watch the search results until a white listing of this size appears. */
-    static Observation bolSearch(Page page, LocalDate today, Model model) {
+    /**
+     * bol's product page, a page its robots.txt leaves open (its search is
+     * closed). Only the order block counts: the page's structured data holds
+     * every variant, so an "InStock" there can be the 2 TB. Without a block the
+     * page says "Niet leverbaar" and "Stuur mij een bericht". A partner's offer
+     * counts too, the alert names the seller.
+     */
+    static Observation bolProduct(Page page, LocalDate today, Model model) {
         String html = page.html() == null ? "" : page.html();
-        if (!containsAny(html, "Zoekresultaten", "zoekresultaten", "searchtext")) {
-            if (looksBlocked(html, page.text())) throw new FetchFailure("bol.com blokkeert de controle: " + pageTitle(html));
-            throw new IllegalStateException("Pagina niet herkend (geen zoekresultaten): " + pageTitle(html));
+        String text = page.text() == null ? stripTags(html) : page.text();
+        if (!containsAny(text, "iPhone Duo")) {
+            if (looksBlocked(html, text)) throw new FetchFailure("bol.com blokkeert de controle: " + pageTitle(html));
+            throw new IllegalStateException("Pagina niet herkend (productnaam ontbreekt): " + pageTitle(html));
         }
-        Matcher matcher = BOL_LINK.matcher(html);
-        if (!BOL_LINK.matcher(html).find()) {
-            if (looksBlocked(html, page.text())) throw new FetchFailure("bol.com blokkeert de controle: " + pageTitle(html));
-            throw new IllegalStateException("Pagina niet herkend (geen producten): " + pageTitle(html));
+        int start = text.indexOf("Prijsinformatie en bestellen");
+        if (start < 0) {
+            if (containsAny(text, "Stuur mij een bericht", "Niet leverbaar")) return new Observation(false, null, "Niet leverbaar", model.listPrice(), null);
+            throw new IllegalStateException("Pagina niet herkend (geen bestelblok)");
         }
-        while (matcher.find()) {
-            String slug = matcher.group(2).toLowerCase(Locale.ROOT);
-            if (!slug.contains("iphone-duo") || !slug.contains(model.size())) continue;
-            if (!(slug.contains("wit") || slug.contains("white") || slug.contains("sterrenwit"))) continue;
-            if (containsAny(slug, "hoes", "case", "screen", "protector", "folie", "glas", "glass", "cover", "lader", "kabel", "charger",
-                    "magsafe-duo", "bescherm", "houder", "standaard", "folio", "sleeve", "pack")) continue;
-            String url = "https://www.bol.com" + matcher.group(1);
-            /* This listing's own card: up to the first link to another product. */
-            int end = Math.min(html.length(), matcher.end() + 6000);
-            Matcher next = BOL_LINK.matcher(html);
-            for (int from = matcher.end(); next.find(from); from = next.end()) {
-                if (!next.group(3).equals(matcher.group(3))) { end = Math.min(end, next.start()); break; }
-            }
-            String window = stripTags(html.substring(matcher.start(), end));
-            boolean preorder = containsAny(window, "Pre-order", "Pre order");
-            boolean unavailable = containsAny(window, "Niet leverbaar", "Uitverkocht", "Tijdelijk niet leverbaar");
-            String promise = firstGroup(Pattern.compile("((?:Uiterlijk [0-9]{1,2} [a-z]+|Morgen|Vandaag|Overmorgen)[^.]{0,20}in huis)"), window);
-            LocalDate by = promise == null ? null : relative(promise, today);
-            if (by == null && promise != null) by = dayMonth(promise, today);
-            boolean in = !preorder && !unavailable && (promise != null || containsAny(window, "Op voorraad"));
-            Matcher price = BOL_PRICE.matcher(window);
-            BigDecimal priceEur = price.find() ? euro(price.group(1) + "," + (price.group(2) == null ? "00" : String.format("%02d", Integer.parseInt(price.group(2))))) : model.listPrice();
-            String label = "In het assortiment" + (preorder ? " · pre-order" : "") + (unavailable ? " · niet leverbaar" : "") + (promise != null ? " · " + promise : "");
-            return new Observation(in, by, label, priceEur, url);
-        }
-        return new Observation(false, null, "Nog niet in het assortiment van bol.com", model.listPrice(), null);
+        String box = text.substring(start, Math.min(text.length(), start + 800));
+        boolean in = box.contains("In winkelwagen");
+        String promise = firstGroup(BOL_PROMISE, box);
+        LocalDate by = promise == null ? null : relative(promise, today);
+        if (by == null && promise != null) by = dayMonth(promise, today);
+        String seller = firstGroup(BOL_SELLER, box);
+        String price = firstGroup(BOL_PRICE, box);
+        BigDecimal priceEur = price == null ? null : euro(price + ",00");
+        String label = (in ? "Te koop" : "Niet leverbaar") + (promise == null ? "" : " · " + promise) + (seller == null ? "" : " · verkoop door " + seller);
+        return new Observation(in, by, label, priceEur == null ? model.listPrice() : priceEur, null);
     }
 
     private static JsonNode json(String body) {

@@ -1911,8 +1911,10 @@ mails him when a shop can deliver or hand it over within
   home-page visit; only the block from the title to "Variaties"), Vanden Borre
   `iphone-duo-256gb-sw` (client-rendered → shell; only up to the availability
   block, the accessories below use the same words), Amazon.com.be B0HJB16BGD
-  (`#availability` + delivery block), bol.com (no listing yet → the search page
-  is watched for a white 256 GB product). Amazon.nl does not sell it. A page
+  (`#availability` + delivery block), bol.com products 9300000386857691 and
+  …686 (its robots.txt closes search and leaves product pages open; only the
+  order block counts, the structured data holds every variant). Amazon.nl does
+  not sell it. A page
   without a readable status is an error on the screen, never "not available".
 - **Verdict**: `Observation(inStock, deliveryBy, statusText, priceEur,
   foundUrl)`; available = inStock and (no date or date ≤ today + N). Pre-orders
