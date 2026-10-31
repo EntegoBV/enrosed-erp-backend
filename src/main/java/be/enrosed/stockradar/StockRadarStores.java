@@ -41,7 +41,7 @@ public final class StockRadarStores {
             new Store("apple-online", "Apple online", "Levering", Method.HTTP,
                     "https://www.apple.com/be-nl/shop/delivery-message?parts.0=" + APPLE_PART + "&mt=regular",
                     "https://www.apple.com/be-nl/shop/buy-iphone/iphone-duo", 60, LIST_PRICE, StockRadarStores::appleDelivery),
-            new Store("mediamarkt-be", "MediaMarkt België", "Levering · art. 2253422", Method.HTTP,
+            new Store("mediamarkt-be", "MediaMarkt België", "Levering · art. 2253422", Method.BROWSER,
                     "https://www.mediamarkt.be/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html",
                     "https://www.mediamarkt.be/nl/product/_apple-iphone-duo-5g-256-gb-esim-star-white-2253422.html", 60, LIST_PRICE,
                     (page, today) -> mediaMarkt(page, today, "2253422")),

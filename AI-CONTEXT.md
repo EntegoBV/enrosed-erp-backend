@@ -1896,7 +1896,7 @@ mails him when a shop can deliver or hand it over within
 - **Shops and parsers** (`StockRadarStores`): Apple Store Brussel (R486) via
   `/be-nl/shop/retail/pickup-message` (the `fulfillment-messages` endpoint
   answers 541 in the BE store), Apple online via `/be-nl/shop/delivery-message`,
-  MediaMarkt BE 2253422 (HTTP, the SSR Apollo object
+  MediaMarkt BE 2253422 (403 to plain HTTP from Railway → headless shell, the SSR Apollo object
   `"CofrDeliveryFeature:Media:nl:<article>":{` → `deliveryStatus`; loose page
   texts also carry recommended products and a translation table, never read
   them), MediaMarkt NL 1914026 (Akamai 403 over HTTP → headless shell, flaky),
