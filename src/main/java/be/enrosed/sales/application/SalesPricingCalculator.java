@@ -109,6 +109,8 @@ public class SalesPricingCalculator {
         List<String> withoutCost = new ArrayList<>();
         List<String> withoutCartonDimensions = new ArrayList<>();
         List<String> withoutPalletFit = new ArrayList<>();
+        /* The part of withoutPalletFit that fails on a missing omdoos size rather than on the pallet. */
+        List<String> withoutPalletFitSize = new ArrayList<>();
 
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal lineDiscountTotal = BigDecimal.ZERO;
@@ -147,6 +149,7 @@ public class SalesPricingCalculator {
                     : PalletCalculator.Fit.none("losse dozen");
             if (palletised && quantity > 0 && fit.cartonsPerPallet() <= 0) {
                 withoutPalletFit.add(product.sku());
+                if (!hasCartonSize(carton)) withoutPalletFitSize.add(product.sku());
             }
             int linePallets = palletised
                     ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
@@ -364,7 +367,7 @@ public class SalesPricingCalculator {
                 && order.freight() != FreightState.TE_BEPALEN && !withoutPalletFit.isEmpty()
                 && (order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET
                     || order.freightPricingStrategy() == FreightPricingStrategy.CARRIER)
-                ? "Pallets niet te berekenen voor " + String.join(", ", withoutPalletFit) + ": vul de omdoosmaten in"
+                ? palletFitIssue(withoutPalletFit, withoutPalletFitSize)
                 : null;
         if (split != null) {
             freight = split.freight(); handling = split.handling();
@@ -466,11 +469,26 @@ public class SalesPricingCalculator {
     }
 
     private static boolean hasValidOuterCarton(Carton carton) {
-        if (carton == null || carton.piecesPerCarton() <= 0 || carton.dimensions() == null) {
-            return false;
-        }
+        return carton != null && carton.piecesPerCarton() > 0 && hasCartonSize(carton);
+    }
+
+    /** All three omdoos sizes, the first thing PalletCalculator.fit asks for. */
+    private static boolean hasCartonSize(Carton carton) {
+        if (carton == null || carton.dimensions() == null) return false;
         Dimensions size = carton.dimensions();
         return positive(size.lengthCm()) && positive(size.widthCm()) && positive(size.heightCm());
+    }
+
+    /**
+     * Why a per-pallet freight stays open, by cause: the omdoos sizes to fill in first; once those
+     * are there, the products the chosen pallet cannot take within its height and weight.
+     */
+    private static String palletFitIssue(List<String> withoutFit, List<String> withoutSize) {
+        if (!withoutSize.isEmpty())
+            return "Pallets niet te berekenen voor " + String.join(", ", withoutSize) + ": vul de omdoosmaten in";
+        return String.join(", ", withoutFit) + (withoutFit.size() == 1 ? " past" : " passen")
+                + " niet binnen het gekozen palletprofiel, de hoogte of het gewicht:"
+                + " kies een ander palletprofiel of een hogere maximale pallethoogte";
     }
 
     private static String freightPricingIssue(SalesOrder order) {
