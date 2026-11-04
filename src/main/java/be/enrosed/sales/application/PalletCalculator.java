@@ -2,12 +2,16 @@ package be.enrosed.sales.application;
 
 import be.enrosed.catalog.domain.Carton;
 import be.enrosed.catalog.domain.Dimensions;
+import be.enrosed.sales.domain.PalletCountRule;
 import be.enrosed.sales.domain.PalletSpec;
+import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.shared.Money;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -73,23 +77,41 @@ public class PalletCalculator {
         return (cartons + cartonsPerPallet - 1) / cartonsPerPallet;
     }
 
-    public record OrderPallets(int strict, int optimised) {}
+    /** One palletised order line as the stacking sees it: its cartons, their fit, one carton's height and weight. */
+    public record Load(long productId, int cartons, Fit fit, BigDecimal cartonHeightCm, BigDecimal cartonWeightKg) {
+        /** Cartons that fit a pallet; a line without a fit drops out of every count. */
+        boolean placeable() {
+            return cartons > 0 && fit != null && fit.cartonsPerPallet() > 0 && fit.perLayer() > 0
+                    && cartonHeightCm != null && cartonHeightCm.signum() > 0;
+        }
+
+        /** Zero when the carton has no weight: the height alone decides. */
+        BigDecimal weightKg() {
+            return Money.nz(cartonWeightKg).max(BigDecimal.ZERO);
+        }
+    }
 
     /**
-     * Pallets for a whole order.
-     *
-     * {@code strict} counts each product separately; that is what you quote,
-     * because the warehouse promises no mixed pallets. {@code optimised}
-     * merges the remainders and shows what that would save.
+     * Pallets for a whole order: {@code strict} with every product on pallets of its own,
+     * {@code optimised} with the remainders merged as fractions (an estimate only, never billed),
+     * and the automatic layout under the document's rule, whose size is the count freight bills.
      */
-    public OrderPallets forOrder(List<int[]> cartonsAndPerPallet) {
+    public record OrderPallets(int strict, int optimised, List<PricedOrder.AutoPallet> layout) {
+        public static final OrderPallets NONE = new OrderPallets(0, 0, List.of());
+
+        public int automatic() {
+            return layout.size();
+        }
+    }
+
+    public OrderPallets forOrder(List<Load> loads, PalletSpec pallet, PalletCountRule rule) {
         int strict = 0;
         int fullPallets = 0;
         BigDecimal leftover = BigDecimal.ZERO;
 
-        for (int[] entry : cartonsAndPerPallet) {
-            int cartons = entry[0];
-            int perPallet = entry[1];
+        for (Load load : loads) {
+            int cartons = load.cartons();
+            int perPallet = load.fit() == null ? 0 : load.fit().cartonsPerPallet();
             if (cartons <= 0 || perPallet <= 0) continue;
 
             strict += palletsFor(cartons, perPallet);
@@ -102,7 +124,134 @@ public class PalletCalculator {
         }
 
         int optimised = fullPallets + leftover.setScale(0, RoundingMode.CEILING).intValue();
-        return new OrderPallets(strict, Math.min(strict, optimised));
+        List<PricedOrder.AutoPallet> layout = rule == PalletCountRule.MIXED
+                ? mixedPallets(loads, pallet) : separatePallets(loads, pallet);
+        return new OrderPallets(strict, Math.min(strict, optimised), layout);
+    }
+
+    /**
+     * Every product on pallets of its own, in line order: a product's full pallets, then its rest.
+     * The layout "Zelf indelen" started from until 2026-11-04; its size is the strict count.
+     */
+    List<PricedOrder.AutoPallet> separatePallets(List<Load> loads, PalletSpec pallet) {
+        List<PricedOrder.AutoPallet> layout = new ArrayList<>();
+        for (Load load : loads) {
+            if (!load.placeable()) continue;
+            int perPallet = load.fit().cartonsPerPallet();
+            for (int left = load.cartons(); left > 0; left -= perPallet) {
+                int cartons = Math.min(perPallet, left);
+                int layers = (cartons + load.fit().perLayer() - 1) / load.fit().perLayer();
+                layout.add(autoPallet(List.of(new PricedOrder.AutoPallet.Item(load.productId(), cartons, layers)),
+                        pallet.baseHeightCm().add(load.cartonHeightCm().multiply(BigDecimal.valueOf(layers))),
+                        load.weightKg().multiply(BigDecimal.valueOf(cartons))));
+            }
+        }
+        return List.copyOf(layout);
+    }
+
+    /**
+     * Products sharing pallets, as Palletberekening stacks them (planPallets in the frontend's
+     * pallet-calculator-model.ts, ported step for step): every product in whole layers of its own,
+     * the last one possibly short but as high as a full one; the layers tallest carton first, ties
+     * in line order; each layer onto the first pallet where it stays under the maximum height and
+     * the weight limit. Where the weight takes only part of a layer, that part stays and the rest
+     * looks further. An empty pallet always takes a layer: a fit means one layer goes under the
+     * height and one carton under the weight. One product alone thus gets exactly its
+     * cartonsPerPallet per pallet.
+     */
+    List<PricedOrder.AutoPallet> mixedPallets(List<Load> loads, PalletSpec pallet) {
+        BigDecimal usable = pallet.maxHeightCm().subtract(pallet.baseHeightCm());
+        record Layer(Load load, int cartons, int order) {}
+        List<Layer> layers = new ArrayList<>();
+        int order = 0;
+        for (Load load : loads) {
+            if (!load.placeable()) continue;
+            for (int rest = load.cartons(); rest > 0; rest -= load.fit().perLayer()) {
+                layers.add(new Layer(load, Math.min(load.fit().perLayer(), rest), order));
+            }
+            order++;
+        }
+        /* A stable sort, as the frontend's: a product's own layers keep their order too. */
+        layers.sort(Comparator.comparing((Layer layer) -> layer.load().cartonHeightCm(), Comparator.reverseOrder())
+                .thenComparingInt(Layer::order));
+
+        List<Stack> stacks = new ArrayList<>();
+        for (Layer layer : layers) {
+            Load load = layer.load();
+            int cartons = layer.cartons();
+            while (cartons > 0) {
+                Stack target = null;
+                int fits = 0;
+                for (Stack stack : stacks) {
+                    if (stack.heightCm.add(load.cartonHeightCm()).compareTo(usable) > 0) continue;
+                    fits = Math.min(cartons, weightRoom(stack.weightKg, load, pallet));
+                    if (fits > 0) {
+                        target = stack;
+                        break;
+                    }
+                }
+                if (target == null) {
+                    target = new Stack();
+                    stacks.add(target);
+                    fits = Math.min(cartons, weightRoom(BigDecimal.ZERO, load, pallet));
+                }
+                target.place(load, fits);
+                cartons -= fits;
+            }
+        }
+        return stacks.stream()
+                .map(stack -> autoPallet(stack.parts.stream().map(Part::item).toList(),
+                        pallet.baseHeightCm().add(stack.heightCm), stack.weightKg))
+                .toList();
+    }
+
+    /** Cartons of a line the weight still allows on a pallet; without a carton weight, any number. */
+    private static int weightRoom(BigDecimal loadedKg, Load load, PalletSpec pallet) {
+        return load.weightKg().signum() > 0
+                ? Math.max(0, floorDiv(pallet.maxWeightKg().subtract(loadedKg), load.weightKg()))
+                : Integer.MAX_VALUE;
+    }
+
+    /** One pallet while the layout is made: its height above the base and its weight, unrounded. */
+    private static final class Stack {
+        private final List<Part> parts = new ArrayList<>();
+        private BigDecimal heightCm = BigDecimal.ZERO;
+        private BigDecimal weightKg = BigDecimal.ZERO;
+
+        /** A layer, or the part of one the weight allows: always as high as a full layer. */
+        void place(Load load, int cartons) {
+            Part part = parts.stream().filter(candidate -> candidate.productId == load.productId())
+                    .findFirst().orElse(null);
+            if (part == null) {
+                part = new Part(load.productId());
+                parts.add(part);
+            }
+            part.cartons += cartons;
+            part.layers += 1;
+            heightCm = heightCm.add(load.cartonHeightCm());
+            weightKg = weightKg.add(load.weightKg().multiply(BigDecimal.valueOf(cartons)));
+        }
+    }
+
+    private static final class Part {
+        private final long productId;
+        private int cartons;
+        private int layers;
+
+        Part(long productId) {
+            this.productId = productId;
+        }
+
+        PricedOrder.AutoPallet.Item item() {
+            return new PricedOrder.AutoPallet.Item(productId, cartons, layers);
+        }
+    }
+
+    /** Heights and weights as the screens write them, to one decimal. */
+    private static PricedOrder.AutoPallet autoPallet(List<PricedOrder.AutoPallet.Item> items,
+                                                     BigDecimal heightCm, BigDecimal weightKg) {
+        return new PricedOrder.AutoPallet(items, heightCm.setScale(1, RoundingMode.HALF_UP),
+                weightKg.setScale(1, RoundingMode.HALF_UP));
     }
 
     private static boolean isBlank(BigDecimal value) {

@@ -459,6 +459,21 @@ public record SalesOrder(
                 creditedInvoiceId, creditReason, goodsReturnedAt);
     }
 
+    /** The same draft under this id: priced, as an unsaved draft of that stored document, like the document. */
+    public SalesOrder withId(Long value) {
+        if (java.util.Objects.equals(id, value)) return this;
+        return new SalesOrder(value, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
+    }
+
     public SalesOrder withExtraLines(List<SalesExtraLine> value) {
         return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
                 paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,

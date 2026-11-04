@@ -48,7 +48,17 @@ public interface SalesRepositories {
         /** How many documents carry the sales channel or fair code, regardless of case; deleted ones do not count. */
         long countBySalesChannel(String code);
         boolean existsBySourceQuoteId(long sourceQuoteId);
+        /** Saves a document that exists; a new one is made with {@link #create}. */
         SalesOrder save(SalesOrder order);
+        /**
+         * Makes a new document with the rule its automatic pallets are counted by, for good: no
+         * later save changes it (sales_order.palletcountrule).
+         */
+        SalesOrder create(SalesOrder order, PalletCountRule palletRule);
+        /** The rule a document was made with, deleted ones included; a row without one counts strict. */
+        PalletCountRule palletCountRule(long id);
+        /** {@link #palletCountRule} of every document in one read, for pricing a page of them. */
+        java.util.Map<Long, PalletCountRule> palletCountRules();
         void deleteById(long id);
         /**
          * Puts a document in the archive (a moment) or back on the working

@@ -145,7 +145,8 @@ public class SalesAdvanceBillingService {
                 .withSalesChannel(quote.rawSalesChannel())
                 .withPurpose(SalesPurpose.STANDARD, quote.sourcePurchaseOrderId(), SalesPaymentPlan.FULL);
         sales.validateForSave(draft);
-        SalesOrder created = orders.save(draft);
+        /* An advance counts like its quote, as the slotfactuur after it does. */
+        SalesOrder created = orders.create(draft, sales.palletRule(quote));
         store.save(new SalesAdvanceBilling.Row(created.id(), quote.id(), SalesAdvanceBilling.Stage.ADVANCE, percentage,
                 amount, List.of(), Instant.now()));
         ActorRef creator = sales.currentActor();

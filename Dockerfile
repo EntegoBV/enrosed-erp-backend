@@ -142,6 +142,7 @@ COPY docs/migrations/2026-10-26/container-tracking-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-26/container-vessel-link-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-26/container-arrival-reminders-postgresql.sql ./migrations/
 COPY docs/migrations/2026-10-28/stock-radar-postgresql.sql ./migrations/
+COPY docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

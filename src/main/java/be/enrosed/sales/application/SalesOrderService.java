@@ -157,7 +157,9 @@ public class SalesOrderService {
         List<SalesOrderLine> lines = keepsExactQuantities(stored, proposed)
                 ? withStoredOrderSteps(normalized.lines(), stored.lines())
                 : stampOrderSteps(normalized.lines());
-        return normalized.withLinesAndPallets(lines, normalized.pallets());
+        /* Under the stored document's id, whatever id the client sent: the draft counts its pallets
+           by that document's rule and shows its links. */
+        return normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id());
     }
 
     public void captureCustomerRequest(long id) {
@@ -201,14 +203,29 @@ public class SalesOrderService {
     }
 
     /**
+     * The rule this document counts its automatic pallets by. A stored document has the one it was
+     * made with, and only the id says which: a draft of it, or any copy of the record rebuilt in
+     * memory, counts exactly as the stored document does. A document not made yet counts as it will
+     * be made: a credit note like its invoice, an invoice like the quote it comes from, any other
+     * new document mixed.
+     */
+    PalletCountRule palletRule(SalesOrder order) {
+        if (order.id() != null) return orders.palletCountRule(order.id());
+        if (order.creditedInvoiceId() != null) return orders.palletCountRule(order.creditedInvoiceId());
+        if (order.sourceQuoteId() != null) return orders.palletCountRule(order.sourceQuoteId());
+        return PalletCountRule.MIXED;
+    }
+
+    /**
      * Prices a page of documents with one read of the catalogue, of the two
-     * tier tables and of the delivery rows, and one read per customer and
-     * country, in the order they were given.
+     * tier tables, of the pallet count rules and of the delivery rows, and one
+     * read per customer and country, in the order they were given.
      */
     public List<PricedOrder> priceAll(List<SalesOrder> orders) {
         if (orders == null || orders.isEmpty()) return List.of();
         PageLookups page = new PageLookups(products.list().stream().collect(Collectors.toMap(Product::id, Function.identity())),
-                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>());
+                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>(),
+                this.orders.palletCountRules());
         if (deliveries() != null) deliveries().preloadForRequest();
         List<PricedOrder> priced = new java.util.ArrayList<>(orders.size());
         for (SalesOrder order : orders)
@@ -218,7 +235,8 @@ public class SalesOrderService {
 
     /** What every document of one page is priced with; customers and countries are read once each. */
     private record PageLookups(Map<Long, Product> products, List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
-                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries) {}
+                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries,
+                               Map<Long, PalletCountRule> palletRules) {}
 
     PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
         return priceSplit(order, splitPricing, (PageLookups) null);
@@ -237,6 +255,8 @@ public class SalesOrderService {
 
         be.enrosed.shipping.domain.Carrier carrier = order.freightCarrierId() == null
                 ? null : shippingCarriers.findById(order.freightCarrierId()).orElse(null);
+        PalletCountRule palletRule = page != null && order.id() != null && page.palletRules().containsKey(order.id())
+                ? page.palletRules().get(order.id()) : palletRule(order);
 
         return pricing.price(order, byId, new SalesPricingCalculator.Context(
                 country,
@@ -246,7 +266,7 @@ public class SalesOrderService {
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vat.determine(country, customer),
-                carrier, splitPricing));
+                carrier, splitPricing, palletRule));
     }
 
     /** Price this order uses for this product; the portal uses it too. */
@@ -298,7 +318,8 @@ public class SalesOrderService {
                 List.of(), List.of())
                 .withSalesChannel(staffAction ? null : "WEBSITE");
         validateForSave(draft);
-        SalesOrder created = orders.save(draft);
+        /* A new quote, invoice, website request or website order counts mixed pallets. */
+        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator == null ? null : creator.displayName(), false,
@@ -376,7 +397,8 @@ public class SalesOrderService {
         invoice = withPalletsFollowingLines(invoice);
         validatePartnerAdvanceReservation(invoice, null);
         validateForSave(invoice);
-        SalesOrder created = orders.save(invoice);
+        /* The invoice, a slotfactuur included, bills the pallets its quote counted. */
+        SalesOrder created = orders.create(invoice, palletRule(source));
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().copyToInvoice(source, created);
         copyCustomerRequest(source, created);
         captureAdvanceContents(created);
@@ -626,7 +648,8 @@ public class SalesOrderService {
             validatePartnerAdvanceReservation(draft, null);
         }
         validateForSave(draft);
-        SalesOrder created = orders.save(draft);
+        /* A container's goods on a new document: mixed pallets. */
+        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
 
         String how = partner
                 ? " als partnercontainer: " + pct(share) + " % winstdeling, " + pct(costPct) + " % van de kost vooraf"
@@ -794,7 +817,9 @@ public class SalesOrderService {
         requireAdvanceBeforeSettlement(invoice);
         validatePartnerAdvanceReservation(invoice, rowId);
         validateForSave(invoice);
-        SalesOrder saved = orders.save(invoice);
+        /* A term made from a quote counts like that quote; a term of the plan alone is new: mixed. */
+        SalesOrder saved = orders.create(invoice,
+                sourceQuoteId == null ? PalletCountRule.MIXED : orders.palletCountRule(sourceQuoteId));
         captureAdvanceContents(saved);
         events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Voorschottermijn " + label + " aangemaakt", null));
@@ -1113,7 +1138,8 @@ public class SalesOrderService {
                 .withExtraLines(extras).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
                 .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
         validateForSave(invoice);
-        SalesOrder created = orders.save(invoice);
+        /* The auction's own lines on a new document: mixed pallets. */
+        SalesOrder created = orders.create(invoice, PalletCountRule.MIXED);
         if (partnerSettlements != null && partnerSettlements.isResolvable())
             partnerSettlements.get().save(created.id(), purchaseId, new PartnerSettlements.Snapshot(fullTotal, costTotal, advance,
                     finalSettlement, List.copyOf(snapshotLines)));
@@ -2237,7 +2263,8 @@ public class SalesOrderService {
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
-        SalesOrder created = orders.save(duplicate);
+        /* A copy is a new concept: mixed pallets, whatever its source counts. */
+        SalesOrder created = orders.create(duplicate, PalletCountRule.MIXED);
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
@@ -2443,7 +2470,8 @@ public class SalesOrderService {
                 original.id(), reason, null);
         validateForSave(creditNote);
         requireWithinCreditCap(original, creditNote);
-        SalesOrder created = orders.save(creditNote);
+        /* A credit note counts as the invoice it corrects. */
+        SalesOrder created = orders.create(creditNote, palletRule(original));
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().copy(original.id(), created.id());
         BigDecimal creditTotal = Money.money(price(created).totals().totalInclVat());

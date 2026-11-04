@@ -198,6 +198,15 @@ public final class SalesEntities {
         @Column(columnDefinition = "varchar(24)", length = 24)
         public FreightPricingStrategy freightPricingStrategy;
 
+        /**
+         * How the automatic pallets are counted (PalletCountRule: STRICT or MIXED), written once
+         * when the document is made and never by a save, hence not updatable. A plain varchar, so
+         * no enum CHECK constraint; null (a row the migration did not fill) and an unknown value
+         * read as STRICT. Backfilled by docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql.
+         */
+        @Column(name = "palletcountrule", length = 16, updatable = false)
+        public String palletCountRule;
+
         @Column(precision = 19, scale = 4)
         public BigDecimal freightRatePerCbmEur;
 

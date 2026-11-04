@@ -55,12 +55,12 @@ public class CustomerQuoteMapper {
         boolean proposing = !preview && order.status().isOpenForCustomer();
         boolean exact = proposing && salesOrders.keepsExactQuantities(order);
         List<CustomerQuoteView.CustomerLine> lines = priced.lines().stream()
-                .map(line -> customerLine(line, order, arrangementOnly, language, proposing, exact))
+                .map(line -> customerLine(line, priced.totals(), order, arrangementOnly, language, proposing, exact))
                 .toList();
 
         PricedOrder.Totals totals = priced.totals();
         int effectivePallets = totals.palletsManual() > 0
-                ? totals.palletsManual() : totals.palletsStrict();
+                ? totals.palletsManual() : totals.palletsAutomatic();
         CustomerQuoteView.CustomerTotals customerTotals = new CustomerQuoteView.CustomerTotals(
                 totals.pieces(), totals.cartons(), effectivePallets, totals.cbm(),
                 totals.subtotal(), totals.orderDiscountPercent(), totals.orderDiscountAmount(),
@@ -109,8 +109,8 @@ public class CustomerQuoteMapper {
     }
 
     private CustomerQuoteView.CustomerLine customerLine(
-            PricedOrder.Line line, SalesOrder order, boolean arrangementOnly, Language language,
-            boolean proposing, boolean exact) {
+            PricedOrder.Line line, PricedOrder.Totals totals, SalesOrder order, boolean arrangementOnly,
+            Language language, boolean proposing, boolean exact) {
         be.enrosed.catalog.domain.Product product = null;
         try {
             if (line.productId() != null) product = products.get(line.productId());
@@ -131,7 +131,9 @@ public class CustomerQuoteMapper {
         return new CustomerQuoteView.CustomerLine(
                 line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
                 line.quantity(), line.cartons(),
-                line.unavailable() ? 0 : order.palletPositionsForProduct(line.productId(), line.pallets()), line.cbm(),
+                /* As the total counts them: the automatic pallets that carry the product, its own under the strict rule. */
+                line.unavailable() ? 0 : order.palletPositionsForProduct(line.productId(), totals.autoPalletsCarrying(line.productId())),
+                line.cbm(),
                 perCarton,
                 arrangementOnly ? null : line.unitPrice(), arrangementOnly ? null : line.discountPct(),
                 arrangementOnly ? null : line.net(), line.inventoryKnown(), line.inStock(),

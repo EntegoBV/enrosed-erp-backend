@@ -661,10 +661,13 @@ public class PublicQuoteService {
                 estimateCustomer, freightState);
         Map<Long, Product> byId = preparedItems.stream()
                 .map(item -> item.product).collect(Collectors.toMap(Product::id, Function.identity()));
+        /* An estimate is a document not made yet: it counts mixed pallets, as the request or the
+           order made from it will. */
         PricedOrder priced = pricing.price(estimate, byId, new SalesPricingCalculator.Context(
                 country, estimateCustomer, settings.pallet(), tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
-                vat.determine(country, order == null ? estimateCustomer : order.customer), carrier));
+                vat.determine(country, order == null ? estimateCustomer : order.customer), carrier,
+                null, PalletCountRule.MIXED));
         boolean hasAllCartonData = preparedItems.stream()
                 .allMatch(item -> item.piecesPerCarton > 0);
         boolean shippingAvailable = fulfillment == Fulfillment.PICKUP
@@ -711,7 +714,7 @@ public class PublicQuoteService {
         BigDecimal shippingNet = pickup ? decimalZero() : prepared.shippingAvailable ? totals.shippingTotal() : null;
         ShippingEstimate shipping = new ShippingEstimate(shippingStatus, source,
                 freightNet, handlingNet, shippingNet,
-                totals.palletsStrict(), totals.cartons());
+                totals.palletsAutomatic(), totals.cartons());
         boolean complete = pricesComplete && prepared.shippingAvailable;
         TotalsEstimate publicTotals = new TotalsEstimate(
                 pricesComplete ? totals.gross() : null,

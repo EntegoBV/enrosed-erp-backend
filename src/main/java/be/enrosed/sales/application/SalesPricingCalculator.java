@@ -49,8 +49,20 @@ public class SalesPricingCalculator {
             VatCalculator.Result vat,
             /** The shipping organisation, loaded when the order prices freight by staffel. */
             be.enrosed.shipping.domain.Carrier carrier,
-            SalesSplitPricing splitPricing
+            SalesSplitPricing splitPricing,
+            /** How the automatic pallets are counted: the rule the document was stored with. */
+            PalletCountRule palletRule
     ) {
+        /** A context without a rule prices a document that is not stored yet: a new one counts mixed. */
+        public Context {
+            palletRule = palletRule == null ? PalletCountRule.MIXED : palletRule;
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, null);
+        }
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
                        VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier) {
@@ -93,7 +105,7 @@ public class SalesPricingCalculator {
             throw new be.enrosed.shared.BusinessRuleException("De vastgelegde orderverdeling past niet bij de huidige producten of btw-gegevens; controleer de oorspronkelijke bestelling");
 
         List<PricedOrder.Line> lines = new ArrayList<>();
-        List<int[]> palletInput = new ArrayList<>();
+        List<PalletCalculator.Load> palletInput = new ArrayList<>();
         List<String> withoutCost = new ArrayList<>();
         List<String> withoutCartonDimensions = new ArrayList<>();
         List<String> withoutPalletFit = new ArrayList<>();
@@ -138,7 +150,8 @@ public class SalesPricingCalculator {
             }
             int linePallets = palletised
                     ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
-            if (palletised) palletInput.add(new int[] { cartons, fit.cartonsPerPallet() });
+            if (palletised) palletInput.add(new PalletCalculator.Load(product.id(), cartons, fit,
+                    carton.dimensions() == null ? null : carton.dimensions().heightCm(), carton.weightKg()));
             int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
             BigDecimal calculatedPalletHeight = palletised
                     ? calculatedPalletHeight(carton, context.pallet(), usedPalletLayers)
@@ -251,13 +264,17 @@ public class SalesPricingCalculator {
 
         /* ---- vracht per pallet ----------------------------------------- */
         PalletCalculator.OrderPallets palletCounts = palletised
-                ? pallets.forOrder(palletInput) : new PalletCalculator.OrderPallets(0, 0);
+                ? pallets.forOrder(palletInput, context.pallet(), context.palletRule())
+                : PalletCalculator.OrderPallets.NONE;
         Country country = context.country();
 
         /* Hand-built pallets take over the freight count the moment they
            exist: the seller laid out the load and knows better than the
            formula. Cartons left off any pallet are reported, not silently
-           re-added - the warning on screen is the guard rail. */
+           re-added - the warning on screen is the guard rail. Without them
+           the automatic count follows the document's rule: mixed pallets,
+           or every product on pallets of its own on a document that left
+           concept before 2026-11-04. */
         int manualPallets = palletised ? order.pallets().size() : 0;
         int assignedCartons = order.pallets().stream()
                 .flatMap(pallet -> pallet.items().stream())
@@ -265,7 +282,7 @@ public class SalesPricingCalculator {
                 .sum();
         int unassignedCartons = manualPallets == 0 ? 0
                 : Math.max(0, cartonsTotal - assignedCartons);
-        int palletsForFreight = manualPallets > 0 ? manualPallets : palletCounts.strict();
+        int palletsForFreight = manualPallets > 0 ? manualPallets : palletCounts.automatic();
 
         BigDecimal freight = BigDecimal.ZERO;
         BigDecimal handling = BigDecimal.ZERO;
@@ -402,7 +419,8 @@ public class SalesPricingCalculator {
                         ? Money.divide(margin.multiply(Money.HUNDRED), Money.money(goodsTotal)).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
                 Money.money(margin.subtract(shipping)),
-                Money.money(extraLinesTotal));
+                Money.money(extraLinesTotal),
+                context.palletRule(), palletCounts.automatic(), palletCounts.layout());
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,

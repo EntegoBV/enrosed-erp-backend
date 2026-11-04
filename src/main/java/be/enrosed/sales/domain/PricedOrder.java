@@ -22,6 +22,20 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
     /** One free line on the document: no product, no cartons, no tier. */
     public record ExtraLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal total) {}
 
+    /**
+     * One pallet of the automatic layout, bottom to top. Each product lies in whole layers of its
+     * own, the last one possibly short but as high as a full one. The height includes the pallet
+     * base; the weight is 0 when none of its cartons has one.
+     */
+    public record AutoPallet(List<Item> items, BigDecimal heightCm, BigDecimal weightKg) {
+        public AutoPallet {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+
+        /** A product's cartons on this pallet and the layers they take. */
+        public record Item(long productId, int cartons, int layers) {}
+    }
+
     public record Line(
             Long productId,
             String sku,
@@ -183,8 +197,53 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal marginAfterFreightEur,
 
             /** The free lines added up; inside {@code total}, outside {@code goodsTotal} and the margin. */
-            BigDecimal extraLinesTotal
+            BigDecimal extraLinesTotal,
+
+            /** The rule this document counts its automatic pallets by; it never changes for a document. */
+            PalletCountRule palletRule,
+            /**
+             * The automatic pallet count under that rule, 0 when not palletised. Freight, the PDF,
+             * the portal and the website quote bill it unless hand-built pallets exist.
+             */
+            int palletsAutomatic,
+            /** The automatic layout under that rule; empty when not palletised or nothing fits. */
+            List<AutoPallet> autoPallets
     ) {
+        public Totals {
+            palletRule = palletRule == null ? PalletCountRule.STRICT : palletRule;
+            autoPallets = autoPallets == null ? List.of() : List.copyOf(autoPallets);
+        }
+
+        /** Compatibility for callers written before the pallet count rule: their count is the strict one. */
+        public Totals(int pieces, int cartons, int palletsStrict, int palletsOptimised, int palletsManual,
+                      int unassignedCartons, BigDecimal palletBaseHeightCm, BigDecimal palletMaxHeightCm,
+                      BigDecimal cbm, BigDecimal weightKg, BigDecimal gross, BigDecimal lineDiscountTotal,
+                      BigDecimal subtotal, BigDecimal orderDiscountPercent, BigDecimal orderDiscountAmount,
+                      BigDecimal extraDiscountPercent, String extraDiscountLabel, BigDecimal extraDiscountAmount,
+                      BigDecimal goodsTotal, BigDecimal freight, boolean freightIsMinimum, BigDecimal handling,
+                      BigDecimal shippingTotal, BigDecimal total, BigDecimal vatRatePct, BigDecimal vatAmount,
+                      BigDecimal totalInclVat, VatTreatment vatTreatment, String vatLegalMention, String vatReason,
+                      BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct,
+                      BigDecimal marginAfterFreightEur, BigDecimal extraLinesTotal) {
+            this(pieces, cartons, palletsStrict, palletsOptimised, palletsManual, unassignedCartons,
+                    palletBaseHeightCm, palletMaxHeightCm, cbm, weightKg, gross, lineDiscountTotal, subtotal,
+                    orderDiscountPercent, orderDiscountAmount, extraDiscountPercent, extraDiscountLabel,
+                    extraDiscountAmount, goodsTotal, freight, freightIsMinimum, handling, shippingTotal, total,
+                    vatRatePct, vatAmount, totalInclVat, vatTreatment, vatLegalMention, vatReason, costTotal,
+                    marginEur, marginPct, marginAfterFreightEur, extraLinesTotal,
+                    PalletCountRule.STRICT, palletsStrict, List.of());
+        }
+
+        /**
+         * The automatic pallets that carry this product: its pallet positions on the customer
+         * documents while no hand layout exists. Under the strict rule exactly its own pallets.
+         */
+        public int autoPalletsCarrying(long productId) {
+            return (int) autoPallets.stream()
+                    .filter(pallet -> pallet.items().stream().anyMatch(item -> item.productId() == productId))
+                    .count();
+        }
+
         /** Compatibility for callers written before the free lines existed. */
         public Totals(int pieces, int cartons, int palletsStrict, int palletsOptimised, int palletsManual,
                       int unassignedCartons, BigDecimal palletBaseHeightCm, BigDecimal palletMaxHeightCm,

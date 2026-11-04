@@ -114,7 +114,8 @@ public class SalesSplits {
         if (request.previewToken() == null || !request.previewToken().equals(plan.preview().previewToken()))
             throw new BusinessRuleException("De bestelling, voorraad of prijzen zijn intussen gewijzigd; bekijk eerst een nieuwe verdeling");
         SalesOrder first = orders.save(plan.current());
-        SalesOrder later = orders.save(sales.numberSplitDraft(plan.later()));
+        /* The later delivery is a part of the same order: it counts like the original. */
+        SalesOrder later = orders.create(sales.numberSplitDraft(plan.later()), sales.palletRule(plan.source()));
         var group = new SalesSplitGroupEntity();
         group.id = UUID.randomUUID().toString(); group.rootOrderId = first.id(); group.laterOrderId = later.id();
         group.requestId = requestId; group.requestHash = requestHash; group.createdAt = Instant.now();

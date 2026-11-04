@@ -196,7 +196,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         } else {
             if (!advanceDocument || priced.totals().cartons() > 0) displayCartons = priced.totals().cartons();
             if (priced.totals().palletsManual() > 0) displayPallets = priced.totals().palletsManual();
-            else if (!advanceDocument) displayPallets = priced.totals().palletsStrict();
+            else if (!advanceDocument) displayPallets = priced.totals().palletsAutomatic();
         }
         /* The free lines as this document prints them: an advance names its quote in the document
            language, a slotfactuur shows its deductions once, in their own block. */
@@ -382,7 +382,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("freightPickup", order.freightPricingStrategy()
                         == be.enrosed.sales.domain.FreightPricingStrategy.PICKUP)
                 .data("effectivePallets", priced.totals().palletsManual() > 0
-                        ? priced.totals().palletsManual() : priced.totals().palletsStrict())
+                        ? priced.totals().palletsManual() : priced.totals().palletsAutomatic())
                 .data("vatLabel", priced.totals().vatTreatment().labelIn(language))
                 .data("vatMention", declaration != null && declaration.legalMentionOverride() != null
                         ? declaration.legalMentionOverride() : priced.totals().vatTreatment().legalMentionIn(language))
@@ -572,8 +572,11 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                     ? text.get("salesRequestedUnits").formatted(SalesUnitText.quantity(
                             product == null ? null : product.packaging(), line.requestedQuantity(), language))
                     : null;
+            /* The pallets of the automatic layout that carry the product, as the total counts them;
+               under the strict rule exactly its own pallets. */
             result.add(new LineView(line, title, variant, description, details, photo,
-                    order.palletPositionsForProduct(line.productId(), line.pallets()), sku, delivery,
+                    order.palletPositionsForProduct(line.productId(), priced.totals().autoPalletsCarrying(line.productId())),
+                    sku, delivery,
                     line.quantity(), line.cartons(), DocumentFormat.cbm(line.cbm()), line.unavailable(), requested,
                     units));
         }

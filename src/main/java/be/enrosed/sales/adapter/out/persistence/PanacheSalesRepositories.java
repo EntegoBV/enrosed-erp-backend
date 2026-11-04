@@ -206,14 +206,48 @@ public final class PanacheSalesRepositories {
 
         @Override
         public SalesOrder save(SalesOrder order) {
-            if (order.id() != null) lockById(order.id());
-            SalesOrderEntity entity = order.id() == null ? null : dao.findById(order.id());
-            if (order.id() != null && entity == null) throw new be.enrosed.shared.NotFoundException("Document", order.id());
-            if (entity == null) entity = new SalesOrderEntity();
+            /* Every new document chooses its pallet count rule: a creation that slipped through
+               here would otherwise get one nobody chose. */
+            if (order.id() == null)
+                throw new IllegalStateException("A new sales document is made with create(order, palletRule)");
+            lockById(order.id());
+            SalesOrderEntity entity = dao.findById(order.id());
+            if (entity == null) throw new be.enrosed.shared.NotFoundException("Document", order.id());
             SalesMapper.apply(order, entity);
-            if (entity.id == null) dao.persist(entity);
             dao.flush();
             return SalesMapper.toDomain(entity);
+        }
+
+        /* The rule is written once, with the row; the column is not updatable, so no save can change it. */
+        @Override
+        public SalesOrder create(SalesOrder order, PalletCountRule palletRule) {
+            if (order.id() != null) throw new IllegalStateException("Document " + order.id() + " already exists; save it");
+            if (palletRule == null) throw new IllegalStateException("A new sales document needs its pallet count rule");
+            SalesOrderEntity entity = new SalesOrderEntity();
+            entity.palletCountRule = palletRule.name();
+            SalesMapper.apply(order, entity);
+            dao.persist(entity);
+            dao.flush();
+            return SalesMapper.toDomain(entity);
+        }
+
+        /* Native, so a deleted document keeps its rule in the trash too; flushing waits for the
+           commit, as the lock does, because save() and create() flush themselves. */
+        @Override
+        public PalletCountRule palletCountRule(long id) {
+            List<?> rows = dao.getEntityManager().createNativeQuery("select palletcountrule from sales_order where id = :id")
+                    .setParameter("id", id).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList();
+            return PalletCountRule.stored(rows.isEmpty() ? null : (String) rows.getFirst());
+        }
+
+        @Override
+        public java.util.Map<Long, PalletCountRule> palletCountRules() {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = dao.getEntityManager().createNativeQuery("select id, palletcountrule from sales_order")
+                    .setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList();
+            java.util.Map<Long, PalletCountRule> rules = new java.util.HashMap<>();
+            for (Object[] row : rows) rules.put(((Number) row[0]).longValue(), PalletCountRule.stored((String) row[1]));
+            return rules;
         }
 
         @Override

@@ -166,4 +166,5 @@ exec psql \
     --file=/app/migrations/container-tracking-postgresql.sql \
     --file=/app/migrations/container-vessel-link-postgresql.sql \
     --file=/app/migrations/container-arrival-reminders-postgresql.sql \
-    --file=/app/migrations/stock-radar-postgresql.sql
+    --file=/app/migrations/stock-radar-postgresql.sql \
+    --file=/app/migrations/sales-order-pallet-count-rule-postgresql.sql
