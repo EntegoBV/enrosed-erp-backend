@@ -16,6 +16,7 @@ public class BankStatementResource {
     @Inject OdooPurchaseImportService incomingDocuments;
     @Inject BankCostRegistrationService costRegistration;
     @Inject BankLineClassificationService classifications;
+    @Inject BankLineUnlinkService unlinks;
     /** {@code from} (YYYY-MM-DD): the lines from that day on plus every older line still to link; without it every line. */
     @GET public List<BankStatementLineEntity> list(@QueryParam("from") String from){return service.list(from);}
     /** "Boeken als": an internal transfer, cancellation pair, VAT, a loan, capital, private money or something else. */
@@ -27,6 +28,10 @@ public class BankStatementResource {
     @DELETE @Path("/{id}/allocation") public void unallocate(@PathParam("id") long id){service.unallocate(id);}
     @POST @Path("/{id}/links") public BankStatementLineEntity link(@PathParam("id") long id,BankStatementService.OutgoingLinks request){return service.linkExisting(id,request);}
     @DELETE @Path("/{id}/links") public void unlink(@PathParam("id") long id){service.unlinkExisting(id);}
+    /** What "Transactie losmaken" does before it does it; {@code keepParts}: a part of a payment in parts stays on it, open. */
+    @GET @Path("/{id}/unlink-plan") public BankLineUnlinkService.Plan unlinkPlan(@PathParam("id") long id,@QueryParam("keepParts") @DefaultValue("false") boolean keepParts){return unlinks.plan(id,keepParts);}
+    /** The plan, done: the line comes off everything it carries and nothing stays half linked. */
+    @POST @Path("/{id}/unlink") public BankLineUnlinkService.Plan unlinkAll(@PathParam("id") long id,BankLineUnlinkService.Request request){return unlinks.unlink(id,request);}
     @POST @Path("/{id}/cost-payment") public BankStatementLineEntity costPayment(@PathParam("id") long id,BankStatementService.CostAllocation request){return service.recordCostPayment(id,request);}
     @POST @Path("/{id}/cost-registration")
     public BankCostRegistrationService.Result registerCost(@PathParam("id") long id,BankCostRegistrationService.Request request) {
