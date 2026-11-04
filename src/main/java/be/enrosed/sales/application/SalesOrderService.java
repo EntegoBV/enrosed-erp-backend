@@ -394,8 +394,10 @@ public class SalesOrderService {
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
-        invoice = withPalletsFollowingLines(invoice);
         validatePartnerAdvanceReservation(invoice, null);
+        /* The hand layout is copied as the quote stands, never brought in line here as a save and
+           Overnemen do: a layout its lines outgrew (an omdoos content changed after acceptance) is
+           refused by name, so an invoice never bills fewer hand pallets than its quote unannounced. */
         validateForSave(invoice);
         /* The invoice, a slotfactuur included, bills the pallets its quote counted. */
         SalesOrder created = orders.create(invoice, palletRule(source));
