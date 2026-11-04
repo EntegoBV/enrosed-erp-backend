@@ -2974,8 +2974,9 @@ public class SalesOrderService {
                     throw new BusinessRuleException("Elke palletregel moet een product en positief aantal dozen hebben");
                 }
                 if (!productsOnOrder.contains(item.productId()) || !byId.containsKey(item.productId())) {
-                    throw new BusinessRuleException(
-                            "Product " + item.productId() + " staat niet op deze offerte");
+                    Product stray = byId.get(item.productId());
+                    throw new BusinessRuleException((stray == null ? "Een verwijderd product" : stray.describe())
+                            + " staat nog op een pallet; haal het eraf of maak de indeling opnieuw");
                 }
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
