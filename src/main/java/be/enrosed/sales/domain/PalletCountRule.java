@@ -15,8 +15,9 @@ public enum PalletCountRule {
     MIXED;
 
     /**
-     * The stored value read leniently: a row the migration did not fill, or a value this version
-     * does not know, keeps the strict count every document had before the rule existed.
+     * The stored value read leniently: a row from before the rule that no start has decided yet,
+     * or a value this version does not know, keeps the strict count every document had before the
+     * rule existed.
      */
     public static PalletCountRule stored(String value) {
         if (value == null) return STRICT;
