@@ -131,7 +131,8 @@ public class PalletCalculator {
 
     /**
      * Every product on pallets of its own, in line order: a product's full pallets, then its rest.
-     * The layout "Zelf indelen" started from until 2026-11-04; its size is the strict count.
+     * The layout "Zelf indelen" started from until 2026-11-04; its size is the strict count. Also
+     * what the mixed plan gives way to when mixing would need more pallets.
      */
     List<PricedOrder.AutoPallet> separatePallets(List<Load> loads, PalletSpec pallet) {
         List<PricedOrder.AutoPallet> layout = new ArrayList<>();
@@ -151,40 +152,42 @@ public class PalletCalculator {
 
     /**
      * Products sharing pallets, as Palletberekening stacks them (planPallets in the frontend's
-     * pallet-calculator-model.ts, ported step for step): every product in whole layers of its own,
-     * the last one possibly short but as high as a full one; the layers tallest carton first, ties
-     * in line order; each layer onto the first pallet where it stays under the maximum height and
-     * the weight limit. Where the weight takes only part of a layer, that part stays and the rest
-     * looks further. An empty pallet always takes a layer: a fit means one layer goes under the
-     * height and one carton under the weight. One product alone thus gets exactly its
-     * cartonsPerPallet per pallet.
+     * pallet-calculator-model.ts, step for step): every product in whole layers of its own, a
+     * short one as high as a full one. The products go tallest carton first, ties in line order.
+     * Each lays a layer of what it still has to place, at most a full one, on the first pallet
+     * where one more layer stays under the maximum height and the weight still takes a carton;
+     * there the weight may cut the layer short, and the cartons it leaves go into the product's
+     * next layer instead of making a short one of their own. One product alone thus gets exactly
+     * its cartonsPerPallet per pallet (238 cartons of 40 x 40 x 50 cm at 30.7 kg on a Euro pallet
+     * under 260 cm: 11 pallets, as strict). An empty pallet always takes the layer, or the part
+     * the weight allows: a fit means one layer goes under the height and one carton under the
+     * weight. A plan that needs more pallets than every product on pallets of its own gives way
+     * to that separate layout, so the mixed count never exceeds the strict one.
      */
     List<PricedOrder.AutoPallet> mixedPallets(List<Load> loads, PalletSpec pallet) {
         BigDecimal usable = pallet.maxHeightCm().subtract(pallet.baseHeightCm());
-        record Layer(Load load, int cartons, int order) {}
-        List<Layer> layers = new ArrayList<>();
-        int order = 0;
+        record Line(Load load, int order) {}
+        List<Line> lines = new ArrayList<>();
+        int separate = 0;
         for (Load load : loads) {
             if (!load.placeable()) continue;
-            for (int rest = load.cartons(); rest > 0; rest -= load.fit().perLayer()) {
-                layers.add(new Layer(load, Math.min(load.fit().perLayer(), rest), order));
-            }
-            order++;
+            lines.add(new Line(load, lines.size()));
+            separate += palletsFor(load.cartons(), load.fit().cartonsPerPallet());
         }
-        /* A stable sort, as the frontend's: a product's own layers keep their order too. */
-        layers.sort(Comparator.comparing((Layer layer) -> layer.load().cartonHeightCm(), Comparator.reverseOrder())
-                .thenComparingInt(Layer::order));
+        lines.sort(Comparator.comparing((Line line) -> line.load().cartonHeightCm(), Comparator.reverseOrder())
+                .thenComparingInt(Line::order));
 
         List<Stack> stacks = new ArrayList<>();
-        for (Layer layer : layers) {
-            Load load = layer.load();
-            int cartons = layer.cartons();
-            while (cartons > 0) {
+        for (Line line : lines) {
+            Load load = line.load();
+            int rest = load.cartons();
+            while (rest > 0) {
+                int layer = Math.min(load.fit().perLayer(), rest);
                 Stack target = null;
                 int fits = 0;
                 for (Stack stack : stacks) {
                     if (stack.heightCm.add(load.cartonHeightCm()).compareTo(usable) > 0) continue;
-                    fits = Math.min(cartons, weightRoom(stack.weightKg, load, pallet));
+                    fits = Math.min(layer, weightRoom(stack.weightKg, load, pallet));
                     if (fits > 0) {
                         target = stack;
                         break;
@@ -193,12 +196,13 @@ public class PalletCalculator {
                 if (target == null) {
                     target = new Stack();
                     stacks.add(target);
-                    fits = Math.min(cartons, weightRoom(BigDecimal.ZERO, load, pallet));
+                    fits = Math.min(layer, weightRoom(BigDecimal.ZERO, load, pallet));
                 }
                 target.place(load, fits);
-                cartons -= fits;
+                rest -= fits;
             }
         }
+        if (stacks.size() > separate) return separatePallets(loads, pallet);
         return stacks.stream()
                 .map(stack -> autoPallet(stack.parts.stream().map(Part::item).toList(),
                         pallet.baseHeightCm().add(stack.heightCm), stack.weightKg))

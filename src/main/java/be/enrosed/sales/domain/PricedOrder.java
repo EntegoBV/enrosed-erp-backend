@@ -24,8 +24,8 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
 
     /**
      * One pallet of the automatic layout, bottom to top. Each product lies in whole layers of its
-     * own, the last one possibly short but as high as a full one. The height includes the pallet
-     * base; the weight is 0 when none of its cartons has one.
+     * own; a short one (its last, or one the weight cut) is as high as a full one. The height
+     * includes the pallet base; the weight is 0 when none of its cartons has one.
      */
     public record AutoPallet(List<Item> items, BigDecimal heightCm, BigDecimal weightKg) {
         public AutoPallet {
