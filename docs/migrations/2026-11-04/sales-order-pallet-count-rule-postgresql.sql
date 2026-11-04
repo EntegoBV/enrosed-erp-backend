@@ -5,9 +5,10 @@
 -- its source's), and no save changes it: the column is not updatable in the entity.
 --
 -- Rerunnable, and the backfill runs once: only in the run that creates the column. Concept quotes (no
--- document type or OFFERTE, status CONCEPT, not deleted) count mixed from then on; every other row (any
--- other status, invoices, credit notes, deleted rows) keeps the strict count and freight it has. A later
--- run changes nothing, so a document that left concept after the first run is never re-classified.
+-- document type or OFFERTE, status CONCEPT, not deleted, never sent, not a website order) count mixed
+-- from then on; every other row (any other status, a reopened quote, a website order, invoices, credit
+-- notes, deleted rows) keeps the strict count and freight it has. A later run changes nothing, so a
+-- document that left concept after the first run is never re-classified.
 -- deleted_at comes from 2026-09-10/deleted-items-postgresql.sql, which runs before this file.
 --
 -- When this file is not run before the release (a forgotten listing), Hibernate adds the column
@@ -29,8 +30,13 @@ begin
         return;
     end if;
     alter table sales_order add column palletcountrule varchar(16);
-    update sales_order set palletcountrule = case
-        when (doctype is null or doctype = 'OFFERTE') and status = 'CONCEPT' and deleted_at is null then 'MIXED'
+    /* A concept that was ever sent (reopened, or a proposal taken over) keeps the count the customer
+       saw, and so does a website order: its ordered terms carry the strict freight. */
+    update sales_order o set palletcountrule = case
+        when (o.doctype is null or o.doctype = 'OFFERTE') and o.status = 'CONCEPT' and o.deleted_at is null
+             and o.sentat is null
+             and not exists (select 1 from sales_web_order w where w.sales_order_id = o.id)
+            then 'MIXED'
         else 'STRICT'
     end;
 end
