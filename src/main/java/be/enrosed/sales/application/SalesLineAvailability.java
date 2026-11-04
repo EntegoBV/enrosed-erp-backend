@@ -8,6 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /** Exclusion belongs to this document, never to the catalogue or the stock ledger. */
 @ApplicationScoped
@@ -61,13 +62,15 @@ public class SalesLineAvailability {
 
     static List<OrderPallet> prunePallets(List<OrderPallet> pallets, Set<Long> parked) {
         var result = new ArrayList<OrderPallet>();
+        boolean dropped = false;
         for (var pallet : pallets) {
             if (pallet == null) { result.add(null); continue; }
             var kept = pallet.items().stream().filter(item -> !parked.contains(item.productId())).toList();
             if (kept.size() == pallet.items().size()) result.add(pallet);
             else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
+            else dropped = true;
         }
-        return result;
+        return dropped ? renumbered(result) : result;
     }
 
     /**
@@ -75,8 +78,8 @@ public class SalesLineAvailability {
      * left the document or is parked leaves its pallets, and none stands on them with more cartons than
      * its line ships (counted as validatePallets counts them), the surplus coming off the last pallet
      * first. No carton is ever added: a raised line shows its new cartons as unassigned. A pallet
-     * emptied here goes; one the seller left empty stays, as does a malformed item, for the validation
-     * to refuse.
+     * emptied here goes, and the pallets still called "Pallet n" then follow their new position; one
+     * the seller left empty stays, as does a malformed item, for the validation to refuse.
      */
     static List<OrderPallet> reconcilePallets(List<OrderPallet> pallets, List<SalesOrderLine> lines,
                                               Function<Long, Product> products) {
@@ -90,6 +93,7 @@ public class SalesLineAvailability {
                     : product.carton().cartonsFor(line.quantity()), Integer::sum);
         }
         var result = new ArrayList<OrderPallet>();
+        boolean dropped = false;
         for (var pallet : pallets) {
             if (pallet == null || pallet.items().isEmpty()) { result.add(pallet); continue; }
             var kept = new ArrayList<OrderPallet.Item>();
@@ -102,6 +106,27 @@ public class SalesLineAvailability {
             }
             if (kept.equals(pallet.items())) result.add(pallet);
             else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
+            else dropped = true;
+        }
+        return dropped ? renumbered(result) : result;
+    }
+
+    private static final Pattern NUMBERED = Pattern.compile("Pallet \\d+");
+
+    /**
+     * After a pallet went, a pallet still called "Pallet n" takes its new position; a name of its own
+     * stays (relabelPallets in the frontend's pallet-stack.ts). A layout nothing was dropped from is
+     * never rewritten, so the packing slip keeps the labels the seller saw.
+     */
+    static List<OrderPallet> renumbered(List<OrderPallet> pallets) {
+        var result = new ArrayList<OrderPallet>(pallets.size());
+        for (int index = 0; index < pallets.size(); index++) {
+            OrderPallet pallet = pallets.get(index);
+            String label = "Pallet " + (index + 1);
+            if (pallet != null && pallet.label() != null && NUMBERED.matcher(pallet.label().strip()).matches()
+                    && !pallet.label().equals(label))
+                pallet = new OrderPallet(pallet.id(), label, pallet.type(), pallet.heightCm(), pallet.items());
+            result.add(pallet);
         }
         return result;
     }
