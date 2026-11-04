@@ -1617,6 +1617,53 @@ public class PurchaseOrderService {
                         .build());
     }
 
+    /**
+     * A transfer that just came off its bank line goes back into the open
+     * transfer of the same payment: one open transfer holding both amounts, on
+     * the open one's day (it never followed a bank day). The lower id stays, so
+     * the payment's first row keeps its id, its files and its closing
+     * references; the other row goes (its files to the lowest remaining
+     * transfer). What either row was before it followed the bank is
+     * forgotten: neither is on the bank now. Both must be off the bank, in one
+     * group and in one currency.
+     */
+    @Transactional
+    public PurchasePayment mergeTransfer(long orderId, long freedId, long openId, String summary) {
+        PurchaseOrder order = getForUpdate(orderId);
+        PurchasePayment freed = storedPayment(orderId, freedId);
+        PurchasePayment open = storedPayment(orderId, openId);
+        if (freed.bankStatementLineId() != null || open.bankStatementLineId() != null) {
+            throw new BusinessRuleException("Deze betaling staat al op de bank; maak de koppeling eerst los");
+        }
+        if (freedId == openId || freed.groupId() == null || !freed.groupId().equals(open.groupId())
+                || freed.currency() != open.currency()) {
+            throw new BusinessRuleException("Alleen transacties van dezelfde betaling kunnen samen");
+        }
+        PurchasePayment keep = freedId < openId ? freed : open;
+        PurchasePayment drop = keep == freed ? open : freed;
+        List<PurchasePayment> group = payments.get().inGroup(keep.groupId());
+        PurchasePayment merged = payments.get().save(new PurchasePayment(keep.id(), orderId, open.paidOn(),
+                money(freed.amount().add(open.amount())), keep.currency(), money(freed.amountEur().add(open.amountEur())),
+                keep.label(), keep.actor(), keep.recordedAt(), keep.payee(), keep.settles(), keep.instalmentDue(),
+                null, keep.groupId(), keep.invoiceId()));
+        if (!payments.get().delete(orderId, drop.id())) throw new NotFoundException("Betaling", drop.id());
+        if (adjustmentsAvailable()) {
+            bankAdjustments.get().delete(drop.id());
+            bankAdjustments.get().delete(keep.id());
+        }
+        regroupAfterDelete(orderId, drop);
+        String notes = removeNoteLine(order.notes(), paymentNoteLine(drop));
+        notes = replaceNoteLine(notes, paymentNoteLine(keep), paymentNoteLine(merged));
+        orders.save(order.withReceipt(order.status(), order.receivedOn(), order.paidTotalEur(), order.stockBooked(),
+                notes, order.lines()));
+        recordActivity(ActivityLogService.ACTION_UPDATED, order, summary, ActivityChangeSet.create()
+                .add("payment.amount", "Bedrag", keep.amount(), merged.amount())
+                .add("payment.date", "Betaald op", keep.paidOn(), merged.paidOn())
+                .add("payment.parts", "Transacties", group.size(), group.size() - 1)
+                .build());
+        return storedPayment(orderId, keep.id());
+    }
+
     /** One transfer of a payment paid in parts: its amount in the payment's currency, its euro value, its day. */
     public record PaymentPart(BigDecimal amount, BigDecimal amountEur, LocalDate paidOn) {}
 

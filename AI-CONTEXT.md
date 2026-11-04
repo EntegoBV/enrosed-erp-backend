@@ -1832,6 +1832,26 @@ the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it ne
   insert, check or foreign key. **Rollout: backend first**; the ERP hides every phase-2 control until
   `/api/cash-forecast/settings` answers.
 
+## Transactie losmaken zonder halve koppeling (2026-11-04)
+
+Emre: "als ik 1 vd 2 transactie verwijder popup doen of ik zeker ben en alles dekoppelen". DELETE
+`/api/bank-statements/{id}/links` only cuts the line: a transfer of a payment in parts then stayed on its payment and counted
+as paid without a bank line (reproduced: the term read paid and finalized), the Transactiekosten booked on the line stayed as
+Bijkomende kosten, and the Bankkosten/Koersverschil cost of `keepDifferenceAs` stayed paid (a new link books it twice).
+
+- `BankLineUnlinkService` (`GET /api/bank-statements/{id}/unlink-plan?keepParts=`, `POST …/unlink {keepParts, expected}`): one
+  plan, then the same rules done in one transaction. Per purchase payment on the line: Transactiekosten (OTHER, label
+  `FEE_LABEL`, EUR, no group) DELETED; a transfer of a payment in parts MERGED into the payment's open transfer when it has one
+  (`PurchaseOrderService.mergeTransfer`: the lower id stays with both amounts on the open one's day, the other row goes, its
+  files to the lowest remaining transfer, both bank adjustments forgotten), else REMOVED from its payment
+  (`deletePayment` after the unlink), or with `keepParts` STAYS open on it; every other payment STAYS without the line. Per
+  cost payment: the difference cost (its only payment noted `DIFFERENCE_NOTE`, description Bankkosten[ · …] or Koersverschil
+  · …) DELETED through `CompanyCostService.delete`, others STAY (the cost stays paid). A sales receipt and a classified line
+  are refused as before. `expected` is a fingerprint of what the line carries (and the groups of its transfers): a changed
+  line answers "Wat aan deze transactie hangt, is intussen gewijzigd; bekijk het opnieuw". The line gets one audit line.
+- DELETE `…/links` is unchanged (the ERP's 'Splitsing aanpassen' still uses it: it links the same payments again).
+- No schema change.
+
 ## Batches (2026-10-25)
 
 Which container's pieces are still on the shelf and at what cost; the margin of a shipped sale uses the cost of the
