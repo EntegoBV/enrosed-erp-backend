@@ -340,6 +340,15 @@ public class SalesPricingCalculator {
             handling = BigDecimal.ZERO;
             freightIsMinimum = false;
         }
+        /* A product that cannot be stacked drops out of the calculated count, and with it out of
+           a per-pallet freight: that freight reads as open, never as a silently low or zero amount.
+           Hand-built pallets are billed as they stand; an agreed split keeps its own freight. */
+        String palletFitIssue = palletised && manualPallets == 0 && split == null
+                && order.freight() != FreightState.TE_BEPALEN && !withoutPalletFit.isEmpty()
+                && (order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET
+                    || order.freightPricingStrategy() == FreightPricingStrategy.CARRIER)
+                ? "Pallets niet te berekenen voor " + String.join(", ", withoutPalletFit) + ": vul de omdoosmaten in"
+                : null;
         if (split != null) {
             freight = split.freight(); handling = split.handling();
             freightIsMinimum = false; carrierFreightIssue = null;
@@ -400,7 +409,8 @@ public class SalesPricingCalculator {
                 meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(goodsTotal)),
                 !lines.isEmpty(), country != null, withoutCost,
                 withoutCartonDimensions, withoutPalletFit,
-                carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
+                palletFitIssue != null ? palletFitIssue
+                        : carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
 
         // Customer-visible line nets remain before the separately printed order discounts.
         // Internal margins include those discounts and allocate residual cents consistently.
