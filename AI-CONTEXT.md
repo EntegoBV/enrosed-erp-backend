@@ -1867,8 +1867,9 @@ concept keeps the count and freight it was sent with.
 - `sales_order.palletcountrule` varchar(16), no CHECK; the entity column is not updatable and the `SalesOrder` record
   does not carry it, so no save, rebuild or with-copy can change it; null or an unknown value reads STRICT.
 - Migration `docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql` backfills once, in the run that
-  creates the column: concept quotes (docType null/OFFERTE, status CONCEPT, not deleted, reopened ones included) MIXED,
-  every other row STRICT. A rerun, or a run after Hibernate already added the column (forgotten listing), changes
+  creates the column: concept quotes that were never sent and are no website order (docType null/OFFERTE, status
+  CONCEPT, not deleted, `sentat` null, no `sales_web_order` row) MIXED, every other row STRICT: a reopened or adopted
+  quote keeps the count the customer saw, a website order the freight of its ordered terms. A rerun, or a run after Hibernate already added the column (forgotten listing), changes
   nothing: those rows then keep counting strict, harmless; switching that moment's concept quotes needs the backfill
   UPDATE by hand. Rows the old release writes during a deploy also read STRICT, as do the older rows of a dev H2 file
   (Hibernate adds the column there without values).
@@ -1888,8 +1889,6 @@ concept keeps the count and freight it was sent with.
 - The open per-pallet freight names its cause: "Pallets niet te berekenen voor X: vul de omdoosmaten in" while a size
   is missing, else "X past niet binnen het gekozen palletprofiel, de hoogte of het gewicht: kies een ander palletprofiel
   of een hogere maximale pallethoogte".
-- An untaken website order placed before the switch keeps its ordered terms with the strict freight: if the mixed count
-  lowers its freight, it reads "wijkt af van wat de klant bestelde" until it is sent for approval.
 
 ## Batches (2026-10-25)
 
