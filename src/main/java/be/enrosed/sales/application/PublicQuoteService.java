@@ -202,31 +202,31 @@ public class PublicQuoteService {
 
     /**
      * The estimate of an order. It is priced as the ERP will price the stored order: on the
-     * customer record, delivered at the typed address. Products in {@code keptUnitPrices}
-     * (those already in the order being changed) keep that price.
+     * customer record, delivered at the typed address. {@code changing} is the stored order
+     * being changed, null for a new one: its products keep the price they were ordered at and
+     * its pallets count by its own rule, so the estimate, the stored change and its ordered
+     * terms agree; a new order counts mixed, as it will be made.
      */
-    public EstimateResponse previewOrder(OrderPreviewRequest request, long customerId,
-                                         Map<Long, BigDecimal> keptUnitPrices) {
+    public EstimateResponse previewOrder(OrderPreviewRequest request, long customerId, SalesOrder changing) {
         if (request == null) throw new PublicQuoteValidationException(Map.of("request", "REQUIRED"));
         return toResponse(prepareOrder(request.language(), request.fulfillment(),
                 request.pickupLocationId(), request.destination(), request.items(),
-                customers.get(customerId), keptUnitPrices));
+                customers.get(customerId), changing));
     }
 
-    /** Read-only validation of an order, the minimum order value included. */
-    public void validateOrder(OrderRequest request, long customerId,
-                              Map<Long, BigDecimal> keptUnitPrices) {
-        validateAndPrepareOrder(request, customers.get(customerId), keptUnitPrices);
+    /** Read-only validation of an order, the minimum order value included; {@code changing} as in previewOrder. */
+    public void validateOrder(OrderRequest request, long customerId, SalesOrder changing) {
+        validateAndPrepareOrder(request, customers.get(customerId), changing);
     }
 
     /**
      * What the caller needs beside the stored document to write the delivery row, the snapshot
      * and the change summary. Validates as validateOrder does.
      */
-    public OrderFacts orderFacts(OrderRequest request, long customerId,
-                                 Map<Long, BigDecimal> keptUnitPrices) {
+    public OrderFacts orderFacts(OrderRequest request, long customerId, SalesOrder changing) {
         Customer buyer = customers.get(customerId);
-        Prepared prepared = validateAndPrepareOrder(request, buyer, keptUnitPrices);
+        Prepared prepared = validateAndPrepareOrder(request, buyer, changing);
+        Map<Long, BigDecimal> keptUnitPrices = keptUnitPrices(changing);
         Map<Long, Integer> piecesPerCarton = new LinkedHashMap<>();
         Map<Long, Integer> cartons = new LinkedHashMap<>();
         Map<Long, String> skus = new LinkedHashMap<>();
@@ -269,7 +269,7 @@ public class PublicQuoteService {
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder storeOrder(OrderRequest request, long customerId, String accountEmail) {
         Customer buyer = customers.get(customerId);
-        Prepared prepared = validateAndPrepareOrder(request, buyer, Map.of());
+        Prepared prepared = validateAndPrepareOrder(request, buyer, null);
         SalesOrder created = salesOrders.createWebsiteRequest(customerId, prepared.country.code(),
                 prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP");
         SalesOrder saved = salesOrders.updateByCustomer(created.id(),
@@ -281,12 +281,12 @@ public class PublicQuoteService {
     /**
      * The customer's new version of their order. A product that stays keeps its line and the
      * unit price it was ordered at; a new product gets today's price. Order date and validity
-     * stay those of the placement.
+     * stay those of the placement, and the pallets keep counting by the order's own rule.
      */
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder replaceOrder(SalesOrder stored, OrderRequest request, String accountEmail) {
         Customer buyer = customers.get(stored.customerId());
-        Prepared prepared = validateAndPrepareOrder(request, buyer, keptUnitPrices(stored));
+        Prepared prepared = validateAndPrepareOrder(request, buyer, stored);
         Map<Long, SalesOrderLine> storedLines = stored.lines().stream()
                 .filter(line -> line.productId() != null)
                 .collect(Collectors.toMap(SalesOrderLine::productId, Function.identity(),
@@ -362,8 +362,7 @@ public class PublicQuoteService {
      * The checks of an order, in one field map: the contact fields, the basket and delivery as
      * prepareOrder judges them, and then the minimum order value of the delivery country.
      */
-    private Prepared validateAndPrepareOrder(OrderRequest request, Customer customer,
-                                             Map<Long, BigDecimal> keptUnitPrices) {
+    private Prepared validateAndPrepareOrder(OrderRequest request, Customer customer, SalesOrder changing) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
             errors.put("request", "REQUIRED");
@@ -380,7 +379,7 @@ public class PublicQuoteService {
         try {
             prepared = prepareOrder(request.language(), request.fulfillment(),
                     request.pickupLocationId(), request.destination(), request.items(),
-                    customer, keptUnitPrices);
+                    customer, changing);
         } catch (PublicQuoteValidationException validation) {
             validation.fieldErrors().forEach(errors::putIfAbsent);
         }
@@ -393,13 +392,17 @@ public class PublicQuoteService {
         return prepared;
     }
 
-    /** The one preparation of every order call; the VAT number is the record's and is not judged. */
+    /**
+     * The one preparation of every order call; the VAT number is the record's and is not judged.
+     * A change prices with the stored order's kept prices and pallet count rule, a new order mixed.
+     */
     private Prepared prepareOrder(String language, String fulfillment, Long pickupLocationId,
                                   Destination destination, List<ItemRequest> items,
-                                  Customer customer, Map<Long, BigDecimal> keptUnitPrices) {
+                                  Customer customer, SalesOrder changing) {
         return prepare(new PreviewRequest(language, fulfillment, customer.vatNumber(),
                         destination, items, pickupLocationId), false,
-                new OrderPricing(customer, keptUnitPrices == null ? Map.of() : keptUnitPrices));
+                new OrderPricing(customer, keptUnitPrices(changing),
+                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing)));
     }
 
     /** Whether customers can order on the website; read on every call, as AccountDocuments does. */
@@ -519,9 +522,10 @@ public class PublicQuoteService {
     }
 
     /**
-     * {@code order} is null for a quote request. For an order it carries the customer record
-     * and the unit prices to keep, and two rules are stricter: the delivery choice is read
-     * once and every address rule follows that reading, and the address is one line.
+     * {@code order} is null for a quote request. For an order it carries the customer record,
+     * the unit prices to keep and the pallet count rule, and two rules are stricter: the
+     * delivery choice is read once and every address rule follows that reading, and the
+     * address is one line.
      */
     private Prepared prepare(PreviewRequest request, boolean judgeVatNumber, OrderPricing order) {
         Map<String, String> errors = new LinkedHashMap<>();
@@ -661,13 +665,13 @@ public class PublicQuoteService {
                 estimateCustomer, freightState);
         Map<Long, Product> byId = preparedItems.stream()
                 .map(item -> item.product).collect(Collectors.toMap(Product::id, Function.identity()));
-        /* An estimate is a document not made yet: it counts mixed pallets, as the request or the
-           order made from it will. */
+        /* The estimate of a request or a new order counts mixed pallets, as the document made from
+           it will; the change of a stored order counts by that order's rule. */
         PricedOrder priced = pricing.price(estimate, byId, new SalesPricingCalculator.Context(
                 country, estimateCustomer, settings.pallet(), tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
                 vat.determine(country, order == null ? estimateCustomer : order.customer), carrier,
-                null, PalletCountRule.MIXED));
+                null, order == null ? PalletCountRule.MIXED : order.palletRule()));
         boolean hasAllCartonData = preparedItems.stream()
                 .allMatch(item -> item.piecesPerCarton > 0);
         boolean shippingAvailable = fulfillment == Fulfillment.PICKUP
@@ -964,8 +968,11 @@ public class PublicQuoteService {
 
     private enum Fulfillment { DELIVERY, PICKUP }
 
-    /** The customer record an order is priced on, and the unit prices its stored lines keep. */
-    private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices) {}
+    /**
+     * The customer record an order is priced on, the unit prices its stored lines keep and the
+     * rule its pallets count by: the stored order's for a change, MIXED for a new order.
+     */
+    private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices, PalletCountRule palletRule) {}
 
     /**
      * What an order request says beside its document. {@code fulfillment} is DELIVERY or
