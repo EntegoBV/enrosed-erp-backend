@@ -362,8 +362,11 @@ public class SalesPricingCalculator {
         }
         /* A product that cannot be stacked drops out of the calculated count, and with it out of
            a per-pallet freight: that freight reads as open, never as a silently low or zero amount.
-           Hand-built pallets are billed as they stand; an agreed split keeps its own freight. */
+           Hand-built pallets are billed as they stand; an agreed split keeps its own freight. Only
+           on a concept that was never sent: a document that left concept keeps the validation it
+           was sent or issued with, its freight shown and its transport saves accepted as before. */
         String palletFitIssue = palletised && manualPallets == 0 && split == null
+                && order.status() == QuoteStatus.CONCEPT && order.sentAt() == null
                 && order.freight() != FreightState.TE_BEPALEN && !withoutPalletFit.isEmpty()
                 && (order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET
                     || order.freightPricingStrategy() == FreightPricingStrategy.CARRIER)
