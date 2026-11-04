@@ -1,11 +1,13 @@
 package be.enrosed.sales.application;
 
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.*;
 import be.enrosed.shared.BusinessRuleException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.*;
+import java.util.function.Function;
 
 /** Exclusion belongs to this document, never to the catalogue or the stock ledger. */
 @ApplicationScoped
@@ -63,6 +65,42 @@ public class SalesLineAvailability {
             if (pallet == null) { result.add(null); continue; }
             var kept = pallet.items().stream().filter(item -> !parked.contains(item.productId())).toList();
             if (kept.size() == pallet.items().size()) result.add(pallet);
+            else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
+        }
+        return result;
+    }
+
+    /**
+     * The hand layout after its lines changed, so a save does not refuse it as stale: a product that
+     * left the document or is parked leaves its pallets, and none stands on them with more cartons than
+     * its line ships (counted as validatePallets counts them), the surplus coming off the last pallet
+     * first. No carton is ever added: a raised line shows its new cartons as unassigned. A pallet
+     * emptied here goes; one the seller left empty stays, as does a malformed item, for the validation
+     * to refuse.
+     */
+    static List<OrderPallet> reconcilePallets(List<OrderPallet> pallets, List<SalesOrderLine> lines,
+                                              Function<Long, Product> products) {
+        if (pallets == null || pallets.isEmpty()) return pallets;
+        Map<Long, Integer> room = new HashMap<>();
+        for (var line : lines) {
+            if (line == null || line.productId() == null || line.isUnavailable()) continue;
+            Product product = products.apply(line.productId());
+            if (product == null) continue;
+            room.merge(line.productId(), product.carton() == null ? Math.max(0, line.quantity())
+                    : product.carton().cartonsFor(line.quantity()), Integer::sum);
+        }
+        var result = new ArrayList<OrderPallet>();
+        for (var pallet : pallets) {
+            if (pallet == null || pallet.items().isEmpty()) { result.add(pallet); continue; }
+            var kept = new ArrayList<OrderPallet.Item>();
+            for (var item : pallet.items()) {
+                if (item == null || item.productId() <= 0 || item.cartons() <= 0) { kept.add(item); continue; }
+                int cartons = Math.min(item.cartons(), room.getOrDefault(item.productId(), 0));
+                if (cartons <= 0) continue;
+                room.merge(item.productId(), -cartons, Integer::sum);
+                kept.add(cartons == item.cartons() ? item : new OrderPallet.Item(item.productId(), cartons));
+            }
+            if (kept.equals(pallet.items())) result.add(pallet);
             else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
         }
         return result;

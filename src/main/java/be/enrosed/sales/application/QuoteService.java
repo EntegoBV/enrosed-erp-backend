@@ -1025,7 +1025,9 @@ public class QuoteService {
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                updated, order.pallets()).carrying(order));
+                /* The hand layout follows the adopted quantities, as on a save. */
+                updated, SalesLineAvailability.reconcilePallets(order.pallets(), updated, this::productOrNull))
+                .carrying(order));
     }
 
     private be.enrosed.catalog.domain.Product productOrNull(Long productId) {

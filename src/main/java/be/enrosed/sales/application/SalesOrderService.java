@@ -373,6 +373,7 @@ public class SalesOrderService {
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
+        invoice = withPalletsFollowingLines(invoice);
         validatePartnerAdvanceReservation(invoice, null);
         validateForSave(invoice);
         SalesOrder created = orders.save(invoice);
@@ -1732,6 +1733,7 @@ public class SalesOrderService {
             if (advanceBilling().isAdvance(current)) updated = copyWithTerms(updated, current.freight(), current.manualFreightEur(),
                     current.freightPricingStrategy(), current.freightRatePerCbmEur(), updated.lines());
         }
+        updated = withPalletsFollowingLines(updated);
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -2929,6 +2931,18 @@ public class SalesOrderService {
                 }
             }
         }
+    }
+
+    /**
+     * The document with its hand layout following its lines as they are stored: rounded to their step,
+     * or exact on the documents that keep their pieces (SalesLineAvailability.reconcilePallets).
+     */
+    private SalesOrder withPalletsFollowingLines(SalesOrder order) {
+        if (order.pallets().isEmpty()) return order;
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        List<OrderPallet> pallets = SalesLineAvailability.reconcilePallets(order.pallets(), order.lines(), byId::get);
+        return pallets.equals(order.pallets()) ? order : order.withLinesAndPallets(order.lines(), pallets);
     }
 
     private void validatePallets(SalesOrder order, Map<Long, Product> byId, PalletSpec palletSpec) {
