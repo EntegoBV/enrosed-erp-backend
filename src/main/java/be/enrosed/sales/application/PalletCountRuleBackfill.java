@@ -64,8 +64,8 @@ public class PalletCountRuleBackfill {
             if (given[0] + given[1] > 0)
                 LOG.infof("Pallet count rule given: %d concept quote(s) MIXED, %d other document(s) STRICT", given[0], given[1]);
         } catch (RuntimeException failure) {
-            /* Nothing is lost: those rows keep counting strict, and the next start tries again. */
-            LOG.errorf(failure, "Pallet count rule not given; documents without one keep counting strict until the next start");
+            /* Nothing is lost: those rows keep counting strict, and the next run tries again. */
+            LOG.errorf(failure, "Pallet count rule not given; documents without one keep counting strict until the next run");
         }
     }
 }
