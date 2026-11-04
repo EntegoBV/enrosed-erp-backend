@@ -179,7 +179,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - **Hand-built pallets** (optional, never required): a list of pallets on
   the order - label, type (default "Europallet"), height in cm
   (informational), items as cartons per product. When any pallets exist,
-  freight counts THEM instead of the calculated stacking; unassigned
+  freight counts THEM instead of the calculated stacking (strict or mixed
+  per document, see "Automatische pallettelling" below); unassigned
   cartons are reported, not blocked. Send works fine without pallets.
 - **Packing slip** (`/api/sales-orders/{id}/packing-slip`): no prices;
   groups per pallet when pallets exist, otherwise plain lines; signature
@@ -1851,6 +1852,44 @@ Bijkomende kosten, and the Bankkosten/Koersverschil cost of `keepDifferenceAs` s
   line answers "Wat aan deze transactie hangt, is intussen gewijzigd; bekijk het opnieuw". The line gets one audit line.
 - DELETE `…/links` is unchanged (the ERP's 'Splitsing aanpassen' still uses it: it links the same payments again).
 - No schema change.
+
+## Automatische pallettelling: strikt of gemengd (2026-11-04)
+
+Emre: "Ja, gemengd tellen". Without hand-built pallets the freight (COUNTRY_PALLET, CARRIER), the PDF, the portal and
+the website quote count pallets automatically; that count follows a rule stored per document, so a document that left
+concept keeps the count and freight it was sent with.
+
+- `PalletCountRule`: STRICT = every product on pallets of its own (every document's count until now); MIXED = products
+  share pallets in whole layers of their own, a started layer as high as a full one, tallest cartons first, first fit
+  under the height and 700 kg (`PalletCalculator.mixedPallets`, a step-for-step port of `planPallets` in the frontend's
+  `pallet-calculator-model.ts`; compared equal on 604 orders: 4 products strict 4 / mixed 1 at 204.4 cm and 159 kg,
+  four 100 cm singles 2, 56 × 25 kg two pallets of 28). `palletsOptimised` keeps its old fraction estimate.
+- `sales_order.palletcountrule` varchar(16), no CHECK; the entity column is not updatable and the `SalesOrder` record
+  does not carry it, so no save, rebuild or with-copy can change it; null or an unknown value reads STRICT.
+- Migration `docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql` backfills once, in the run that
+  creates the column: concept quotes (docType null/OFFERTE, status CONCEPT, not deleted, reopened ones included) MIXED,
+  every other row STRICT. A rerun, or a run after Hibernate already added the column (forgotten listing), changes
+  nothing: those rows then keep counting strict, harmless; switching that moment's concept quotes needs the backfill
+  UPDATE by hand. Rows the old release writes during a deploy also read STRICT, as do the older rows of a dev H2 file
+  (Hibernate adds the column there without values).
+- Creation: `Orders.save` refuses a new document; `Orders.create(order, rule)` writes the rule with the row. MIXED:
+  `create` (quote, invoice, website request and order), `createFromPurchaseOrder`, `createAuctionSettlement`,
+  `duplicate`, a schedule term without source quote. The source's rule: `createInvoiceFrom` (slotfactuur included),
+  `SalesAdvanceBillingService.createAdvanceInvoice`, `createCreditNote`, the later part of `SalesSplits.split`, a
+  schedule term made from a quote.
+- Pricing: `SalesOrderService.palletRule(order)` reads the rule by id, never from the record: a draft or copy of a
+  stored document counts like it (`preview` puts the path id on the draft). A draft without id counts like the invoice
+  it credits or the quote it comes from, else MIXED; `PublicQuoteService` estimates MIXED; `priceAll` reads every rule
+  once. `PricedOrder.Totals`: `palletRule`, `palletsAutomatic`, `autoPallets` (`items` {productId, cartons, layers},
+  `heightCm` with the 14.4 cm base, `weightKg`, one decimal). Freight bills `palletsManual > 0 ? palletsManual :
+  palletsAutomatic`; the PDF and portal line column counts the automatic pallets carrying the product.
+- `SalesLineAvailability.reconcilePallets` (save, Overnemen, Factuur maken) and `prunePallets` renumber pallets still
+  called "Pallet n" after they drop one; own names stay, and a layout nothing was dropped from is never rewritten.
+- The open per-pallet freight names its cause: "Pallets niet te berekenen voor X: vul de omdoosmaten in" while a size
+  is missing, else "X past niet binnen het gekozen palletprofiel, de hoogte of het gewicht: kies een ander palletprofiel
+  of een hogere maximale pallethoogte".
+- An untaken website order placed before the switch keeps its ordered terms with the strict freight: if the mixed count
+  lowers its freight, it reads "wijkt af van wat de klant bestelde" until it is sent for approval.
 
 ## Batches (2026-10-25)
 
