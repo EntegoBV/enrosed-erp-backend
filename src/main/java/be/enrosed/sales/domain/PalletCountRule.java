@@ -15,7 +15,7 @@ public enum PalletCountRule {
     MIXED;
 
     /**
-     * The stored value read leniently: a row from before the rule that no start has decided yet,
+     * The stored value read leniently: a row from before the rule that PalletCountRuleBackfill has not decided yet,
      * or a value this version does not know, keeps the strict count every document had before the
      * rule existed.
      */

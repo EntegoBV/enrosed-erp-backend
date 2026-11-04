@@ -201,7 +201,7 @@ public final class SalesEntities {
         /**
          * How the automatic pallets are counted (PalletCountRule: STRICT or MIXED), written once
          * when the document is made and never by a save, hence not updatable. A plain varchar, so
-         * no enum CHECK constraint; null (a row from before the rule, until a start decides it) and
+         * no enum CHECK constraint; null (a row from before the rule, until PalletCountRuleBackfill decides it) and
          * an unknown value read as STRICT. Filled for older rows by
          * docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql and PalletCountRuleBackfill.
          */

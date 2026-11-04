@@ -1879,15 +1879,18 @@ concept keeps the count and freight it was sent with.
   null/OFFERTE, status CONCEPT, `deleted_at` null, `sentat` null, no `sales_web_order` row, no `sales_advance_billing`
   row with `quote_id` = it, no `sales_order` with `sourcequoteid` = it, no `sales_split_group` with it as
   `root_order_id` or `later_order_id`, no `partner_advance_quote_snapshot` row); those stay null. Then
-  `PalletCountRuleBackfill` (StartupEvent, priority 2, at every start; the same test word for word in
+  `PalletCountRuleBackfill` (a scheduled job, `pallet-count-rule`, first run 10 minutes after the start and then every
+  10 minutes: `enrosed.pallet-rule.decide-after` / `decide-every`; the same test word for word in
   `UNTOUCHED_CONCEPT_QUOTE`, plain SQL for PostgreSQL and the dev H2) gives every null row MIXED when it is such a
-  quote and STRICT otherwise. So a quote the old release sends between the migration and the cut-over (or longer, when
-  the new deployment fails its health check), and whatever it makes, is decided by what it is at the new release's
-  start: a quote sent with the strict count keeps it. New documents always carry their rule, so only pre-release rows
-  are ever null. A forgotten listing is harmless too: Hibernate adds the column and the start decides every row the
-  same way. On PostgreSQL the start waits at most 15 s for a row lock (`lock_timeout`); a failure is logged, rolls the
-  whole step back and leaves null rows counting STRICT until the next start. Left open: a concept quote decided MIXED
-  that the old release sends in the seconds between the new release's start and the cut-over keeps MIXED.
+  quote and STRICT otherwise. Not at start-up: Railway keeps the old deployment serving until the new one passes its
+  health check (healthcheckTimeout 300 s), and a deployment that fails that check never runs the job, so a quote the
+  old release sends, advances or invoices in that window is decided by what it is once only the new release serves:
+  a quote sent with the strict count keeps it (proved with a base-vs-head run on PostgreSQL, overlap and failed deploy
+  included). Until decided a null row reads STRICT, as the old release bills it, so concept quotes from before the
+  release start counting mixed about 10 minutes after the deploy. New documents always carry their rule, so only
+  pre-release rows are ever null, and every run after the first changes nothing. A forgotten listing is harmless too:
+  Hibernate adds the column and the job decides every row the same way. On PostgreSQL a run waits at most 15 s for a
+  row lock (`lock_timeout`); a failure is logged, rolls the run back and the next run retries.
 - Creation: `Orders.save` refuses a new document; `Orders.create(order, rule)` writes the rule with the row. MIXED:
   `create` (quote, invoice, website request and order), `createFromPurchaseOrder`, `createAuctionSettlement`,
   `duplicate`, a schedule term without source quote. The source's rule: `createInvoiceFrom` (slotfactuur included),

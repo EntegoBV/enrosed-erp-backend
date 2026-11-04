@@ -1,23 +1,21 @@
 package be.enrosed.sales.application;
 
 import io.quarkus.narayana.jta.QuarkusTransaction;
-import io.quarkus.runtime.StartupEvent;
-import jakarta.annotation.Priority;
+import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Gives every document without a pallet count rule its rule, at every start: MIXED to a concept
- * quote nothing has come from yet, STRICT to any other. A new document is always made with its
- * rule (Orders.create), so only rows from before the rule existed are ever without one: the
- * concept quotes the migration (docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql)
- * leaves to this start, what the old release made or sent while the deploy ran (a quote it sent
- * then is strict by now), and every row when the migration was not listed. Until then a row
- * without a rule counts strict.
+ * Gives every document without a pallet count rule its rule, ten minutes after the start and every
+ * ten minutes after that: MIXED to a concept quote nothing has come from yet, STRICT to any other.
+ * A new document is always made with its rule (Orders.create), so only rows from before the rule
+ * existed are ever without one: the concept quotes the migration
+ * (docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql) leaves to this job, what
+ * the old release made or sent while the deploy ran (a quote it sent then is strict by now), and
+ * every row when the migration was not listed. Until then a row without a rule counts strict.
  */
 @ApplicationScoped
 public class PalletCountRuleBackfill {
@@ -44,8 +42,14 @@ public class PalletCountRuleBackfill {
     @ConfigProperty(name = "quarkus.datasource.db-kind", defaultValue = "h2")
     String dbKind;
 
-    /* Before the other start-up observers, some of which price documents. */
-    void onStart(@Observes @Priority(2) StartupEvent event) {
+    /* Not at start-up: Railway keeps the old deployment serving until this one passes its health check
+       (healthcheckTimeout 300 s), and the old release sends, invoices and advances quotes without knowing
+       the rule. Ten minutes after the start only this release serves; until then a row without a rule
+       reads STRICT, as the old release bills it. Only rows without a rule are touched, so every run after
+       the first changes nothing. */
+    @Scheduled(identity = "pallet-count-rule", every = "${enrosed.pallet-rule.decide-every:10m}",
+            delayed = "${enrosed.pallet-rule.decide-after:10m}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    void decide() {
         try {
             int[] given = QuarkusTransaction.requiringNew().call(() -> {
                 /* The old release may still hold a document while this one starts: wait a while, not forever. */
