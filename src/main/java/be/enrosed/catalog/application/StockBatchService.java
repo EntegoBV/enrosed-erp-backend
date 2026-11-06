@@ -357,10 +357,25 @@ public class StockBatchService {
 
     /** What one shipment took, per product (from {@link #takesForSalesOrder}); values unrounded. */
     public Map<Long, StockBatchSaleCost> saleCost(long salesOrderId) {
+        return saleCostOf(takesForSalesOrder(salesOrderId));
+    }
+
+    /** {@link #saleCost} of every shipment in one read, per sales order (a list that values many documents). */
+    public Map<Long, Map<Long, StockBatchSaleCost>> saleCosts() {
+        Map<Long, List<StockBatchMove>> takes = new HashMap<>();
+        for (StockBatchMoveEntity row : moves.list("salesOrderId is not null and pieces < 0 and linkMoveId is null order by id")) {
+            takes.computeIfAbsent(row.salesOrderId, id -> new java.util.ArrayList<>()).add(toDomain(row));
+        }
+        Map<Long, Map<Long, StockBatchSaleCost>> result = new HashMap<>();
+        takes.forEach((orderId, rows) -> result.put(orderId, saleCostOf(rows)));
+        return result;
+    }
+
+    private static Map<Long, StockBatchSaleCost> saleCostOf(List<StockBatchMove> takes) {
         Map<Long, int[]> pieces = new LinkedHashMap<>();
         Map<Long, BigDecimal> value = new HashMap<>();
         Map<Long, BigDecimal> valueExcl = new HashMap<>();
-        for (StockBatchMove take : takesForSalesOrder(salesOrderId)) {
+        for (StockBatchMove take : takes) {
             int taken = Math.abs(take.pieces());
             int[] counts = pieces.computeIfAbsent(take.productId(), id -> new int[2]);
             counts[0] += taken;

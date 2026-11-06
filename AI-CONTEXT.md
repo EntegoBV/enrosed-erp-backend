@@ -2048,6 +2048,21 @@ commit;
   cents), `/sales-orders/{id}` (the takes of the shipment per batch), `/check`; `POST /pause`, `/resume`,
   `/check/repair`, `/backfill`, `/reset`. Business refusals answer 409.
 
+## Enrosed kost in the recognised cost (2026-11-06)
+
+Emre: the Enrosed kost is Enrosed's own revenue, paid to nobody, so Analyses › Resultaat counts the Enrosed kost of
+what was sold as revenue (Verkoop's margin, the quote and the sales line keep it as cost). `SalesAccounting
+.recognizedEnrosedEur` = the Enrosed kost inside `recognizedCostEur`, signed like it (`PartnerFinancingService
+.accounting` → `SalesEnrosedCost`): a line with a stamped stock cost takes the shipment's takes (value with minus without
+the Enrosed kost; none on a container sale; pieces without a batch at the expected cost's part, the stamp's own rule); any
+other line the part of the newest `product_cost_history` row with parts carrying exactly its cost
+(`ProductCostHistoryService.enrosedParts` → `EnrosedParts.enrosedIn`, 4 decimals, the Gelande kost sheet's rule; no row
+= 0, e.g. a hand-typed cost or a container sale's own lines frozen without it); a credit note that copied its invoice's
+stock cost takes that shipment's part when the cost matches. Partner advances and settlements hold 0 (external cost).
+The sales list preloads both reads once per request (`SalesEnrosedCost.preloadForRequest`, request-scoped
+`SalesEnrosedCostCache`; `StockBatchService.saleCosts()` = every shipment's takes in one read). TICA:
+`GET /api/tica/analytics` days carry `enrosedCostEur`, the same rule on the product's current cost.
+
 ## Voorraadradar / stock radar (2026-10-28, on production since 2026-10-31)
 
 A personal bot for Emre: watches the white iPhone Duo in 256 GB (Apple part

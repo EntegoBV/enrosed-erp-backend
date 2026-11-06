@@ -23,6 +23,7 @@ public class TicaService {
     private final WebPushNotifier push;
     private final TicaStockService stock;
     private final ProductChannelPriceService channelPrices;
+    @jakarta.inject.Inject jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.ProductCostHistoryService> costHistory;
     @ConfigProperty(name = "enrosed.tica.enabled", defaultValue = "false") boolean enabled;
     @ConfigProperty(name = "enrosed.tica.username", defaultValue = "TT_2132") String username;
     @ConfigProperty(name = "enrosed.tica.password") Optional<String> password;
@@ -60,8 +61,9 @@ public class TicaService {
     public record SalesDto(LocalDate from, LocalDate to, int page, int size, long totalLines, long transactionCount,
                            BigDecimal quantity, BigDecimal grossTotal, BigDecimal netTotal, long unmatchedLineCount,
                            List<SaleDto> lines) {}
+    /** {@code enrosedCostEur}: the Enrosed kost inside {@code goodsCostEur}, which Resultaat counts as revenue (2026-11-06). */
     public record AnalyticsDay(LocalDate date, long transactionCount, BigDecimal quantity, BigDecimal revenueExcl,
-                               BigDecimal goodsCostEur, long missingCostLines) {}
+                               BigDecimal goodsCostEur, long missingCostLines, BigDecimal enrosedCostEur) {}
     record Claim(String token, LocalDate from, LocalDate to, boolean initial, Instant startedAt) {}
 
     public StatusDto status() {
@@ -248,14 +250,21 @@ public class TicaService {
         List<Sale> sales = Sale.list("active = true order by soldAt");
         Set<Long> ids = new HashSet<>(); for (Sale sale : sales) if (sale.productId != null) ids.add(sale.productId);
         Map<Long, BigDecimal> unitCosts = new HashMap<>();
+        /* The Enrosed kost inside each current cost, on the same unit (the cost-history row that carries that cost). */
+        Map<Long, BigDecimal> enrosedUnits = new HashMap<>();
+        var parts = ids.isEmpty() || costHistory == null || !costHistory.isResolvable() ? null : costHistory.get().enrosedParts(ids);
         if (!ids.isEmpty()) for (ProductEntity product : entities.createQuery("from ProductEntity where id in :ids", ProductEntity.class)
                 .setParameter("ids", ids).getResultList()) {
             String unit = stock.sourceUnit(product);
             if (product.landedCostEur != null && unit != null) {
                 BigDecimal cost = product.landedCostEur;
-                if (product.packaging().soldAsDisplay() && unit.equals("PIECE"))
+                BigDecimal enrosed = parts == null ? BigDecimal.ZERO : parts.enrosedIn(product.id, product.landedCostEur);
+                if (product.packaging().soldAsDisplay() && unit.equals("PIECE")) {
                     cost = cost.divide(BigDecimal.valueOf(product.packaging().unitPieces()), 8, java.math.RoundingMode.HALF_UP);
+                    enrosed = enrosed.divide(BigDecimal.valueOf(product.packaging().unitPieces()), 8, java.math.RoundingMode.HALF_UP);
+                }
                 unitCosts.put(product.id, cost);
+                enrosedUnits.put(product.id, enrosed);
             }
         }
         Map<LocalDate, List<Sale>> days = new TreeMap<>();
@@ -264,10 +273,12 @@ public class TicaService {
             List<Sale> rows = entry.getValue();
             BigDecimal cost = rows.stream().filter(s -> unitCosts.containsKey(s.productId))
                     .map(s -> unitCosts.get(s.productId).multiply(s.quantity)).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal enrosed = rows.stream().filter(s -> enrosedUnits.containsKey(s.productId))
+                    .map(s -> enrosedUnits.get(s.productId).multiply(s.quantity)).reduce(BigDecimal.ZERO, BigDecimal::add);
             return new AnalyticsDay(entry.getKey(), rows.stream().map(s -> s.exhibitor + "|" + s.location + "|" + s.transactionNumber).distinct().count(),
                     rows.stream().map(s -> s.quantity).reduce(BigDecimal.ZERO, BigDecimal::add),
                     rows.stream().map(s -> s.netTotal).reduce(BigDecimal.ZERO, BigDecimal::add), cost,
-                    rows.stream().filter(s -> !unitCosts.containsKey(s.productId)).count());
+                    rows.stream().filter(s -> !unitCosts.containsKey(s.productId)).count(), enrosed);
         }).toList();
     }
 

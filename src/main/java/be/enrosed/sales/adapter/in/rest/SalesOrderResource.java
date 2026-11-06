@@ -40,6 +40,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.SalesAdvanceBillingService advanceBilling;
     @jakarta.inject.Inject be.enrosed.sales.application.WebOrders webOrders;
     @jakarta.inject.Inject be.enrosed.sales.application.WebOrderDeliveries deliveries;
+    @jakarta.inject.Inject be.enrosed.sales.application.SalesEnrosedCost enrosedCost;
     @jakarta.inject.Inject be.enrosed.sales.application.WebOrderMails webOrderMails;
     @jakarta.inject.Inject be.enrosed.sales.application.CustomerService customers;
     @jakarta.inject.Inject be.enrosed.sales.application.CustomerAddressTakeover addressTakeover;
@@ -356,6 +357,8 @@ public class SalesOrderResource {
         java.util.Map<Long, be.enrosed.sales.application.WebOrders.Row> webOrderRows =
                 webOrders == null ? java.util.Map.of() : webOrders.indexStates();
         if (deliveries != null) deliveries.preloadForRequest();
+        /* Two reads give every document's Enrosed kost (accounting); no document looks its own up. */
+        if (enrosedCost != null) enrosedCost.preloadForRequest();
         java.util.Set<Long> invoicedQuoteIds = invoicedQuoteIds(all);
         java.util.Map<Long, be.enrosed.sales.domain.Customer> customerRecords = new java.util.HashMap<>();
         return all.stream()
