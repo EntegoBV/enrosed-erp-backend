@@ -2238,7 +2238,8 @@ moeten dan andere prijs zien natuurlijk."
   cleared); STANDARD with a price is MANUAL; MANUAL without one is null; CUSTOMER without a price
   takes today's agreed price ("Klantprijs gebruiken"), else falls back to the catalogue; CUSTOMER
   with a price stays CUSTOMER only when it is today's agreed price or the price already pinned on
-  that line, otherwise it was typed over (MANUAL). A concept that changes customer re-pins every
+  that line, otherwise it was typed over (MANUAL); that check runs on every document, so a website
+  line keeps the CUSTOMER the website path gave it. A concept that changes customer re-pins every
   CUSTOMER line and every line on the catalogue by default (null source, no price) to the new
   customer's agreed price, or back to the catalogue (null, null) when they have none; STANDARD and
   typed lines stay. (The contract named only the CUSTOMER lines; the default lines go along so A ->
@@ -2255,9 +2256,9 @@ moeten dan andere prijs zien natuurlijk."
   on the catalogue today, `unitPriceFor` without a manual price) and `customerUnitPriceEur` (today's
   agreed price, null without one). They are filled for every line with a source, and on a live
   concept that pins (not archived: a quote is archived once invoiced) also for a line without one
-  whose product has an agreed price; all three are
-  `NON_NULL`, so a document without either answers byte for byte as before (`priceForStaff`,
-  `SalesPricingCalculator.PriceHints`). `order.lines[].priceSource` is `NON_NULL` too.
+  whose product has an agreed price; all three are `NON_NULL`, so a document without either answers
+  byte for byte as before (`priceForStaff`, `SalesPricingCalculator.PriceHints`).
+  `order.lines[].priceSource` is `NON_NULL` too.
 - **Product side** (admin): `GET /api/products/{id}/customer-prices` ->
   `[{customerId, customerName, priceExclVat, validUntil, status}]` by customer name (404 for a
   gone product), for the "n klantprijzen" chip beside the sales price.
@@ -2266,3 +2267,9 @@ moeten dan andere prijs zien natuurlijk."
   the customer saw. The portal page itself shows the quote's own (pinned) prices as always.
 - **Website**, see "Customer logins" and "Website orders" above: a logged-in customer sees and
   orders at their agreed price; anonymous visitors and customers without one keep the public list.
+- **Checked live** (2026-11-06, dev build on H2 and the packaged jar on PostgreSQL 17): documents
+  made before (a sent quote, an issued invoice and credit note, of a customer with agreed prices)
+  answer byte for byte in the staff GET and the portal, their PDFs have the same text and pages;
+  the anonymous configuration and estimate are byte for byte origin/main's, price switch on and
+  off; the migration ran twice and Hibernate changed nothing on start. Not walked live: split
+  parts, partner deals and advance invoices (skipped by rule only).
