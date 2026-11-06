@@ -1167,6 +1167,13 @@ Public domain: enrosed-erp-backend-production.up.railway.app.
   edit can silently hit the wrong entity - target the exact class.
 - Tests are green at 19; the DocumentText parity test is the guard rail
   when touching i18n CSVs.
+- `java -jar target/quarkus-app/quarkus-run.jar` is built for PostgreSQL:
+  `quarkus.datasource.db-kind` is fixed at build time by the prod profile, so
+  the packaged app refuses an H2 URL. To try a packaged build on the H2 file,
+  build with `mvn package -Dquarkus.profile=dev` and run it with
+  `-Dquarkus.profile=dev`; to try the real jar, give it a scratch PostgreSQL
+  (PG* variables, plus `SMTP_HOST` and `PUBLIC_FORM_HMAC_SECRET`, which the
+  prod profile requires).
 
 ## Jaarinventaris (2026-10-09)
 
@@ -2106,7 +2113,8 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   override equal to what the product would print anyway is dropped. Warnings do not refuse
   (`priceWarnings` in the preflight): BELOW_COST (one-off or customer price under
   `landedCostEur`), DISPLAY_WITHOUT_PIECES (a display sold per display without its piece count
-  still prints "Prijs op aanvraag", and the row says so), CUSTOMER_PRICE_EXPIRED,
+  still prints "Prijs op aanvraag" and its row says so; only older data, the product form now
+  requires the count), CUSTOMER_PRICE_EXPIRED,
   CUSTOMER_PRICE_BASIS_CHANGED, VALIDITY_PAST.
 - **Preflight** adds `prices` (one row per selected product while prices are on: basis,
   piecesPerUnit, unitKey, catalogueEur, customerEur, printedEur null for "op aanvraag", source
