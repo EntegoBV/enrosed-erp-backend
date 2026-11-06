@@ -521,11 +521,15 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (2 mm clearance, the same line as the tests' 795 pt check), and sheets
   that run into it are laid out again in the compact design; a compact sheet
   that still runs into it gets the tight design (`family-page--tight`: a
-  smaller hero and colour strip, every row kept). The same passes measure the
+  smaller hero and colour strip, every row kept), and a tight sheet that
+  still does not fit the bare one (`family-page--bare`: no colour photos,
+  gallery or long description), so the variant table with its prices always
+  stays whole (2026-11-06: before it a long family could lose its whole
+  table off the page). The same passes measure the
   overview pages: they start at 10 rows per page (it was 12; pallet, 20ft and
   40ft take a line more per family) and a layout whose range table runs into
   its footnote is laid out again below its fullest page, down to 6 rows.
-  At most four layouts (only the last writes the PDF); whatever still does not
+  At most five layouts (only the last writes the PDF); whatever still does not
   fit is logged as WARN ("Catalogusfiche … is ook compact … mm te lang",
   "Overzichtspagina N loopt … mm in de voetnoot"), the room left at DEBUG.
   `renderHtml` shows the first layout only. Before any layout,
@@ -2228,9 +2232,11 @@ moeten dan andere prijs zien natuurlijk."
   nothing of customer prices; a pinned price is a manual price, so the LINE/ORDER tiers and the
   extra discount apply on top exactly as on a typed price (Emre told).
 - **Where it pins** (`SalesOrderService.pinsCustomerPrices`): a regular quote or invoice with a
-  customer, PRODUCT or ORDER markup. Never a credit note, a partner deal, CONTAINER_COST, a split
-  part, an advance invoice, or a website request or order (channel WEBSITE, the request marker or a
-  `sales_web_order` row): the website path is the one place that pins there (below).
+  customer, PRODUCT or ORDER markup, a website request or order included once staff save it (a
+  product staff add gets the agreed price; the quote link offers it too). Never a credit note, a
+  partner deal, CONTAINER_COST, a split part or an advance invoice. The website's own intake of a
+  request (`updateWebsiteRequest`) and the customer's `updateByCustomer` never settle: their lines
+  keep the prices and sources the website path gave them (below).
 - **Rules** (`SalesLinePrices.settle`, on every staff save and preview, never on the customer's
   `updateByCustomer`): a new line (no stored line with its id) without a price and without a source
   gets today's agreed price as CUSTOMER; a client without the field (an older screen) keeps the
@@ -2239,8 +2245,10 @@ moeten dan andere prijs zien natuurlijk."
   takes today's agreed price ("Klantprijs gebruiken"), else falls back to the catalogue; CUSTOMER
   with a price stays CUSTOMER only when it is today's agreed price or the price already pinned on
   that line, otherwise it was typed over (MANUAL); that check runs on every document, so a website
-  line keeps the CUSTOMER the website path gave it. A concept that changes customer re-pins every
-  CUSTOMER line and every line on the catalogue by default (null source, no price) to the new
+  line keeps the CUSTOMER the website path gave it. An existing CUSTOMER line that arrives as
+  CUSTOMER without a price (an older screen clearing the price field) goes back to the catalogue.
+  A concept that changes customer re-pins every CUSTOMER line, on every document, and on a document
+  that pins also every line on the catalogue by default (null source, no price), to the new
   customer's agreed price, or back to the catalogue (null, null) when they have none; STANDARD and
   typed lines stay. (The contract named only the CUSTOMER lines; the default lines go along so A ->
   B -> A gives A's prices back.) A credit note never carries a source. An unknown source is refused.
@@ -2248,8 +2256,10 @@ moeten dan andere prijs zien natuurlijk."
 - **Also pinned**: lines a container sale at sales prices starts with (`createFromPurchaseOrder`,
   not at cost), and products a customer added through the quote link when staff adopt the proposal
   (Overnemen; kept lines keep price and source).
-- **Copies keep it**: invoice from quote and slotfactuur, "Nieuwe kopie" (same customer; changing the
-  copy's customer re-pins as above), Overnemen, delivery weeks. A split part keeps CUSTOMER only.
+- **Copies keep it**: invoice from quote and slotfactuur, Overnemen, delivery weeks. A split part
+  keeps CUSTOMER only. "Nieuwe kopie" is a new concept: its CUSTOMER lines take today's agreed price,
+  or the catalogue once that price ended or its unit changed, and on a copy that pins its catalogue
+  lines take the agreed price as a new line would (`withTodaysCustomerPrices`).
 - **Staff view** (only `GET /api/sales-orders/{id}` and the single-document answers built by the
   same view, preview included; never the list, a PDF, the portal or the website): each priced line
   carries `priceSource` and two read-only figures, `standardUnitPriceEur` (what the line would cost
