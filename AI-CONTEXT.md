@@ -2251,8 +2251,9 @@ moeten dan andere prijs zien natuurlijk."
   same view, preview included; never the list, a PDF, the portal or the website): each priced line
   carries `priceSource` and two read-only figures, `standardUnitPriceEur` (what the line would cost
   on the catalogue today, `unitPriceFor` without a manual price) and `customerUnitPriceEur` (today's
-  agreed price, null without one). They are filled for every line with a source, and on a concept
-  that pins also for a line without one whose product has an agreed price; all three are
+  agreed price, null without one). They are filled for every line with a source, and on a live
+  concept that pins (not archived: a quote is archived once invoiced) also for a line without one
+  whose product has an agreed price; all three are
   `NON_NULL`, so a document without either answers byte for byte as before (`priceForStaff`,
   `SalesPricingCalculator.PriceHints`). `order.lines[].priceSource` is `NON_NULL` too.
 - **Product side** (admin): `GET /api/products/{id}/customer-prices` ->

@@ -287,9 +287,10 @@ public class SalesOrderService {
 
     /**
      * What the staff view shows beside each price: lines with a source always get the catalogue and
-     * customer price of today; on a concept that pins customer prices, so does a line without a source
-     * whose product has an agreed price (so "Klantprijs gebruiken" can be offered). Null on documents
-     * where neither applies, which keeps their answer exactly as before.
+     * customer price of today; on a live concept that pins customer prices (not archived, as a quote
+     * is once invoiced), so does a line without a source whose product has an agreed price (so
+     * "Klantprijs gebruiken" can be offered). Null on documents where neither applies, which keeps
+     * their answer exactly as before.
      */
     private SalesPricingCalculator.PriceHints priceHints(SalesOrder order, Map<Long, Product> byId) {
         if (order.customerId() == null || customerPrices() == null || order.lines() == null) return null;
@@ -299,7 +300,7 @@ public class SalesOrderService {
         List<Product> onLines = order.lines().stream().filter(Objects::nonNull).map(SalesOrderLine::productId)
                 .filter(Objects::nonNull).distinct().map(byId::get).filter(Objects::nonNull).toList();
         return new SalesPricingCalculator.PriceHints(customerPrices().activeFor(order.customerId(), onLines),
-                pins && order.status() == QuoteStatus.CONCEPT);
+                pins && order.status() == QuoteStatus.CONCEPT && !order.isArchived());
     }
 
     private CustomerPriceService customerPrices() {

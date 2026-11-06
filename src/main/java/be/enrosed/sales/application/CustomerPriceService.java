@@ -245,9 +245,10 @@ public class CustomerPriceService {
                 .setParameter("product", productId).getResultList();
         if (rows.isEmpty()) return List.of();
         Map<Long, String> names = new LinkedHashMap<>();
-        entities.createQuery("select c.id, c.company from CustomerEntity c where c.id in :ids", Object[].class)
-                .setParameter("ids", rows.stream().map(row -> row.customerId).distinct().toList())
-                .getResultList().forEach(found -> names.put((Long) found[0], (String) found[1]));
+        for (Long customerId : rows.stream().map(row -> row.customerId).distinct().toList()) {
+            SalesEntities.CustomerEntity customer = entities.find(SalesEntities.CustomerEntity.class, customerId);
+            names.put(customerId, customer == null ? null : customer.company);
+        }
         LocalDate today = today();
         return rows.stream()
                 .map(row -> new ProductRow(row.customerId, names.get(row.customerId), row.priceExclVat, row.validUntil,
