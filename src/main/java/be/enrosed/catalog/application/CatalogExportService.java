@@ -324,20 +324,27 @@ public class CatalogExportService {
     private final CatalogFamilyReader families;
     private final CatalogDocumentRenderer renderer;
     private final CatalogRecipients recipients;
+    private final CatalogExportJournal journal;
 
     public CatalogExportService(ProductService products, CategoryService categories,
                                 CatalogFamilyReader families,
                                 CatalogDocumentRenderer renderer,
-                                CatalogRecipients recipients) {
+                                CatalogRecipients recipients,
+                                CatalogExportJournal journal) {
         this.products = products;
         this.categories = categories;
         this.families = families;
         this.renderer = renderer;
         this.recipients = recipients;
+        this.journal = journal;
     }
 
+    /** A PDF with prices or for a recipient is journaled after the render; a failed write fails the export. */
     public CatalogDocumentRenderer.Document export(Request incoming) {
-        return renderer.render(model(incoming));
+        Model model = model(incoming);
+        CatalogDocumentRenderer.Document document = renderer.render(model);
+        if (model.journaled()) journal.record(model, document);
+        return document;
     }
 
     /** The same validation as the export; price problems that would refuse the PDF answer 409 here too. */

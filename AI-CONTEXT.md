@@ -2125,6 +2125,21 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
 - `/api/catalog/export` also produces JSON, so a refusal (404 unknown customer, a family page
   with too much text) reaches the studio's blob request as a readable body; the PDF itself is
   always sent as application/pdf.
+- **Export journal** (`catalog/application/CatalogExportJournal`, tables `catalog_export` and
+  `catalog_export_line`): every export with prices on or a recipient, written after a
+  successful render in its own short transaction (a separate bean, because the render can take
+  minutes and runs outside one); a failed write fails the export. It keeps who (username and
+  display name) and when, the customer id with the name as printed (or only the typed name),
+  layout, language, includePrices, the validity, counts (products, customer prices, one-off
+  adjustments incl. "op aanvraag", op aanvraag), the file name, size and SHA-256 of the PDF, and
+  one line per product in selection order (sku, name in the PDF's language, sales unit,
+  printed/catalogue/customer price, source). A stored customer with prices also gets one Logboek
+  entry (action `CATALOG_EXPORTED` on CUSTOMER, "Catalogus met prijzen gemaakt · 24 producten,
+  3 klantprijzen, 2 eenmalig · Handelscatalogus NL", file name and validity as fields). The ERP
+  says "gemaakt": it cannot know whether the PDF was sent. REST (admin):
+  `GET /api/customers/{id}/catalog-exports?limit=20` (newest first, max 100) and
+  `GET /api/catalog/exports/{id}` (the header fields plus `lines`). A deleted customer's
+  exports stay, under the name they were made for.
 - **Not used** (Emre's decision for this round): quotes, invoices, the portal and the website
   keep their own pricing; the website still shows no customer prices.
 - **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
