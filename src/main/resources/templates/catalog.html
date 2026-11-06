@@ -31,6 +31,7 @@
     .eyebrow { color: #e1c590; font-size: 7.5pt; letter-spacing: .8px; }
     .meta { width: 62mm; padding-top: 1mm; text-align: right; color: #eee3dc; font-size: 7.5pt; line-height: 1.5; }
     .meta strong { color: #fff; font-weight: 600; }
+    .recipient { margin-top: 1.6mm; color: #fffaf3; font-size: 9pt; font-weight: 600; line-height: 1.3; word-wrap: break-word; }
     .intro { margin: 0 0 5mm; padding: 2mm 0 2mm 4mm; color: #59454d; border-left: .5mm solid #bea16a; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12pt; line-height: 1.3; word-wrap: break-word; }
     /* Retry the complete product on the next page; td-only avoidance cannot do that. */
     .product-block { page-break-inside: avoid; margin-bottom: 2.2mm; }
@@ -69,9 +70,9 @@
   </style>
 </head>
 <body>
-<div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title} · {itemCountLabel}</td></tr></table></div>
+<div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title}{#if recipientShort} · {recipientShort}{/if} · {itemCountLabel}</td></tr></table></div>
 <div class="running-footer">
-  <div class="footer-note">{copy['catalog.simple.footer']} {palletBasis}</div>
+  <div class="footer-note">{#if priceBasis}{priceBasis} {/if}{#if validityLine}{validityLine}. {/if}{copy['catalog.simple.footer']} {palletBasis}</div>
   <table><tr><td>ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
 </div>
 
@@ -81,6 +82,7 @@
       {#if logo}<img class="logo" src="{logo}" alt="{company.name}"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
       <h1>{title}</h1>
       <div class="eyebrow">{todayText} · {itemCountLabel}</div>
+      {#if recipientLine || validityLine}<div class="recipient">{recipientLine}{#if recipientLine && validityLine} · {/if}{validityLine}</div>{/if}
     </td>
     <td class="meta">
       <strong>{company.name}</strong><br/>

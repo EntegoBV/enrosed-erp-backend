@@ -1,5 +1,6 @@
 package be.enrosed.sales.application;
 
+import be.enrosed.catalog.application.port.out.CatalogRecipients;
 import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.PriceBasis;
 import be.enrosed.catalog.domain.Product;
@@ -122,13 +123,17 @@ public class CustomerPriceService {
             throw new BusinessRuleException("Bewaar hoogstens " + CHANGE_LIMIT + " klantprijzen tegelijk");
         }
         Set<Long> seen = new HashSet<>();
+        Long twice = null;
         for (Change change : changes) {
             if (change.productId() == null) throw new BusinessRuleException("Een klantprijs noemt geen product");
-            if (!seen.add(change.productId())) {
-                throw new BusinessRuleException("Product #" + change.productId() + " staat twee keer in de wijzigingen");
-            }
+            if (!seen.add(change.productId()) && twice == null) twice = change.productId();
         }
         Map<Long, Product> byId = productsById(seen);
+        if (twice != null) {
+            Product product = byId.get(twice);
+            throw new BusinessRuleException((product == null ? "Product #" + twice : product.sku())
+                    + " staat twee keer in de wijzigingen");
+        }
         Map<Long, CustomerProductPriceEntity> current = currentRows(customerId, seen);
         LocalDate today = today();
         Instant now = Instant.now();
@@ -195,6 +200,22 @@ public class CustomerPriceService {
         if (changed > 0) recordActivity(customer, source, changed, log);
         entities.flush();
         return list(customerId);
+    }
+
+    /**
+     * The stored prices of these products for the catalogue, whatever their validity or basis:
+     * the export decides which apply and warns about the others.
+     */
+    public Map<Long, CatalogRecipients.StoredPrice> stored(long customerId, Collection<Long> productIds) {
+        if (productIds == null || productIds.isEmpty()) return Map.of();
+        Map<Long, CatalogRecipients.StoredPrice> result = new LinkedHashMap<>();
+        for (CustomerProductPriceEntity row : currentRows(customerId, productIds).values()) {
+            SalesUnit unit = salesUnit(row.salesUnit);
+            if (unit == null) continue;
+            result.put(row.productId, new CatalogRecipients.StoredPrice(row.productId, row.priceExclVat,
+                    unit, row.piecesPerUnit, row.validUntil));
+        }
+        return result;
     }
 
     /** Called inside the customer's deletion: the rows go, the history says so. */

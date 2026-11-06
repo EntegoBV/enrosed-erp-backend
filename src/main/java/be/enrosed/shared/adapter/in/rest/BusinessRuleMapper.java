@@ -1,5 +1,6 @@
 package be.enrosed.shared.adapter.in.rest;
 
+import be.enrosed.catalog.application.CatalogPriceIssuesException;
 import be.enrosed.sales.application.PortalRefusal;
 import be.enrosed.sales.application.WebOrderChangedException;
 import be.enrosed.shared.BusinessRuleException;
@@ -26,6 +27,16 @@ public class BusinessRuleMapper implements ExceptionMapper<BusinessRuleException
                             "message", localized.getMessage(),
                             "missingPaths", localized.missingPaths()))
                     .build();
+        }
+        /* Prices asked for a catalogue PDF that cannot be printed: the studio lists them per product. */
+        if (exception instanceof CatalogPriceIssuesException prices) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", 409);
+            body.put("code", "CATALOG_PRICES_INVALID");
+            body.put("message", prices.getMessage());
+            body.put("priceIssues", prices.issues());
+            body.put("timestamp", Instant.now().toString());
+            return Response.status(409).type(MediaType.APPLICATION_JSON_TYPE).entity(body).build();
         }
         /* The staff screen worked from a version of a website order the customer has since changed. */
         if (exception instanceof WebOrderChangedException changed) {

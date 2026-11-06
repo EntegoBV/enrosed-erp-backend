@@ -2086,6 +2086,45 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   customer row.
 - **Deletion**: `CustomerPriceDeletionListener` removes a deleted customer's rows inside the
   deletion and writes CUSTOMER_DELETED history.
+- **Priced catalogue for a recipient** (`CatalogExportService`): the request may name
+  `customerId` (a stored customer; unknown: 404 "De gekozen klant bestaat niet meer") or, without
+  one, `recipientName` (a fair lead; trimmed, max 120, no stored prices), `pricesValidUntil` and
+  `priceOverrides` [{productId, priceEur, onRequest, basis PIECE|DISPLAY, piecesPerUnit}]. All
+  optional, so an older studio prints catalogue prices as before. Precedence per product:
+  one-off (this PDF only) > the customer's ACTIVE price > the catalogue price
+  (`computedSalesPriceEur`) > "Prijs op aanvraag". One validation in `model()` serves preflight
+  and export: overrides or a validity without prices, a product not in the selection, a
+  duplicate, a price outside 0..1 000 000 or with more than 2 decimals, a price with "op
+  aanvraag", or a basis that no longer matches the product refuse with 409
+  `{code: CATALOG_PRICES_INVALID, message, priceIssues:[{productId, code, message}]}`. An
+  override equal to what the product would print anyway is dropped. Warnings do not refuse
+  (`priceWarnings` in the preflight): BELOW_COST (one-off or customer price under
+  `landedCostEur`), DISPLAY_WITHOUT_PIECES (a display sold per display without its piece count
+  still prints "Prijs op aanvraag", and the row says so), CUSTOMER_PRICE_EXPIRED,
+  CUSTOMER_PRICE_BASIS_CHANGED, VALIDITY_PAST.
+- **Preflight** adds `prices` (one row per selected product while prices are on: basis,
+  piecesPerUnit, unitKey, catalogueEur, customerEur, printedEur null for "op aanvraag", source
+  CATALOGUE|CUSTOMER|ONE_OFF|ON_REQUEST; an empty list with prices off), `priceWarnings` and
+  `recipient`. `ready` still means translations only. The studio refuses a recipient or
+  one-off prices when `prices` is missing (an older backend would silently drop them), so
+  deploy the backend first.
+- **Renderer**: every printed amount comes from the model's `PriceBook` (`catalogPrices(product,
+  amount)`); the display/piece wording is unchanged. With a recipient and prices: "Prijslijst
+  voor {klant}" on the brochure cover (between the rule and the title) and under the compact
+  masthead title, the recipient in the compact running header, "Uw prijs" instead of
+  "Referentieprijs", the basis "Prijzen voor {klant} in EUR per stuk/per vermelde eenheid,
+  exclusief btw en levering." in the overview footnote and on every compact footer, and
+  "Geldig tot {datum}" with a validity. Without prices: "Samengesteld voor {klant}". Names are
+  printed as typed, cut at a word past 80 characters (48 in the running header). New CATALOG
+  keys, 9 languages: `catalog.pricelist.for|yourprice|basis|basisunits|validuntil`,
+  `catalog.recipient.for`.
+- **File name**: `enrosed-prijslijst-<slug>-<lang>.pdf` with a recipient, else
+  `enrosed-brochure-<lang>.pdf` / `enrosed-catalogus-<lang>.pdf` (the studio's names). Slug
+  (`Recipient.fileSlug`, the studio builds the same): NFD, marks dropped, lower case, every run
+  outside a-z0-9 one dash, at most 60 characters, no dash at the ends, "klant" when empty.
+- `/api/catalog/export` also produces JSON, so a refusal (404 unknown customer, a family page
+  with too much text) reaches the studio's blob request as a readable body; the PDF itself is
+  always sent as application/pdf.
 - **Not used** (Emre's decision for this round): quotes, invoices, the portal and the website
   keep their own pricing; the website still shows no customer prices.
 - **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
