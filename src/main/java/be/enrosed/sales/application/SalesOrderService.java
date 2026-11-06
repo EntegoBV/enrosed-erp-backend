@@ -382,7 +382,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep()))
+                                line.unitsPerOrderStep(), null, line.priceSource()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -1933,7 +1933,7 @@ public class SalesOrderService {
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep())
+                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -2253,7 +2253,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep()))
+                                line.unitsPerOrderStep(), null, line.priceSource()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),

@@ -366,6 +366,9 @@ public final class SalesEntities {
         /** The batch stock cost of one piece when the goods left; null before shipment or without batches
             (docs/migrations/2026-10-25/stock-batches-postgresql.sql). */
         @Column(name = "stock_cost_eur", precision = 19, scale = 4) public BigDecimal stockCostEur;
+        /** CUSTOMER, STANDARD or MANUAL; null on older rows and on a line that follows the catalogue
+            (docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql). A plain varchar. */
+        @Column(name = "pricesource", length = 16) public String priceSource;
     }
 
     @Entity(name = "QuoteRevisionEntity")

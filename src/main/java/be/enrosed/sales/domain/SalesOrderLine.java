@@ -1,5 +1,7 @@
 package be.enrosed.sales.domain;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.math.BigDecimal;
 
 /**
@@ -43,8 +45,30 @@ public record SalesOrderLine(
          * What the pieces cost that left stock for this line at shipment (FIFO over the batches); written by the
          * server only, null before shipment or before batches started.
          */
-        BigDecimal stockCostEur
+        BigDecimal stockCostEur,
+
+        /**
+         * Where {@code unitPriceEur} comes from: {@link #PRICE_CUSTOMER} (the customer's agreed price, pinned
+         * when the line was added), {@link #PRICE_STANDARD} (staff chose the catalogue price although the
+         * customer has one; no unit price, so it follows the catalogue) or {@link #PRICE_MANUAL} (typed).
+         * Null on every older line and on a line that follows the catalogue by default. Left out of the
+         * JSON while null, so an older document reads exactly as before.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String priceSource
 ) {
+    public static final String PRICE_CUSTOMER = "CUSTOMER";
+    public static final String PRICE_STANDARD = "STANDARD";
+    public static final String PRICE_MANUAL = "MANUAL";
+
+    /** A line without a price source: every caller from before customer prices, and a new line of the catalogue. */
+    public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
+                          BigDecimal manualDiscountPct, String deliveryWeek, BigDecimal unitCostEur,
+                          Boolean unavailable, Integer requestedQuantity, Integer unitsPerOrderStep,
+                          BigDecimal stockCostEur) {
+        this(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur,
+                unavailable, requestedQuantity, unitsPerOrderStep, stockCostEur, null);
+    }
     /** A line without a stock cost (before shipment, or as a client sends it: the server never takes it from one). */
     public SalesOrderLine(Long id, Long productId, int quantity, BigDecimal unitPriceEur,
                           BigDecimal manualDiscountPct, String deliveryWeek, BigDecimal unitCostEur,
@@ -74,14 +98,22 @@ public record SalesOrderLine(
     }
 
     public SalesOrderLine withUnitCost(BigDecimal unitCost) {
-        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost, unavailable, requestedQuantity, unitsPerOrderStep, stockCostEur);
+        return new SalesOrderLine(id, productId, quantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCost, unavailable, requestedQuantity, unitsPerOrderStep, stockCostEur, priceSource);
     }
     public boolean isUnavailable() { return Boolean.TRUE.equals(unavailable); }
     public SalesOrderLine withAvailability(boolean value, int activeQuantity, Integer remembered) {
-        return new SalesOrderLine(id, productId, activeQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, value, remembered, unitsPerOrderStep, stockCostEur);
+        return new SalesOrderLine(id, productId, activeQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, value, remembered, unitsPerOrderStep, stockCostEur, priceSource);
     }
     /** The same line rounded to, and remembering, an order step; null forgets the step. */
     public SalesOrderLine withOrderStep(int roundedQuantity, Integer step) {
-        return new SalesOrderLine(id, productId, roundedQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, unavailable, requestedQuantity, step, stockCostEur);
+        return new SalesOrderLine(id, productId, roundedQuantity, unitPriceEur, manualDiscountPct, deliveryWeek, unitCostEur, unavailable, requestedQuantity, step, stockCostEur, priceSource);
+    }
+    /** The same line at this unit price, from this source; a null price follows the catalogue. */
+    public SalesOrderLine withPrice(BigDecimal unitPrice, String source) {
+        return new SalesOrderLine(id, productId, quantity, unitPrice, manualDiscountPct, deliveryWeek, unitCostEur, unavailable, requestedQuantity, unitsPerOrderStep, stockCostEur, source);
+    }
+    /** Whether the line carries a price of its own: a typed or pinned one above zero; without one it follows the catalogue. */
+    public boolean hasUnitPrice() {
+        return unitPriceEur != null && unitPriceEur.signum() > 0;
     }
 }
