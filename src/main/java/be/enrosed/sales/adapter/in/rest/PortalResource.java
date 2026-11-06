@@ -96,10 +96,10 @@ public class PortalResource {
      */
     @GET
     @Path("/{token}/products")
-    public List<CatalogItem> catalog(@PathParam("token") String token,
-                                     @QueryParam("language") String preferredLanguage) {
+    public Response catalog(@PathParam("token") String token,
+                            @QueryParam("language") String preferredLanguage) {
         SalesOrder order = quotes.byToken(token);
-        if (salesOrders.hasAdvanceAgreement(order)) return List.of();
+        if (salesOrders.hasAdvanceAgreement(order)) return privateAnswer(List.of());
         Customer customer = order.customerId() == null ? null : customers.get(order.customerId());
         Language language = preferredLanguage != null && !preferredLanguage.isBlank()
                 ? Language.of(preferredLanguage)
@@ -109,7 +109,7 @@ public class PortalResource {
         List<Product> offered = products.list().stream().filter(Product::active).toList();
         /* The customer's own agreed price where the quote takes it: what an adopted line will cost. */
         java.util.Map<Long, BigDecimal> agreed = salesOrders.customerPricesFor(order, offered);
-        return offered.stream()
+        return privateAnswer(offered.stream()
                 .map(product -> new CatalogItem(
                         product.id(),
                         product.sku(),
@@ -127,7 +127,12 @@ public class PortalResource {
                         UnitDto.of(product.packaging() == null ? null : product.packaging().unitKey(), language),
                         product.packaging().orderStep().name(),
                         exact ? 1 : OrderSteps.unitsPerStep(product)))
-                .toList();
+                .toList());
+    }
+
+    /** It may carry the customer's own agreed prices: never kept by a browser or a shared cache. */
+    private static Response privateAnswer(List<CatalogItem> items) {
+        return Response.ok(items).header("Cache-Control", "no-store, private").build();
     }
 
     /** Product photo for the portal; reachable with the token instead of a login. */
