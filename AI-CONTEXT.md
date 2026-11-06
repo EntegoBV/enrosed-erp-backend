@@ -2101,10 +2101,15 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   catalogus (n)", fields "Klantprijs · SKU", "Geldig tot · SKU"; at most 40 shown).
 - **REST** (admin): `GET /api/customers/{id}/prices` (the rows with sku, name, catalogue price at
   set and now, status, updatedBy as display name), `PUT /api/customers/{id}/prices`
-  `{source, changes:[{productId, priceExclVat|null, validUntil, note}]}` (patch: only the listed
+  `{source, changes:[{productId, priceExclVat|null, validUntil?, note?}]}` (patch: only the listed
   products change, null removes, a gone product can still be removed; answers the full list),
   `GET /api/customers/{id}/prices/history?productId=` (newest first, 200). The save locks the
-  customer row.
+  customer row. Within a change, `validUntil` and `note` are tri-state: left out of the JSON they
+  keep what is stored (a new price starts without them), sent as null they clear, sent with a
+  value they replace. Presence is read in `CustomerPriceResource.ChangeLine` (Jackson calls a
+  setter only for a property the body names) and reaches the service as `Change.validUntilSent`
+  / `noteSent`; the price itself is never optional (null removes). So a client that does not
+  know a field (the export popup's "Ook bewaren" knows no note) must leave it out, not send null.
 - **Deletion**: `CustomerPriceDeletionListener` removes a deleted customer's rows inside the
   deletion and writes CUSTOMER_DELETED history.
 - **Priced catalogue for a recipient** (`CatalogExportService`): the request may name

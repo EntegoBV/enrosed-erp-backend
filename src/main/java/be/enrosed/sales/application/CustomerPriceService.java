@@ -70,8 +70,18 @@ public class CustomerPriceService {
                       BigDecimal cataloguePriceNow, LocalDate validUntil, String note, String status,
                       Instant updatedAt, String updatedBy) {}
 
-    /** A null price removes the product's price; the other fields are written as given. */
-    public record Change(Long productId, BigDecimal priceExclVat, LocalDate validUntil, String note) {}
+    /**
+     * A null price removes the product's price. The end date and the note replace what is stored
+     * only when the change names them ({@code validUntilSent}, {@code noteSent}): a save that
+     * leaves one out keeps it, an explicit null clears it.
+     */
+    public record Change(Long productId, BigDecimal priceExclVat, LocalDate validUntil, String note,
+                         boolean validUntilSent, boolean noteSent) {
+        /** A change that names every field. */
+        public Change(Long productId, BigDecimal priceExclVat, LocalDate validUntil, String note) {
+            this(productId, priceExclVat, validUntil, note, true, true);
+        }
+    }
 
     /** Patch semantics: only the listed products change. */
     public record ChangeRequest(String source, List<Change> changes) {}
@@ -156,10 +166,12 @@ public class CustomerPriceService {
             if (product == null) throw new BusinessRuleException(label + " bestaat niet meer");
             if (product.demo()) throw new BusinessRuleException(label + " is een demoproduct en krijgt geen klantprijs");
             BigDecimal price = price(change.priceExclVat(), label);
-            String note = note(change.note(), label);
+            /* A field the change leaves out keeps what is stored; a new price starts without it. */
+            String note = change.noteSent() ? note(change.note(), label) : row == null ? null : row.note;
+            LocalDate validUntil = change.validUntilSent() ? change.validUntil() : row == null ? null : row.validUntil;
             PriceBasis basis = PriceBasis.of(product.packaging());
-            boolean validityChanged = row == null || !Objects.equals(row.validUntil, change.validUntil());
-            if (validityChanged && change.validUntil() != null && change.validUntil().isBefore(today)) {
+            boolean validityChanged = row == null || !Objects.equals(row.validUntil, validUntil);
+            if (validityChanged && validUntil != null && validUntil.isBefore(today)) {
                 throw new BusinessRuleException(label + ": de einddatum ligt in het verleden");
             }
             if (row == null) {
@@ -168,12 +180,12 @@ public class CustomerPriceService {
                 row.productId = product.id();
                 row.createdAt = now;
                 row.createdBy = who;
-                write(row, product, basis, price, change.validUntil(), note, now, who);
+                write(row, product, basis, price, validUntil, note, now, who);
                 entities.persist(row);
                 history(row, price, null, source, now, who);
                 log.add("customerPrice." + row.productId, "Klantprijs · " + label, null, price);
-                if (change.validUntil() != null) log.add("customerPriceValidUntil." + row.productId,
-                        "Geldig tot · " + label, null, change.validUntil());
+                if (validUntil != null) log.add("customerPriceValidUntil." + row.productId,
+                        "Geldig tot · " + label, null, validUntil);
                 changed++;
                 continue;
             }
@@ -187,7 +199,7 @@ public class CustomerPriceService {
             BigDecimal catalogueAtSet = row.cataloguePriceEur;
             /* A price typed again on a changed basis is confirmed on the new basis, so it applies again;
                only a new price or basis takes a new catalogue snapshot. */
-            write(row, product, basis, price, change.validUntil(), note, now, who);
+            write(row, product, basis, price, validUntil, note, now, who);
             if (!priceChanged && !basisChanged) row.cataloguePriceEur = catalogueAtSet;
             if (priceChanged || basisChanged || validityChanged) history(row, price, previous, source, now, who);
             log.add("customerPrice." + row.productId, "Klantprijs · " + label, previous, price)
