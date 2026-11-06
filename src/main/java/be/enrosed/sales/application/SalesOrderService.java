@@ -309,9 +309,10 @@ public class SalesOrderService {
 
     /**
      * Whether a staff save gives a new line this customer's agreed price by default (Emre,
-     * 2026-11-06): a regular quote or invoice of a customer, priced per product or order markup. Never
-     * a credit note, a partner deal, a container-cost document, a split part, an advance invoice, or
-     * a website request or order: the website path applies the customer's price there itself.
+     * 2026-11-06): a regular quote or invoice of a customer, priced per product or order markup, a
+     * website request or order included once staff work on it. Never a credit note, a partner deal, a
+     * container-cost document, a split part or an advance invoice. The website's own intake of a
+     * request ({@link #updateWebsiteRequest}) pins nothing: its lines carry the prices it showed.
      */
     public boolean pinsCustomerPrices(SalesOrder order) {
         return order != null && pinsCustomerPrices(order, order.markupMode());
@@ -321,10 +322,31 @@ public class SalesOrderService {
         return order.customerId() != null && customerPrices() != null
                 && !order.isCreditNote() && !order.isPartnerDeal() && order.purpose() == SalesPurpose.STANDARD
                 && markup != MarkupMode.CONTAINER_COST
-                && !SalesCustomerMessages.website(order)
-                && (order.id() == null || webOrders() == null || webOrders().find(order.id()).isEmpty())
                 && (order.id() == null || advanceBilling() == null || !advanceBilling().isAdvance(order))
                 && !isSplitPart(order);
+    }
+
+    /**
+     * A new copy's lines on an agreed price take the customer's price of today, or the catalogue once
+     * that price no longer applies (ended, or its unit changed); on a copy that pins, a line that
+     * follows the catalogue by default takes the agreed price too, as a new line would.
+     */
+    private SalesOrder withTodaysCustomerPrices(SalesOrder copy) {
+        if (copy.lines() == null || copy.lines().isEmpty() || copy.customerId() == null || customerPrices() == null) return copy;
+        boolean pins = pinsCustomerPrices(copy);
+        boolean any = copy.lines().stream().anyMatch(line -> line != null && (SalesOrderLine.PRICE_CUSTOMER.equals(line.priceSource())
+                || (pins && line.priceSource() == null && !line.hasUnitPrice())));
+        if (!any) return copy;
+        Map<Long, BigDecimal> today = activePrices(copy.customerId(), copy.lines());
+        List<SalesOrderLine> lines = copy.lines().stream().map(line -> {
+            if (line == null) return null;
+            boolean agreedLine = SalesOrderLine.PRICE_CUSTOMER.equals(line.priceSource());
+            if (!agreedLine && !(pins && line.priceSource() == null && !line.hasUnitPrice())) return line;
+            BigDecimal agreed = today.get(line.productId());
+            if (agreed != null) return line.withPrice(agreed, SalesOrderLine.PRICE_CUSTOMER);
+            return agreedLine ? line.withPrice(null, null) : line;
+        }).toList();
+        return copy.withLinesAndPallets(lines, copy.pallets());
     }
 
     /**
@@ -1727,7 +1749,17 @@ public class SalesOrderService {
 
     @Transactional
     public SalesOrder update(long id, SalesOrder changes) {
-        return update(id, changes, false);
+        return update(id, changes, false, true);
+    }
+
+    /**
+     * The website's own intake of a new request: saved as a staff save is, but its lines keep the
+     * prices and sources the website gave them (public prices, or the logged-in customer's own), so
+     * nothing is pinned here. Staff saves of that request pin as on any quote.
+     */
+    @Transactional
+    public SalesOrder updateWebsiteRequest(long id, SalesOrder changes) {
+        return update(id, changes, false, false);
     }
 
     /**
@@ -1738,10 +1770,10 @@ public class SalesOrderService {
      */
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder updateByCustomer(long id, SalesOrder changes) {
-        return update(id, changes, true);
+        return update(id, changes, true, false);
     }
 
-    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer) {
+    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
@@ -1852,8 +1884,9 @@ public class SalesOrderService {
                 .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
                         changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
-        /* The customer's own path (a website order) prices its lines itself; a staff save settles where each price comes from. */
-        if (!byCustomer) updated = withPriceSources(current, updated);
+        /* The customer's own path (a website order) and the website's intake price their lines
+           themselves; a staff save settles where each price comes from. */
+        if (!byCustomer && settlesPrices) updated = withPriceSources(current, updated);
         if (current.isCreditNote()) updated = withCreditCosts(asStoredCreditNote(updated, current));
         if (advanceBilling() != null) {
             updated = advanceBilling().withServerLines(current, updated);
@@ -2363,6 +2396,8 @@ public class SalesOrderService {
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
+        /* A copy is a new concept: never an agreed price that ended or changed unit since. */
+        duplicate = withTodaysCustomerPrices(duplicate);
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
         /* A copy is a new concept: mixed pallets, whatever its source counts. */
