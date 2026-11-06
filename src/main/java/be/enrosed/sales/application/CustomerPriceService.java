@@ -92,6 +92,10 @@ public class CustomerPriceService {
                              String salesUnit, Integer piecesPerUnit, LocalDate validUntil, String source,
                              Instant changedAt, String changedBy) {}
 
+    /** One customer's own price for a product, as the product screens list them. */
+    public record ProductRow(Long customerId, String customerName, BigDecimal priceExclVat, LocalDate validUntil,
+                             String status) {}
+
     @Inject EntityManager entities;
     @Inject ProductRepository products;
     @Inject CurrentActor actor;
@@ -231,6 +235,26 @@ public class CustomerPriceService {
             if (STATUS_ACTIVE.equals(status(row, byId.get(row.productId), today))) active.put(row.productId, row.priceExclVat);
         }
         return active;
+    }
+
+    /** Every customer's own price for one product, by customer name; the product screens show them beside the sales price. */
+    public List<ProductRow> forProduct(long productId) {
+        Product product = products.findById(productId).orElseThrow(() -> new NotFoundException("Product", productId));
+        List<CustomerProductPriceEntity> rows = entities.createQuery(
+                        "from CustomerProductPriceEntity p where p.productId = :product", CustomerProductPriceEntity.class)
+                .setParameter("product", productId).getResultList();
+        if (rows.isEmpty()) return List.of();
+        Map<Long, String> names = new LinkedHashMap<>();
+        entities.createQuery("select c.id, c.company from CustomerEntity c where c.id in :ids", Object[].class)
+                .setParameter("ids", rows.stream().map(row -> row.customerId).distinct().toList())
+                .getResultList().forEach(found -> names.put((Long) found[0], (String) found[1]));
+        LocalDate today = today();
+        return rows.stream()
+                .map(row -> new ProductRow(row.customerId, names.get(row.customerId), row.priceExclVat, row.validUntil,
+                        status(row, product, today)))
+                .sorted(Comparator.comparing((ProductRow row) -> row.customerName() == null ? "" : row.customerName().toLowerCase(Locale.ROOT))
+                        .thenComparing(ProductRow::customerId))
+                .toList();
     }
 
     /**
