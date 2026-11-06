@@ -2055,3 +2055,38 @@ mails him when a shop can deliver or hand it over within
   `STOCK_RADAR_BROWSER_ENABLED`, `STOCK_RADAR_SPEED`. The Dockerfile installs
   the full Chromium next to the headless shell for this.
 - **CLI check without the app**: `java -cp 'target/quarkus-app/lib/main/*:target/quarkus-app/lib/boot/*:target/quarkus-app/app/*' be.enrosed.stockradar.StockRadarProbe [keys] [--no-browser]`.
+
+## Klantprijzen and the priced catalogue (2026-11-06)
+
+Emre: "prijzen maken per klant ... en dan als je exporteert VOOR een klant, dat dan die prijzen
+genomen worden", plus one-off adjustments per PDF and a record of which customer saw which price.
+
+- **Klantprijzen** (`sales/application/CustomerPriceService`): one price per customer and product
+  (`customer_product_price`, unique on the pair), EUR excl. VAT on the product's own sales unit
+  (per display when sold per display), exactly the basis of the catalogue price. At most 2
+  decimals (refused, never rounded), 0 < price < 1 000 000, optional `valid_until` (null: until
+  changed; a new end date in the past is refused) and note (300). Each row remembers the basis it
+  was set on (`sales_unit`, `pieces_per_unit` only for a display, `unit_key`) and the catalogue
+  price of that moment. `catalog/domain/PriceBasis` is the one rule for "still the same basis":
+  the sales unit and, per display, its pieces; the unit's name does not count.
+- **Status** per row: PRODUCT_GONE (product deleted), BASIS_CHANGED (the amount would mean
+  something else now; typing the price again confirms it on the new basis), EXPIRED, ACTIVE.
+  Only ACTIVE rows apply; the others are kept.
+- **History** (`customer_product_price_history`) is append-only: one row per set, change of
+  price, basis or end date, and removal (null price), with the previous price and the source
+  CUSTOMER_SCREEN, CATALOG_EXPORT ("Ook bewaren als prijzen van {klant}" in the export popup) or
+  CUSTOMER_DELETED. A note-only edit writes no history row. Each save with a change writes one
+  Logboek entry on the customer ("Klantprijzen bijgewerkt (n)" / "Klantprijzen bewaard vanuit de
+  catalogus (n)", fields "Klantprijs · SKU", "Geldig tot · SKU"; at most 40 shown).
+- **REST** (admin): `GET /api/customers/{id}/prices` (the rows with sku, name, catalogue price at
+  set and now, status, updatedBy as display name), `PUT /api/customers/{id}/prices`
+  `{source, changes:[{productId, priceExclVat|null, validUntil, note}]}` (patch: only the listed
+  products change, null removes, a gone product can still be removed; answers the full list),
+  `GET /api/customers/{id}/prices/history?productId=` (newest first, 200). The save locks the
+  customer row.
+- **Deletion**: `CustomerPriceDeletionListener` removes a deleted customer's rows inside the
+  deletion and writes CUSTOMER_DELETED history.
+- **Not used** (Emre's decision for this round): quotes, invoices, the portal and the website
+  keep their own pricing; the website still shows no customer prices.
+- **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
+  rerunnable, new tables only, listed last in the migration script and copied in the Dockerfile.
