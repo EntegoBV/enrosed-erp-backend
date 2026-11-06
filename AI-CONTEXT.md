@@ -2128,7 +2128,9 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   `landedCostEur`), DISPLAY_WITHOUT_PIECES (a display sold per display without its piece count
   still prints "Prijs op aanvraag" and its row says so; only older data, the product form now
   requires the count), CUSTOMER_PRICE_EXPIRED,
-  CUSTOMER_PRICE_BASIS_CHANGED, VALIDITY_PAST.
+  CUSTOMER_PRICE_BASIS_CHANGED, VALIDITY_PAST, CUSTOMER_PRICE_ENDS_BEFORE_VALIDITY (a printed
+  customer price whose end date lies before the PDF's "Geldig tot": the PDF would promise it
+  longer than agreed).
 - **Preflight** adds `prices` (one row per selected product while prices are on: basis,
   piecesPerUnit, unitKey, catalogueEur, customerEur, printedEur null for "op aanvraag", source
   CATALOGUE|CUSTOMER|ONE_OFF|ON_REQUEST; an empty list with prices off), `priceWarnings` and

@@ -46,6 +46,8 @@ public class CatalogExportService {
     /** A name typed for a recipient without a customer record. */
     private static final int RECIPIENT_NAME_LIMIT = 120;
     private static final ZoneId BRUSSELS = ZoneId.of("Europe/Brussels");
+    private static final java.time.format.DateTimeFormatter DUTCH_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     /** Optional brochure pages and editable cover copy. Null values use branded defaults. */
     public record BrochureOptions(
@@ -443,6 +445,14 @@ public class CatalogExportService {
                         + ": display zonder aantal stuks, de PDF toont 'Prijs op aanvraag'"));
                 printed = null;
                 source = PriceSource.ON_REQUEST;
+            }
+            /* "Geldig tot" must not promise a customer price past the end agreed for it. */
+            LocalDate storedEnd = stored.containsKey(product.id()) ? stored.get(product.id()).validUntil() : null;
+            if (source == PriceSource.CUSTOMER && storedEnd != null && request.pricesValidUntil() != null
+                    && storedEnd.isBefore(request.pricesValidUntil())) {
+                warnings.add(new PriceIssue(product.id(), "CUSTOMER_PRICE_ENDS_BEFORE_VALIDITY", label(product)
+                        + ": de klantprijs loopt tot " + DUTCH_DATE.format(storedEnd)
+                        + ", de PDF is geldig tot " + DUTCH_DATE.format(request.pricesValidUntil())));
             }
             BigDecimal cost = positive(product.landedCostEur());
             if (printed != null && cost != null && printed.compareTo(cost) < 0
