@@ -16,7 +16,8 @@ import java.util.List;
  *
  * A family sheet is one fixed A4 page that clips whatever does not fit, so an overlong sheet
  * silently loses its last rows - with a long specification list even the whole SKU table.
- * Reading the real layout keeps fonts, languages and template changes accounted for.
+ * Reading the real layout keeps fonts, languages and template changes accounted for. The
+ * overview pages are fixed A4 pages too: their range table must end above the footnote.
  */
 final class FamilySheetFit {
 
@@ -25,6 +26,16 @@ final class FamilySheetFit {
 
     /** A sheet whose content ends {@code millimetres} too low for the clearance above the footer. */
     record Overflow(String anchor, boolean compact, double millimetres) {}
+
+    /**
+     * The {@code page}-th overview page and the room left between its range table and the clearance
+     * above its footnote; a negative room is how far the last row runs into it.
+     */
+    record OverviewRoom(int page, double millimetres) {
+        boolean overflowing() {
+            return millimetres < 0;
+        }
+    }
 
     private FamilySheetFit() {}
 
@@ -39,7 +50,7 @@ final class FamilySheetFit {
             List<Box> boxes = root.getElementBoxes(section);
             if (boxes.isEmpty() || boxes.getFirst().getLayer() == null) continue;
             Box sheet = boxes.getFirst();
-            Integer footerTop = footerTop(sheet);
+            Integer footerTop = layerTop(sheet, "footer");
             if (footerTop == null) continue;
             int contentBottom = Integer.MIN_VALUE;
             for (Node node = section.getFirstChild(); node != null; node = node.getNextSibling()) {
@@ -58,11 +69,39 @@ final class FamilySheetFit {
         return List.copyOf(result);
     }
 
-    /** The footer is absolutely positioned: it hangs off the sheet's layer, not its child boxes. */
-    private static Integer footerTop(Box sheet) {
+    /** Every overview page with the room its range table leaves above the footnote's clearance. */
+    static List<OverviewRoom> overviewRoom(PdfBoxRenderer laidOut) {
+        Box root = laidOut.getRootBox();
+        double dotsPerMm = laidOut.getDotsPerPoint() * 72 / 25.4;
+        NodeList sections = laidOut.getDocument().getElementsByTagName("section");
+        List<OverviewRoom> result = new ArrayList<>();
+        int page = 0;
+        for (int index = 0; index < sections.getLength(); index++) {
+            Element section = (Element) sections.item(index);
+            if (!hasClass(section, "overview-page")) continue;
+            page++;
+            List<Box> boxes = root.getElementBoxes(section);
+            if (boxes.isEmpty() || boxes.getFirst().getLayer() == null) continue;
+            Box sheet = boxes.getFirst();
+            Integer footnoteTop = layerTop(sheet, "overview-footnote");
+            if (footnoteTop == null) continue;
+            int contentBottom = Integer.MIN_VALUE;
+            for (Node node = section.getFirstChild(); node != null; node = node.getNextSibling()) {
+                if (!(node instanceof Element child) || hasClass(child, "overview-footnote")) continue;
+                for (Box box : sheet.getElementBoxes(child)) {
+                    contentBottom = Math.max(contentBottom, box.getAbsY() + box.getHeight());
+                }
+            }
+            result.add(new OverviewRoom(page, (footnoteTop - contentBottom) / dotsPerMm - CLEARANCE_MM));
+        }
+        return List.copyOf(result);
+    }
+
+    /** Footer and footnote are absolutely positioned: they hang off the sheet's layer, not its child boxes. */
+    private static Integer layerTop(Box sheet, String className) {
         for (Layer layer : sheet.getLayer().getChildren()) {
             Box master = layer.getMaster();
-            if (master.getElement() != null && hasClass(master.getElement(), "footer")) {
+            if (master.getElement() != null && hasClass(master.getElement(), className)) {
                 return master.getAbsY();
             }
         }

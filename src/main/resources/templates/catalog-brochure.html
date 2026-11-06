@@ -52,6 +52,8 @@
     .range-row td > div { padding: 1.8mm 1.6mm; font-size: 7.4pt; line-height: 1.3; word-wrap: break-word; }
     .range-row--alt td { background: #f3ece8; }
     .range small { display: block; margin-top: .4mm; color: #6d5c52; font-size: 6.3pt; line-height: 1.3; }
+    /* Pallet, 20ft and 40ft wrap between the figures, never inside one. */
+    .range small.capacities span { white-space: nowrap; }
     .range-photo { width: 16mm; }
     .range-photo img { display: block; width: 100%; height: auto; margin: 0; border: .2mm solid #d8c9bd; background: transparent; }
     .range-photo .no-photo { display: block; width: 100%; height: 10mm; background: #efe6dd; border: .2mm solid #d8c9bd; }
@@ -344,7 +346,7 @@
           <td class="range-product"><div><a href="#{row.anchor}">{row.name}</a><small><span class="ref">{row.number}</span> · {copy['catalog.brochure.overview.page']} {row.page}</small>{#if row.facts.skuLabel}<small>{row.facts.skuLabel}</small>{/if}{#if row.facts.ean}<small>EAN {row.facts.ean}</small>{/if}</div></td>
           <td class="range-colours"><div>{#for colour in row.facts.colours}{#if colour.hasHex}<span class="dot" style="background:{colour.hex}"></span>{#else}<span class="dot dot--none"></span>{/if}{/for}{#if row.facts.colourLabel}<small>{row.facts.colourLabel}</small>{/if}{#if row.facts.sizeLabel}<small>{row.facts.sizeLabel}</small>{/if}</div></td>
           <td class="range-size"><div>{row.facts.productSize}{#if row.facts.packaging}<small>{row.facts.packaging}</small>{/if}</div></td>
-          <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm}<small>{row.facts.cbm}</small>{/if}<small>{copy['catalog.brochure.range.container20ft']}: {row.facts.gpCapacity}{#if row.facts.hcCapacity} · {copy['catalog.brochure.range.container']}: {row.facts.hcCapacity}{/if}</small></div></td>
+          <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm}<small>{row.facts.cbm}</small>{/if}<small class="capacities"><span>{copy['catalog.brochure.range.pallet']}: {row.facts.palletCapacity} ·</span> <span>{copy['catalog.brochure.range.container20ft']}: {row.facts.gpCapacity} ·</span> <span>{copy['catalog.brochure.range.container']}: {row.facts.hcCapacity}</span></small></div></td>
           <td class="range-price"><div>{#if includePrices}{#if row.priceLabel}
             {#if row.displayPriceLabel}
               <b class="display-price display-price--primary">{row.displayPriceLabel}</b>
@@ -357,7 +359,7 @@
       {/for}
       </tbody>
     </table>
-    <div class="overview-footnote">{copy['catalog.brochure.range.legend']}{#if includePrices} {#if namedUnits}{copy['catalog.brochure.overview.pricebasisunits']}{#else}{copy['catalog.brochure.overview.pricebasis']}{/if}{/if}<span>{overview.number} / {overview.total}</span></div>
+    <div class="overview-footnote">{copy['catalog.brochure.range.legend']} {palletBasis}{#if includePrices} {#if namedUnits}{copy['catalog.brochure.overview.pricebasisunits']}{#else}{copy['catalog.brochure.overview.pricebasis']}{/if}{/if}<span>{overview.number} / {overview.total}</span></div>
   </section>
   {/for}
 {/if}
@@ -409,7 +411,7 @@
             <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.displayPriceLabel}<span class="variant-display-price variant-display-price--primary">{variant.displayPriceLabel}</span>{#if variant.priceLabel}<span class="variant-display-price">{variant.priceLabel} · {variant.perUnitLabel}</span>{/if}{#else}{#if variant.priceLabel}{variant.priceLabel} <small>{variant.perUnitLabel}</small>{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}{/if}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
-            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{#if variant.cartonQuantityLabel}{variant.cartonQuantityLabel}{#else}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{/if}{#if family.showVariant20Ft}<br/>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity}{/if}</td>
+            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{#if variant.cartonQuantityLabel}{variant.cartonQuantityLabel}{#else}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{/if}{#if family.showVariantPallet}<br/>{copy['catalog.brochure.range.pallet']}: {variant.palletCapacity}{/if}{#if family.showVariant20Ft}<br/>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity}{/if}{#if family.showVariant40Ft}<br/>{copy['catalog.brochure.range.container']}: {variant.hcCapacity}{/if}</td>
             {#if family.showVariantEan}<td>{variant.ean}</td>{/if}
           </tr>{/for}</tbody>
         </table>{/if}

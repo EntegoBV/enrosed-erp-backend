@@ -520,7 +520,26 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `FamilySheetFit` compares each sheet's content bottom with its footer
   (2 mm clearance, the same line as the tests' 795 pt check), and sheets
   that run into it are laid out again in the compact design. `renderHtml`
-  shows the first layout only.
+  shows the first layout only. The same pass measures the overview pages:
+  a range table that runs into its footnote is clipped (nothing moves a row
+  to the next page) and logged as WARN "Overzichtspagina N loopt … mm in de
+  voetnoot"; the room left is logged at DEBUG.
+- **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
+  in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
+  20ft, 40ft HC), the brochure range table (one line of three figures that
+  wraps between figures), the family specification list (the pallet with its
+  omdozen in brackets) and the variant table (each figure per SKU when the
+  variants differ, as 20ft did). An unknown figure prints "-", 40ft included,
+  which used to disappear. Per pallet = whole omdozen from
+  `PalletCalculator.fit` (the Palletberekening stacking) on
+  `SalesSettings.pallet()` × pieces per carton, worded like the container
+  figures (displays, named units). Catalog reaches it through the out-port
+  `CataloguePallet`, implemented in sales by `CataloguePalletFit` (catalog
+  never imports sales). One basis line per document ("Per pallet: europallet
+  120 × 80 cm, max. 260 cm hoog incl. pallet, max. 700 kg.", key
+  `catalog.common.palletbasis`) closes the overview footnote and the compact
+  footer. A carton without a weight is counted by height only, and there is
+  no hand count per product for the pallet.
 - **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
   `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
   15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
