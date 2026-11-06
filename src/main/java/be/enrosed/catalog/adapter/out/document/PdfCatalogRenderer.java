@@ -470,6 +470,26 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     family.anchor(), family.page(), family.overviewImage(), family.facts(),
                     family.referencePriceLabel(), family.displayPriceLabel(), family.perUnitLabel());
         }
+
+        /**
+         * "Display (12 st.):" of "Display (12 st.): € 49,00 - € 54,00": the narrow price cell puts
+         * the amount under these words. The whole label when it names no amount after a colon.
+         */
+        public String displayPriceHead() {
+            int split = displayPriceSplit();
+            return split < 0 ? displayPriceLabel : displayPriceLabel.substring(0, split + 1).strip();
+        }
+
+        /** "€ 49,00 - € 54,00": the amount after the words; empty when the label has no colon. */
+        public String displayPriceAmount() {
+            int split = displayPriceSplit();
+            return split < 0 ? "" : displayPriceLabel.substring(split + 1).strip();
+        }
+
+        /* Every language's display total ends in ": {price}" (" : " in French); the amount has no colon. */
+        private int displayPriceSplit() {
+            return displayPriceLabel == null ? -1 : displayPriceLabel.lastIndexOf(": ");
+        }
     }
 
     public record OverviewPage(int number, int total, List<OverviewRow> rows) {}
@@ -1179,6 +1199,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<String> highlights, String categoryName, String familySize,
             String packageLine, String referencePriceLabel,
             List<BrochureVariant> variants, int galleryCount, int specCount) {
+        /* Shared pallet, 20ft and 40ft figures print once, as specification rows already counted above. */
+        boolean capacitiesPerVariant = capacitiesDiffer(variants);
         int capacityUse = capacityText(name, 80)
                 + specCount * 45
                 + textLength(summary)
@@ -1190,8 +1212,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + capacityText(packageLine, 80)
                 + capacityText(referencePriceLabel, 24)
                 + variants.size() * 150
-                + variants.stream().mapToInt(PdfCatalogRenderer::variantCapacityUse).sum()
+                + variants.stream().mapToInt(variant -> variantCapacityUse(variant, capacitiesPerVariant)).sum()
                 + galleryCount * 180;
+        LOG.debugf("Catalogusfiche '%s': tekstbudget %d van %d", defaultText(name, "product"),
+                (Object) capacityUse, (Object) FAMILY_PAGE_CAPACITY);
         if (capacityUse <= FAMILY_PAGE_CAPACITY) return;
         throw new BusinessRuleException("Cataloguspagina voor '" + defaultText(name, "product")
                 + "' bevat te veel tekst, varianten of beelden voor één vaste A4-pagina. "
@@ -1456,16 +1480,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return colon < 0 ? label : label.substring(colon + 2);
     }
 
-    private static int variantCapacityUse(BrochureVariant variant) {
+    /** {@code capacitiesPerVariant}: the variant table carries pallet, 20ft and 40ft on a line under each row. */
+    private static int variantCapacityUse(BrochureVariant variant, boolean capacitiesPerVariant) {
         return capacityText(variant.sku(), 24)
                 + capacityText(variant.name(), 80)
                 + capacityText(variant.colour(), 32)
                 + capacityText(variant.size(), 24)
                 + capacityText(variant.productSize(), 40)
                 + capacityText(variant.cartonSize(), 48)
-                + capacityText(variant.palletCapacity(), 14)
-                + capacityText(variant.gpCapacity(), 14)
-                + capacityText(variant.hcCapacity(), 14)
+                + (capacitiesPerVariant ? capacityText(variant.palletCapacity(), 14)
+                        + capacityText(variant.gpCapacity(), 14)
+                        + capacityText(variant.hcCapacity(), 14) : 0)
                 + capacityText(variant.ean(), 24)
                 + capacityText(variant.priceLabel(), 24)
                 + capacityText(variant.displayPriceLabel(), 48);

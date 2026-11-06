@@ -76,6 +76,10 @@
     .range-price small { color: #806b5e; }
     .range-price .display-price { margin-top: .7mm; font-size: 6pt; line-height: 1.25; }
     .range-price .display-price--primary { margin-top: 0; color: #8f223c; font-size: 8.5pt; font-weight: 700; }
+    /* A display total is longer than the cell: its words and its amount each take their own lines,
+       wrapping at spaces only (an amount never breaks inside). */
+    .range-price b.display-price--primary { white-space: normal; word-wrap: normal; }
+    .range-price b.display-price--primary span { display: block; }
     .family-price .display-price { display: block; margin-top: 1mm; color: #806b5e; font-size: 7pt; font-weight: 400; line-height: 1.3; }
     .family-price .display-price--primary { margin-top: 1mm; color: #8f223c; font-size: 11pt; font-weight: 700; }
     .variant-price small { font-size: 6.7pt; font-weight: 400; }
@@ -367,7 +371,7 @@
           <td class="range-logistics"><div>{row.facts.carton}{#if row.facts.cartonPieces}<small>{row.facts.cartonPieces}</small>{/if}{#if row.facts.cbm}<small>{row.facts.cbm}</small>{/if}<small class="capacities"><span>{copy['catalog.brochure.range.pallet']}: {row.facts.palletCapacity} ·</span> <span>{copy['catalog.brochure.range.container20ft']}: {row.facts.gpCapacity} ·</span> <span>{copy['catalog.brochure.range.container']}: {row.facts.hcCapacity}</span></small></div></td>
           <td class="range-price"><div>{#if includePrices}{#if row.priceLabel}
             {#if row.displayPriceLabel}
-              <b class="display-price display-price--primary">{row.displayPriceLabel}</b>
+              <b class="display-price display-price--primary">{#if row.displayPriceAmount}<span>{row.displayPriceHead}</span><span>{row.displayPriceAmount}</span>{#else}{row.displayPriceLabel}{/if}</b>
               {#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{row.priceLabel}{#if row.perUnitLabel} · {row.perUnitLabel}{/if}</small>{/if}
             {#else}
               <b>{row.priceLabel}</b>{#if row.priceLabel != copy['catalog.brochure.overview.priceonrequest']}{#if row.perUnitLabel}<small>{row.perUnitLabel}</small>{/if}{/if}

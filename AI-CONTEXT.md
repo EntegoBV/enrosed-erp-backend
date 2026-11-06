@@ -528,7 +528,15 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   At most four layouts (only the last writes the PDF); whatever still does not
   fit is logged as WARN ("Catalogusfiche … is ook compact … mm te lang",
   "Overzichtspagina N loopt … mm in de voetnoot"), the room left at DEBUG.
-  `renderHtml` shows the first layout only.
+  `renderHtml` shows the first layout only. Before any layout,
+  `ensureFamilyPageCapacity` refuses a family whose text budget passes 3 400
+  units (409 "Cataloguspagina voor … bevat te veel tekst"; the budget per
+  sheet is logged at DEBUG). Pallet, 20ft and 40ft count per variant only
+  when the variant table prints them per variant (`capacitiesDiffer`);
+  shared, they are specification rows and count as such, never twice. In
+  the overview's narrow price cell a display total puts its amount under
+  its words ("Display (12 st.):" / "€ 49,00 - € 54,00", split at the last
+  ": "), wrapping at spaces only, so a long one stays inside the cell.
 - **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
   in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
   20ft, 40ft HC), the brochure range table (one line of three figures that
