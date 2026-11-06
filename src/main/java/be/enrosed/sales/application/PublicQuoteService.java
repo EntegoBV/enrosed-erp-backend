@@ -137,6 +137,22 @@ public class PublicQuoteService {
                 destinations, publicPrices, pickupLocations, true, ConfigurationResponse.PER_PRODUCT);
     }
 
+    /**
+     * A logged-in customer's own active agreed prices of the products the website sells, for the
+     * product pages; never the list price, and nothing for a customer without one.
+     */
+    public AccountPriceList accountPrices(long customerId) {
+        List<Product> orderable = products.websiteOrderableProducts();
+        Map<Long, BigDecimal> agreed = agreedPrices(customerId, orderable);
+        List<AccountPrice> prices = orderable.stream()
+                .filter(product -> agreed.containsKey(product.id()))
+                .sorted(Comparator.comparing(Product::sku, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .map(product -> new AccountPrice(product.id(), agreed.get(product.id()),
+                        product.packaging().salesUnit().name(), piecesPerDisplay(product)))
+                .toList();
+        return new AccountPriceList("EUR", "NET_EXCL_VAT", prices);
+    }
+
     /** The configuration's rule: the pieces of a display packaging, null for anything else. */
     private static Integer piecesPerDisplay(Product product) {
         return product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY

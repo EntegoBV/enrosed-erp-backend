@@ -257,6 +257,18 @@ public final class PublicQuoteDtos {
         }
     }
 
+    /**
+     * The logged-in customer's own agreed prices of the products the website sells (never the list
+     * price), for the product pages: {@code GET /api/v1/public/account/prices}.
+     */
+    public record AccountPriceList(String currency, String priceBasis, List<AccountPrice> prices) {}
+
+    /**
+     * One agreed price, EUR excl. VAT per sales unit like {@code unitPriceNet} of the configuration;
+     * {@code piecesPerDisplay} follows the configuration's rule (set for a display packaging).
+     */
+    public record AccountPrice(Long productId, BigDecimal unitPriceNet, String salesUnit, Integer piecesPerDisplay) {}
+
     public record ShippingEstimate(
             String status,
             String source,
