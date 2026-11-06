@@ -35,8 +35,9 @@ import java.util.UUID;
 /**
  * The quote request of a logged-in customer. Every method asks the session guard first, so
  * priced data leaves only for a valid session; the anonymous quote resource never reads a
- * credential. Prices here are the public list and do not follow the website price switch:
- * this class knows neither the switch nor the redaction of the anonymous answers.
+ * credential. Prices here are the customer's own active agreed prices where they have one
+ * (marked {@code priceSource: CUSTOMER}), else the public list, and do not follow the website
+ * price switch: this class knows neither the switch nor the redaction of the anonymous answers.
  */
 @Path("/api/v1/public/account/quotes")
 @PermitAll
@@ -78,7 +79,7 @@ public class CustomerQuoteResource {
         /* An approved customer can read the whole price list in one call; this only bounds how often. */
         rateLimiter.checkKey(PublicFormAction.ACCOUNT_QUOTE_READ, "ACCOUNT",
                 String.valueOf(session.accountId()), READS_PER_ACCOUNT);
-        return noStore(Response.ok(quotes.configuration(language)));
+        return noStore(Response.ok(quotes.configurationForCustomer(language, session.customerId())));
     }
 
     @POST

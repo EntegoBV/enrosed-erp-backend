@@ -29,7 +29,13 @@ import java.util.stream.Collectors;
 
 import static be.enrosed.sales.adapter.in.rest.PublicQuoteDtos.*;
 
-/** Builds anonymous estimates and turns a submitted website request into an ERP draft quote. */
+/**
+ * Builds website estimates and turns a submitted website request or order into an ERP draft quote.
+ * An anonymous visitor always gets the public price list. A logged-in customer gets their own
+ * active agreed price (klantprijs) where they have one, else the list: in the configuration, in
+ * every estimate, and pinned on the stored lines with price source CUSTOMER; the anonymous routes
+ * never look one up.
+ */
 @ApplicationScoped
 public class PublicQuoteService {
     private static final int MAX_LINES = 100;
@@ -56,6 +62,10 @@ public class PublicQuoteService {
     @Inject
     Event<WebsiteQuoteLoginRequested> loginRequestedEvent;
 
+    /** The customers' agreed prices; a field for the same reason, and absent means none apply. */
+    @Inject
+    jakarta.enterprise.inject.Instance<CustomerPriceService> customerPrices;
+
     public PublicQuoteService(ProductService products, StockService stock,
                               CountryService countries,
                               CustomerService customers, SalesOrderService salesOrders,
@@ -77,23 +87,39 @@ public class PublicQuoteService {
     }
 
     public ConfigurationResponse configuration(String languageCode) {
+        return configuration(languageCode, null);
+    }
+
+    /**
+     * The configuration a logged-in customer sees: their own active agreed price, marked
+     * {@code priceSource: CUSTOMER}, wherever they have one; the public list price elsewhere.
+     */
+    public ConfigurationResponse configurationForCustomer(String languageCode, long customerId) {
+        return configuration(languageCode, customerId);
+    }
+
+    /** {@code pricesOf}: the customer whose agreed prices apply, null for an anonymous visitor. */
+    private ConfigurationResponse configuration(String languageCode, Long pricesOf) {
         Map<String, String> errors = new LinkedHashMap<>();
         Language language = requireLanguage(languageCode, errors);
         if (!errors.isEmpty()) throw new PublicQuoteValidationException(errors);
         SalesOrder priceTemplate = draft(null, null, null, Fulfillment.DELIVERY,
                 List.of(), null, FreightState.TE_BEPALEN);
-        List<ProductPrice> publicPrices = products.websiteOrderableProducts().stream()
+        List<Product> orderable = products.websiteOrderableProducts();
+        Map<Long, BigDecimal> agreed = agreedPrices(pricesOf, orderable);
+        List<ProductPrice> publicPrices = orderable.stream()
                 .sorted(Comparator.comparing(Product::sku, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .map(product -> {
-                    BigDecimal amount = pricing.unitPriceFor(product, priceTemplate, null);
+                    BigDecimal own = agreed.get(product.id());
+                    BigDecimal amount = own != null ? own : pricing.unitPriceFor(product, priceTemplate, null);
                     boolean available = amount != null && amount.signum() > 0;
                     return new ProductPrice(product.id(), available ? amount : null, available,
                             OrderSteps.knownPiecesPerCarton(product.carton()), product.packaging().salesUnit().name(),
-                            product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
-                                    ? product.packaging().piecesPerUnit() : null,
+                            piecesPerDisplay(product),
                             be.enrosed.catalog.adapter.in.rest.UnitDto.of(product.packaging().unitKey(), language),
                             product.packaging().orderStep().name(),
-                            OrderSteps.publicUnitsPerStep(product.packaging(), product.carton()));
+                            OrderSteps.publicUnitsPerStep(product.packaging(), product.carton()),
+                            own != null ? ProductPrice.CUSTOMER : null);
                 }).toList();
         List<CountryOption> destinations = countries.list().stream()
                 .map(country -> new CountryOption(country.code(), country.name(),
@@ -111,6 +137,18 @@ public class PublicQuoteService {
                 destinations, publicPrices, pickupLocations, true, ConfigurationResponse.PER_PRODUCT);
     }
 
+    /** The configuration's rule: the pieces of a display packaging, null for anything else. */
+    private static Integer piecesPerDisplay(Product product) {
+        return product.packaging().kind() == be.enrosed.catalog.domain.PackagingKind.DISPLAY
+                ? product.packaging().piecesPerUnit() : null;
+    }
+
+    /** The active agreed prices of this customer for these products; empty for an anonymous visitor. */
+    private Map<Long, BigDecimal> agreedPrices(Long customerId, Collection<Product> forProducts) {
+        if (customerId == null || customerPrices == null || !customerPrices.isResolvable()) return Map.of();
+        return customerPrices.get().activeFor(customerId, forProducts);
+    }
+
     public EstimateResponse preview(PreviewRequest request) {
         return toResponse(prepare(request));
     }
@@ -125,7 +163,7 @@ public class PublicQuoteService {
         Customer customer = customers.get(customerId);
         return toResponse(prepare(request == null ? null : new PreviewRequest(
                 request.language(), request.fulfillment(), customer.vatNumber(),
-                request.destination(), request.items(), request.pickupLocationId()), false));
+                request.destination(), request.items(), request.pickupLocationId()), false, null, customerId));
     }
 
     /** Read-only validation used before challenge verification and e-mail rate consumption. */
@@ -177,7 +215,8 @@ public class PublicQuoteService {
 
     /**
      * The request of a logged-in customer: no customer is created or changed, the quote hangs on
-     * the customer of the login, and the prices are the public list, as for any visitor.
+     * the customer of the login, and the prices are that customer's own agreed prices where they
+     * have one (pinned with source CUSTOMER), else the public list.
      */
     @Transactional
     public SubmissionResponse submitForCustomer(SubmitRequest request, long customerId,
@@ -231,6 +270,7 @@ public class PublicQuoteService {
         Map<Long, Integer> cartons = new LinkedHashMap<>();
         Map<Long, String> skus = new LinkedHashMap<>();
         Map<Long, BigDecimal> listPrices = new LinkedHashMap<>();
+        Set<Long> customerPriced = new LinkedHashSet<>();
         Map<Long, Packaging> packagings = new LinkedHashMap<>();
         SalesOrder priceTemplate = draft(null, null, null, Fulfillment.DELIVERY,
                 List.of(), null, FreightState.TE_BEPALEN);
@@ -242,8 +282,11 @@ public class PublicQuoteService {
             skus.put(productId, item.product.sku());
             packagings.put(productId, item.product.packaging());
             if (keptUnitPrices != null && keptUnitPrices.get(productId) != null) {
-                BigDecimal today = pricing.unitPriceFor(item.product, priceTemplate, null);
+                /* What a new line of it would cost this customer today: their agreed price, else the list. */
+                BigDecimal agreed = prepared.agreed.get(productId);
+                BigDecimal today = agreed != null ? agreed : pricing.unitPriceFor(item.product, priceTemplate, null);
                 if (today != null && today.signum() > 0) listPrices.put(productId, today);
+                if (agreed != null) customerPriced.add(productId);
             }
         }
         boolean pickup = prepared.fulfillment == Fulfillment.PICKUP;
@@ -258,7 +301,7 @@ public class PublicQuoteService {
                 prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupLabel(),
                 prepared.pickupLocation == null ? null : prepared.pickupLocation.publicPickupAddress(),
                 contact, isBlank(request.phone()) ? null : clean(request.phone()),
-                piecesPerCarton, cartons, skus, listPrices, packagings);
+                piecesPerCarton, cartons, skus, listPrices, packagings, customerPriced);
     }
 
     /**
@@ -318,8 +361,10 @@ public class PublicQuoteService {
             PricedOrder.Line priced = pricedLines.get(item.product.id());
             BigDecimal serverPrice = kept != null && kept.unitPriceEur() != null ? kept.unitPriceEur()
                     : priced != null && priced.unitPrice().signum() > 0 ? priced.unitPrice() : null;
+            /* A kept price keeps its source; a new line is CUSTOMER when it got the customer's agreed price. */
             return new SalesOrderLine(kept == null ? null : kept.id(), item.product.id(),
-                    item.quantityPieces, serverPrice, null, null);
+                    item.quantityPieces, serverPrice, null, null, null, null, null, null, null,
+                    serverPrice == null ? null : prepared.sources.get(item.product.id()));
         }).toList();
         StringBuilder internal = new StringBuilder(SalesOrderService.WEBSITE_REQUEST_MARKER)
                 .append(' ').append(base.number())
@@ -401,8 +446,21 @@ public class PublicQuoteService {
                                   Customer customer, SalesOrder changing) {
         return prepare(new PreviewRequest(language, fulfillment, customer.vatNumber(),
                         destination, items, pickupLocationId), false,
-                new OrderPricing(customer, keptUnitPrices(changing),
-                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing)));
+                new OrderPricing(customer, keptUnitPrices(changing), keptPriceSources(changing),
+                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing)),
+                customer.id());
+    }
+
+    /** The source of every price a change keeps (null where the stored line has none), by product. */
+    private static Map<Long, String> keptPriceSources(SalesOrder stored) {
+        Map<Long, String> sources = new HashMap<>();
+        if (stored == null) return sources;
+        for (SalesOrderLine line : stored.lines()) {
+            if (line.productId() != null && line.unitPriceEur() != null && !sources.containsKey(line.productId())) {
+                sources.put(line.productId(), line.priceSource());
+            }
+        }
+        return sources;
     }
 
     /** Whether customers can order on the website; read on every call, as AccountDocuments does. */
@@ -423,7 +481,8 @@ public class PublicQuoteService {
             BigDecimal serverPrice = priced != null && priced.unitPrice().signum() > 0
                     ? priced.unitPrice() : null;
             return new SalesOrderLine(null, item.product.id(), item.quantityPieces,
-                    serverPrice, null, null);
+                    serverPrice, null, null, null, null, null, null, null,
+                    serverPrice == null ? null : prepared.sources.get(item.product.id()));
         }).toList();
         String marker = SalesOrderService.WEBSITE_REQUEST_MARKER + " " + created.number();
         String missingCartons = prepared.items.stream()
@@ -478,7 +537,7 @@ public class PublicQuoteService {
             /* The number on the customer record was entered or checked by staff; it is not judged again. */
             prepared = prepare(new PreviewRequest(
                     request.language(), request.fulfillment(), customer.vatNumber(),
-                    request.destination(), request.items(), request.pickupLocationId()), false);
+                    request.destination(), request.items(), request.pickupLocationId()), false, null, customer.id());
         } catch (PublicQuoteValidationException validation) {
             validation.fieldErrors().forEach(errors::putIfAbsent);
         }
@@ -518,16 +577,17 @@ public class PublicQuoteService {
     }
 
     private Prepared prepare(PreviewRequest request, boolean judgeVatNumber) {
-        return prepare(request, judgeVatNumber, null);
+        return prepare(request, judgeVatNumber, null, null);
     }
 
     /**
      * {@code order} is null for a quote request. For an order it carries the customer record,
      * the unit prices to keep and the pallet count rule, and two rules are stricter: the
      * delivery choice is read once and every address rule follows that reading, and the
-     * address is one line.
+     * address is one line. {@code pricesOf} is the logged-in customer whose active agreed prices
+     * price the lines a kept price does not; null on the anonymous routes, which never look one up.
      */
-    private Prepared prepare(PreviewRequest request, boolean judgeVatNumber, OrderPricing order) {
+    private Prepared prepare(PreviewRequest request, boolean judgeVatNumber, OrderPricing order, Long pricesOf) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
             errors.put("request", "REQUIRED");
@@ -656,10 +716,19 @@ public class PublicQuoteService {
                 : FreightPricingStrategy.COUNTRY_PALLET;
         FreightState freightState = fulfillment == Fulfillment.DELIVERY
                 && carrier == null && !countryTariff ? FreightState.TE_BEPALEN : FreightState.BEREKEND;
+        /* A kept price first, then the customer's agreed price, else the list: each line says which. */
+        Map<Long, BigDecimal> agreed = agreedPrices(pricesOf,
+                preparedItems.stream().map(item -> item.product).toList());
+        Map<Long, String> sources = new HashMap<>();
         List<SalesOrderLine> lines = preparedItems.stream()
-                .map(item -> new SalesOrderLine(null, item.product.id(), item.quantityPieces,
-                        order == null ? null : order.keptUnitPrices.get(item.product.id()),
-                        null, null))
+                .map(item -> {
+                    long productId = item.product.id();
+                    BigDecimal kept = order == null ? null : order.keptUnitPrices.get(productId);
+                    if (kept != null) sources.put(productId, order.keptSources.get(productId));
+                    else if (agreed.containsKey(productId)) sources.put(productId, SalesOrderLine.PRICE_CUSTOMER);
+                    return new SalesOrderLine(null, productId, item.quantityPieces,
+                            kept != null ? kept : agreed.get(productId), null, null);
+                })
                 .toList();
         SalesOrder estimate = draft(country.code(), carrier, strategy, fulfillment, lines,
                 estimateCustomer, freightState);
@@ -682,7 +751,7 @@ public class PublicQuoteService {
                 && priced.validation().productsWithoutPalletFit().isEmpty()
                 && priced.totals().shippingTotal().signum() > 0;
         return new Prepared(language, fulfillment, country, carrier, strategy,
-                pickupLocation, preparedItems, priced, shippingAvailable);
+                pickupLocation, preparedItems, priced, shippingAvailable, agreed, sources);
     }
 
     private EstimateResponse toResponse(Prepared prepared) {
@@ -704,7 +773,9 @@ public class PublicQuoteService {
                     lineCanTotal ? line.net() : null, available,
                     line.orderStep().name(),
                     OrderSteps.publicUnitsPerStep(item.product.packaging(), item.product.carton()) == null
-                            ? null : line.unitsPerOrderStep());
+                            ? null : line.unitsPerOrderStep(),
+                    available && SalesOrderLine.PRICE_CUSTOMER.equals(prepared.sources.get(line.productId()))
+                            ? SalesOrderLine.PRICE_CUSTOMER : null);
         }).toList();
         PricedOrder.Totals totals = prepared.priced.totals();
         String shippingStatus = prepared.fulfillment == Fulfillment.PICKUP
@@ -969,25 +1040,28 @@ public class PublicQuoteService {
     private enum Fulfillment { DELIVERY, PICKUP }
 
     /**
-     * The customer record an order is priced on, the unit prices its stored lines keep and the
-     * rule its pallets count by: the stored order's for a change, MIXED for a new order.
+     * The customer record an order is priced on, the unit prices its stored lines keep with the
+     * source of each, and the rule its pallets count by: the stored order's for a change, MIXED
+     * for a new order.
      */
-    private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices, PalletCountRule palletRule) {}
+    private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices, Map<Long, String> keptSources,
+                                PalletCountRule palletRule) {}
 
     /**
      * What an order request says beside its document. {@code fulfillment} is DELIVERY or
      * PICKUP; the address is null for a collection. {@code piecesPerCarton} is 0 where the
      * carton content is unknown; {@code cartons} holds only the items asked for in cartons.
-     * {@code listPrices} holds today's public price of the products whose price is kept, where
-     * there is one. {@code packagings} names each product's unit, basis and order step for the
-     * frozen order.
+     * {@code listPrices} holds what a new line would cost this customer today for the products
+     * whose price is kept, where there is a price: their active agreed price, else the public
+     * list price; {@code customerPriced} names the products where it is the agreed price.
+     * {@code packagings} names each product's unit, basis and order step for the frozen order.
      */
     public record OrderFacts(String language, String fulfillment, String address, String postalCode,
                              String city, Long pickupLocationId, String pickupLabel,
                              String pickupAddress, String contactName, String phone,
                              Map<Long, Integer> piecesPerCarton, Map<Long, Integer> cartons,
                              Map<Long, String> skus, Map<Long, BigDecimal> listPrices,
-                             Map<Long, Packaging> packagings) {}
+                             Map<Long, Packaging> packagings, Set<Long> customerPriced) {}
 
     /**
      * {@code cartons} is what the item ships in, or the cartons asked for while their content is
@@ -1000,9 +1074,14 @@ public class PublicQuoteService {
 
     private record Stored(SalesOrder order, SubmissionResponse response) {}
 
+    /**
+     * {@code agreed}: the logged-in customer's active agreed prices of the requested products (empty
+     * when anonymous); {@code sources}: per product where its line price came from, CUSTOMER or the
+     * kept line's source, absent for a list price.
+     */
     private record Prepared(Language language, Fulfillment fulfillment, Country country,
                             Carrier carrier, FreightPricingStrategy strategy,
                             StockLocation pickupLocation,
                             List<PreparedItem> items, PricedOrder priced,
-                            boolean shippingAvailable) {}
+                            boolean shippingAvailable, Map<Long, BigDecimal> agreed, Map<Long, String> sources) {}
 }

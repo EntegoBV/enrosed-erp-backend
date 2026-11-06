@@ -188,8 +188,9 @@ public class WebOrderService {
 
     /**
      * What the customer changed, for staff: the team mail, the push, the history and the
-     * banner on the order. A kept price that is no longer the list price is named, so staff
-     * decide about it before they take the order.
+     * banner on the order. A kept price that is no longer what a new line would cost this
+     * customer (their agreed price, else the list price) is named, so staff decide about it
+     * before they take the order.
      */
     static String summary(WebOrderSnapshot before, WebOrderSnapshot after, WebOrderDeliveries.Delivery deliveryBefore,
                           WebOrderDeliveries.Delivery deliveryAfter, OrderFacts facts, Map<Long, BigDecimal> kept) {
@@ -215,7 +216,8 @@ public class WebOrderService {
             BigDecimal listPrice = facts.listPrices().get(line.productId());
             if (keptPrice != null && listPrice != null && keptPrice.compareTo(listPrice) != 0)
                 parts.add("prijs " + line.sku() + " behouden: " + WebOrderTerms.euro(keptPrice)
-                        + ", prijslijst nu " + WebOrderTerms.euro(listPrice));
+                        + (facts.customerPriced().contains(line.productId()) ? ", klantprijs nu " : ", prijslijst nu ")
+                        + WebOrderTerms.euro(listPrice));
         }
         old.values().forEach(line -> parts.add(line.sku() + " verwijderd"));
 
