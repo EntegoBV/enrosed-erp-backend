@@ -910,8 +910,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - **What it is**: a website visitor asks for a login, staff approve it in
   the ERP (Login-aanvragen), the customer gets a one-time link by mail,
   chooses a password and is logged in. A logged-in customer sees the
-  public price list in the quote request even while the website price
-  switch is off, and the request lands on the existing customer. Package
+  prices in the quote request even while the website price switch is off
+  (their own agreed prices where they have them, else the public list), and
+  the request lands on the existing customer. Package
   `be.enrosed.account`; tables `customer_login_request`,
   `customer_account`, `customer_account_token`, `customer_session`
   (`docs/migrations/2026-10-05/customer-account-postgresql.sql`; no
@@ -924,9 +925,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   cost 12 behind a semaphore of four; staff never see or set one.
 - **Public endpoints** (`/api/v1/public/account`): `requests` (ask for a
   login), `link-requests` (new password link), `session` (POST log in, GET
-  restore), `session/logout`, `activation/inspect`, `activation`, and the
+  restore), `session/logout`, `activation/inspect`, `activation`, the
   priced quote endpoints `quotes/configuration`, `quotes/preview`,
-  `quotes/requests` (`CustomerQuoteResource`). Form token purpose
+  `quotes/requests` (`CustomerQuoteResource`), and `prices` (the customer's
+  own agreed prices, `CustomerPriceListResource`). Form token purpose
   `ACCOUNT`; one solved challenge is good for one call on the three
   account forms together (`ACCOUNT_CHALLENGE` bucket). Request and
   new-link forms always answer 202 with the same shape; login has one 401
@@ -942,8 +944,32 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   unredacted with `pricesVisible: true`. It never touches
   `PublicQuotePriceVisibility`, `WebsiteQuoteSettingsService` or
   `WebsitePriceVisibility`; the anonymous `PublicQuoteResource` never
-  reads a credential. Price basis is the public list for everyone, a
-  partner customer included (no landed cost, no customer prices).
+  reads a credential. Price basis (Emre, 2026-11-06, replacing "the public
+  list for everyone, no customer prices"): the customer's own ACTIVE agreed
+  price (klantprijs, `CustomerPriceService.activeFor`) wherever they have
+  one, else the public list; a partner customer gets no landed cost. It
+  applies on the server, on the logged-in paths only:
+  `configurationForCustomer` (`products[].priceSource: "CUSTOMER"`), every
+  logged-in estimate (`prepare(..., pricesOf)`: a kept price first, then the
+  agreed price as the line's manual price, else the list;
+  `lines[].priceSource: "CUSTOMER"`), and the stored lines of a logged-in
+  request or order (pinned with `priceSource` CUSTOMER: the website path is
+  the one place that pins website lines, the staff pinning skips them). Both
+  `priceSource` fields are `NON_NULL` and only the account route sets them,
+  so every anonymous configuration, estimate and stored idempotency answer
+  reads byte for byte as before. The anonymous routes never look a customer
+  price up; anonymous submits always create a new customer. Customer prices
+  never travel on anything public (families, layout, photos, revision
+  digest, rebuild outbox): a saved customer price is live on the website for
+  that customer at once, with no publish step and no rebuild.
+- **`GET /api/v1/public/account/prices`** (`CustomerPriceListResource`,
+  for the product pages): `{currency: EUR, priceBasis: NET_EXCL_VAT,
+  prices: [{productId, unitPriceNet, salesUnit, piecesPerDisplay}]}`, only
+  `websiteOrderableProducts()` with an active agreed price, never the list
+  price; `piecesPerDisplay` as in the configuration. Guard first (401
+  `SESSION_INVALID`), `Cache-Control: no-store, private`, its own budget
+  `ACCOUNT_PRICE_READ` 600 an hour per account through `checkKey` (no IP
+  bucket, no e-mail bucket), not tied to the ordering switch.
 - **Logged-in quote** (`PublicQuoteService.submitForCustomer`): company
   name, company country, e-mail and VAT number of the body are ignored;
   no customer is created or changed; the estimate uses the customer
@@ -1029,11 +1055,15 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   request never does.
 - **Pricing of an order** (`PublicQuoteService.prepareOrder`): the
   customer RECORD delivered at the typed address
-  (`Customer.withDeliveryAddress`), VAT from the record. The sales core
-  prices the stored document the same way through
-  `WebOrderDeliveries.pricingCustomer`, so the estimate equals the stored
-  order, its invoice, a split part and a "Nieuwe kopie". The customer
-  record is never written by a customer path.
+  (`Customer.withDeliveryAddress`), VAT from the record, each line at its
+  kept price, else the customer's active agreed price, else the list. The
+  stored lines pin the estimate's unit price (`orderDocument`), with
+  `priceSource` CUSTOMER where it is the agreed price and the kept line's
+  own source for a kept price. The sales core prices the stored document the
+  same way through `WebOrderDeliveries.pricingCustomer`, so the estimate
+  equals the stored order, the snapshot and `ordered_terms`, its invoice, a
+  split part and a "Nieuwe kopie". The customer record is never written by a
+  customer path.
 - **Snapshot**: `sales_web_order.order_snapshot` freezes the ERP's own
   pricing of the saved document at placement and at every customer change
   (`WebOrderSnapshot`); `ordered_terms` is its fingerprint
@@ -1042,12 +1072,14 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   sent, so unsent staff edits never show under "my orders".
 - **Customer change**: until staff take the order the customer replaces
   it whole (`SalesOrderService.updateByCustomer`). A product that stays
-  keeps its line id, its unit price and its cost; a new product gets
-  today's price; order date and validity stay. `revision` counts the
+  keeps its line id, its unit price (and its source) and its cost; a new
+  product gets today's price for this customer (agreed price, else the
+  list; Emre's Q3); order date and validity stay. `revision` counts the
   customer's versions (cap 20). The Dutch change summary
   (`customer_change_summary`) goes to the team mail, the push, the history
-  and the ERP banner and names a kept price that is no longer the list
-  price.
+  and the ERP banner and names a kept price that is no longer what a new
+  line would cost ("prijs X behouden: € a, klantprijs nu € b", or
+  "prijslijst nu € b"; `OrderFacts.listPrices` / `customerPriced`).
 - **Locks**: form stripes, then the `sales_order` row, then the
   `sales_web_order` row. Every writer locks first and reads afterwards.
   Customer paths call `lockDocumentForCustomer`, `updateByCustomer` and
@@ -2169,7 +2201,65 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   `GET /api/customers/{id}/catalog-exports?limit=20` (newest first, max 100) and
   `GET /api/catalog/exports/{id}` (the header fields plus `lines`). A deleted customer's
   exports stay, under the name they were made for.
-- **Not used** (Emre's decision for this round): quotes, invoices, the portal and the website
-  keep their own pricing; the website still shows no customer prices.
 - **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
-  rerunnable, new tables only, listed last in the migration script and copied in the Dockerfile.
+  rerunnable, new tables only, copied in the Dockerfile and listed in the migration script before
+  `sales-line-price-source-postgresql.sql` (round 3b below).
+
+### Klantprijzen on quotes, invoices, the portal and the website (round 3b, 2026-11-06)
+
+Emre: "Klantprijzen moeten ook op offertes en facturen kunnen alsook DEFAULt kunnen nemen. Je moet
+ook wel altijd subtiel default prijs tonen langs onze kant" and "Ingelogde klanten met andere prijs
+moeten dan andere prijs zien natuurlijk."
+
+- **One lookup, one day**: `CustomerPriceService.activeFor(customerId, products)` gives the ACTIVE
+  prices (not expired, still on the product's basis) by product id, on `LocalDate.now(Europe/
+  Brussels)` for every caller (Railway runs in UTC). Quotes, invoices, the portal list and the
+  website all go through it; the catalogue export reads the stored rows itself (same zone).
+- **Pinned, never looked up live**: a customer price becomes a line's `unitPriceEur` when the line
+  is added, with `sales_order_line.pricesource` (`SalesOrderLine.priceSource`, plain varchar,
+  `docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql`, rerunnable `add column if not
+  exists`, Dockerfile COPY and script line after the round-3 file): CUSTOMER (pinned agreed price),
+  STANDARD (staff chose the catalogue price; no unit price, follows the catalogue, never pinned) or
+  MANUAL (typed); null = every older line and a line on the catalogue by default. Existing lines
+  never change by themselves: a sent quote, its invoice and every document past concept keep their
+  prices whatever the customer price does later. `SalesPricingCalculator.unitPriceFor` knows
+  nothing of customer prices; a pinned price is a manual price, so the LINE/ORDER tiers and the
+  extra discount apply on top exactly as on a typed price (Emre told).
+- **Where it pins** (`SalesOrderService.pinsCustomerPrices`): a regular quote or invoice with a
+  customer, PRODUCT or ORDER markup. Never a credit note, a partner deal, CONTAINER_COST, a split
+  part, an advance invoice, or a website request or order (channel WEBSITE, the request marker or a
+  `sales_web_order` row): the website path is the one place that pins there (below).
+- **Rules** (`SalesLinePrices.settle`, on every staff save and preview, never on the customer's
+  `updateByCustomer`): a new line (no stored line with its id) without a price and without a source
+  gets today's agreed price as CUSTOMER; a client without the field (an older screen) keeps the
+  stored source while it keeps the price, and a price it changes becomes MANUAL (or null when
+  cleared); STANDARD with a price is MANUAL; MANUAL without one is null; CUSTOMER without a price
+  takes today's agreed price ("Klantprijs gebruiken"), else falls back to the catalogue; CUSTOMER
+  with a price stays CUSTOMER only when it is today's agreed price or the price already pinned on
+  that line, otherwise it was typed over (MANUAL). A concept that changes customer re-pins every
+  CUSTOMER line and every line on the catalogue by default (null source, no price) to the new
+  customer's agreed price, or back to the catalogue (null, null) when they have none; STANDARD and
+  typed lines stay. (The contract named only the CUSTOMER lines; the default lines go along so A ->
+  B -> A gives A's prices back.) A credit note never carries a source. An unknown source is refused.
+  The Logboek names a change as "Prijsbron · Product n" (klantprijs / standaardprijs / eigen prijs).
+- **Also pinned**: lines a container sale at sales prices starts with (`createFromPurchaseOrder`,
+  not at cost), and products a customer added through the quote link when staff adopt the proposal
+  (Overnemen; kept lines keep price and source).
+- **Copies keep it**: invoice from quote and slotfactuur, "Nieuwe kopie" (same customer; changing the
+  copy's customer re-pins as above), Overnemen, delivery weeks. A split part keeps CUSTOMER only.
+- **Staff view** (only `GET /api/sales-orders/{id}` and the single-document answers built by the
+  same view, preview included; never the list, a PDF, the portal or the website): each priced line
+  carries `priceSource` and two read-only figures, `standardUnitPriceEur` (what the line would cost
+  on the catalogue today, `unitPriceFor` without a manual price) and `customerUnitPriceEur` (today's
+  agreed price, null without one). They are filled for every line with a source, and on a concept
+  that pins also for a line without one whose product has an agreed price; all three are
+  `NON_NULL`, so a document without either answers byte for byte as before (`priceForStaff`,
+  `SalesPricingCalculator.PriceHints`). `order.lines[].priceSource` is `NON_NULL` too.
+- **Product side** (admin): `GET /api/products/{id}/customer-prices` ->
+  `[{customerId, customerName, priceExclVat, validUntil, status}]` by customer name (404 for a
+  gone product), for the "n klantprijzen" chip beside the sales price.
+- **Quote link** (Emre's Q4): the portal's add-products list (`PortalResource.catalog`) offers the
+  customer's agreed price where the quote pins (`customerPricesFor`), so an adopted line costs what
+  the customer saw. The portal page itself shows the quote's own (pinned) prices as always.
+- **Website**, see "Customer logins" and "Website orders" above: a logged-in customer sees and
+  orders at their agreed price; anonymous visitors and customers without one keep the public list.
