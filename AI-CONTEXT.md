@@ -519,18 +519,24 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   fit. `PdfCatalogRenderer.render` lays the brochure out first;
   `FamilySheetFit` compares each sheet's content bottom with its footer
   (2 mm clearance, the same line as the tests' 795 pt check), and sheets
-  that run into it are laid out again in the compact design. `renderHtml`
-  shows the first layout only. The same pass measures the overview pages:
-  a range table that runs into its footnote is clipped (nothing moves a row
-  to the next page) and logged as WARN "Overzichtspagina N loopt … mm in de
-  voetnoot"; the room left is logged at DEBUG.
+  that run into it are laid out again in the compact design; a compact sheet
+  that still runs into it gets the tight design (`family-page--tight`: a
+  smaller hero and colour strip, every row kept). The same passes measure the
+  overview pages: they start at 10 rows per page (it was 12; pallet, 20ft and
+  40ft take a line more per family) and a layout whose range table runs into
+  its footnote is laid out again below its fullest page, down to 6 rows.
+  At most four layouts (only the last writes the PDF); whatever still does not
+  fit is logged as WARN ("Catalogusfiche … is ook compact … mm te lang",
+  "Overzichtspagina N loopt … mm in de voetnoot"), the room left at DEBUG.
+  `renderHtml` shows the first layout only.
 - **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
   in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
   20ft, 40ft HC), the brochure range table (one line of three figures that
   wraps between figures), the family specification list (the pallet with its
-  omdozen in brackets) and the variant table (each figure per SKU when the
-  variants differ, as 20ft did). An unknown figure prints "-", 40ft included,
-  which used to disappear. Per pallet = whole omdozen from
+  omdozen in brackets) when every variant shares all three, else one line
+  under each variant row of the variant table with all three (never split
+  between the two). An unknown figure prints "-", 40ft included, which used
+  to disappear. Per pallet = whole omdozen from
   `PalletCalculator.fit` (the Palletberekening stacking) on
   `SalesSettings.pallet()` × pieces per carton, worded like the container
   figures (displays, named units). Catalog reaches it through the out-port

@@ -25,13 +25,14 @@ final class FamilySheetFit {
     static final double CLEARANCE_MM = 2;
 
     /** A sheet whose content ends {@code millimetres} too low for the clearance above the footer. */
-    record Overflow(String anchor, boolean compact, double millimetres) {}
+    record Overflow(String anchor, boolean compact, boolean tight, double millimetres) {}
 
     /**
-     * The {@code page}-th overview page and the room left between its range table and the clearance
-     * above its footnote; a negative room is how far the last row runs into it.
+     * The {@code page}-th overview page, the lines of its range table (chapter headings and
+     * families), and the room left between the table and the clearance above its footnote; a
+     * negative room is how far the last row runs into it.
      */
-    record OverviewRoom(int page, double millimetres) {
+    record OverviewRoom(int page, int rows, double millimetres) {
         boolean overflowing() {
             return millimetres < 0;
         }
@@ -62,8 +63,8 @@ final class FamilySheetFit {
             }
             double overflow = (contentBottom - footerTop) / dotsPerMm + CLEARANCE_MM;
             if (overflow > 0) {
-                result.add(new Overflow(section.getAttribute("id"),
-                        hasClass(section, "family-page--compact"), overflow));
+                result.add(new Overflow(section.getAttribute("id"), hasClass(section, "family-page--compact"),
+                        hasClass(section, "family-page--tight"), overflow));
             }
         }
         return List.copyOf(result);
@@ -92,9 +93,20 @@ final class FamilySheetFit {
                     contentBottom = Math.max(contentBottom, box.getAbsY() + box.getHeight());
                 }
             }
-            result.add(new OverviewRoom(page, (footnoteTop - contentBottom) / dotsPerMm - CLEARANCE_MM));
+            result.add(new OverviewRoom(page, rangeRows(section),
+                    (footnoteTop - contentBottom) / dotsPerMm - CLEARANCE_MM));
         }
         return List.copyOf(result);
+    }
+
+    private static int rangeRows(Element section) {
+        NodeList rows = section.getElementsByTagName("tr");
+        int count = 0;
+        for (int index = 0; index < rows.getLength(); index++) {
+            Element row = (Element) rows.item(index);
+            if (hasClass(row, "range-row") || hasClass(row, "range-group")) count++;
+        }
+        return count;
     }
 
     /** Footer and footnote are absolutely positioned: they hang off the sheet's layer, not its child boxes. */

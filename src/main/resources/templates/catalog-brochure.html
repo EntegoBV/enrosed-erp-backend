@@ -160,6 +160,10 @@
     .variants--no-ean .size, .variants--no-ean .carton { width: 22%; }
     .swatch { display: inline-block; width: 3.4mm; height: 3.4mm; margin-right: 1.3mm; vertical-align: middle; border: .2mm solid #86776c; border-radius: 50%; }
     .variant-price { display: block; margin-top: .8mm; color: #8f223c; font-size: 8.2pt; font-weight: 700; }
+    /* Pallet, 20ft and 40ft of one SKU on one line under its row, when the SKUs differ in them. */
+    .family-page .variants tr.variant-row--capacities td { padding-bottom: .4mm; border-bottom: 0; }
+    .family-page .variants tr.variant-capacities td { padding-top: 0; color: #806b5e; font-size: 6.8pt; line-height: 1.25; }
+    .family-page .variants tr.variant-capacities span { white-space: nowrap; }
     .family-page--sheet .family-media { height: 128mm; }
     .family-page--sheet .family-media--one tr, .family-page--sheet .family-media--two tr { height: 125mm; }
     .family-page--sheet .family-media--three tr, .family-page--sheet .family-media--four-plus tr { height: 61.5mm; }
@@ -197,6 +201,15 @@
     .family-page--compact.family-page--variant-photos.family-page--priced .family-media--three tr, .family-page--compact.family-page--variant-photos.family-page--priced .family-media--four-plus tr { height: 24.5mm; }
     .family-page.family-page--large-photo .family-media.family-media--one { width: 160mm; height: 54mm; margin: 0 auto; border-spacing: 0; }
     .family-page.family-page--large-photo .family-media.family-media--one tr { height: 54mm; }
+    /* The last resort for a sheet the compact design cannot hold: a smaller hero and colour strip
+       keep every row on the page. It overrides every per-language size above, hence !important. */
+    .family-page--tight .family-media { width: 84mm !important; height: 44mm !important; }
+    .family-page--tight .family-media--one tr, .family-page--tight .family-media--two tr { height: 41mm !important; }
+    .family-page--tight .family-media--three tr, .family-page--tight .family-media--four-plus tr { height: 19.5mm !important; }
+    .family-page--tight .gallery-strip { height: 10mm !important; margin-top: 1.2mm !important; }
+    .family-page--tight .gallery-strip img { height: 10mm !important; max-width: 22mm !important; }
+    .family-page--tight .variant-photos img, .family-page--tight .variant-photo-empty { width: 32mm !important; height: 20mm !important; }
+    .family-page--tight .variant-photo-empty { padding-top: 7mm !important; }
     .utility h2 { max-width: 174mm; margin-top: 5mm; color: #651629; font-size: 35pt; font-weight: 400; line-height: 1.04; }
     .palette-page h2 { margin-top: 3mm; font-size: 32pt; }
     .palette-page .lead { max-width: 174mm; margin-top: 3mm; font-size: 8.6pt; line-height: 1.4; }
@@ -384,7 +397,7 @@
   {/if}
 
   {#for family in section.families}
-  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey} family-page--{family.tone}{#if family.largeDetailPhoto} family-page--large-photo{/if}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}{#if family.showVariantPhotos} family-page--variant-photos{/if}{#if includePrices} family-page--priced{/if}">
+  <section id="{family.anchor}" class="page family-page family-page--{family.categoryKey} family-page--{family.tone}{#if family.largeDetailPhoto} family-page--large-photo{/if}{#if family.sheetLayout} family-page--sheet{/if}{#if family.compactDetail} family-page--compact{/if}{#if family.tightDetail} family-page--tight{/if}{#if family.showVariantPhotos} family-page--variant-photos{/if}{#if includePrices} family-page--priced{/if}">
     <a name="{family.anchor}"></a>
     <table class="family-head"><tr>
       <td class="number">{family.number}</td>
@@ -412,13 +425,13 @@
     </tr></table>
         {#if family.showVariantTable}<table class="variants{#if !family.showVariantEan} variants--no-ean{/if}">
           <thead><tr><th class="sku">SKU</th><th class="option">{copy['catalog.common.colorsize']}</th><th class="size">{copy['catalog.common.productdimensions']}</th><th class="carton">{copy['catalog.common.outercartonpack']}</th>{#if family.showVariantEan}<th class="ean">EAN</th>{/if}</tr></thead>
-          <tbody>{#for variant in family.variants}<tr>
+          <tbody>{#for variant in family.variants}<tr{#if family.showVariantCapacities} class="variant-row--capacities"{/if}>
             <td>{variant.sku}{#if includePrices}<span class="variant-price">{#if variant.displayPriceLabel}<span class="variant-display-price variant-display-price--primary">{variant.displayPriceLabel}</span>{#if variant.priceLabel}<span class="variant-display-price">{variant.priceLabel} · {variant.perUnitLabel}</span>{/if}{#else}{#if variant.priceLabel}{variant.priceLabel} <small>{variant.perUnitLabel}</small>{#else}{copy['catalog.brochure.overview.priceonrequest']}{/if}{/if}</span>{/if}</td>
             <td>{#if variant.colourHex}<span class="swatch" style="background:{variant.colourHex}"></span>{/if}{#if variant.colour}{variant.colour}{/if}{#if variant.size} · {variant.size}{/if}</td>
             <td>{variant.productSize}</td>
-            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{#if variant.cartonQuantityLabel}{variant.cartonQuantityLabel}{#else}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{/if}{#if family.showVariantPallet}<br/>{copy['catalog.brochure.range.pallet']}: {variant.palletCapacity}{/if}{#if family.showVariant20Ft}<br/>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity}{/if}{#if family.showVariant40Ft}<br/>{copy['catalog.brochure.range.container']}: {variant.hcCapacity}{/if}</td>
+            <td>{variant.cartonSize}{#if variant.piecesPerCarton > 0}{#if variant.cartonSize}<br/>{/if}{#if variant.cartonQuantityLabel}{variant.cartonQuantityLabel}{#else}{variant.piecesPerCarton} {copy['catalog.common.pieces']}{/if}{/if}</td>
             {#if family.showVariantEan}<td>{variant.ean}</td>{/if}
-          </tr>{/for}</tbody>
+          </tr>{#if family.showVariantCapacities}<tr class="variant-capacities"><td colspan="{#if family.showVariantEan}5{#else}4{/if}"><span>{copy['catalog.brochure.range.pallet']}: {variant.palletCapacity} ·</span> <span>{copy['catalog.brochure.range.container20ft']}: {variant.gpCapacity} ·</span> <span>{copy['catalog.brochure.range.container']}: {variant.hcCapacity}</span></td></tr>{/if}{/for}</tbody>
         </table>{/if}
     <div class="footer">ENROSED · {family.categoryName} · {family.number} <span class="page-no">{copy['catalog.brochure.overview.page']} {family.page}</span></div>
   </section>
