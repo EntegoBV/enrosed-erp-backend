@@ -25,7 +25,7 @@ final class FamilySheetFit {
     static final double CLEARANCE_MM = 2;
 
     /** A sheet whose content ends {@code millimetres} too low for the clearance above the footer. */
-    record Overflow(String anchor, boolean compact, boolean tight, double millimetres) {}
+    record Overflow(String anchor, boolean compact, boolean tight, boolean bare, double millimetres) {}
 
     /**
      * The {@code page}-th overview page, the lines of its range table (chapter headings and
@@ -64,7 +64,7 @@ final class FamilySheetFit {
             double overflow = (contentBottom - footerTop) / dotsPerMm + CLEARANCE_MM;
             if (overflow > 0) {
                 result.add(new Overflow(section.getAttribute("id"), hasClass(section, "family-page--compact"),
-                        hasClass(section, "family-page--tight"), overflow));
+                        hasClass(section, "family-page--tight"), hasClass(section, "family-page--bare"), overflow));
             }
         }
         return List.copyOf(result);

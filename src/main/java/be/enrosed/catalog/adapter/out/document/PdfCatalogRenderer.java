@@ -57,8 +57,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      */
     private static final int OVERVIEW_ROWS_PER_PAGE = 10;
     private static final int MIN_OVERVIEW_ROWS_PER_PAGE = 6;
-    /** The first layout, then compact or tight sheets and fewer overview rows where they are needed. */
-    private static final int MAX_BROCHURE_LAYOUTS = 4;
+    /** The first layout, then compact, tight or bare sheets and fewer overview rows where they are needed. */
+    private static final int MAX_BROCHURE_LAYOUTS = 5;
     /** All chapters share the same restrained bordeaux brand palette. */
     private static final int TONE_COUNT = 1;
     /* Real four-variant families with complete translated sales copy still fit the compact
@@ -226,8 +226,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String tone, boolean largeDetailPhoto, String displayPriceLabel,
             /** "per bowl" when every variant shares the unit; null leaves the price without a suffix. */
             String perUnitLabel,
-            /** The last resort for a sheet the compact design cannot hold: a smaller hero and colour strip. */
-            boolean tightDetail) {
+            /** For a sheet the compact design cannot hold: a smaller hero and colour strip. */
+            boolean tightDetail,
+            /** The last resort, when even that does not hold: no colour photos, gallery or long description,
+                so the variant table with its prices always stays on the page. */
+            boolean bareDetail) {
 
         public BrochureFamily(String anchor, String number, String name, String summary, String description,
                 String format, List<String> highlights, String categoryKey, String categoryName,
@@ -237,7 +240,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 String displayPriceLabel, String perUnitLabel) {
             this(anchor, number, name, summary, description, format, highlights, categoryKey, categoryName,
                     familySize, packageLine, overviewImage, photos, referencePriceLabel, compactDetail,
-                    variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel, perUnitLabel, false);
+                    variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel, perUnitLabel, false, false);
         }
 
         public BrochureFamily(String anchor, String number, String name, String summary, String description,
@@ -283,7 +286,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return new BrochureFamily("family-" + number, number, name, summary, description, format,
                     highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
                     referencePriceLabel, compactDetail, variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel,
-                    perUnitLabel, tightDetail);
+                    perUnitLabel, tightDetail, bareDetail);
         }
 
         /** The same sheet in the compact design, for content the spacious sheet cannot hold. */
@@ -291,7 +294,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
                     categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
                     referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
-                    displayPriceLabel, perUnitLabel, tightDetail);
+                    displayPriceLabel, perUnitLabel, tightDetail, bareDetail);
         }
 
         /** The compact sheet with a smaller hero and colour strip, for content the compact design cannot hold. */
@@ -299,7 +302,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
                     categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
                     referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
-                    displayPriceLabel, perUnitLabel, true);
+                    displayPriceLabel, perUnitLabel, true, bareDetail);
+        }
+
+        /** The tight sheet without colour photos, gallery or long description: the variant table stays whole. */
+        public BrochureFamily bare() {
+            return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
+                    categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
+                    referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
+                    displayPriceLabel, perUnitLabel, true, true);
         }
 
         /** The one line the overview says about this family. */
@@ -523,7 +534,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     String renderHtml(CatalogExportService.Model catalog) {
         requireCompleteCopy(catalog);
         return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
-                ? brochureHtml(catalog, new PhotoResolver(), Set.of(), Set.of(), OVERVIEW_ROWS_PER_PAGE)
+                ? brochureHtml(catalog, new PhotoResolver(), Set.of(), Set.of(), Set.of(), OVERVIEW_ROWS_PER_PAGE)
                 : simpleHtml(catalog);
     }
 
@@ -537,6 +548,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         PhotoResolver photos = new PhotoResolver();
         Set<String> compactSheets = new LinkedHashSet<>();
         Set<String> tightSheets = new LinkedHashSet<>();
+        Set<String> bareSheets = new LinkedHashSet<>();
         int overviewRows = OVERVIEW_ROWS_PER_PAGE;
         List<FamilySheetFit.Overflow> overflows = new ArrayList<>();
         List<FamilySheetFit.OverviewRoom> overview = new ArrayList<>();
@@ -546,10 +558,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             overflows.clear();
             overview.clear();
             Optional<byte[]> pdf = fonts.render(
-                    brochureHtml(catalog, photos, compactSheets, tightSheets, rows), laidOut -> {
+                    brochureHtml(catalog, photos, compactSheets, tightSheets, bareSheets, rows), laidOut -> {
                         overflows.addAll(FamilySheetFit.overflowing(laidOut));
                         overview.addAll(FamilySheetFit.overviewRoom(laidOut));
-                        boolean sheetsCanShrink = overflows.stream().anyMatch(overflow -> !overflow.tight());
+                        boolean sheetsCanShrink = overflows.stream().anyMatch(overflow -> !overflow.bare());
                         boolean overviewCanShrink = rows > MIN_OVERVIEW_ROWS_PER_PAGE
                                 && overview.stream().anyMatch(FamilySheetFit.OverviewRoom::overflowing);
                         return last || (!sheetsCanShrink && !overviewCanShrink);
@@ -572,9 +584,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             }
             Set<String> nowCompact = new LinkedHashSet<>();
             Set<String> nowTight = new LinkedHashSet<>();
+            Set<String> nowBare = new LinkedHashSet<>();
             for (FamilySheetFit.Overflow overflow : overflows) {
                 if (!overflow.compact()) nowCompact.add(overflow.anchor());
                 else if (!overflow.tight()) nowTight.add(overflow.anchor());
+                else if (!overflow.bare()) nowBare.add(overflow.anchor());
             }
             if (!nowCompact.isEmpty()) {
                 LOG.infof("Catalogusfiches %s passen niet ruim op hun pagina; compacte opmaak gebruikt", nowCompact);
@@ -583,6 +597,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             if (!nowTight.isEmpty()) {
                 LOG.infof("Catalogusfiches %s passen ook compact niet; kleinere beelden gebruikt", nowTight);
                 tightSheets.addAll(nowTight);
+            }
+            if (!nowBare.isEmpty()) {
+                LOG.infof("Catalogusfiches %s passen ook klein niet; zonder kleurfoto's en lange tekst", nowBare);
+                bareSheets.addAll(nowBare);
             }
             if (rows > MIN_OVERVIEW_ROWS_PER_PAGE
                     && overview.stream().anyMatch(FamilySheetFit.OverviewRoom::overflowing)) {
@@ -717,7 +735,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private String brochureHtml(CatalogExportService.Model catalog, PhotoResolver photos,
-                                Set<String> compactSheets, Set<String> tightSheets, int overviewRows) {
+                                Set<String> compactSheets, Set<String> tightSheets, Set<String> bareSheets,
+                                int overviewRows) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = catalogCopy(language);
@@ -791,7 +810,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<BrochureFamily> chapter = new ArrayList<>();
             for (FamilyRenderData rendered : entry.getValue()) {
                 BrochureFamily placed = rendered.family().placed(twoDigits(familyNumber++), page++, tone);
-                chapter.add(tightSheets.contains(placed.anchor()) ? placed.tight()
+                chapter.add(bareSheets.contains(placed.anchor()) ? placed.bare()
+                        : tightSheets.contains(placed.anchor()) ? placed.tight()
                         : compactSheets.contains(placed.anchor()) ? placed.compact() : placed);
             }
             pagedFamilies.addAll(chapter);
