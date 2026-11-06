@@ -536,7 +536,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   shared, they are specification rows and count as such, never twice. In
   the overview's narrow price cell a display total puts its amount under
   its words ("Display (12 st.):" / "€ 49,00 - € 54,00", split at the last
-  ": "), wrapping at spaces only, so a long one stays inside the cell.
+  ": "), and every price there wraps at its spaces (a range after its
+  dash; an amount never breaks inside), so a long one stays inside the cell
+  instead of running over the logistics column.
 - **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
   in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
   20ft, 40ft HC), the brochure range table (one line of three figures that
