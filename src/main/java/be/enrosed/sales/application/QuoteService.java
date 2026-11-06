@@ -1011,7 +1011,9 @@ public class QuoteService {
         record(order, QuoteEvent.Type.VOORSTEL_OVERGENOMEN, false, handledBy,
                 "Voorstel van de klant overgenomen", responseMessage);
 
-        return orders.save(new SalesOrder(
+        /* Kept lines keep their price and its source; a product the customer added takes the
+           customer's agreed price, as the quote link offered it, where the quote pins those. */
+        return orders.save(salesOrders.withPriceSources(order, new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), BusinessDays.add(LocalDate.now(), 30), QuoteStatus.CONCEPT,
                 order.incoterm(), order.paymentTerms(), order.notes(),
@@ -1027,7 +1029,7 @@ public class QuoteService {
                 order.goodsShippedAt(),
                 /* The hand layout follows the adopted quantities, as on a save. */
                 updated, SalesLineAvailability.reconcilePallets(order.pallets(), updated, this::productOrNull))
-                .carrying(order));
+                .carrying(order)));
     }
 
     private be.enrosed.catalog.domain.Product productOrNull(Long productId) {

@@ -51,11 +51,19 @@ public class SalesPricingCalculator {
             be.enrosed.shipping.domain.Carrier carrier,
             SalesSplitPricing splitPricing,
             /** How the automatic pallets are counted: the rule the document was stored with. */
-            PalletCountRule palletRule
+            PalletCountRule palletRule,
+            /** The staff figures on where each line's price comes from; null prices without them. */
+            PriceHints priceHints
     ) {
         /** A context without a rule prices a document that is not stored yet: a new one counts mixed. */
         public Context {
             palletRule = palletRule == null ? PalletCountRule.MIXED : palletRule;
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing, PalletCountRule palletRule) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, palletRule, null);
         }
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
@@ -77,6 +85,17 @@ public class SalesPricingCalculator {
     }
 
     private final DeliveryCalculator delivery;
+
+    /**
+     * For the staff view of one document: the customer's active agreed prices of today, and whether a
+     * line without a price source shows them too (a concept that pins them). A line with a source
+     * always gets its standard and customer price.
+     */
+    public record PriceHints(Map<Long, BigDecimal> customerPrices, boolean unsourcedLines) {
+        public PriceHints {
+            customerPrices = customerPrices == null ? Map.of() : Map.copyOf(customerPrices);
+        }
+    }
 
     /**
      * The step a line rounds to when its document does not keep exact pieces: the one the
@@ -207,6 +226,12 @@ public class SalesPricingCalculator {
                             product.inventoryKnown());
             String manualWeek = line.deliveryWeek();
 
+            /* Where the price comes from, and on one staff view the catalogue and customer price of today. */
+            PriceHints hints = context.priceHints();
+            boolean hinted = hints != null && (line.priceSource() != null
+                    || hints.unsourcedLines() && hints.customerPrices().containsKey(product.id()));
+            BigDecimal standardPrice = hinted ? unitPriceFor(product, order, null) : null;
+
             lines.add(new PricedOrder.Line(
                     /* Internal screens read the plain name with colour; the
                        dimensions live in their own columns. */
@@ -241,7 +266,11 @@ public class SalesPricingCalculator {
                     line.isUnavailable() ? null : manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
                     line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity(),
                     product.packaging().orderStep(), step,
-                    Money.unit(expectedUnit), fromStock ? Money.unit(line.stockCostEur()) : null));
+                    Money.unit(expectedUnit), fromStock ? Money.unit(line.stockCostEur()) : null,
+                    line.priceSource(),
+                    standardPrice != null && standardPrice.signum() > 0 ? Money.unit(standardPrice) : null,
+                    hinted && hints.customerPrices().containsKey(product.id())
+                            ? Money.unit(hints.customerPrices().get(product.id())) : null));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);

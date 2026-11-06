@@ -372,7 +372,8 @@ public class SalesOrderResource {
         Links links = Links.of(all);
         Long containerId = order.linkedPurchaseOrderId();
         var container = containerId == null ? null : salesOrders.containerNames(List.of(containerId)).get(containerId);
-        OrderView view = links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), quotes.awaitsResend(order))), salesOrders::price)
+        /* One document: its lines also say where each price comes from (staff only, never on the list). */
+        OrderView view = links.withCreditLinks(enrich(links.view(order, salesOrders.priceForStaff(order), quotes.awaitsResend(order))), salesOrders::price)
                 .withContainer(container)
                 .withAdvanceBilling(advanceBilling == null || order.id() == null ? null : advanceBilling.views(all));
         OrderView blocks = webOrderBlocks(view, webOrders == null || order.id() == null ? null : webOrders.find(order.id()).orElse(null),

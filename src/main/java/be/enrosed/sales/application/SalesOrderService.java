@@ -65,6 +65,8 @@ public class SalesOrderService {
     /** The delivery address a customer typed for one website order; freight is priced on it. */
     @Inject Instance<WebOrderDeliveries> deliveries;
     @Inject Instance<StaffWebOrderRevision> staffRevision;
+    /** The customers' agreed prices (klantprijzen); absent in the hand-built tests. */
+    @Inject Instance<CustomerPriceService> customerPrices;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -158,8 +160,8 @@ public class SalesOrderService {
                 ? withStoredOrderSteps(normalized.lines(), stored.lines())
                 : stampOrderSteps(normalized.lines());
         /* Under the stored document's id, whatever id the client sent: the draft counts its pallets
-           by that document's rule and shows its links. */
-        return normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id());
+           by that document's rule and shows its links. Its lines get the prices a save would pin. */
+        return withPriceSources(stored, normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id()));
     }
 
     public void captureCustomerRequest(long id) {
@@ -242,7 +244,21 @@ public class SalesOrderService {
         return priceSplit(order, splitPricing, (PageLookups) null);
     }
 
+    /**
+     * The pricing of one document for its own staff view: every priced line says where its price
+     * comes from and, where that is worth a look, carries the catalogue price and this customer's
+     * active agreed price of today. Never on the list, a PDF, the portal or the website.
+     */
+    public PricedOrder priceForStaff(SalesOrder order) {
+        return priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null,
+                null, true);
+    }
+
     private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page) {
+        return priceSplit(order, splitPricing, page, false);
+    }
+
+    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page, boolean staffHints) {
         splitPricing = SalesSplits.activePricing(order, splitPricing);
         Map<Long, Product> byId = page != null ? page.products()
                 : products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
@@ -266,7 +282,86 @@ public class SalesOrderService {
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vat.determine(country, customer),
-                carrier, splitPricing, palletRule));
+                carrier, splitPricing, palletRule, staffHints ? priceHints(order, byId) : null));
+    }
+
+    /**
+     * What the staff view shows beside each price: lines with a source always get the catalogue and
+     * customer price of today; on a concept that pins customer prices, so does a line without a source
+     * whose product has an agreed price (so "Klantprijs gebruiken" can be offered). Null on documents
+     * where neither applies, which keeps their answer exactly as before.
+     */
+    private SalesPricingCalculator.PriceHints priceHints(SalesOrder order, Map<Long, Product> byId) {
+        if (order.customerId() == null || customerPrices() == null || order.lines() == null) return null;
+        boolean pins = pinsCustomerPrices(order);
+        boolean sourced = order.lines().stream().anyMatch(line -> line != null && line.priceSource() != null);
+        if (!pins && !sourced) return null;
+        List<Product> onLines = order.lines().stream().filter(Objects::nonNull).map(SalesOrderLine::productId)
+                .filter(Objects::nonNull).distinct().map(byId::get).filter(Objects::nonNull).toList();
+        return new SalesPricingCalculator.PriceHints(customerPrices().activeFor(order.customerId(), onLines),
+                pins && order.status() == QuoteStatus.CONCEPT);
+    }
+
+    private CustomerPriceService customerPrices() {
+        return customerPrices != null && customerPrices.isResolvable() ? customerPrices.get() : null;
+    }
+
+    /**
+     * Whether a staff save gives a new line this customer's agreed price by default (Emre,
+     * 2026-11-06): a regular quote or invoice of a customer, priced per product or order markup. Never
+     * a credit note, a partner deal, a container-cost document, a split part, an advance invoice, or
+     * a website request or order: the website path applies the customer's price there itself.
+     */
+    public boolean pinsCustomerPrices(SalesOrder order) {
+        return order != null && pinsCustomerPrices(order, order.markupMode());
+    }
+
+    private boolean pinsCustomerPrices(SalesOrder order, MarkupMode markup) {
+        return order.customerId() != null && customerPrices() != null
+                && !order.isCreditNote() && !order.isPartnerDeal() && order.purpose() == SalesPurpose.STANDARD
+                && markup != MarkupMode.CONTAINER_COST
+                && !SalesCustomerMessages.website(order)
+                && (order.id() == null || webOrders() == null || webOrders().find(order.id()).isEmpty())
+                && (order.id() == null || advanceBilling() == null || !advanceBilling().isAdvance(order))
+                && !isSplitPart(order);
+    }
+
+    /**
+     * {@code updated} with every line's price source settled for a staff save or preview
+     * ({@link SalesLinePrices}): new lines without a price take the customer's agreed price on a
+     * document that pins them, a concept that changes customer is pinned again, the rest keeps its
+     * prices. {@code stored} is the document as saved, null for one being made.
+     */
+    SalesOrder withPriceSources(SalesOrder stored, SalesOrder updated) {
+        if (updated == null || updated.lines() == null || updated.lines().isEmpty()) return updated;
+        /* A client may leave the markup out; the stored document's then stands, as a save keeps it. */
+        MarkupMode markup = updated.markupMode() == null && stored != null ? stored.markupMode() : updated.markupMode();
+        boolean pins = pinsCustomerPrices(updated, markup);
+        boolean customerChanged = stored != null && stored.status() == QuoteStatus.CONCEPT
+                && !Objects.equals(stored.customerId(), updated.customerId());
+        List<SalesOrderLine> lines = SalesLinePrices.settle(updated.lines(), stored == null ? List.of() : stored.lines(),
+                pins, customerChanged, updated.isCreditNote(),
+                () -> activePrices(updated.customerId(), updated.lines()));
+        return lines == updated.lines() ? updated : updated.withLinesAndPallets(lines, updated.pallets());
+    }
+
+    /** The customer's active agreed prices of today for the products on these lines. */
+    private Map<Long, BigDecimal> activePrices(Long customerId, List<SalesOrderLine> lines) {
+        if (customerId == null || customerPrices() == null) return Map.of();
+        Set<Long> ids = lines.stream().filter(Objects::nonNull).map(SalesOrderLine::productId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        List<Product> onLines = products.list().stream().filter(product -> ids.contains(product.id())).toList();
+        return customerPrices().activeFor(customerId, onLines);
+    }
+
+    /**
+     * The customer's active agreed prices of these products where this document takes them (the quote
+     * link's product list offers them, as a staff line would get them); empty everywhere else.
+     */
+    public Map<Long, BigDecimal> customerPricesFor(SalesOrder order, java.util.Collection<Product> forProducts) {
+        if (!pinsCustomerPrices(order)) return Map.of();
+        return customerPrices().activeFor(order.customerId(), forProducts);
     }
 
     /** Price this order uses for this product; the portal uses it too. */
@@ -630,6 +725,8 @@ public class SalesOrderService {
                 .withPurpose(partner ? SalesPurpose.PARTNER_ADVANCE : SalesPurpose.STANDARD, container.id(),
                         request.paymentPlan() != null ? request.paymentPlan()
                                 : partner ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL);
+        /* At sales prices the lines are new lines like any other: the customer's agreed prices come first. */
+        if (!atCost) draft = withPriceSources(null, draft);
         if (partner) {
             List<SalesOrder> existing = orders.findAll().stream().filter(order -> order.isInvoice() && order.isPartnerAdvance()
                     && Objects.equals(order.linkedPurchaseOrderId(), request.purchaseOrderId()) && PartnerFinancingService.live(order)).toList();
@@ -1754,6 +1851,8 @@ public class SalesOrderService {
                 .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
                         changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
+        /* The customer's own path (a website order) prices its lines itself; a staff save settles where each price comes from. */
+        if (!byCustomer) updated = withPriceSources(current, updated);
         if (current.isCreditNote()) updated = withCreditCosts(asStoredCreditNote(updated, current));
         if (advanceBilling() != null) {
             updated = advanceBilling().withServerLines(current, updated);
@@ -3197,6 +3296,9 @@ public class SalesOrderService {
                 changes.add("line." + productId + ".discount", "Korting" + suffix,
                         oldLine == null ? null : oldLine.manualDiscountPct(),
                         newLine == null ? null : newLine.manualDiscountPct());
+                changes.add("line." + productId + ".priceSource", "Prijsbron" + suffix,
+                        oldLine == null ? null : SalesLinePrices.dutch(oldLine.priceSource()),
+                        newLine == null ? null : SalesLinePrices.dutch(newLine.priceSource()));
             }
             changes.add("line." + productId + ".deliveryWeek", "Levertermijn" + suffix,
                     oldLine == null ? null : oldLine.deliveryWeek(),

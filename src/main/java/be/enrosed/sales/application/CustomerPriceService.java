@@ -41,9 +41,11 @@ import java.util.stream.Collectors;
 /**
  * Klantprijzen: one agreed price per customer and product, excl. VAT on the product's own sales
  * unit (per display when sold per display), like the catalogue price. A price applies while it has
- * not expired and its basis still matches the product; it is kept, not applied, otherwise. Only the
- * catalogue PDF made for that customer uses them (not quotes, invoices, the portal or the website).
- * Every change leaves a history row; the Logboek gets one entry per save.
+ * not expired and its basis still matches the product; it is kept, not applied, otherwise. The
+ * catalogue PDF made for that customer prints them; quotes and invoices pin the active one on a line
+ * when it is added ({@link #activeFor}, never looked up live afterwards), the quote link's product
+ * list offers it, and a logged-in website customer sees and orders at it. Every change leaves a
+ * history row; the Logboek gets one entry per save.
  */
 @ApplicationScoped
 public class CustomerPriceService {
@@ -212,6 +214,23 @@ public class CustomerPriceService {
         if (changed > 0) recordActivity(customer, source, changed, log);
         entities.flush();
         return list(customerId);
+    }
+
+    /**
+     * The prices that apply today to these products for this customer: not expired and still on the
+     * product's own basis (ACTIVE), by product id. The one lookup of quotes, invoices, the portal and
+     * the website, all on the same day: Brussels, whatever zone the server runs in.
+     */
+    public Map<Long, BigDecimal> activeFor(long customerId, Collection<Product> forProducts) {
+        if (forProducts == null || forProducts.isEmpty()) return Map.of();
+        Map<Long, Product> byId = new LinkedHashMap<>();
+        for (Product product : forProducts) if (product != null && product.id() != null) byId.put(product.id(), product);
+        LocalDate today = today();
+        Map<Long, BigDecimal> active = new LinkedHashMap<>();
+        for (CustomerProductPriceEntity row : currentRows(customerId, byId.keySet()).values()) {
+            if (STATUS_ACTIVE.equals(status(row, byId.get(row.productId), today))) active.put(row.productId, row.priceExclVat);
+        }
+        return active;
     }
 
     /**

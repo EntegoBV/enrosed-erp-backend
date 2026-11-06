@@ -106,8 +106,10 @@ public class PortalResource {
                 : customer == null ? Language.NL : customer.language();
         /* The same multiple the proposal will round to: none on a quote that keeps exact pieces. */
         boolean exact = salesOrders.keepsExactQuantities(order);
-        return products.list().stream()
-                .filter(Product::active)
+        List<Product> offered = products.list().stream().filter(Product::active).toList();
+        /* The customer's own agreed price where the quote takes it: what an adopted line will cost. */
+        java.util.Map<Long, BigDecimal> agreed = salesOrders.customerPricesFor(order, offered);
+        return offered.stream()
                 .map(product -> new CatalogItem(
                         product.id(),
                         product.sku(),
@@ -115,7 +117,7 @@ public class PortalResource {
                         product.photoForSalesDocument() == null ? null
                                 : "/api/portal/" + token + "/products/" + product.id() + "/photo",
                         product.carton() == null ? 1 : product.carton().piecesPerCarton(),
-                        salesOrders.unitPriceFor(product, order),
+                        agreed.getOrDefault(product.id(), salesOrders.unitPriceFor(product, order)),
                         product.inventoryKnown(),
                         product.stockQuantity() > 0,
                         product.packaging() != null && product.packaging().soldAsDisplay() ? "DISPLAY" : "PIECE",

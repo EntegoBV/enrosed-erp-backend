@@ -1,6 +1,7 @@
 package be.enrosed.sales.domain;
 
 import be.enrosed.catalog.domain.OrderStep;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -107,8 +108,41 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
              * where the document keeps its own rule (credit note, partner deal, container cost, split part).
              * {@code landedUnitCost} is what the margin uses. Internal side.
              */
-            BigDecimal stockUnitCost
+            BigDecimal stockUnitCost,
+
+            /* Staff side only, read-only, left out of the JSON while null so an older document reads as
+               before; never on a customer document, the PDF, the portal or the website. */
+            /** The line's own {@code SalesOrderLine.priceSource}: CUSTOMER, STANDARD, MANUAL or null. */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String priceSource,
+            /**
+             * What the line would cost on the catalogue price of today (same sales unit), on the one
+             * document view where it is worth a look; null elsewhere.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            BigDecimal standardUnitPriceEur,
+            /** The customer's active agreed price of today for this product, there too; null when none. */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            BigDecimal customerUnitPriceEur
     ) {
+        /** A line priced without the staff figures on where its price comes from. */
+        public Line(Long productId, String sku, String description, String customerDescription, String photoUrl,
+                    int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer,
+                    int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg,
+                    BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent,
+                    BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice,
+                    BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct,
+                    Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity,
+                    boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate,
+                    String deliveryWeek, String deliveryExplanation, boolean unavailable, Integer requestedQuantity,
+                    OrderStep orderStep, int unitsPerOrderStep, BigDecimal expectedUnitCost, BigDecimal stockUnitCost) {
+            this(productId, sku, description, customerDescription, photoUrl, quantity, cartons, cartonsPerPallet,
+                    pallets, cartonsPerLayer, palletLayers, calculatedPalletHeightCm, cbm, weightKg, unitPrice, gross,
+                    tierPercent, manualPercent, discountPct, discountAmount, net, netUnitPrice, landedUnitCost,
+                    costTotal, marginEur, marginPct, nextTierAtQuantity, nextTierPercent, stockQuantity,
+                    inventoryKnown, inStock, shortfall, deliveryDate, deliveryWeek, deliveryExplanation, unavailable,
+                    requestedQuantity, orderStep, unitsPerOrderStep, expectedUnitCost, stockUnitCost, null, null, null);
+        }
         /** A line priced without a stock cost: the expected cost is the one the margin uses. */
         public Line(Long productId, String sku, String description, String customerDescription, String photoUrl,
                     int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer,
@@ -139,7 +173,7 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
                     net, netUnitPrice, landedUnitCost, allocatedCost, margin, percent, nextTierAtQuantity,
                     nextTierPercent, stockQuantity, inventoryKnown, inStock, shortfall, deliveryDate,
                     deliveryWeek, deliveryExplanation, unavailable, requestedQuantity, orderStep, unitsPerOrderStep,
-                    expectedUnitCost, stockUnitCost);
+                    expectedUnitCost, stockUnitCost, priceSource, standardUnitPriceEur, customerUnitPriceEur);
         }
 
         public Line(Long productId, String sku, String description, /** * The same description in the customer's language, for the quote * and the portal. Without a translation it is simply identical. */ String customerDescription, String photoUrl, int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer, int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg, BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent, BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice, BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct, Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity, boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate, String deliveryWeek, String deliveryExplanation) {
