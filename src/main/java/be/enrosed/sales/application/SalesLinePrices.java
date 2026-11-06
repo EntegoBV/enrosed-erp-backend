@@ -20,7 +20,8 @@ import java.util.stream.Collectors;
  * A customer's agreed price is the default of a document that takes it: it is pinned on a line when
  * the line is added, as its unit price with source CUSTOMER, and never looked up live afterwards, so
  * a sent quote, the invoice made from it and every document past concept keep their prices whatever
- * the customer price does later. Only a concept that changes customer is pinned again. A line set to
+ * the customer price does later. Only a concept that changes customer is pinned again (on any
+ * document: a line never keeps another customer's agreed price). A line set to
  * the standard price (STANDARD, no unit price) follows the catalogue and is never pinned; a typed
  * price stays typed (MANUAL, or no source as before). Pure: the caller says whether the document pins
  * and hands over the customer's active prices, asked only when a line needs them.
@@ -66,11 +67,17 @@ final class SalesLinePrices {
                 source = SalesOrderLine.PRICE_MANUAL;
             } else if (SalesOrderLine.PRICE_MANUAL.equals(source) && !line.hasUnitPrice()) {
                 source = null;
-            } else if (SalesOrderLine.PRICE_CUSTOMER.equals(source) && !(pins && customerChanged)) {
+            } else if (SalesOrderLine.PRICE_CUSTOMER.equals(source) && !customerChanged) {
                 /* Also where nothing is pinned automatically: a website line keeps the agreed price it was given. */
                 if (agreed == null) agreed = active.get();
                 BigDecimal today = agreed.get(line.productId());
-                if (!line.hasUnitPrice()) {
+                if (!line.hasUnitPrice() && known != null && SalesOrderLine.PRICE_CUSTOMER.equals(known.priceSource())
+                        && known.hasUnitPrice()) {
+                    /* A screen from before price sources sends the stored source back with the price it
+                       cleared: back to the catalogue, as clearing a price always did. */
+                    price = null;
+                    source = null;
+                } else if (!line.hasUnitPrice()) {
                     /* "Klantprijs gebruiken" without an amount: today's agreed price, else the catalogue. */
                     price = today;
                     if (today == null) source = null;
@@ -81,21 +88,21 @@ final class SalesLinePrices {
                     source = SalesOrderLine.PRICE_MANUAL;
                 }
             }
-            if (pins) {
-                boolean byDefault = source == null && !line.hasUnitPrice();
-                boolean added = known == null && byDefault;
-                boolean repinned = customerChanged && (byDefault || SalesOrderLine.PRICE_CUSTOMER.equals(source));
-                if (added || repinned) {
-                    if (agreed == null) agreed = active.get();
-                    BigDecimal today = agreed.get(line.productId());
-                    if (today != null) {
-                        price = today;
-                        source = SalesOrderLine.PRICE_CUSTOMER;
-                    } else if (SalesOrderLine.PRICE_CUSTOMER.equals(source)) {
-                        /* The new customer has no agreed price: back to the catalogue. */
-                        price = null;
-                        source = null;
-                    }
+            boolean byDefault = source == null && !line.hasUnitPrice();
+            boolean added = pins && known == null && byDefault;
+            /* Another customer never keeps the old one's agreed prices, on any document; one that pins
+               also gives the new customer's prices to the lines that follow the catalogue by default. */
+            boolean repinned = customerChanged && (SalesOrderLine.PRICE_CUSTOMER.equals(source) || (pins && byDefault));
+            if (added || repinned) {
+                if (agreed == null) agreed = active.get();
+                BigDecimal today = agreed.get(line.productId());
+                if (today != null) {
+                    price = today;
+                    source = SalesOrderLine.PRICE_CUSTOMER;
+                } else if (SalesOrderLine.PRICE_CUSTOMER.equals(source)) {
+                    /* The new customer has no agreed price: back to the catalogue. */
+                    price = null;
+                    source = null;
                 }
             }
             settled.add(Objects.equals(source, line.priceSource()) && sameAmount(price, line.unitPriceEur())
