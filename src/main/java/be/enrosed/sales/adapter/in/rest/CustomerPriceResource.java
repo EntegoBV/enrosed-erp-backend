@@ -1,5 +1,6 @@
 package be.enrosed.sales.adapter.in.rest;
 
+import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.sales.application.CustomerPriceService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
@@ -40,10 +41,14 @@ public class CustomerPriceResource {
      * One product of a save. Jackson calls a setter only for a property the body names, so
      * {@code validUntil} or {@code note} left out keeps what is stored, while an explicit null
      * clears it; the price is always the change's own (null removes the product's price).
+     * {@code basis} (PIECE or DISPLAY) and {@code piecesPerUnit} are optional, as on the
+     * catalogue's one-off prices: the unit the price was typed against, checked, never stored.
      */
     public static final class ChangeLine {
         public Long productId;
         public BigDecimal priceExclVat;
+        public SalesUnit basis;
+        public Integer piecesPerUnit;
         private LocalDate validUntil;
         private String note;
         private boolean validUntilSent;
@@ -60,7 +65,8 @@ public class CustomerPriceResource {
         }
 
         CustomerPriceService.Change toChange() {
-            return new CustomerPriceService.Change(productId, priceExclVat, validUntil, note, validUntilSent, noteSent);
+            return new CustomerPriceService.Change(productId, priceExclVat, validUntil, note, validUntilSent, noteSent,
+                    basis, piecesPerUnit);
         }
     }
 

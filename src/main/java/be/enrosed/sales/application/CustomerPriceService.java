@@ -64,6 +64,7 @@ public class CustomerPriceService {
     private static final int NOTE_LIMIT = 300;
     private static final int CHANGE_LIMIT = 1000;
     private static final int HISTORY_LIMIT = 200;
+    private static final int STALE_NAMED_LIMIT = 5;
     private static final ZoneId BRUSSELS = ZoneId.of("Europe/Brussels");
 
     /** One stored price as the customer sheet shows it; sku and name are null once the product is gone. */
@@ -75,13 +76,16 @@ public class CustomerPriceService {
     /**
      * A null price removes the product's price. The end date and the note replace what is stored
      * only when the change names them ({@code validUntilSent}, {@code noteSent}): a save that
-     * leaves one out keeps it, an explicit null clears it.
+     * leaves one out keeps it, an explicit null clears it. {@code basis} and {@code piecesPerUnit}
+     * (null per piece) are the unit the price was typed against, as the screen knew the product:
+     * named, they must still match the product or the save is refused; left out (an older
+     * screen), the price is stored on the product's unit at save time.
      */
     public record Change(Long productId, BigDecimal priceExclVat, LocalDate validUntil, String note,
-                         boolean validUntilSent, boolean noteSent) {
-        /** A change that names every field. */
+                         boolean validUntilSent, boolean noteSent, SalesUnit basis, Integer piecesPerUnit) {
+        /** A change that names the end date and the note, without a basis. */
         public Change(Long productId, BigDecimal priceExclVat, LocalDate validUntil, String note) {
-            this(productId, priceExclVat, validUntil, note, true, true);
+            this(productId, priceExclVat, validUntil, note, true, true, null, null);
         }
     }
 
@@ -150,6 +154,7 @@ public class CustomerPriceService {
             throw new BusinessRuleException((product == null ? "Product #" + twice : product.sku())
                     + " staat twee keer in de wijzigingen");
         }
+        refuseStaleBasis(changes, byId);
         Map<Long, CustomerProductPriceEntity> current = currentRows(customerId, seen);
         LocalDate today = today();
         Instant now = Instant.now();
@@ -294,6 +299,34 @@ public class CustomerPriceService {
                 row.priceExclVat, row.salesUnit, row.piecesPerUnit, row.unitKey, row.cataloguePriceEur,
                 product == null ? null : positive(product.computedSalesPriceEur()), row.validUntil, row.note,
                 status(row, product, today), row.updatedAt, names.displayNameFor(row.updatedBy));
+    }
+
+    /**
+     * A price typed on a unit the product has since left (the screen still showed it per display of
+     * 6, it is sold per piece now) would be stored on the new unit and mean something else. Every
+     * such change is named in one refusal, before anything is written. Only a price that would be
+     * stored is checked: a change without a basis (an older screen) and a removal need none.
+     */
+    private static void refuseStaleBasis(List<Change> changes, Map<Long, Product> byId) {
+        List<Long> stale = new ArrayList<>();
+        List<String> named = new ArrayList<>();
+        String single = null;
+        for (Change change : changes) {
+            Product product = byId.get(change.productId());
+            if (change.priceExclVat() == null || change.basis() == null || product == null || product.demo()) continue;
+            PriceBasis now = PriceBasis.of(product.packaging());
+            if (now.matches(change.basis(), change.piecesPerUnit())) continue;
+            stale.add(product.id());
+            if (single == null) single = product.sku() + ": de prijs is ingegeven per "
+                    + new PriceBasis(change.basis(), change.piecesPerUnit()).dutchLabel()
+                    + ", het product wordt nu per " + now.dutchLabel() + " verkocht; geef de prijs opnieuw in";
+            if (named.size() < STALE_NAMED_LIMIT) named.add(product.sku() + " nu per " + now.dutchLabel());
+        }
+        if (stale.isEmpty()) return;
+        int unnamed = stale.size() - named.size();
+        throw new CustomerPriceBasisChangedException(stale.size() == 1 ? single
+                : stale.size() + " klantprijzen zijn ingegeven op een oude prijsbasis (" + String.join(", ", named)
+                        + (unnamed > 0 ? " en " + unnamed + " andere" : "") + "); geef ze opnieuw in", stale);
     }
 
     /** PRODUCT_GONE, then BASIS_CHANGED (the amount means something else now), then EXPIRED. */
