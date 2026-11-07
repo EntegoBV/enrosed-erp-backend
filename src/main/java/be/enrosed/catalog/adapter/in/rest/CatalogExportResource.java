@@ -39,8 +39,10 @@ public class CatalogExportResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces({"application/pdf", MediaType.APPLICATION_JSON})
     public Response exportPdf(CatalogExportService.Request request,
-                              @QueryParam("inline") @DefaultValue("false") boolean inline) {
-        CatalogDocumentRenderer.Document document = export.export(request);
+                              @QueryParam("inline") @DefaultValue("false") boolean inline,
+                              /* "PDF verkleinen" in the studio, on unless the studio sends false. */
+                              @QueryParam("compress") @DefaultValue("true") boolean compress) {
+        CatalogDocumentRenderer.Document document = export.export(request, compress);
         return Response.ok(document.content(), "application/pdf")
                 .header("Content-Disposition", (inline ? "inline" : "attachment")
                         + "; filename=\"" + document.filename() + "\"")

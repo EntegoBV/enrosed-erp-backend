@@ -1,6 +1,7 @@
 package be.enrosed.catalog.application;
 
 import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
+import be.enrosed.catalog.application.port.out.CatalogPdfCompression;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.CatalogRecipients;
 import be.enrosed.catalog.domain.Category;
@@ -327,24 +328,39 @@ public class CatalogExportService {
     private final CatalogDocumentRenderer renderer;
     private final CatalogRecipients recipients;
     private final CatalogExportJournal journal;
+    private final CatalogPdfCompression compression;
 
     public CatalogExportService(ProductService products, CategoryService categories,
                                 CatalogFamilyReader families,
                                 CatalogDocumentRenderer renderer,
                                 CatalogRecipients recipients,
-                                CatalogExportJournal journal) {
+                                CatalogExportJournal journal,
+                                CatalogPdfCompression compression) {
         this.products = products;
         this.categories = categories;
         this.families = families;
         this.renderer = renderer;
         this.recipients = recipients;
         this.journal = journal;
+        this.compression = compression;
     }
 
     /** A PDF with prices or for a recipient is journaled after the render; a failed write fails the export. */
     public CatalogDocumentRenderer.Document export(Request incoming) {
+        return export(incoming, true);
+    }
+
+    /**
+     * The PDF, made small enough to mail unless {@code compress} is off (Emre, 2026-11-07: "pdf rond 10 mb",
+     * on by default). It is compressed before the journal records it, so the journal's size and hash are the
+     * PDF that leaves.
+     */
+    public CatalogDocumentRenderer.Document export(Request incoming, boolean compress) {
         Model model = model(incoming);
         CatalogDocumentRenderer.Document document = renderer.render(model);
+        if (compress && compression != null)
+            document = new CatalogDocumentRenderer.Document(document.filename(),
+                    compression.compress(document.content()), document.contentType());
         if (model.journaled()) journal.record(model, document);
         return document;
     }

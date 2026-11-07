@@ -22,21 +22,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * a sent quote, an invoice or a website order never changes. Only an untouched concept quote
  * (PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE) without hand-built pallets moves to the standard:
  * nothing of it has left the house, and no measured pallet can end up taller than the new height.
- * Both releases read a stored height the same way, so the move is safe while the old release still
- * serves; it waits anyway, so it also finds the concepts the old release made during the deploy.
+ * One with hand-built pallets gets its 260 written down, so no later run can pick it up once its
+ * pallets are gone (review finding: it would be re-priced behind a seller's back). Both releases read
+ * a stored height the same way, so the move is safe while the old release still serves; it waits
+ * anyway, so it also finds the concepts the old release made during the deploy.
  *
  * The move belongs to the switch from 260 to 220 cm (2026-11-07): it runs once per start and not
- * after {@code enrosed.pallet-height.move-until}, so a concept that keeps 260 after it (one that had
- * hand pallets then) is never re-priced later behind a seller's back.
+ * after {@code enrosed.pallet-height.move-until}; after its first run no untouched concept is left
+ * without a height, so later runs find nothing.
  */
 @ApplicationScoped
 public class PalletHeightBackfill {
 
     private static final Logger LOG = Logger.getLogger(PalletHeightBackfill.class);
 
-    /** The quotes that move: no stored height, untouched concept, no hand-built pallet. */
-    private static final String CANDIDATE = "o.maxpalletheightcm is null and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE
-            + " and not exists (select 1 from sales_pallet hand where hand.order_id = o.id)";
+    /** The quotes it decides: no stored height, untouched concept. */
+    private static final String CANDIDATE = "o.maxpalletheightcm is null and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE;
+    private static final String HAND_PALLETS = "exists (select 1 from sales_pallet hand where hand.order_id = o.id)";
 
     private final AtomicBoolean done = new AtomicBoolean();
 
@@ -61,7 +63,7 @@ public class PalletHeightBackfill {
             return;
         }
         try {
-            List<Long> moved = QuarkusTransaction.requiringNew().call(() -> {
+            List<List<Long>> decided = QuarkusTransaction.requiringNew().call(() -> {
                 /* The old release may still hold a document while this one starts: wait a while, not forever. */
                 if ("postgresql".equalsIgnoreCase(dbKind) || "pgsql".equalsIgnoreCase(dbKind))
                     entities.createNativeQuery("set local lock_timeout = '15s'").executeUpdate();
@@ -69,24 +71,36 @@ public class PalletHeightBackfill {
                    a new statement and so reads what that save committed: a quote that just got hand pallets, an
                    advance or an invoice no longer passes the test and keeps its height. A save that comes
                    later waits for this one and reads the new height. */
-                List<Long> ids = ((List<?>) entities.createNativeQuery("select o.id from sales_order o where " + CANDIDATE + " for update")
-                        .getResultList()).stream().map(id -> ((Number) id).longValue()).toList();
-                if (ids.isEmpty()) return List.<Long>of();
-                List<Long> still = ((List<?>) entities.createNativeQuery("select o.id from sales_order o where o.id in (:ids) and " + CANDIDATE)
-                        .setParameter("ids", ids).getResultList()).stream().map(id -> ((Number) id).longValue()).toList();
-                if (!still.isEmpty())
-                    entities.createNativeQuery("update sales_order set maxpalletheightcm = :height where id in (:ids)")
-                            .setParameter("height", settings.standardMaxHeightCm())
-                            .setParameter("ids", still).executeUpdate();
-                return still;
+                List<Long> ids = ids(entities.createNativeQuery("select o.id from sales_order o where " + CANDIDATE + " for update"));
+                if (ids.isEmpty()) return List.of(List.<Long>of(), List.<Long>of());
+                List<Long> moved = ids(entities.createNativeQuery("select o.id from sales_order o where o.id in (:ids) and "
+                        + CANDIDATE + " and not " + HAND_PALLETS).setParameter("ids", ids));
+                List<Long> kept = ids(entities.createNativeQuery("select o.id from sales_order o where o.id in (:ids) and "
+                        + CANDIDATE + " and " + HAND_PALLETS).setParameter("ids", ids));
+                set(moved, settings.standardMaxHeightCm());
+                set(kept, SalesSettings.LEGACY_MAX_HEIGHT_CM);
+                return List.of(moved, kept);
             });
             done.set(true);
-            if (!moved.isEmpty())
-                LOG.infof("Pallet height: %d concept quote(s) moved to the standard %s cm (ids %s)", moved.size(),
-                        settings.standardMaxHeightCm().stripTrailingZeros().toPlainString(), moved);
+            if (!decided.get(0).isEmpty())
+                LOG.infof("Pallet height: %d concept quote(s) moved to the standard %s cm (ids %s)", decided.get(0).size(),
+                        settings.standardMaxHeightCm().stripTrailingZeros().toPlainString(), decided.get(0));
+            if (!decided.get(1).isEmpty())
+                LOG.infof("Pallet height: %d concept quote(s) with hand-built pallets keep 260 cm, now stored (ids %s)",
+                        decided.get(1).size(), decided.get(1));
         } catch (RuntimeException failure) {
             /* Nothing is lost: those concepts keep counting 260 cm, and the next run tries again. */
             LOG.errorf(failure, "Pallet height not moved; untouched concept quotes keep 260 cm until the next run");
         }
+    }
+
+    private static List<Long> ids(jakarta.persistence.Query query) {
+        return ((List<?>) query.getResultList()).stream().map(id -> ((Number) id).longValue()).toList();
+    }
+
+    private void set(List<Long> ids, java.math.BigDecimal height) {
+        if (ids.isEmpty()) return;
+        entities.createNativeQuery("update sales_order set maxpalletheightcm = :height where id in (:ids)")
+                .setParameter("height", height).setParameter("ids", ids).executeUpdate();
     }
 }

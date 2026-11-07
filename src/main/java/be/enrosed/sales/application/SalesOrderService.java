@@ -2392,10 +2392,11 @@ public class SalesOrderService {
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
                 /* A copy is a new document and gets today's standard height, unless the source has a height of
-                   its own or hand-built pallets (stacked under the 260 cm of their time, kept with them). */
+                   its own or hand-built pallets (stacked under the 260 cm of their time: kept, written down, so
+                   the copy keeps it once its pallets go). */
                 source.loadMode(), source.palletProfile(),
-                source.maxPalletHeightCm() != null || !source.pallets().isEmpty()
-                        ? source.maxPalletHeightCm() : settings.standardMaxHeightCm(),
+                source.maxPalletHeightCm() != null ? source.maxPalletHeightCm()
+                        : source.pallets().isEmpty() ? settings.standardMaxHeightCm() : SalesSettings.LEGACY_MAX_HEIGHT_CM,
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,

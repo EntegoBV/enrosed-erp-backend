@@ -2012,7 +2012,8 @@ order fingerprints), so a document keeps the height it was made with instead of 
   `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`. Documents made from another
   copy its raw height, null included: `createInvoiceFrom` (slotfactuur too), `createCreditNote`, the split parts,
   `createAdvanceInvoice` (no lines; carries its quote's). `duplicate` ("Nieuwe kopie") is a new concept: the standard,
-  unless the source has a height of its own or hand-built pallets (kept, so a measured pallet stays under its height).
+  unless the source has a height of its own (copied) or hand-built pallets (260 written down, so a measured pallet stays
+  under its height and the copy keeps 260 once its pallets go).
 - Saves: a null height keeps the document's own (`update`, so also the website intake and a customer's change,
   `updateShipping`, `preview`); before, null meant "back to the default". The planner's "Standaard" sends the standard's
   number. Validation is unchanged (above the base, at most 300 cm).
@@ -2022,7 +2023,10 @@ order fingerprints), so a document keeps the height it was made with instead of 
   only after a failure; `enrosed.pallet-height.move-after` / `move-every`; nothing after `move-until`, 2026-11-14) gives
   an untouched concept quote (`UNTOUCHED_CONCEPT_QUOTE`) with a null height and no `sales_pallet` rows the standard:
   work in progress follows "gebruik 220", nothing that left the house moves, and the concepts the old release made
-  during the deploy are found too. It locks the candidates (`select … for update`), then re-reads the test in a new
+  during the deploy are found too. One with hand-built pallets gets 260 written down (second release, review: a later
+  start would otherwise move it once its pallets are gone, behind a seller's back), so after a run no untouched
+  concept is left without a height. First run on production 2026-11-07 ~15:55: ENR-2026-0016 (website request) went
+  from 1 to 2 pallets; sent quotes, the website order and every invoice kept their figures. It locks the candidates (`select … for update`), then re-reads the test in a new
   statement before the update, so a quote a seller saved hand pallets, an advance or an invoice on in that second
   keeps 260 (review finding: one update statement reads its sub-selects from before the lock wait). The date bound
   keeps a concept that kept 260 then (hand pallets) from being re-priced later behind a seller's back; the job can go
@@ -2248,6 +2252,17 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
 - `/api/catalog/export` also produces JSON, so a refusal (404 unknown customer, a family page
   with too much text) reaches the studio's blob request as a readable body; the PDF itself is
   always sent as application/pdf.
+- **Compression** (2026-11-07, Emre: "pdf compresser toggle om pdf rond 10 mb te krijgen zet dit
+  standaard aan"): `?compress=` on `/api/catalog/export`, default true; the studio's "PDF verkleinen"
+  sends false when it is off. `CatalogExportService.export(request, compress)` runs the out-port
+  `CatalogPdfCompression` (`PdfCompressor`, PDFBox) after the render and before the journal, so the
+  journal's size and SHA-256 are the PDF that leaves. Every image XObject (pages and the forms they
+  draw, each once) becomes at most 1400 px on its longest side, a JPEG of quality 0.80 with its
+  alpha kept as a soft mask; one that would not get smaller, a stencil or < 8 bit stays. The PDF
+  renderer embeds the transparent catalogue photos losslessly at print size (PdfImageEncoder, up to
+  2400 px), which made the whole range 65-70 MB: measured on his brochures of 2026-10-26/30 69.7 to
+  10.4 MB (8 s) and 65.7 to 9.9 MB (6 s), no visible difference at 200 dpi. Any failure hands back the
+  original PDF (logged).
 - **Export journal** (`catalog/application/CatalogExportJournal`, tables `catalog_export` and
   `catalog_export_line`): every export with prices on or a recipient, written after a
   successful render in its own short transaction (a separate bean, because the render can take
