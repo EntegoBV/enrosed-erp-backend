@@ -27,6 +27,7 @@ public class PalletCountRuleBackfill {
      * deleted, never sent, no website order, no advance invoice, no invoice or other document made
      * from it, no delivery split, no partner advance snapshot. The migration's test, word for word:
      * keep the two alike. Plain SQL that PostgreSQL and the developer's H2 file both read.
+     * PalletHeightBackfill moves such quotes to the standard pallet height with the same test.
      */
     static final String UNTOUCHED_CONCEPT_QUOTE = "(o.doctype is null or o.doctype = 'OFFERTE') and o.status = 'CONCEPT'"
             + " and o.deleted_at is null and o.sentat is null"

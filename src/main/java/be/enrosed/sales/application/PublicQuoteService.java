@@ -412,7 +412,8 @@ public class PublicQuoteService {
                 internal.toString(),
                 base.deliveryTerms(),
                 prepared.shippingAvailable ? FreightState.BEREKEND : FreightState.TE_BEPALEN,
-                null, LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                /* The order keeps the pallet height it was made with, also when the customer changes it. */
+                null, LoadMode.PALLETS, PalletProfile.EURO_120X80, base.maxPalletHeightCm(),
                 prepared.strategy, null,
                 prepared.carrier == null ? null : prepared.carrier.id(), null,
                 DocumentType.OFFERTE, null, null, null, null, lines, List.of(),
@@ -463,7 +464,10 @@ public class PublicQuoteService {
         return prepare(new PreviewRequest(language, fulfillment, customer.vatNumber(),
                         destination, items, pickupLocationId), false,
                 new OrderPricing(customer, keptUnitPrices(changing), keptPriceSources(changing),
-                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing)),
+                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing),
+                        /* A change keeps the stored order's height (a save keeps it too); its document is a europallet. */
+                        changing == null ? settings.pallet()
+                                : settings.pallet(PalletProfile.EURO_120X80, changing.maxPalletHeightCm())),
                 customer.id());
     }
 
@@ -522,7 +526,7 @@ public class PublicQuoteService {
                 internal,
                 created.deliveryTerms(),
                 prepared.shippingAvailable ? FreightState.BEREKEND : FreightState.TE_BEPALEN,
-                null, LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                null, LoadMode.PALLETS, PalletProfile.EURO_120X80, created.maxPalletHeightCm(),
                 prepared.strategy, null,
                 prepared.carrier == null ? null : prepared.carrier.id(), null,
                 DocumentType.OFFERTE, null, null, null, null, frozenLines, List.of(),
@@ -750,10 +754,10 @@ public class PublicQuoteService {
                 estimateCustomer, freightState);
         Map<Long, Product> byId = preparedItems.stream()
                 .map(item -> item.product).collect(Collectors.toMap(Product::id, Function.identity()));
-        /* The estimate of a request or a new order counts mixed pallets, as the document made from
-           it will; the change of a stored order counts by that order's rule. */
+        /* The estimate of a request or a new order counts mixed pallets on the standard pallet, as the
+           document made from it will; the change of a stored order counts by that order's rule and height. */
         PricedOrder priced = pricing.price(estimate, byId, new SalesPricingCalculator.Context(
-                country, estimateCustomer, settings.pallet(), tiers.list(TierScope.LINE),
+                country, estimateCustomer, order == null ? settings.pallet() : order.pallet(), tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
                 vat.determine(country, order == null ? estimateCustomer : order.customer), carrier,
                 null, order == null ? PalletCountRule.MIXED : order.palletRule()));
@@ -1057,11 +1061,11 @@ public class PublicQuoteService {
 
     /**
      * The customer record an order is priced on, the unit prices its stored lines keep with the
-     * source of each, and the rule its pallets count by: the stored order's for a change, MIXED
-     * for a new order.
+     * source of each, the rule its pallets count by and the pallet it stacks on: the stored
+     * order's rule and height for a change, MIXED and the standard pallet for a new order.
      */
     private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices, Map<Long, String> keptSources,
-                                PalletCountRule palletRule) {}
+                                PalletCountRule palletRule, PalletSpec pallet) {}
 
     /**
      * What an order request says beside its document. {@code fulfillment} is DELIVERY or

@@ -152,6 +152,9 @@ public class SalesOrderService {
 
     public SalesOrder preview(long id, SalesOrder proposed) {
         SalesOrder stored = get(id);
+        /* No height from the client: the document's own, as a save keeps it. */
+        if (proposed != null && proposed.maxPalletHeightCm() == null)
+            proposed = proposed.withMaxPalletHeightCm(stored.maxPalletHeightCm());
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
         /* Priced with the step a save would remember: today's for a document that rounds, the stored one
@@ -428,7 +431,8 @@ public class SalesOrderService {
                 null, null,
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                /* A new document keeps the height it is made with: a later standard never re-prices it. */
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 defaultCarrierId == null
                         ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
                 null, defaultCarrierId, null,
@@ -735,7 +739,7 @@ public class SalesOrderService {
                 DeliveryTermsState.VOLLEDIG,
                 /* The container's freight is already inside the landed cost; a cost quote adds none of its own. */
                 atCost ? FreightState.AANGEVULD : FreightState.BEREKEND, atCost ? BigDecimal.ZERO : null,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 /* At cost the freight is a fixed zero, whatever carrier the house normally uses. */
                 atCost ? FreightPricingStrategy.FIXED
                         : defaultCarrierId == null ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
@@ -931,7 +935,7 @@ public class SalesOrderService {
                 isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), null, notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO, LoadMode.PALLETS,
-                PalletProfile.EURO_120X80, null, FreightPricingStrategy.FIXED, null, null, null,
+                PalletProfile.EURO_120X80, settings.standardMaxHeightCm(), FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, dueDate == null ? BusinessDays.add(today, 30) : dueDate, null, sourceQuoteId, null, List.of(), List.of())
                 .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, amount)))
                 .withPartnerDeal(purchase.id(), purchase.partnerSharePctOrDefault()).withSalesChannel("PARTNER")
@@ -1254,7 +1258,7 @@ public class SalesOrderService {
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
                 null, null, null, 0, null, null, null, request.note(),
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, lines, List.of())
                 .withExtraLines(extras).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
@@ -1778,6 +1782,9 @@ public class SalesOrderService {
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
+        /* No height from the client (a website change, an older screen) keeps the document's own:
+           the height a document was made with only changes when someone picks another. */
+        if (changes.maxPalletHeightCm() == null) changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
@@ -1858,7 +1865,7 @@ public class SalesOrderService {
                 changes.loadModeOrNull() == null ? current.loadMode() : changes.loadMode(),
                 changes.palletProfileOrNull() == null
                         ? current.palletProfile() : changes.palletProfile(),
-                /* Null deliberately means: return to the configured default. */
+                /* The document's own height when the client sent none (see above); "Standaard" sends the standard. */
                 changes.maxPalletHeightCm(),
                 freightStrategy, cbmRate, carrierId,
                 changes.freightCarrierExtraEur() == null
@@ -1942,7 +1949,10 @@ public class SalesOrderService {
     /** One line whose promised delivery week may be filled in separately. */
     public record DeliveryWeekChange(Long productId, String deliveryWeek) {}
 
-    /** Complete transport snapshot; null optional values clear them, and an empty list clears the pallet plan. */
+    /**
+     * Complete transport snapshot; null optional values clear them, and an empty list clears the pallet
+     * plan. A null height keeps the document's own height: "Standaard" sends the standard's number.
+     */
     public record ShippingUpdate(LoadMode loadMode, PalletProfile palletProfile,
                                  BigDecimal maxPalletHeightCm,
                                  FreightPricingStrategy freightPricingStrategy,
@@ -1974,7 +1984,9 @@ public class SalesOrderService {
                 current.sentAt(), current.viewedAt(), current.viewCount(), current.decidedAt(),
                 current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
                 state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
-                request.loadMode(), request.palletProfile(), request.maxPalletHeightCm(), request.freightPricingStrategy(),
+                request.loadMode(), request.palletProfile(),
+                request.maxPalletHeightCm() == null ? current.maxPalletHeightCm() : request.maxPalletHeightCm(),
+                request.freightPricingStrategy(),
                 request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(), current.lines(), request.pallets())
@@ -2379,7 +2391,11 @@ public class SalesOrderService {
                 null, null, null, 0, null, null, null, source.internalNotes(),
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
-                source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
+                /* A copy is a new document and gets today's standard height, unless the source has a height of
+                   its own or hand-built pallets (stacked under the 260 cm of their time, kept with them). */
+                source.loadMode(), source.palletProfile(),
+                source.maxPalletHeightCm() != null || !source.pallets().isEmpty()
+                        ? source.maxPalletHeightCm() : settings.standardMaxHeightCm(),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,

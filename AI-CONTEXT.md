@@ -556,7 +556,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   figures (displays, named units). Catalog reaches it through the out-port
   `CataloguePallet`, implemented in sales by `CataloguePalletFit` (catalog
   never imports sales). One basis line per document ("Per pallet: europallet
-  120 × 80 cm, max. 260 cm hoog incl. pallet, max. 700 kg.", key
+  120 × 80 cm, max. 220 cm hoog incl. pallet, max. 700 kg.", 260 before
+  2026-11-07, key
   `catalog.common.palletbasis`) closes the overview footnote and the compact
   footer. A carton without a weight is counted by height only, and there is
   no hand count per product for the pallet.
@@ -1945,7 +1946,8 @@ concept keeps the count and freight it was sent with.
   still take a carton, n = min(layer, what the weight takes), else on a new pallet; that layer is n cartons as high as
   a full one, and the cartons a weight split leaves join the next layer instead of making a short one, so one product
   alone gets exactly its cartonsPerPallet per pallet; (3) a plan longer than the separate count gives way to the
-  separate layout (`separatePallets`), so `palletsAutomatic` never exceeds `palletsStrict`. Cases: 238 × 40×40×50 cm
+  separate layout (`separatePallets`), so `palletsAutomatic` never exceeds `palletsStrict`. Cases (worked out at the
+  260 cm standard of that day; at 220 cm the 60×40 mix below takes 2 pallets, the others are unchanged): 238 × 40×40×50 cm
   at 30.7 kg on Euro 260 cm 11 (= strict), 33 × 58.5×20×50 at 100 kg on a half pallet 5, 23 × 20×40×200 at 100 kg on
   a block pallet at 300 cm 4, 60×40×50 8 kg ×16 + 60×40×40 6 kg ×4 one pallet, the four products 1 at 204.4 cm and
   159 kg (strict 4), four 100 cm singles 2. Checked against those steps written apart on 60,604 orders (no difference,
@@ -1993,6 +1995,38 @@ concept keeps the count and freight it was sent with.
   is missing, else "X past niet binnen het gekozen palletprofiel, de hoogte of het gewicht: kies een ander palletprofiel
   of een hogere maximale pallethoogte". It is raised only on a concept that was never sent (status CONCEPT, `sentAt`
   null); a document that left concept keeps the validation it had, its freight shown and its transport saves accepted.
+
+## Pallethoogte per document: standaard 220 cm (2026-11-07)
+
+Emre, after comparing the catalogue with Palletberekening: "gebruik 220 dan aub". The standard pallet is a europallet
+120 × 80 cm, max. 220 cm high with the 14.4 cm wood, 700 kg (`enrosed.pallet.max-height-cm`, default 220; it was 260
+from 2026-08-20, 180 before; no Railway variable sets it). Every sales figure is priced live on every read (PDFs,
+portal, website account, payments and the paid state, Facturen, bank matching, credit caps, advances, Odoo, website
+order fingerprints), so a document keeps the height it was made with instead of following the setting:
+
+- `SalesSettings.pallet()` (catalogue per-pallet figure and basis line, every website estimate of a request or a new
+  order) is the standard. `pallet(profile, height)` gives a document its own stored height; a null height reads
+  `LEGACY_MAX_HEIGHT_CM` = 260, never today's standard: only rows made before 2026-11-07 have none, and they were sent,
+  invoiced and paid on 260 (the old release reads them the same way, so a deploy window changes nothing).
+- New documents store the standard: `create` (staff quote and invoice, website request and order),
+  `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`. Documents made from another
+  copy its raw height, null included: `createInvoiceFrom` (slotfactuur too), `createCreditNote`, the split parts,
+  `createAdvanceInvoice` (no lines; carries its quote's). `duplicate` ("Nieuwe kopie") is a new concept: the standard,
+  unless the source has a height of its own or hand-built pallets (kept, so a measured pallet stays under its height).
+- Saves: a null height keeps the document's own (`update`, so also the website intake and a customer's change,
+  `updateShipping`, `preview`); before, null meant "back to the default". The planner's "Standaard" sends the standard's
+  number. Validation is unchanged (above the base, at most 300 cm).
+- `PublicQuoteService`: a change of a stored website order is estimated on that order's height (`OrderPricing.pallet`),
+  as it is stored and its ordered terms are recorded; `orderDocument` and `store` write the stored height back.
+- `PalletHeightBackfill` (scheduled `pallet-height-standard`: once, 10 minutes after the start, retried every 10 minutes
+  only after a failure; `enrosed.pallet-height.move-after` / `move-every`; nothing after `move-until`, 2026-11-14) gives
+  an untouched concept quote (`UNTOUCHED_CONCEPT_QUOTE`) with a null height and no `sales_pallet` rows the standard:
+  work in progress follows "gebruik 220", nothing that left the house moves, and the concepts the old release made
+  during the deploy are found too. It locks the candidates (`select … for update`), then re-reads the test in a new
+  statement before the update, so a quote a seller saved hand pallets, an advance or an invoice on in that second
+  keeps 260 (review finding: one update statement reads its sub-selects from before the lock wait). The date bound
+  keeps a concept that kept 260 then (hand pallets) from being re-priced later behind a seller's back; the job can go
+  in a later clean-up.
 
 ## Batches (2026-10-25)
 

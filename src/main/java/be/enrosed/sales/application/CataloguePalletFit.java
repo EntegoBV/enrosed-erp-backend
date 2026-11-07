@@ -6,8 +6,9 @@ import be.enrosed.sales.domain.PalletSpec;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
- * The catalogue's per-pallet figure: the same stacking as Palletberekening, on the default
- * pallet of the sales settings (a europallet unless configured otherwise).
+ * The catalogue's per-pallet figure: the same stacking as Palletberekening, on the standard
+ * pallet of the sales settings (a europallet 120 x 80 cm, 220 cm high with the wood, 700 kg,
+ * unless configured otherwise), the one a new sales document is made with.
  */
 @ApplicationScoped
 public class CataloguePalletFit implements CataloguePallet {

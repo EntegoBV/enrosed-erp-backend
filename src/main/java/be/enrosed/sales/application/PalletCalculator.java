@@ -159,7 +159,7 @@ public class PalletCalculator {
      * there the weight may cut the layer short, and the cartons it leaves go into the product's
      * next layer instead of making a short one of their own. One product alone thus gets exactly
      * its cartonsPerPallet per pallet (238 cartons of 40 x 40 x 50 cm at 30.7 kg on a Euro pallet
-     * under 260 cm: 11 pallets, as strict). An empty pallet always takes the layer, or the part
+     * under 220 cm: 11 pallets, as strict; the weight decides, so under 260 cm too). An empty pallet always takes the layer, or the part
      * the weight allows: a fit means one layer goes under the height and one carton under the
      * weight. A plan that needs more pallets than every product on pallets of its own gives way
      * to that separate layout, so the mixed count never exceeds the strict one.

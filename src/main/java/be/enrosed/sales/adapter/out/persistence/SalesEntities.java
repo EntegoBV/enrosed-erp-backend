@@ -189,7 +189,11 @@ public final class SalesEntities {
         @Column(length = 24)
         public PalletProfile palletProfile;
 
-        /** Total stack height, including the pallet base; null uses the configured default. */
+        /**
+         * Total stack height, including the pallet base: the standard when the document was made,
+         * unless someone picked another. Null only on rows made before 2026-11-07, which keep
+         * counting the 260 cm of that time (SalesSettings.LEGACY_MAX_HEIGHT_CM).
+         */
         @Column(precision = 8, scale = 2)
         public BigDecimal maxPalletHeightCm;
 
