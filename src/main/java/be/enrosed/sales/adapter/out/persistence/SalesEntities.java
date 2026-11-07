@@ -62,6 +62,32 @@ public final class SalesEntities {
         /** A sentence of our own on every document for this customer. */
         @Column(name = "invoice_note", length = 500)
         public String invoiceNote;
+        /** A CustomerCrmStatus code; plain varchar so a status can be added without a migration. */
+        @Column(name = "crm_status", length = 24)
+        public String crmStatus;
+    }
+
+    /**
+     * One kind of contact with a customer (CustomerTouchpoint): at most one row per customer
+     * and kind, kept as rows rather than a column so the moment and who ticked it survive. No
+     * foreign key, like the customer prices: CustomerAdapter removes them with the customer.
+     */
+    @Entity
+    @Table(name = "customer_touchpoint",
+            uniqueConstraints = @UniqueConstraint(name = "uk_customer_touchpoint_kind",
+                    columnNames = {"customer_id", "kind"}),
+            indexes = @Index(name = "idx_customer_touchpoint_customer", columnList = "customer_id"))
+    public static class CustomerTouchpointEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @Column(name = "customer_id", nullable = false)
+        public Long customerId;
+        @Column(name = "kind", nullable = false, length = 32)
+        public String kind;
+        @Column(name = "done_at", nullable = false)
+        public Instant doneAt;
+        @Column(name = "done_by", length = 80)
+        public String doneBy;
     }
 
     @Entity

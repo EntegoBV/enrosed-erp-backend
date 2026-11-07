@@ -6,8 +6,14 @@ import be.enrosed.sales.domain.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
 
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** The sales-side port adapters onto Panache. */
 public final class PanacheSalesRepositories {
@@ -18,33 +24,78 @@ public final class PanacheSalesRepositories {
     public static class CustomerAdapter implements SalesRepositories.Customers {
 
         private final SalesDaos.Customers dao;
+        private final SalesDaos.CustomerTouchpoints touchpoints;
 
-        public CustomerAdapter(SalesDaos.Customers dao) {
+        public CustomerAdapter(SalesDaos.Customers dao, SalesDaos.CustomerTouchpoints touchpoints) {
             this.dao = dao;
+            this.touchpoints = touchpoints;
         }
 
+        /** Two queries whatever the number of customers: the list, then every touchpoint row grouped by customer. */
         @Override
         public List<Customer> findAll() {
-            return dao.listAll().stream().map(SalesMapper::toDomain).toList();
+            List<CustomerEntity> entities = dao.listAll();
+            Map<Long, List<CustomerTouchpointEntity>> byCustomer = touchpoints.listAll().stream()
+                    .collect(Collectors.groupingBy(row -> row.customerId));
+            return entities.stream()
+                    .map(entity -> SalesMapper.toDomain(entity, byCustomer.getOrDefault(entity.id, List.of())))
+                    .toList();
         }
 
         @Override
         public Optional<Customer> findById(long id) {
-            return Optional.ofNullable(dao.findById(id)).map(SalesMapper::toDomain);
+            return Optional.ofNullable(dao.findById(id))
+                    .map(entity -> SalesMapper.toDomain(entity, touchpointsOf(entity.id)));
         }
 
         @Override
         public Customer save(Customer customer) {
-            CustomerEntity entity = customer.id() == null ? null : dao.findById(customer.id());
+            /* Locked for the rest of the transaction, as the Orders adapter does: two saves of one
+               customer at once (the phone and the desk ticking the same contact moment) would both
+               see no row for the kind and the second would die on uk_customer_touchpoint_kind. */
+            CustomerEntity entity = customer.id() == null ? null
+                    : dao.findById(customer.id(), LockModeType.PESSIMISTIC_WRITE);
             if (entity == null) entity = new CustomerEntity();
             SalesMapper.apply(customer, entity);
             if (entity.id == null) dao.persist(entity);
             dao.flush();
-            return SalesMapper.toDomain(entity);
+            if (customer.touchpoints() != null) reconcileTouchpoints(entity.id, customer.touchpoints());
+            return SalesMapper.toDomain(entity, touchpointsOf(entity.id));
+        }
+
+        /**
+         * Brings the rows in line with the kinds the domain object carries: a kind that is new gets
+         * a row with the moment and actor it carries, a kind left out loses its row, a kind that is
+         * already there is not touched, so its first moment survives a save that changed something
+         * else. The service decides the moment; this only stores it.
+         */
+        private void reconcileTouchpoints(long customerId, List<CustomerTouchpoint> wanted) {
+            Map<String, CustomerTouchpointEntity> existing = new LinkedHashMap<>();
+            for (CustomerTouchpointEntity row : touchpointsOf(customerId)) existing.put(row.kind, row);
+            Set<String> keep = new HashSet<>();
+            for (CustomerTouchpoint touchpoint : wanted) {
+                if (touchpoint == null || touchpoint.kind() == null || !keep.add(touchpoint.kind())) continue;
+                if (existing.containsKey(touchpoint.kind())) continue;
+                CustomerTouchpointEntity row = new CustomerTouchpointEntity();
+                row.customerId = customerId;
+                row.kind = touchpoint.kind();
+                row.doneAt = touchpoint.at() == null ? Instant.now() : touchpoint.at();
+                row.doneBy = touchpoint.by();
+                touchpoints.persist(row);
+            }
+            for (CustomerTouchpointEntity row : existing.values()) {
+                if (!keep.contains(row.kind)) touchpoints.delete(row);
+            }
+            touchpoints.flush();
+        }
+
+        private List<CustomerTouchpointEntity> touchpointsOf(long customerId) {
+            return touchpoints.list("customerId = ?1 order by doneAt, id", customerId);
         }
 
         @Override
         public void deleteById(long id) {
+            touchpoints.delete("customerId", id);
             dao.deleteById(id);
         }
     }

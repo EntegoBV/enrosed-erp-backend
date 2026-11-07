@@ -13,13 +13,24 @@ final class SalesMapper {
 
     /* --------------------------------------------------------- customer */
 
+    /** The customer without its contact moments (null = not loaded); the adapter adds them. */
     static Customer toDomain(CustomerEntity entity) {
+        return toDomain(entity, null);
+    }
+
+    static Customer toDomain(CustomerEntity entity, List<CustomerTouchpointEntity> touchpoints) {
         return new Customer(entity.id, entity.company, entity.contact, entity.email, entity.phone,
                 entity.vatNumber, entity.countryCode, entity.language,
                 entity.address, entity.postalCode, entity.city,
                 entity.incoterm, entity.paymentTerms, entity.notes, entity.createdAt,
                 Boolean.TRUE.equals(entity.partner), entity.partnerSharePct, entity.partnerCostPct,
-                Boolean.TRUE.equals(entity.fiscalRepresentative), entity.invoiceNote);
+                Boolean.TRUE.equals(entity.fiscalRepresentative), entity.invoiceNote,
+                entity.crmStatus,
+                touchpoints == null ? null : touchpoints.stream().map(SalesMapper::toDomain).toList());
+    }
+
+    static CustomerTouchpoint toDomain(CustomerTouchpointEntity entity) {
+        return new CustomerTouchpoint(entity.kind, entity.doneAt, entity.doneBy);
     }
 
     static void apply(Customer customer, CustomerEntity entity) {
@@ -40,6 +51,7 @@ final class SalesMapper {
         entity.partnerCostPct = customer.partnerCostPct();
         entity.fiscalRepresentative = customer.fiscalRepresentative();
         entity.invoiceNote = customer.invoiceNote();
+        entity.crmStatus = customer.crmStatus();
         entity.notes = customer.notes();
         entity.createdAt = customer.createdAt();
     }

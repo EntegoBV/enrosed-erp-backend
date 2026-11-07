@@ -169,4 +169,5 @@ exec psql \
     --file=/app/migrations/stock-radar-postgresql.sql \
     --file=/app/migrations/sales-order-pallet-count-rule-postgresql.sql \
     --file=/app/migrations/customer-prices-and-catalog-exports-postgresql.sql \
-    --file=/app/migrations/sales-line-price-source-postgresql.sql
+    --file=/app/migrations/sales-line-price-source-postgresql.sql \
+    --file=/app/migrations/customer-crm-status-touchpoints-postgresql.sql
