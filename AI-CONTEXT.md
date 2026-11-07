@@ -2354,3 +2354,45 @@ moeten dan andere prijs zien natuurlijk."
   the anonymous configuration and estimate are byte for byte origin/main's, price switch on and
   off; the migration ran twice and Hibernate changed nothing on start. Not walked live: split
   parts, partner deals and advance invoices (skipped by rule only).
+
+## Klantstatus en contactmomenten (CRM, 2026-11-07)
+
+Emre wants the customer list to work as a small CRM: where a customer stands and what we already
+did for them (mailed, called, spoken to, catalogue or sample sent).
+
+- **Status**: `Customer.crmStatus` (`customer.crm_status`, varchar(24), plain code, no enum or
+  CHECK constraint) is one of `CustomerCrmStatus` NIEUW / IN_GESPREK / ACTIEF / SLAPEND / VERLOREN.
+  `POST /api/customers` takes a known status or none (= NIEUW); `PUT` takes a known status or null
+  (= keep the current one); anything else is refused ("Onbekende klantstatus: X"). Existing
+  customers stay null on purpose (the frontend shows "Geen status"); nothing is derived from orders.
+- **Contact moments**: `Customer.touchpoints` = `[{kind, at, by}]`, one per kind, as rows of
+  `customer_touchpoint` (`CustomerTouchpointEntity`, unique on customer and kind, no foreign key).
+  Known kinds: GEMAILD, GEBELD, GESPROKEN, CATALOGUS_GESTUURD, STAAL_GESTUURD; any code matching
+  `^[A-Z][A-Z_]{1,31}$` is stored, anything else refused ("Onbekend contactmoment: X"). The client
+  sends only kinds: a new kind gets `at = now` and `by = CurrentActor.name()` (the canonical staff
+  username, "systeem" outside a request), a kind the customer already has keeps its first moment,
+  a kind left out loses its row; `touchpoints: null` on PUT keeps everything, `[]` clears them.
+  The column keeps the username like every audit column; what a client receives as `by` is the
+  display name (`CustomerService.named` via `AdminIdentityProvider.displayNameFor`, "Emre",
+  "Systeem"), the same way the klantprijzen history names people.
+  `CustomerAdapter.findAll` loads all customers in one query and all touchpoints in a second one
+  (grouped by customer), never per customer; `findById` and `save` load the customer's own rows,
+  and `save` locks the customer row (`PESSIMISTIC_WRITE`) first so two saves ticking the same
+  kind at once cannot both insert it; `deleteById` removes the rows before the customer.
+- **Gehanteerde prijzen** (`GET /api/customers/{id}/applied-prices[?productId=]` and `/{productId}`,
+  `CustomerAppliedPriceService`): one JPQL projection over the lines (never the eager order graph),
+  deleted, cancelled and credit documents left out, a quote that became an invoice counted once as
+  the invoice. A line that followed the catalogue stored no price: `lastPriceExclVat` /
+  `unitPriceEur` are null then (`followsCatalogue: true` on an entry), the row's "last" line is the
+  newest priced line on a document past concept, and min/max skip catalogue lines. Entries carry
+  `lineId` so two lines of one product on one document stay apart.
+- **Compatibility**: the 20-argument `Customer` constructor stays (null status, null touchpoints =
+  unknown) for `SalesMapper`, `PublicQuoteService`, `DemoDataLoader` and `LoginRequestService`;
+  `withDeliveryAddress` / `withDelivery` and `fillMissingAddress` carry both fields through.
+- **Logboek**: a status change logs as "Status" (Nieuw / In gesprek / Actieve klant / Slapend /
+  Verloren), a change in contact moments as "Contactmomenten" with the joined Dutch labels (Gemaild,
+  Gebeld, Gesproken, Catalogus gestuurd, Staal gestuurd; an unknown kind by its code), in the fixed
+  order of the kinds so a reordered row never logs. The summary stays "Klant bijgewerkt".
+- **Migration**: `docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql`
+  (rerunnable `add column if not exists` + `create table if not exists`, no rows written), with its
+  Dockerfile COPY and script line after the 2026-11-06 files. Not yet run against a live database.
