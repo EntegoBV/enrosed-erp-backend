@@ -98,7 +98,10 @@ public class AdminIdentityProvider implements IdentityProvider<UsernamePasswordA
     /** The display name behind a staff username: "emre" reads as Emre; an unknown name comes back as typed. */
     public String displayNameFor(String username) {
         if (username == null || username.isBlank()) return null;
-        if ("system".equalsIgnoreCase(username)) return "Systeem";
+        /* Both spellings: older audit rows say "system", rows stamped through ActorRef.SYSTEM say "systeem". */
+        if ("system".equalsIgnoreCase(username) || ActorRef.SYSTEM.username().equalsIgnoreCase(username)) {
+            return ActorRef.SYSTEM.displayName();
+        }
         try {
             for (ConfiguredAccount account : parseAccounts(configuredAccounts)) {
                 if (account.username().equalsIgnoreCase(username)) return account.displayName();
