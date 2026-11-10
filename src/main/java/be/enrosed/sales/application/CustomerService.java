@@ -46,6 +46,9 @@ public class CustomerService {
     /** Features that keep rows of their own for a customer (website logins) clear them before the customer goes. */
     @Inject
     Instance<CustomerDeletionListener> deletionListeners;
+    /** Features that hang off the partner flag (the partner portal's sessions) hear when it goes off. */
+    @Inject
+    Instance<CustomerPartnerListener> partnerListeners;
 
     public CustomerService(SalesRepositories.Customers customers, SalesRepositories.Orders orders) {
         this.customers = customers;
@@ -92,6 +95,9 @@ public class CustomerService {
         List<ActivityChangeDto> changesMade = customerChanges(current, saved);
         if (!changesMade.isEmpty()) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt", changesMade);
+        }
+        if (current.partner() && !saved.partner() && partnerListeners != null) {
+            for (CustomerPartnerListener listener : partnerListeners) listener.partnerEnded(id);
         }
         return named(saved);
     }

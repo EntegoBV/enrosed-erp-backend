@@ -25,7 +25,9 @@ public enum PublicFormAction {
     ACCOUNT_ORDER_WRITE(20, 3_600),
     ACCOUNT_ORDER_PDF(30, 3_600),
     /** A logged-in customer's own prices for the product pages; per account through checkKey, never per IP. */
-    ACCOUNT_PRICE_READ(600, 3_600);
+    ACCOUNT_PRICE_READ(600, 3_600),
+    /** Password sign-in of a partner portal login, per username through checkKey (20 per 15 minutes). */
+    PARTNER_LOGIN(20, 900);
 
     private final int ipLimit;
     private final long windowSeconds;
@@ -48,7 +50,7 @@ public enum PublicFormAction {
             case QUOTE_PREVIEW, ACCOUNT_LINK_REQUEST, ACCOUNT_LOGIN, ACCOUNT_ACTIVATE,
                  ACCOUNT_QUOTE_READ, ACCOUNT_NOTICE_HOUR, ACCOUNT_NOTICE_DAY, ACCOUNT_CHALLENGE,
                  ACCOUNT_ORDER_READ, ACCOUNT_ORDER_DEFAULTS, ACCOUNT_ORDER_WRITE, ACCOUNT_ORDER_PDF,
-                 ACCOUNT_PRICE_READ -> 0;
+                 ACCOUNT_PRICE_READ, PARTNER_LOGIN -> 0;
             case ACCOUNT_QUOTE_SUBMIT -> 10;
             default -> 3;
         };

@@ -95,6 +95,27 @@ public class AdminIdentityProvider implements IdentityProvider<UsernamePasswordA
                 .build());
     }
 
+    /* The configured staff usernames, parsed once on first use (the account list is fixed per start). */
+    private volatile Set<String> staffUsernames;
+
+    /**
+     * Whether this name (any case, surrounding spaces ignored) is a configured staff account.
+     * The partner sign-in asks this first and steps aside for staff without touching the
+     * database; the partner login screen refuses such a name.
+     */
+    public boolean isStaffUsername(String username) {
+        String canonical = ActorRef.canonicalUsername(username);
+        if (canonical.isEmpty()) return false;
+        Set<String> known = staffUsernames;
+        if (known == null) {
+            Set<String> parsed = new HashSet<>();
+            for (ConfiguredAccount account : parseAccounts(configuredAccounts)) parsed.add(account.username());
+            known = Set.copyOf(parsed);
+            staffUsernames = known;
+        }
+        return known.contains(canonical);
+    }
+
     /** The display name behind a staff username: "emre" reads as Emre; an unknown name comes back as typed. */
     public String displayNameFor(String username) {
         if (username == null || username.isBlank()) return null;
