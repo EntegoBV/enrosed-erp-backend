@@ -5,7 +5,7 @@ import java.util.Set;
 
 /** Stable business grouping used by the company-wide logbook. */
 public enum ActivityCategory {
-    SALES(Set.of("SALES_ORDER")),
+    SALES(Set.of("SALES_ORDER", "PARTNER_SALE_REPORT", "PARTNER_LOGIN", "PARTNER_PORTAL_SETTINGS")),
     PURCHASING(Set.of("PURCHASE_ORDER", "SUPPLIER")),
     CATALOGUE(Set.of("PRODUCT", "PRODUCT_FAMILY", "MEDIA_ASSET")),
     RELATIONS(Set.of("CUSTOMER")),
@@ -14,7 +14,8 @@ public enum ActivityCategory {
 
     private static final Set<String> KNOWN_ENTITY_TYPES = Set.of(
             "SALES_ORDER", "PURCHASE_ORDER", "SUPPLIER", "PRODUCT",
-            "PRODUCT_FAMILY", "MEDIA_ASSET", "CUSTOMER", "PLANNER_ITEM");
+            "PRODUCT_FAMILY", "MEDIA_ASSET", "CUSTOMER", "PLANNER_ITEM",
+            "PARTNER_SALE_REPORT", "PARTNER_LOGIN", "PARTNER_PORTAL_SETTINGS");
 
     private final Set<String> entityTypes;
 
