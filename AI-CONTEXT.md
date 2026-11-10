@@ -47,6 +47,13 @@ be.enrosed.catalog | sales | sourcing | shared
    adapter/out    Panache entities+mappers, PDF renderers, mail, market
 ```
 
+**Security rule (since the partner portal, 2026-11-10):** a second kind of login exists, the
+partner (role `partner`, never `admin`). Every staff resource stays `@RolesAllowed("admin")`
+(`AdminIdentityProvider.ADMIN_ROLE`); never put `@Authenticated`, `@RolesAllowed("**")` or the
+`partner` role on a staff resource, and never list a partner username in `ENROSED_ADMIN_ACCOUNTS`.
+Only `/api/auth/me`, `POST /api/auth/session` and `/api/partner-portal/*` admit a partner. See
+"Partnerportaal (Verhoeven), 2026-11-10" at the end.
+
 Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 (Railway). Domain types are records; construction goes through services;
 `withStatus`-style copy helpers keep transitions in one place.
@@ -2396,3 +2403,120 @@ did for them (mailed, called, spoken to, catalogue or sample sent).
 - **Migration**: `docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql`
   (rerunnable `add column if not exists` + `create table if not exists`, no rows written), with its
   Dockerfile COPY and script line after the 2026-11-06 files. Not yet run against a live database.
+
+## Partnerportaal (Verhoeven), 2026-11-10
+
+Emre's partner Verhoeven (the person is Frans) gets a portal of its own: a login `verhoeven`
+with a simple tile screen to report what sold at the auction ("de klok") or directly from his
+site and what he bought back on the clock. Staff invoice those meldingen ("Veilingverkopen")
+whenever they want. Package `be.enrosed.partnerportal` (domain / application / adapter in+out).
+This section grows per build stage; it holds what is built so far.
+
+### Authentication (stage 1)
+- **One header for both kinds**: the partner signs in with the same HTTP Basic header as staff,
+  first `verhoeven:<password>` on `POST /api/auth/session`, then `verhoeven:epp1_...` on every
+  call. The frontend's `Auth.login` therefore works unchanged.
+- **`PartnerIdentityProvider`** (`adapter/in/security`) implements
+  `IdentityProvider<UsernamePasswordAuthenticationRequest>` with `priority()` 1100. The verified
+  default (and the staff provider's) is 1001 = SYSTEM_FIRST+1; Quarkus runs providers by
+  descending priority, a null item passes to the next provider and any failure ends the whole
+  authentication. Its steps, in this order:
+  1. Canonicalise the username (`ActorRef.canonicalUsername`: trimmed, lower case, so iOS's
+     "Verhoeven" works). A configured staff name (`AdminIdentityProvider.isStaffUsername`, parsed
+     once) returns `Uni.createFrom().nullItem()` synchronously: no worker thread, no database.
+     Staff sign-in is byte for byte what it was.
+  2. Anything else runs on a worker thread (`context.runBlocking`) in
+     `PartnerAuthenticator`, each step in `QuarkusTransaction.requiringNew()`: no `partner_login`
+     row returns null, so the staff provider fails as it always did for an unknown name.
+  3. An existing login: inactive, customer gone or no longer `partner`, wrong password or key,
+     the rate limit, a database error: every problem becomes `AuthenticationFailedException`
+     (401), never a 500. A credential starting with `epp1_` is looked up by SHA-256 in
+     `partner_session` of that login (not expired; `last_seen_at` written at most every 15
+     minutes) and gives `partnerAuth=SESSION`. Otherwise it is a password: first
+     `PublicFormRateLimiter.checkKey(PARTNER_LOGIN, "USERNAME", username, 20)` (20 per 15
+     minutes, only on this path and only for an existing partner name), then bcrypt outside any
+     transaction; `last_login_at` is written; `partnerAuth=PASSWORD`. Every password attempt
+     counts, right or wrong: 20 in one 15-minute window lock the password path for the rest of
+     it (accepted: anyone who knows the name can do that; the sessions keep working).
+- **Identity**: principal = the stored username, role `partner` only, attributes
+  `displayName` (the login's name, "Frans"), `partnerCustomerId`, `partnerLoginId`,
+  `partnerAuth`, `partnerSessionId` (session path only). Names in `shared.security.PartnerIdentity`.
+  `CurrentActor` therefore names Frans in the activity log for free.
+- **`AuthResource`**: `/me` and `/session` allow `admin` and `partner`. A staff answer is the old
+  code path untouched. A partner answer has the same shape with `roles:["partner"]` and
+  `phone:null` and never calls `StaffContactService` (which 404s for non-staff). Partner
+  `/session` only on the password path (a session key gets 403 "Meld opnieuw aan met je
+  wachtwoord", so a leaked key cannot extend itself); it goes through the `PartnerSessionIssuer`
+  port, so `shared.security` does not depend on the portal.
+- **Sessions** (`PartnerSessionService`): `epp1_` + 32 random bytes base64url (48 characters),
+  only the SHA-256 hex stored, TTL `enrosed.partner.session-ttl-days` (default 90, 1..365, env
+  `ENROSED_PARTNER_SESSION_TTL_DAYS`, nothing to set on Railway), at most 5 per login (the oldest
+  go). Unlike staff `enr1.` keys each session is revocable. `POST /api/partner-portal/logout`
+  deletes the session the key belongs to (204). All sessions of a login go on a new password, a
+  changed username, deactivation, and when `CustomerService.update` turns the customer's partner
+  flag off (`CustomerPartnerListener`, implemented by `PartnerPortalCustomerPartnerListener`).
+- **Passwords** (staff type them in Instellingen › Partnerportaal; the owner's choice, unlike the
+  website logins where staff never see one): 10..72 characters, printable ASCII 0x20-0x7E only
+  ("Gebruik letters zonder accenten, cijfers en leestekens": the browser builds the Basic header
+  with `btoa`), bcrypt cost 12 behind a semaphore of two (`PartnerPasswords`), never returned or
+  logged.
+- **Deletion**: `PartnerPortalCustomerDeletionListener` refuses "Deze klant heeft veilingverkopen"
+  when any melding exists, else deletes the login, its sessions and the settings row.
+- **Public resources**: a partner Basic header is now valid, so a `@PermitAll` resource called with
+  it runs as that partner; none of them reads `SecurityIdentity`, so it sees what an anonymous
+  visitor sees.
+
+### Data model
+Migration `docs/migrations/2026-11-10/partner-portal-postgresql.sql` (registered last in the
+Dockerfile COPY list and `scripts/run-postgresql-schema-migrations.sh`), six tables, every
+column named in its entity, non-id columns nullable, no foreign keys, kinds as plain varchar,
+named constraints identical in `@Table` and the migration:
+- `partner_login` (unique customer_id, unique lower-case username), `partner_session` (unique
+  token_hash, index login_id), `partner_portal_settings` (PK customer_id; null percents read as
+  4.50 / 5.50, null location as MAIN; the row is also the partner lock, taken with
+  `PartnerPortalRepositories.Settings.lockOrCreate`, which creates it in its own transaction when
+  missing and then locks it FOR UPDATE in the caller's).
+- `partner_sale_report` (the melding VV-<id>; unique (customer_id, client_ref)),
+  `partner_sale_report_line` (one row per part: entry_no, SALE|BUYBACK, purchase_order_id null =
+  own stock, money 19,2, unit prices 19,4, mirrors_line_id, stock_movement_id, invoice_id),
+  `partner_sale_invoice_part` (append-only: which part went on which document; a document with
+  rows here is report-backed).
+- **Open-part rule**, written once in `PartnerOpenParts`: a part is open when its melding is not
+  voided and it was never invoiced, or its document is gone, trashed, or GEANNULEERD / AFGEWEZEN /
+  VERLOPEN (a concept still holds its parts). Everything that asks "open?" uses this class.
+
+### Endpoints so far
+- Partner, `@RolesAllowed("partner")` (`PartnerPortalResource`, the customer id only from the
+  identity): `GET /api/partner-portal/overview` (partner, costs that apply, the first staff
+  contact with a phone, `stock` = active products with quantity > 0 at the settings location in
+  sales units, sorted by family then name, `recentSales` = products of this partner's non-voided
+  sale parts sold in the last 60 days, `reports` = 10 newest, `serverDate`); `GET /reports?before=&
+  limit=` (newest first, limit 1..100, `more`); `GET /products/{id}/photo?size=small|medium&v=`
+  (404 unless the product is in this partner's current stock or meldingen); `POST /logout`. Never
+  a price, cost, supplier or container field of Enrosed's.
+- PartnerReport (`PartnerReportReader`): parts merged back per entry (sale and buyback), totals
+  (sale gross, commission, transport, extra, sale net, buyback = terugkoopkost, net = sale net -
+  buyback), status OPEN / PARTLY_INVOICED / INVOICED / VOIDED from the open-part rule, `canUndo` =
+  OPEN and no buyback of another live melding mirrors one of its sale parts. Rows of another
+  line_type are ignored.
+- Photos: `catalog.application.SalesPhotoService` ports the frontend's `salesPhoto` rule (website
+  lead, else the inherited family photo, else the first). An inherited photo is streamed from the
+  family's stored small rendition for `small` (no decode) and rendered from its large file for
+  `medium`; an own photo goes through `PhotoDeliveryService.render`. `photoVersion` = 16 hex of a
+  SHA-256 over photo id, storage key and size, so another lead or file changes the URL; ETag =
+  version + size, `If-None-Match` answers 304 without decoding, `Cache-Control: private,
+  max-age=86400`.
+- Staff, `@RolesAllowed("admin")` (`PartnerPortalAdminResource`): `GET /api/partner-portal-admin`
+  (partner customers plus any customer that still has a login, `partner:false` then; per row the
+  login without any secret, the stored settings with the defaults beside them and the applying
+  location name, and `unshippedSettlements` = issued partner settlements of this partner (status
+  UITGEREIKT / VERZONDEN / BEKEKEN / BETAALD, `goodsShippedAt` null) that are not report-backed);
+  `PUT /{customerId}/login` `{username, displayName, password|null, active}` (username
+  `[a-z0-9._-]{3,64}` after lower-casing, unique, never a staff name; a first login needs a
+  password; a customer that is no partner can only have its login switched off);
+  `PUT /{customerId}/settings` `{auctionCommissionPct|null, auctionTransportPct|null,
+  locationId|null}` (0..50, null = default; an active existing location). Activity
+  `PARTNER_LOGIN` CREATED/UPDATED ("Login aangemaakt · Wachtwoord ingesteld", "Gedeactiveerd",
+  never the secret) and `PARTNER_PORTAL_SETTINGS` UPDATED; both, and `PARTNER_SALE_REPORT`, count
+  under SALES in `ActivityCategory`.
+
