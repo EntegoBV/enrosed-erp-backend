@@ -209,6 +209,15 @@ public class StockService {
                 .toList();
     }
 
+    /** Sales units per product at one location, only where more than 0 lie (the partner portal's tiles). */
+    public Map<Long, Integer> quantitiesAt(long locationId) {
+        Map<Long, Integer> result = new java.util.HashMap<>();
+        for (StockLevelEntity level : levels.list("locationId = ?1 and quantity > 0", locationId)) {
+            result.merge(level.productId, level.quantity, Integer::sum);
+        }
+        return result;
+    }
+
     /** Sets the count at one location, as after a recount. */
     @Transactional
     public void setLevel(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference) {
