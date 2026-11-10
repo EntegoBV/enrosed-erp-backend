@@ -7,6 +7,7 @@ import be.enrosed.catalog.domain.Photo;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerLoginEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
 import be.enrosed.partnerportal.domain.PartnerNumbers;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
 import be.enrosed.sales.application.port.out.SalesRepositories;
@@ -45,12 +46,15 @@ public class PartnerPortalReadService {
     private final PartnerPortalRepositories.Lines lines;
     private final SalesPhotoService photos;
     private final ProductRepository productRepository;
+    private final PartnerPortalRepositories.Reports reportRows;
 
     public PartnerPortalReadService(PartnerPortalSettings settings, PartnerProductTiles tiles,
                                     PartnerReportReader reports, StockService stock, StaffContactService contacts,
                                     SalesRepositories.Customers customers, PartnerPortalRepositories.Logins logins,
                                     PartnerPortalRepositories.Lines lines, SalesPhotoService photos,
-                                    ProductRepository productRepository) {
+                                    ProductRepository productRepository,
+                                    PartnerPortalRepositories.Reports reportRows) {
+        this.reportRows = reportRows;
         this.settings = settings;
         this.tiles = tiles;
         this.reports = reports;
@@ -84,6 +88,16 @@ public class PartnerPortalReadService {
     @Transactional
     public PartnerPortalViews.ReportPage reports(long customerId, Long before, Integer limit) {
         return reports.page(customerId, before, limit, tiles.load());
+    }
+
+    /** One melding of this partner (404 for another partner's). */
+    @Transactional
+    public PartnerPortalViews.PartnerReport report(long customerId, long reportId) {
+        PartnerSaleReportEntity report = reportRows.findById(reportId);
+        if (report == null || report.customerId == null || report.customerId != customerId) {
+            throw new NotFoundException("Melding", reportId);
+        }
+        return reports.view(reports.load(List.of(report)).getFirst(), tiles.load());
     }
 
     /**

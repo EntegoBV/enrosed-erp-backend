@@ -4,10 +4,14 @@ import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.application.SalesPhotoService;
 import be.enrosed.partnerportal.application.PartnerPortalReadService;
 import be.enrosed.partnerportal.application.PartnerPortalViews;
+import be.enrosed.partnerportal.application.PartnerSaleReportService;
+import be.enrosed.partnerportal.application.PartnerSaleRequests;
 import be.enrosed.partnerportal.application.PartnerSessionService;
 import be.enrosed.shared.security.PartnerIdentity;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -31,12 +35,37 @@ public class PartnerPortalResource {
     private final SecurityIdentity identity;
     private final PartnerPortalReadService portal;
     private final PartnerSessionService sessions;
+    private final PartnerSaleReportService meldingen;
 
     public PartnerPortalResource(SecurityIdentity identity, PartnerPortalReadService portal,
-                                 PartnerSessionService sessions) {
+                                 PartnerSessionService sessions, PartnerSaleReportService meldingen) {
         this.identity = identity;
         this.portal = portal;
         this.sessions = sessions;
+        this.meldingen = meldingen;
+    }
+
+    /**
+     * A new melding: 201 with the PartnerReport; the same clientRef again answers 200 with the
+     * melding that already exists, and nothing is booked twice.
+     */
+    @POST
+    @Path("/reports")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response report(PartnerSaleRequests.Report request) {
+        PartnerCaller caller = PartnerCaller.of(identity);
+        PartnerSaleReportService.Outcome outcome = meldingen.create(caller.customerId(), caller.loginId(), request, false);
+        return Response.status(outcome.created() ? Response.Status.CREATED : Response.Status.OK)
+                .entity(portal.report(caller.customerId(), outcome.reportId())).build();
+    }
+
+    /** Ongedaan maken: withdraws an own melding while nothing of it is invoiced. */
+    @DELETE
+    @Path("/reports/{id}")
+    public PartnerPortalViews.PartnerReport undo(@PathParam("id") long id) {
+        PartnerCaller caller = PartnerCaller.of(identity);
+        meldingen.withdraw(caller.customerId(), id, null, false);
+        return portal.report(caller.customerId(), id);
     }
 
     @GET

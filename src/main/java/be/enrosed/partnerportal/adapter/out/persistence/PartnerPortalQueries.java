@@ -79,6 +79,16 @@ public class PartnerPortalQueries {
         return entityManager.getMetamodel().entity(SalesEntities.SalesOrderEntity.class).getName();
     }
 
+    /** Ids of the (not trashed) containers this customer is the partner of, ascending: the lock order. */
+    public List<Long> partnerContainerIds(long customerId) {
+        String purchases = entityManager.getMetamodel()
+                .entity(be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity.class).getName();
+        return entityManager.createQuery("select o.id from " + purchases
+                        + " o where o.partnerCustomerId = :customer order by o.id", Long.class)
+                .setParameter("customer", customerId)
+                .getResultList();
+    }
+
     /** Family id to its name, for the tiles' grouping. */
     public Map<Long, String> familyNames(Collection<Long> familyIds) {
         Map<Long, String> result = new HashMap<>();

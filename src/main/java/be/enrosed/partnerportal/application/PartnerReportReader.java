@@ -133,7 +133,7 @@ public class PartnerReportReader {
         return new PartnerPortalViews.PartnerReport(report.id, PartnerPortalRules.reportNumber(report.id),
                 report.channel, report.soldOn, report.createdAt, report.createdByName,
                 PartnerNumbers.pct(report.commissionPct), PartnerNumbers.pct(report.transportPct), extra,
-                entries, totals, loaded.status(), loaded.canUndo());
+                entries, totals, loaded.status(), loaded.canUndo(), report.note);
     }
 
     /**

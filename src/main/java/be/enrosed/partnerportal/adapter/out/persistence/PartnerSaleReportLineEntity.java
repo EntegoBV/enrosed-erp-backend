@@ -30,6 +30,12 @@ import java.time.Instant;
 public class PartnerSaleReportLineEntity extends PanacheEntityBase {
     public static final String SALE = "SALE";
     public static final String BUYBACK = "BUYBACK";
+    /**
+     * Written when a melding is withdrawn: one row per part it reversed (mirrors_line_id = that
+     * part, stock_movement_id = the reversing movement, no money). Never a part: every reader
+     * only counts SALE and BUYBACK.
+     */
+    public static final String REVERSAL = "REVERSAL";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

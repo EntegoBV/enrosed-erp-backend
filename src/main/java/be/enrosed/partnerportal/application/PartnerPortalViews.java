@@ -66,11 +66,14 @@ public final class PartnerPortalViews {
                          BigDecimal transportEur, BigDecimal extraCostEur, BigDecimal saleNetEur,
                          BigDecimal buybackEur, BigDecimal netEur) {}
 
-    /** One melding with its parts merged back per entry. status OPEN | PARTLY_INVOICED | INVOICED | VOIDED. */
+    /**
+     * One melding with its parts merged back per entry. status OPEN | PARTLY_INVOICED | INVOICED | VOIDED.
+     * note (additive) is what was typed with it.
+     */
     public record PartnerReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
                                 String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
                                 ExtraCost extraCost, List<Entry> entries, Totals totals, String status,
-                                boolean canUndo) {}
+                                boolean canUndo, String note) {}
 
     public record ReportPage(List<PartnerReport> reports, boolean more) {}
 
@@ -101,4 +104,54 @@ public final class PartnerPortalViews {
     }
 
     public record SettingsRequest(BigDecimal auctionCommissionPct, BigDecimal auctionTransportPct, Long locationId) {}
+
+    /* ------------------------------------------------------------ Veilingverkopen */
+
+    /**
+     * One source part of a melding for staff: containerName null = "Eigen voorraad"; invoiceId and
+     * invoiceNumber the document that holds it (null while open); unitCostEur own parts only.
+     */
+    public record StaffPart(long id, int entryNo, String lineType, long productId, String name, String variant,
+                            Long purchaseOrderId, String containerName, int quantity, BigDecimal grossEur,
+                            BigDecimal netEur, BigDecimal unitCostEur, Long invoiceId, String invoiceNumber,
+                            boolean open) {}
+
+    /** PartnerReport plus who and for whom, the withdrawal and the parts per source. */
+    public record StaffReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
+                              String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
+                              ExtraCost extraCost, List<Entry> entries, Totals totals, String status,
+                              boolean canUndo, String note, long customerId, String customerName, String createdBy,
+                              Instant voidedAt, String voidedBy, String voidReason, List<StaffPart> parts) {
+        static StaffReport of(PartnerReport base, long customerId, String customerName, String createdBy,
+                              Instant voidedAt, String voidedBy, String voidReason, List<StaffPart> parts) {
+            return new StaffReport(base.id(), base.number(), base.channel(), base.soldOn(), base.createdAt(),
+                    base.createdByName(), base.commissionPct(), base.transportPct(), base.extraCost(), base.entries(),
+                    base.totals(), base.status(), base.canUndo(), base.note(), customerId, customerName, createdBy,
+                    voidedAt, voidedBy, voidReason, parts);
+        }
+    }
+
+    /** What is still to invoice: meldingen with an open part, their open sale quantity and open net. */
+    public record OpenTotals(int openReports, int openSaleQuantity, BigDecimal openNetEur) {}
+
+    public record StaffPage(List<StaffReport> reports, boolean more, OpenTotals totals) {}
+
+    public record PartnerSummary(long customerId, String customerName, int openReports, int openSaleQuantity,
+                                 BigDecimal openNetEur, Instant lastReportAt) {}
+
+    /** GET /api/partner-sales/summary: the nav count, the home card and the Te doen task read this. */
+    public record Summary(int openReports, int openSaleQuantity, BigDecimal openNetEur, Instant lastReportAt,
+                          int recentReports14d, List<PartnerSummary> partners) {}
+
+    /** One non-voided melding by sold_on; open = it still has a part to invoice. costsEur = commission + transport + extra. */
+    public record AnalyticsReport(long id, String number, long customerId, String channel, LocalDate soldOn,
+                                  boolean open, int saleQuantity, int buybackQuantity, BigDecimal grossEur,
+                                  BigDecimal costsEur, BigDecimal buybackEur, BigDecimal netEur) {}
+
+    /** One melding x product (reportId additive); netEur = sale net - buyback. Averages are derived, never summed. */
+    public record AnalyticsProduct(long reportId, long productId, String name, String variant, LocalDate soldOn,
+                                   String channel, boolean open, int saleQuantity, int buybackQuantity,
+                                   BigDecimal grossEur, BigDecimal netEur) {}
+
+    public record Analytics(List<AnalyticsReport> reports, List<AnalyticsProduct> products) {}
 }

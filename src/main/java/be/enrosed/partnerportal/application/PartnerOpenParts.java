@@ -38,6 +38,27 @@ public class PartnerOpenParts {
         return new Rule(queries.documentStates(invoiceIds));
     }
 
+    /**
+     * Among these invoice ids, the ones that no longer hold their parts (gone, trashed or in a
+     * RELEASING status): a part pointing at one of them is open. The same rule as {@link Rule},
+     * for the cheap aggregate reads (summary, bell) that select open parts in the query.
+     */
+    public Set<Long> releasing(Collection<Long> invoiceIds) {
+        Set<Long> result = new java.util.HashSet<>();
+        if (invoiceIds == null || invoiceIds.isEmpty()) return result;
+        Map<Long, PartnerPortalQueries.DocumentState> documents = queries.documentStates(invoiceIds);
+        for (Long id : invoiceIds) {
+            if (id == null) continue;
+            if (!holds(documents.get(id))) result.add(id);
+        }
+        return result;
+    }
+
+    /** Whether this document (null = deleted or in the trash) still holds the parts that point at it. */
+    static boolean holds(PartnerPortalQueries.DocumentState document) {
+        return document != null && !RELEASING.contains(document.status());
+    }
+
     public static final class Rule {
         private final Map<Long, PartnerPortalQueries.DocumentState> documents;
 
@@ -47,16 +68,14 @@ public class PartnerOpenParts {
 
         public boolean isOpen(PartnerSaleReportLineEntity line, boolean reportVoided) {
             if (reportVoided) return false;
-            if (line.invoiceId == null) return true;
-            PartnerPortalQueries.DocumentState document = documents.get(line.invoiceId);
-            return document == null || RELEASING.contains(document.status());
+            return line.invoiceId == null || !holds(documents.get(line.invoiceId));
         }
 
         /** The document that holds this part, or null when the part is open or the document is gone. */
         public PartnerPortalQueries.DocumentState holder(PartnerSaleReportLineEntity line) {
             if (line.invoiceId == null) return null;
             PartnerPortalQueries.DocumentState document = documents.get(line.invoiceId);
-            return document == null || RELEASING.contains(document.status()) ? null : document;
+            return holds(document) ? document : null;
         }
     }
 }
