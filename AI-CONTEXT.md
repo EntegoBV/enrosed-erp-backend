@@ -2520,3 +2520,93 @@ named constraints identical in `@Table` and the migration:
   never the secret) and `PARTNER_PORTAL_SETTINGS` UPDATED; both, and `PARTNER_SALE_REPORT`, count
   under SALES in `ActivityCategory`.
 
+
+### Meldingen: money, stock, withdrawal (stage 2)
+- **Money** (`PartnerSaleMoney`, the only place it is computed; the frontend's `partner-money.ts`
+  does the same in cents): sale gross = the typed total (2 dp), else round2(quantity x average at
+  4 dp); stored unit price = total / quantity at 4 dp. Commission and transport = round2(gross x
+  pct / 100) per entry with the melding's snapshotted percents (the partner's settings on
+  AUCTION, 0 on DIRECT). Extra kost PCT (0..100, 4 dp) per entry the same way; AMOUNT (2 dp, the
+  whole melding) spread over the sale entries by gross with `PartnerSettlementLedger.allocate`
+  (320 + 61 with 12.50 gives 10.50 / 2.00). net = gross - costs; an entry with net < 0 is
+  refused ("De kosten zijn hoger dan de opbrengst"). A buyback has only its gross (terugkoopkost),
+  net = -gross. An entry split over sources: quantity split, then gross and each cost allocated by
+  quantity (residual on the last part), each part's net = its gross - its costs.
+- **Locks**, every create and withdrawal, one transaction, this order: the partner row
+  (`Settings.lockOrCreate`), every container of the partner ascending
+  (`PurchaseOrderService.lockForPartnerSettlement`), the products ascending
+  (`StockService.lockProduct`). Open parts, the ledger and the batches are read after them.
+  `client_ref` (unique per customer): the partner lock makes a retry wait and find the melding
+  (200, nothing booked twice); a unique violation is answered the same way from a new transaction.
+- **Allocation of a sale** (`PartnerSaleReportService.planSale`, `PartnerContainerCapacity`):
+  refused beyond the level at the partner's location ("Er liggen nog maar n stuks van X. Bel
+  Enrosed (tel) om de voorraad bij te werken."; staff get "... op Magazijn. Werk eerst de voorraad
+  bij."). Candidates: this partner's containers with `isStockBooked()`, received at the location
+  (receivingLocationId = it, or null when it is MAIN), oldest `receivedOn` first. Capacity(C,P) =
+  max(0, min(ledger remaining - historicShipped - openNet, PARTNER batch pieces of C / unit
+  pieces)); historicShipped = shipped historical advance pieces no shipped (non report-backed)
+  settlement absorbed (the shipGoods rule); openNet = open sale - open buyback quantity of parts on
+  (C,P); the batch term only while batches run. The rest is an own part; with batches its size is
+  capped at the own batch pieces (plus pieces no batch covers), beyond that "n stuks van X zijn al
+  afgerekend maar nog niet afgeboekt; Enrosed boekt die eerst af.".
+- **Own cost** of an own part (`unit_cost_eur`, per sales unit, 4 dp) = external cost without the
+  Enrosed kost: with batches the value of its takes (`unitCostExclEnrosedEur`; a take from a batch
+  that only knows its full cost loses the Enrosed kost `ProductCostHistoryService.enrosedParts`
+  explains in it; pieces without a batch cost at the card), without batches the card's
+  landedCostEur minus that Enrosed part. Unknown -> 0. Container parts have no unit cost.
+- **Allocation of a buyback**: mirrors sale parts of the product: this melding's (the last-filled
+  part first, so 100 sold with 1 back reads as 99 sold), then the partner's other open sale parts
+  newest first (sold_on, melding, part), then invoiced ones; each at most its quantity minus what
+  live buybacks already mirror. Each piece becomes a BUYBACK part on the mirrored part's source
+  with `mirrors_line_id`; an own buyback keeps the mirrored unit cost. Nothing to mirror: "Meld
+  eerst de verkoop op de veiling; een terugkoop hoort bij een gemelde verkoop.". Only on AUCTION.
+- **Stock lines**: `StockMovement.Kind.PARTNER_SALE` ("Verkocht via partner", negative) and
+  `PARTNER_BUYBACK` ("Teruggekocht door partner", positive), one per part, written by
+  `StockService.partnerMove` only: product lock, never below zero at the location, reference
+  "Veilingverkoop VV-n" / "Terugkoop VV-n" / "Ingetrokken: VV-n", purchaseOrderId = the part's
+  container (null = own), sourceSoldAt = sold_on (StockRoll dates them by it, review when booked
+  across the closing like TICA), actor = whoever is signed in. They cannot be deleted
+  (`PanacheStockLedger.delete`, movement DTO `deletable` false); a product with them can neither
+  be deleted nor change its stock basis. **Fix-forward**: an older build cannot read these kinds
+  (`Kind.valueOf`), so once a melding exists the backend is never rolled back.
+- **Batches**: a sale take is pinned to its container (own parts plain FIFO). Pieces coming back
+  (a buyback, or the withdrawal of a sale) go through `StockBatchService.onPartnerReturn`: into
+  the open takes of the mirrored sale part's movement and of the withdrawals of earlier buybacks
+  of it (their REVERSAL rows), most recently consumed first, then those movements' unassigned
+  takes, then the credit-return restore; never `onAdd` (that would make an own Telling batch). The
+  batch view counts PARTNER_SALE as sold. `/api/stock-batches/check` stays empty after every
+  operation. With batches off every hook is a no-op. The batch start (backfill) counts what
+  meldingen took out of a partner container (`StockService.partnerReportedOut`, net of buybacks
+  and withdrawals, by movement time) as having left it.
+- **Withdrawal** (`withdraw`; partner `DELETE /api/partner-portal/reports/{id}` "Ongedaan maken",
+  staff `DELETE /api/partner-sales/reports/{id}?reason=` "Intrekken"): only while every part is
+  open; refused while a buyback of another live melding mirrors one of its sales ("Trek eerst de
+  terugkoop in (VV-n)"). Checked on the net effect: per product the shelf must hold what the
+  buybacks take back beyond the melding's own sales, per container the capacity must hold what its
+  buybacks claim beyond its sales ("... zijn al opnieuw als verkocht gemeld; trek eerst die melding
+  in"). Buyback parts are reversed first (a take pinned to their container), then sale parts (back
+  into their takes); each reversal writes a REVERSAL row (mirrors_line_id = the part, its
+  stock_movement_id, no money; never read as a part). A withdrawn melding stays as it is.
+
+### Staff endpoints and the bell (stage 2)
+- `PartnerSalesResource` `/api/partner-sales` (admin): `GET ?customerId=&status=OPEN|INVOICED|ALL&
+  before=&limit=` (newest first, 1..200, default 100 and ALL; OPEN = OPEN + PARTLY_INVOICED,
+  INVOICED = INVOICED + PARTLY_INVOICED) with `totals` {openReports, openSaleQuantity, openNetEur};
+  `GET /summary` (no ledger work: the open parts in one query, `PartnerOpenParts.releasing` for the
+  invoices they point at); `GET /analytics?from=&to=` (by sold_on, no cap, one row per live
+  melding and one per melding x product, `open` = not fully invoiced); `GET /reports/{id}`;
+  `POST /reports {customerId, ...}` (a melding staff enter for the partner: login_id null, the
+  actor is the staff member); `DELETE /reports/{id}?reason=`. StaffReport = PartnerReport +
+  customer, createdBy, voidedAt/By/Reason and `parts` per source (containerName null = Eigen
+  voorraad, invoice id/number from the open-part rule's holder).
+- `NotificationService.Kind.PARTNER_VERKOOP` from `PartnerSaleNotifications` (behind the
+  `sales.application.PartnerSaleNotificationFeed` port, injected as `Instance`, failures never
+  break the feed): one item per live melding of the last 14 days, actionNeeded false, **orderId
+  null** (older screens would open /sales/<id>), orderNumber VV-n, title "Veiling verkocht" /
+  "Direct verkocht" / "Teruggekocht op de klok", detail "100 stuks · gem. € 3,20 · netto € 277,50"
+  (several products "n stuks · n producten · netto € y"), url "/veilingverkopen?melding=n",
+  notificationId "partner-sale:n", additive `open` (JSON only on this kind).
+- Push `PartnerSalePushNotifier` (after commit, REQUIRES_NEW, errors swallowed): kind
+  "partner-sale", "Veilingverkoop gemeld", "n stuks · Veiling|Direct|Terugkoop", the url above;
+  a staff entry skips that staff member's own phones. Activity `PARTNER_SALE_REPORT` CREATED /
+  VOIDED.
