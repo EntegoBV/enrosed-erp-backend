@@ -43,6 +43,10 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
             throw new be.enrosed.shared.BusinessRuleException(
                     "Een TICA-voorraadboeking hoort bij de verkoopbron en kan niet worden verwijderd.");
         }
+        if (row != null && isPartnerReport(row.kind)) {
+            throw new be.enrosed.shared.BusinessRuleException(
+                    "Deze boeking hoort bij een veilingverkoop; trek de melding in via Veilingverkopen.");
+        }
         return delete("id = ?1 and productId = ?2", movementId, productId) == 1;
     }
 
@@ -71,6 +75,10 @@ public class PanacheStockLedger implements StockLedger, PanacheRepository<StockM
     public Optional<StockMovement> lastBefore(long productId, long locationId, Instant before) {
         return find("productId = ?1 and locationId = ?2 and at < ?3 order by at desc, id desc",
                 productId, locationId, before).firstResultOptional().map(PanacheStockLedger::toDomain);
+    }
+
+    private static boolean isPartnerReport(String kind) {
+        return StockMovement.Kind.PARTNER_SALE.name().equals(kind) || StockMovement.Kind.PARTNER_BUYBACK.name().equals(kind);
     }
 
     private static StockMovement toDomain(StockMovementEntity entity) {

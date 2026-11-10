@@ -71,6 +71,8 @@ public class StockBatchService {
     private static final String SALE = StockMovement.Kind.SALE.name();
     private static final String SALE_RETURN = StockMovement.Kind.SALE_RETURN.name();
     private static final String PURCHASE_RECEIPT = StockMovement.Kind.PURCHASE_RECEIPT.name();
+    private static final String PARTNER_SALE = StockMovement.Kind.PARTNER_SALE.name();
+    private static final String PARTNER_BUYBACK = StockMovement.Kind.PARTNER_BUYBACK.name();
 
     /** Takes that count as "Verlies" on the batch they left. */
     private static final Set<String> LOST_KINDS = Set.of("DAMAGED", "SHORTAGE", "DEMO", "STOCKTAKE",
@@ -198,6 +200,35 @@ public class StockBatchService {
         Long pin = context.pinPurchaseOrderId();
         take(productId, pieces, kind.name(), pin,
                 new Ids(movementId, context.salesOrderId(), null, pin, reference, at, actorName()));
+    }
+
+    /**
+     * Pieces a partner bought back on the clock, or the undo of a partner sale: they go back into the open takes of
+     * the given stock movements first (the sale part's own takes, so a container's pieces return to its PARTNER
+     * batch), most recently consumed first, then resolve those movements' open unassigned takes; whatever is left
+     * goes the way of a credit return ({@link #restore}). Never a Telling batch through {@link #onAdd}.
+     */
+    void onPartnerReturn(long productId, Long movementId, int pieces, Collection<Long> sourceMovementIds,
+                         String reference, Instant at) {
+        if (pieces <= 0 || !active()) return;
+        Ids ids = new Ids(movementId, null, null, null, reference, at, actorName());
+        int remaining = pieces;
+        List<Long> sources = sourceMovementIds == null ? List.of()
+                : sourceMovementIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (!sources.isEmpty()) {
+            List<StockBatchMoveEntity> batchTakes = new ArrayList<>();
+            List<StockBatchMoveEntity> unassignedTakes = new ArrayList<>();
+            for (StockBatchMoveEntity take : moves.list(
+                    "productId = ?1 and stockMovementId in ?2 and pieces < 0 and linkMoveId is null",
+                    productId, sources)) {
+                if (take.batchId != null) batchTakes.add(take);
+                else unassignedTakes.add(take);
+            }
+            remaining = restoreInto(batchTakes, remaining, PARTNER_BUYBACK, ids);
+            unassignedTakes.sort(Comparator.comparing((StockBatchMoveEntity m) -> m.id).reversed());
+            remaining = resolve(open(unassignedTakes), remaining, PARTNER_BUYBACK, ids);
+        }
+        if (remaining > 0) restore(productId, remaining, PARTNER_BUYBACK, null, null, ids);
     }
 
     /** A count set at a location: fewer pieces leave FIFO, more pieces are found. */
@@ -347,6 +378,41 @@ public class StockBatchService {
 
     public int moveCount(long batchId) {
         return Math.toIntExact(moves.count("batchId", batchId));
+    }
+
+    /**
+     * Where a product's pieces lie in the batches: own pieces left, partner pieces left per container, open
+     * unassigned pieces and the physical stock (the partner portal's capacity reads this under the product lock).
+     */
+    public record Holdings(long productId, int unitPieces, int ownPieces, Map<Long, Integer> partnerPiecesByContainer,
+                           int unassignedPieces, int stockPieces) {
+        /** Pieces on the shelf that no batch accounts for (drift); 0 while the check is clean. */
+        public int uncoveredPieces() {
+            return Math.max(0, stockPieces - (ownPieces + partnerPiecesByContainer.values().stream()
+                    .mapToInt(Integer::intValue).sum() - unassignedPieces));
+        }
+    }
+
+    public Holdings holdings(long productId) {
+        int own = 0;
+        Map<Long, Integer> partner = new HashMap<>();
+        for (StockBatchEntity batch : batches.list("productId = ?1 and piecesLeft > 0", productId)) {
+            int left = pieces(batch.piecesLeft);
+            if (isPartner(batch)) {
+                if (batch.purchaseOrderId != null) partner.merge(batch.purchaseOrderId, left, Integer::sum);
+            } else {
+                own += left;
+            }
+        }
+        StockBatchTotals totals = totals(productId);
+        return new Holdings(productId, unitPieces(productId), own, Map.copyOf(partner), totals.unassignedPieces(),
+                totals.stockPieces());
+    }
+
+    /** The takes one stock movement made (from a batch or unassigned), oldest first: the partner portal prices an own part. */
+    public List<StockBatchMove> takesForMovement(long productId, long stockMovementId) {
+        return moves.list("productId = ?1 and stockMovementId = ?2 and pieces < 0 and linkMoveId is null order by id",
+                productId, stockMovementId).stream().map(StockBatchService::toDomain).toList();
     }
 
     /** The takes a shipment made (from a batch or unassigned; later settles are not among them), oldest first. */
@@ -909,7 +975,7 @@ public class StockBatchService {
         long pieces = row[3] == null ? 0 : ((Number) row[3]).longValue() * sign;
         StockBatchEntity batch = byId.get(batchId);
         int bucket;
-        if (SALE.equals(kind)) bucket = 0;
+        if (SALE.equals(kind) || PARTNER_SALE.equals(kind)) bucket = 0;
         else if (LOST_KINDS.contains(kind)) bucket = 1;
         else if (RECEIPT_CORRECTION.equals(kind) && batch != null
                 && !Objects.equals(purchaseOrderId, batch.purchaseOrderId)) bucket = 1;

@@ -195,6 +195,18 @@ public class StockBatchBackfillService {
 
     private record Level(long locationId, int quantity, int loose) {}
 
+    /**
+     * What left a partner container by the run: what its shipped advances and settlements took
+     * ({@link ClosingSeparations#partnerShipped}), plus what partner meldingen reported sold from it
+     * minus bought back (their stock lines name the container; no document ships those pieces).
+     */
+    private Map<Long, Integer> shippedFromContainer(long purchaseOrderId, List<SalesOrder> sales, Instant runAt) {
+        Map<Long, Integer> shipped = new HashMap<>(ClosingSeparations.partnerShipped(purchaseOrderId, sales, runAt));
+        stock.partnerReportedOut(purchaseOrderId, runAt).forEach((productId, quantity) ->
+                shipped.put(productId, Math.max(0, shipped.getOrDefault(productId, 0) + quantity)));
+        return shipped;
+    }
+
     private Report build(boolean write) {
         Instant runAt = Instant.now();
         PurchaseOrderService orders = purchaseOrders.get();
@@ -308,7 +320,7 @@ public class StockBatchBackfillService {
             for (Planned batch : planned.stream().filter(Planned::partner).sorted(newestFirst).toList()) {
                 long orderId = batch.order.id();
                 Map<Long, Integer> shipped = partnerShipped.computeIfAbsent(orderId,
-                        id -> ClosingSeparations.partnerShipped(id, sales, runAt));
+                        id -> shippedFromContainer(id, sales, runAt));
                 int out = shippedLeft.computeIfAbsent(orderId, id -> shipped.getOrDefault(productId, 0));
                 int usable = batch.line.usable();
                 int taken = Math.min(out, usable);

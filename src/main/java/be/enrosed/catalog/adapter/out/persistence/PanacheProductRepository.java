@@ -93,6 +93,11 @@ public class PanacheProductRepository implements ProductRepository {
                 throw new be.enrosed.shared.BusinessRuleException(
                         "Dit product heeft losse voorraad of TICA-voorraadboekingen; de vastgelegde voorraadbasis kan niet worden gewijzigd.");
             }
+            /* Partner meldingen count in sales units of the current basis; another basis would change their meaning. */
+            if (count("select count(m) from StockMovementEntity m where m.productId = :productId and m.kind in ('PARTNER_SALE', 'PARTNER_BUYBACK')", entity.id) > 0) {
+                throw new be.enrosed.shared.BusinessRuleException(
+                        "Dit product heeft veilingverkopen; de vastgelegde voorraadbasis kan niet worden gewijzigd.");
+            }
             /* Once batches are started (paused or not), levels and batches are in pieces of the old basis and are
                never converted: any count left, negatives included, refuses the change. */
             if (batchesStarted()
@@ -154,6 +159,10 @@ public class PanacheProductRepository implements ProductRepository {
         // A first channel price or stock posting may still be uncommitted; serialize before checking its references.
         ProductEntity entity = dao.findById(id, LockModeType.PESSIMISTIC_WRITE);
         if (entity == null) return;
+        if (count("select count(m) from StockMovementEntity m where m.productId = :productId and m.kind in ('PARTNER_SALE', 'PARTNER_BUYBACK')", id) > 0) {
+            throw new be.enrosed.shared.BusinessRuleException(
+                    "Dit product heeft veilingverkopen. Zet het inactief om de historie te bewaren.");
+        }
         if (count("select count(s) from TicaSale s where s.productId = :productId or s.stockProductId = :productId", id) > 0
                 || count("select count(m) from StockMovementEntity m where m.productId = :productId and m.ticaSaleId is not null", id) > 0
                 || count("select count(p) from ProductChannelPriceEntity p where p.productId = :productId", id) > 0

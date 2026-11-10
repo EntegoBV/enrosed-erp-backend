@@ -270,7 +270,8 @@ public class ProductResource {
                 .map(m -> new StockMovementDto(m.id(), m.at(), m.delta(), m.quantityAfter(),
                         m.kind().name(), m.kind().dutchLabel(), m.reference(), m.actor(),
                         m.locationId(), m.locationId() == null ? null : names.get(m.locationId()),
-                        m.purchaseOrderId(), m.ticaSaleId(), m.sourceSoldAt(), m.ticaSaleId() == null,
+                        m.purchaseOrderId(), m.ticaSaleId(), m.sourceSoldAt(),
+                        m.ticaSaleId() == null && !m.kind().isPartnerReport(),
                         m.looseDelta(), m.loosePiecesAfter(), m.unitPieces(), m.sourceQuantity(), m.sourceUnit()))
                 .toList();
     }
