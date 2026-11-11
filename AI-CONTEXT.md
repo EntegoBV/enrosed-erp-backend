@@ -2455,6 +2455,11 @@ This section grows per build stage; it holds what is built so far.
   deletes the session the key belongs to (204). All sessions of a login go on a new password, a
   changed username, deactivation, and when `CustomerService.update` turns the customer's partner
   flag off (`CustomerPartnerListener`, implemented by `PartnerPortalCustomerPartnerListener`).
+  A sign-in that checked a password a reset replaced while it ran gets no session: the password
+  identity carries `partnerPasswordStamp` (SHA-256 of the hash it was checked against) and
+  `issue` compares it with the login's hash under the partner lock that the login write also
+  takes (401 otherwise); a session issued before the reset commits is deleted by it.
+  `last_login_at` is written by a one-column UPDATE, so it can never write an old hash back.
 - **Passwords** (staff type them in Instellingen › Partnerportaal; the owner's choice, unlike the
   website logins where staff never see one): 10..72 characters, printable ASCII 0x20-0x7E only
   ("Gebruik letters zonder accenten, cijfers en leestekens": the browser builds the Basic header

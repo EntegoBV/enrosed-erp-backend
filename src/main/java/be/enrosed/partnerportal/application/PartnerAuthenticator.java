@@ -94,9 +94,9 @@ public class PartnerAuthenticator {
                 login.displayName, login.passwordHash, usable);
     }
 
+    /* Only this column: a whole-entity update could write back a password a reset replaced meanwhile. */
     private void touchLogin(long loginId) {
-        PartnerLoginEntity login = logins.findById(loginId);
-        if (login != null) login.lastLoginAt = Instant.now();
+        logins.update("lastLoginAt = ?1 where id = ?2", Instant.now(), loginId);
     }
 
     private static SecurityIdentity identity(Snapshot login, String auth, Long sessionId) {
@@ -110,6 +110,9 @@ public class PartnerAuthenticator {
                 .addAttribute(PartnerIdentity.LOGIN_ID, login.id())
                 .addAttribute(PartnerIdentity.AUTH, auth);
         if (sessionId != null) builder.addAttribute(PartnerIdentity.SESSION_ID, sessionId);
+        if (PartnerIdentity.AUTH_PASSWORD.equals(auth)) {
+            builder.addAttribute(PartnerIdentity.PASSWORD_STAMP, PartnerSessionService.passwordStamp(login.passwordHash()));
+        }
         return builder.build();
     }
 

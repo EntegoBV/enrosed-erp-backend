@@ -1,5 +1,6 @@
 package be.enrosed.partnerportal.application;
 
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerLoginEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSessionEntity;
 import be.enrosed.shared.security.PartnerIdentity;
@@ -40,13 +41,23 @@ public class PartnerSessionService implements PartnerSessionIssuer {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final PartnerPortalRepositories.Sessions sessions;
+    private final PartnerPortalRepositories.Logins logins;
+    private final PartnerPortalRepositories.Settings settingsRows;
     private final int ttlDays;
 
-    public PartnerSessionService(PartnerPortalRepositories.Sessions sessions,
+    public PartnerSessionService(PartnerPortalRepositories.Sessions sessions, PartnerPortalRepositories.Logins logins,
+                                 PartnerPortalRepositories.Settings settingsRows,
                                  @ConfigProperty(name = "enrosed.partner.session-ttl-days", defaultValue = "90")
                                  int ttlDays) {
         this.sessions = sessions;
+        this.logins = logins;
+        this.settingsRows = settingsRows;
         this.ttlDays = Math.max(1, Math.min(365, ttlDays));
+    }
+
+    /** A fingerprint of a stored password hash (never the hash itself in the identity). */
+    static String passwordStamp(String passwordHash) {
+        return passwordHash == null ? "" : hash(passwordHash);
     }
 
     public static boolean looksLikeToken(String credential) {
@@ -63,7 +74,20 @@ public class PartnerSessionService implements PartnerSessionIssuer {
                     .build());
         }
         Long loginId = identity.getAttribute(PartnerIdentity.LOGIN_ID);
-        if (loginId == null) throw new IllegalStateException("Partner identity without a login id");
+        Long customerId = identity.getAttribute(PartnerIdentity.CUSTOMER_ID);
+        if (loginId == null || customerId == null) throw new IllegalStateException("Partner identity without a login id");
+        /* Under the partner lock a password change takes too: a reset that committed after this sign-in checked the
+           old password is seen here and refuses the session; one that comes later deletes it. */
+        settingsRows.lockOrCreate(customerId);
+        PartnerLoginEntity login = logins.findById(loginId);
+        String stamp = identity.getAttribute(PartnerIdentity.PASSWORD_STAMP);
+        if (login == null || !login.isActive() || login.passwordHash == null || stamp == null
+                || !stamp.equals(passwordStamp(login.passwordHash))) {
+            throw new WebApplicationException(Response.status(401).type(MediaType.APPLICATION_JSON_TYPE)
+                    .entity(Map.of("status", 401, "message", "Onjuiste aanmeldgegevens",
+                            "timestamp", Instant.now().toString()))
+                    .build());
+        }
         Instant now = Instant.now();
         String token = TOKEN_PREFIX + randomPart();
         sessions.deleteExpired(loginId, now);

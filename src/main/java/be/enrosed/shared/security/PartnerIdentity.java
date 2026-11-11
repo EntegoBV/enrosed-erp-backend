@@ -20,6 +20,11 @@ public final class PartnerIdentity {
     public static final String AUTH = "partnerAuth";
     /** Long: the partner_session row on the session path; absent on the password path. */
     public static final String SESSION_ID = "partnerSessionId";
+    /**
+     * String, password path only: a fingerprint of the password hash the sign-in was checked against, so a session
+     * is only issued while that is still the login's password (a reset in between refuses it).
+     */
+    public static final String PASSWORD_STAMP = "partnerPasswordStamp";
 
     public static final String AUTH_PASSWORD = "PASSWORD";
     public static final String AUTH_SESSION = "SESSION";
