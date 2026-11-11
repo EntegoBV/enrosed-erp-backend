@@ -853,6 +853,37 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (PACKAGE; "Per geschenkverpakking" for a gift box) or "Per diamant". The
   Excel/CSV column stays `verkocht_per` (omdoos, verpakking, stuk), and so
   do the validator's words for it.
+- **Per piece on one line (2026-11-10, "Verkoopofferte: aantallen per
+  stuk").** `SalesOrderLine.perPiece` (`sales_order_line.perpiece`, nullable
+  Boolean; TRUE or null, never FALSE; left out of the JSON while null) says
+  staff chose that this line is not rounded to its product's step. Such a
+  line behaves as a line of a UNIT product: the quantity stays as typed, the
+  stamped `unitsPerOrderStep` is 1, the piece price is the same, and a part
+  carton still counts as one full carton for cartons, m³, kg, pallets and
+  freight. `SalesPricingCalculator.unitsPerOrderStep` returns 1 for it
+  whatever is stamped, and `withOrderSteps` rounds with 1.
+  Request rule (`SalesOrderService.withPerPieceChoices`, PUT and preview):
+  on a document that rounds, an existing line id (same product) keeps the
+  stored choice when the field is absent or null, true or false sets it; a
+  new line without the field is not per piece. On a document that keeps
+  exact pieces the request's value is not used (stored stays, new line
+  none). A document whose lines are fixed by an advance refuses a change of
+  the choice (`sameCargoLines`, `sameQuotedLines`). No other endpoint takes
+  it; the website never sets it and keeps rounding by the product's step.
+  `PricedOrder.Line` adds `perPiece` (the line's choice) and
+  `perPieceChoice` (TRUE where a staff screen may offer the switch: the
+  document rounds and the product's step of today is above 1), both left
+  out unless true; `orderStep` stays the product's setting. Customer-facing
+  readers ask `PricedOrder.Line.customerOrderStep()` (UNIT for such a line):
+  the quote link line, account documents and the web order snapshot; the
+  quote link's product list answers UNIT / 1 for a product whose line on
+  that quote is per piece, so a proposal is not snapped
+  (`QuoteService.roundToOrderSteps` does not round it either), and the
+  team mail words it in pieces. Carried by: invoice from quote, Nieuwe
+  kopie, delivery weeks, both parts of a split, proposal approval, and a
+  credit note line (from the credited invoice line, also for a line added
+  to a concept credit note). Logboek: "Aantal per stuk · Product N" = ja.
+  Migration note: `docs/migrations/2026-11-10/sales-line-per-piece-postgresql.sql`.
 
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,

@@ -403,6 +403,9 @@ public final class SalesEntities {
         /** CUSTOMER, STANDARD or MANUAL; null on older rows and on a line that follows the catalogue
             (docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql). A plain varchar. */
         @Column(name = "pricesource", length = 16) public String priceSource;
+        /** TRUE when staff chose per piece for this line (never rounded to the product's order step); null on
+            every other row (docs/migrations/2026-11-10/sales-line-per-piece-postgresql.sql). */
+        @Column(name = "perpiece") public Boolean perPiece;
     }
 
     @Entity(name = "QuoteRevisionEntity")

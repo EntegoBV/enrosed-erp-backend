@@ -377,10 +377,11 @@ public class PublicQuoteService {
             PricedOrder.Line priced = pricedLines.get(item.product.id());
             BigDecimal serverPrice = kept != null && kept.unitPriceEur() != null ? kept.unitPriceEur()
                     : priced != null && priced.unitPrice().signum() > 0 ? priced.unitPrice() : null;
-            /* A kept price keeps its source; a new line is CUSTOMER when it got the customer's agreed price. */
+            /* A kept price keeps its source; a new line is CUSTOMER when it got the customer's agreed price.
+               No per-piece choice from here: a customer cannot make it, and the save keeps a stored one. */
             return new SalesOrderLine(kept == null ? null : kept.id(), item.product.id(),
                     item.quantityPieces, serverPrice, null, null, null, null, null, null, null,
-                    serverPrice == null ? null : prepared.sources.get(item.product.id()));
+                    serverPrice == null ? null : prepared.sources.get(item.product.id()), null);
         }).toList();
         StringBuilder internal = new StringBuilder(SalesOrderService.WEBSITE_REQUEST_MARKER)
                 .append(' ').append(base.number())
@@ -502,7 +503,7 @@ public class PublicQuoteService {
                     ? priced.unitPrice() : null;
             return new SalesOrderLine(null, item.product.id(), item.quantityPieces,
                     serverPrice, null, null, null, null, null, null, null,
-                    serverPrice == null ? null : prepared.sources.get(item.product.id()));
+                    serverPrice == null ? null : prepared.sources.get(item.product.id()), null);
         }).toList();
         String marker = SalesOrderService.WEBSITE_REQUEST_MARKER + " " + created.number();
         String missingCartons = prepared.items.stream()

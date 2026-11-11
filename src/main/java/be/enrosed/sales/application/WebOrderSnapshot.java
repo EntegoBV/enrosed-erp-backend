@@ -83,7 +83,8 @@ public record WebOrderSnapshot(int v, int revision, String at, String language, 
         boolean cut = priced.lines().size() > MAX_LINES;
         List<Line> lines = priced.lines().stream().limit(MAX_LINES).map(line -> {
             int pieces = piecesPerCarton == null ? 0 : Math.max(0, piecesPerCarton.getOrDefault(line.productId(), 0));
-            boolean perCarton = line.orderStep() == OrderStep.CARTON;
+            /* A line staff set to per piece is frozen as one sold per piece: no carton it does not fill. */
+            boolean perCarton = line.customerOrderStep() == OrderStep.CARTON;
             /* Whole known cartons, or for a product sold per carton the cartons it ships in; never a floor. */
             Integer cartons = pieces > 0 && line.quantity() % pieces == 0 ? Integer.valueOf(line.quantity() / pieces)
                     : !perCarton ? null
@@ -96,7 +97,7 @@ public record WebOrderSnapshot(int v, int revision, String at, String language, 
             return new Line(line.productId(), line.sku(), cut(description), cartons, pieces > 0 ? pieces : null,
                     line.quantity(), hasPrice ? line.unitPrice() : null,
                     hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null,
-                    line.orderStep().name(), line.unitsPerOrderStep(),
+                    line.customerOrderStep().name(), line.unitsPerOrderStep(),
                     packaging == null ? null : packaging.unitKey(),
                     packaging == null ? null : packaging.salesUnit().name());
         }).toList();

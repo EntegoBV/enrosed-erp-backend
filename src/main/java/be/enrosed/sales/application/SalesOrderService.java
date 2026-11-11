@@ -159,11 +159,12 @@ public class SalesOrderService {
             proposed = proposed.withMaxPalletHeightCm(stored.maxPalletHeightCm());
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
-        /* Priced with the step a save would remember: today's for a document that rounds, the stored one
-           otherwise; whatever step the client sent is never used. Nothing is saved here. */
-        List<SalesOrderLine> lines = keepsExactQuantities(stored, proposed)
-                ? withStoredOrderSteps(normalized.lines(), stored.lines())
-                : stampOrderSteps(normalized.lines());
+        /* Priced with the step a save would remember: today's for a document that rounds (1 on a line
+           staff set to per piece), the stored one otherwise; whatever step the client sent is never
+           used. Nothing is saved here. */
+        boolean exact = keepsExactQuantities(stored, proposed);
+        List<SalesOrderLine> chosen = withPerPieceChoices(normalized.lines(), stored.lines(), !exact);
+        List<SalesOrderLine> lines = exact ? withStoredOrderSteps(chosen, stored.lines()) : stampOrderSteps(chosen);
         /* Under the stored document's id, whatever id the client sent: the draft counts its pallets
            by that document's rule and shows its links. Its lines get the prices a save would pin. */
         return withPriceSources(stored, normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id()));
@@ -506,7 +507,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), null, line.priceSource()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -1793,6 +1794,10 @@ public class SalesOrderService {
            own: the height a document was made with only changes when someone picks another. */
         if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
             changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+        /* Per piece is settled before anything compares or rounds the lines: the request decides on a
+           document that rounds, the stored choice stays everywhere else and where the request is silent. */
+        changes = changes.withLinesAndPallets(withPerPieceChoices(changes.lines(), beforeEdit.lines(),
+                !keepsExactQuantities(beforeEdit, changes)), changes.pallets());
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
@@ -1927,7 +1932,9 @@ public class SalesOrderService {
         if (after == null || before.size() != after.size()) return false;
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
+            /* Per piece is part of the quantity: clearing it would round the fixed pieces up on this save. */
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !Objects.equals(clean(a.deliveryWeek()), clean(b.deliveryWeek()))) return false;
         }
         return true;
@@ -1938,6 +1945,7 @@ public class SalesOrderService {
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !samePercentage(a.unitPriceEur(), b.unitPriceEur())
                     || !samePercentage(a.manualDiscountPct(), b.manualDiscountPct())
                     || (b.unitCostEur() != null && !samePercentage(a.unitCostEur(), b.unitCostEur()))) return false;
@@ -2092,7 +2100,7 @@ public class SalesOrderService {
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource())
+                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource(), line.perPiece())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -2414,7 +2422,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), null, line.priceSource()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -2669,8 +2677,10 @@ public class SalesOrderService {
             BigDecimal unitCost = reason == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source != null && source.stockCostEur() != null ? source.stockCostEur()
                     : source != null && source.unitCostEur() != null ? source.unitCostEur() : Money.unit(invoicedLine.landedUnitCost());
+            /* Credited from a line that counts per piece, the credit line says so too: its documents
+               then read it in pieces, never as a carton it does not fill. */
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unitPrice, BigDecimal.ZERO, null,
-                    unitCost, false, null));
+                    unitCost, false, null).withPerPiece(source == null ? null : source.perPiece()));
         }
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
         for (CreditAmount amount : requestedAmounts) {
@@ -2843,7 +2853,7 @@ public class SalesOrderService {
     private static SalesOrder asStoredCreditNote(SalesOrder updated, SalesOrder stored) {
         List<SalesOrderLine> lines = updated.lines().stream().map(line -> new SalesOrderLine(line.id(), line.productId(),
                 line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null,
-                line.unitsPerOrderStep())).toList();
+                line.unitsPerOrderStep()).withPerPiece(line.perPiece())).toList();
         return new SalesOrder(updated.id(), updated.number(), stored.customerId(), stored.countryCode(),
                 updated.orderDate(), updated.validUntil(), updated.status(), stored.incoterm(),
                 stored.paymentTerms(), updated.notes(), MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
@@ -2877,7 +2887,10 @@ public class SalesOrderService {
         }).toList();
     }
 
-    /** A line added to a concept credit note takes the cost the invoice wrote, zero on a price correction. */
+    /**
+     * A line added to a concept credit note takes the cost the invoice wrote, zero on a price
+     * correction, and the invoice line's per-piece choice (as a line credited at creation does).
+     */
     private SalesOrder withCreditCosts(SalesOrder creditNote) {
         if (creditNote.lines().stream().allMatch(line -> line == null || line.unitCostEur() != null)) return creditNote;
         Map<Long, SalesOrderLine> original = creditedOriginal(creditNote).lines().stream().filter(line -> line.productId() != null)
@@ -2887,7 +2900,8 @@ public class SalesOrderService {
             SalesOrderLine source = original.get(line.productId());
             BigDecimal cost = creditNote.creditReason() == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source == null ? null : source.stockCostEur() != null ? source.stockCostEur() : source.unitCostEur();
-            return cost == null ? line : line.withUnitCost(cost);
+            SalesOrderLine added = source == null || line.id() != null ? line : line.withPerPiece(source.perPiece());
+            return cost == null ? added : added.withUnitCost(cost);
         }).toList();
         return creditNote.withLinesAndPallets(lines, List.of());
     }
@@ -3434,6 +3448,9 @@ public class SalesOrderService {
                 changes.add("line." + productId + ".priceSource", "Prijsbron" + suffix,
                         oldLine == null ? null : SalesLinePrices.dutch(oldLine.priceSource()),
                         newLine == null ? null : SalesLinePrices.dutch(newLine.priceSource()));
+                changes.add("line." + productId + ".perPiece", "Aantal per stuk" + suffix,
+                        oldLine != null && oldLine.countsPerPiece() ? "ja" : null,
+                        newLine != null && newLine.countsPerPiece() ? "ja" : null);
             }
             changes.add("line." + productId + ".deliveryWeek", "Levertermijn" + suffix,
                     oldLine == null ? null : oldLine.deliveryWeek(),
@@ -3493,8 +3510,9 @@ public class SalesOrderService {
      * A product sells per its order step (a full carton unless the product says
      * otherwise): every quantity rounds up to that step on save, and the line
      * remembers the step, so a later change on the product never re-prices this
-     * document. The screen announces the correction; this makes it true no
-     * matter which client wrote the order.
+     * document. A line staff set to per piece keeps its quantity and remembers 1.
+     * The screen announces the correction; this makes it true no matter which
+     * client wrote the order.
      */
     private List<SalesOrderLine> roundLinesToOrderSteps(List<SalesOrderLine> lines) {
         return withOrderSteps(lines, true);
@@ -3512,7 +3530,10 @@ public class SalesOrderService {
         return withOrderSteps(lines, byId::get, round);
     }
 
-    /** Each line at its product's step of today; a line whose product is gone keeps its quantity and no step. */
+    /**
+     * Each line at its product's step of today, or at 1 where staff chose per piece for the line;
+     * a line whose product is gone keeps its quantity and no step.
+     */
     static List<SalesOrderLine> withOrderSteps(List<SalesOrderLine> lines, Function<Long, Product> products,
                                                boolean round) {
         if (lines == null || lines.isEmpty()) return lines;
@@ -3520,7 +3541,7 @@ public class SalesOrderService {
             if (line == null) return null;
             Product product = line.productId() == null ? null : products.apply(line.productId());
             if (product == null) return line.withOrderStep(line.quantity(), null);
-            int step = OrderSteps.unitsPerStep(product);
+            int step = line.countsPerPiece() ? 1 : OrderSteps.unitsPerStep(product);
             return line.withOrderStep(round ? OrderSteps.roundUp(line.quantity(), step) : line.quantity(), step);
         }).toList();
     }
@@ -3539,6 +3560,31 @@ public class SalesOrderService {
             SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
             Integer step = known == null ? null : known.unitsPerOrderStep();
             return Objects.equals(step, line.unitsPerOrderStep()) ? line : line.withOrderStep(line.quantity(), step);
+        }).toList();
+    }
+
+    /**
+     * The per-piece choice each line carries into a save or a preview. Where the document rounds
+     * ({@code takesRequest}) the request decides: true or false sets it, a line that says nothing
+     * keeps what is stored on the same line (an older screen, the website), and a new line that
+     * says nothing is not per piece. A document that keeps exact pieces offers no choice: the
+     * stored one stays whatever the request says, a new line has none. Never false on the result.
+     */
+    static List<SalesOrderLine> withPerPieceChoices(List<SalesOrderLine> lines, List<SalesOrderLine> stored,
+                                                    boolean takesRequest) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line != null && line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        return lines.stream().map(line -> {
+            if (line == null) return null;
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            /* A line id that now names another product is another line: it starts without a choice. */
+            if (known != null && !Objects.equals(known.productId(), line.productId())) known = null;
+            Boolean wanted = takesRequest && line.perPiece() != null ? line.perPiece()
+                    : known == null ? null : known.perPiece();
+            Boolean choice = Boolean.TRUE.equals(wanted) ? Boolean.TRUE : null;
+            return Objects.equals(choice, line.perPiece()) ? line : line.withPerPiece(choice);
         }).toList();
     }
 

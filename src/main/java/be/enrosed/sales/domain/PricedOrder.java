@@ -123,7 +123,16 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             BigDecimal standardUnitPriceEur,
             /** The customer's active agreed price of today for this product, there too; null when none. */
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            BigDecimal customerUnitPriceEur
+            BigDecimal customerUnitPriceEur,
+            /** The line's own {@code SalesOrderLine.perPiece}: TRUE where staff chose per piece, else left out. */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Boolean perPiece,
+            /**
+             * TRUE where this line may be switched between its product's order step and per piece: the
+             * document rounds and the product's step of today is above 1. Left out elsewhere.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Boolean perPieceChoice
     ) {
         /** A line priced without the staff figures on where its price comes from. */
         public Line(Long productId, String sku, String description, String customerDescription, String photoUrl,
@@ -141,7 +150,8 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
                     tierPercent, manualPercent, discountPct, discountAmount, net, netUnitPrice, landedUnitCost,
                     costTotal, marginEur, marginPct, nextTierAtQuantity, nextTierPercent, stockQuantity,
                     inventoryKnown, inStock, shortfall, deliveryDate, deliveryWeek, deliveryExplanation, unavailable,
-                    requestedQuantity, orderStep, unitsPerOrderStep, expectedUnitCost, stockUnitCost, null, null, null);
+                    requestedQuantity, orderStep, unitsPerOrderStep, expectedUnitCost, stockUnitCost, null, null, null,
+                    null, null);
         }
         /** A line priced without a stock cost: the expected cost is the one the margin uses. */
         public Line(Long productId, String sku, String description, String customerDescription, String photoUrl,
@@ -173,7 +183,8 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
                     net, netUnitPrice, landedUnitCost, allocatedCost, margin, percent, nextTierAtQuantity,
                     nextTierPercent, stockQuantity, inventoryKnown, inStock, shortfall, deliveryDate,
                     deliveryWeek, deliveryExplanation, unavailable, requestedQuantity, orderStep, unitsPerOrderStep,
-                    expectedUnitCost, stockUnitCost, priceSource, standardUnitPriceEur, customerUnitPriceEur);
+                    expectedUnitCost, stockUnitCost, priceSource, standardUnitPriceEur, customerUnitPriceEur,
+                    perPiece, perPieceChoice);
         }
 
         public Line(Long productId, String sku, String description, /** * The same description in the customer's language, for the quote * and the portal. Without a translation it is simply identical. */ String customerDescription, String photoUrl, int quantity, int cartons, int cartonsPerPallet, int pallets, int cartonsPerLayer, int palletLayers, BigDecimal calculatedPalletHeightCm, BigDecimal cbm, BigDecimal weightKg, BigDecimal unitPrice, BigDecimal gross, BigDecimal tierPercent, BigDecimal manualPercent, BigDecimal discountPct, BigDecimal discountAmount, BigDecimal net, BigDecimal netUnitPrice, BigDecimal landedUnitCost, BigDecimal costTotal, BigDecimal marginEur, BigDecimal marginPct, Integer nextTierAtQuantity, BigDecimal nextTierPercent, Integer stockQuantity, boolean inventoryKnown, boolean inStock, Integer shortfall, String deliveryDate, String deliveryWeek, String deliveryExplanation) {
@@ -183,6 +194,16 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
         /** Never null: a line from an older caller reads as the full carton. */
         public OrderStep orderStep() {
             return orderStep == null ? OrderStep.CARTON : orderStep;
+        }
+
+        /**
+         * The step in the customer's words: a line that counts per piece reads as UNIT, whatever its
+         * product says, so a part carton is never told as a whole one. {@code orderStep} stays the
+         * product's own setting for the staff screens.
+         */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public OrderStep customerOrderStep() {
+            return Boolean.TRUE.equals(perPiece) ? OrderStep.UNIT : orderStep();
         }
     }
 
