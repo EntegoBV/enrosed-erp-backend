@@ -41,6 +41,43 @@ public class VesselLinkStore {
         if (fresh) link.persist();
     }
 
+    /**
+     * The reference text of an order was rewritten. The linked ship stays with the order unless the text now
+     * names another shipment (both texts recognised and no number in common): "BL:" put in front of a number or
+     * a B/L added behind a container number must not unlink the ship. Called inside the order's save.
+     */
+    @Transactional
+    public void rebind(long orderId, String before, String after) {
+        if (after == null || after.isBlank() || Objects.equals(binding(before), binding(after))) return;
+        VesselLinkEntity link = VesselLinkEntity.findById(orderId);
+        if (link == null || !Objects.equals(link.referenceHash, binding(before))) return;
+        Set<String> old = numbers(before), now = numbers(after);
+        if (!old.isEmpty() && !now.isEmpty() && Collections.disjoint(old, now)) return;
+        String bound = link.referenceHash;
+        link.referenceHash = binding(after);
+        /* The stored port calls of this order hang on a key that holds the reference hash: they follow the link,
+           so the row does not read "nog niet gecontroleerd" until the next scheduled run. */
+        TrackingEntity kept = TrackingEntity.findById(ContainerTrackingService.vesselKey(orderId, bound, link.imo, link.linkedAt));
+        String key = ContainerTrackingService.vesselKey(orderId, link.referenceHash, link.imo, link.linkedAt);
+        if (kept == null || TrackingEntity.findById(key) != null) return;
+        TrackingEntity moved = new TrackingEntity();
+        moved.id = key; moved.trackingNumber = kept.trackingNumber; moved.shipmentId = kept.shipmentId;
+        moved.observationJson = kept.observationJson; moved.fingerprint = kept.fingerprint; moved.checkedAt = kept.checkedAt;
+        moved.updatedAt = kept.updatedAt; moved.changedAt = kept.changedAt; moved.nextCheckAt = kept.nextCheckAt;
+        moved.lastError = kept.lastError; moved.terminal = kept.terminal; moved.etag = kept.etag; moved.lastModified = kept.lastModified;
+        moved.persist();
+        kept.delete();
+    }
+
+    /** Every number a recognised reference names; empty when the text is not recognised. */
+    private static Set<String> numbers(String raw) {
+        ContainerTracking.Recognised seen = ContainerTracking.recognise(raw);
+        Set<String> found = new HashSet<>();
+        if (List.of("CONTAINER", "BL", "BOOKING").contains(seen.kind()))
+            for (String number : new String[] { seen.number(), seen.container(), seen.evergreenBl() }) if (number != null) found.add(number);
+        return found;
+    }
+
     @Transactional
     public Link find(PurchaseOrder order) {
         VesselLinkEntity entity = VesselLinkEntity.findById(order.id());

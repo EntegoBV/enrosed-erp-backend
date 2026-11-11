@@ -21,6 +21,11 @@ public class TrackingStore {
                         Instant changedAt, Instant nextCheckAt, String error, boolean terminal) {
             this(shipmentId, observation, checkedAt, updatedAt, changedAt, nextCheckAt, error, terminal, null, null);
         }
+        /**
+         * The last attempt failed. A date that could not be applied is written right after a success with the
+         * same instant (ContainerTrackingService.checkDates) and is not a failed check.
+         */
+        public boolean checkFailed() { return error != null && !Objects.equals(checkedAt, updatedAt); }
     }
 
     @Transactional

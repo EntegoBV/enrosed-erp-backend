@@ -2396,3 +2396,60 @@ did for them (mailed, called, spoken to, catalogue or sample sent).
 - **Migration**: `docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql`
   (rerunnable `add column if not exists` + `create table if not exists`, no rows written), with its
   Dockerfile COPY and script line after the 2026-11-06 files. Not yet run against a live database.
+
+## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
+
+Emre: "Bekijk ook of de track trace beter kan." Production has no ShipsGo token: automatic data comes
+from the Evergreen date lookup (Bexy) and from Voydar after a ship is linked by hand. Everything here
+works without ShipsGo and keeps working with it. Details: `docs/integrations/container-tracking.md`
+(section 2026-11-10).
+
+- **One rule reads the reference**: `ContainerTracking.recognise(raw)` → `Recognised(kind, number,
+  checkDigitOk, container, evergreenBl)`, kind EMPTY / CONTAINER / BL / BOOKING / MULTIPLE / LINK /
+  UNKNOWN. The frontend runs the same rule (`features/purchasing/tracking-reference.ts`): change both
+  or neither. `reference(raw)` asks `strictReference` (the parser of 2026-10-26, untouched) first, so
+  every key that existed stays; reminder identities use `strictReference` only. `recognise` reports what
+  `strictReference` follows when it takes the text, so the line names the followed number (the
+  frontend mirrors the strict parser for this). A bare Evergreen bill
+  (`EGLV` + 12 digits) now counts and its dates are accepted (`TrackingDateSync.sameShipment`, a
+  superset of the old acceptance). No other bare number is guessed.
+- **Rows** (`ContainerTracking.Row`) end with `recognised, failure, failureAt, failureDataAt, arrivalMovedFrom,
+  arrivalMovedAt, arrivalMovedDays, manualCheckAt, refreshOutcome`. Everything the native iOS app
+  and older screens read (`status`, `statusLabel`, `error`, `source`, `automatic`, `checkedAt`,
+  `updatedAt`, `nextCheckAt`, `orderExpectedArrival`, …) is computed as before.
+  `GET /api/container-tracking?orderId=` answers one order's row.
+- **Failure** = last attempt failed (`TrackingStore.Snapshot.checkFailed`: error and `checkedAt` ≠
+  `updatedAt`), also without a source; `failureDataAt` is the failing snapshot's own last success.
+  Not a failure: a date that could not be applied (`checkDates` writes it with the same instant as
+  its success: keep that), and `BexyClient.NO_DATA_YET` while the bill never gave data (once it did,
+  it is the failure "De datumbron gaf bij de laatste controle geen gegevens."). A received order
+  sends no failure.
+- **Manual check**: `refreshOutcome` CHECKED / COOLDOWN / BUSY / OFF / NO_SOURCE; `manualCheckAt` is
+  when a check does something again (`MANUAL_SECONDS_PAID` 60, `MANUAL_SECONDS_FREE` 900).
+  The service re-reads the order through `TrackingDateSync.reread` (its own transaction) after a
+  check: a plain `orders.findById` in the same request answers the order as first read, so the
+  answer named the old date right after a new one was written. Keep that re-read.
+- **Moved arrival**: `purchase_order.arrival_moved_from / arrival_moved_at / arrival_notice_date /
+  arrival_notice_at`
+  (entity-only columns, the `PurchaseOrder` record and the order JSON do not carry them; migration
+  `docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql` with its Dockerfile COPY
+  and runner line). Written only by `TrackingDateSync.noteArrivalMove`; `PanacheSourcingRepositories
+  .save` clears them when the saved date differs (a date typed by hand is the planning from then
+  on). `ArrivalMoveStore` reads them and builds the bell row ("Aankomst 15/11/2026 · 3 dagen later",
+  detail "was 12/11/2026": always the order's date now, shown while two days or more from the
+  planning; kind `CONTAINER_AANKOMST`, no push; a new identity only when the date lies two days or
+  more from the last named one; its time is `arrival_notice_at`, so a one-day correction neither
+  re-shows a dismissed row nor moves it to the top).
+- **Ship link**: `VesselLinkStore.rebind` (called in `PurchaseOrderService.update`) keeps the link
+  when the reference text is rewritten, unless both texts are recognised with no number in common.
+  The order's port-call snapshot moves with it (`ContainerTrackingService.vesselKey` holds the
+  reference hash).
+- **Time**: "today" in `shipmentPlan` is the Brussels day; the Voydar window starts the day before
+  `shippedOn`.
+- **How it was checked** (no test files; scripts live outside the repo): recognition, the row
+  fields, `?orderId=`, the rebind and the hand-edit clearing went through the API with tracking
+  off. The outcomes BUSY / COOLDOWN / CHECKED / NO_SOURCE, a failed check and the bell row went
+  through the API with tracking on and every outward call refused locally (a JVM proxy on a closed
+  port). The write side (a check that moves the arrival: 5 → 8 → 9 → 10 → 5 december, the bell row
+  following by the two-day rule) ran against a local stand-in for the date source that only the
+  test JVM trusted. Never run against the real Bexy, Voydar or ShipsGo, nor on PostgreSQL.

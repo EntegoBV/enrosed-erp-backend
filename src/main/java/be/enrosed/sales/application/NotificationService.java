@@ -76,7 +76,7 @@ public class NotificationService {
         AFGEWEZEN,
         /** The customer viewed the quote. */
         BEKEKEN,
-        /** A tracked purchase approaches its currently planned arrival. */
+        /** A tracked purchase approaches its currently planned arrival, or tracking moved that arrival. */
         CONTAINER_AANKOMST
     }
 

@@ -630,6 +630,14 @@ public final class PanacheSourcingRepositories {
             entity.destinationPort = order.destinationPort();
             entity.receivingLocationId = order.receivingLocationId();
             entity.groupVariants = order.groupVariants();
+            /* A date saved through the order is the planning from then on: what tracking moved before no longer
+               counts (TrackingDateSync is the only writer of these four columns). */
+            if (!java.util.Objects.equals(entity.expectedArrival, order.expectedArrival())) {
+                entity.arrivalMovedFrom = null;
+                entity.arrivalMovedAt = null;
+                entity.arrivalNoticeDate = null;
+                entity.arrivalNoticeAt = null;
+            }
             entity.expectedArrival = order.expectedArrival();
             entity.receivedOn = order.receivedOn();
             entity.paidTotalEur = order.paidTotalEur();
