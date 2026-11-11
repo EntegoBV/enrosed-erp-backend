@@ -2021,16 +2021,24 @@ document keeps the height it was made with instead of following the setting:
   on today's standard, unless it was set by hand (`PalletHeightPicks`). Any other height stays; on a europallet
   without hand pallets at most 260. A copy that keeps a height other than the standard writes it in its own
   DUPLICATED activity row (field `maxPalletHeightCm`, standard → kept), so the pick travels with every further copy.
-- `PalletHeightPicks.of(orderId)` (PICKED / NOT_PICKED / UNKNOWN) tells a height set by hand from one a document
-  merely carries: an `activity_log` row of the document names the field `maxPalletHeightCm` (every save that changes
-  the height writes one, `salesChanges`); else the question goes up the chain: an invoice asks its quote
-  (`sourcequoteid`), a Nieuwe kopie its source, found by number from its history step "Offerte|Factuur gekopieerd
-  vanuit <nummer>" (`COPIED_FROM`: keep that wording). An original without a pick is NOT_PICKED; a source that is
-  gone or renumbered is UNKNOWN (a copy then takes the standard, the one-time move leaves the quote alone). A
+- `PalletHeightPicks.of(orderId)` (SET_HERE / INHERITED / NOT_PICKED / UNKNOWN; `byHand()` = the first two) tells a
+  height set by hand from one a document merely carries. It reads the document's newest `activity_log` row that names
+  the field `maxPalletHeightCm` (every save that changes the height writes one, `salesChanges`, with display values
+  such as "220"): SET_HERE when that change ends at the stored height, NOT_PICKED when it ends elsewhere (before
+  2026-11-07 "Standaard" stored null, and the 220 job then wrote 220 without a row). With no such row the question
+  goes up the chain: an invoice asks its quote (`sourcequoteid`), a Nieuwe kopie its source, found by number from its
+  history step "Offerte|Factuur gekopieerd vanuit <nummer>" (`COPIED_FROM`: keep that wording); of the source only the
+  rows up to the moment the copy was made (that step's `at`, an invoice's first OPGEMAAKT step) count, with the same
+  test (INHERITED / NOT_PICKED). An original without a row is NOT_PICKED; a source that is gone or renumbered, or a row
+  that cannot be parsed, is UNKNOWN (a copy then takes the standard, the one-time move leaves the quote alone). A
   "Standaard" tap of 7-10 November after another pick is logged as "x → 220" and so counts as picked.
 - Saves: a null height keeps the document's own (`update`, so also the website intake and a customer's change,
   `updateShipping`, `preview`). The planner's "Standaard" sends the standard's number; the editor sends a height only
-  when it was changed on that screen. Validation: above the base, at most 300 cm (`validatePalletHeight`, every
+  when it was changed on that screen, with `?heightPicked=true` on `PUT /api/sales-orders/{id}` and `/shipping`.
+  `heightAsked`: a staff save without the mark that carries 220 on a document storing another height is the echo of a
+  bundle from before 2026-11-10 (it sends the height it holds with every save, and its "Standaard" meant 220), so the
+  stored height stays; any other unmarked height is taken as before (such a window cannot set exactly 220 until
+  reloaded). The website paths (`updateWebsiteRequest`, `updateByCustomer`) are unaffected. Validation: above the base, at most 300 cm (`validatePalletHeight`, every
   path), and `requireEuroHeightWithinLimit` in `update` and `updateShipping`: a new height above 260 cm on a
   europallet is refused with "Maximale pallethoogte van een europallet kan niet hoger zijn dan 260 cm" (409); the
   value the document already stores on a europallet passes unchanged, blok and half pallets keep 300. Not asked in
@@ -2044,8 +2052,8 @@ document keeps the height it was made with instead of following the setting:
   standard, once per database: the row `2026-11-10-pallet-height-260` in `country_policy_version` says it ran, and no
   later start moves anything (a new name for `ROLLOUT` would run it again). A quote moves only when it stores 220, is
   an untouched concept quote (`PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE`: type null or OFFERTE, CONCEPT, not
-  deleted, never sent, no web order, advance, invoice, split or partner snapshot), its own log names no pick
-  (`PalletHeightPicks.OWN_PICK`, in the SQL) and `PalletHeightPicks.of` says NOT_PICKED for its chain. Quotes with
+  deleted, never sent, no web order, advance, invoice, split or partner snapshot) and `PalletHeightPicks.of`, asked
+  per locked quote after the re-read, says NOT_PICKED. Quotes with
   hand-built pallets move too (going up cannot make a measured pallet too tall; freight follows the hand pallets).
   Everything else keeps its 220: whatever was sent, invoiced, advanced, split or ordered, every invoice (a concept
   invoice made directly on those days too), picked heights and copies of them, deleted documents. It locks the
