@@ -803,7 +803,8 @@ public class QuoteService {
 
     /**
      * Rounds every proposed quantity up to the product's order step, unless the
-     * quote keeps exact pieces.
+     * quote keeps exact pieces or staff set that product's line to per piece:
+     * there the customer's number stands, as the quote link shows it.
      *
      * Zero stays zero: it means "drop this line" and is not a quantity.
      */
@@ -840,7 +841,9 @@ public class QuoteService {
                     throw new BusinessRuleException(
                             "Product " + product.describe() + " is niet beschikbaar om toe te voegen");
                 }
-                if (!exact) {
+                boolean perPiece = order.lines().stream()
+                        .anyMatch(existing -> existing.productId().equals(line.productId()) && existing.countsPerPiece());
+                if (!exact && !perPiece) {
                     quantity = be.enrosed.catalog.domain.OrderSteps.roundUp(quantity,
                             be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product));
                 }
