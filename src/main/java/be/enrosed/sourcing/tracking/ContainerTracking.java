@@ -29,7 +29,7 @@ public final class ContainerTracking {
     private static final Pattern LOOSE = Pattern.compile("^(B/L|BL|BOOKING|BOEKING)( *: *| +)");
     private static final Pattern NUMBER = Pattern.compile("[A-Z0-9/-]{6,60}");
     private static final Pattern LINK = Pattern.compile("HTTPS?://[^ ]+");
-    private static final Pattern SPACE = Pattern.compile("[\\t\\n\\u000B\\f\\r\\u001C-\\u001F \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]");
+    private static final Pattern SPACE = Pattern.compile("[\\t\\n\\u000B\\f\\r\\u001C-\\u001F \\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]");
     private static final Pattern UNSEEN = Pattern.compile("[\\u200B\\uFEFF]");
     private static final Pattern EDGE_SPACES = Pattern.compile("^ +| +$");
 
