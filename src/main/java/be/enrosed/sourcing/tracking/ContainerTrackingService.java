@@ -23,6 +23,8 @@ public class ContainerTrackingService {
     @Inject TrackingDateSync dateSync;
     @Inject ArrivalMoveStore moves;
     @ConfigProperty(name = "enrosed.tracking.enabled", defaultValue = "true") boolean enabled = true;
+    /** The date lookup answered without data for a bill it had data for: its dates are no longer followed. */
+    static final String DATES_GONE = "De datumbron gaf bij de laatste controle geen gegevens.";
 
     public Feed feed() {
         Map<String, TrackingStore.Snapshot> snapshots = store.all();
@@ -237,11 +239,17 @@ public class ContainerTrackingService {
                 dateError = "De bronplanning wijkt af van de opgeslagen aankomstdatum. De opgeslagen datum is nog niet aangepast.";
         }
         /* The last attempt failed, also when no source answered yet (the row's error then holds guidance, not the
-           failure). "No record yet" from the date lookup is waiting, not failing: it stays the dateError line. */
-        boolean mainActive = link != null || (reference != null && provider.configured());
-        TrackingStore.Snapshot failed = mainActive && snapshot != null && snapshot.checkFailed() ? snapshot
-                : dateSnapshot != null && dateSnapshot.checkFailed() && !BexyClient.NO_DATA_YET.equals(dateSnapshot.error()) ? dateSnapshot : null;
+           failure). "No record yet" from the date lookup is waiting while it never answered (a fresh bill): it stays
+           the dateError line. Once it gave data, an answer without data is a failed check like any other. A received
+           order is never checked again, so a failure there is history, not news. */
         boolean received = order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null;
+        boolean mainActive = link != null || (reference != null && provider.configured());
+        boolean waiting = dateSnapshot != null && dateSnapshot.updatedAt() == null && BexyClient.NO_DATA_YET.equals(dateSnapshot.error());
+        TrackingStore.Snapshot failed = received ? null : mainActive && snapshot != null && snapshot.checkFailed() ? snapshot
+                : dateSnapshot != null && dateSnapshot.checkFailed() && !waiting ? dateSnapshot : null;
+        String failure = failed == null ? null : failed == dateSnapshot && BexyClient.NO_DATA_YET.equals(failed.error()) ? DATES_GONE : failed.error();
+        // One text on the panel: the small date line says nothing the failure notice already says.
+        if (failure != null && failed == dateSnapshot) dateError = failure;
         Integer movedDays = received ? null : ArrivalMoveStore.days(move, order.expectedArrival());
         Instant manual = null;
         if (automatic) {
@@ -265,7 +273,7 @@ public class ContainerTrackingService {
                 data == null ? null : data.providerCheckedAt(), data == null ? null : data.providerUpdatedAt(),
                 source, link == null ? null : link.imo(), automatic, order.expectedArrival(), order.shippedOn(),
                 dateSource, evidence == null ? null : evidence.providerCheckedAt(), dateError,
-                recognise(order.trackingReference()), failed == null ? null : failed.error(), failed == null ? null : failed.checkedAt(),
+                recognise(order.trackingReference()), failure, failed == null ? null : failed.checkedAt(), failed == null ? null : failed.updatedAt(),
                 movedDays == null ? null : move.from(), movedDays == null ? null : move.at(), movedDays, manual, refreshOutcome);
     }
 

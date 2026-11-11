@@ -74,8 +74,9 @@ public final class ContainerTracking {
                       String dateSource, Instant dateSourceCheckedAt, String dateError,
                       /* Since 2026-11-10; every one is null when it does not apply. */
                       Recognised recognised,
-                      /** The last attempt failed: its message and when. A date that could not be applied is dateError. */
-                      String failure, Instant failureAt,
+                      /** The last attempt failed: its message and when. A date that could not be applied is dateError.
+                          failureDataAt: the failing source's last good answer (what is kept is from then), null without one. */
+                      String failure, Instant failureAt, Instant failureDataAt,
                       /** Tracking moved the expected arrival: the date before, when, and the signed days to the date now. */
                       java.time.LocalDate arrivalMovedFrom, Instant arrivalMovedAt, Integer arrivalMovedDays,
                       /** From when a manual check does something again; null = now, or nothing to check. */
