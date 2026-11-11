@@ -95,20 +95,24 @@ public class TrackingDateSync {
      * The arrival tracking moved, kept with the order. The first date tracking replaces stays "was" through later
      * moves, so the difference is always against the planning that stood; back on that date means not moved, and
      * a first date is not a move. The bell names a date only when it lies two days or more from the date it named
-     * last (from the planning date the first time), so a carrier's one-day corrections stay quiet. A date saved
-     * through the order clears all three columns (PanacheSourcingRepositories.save).
+     * last (from the planning date the first time), so a carrier's one-day corrections stay quiet; arrival_notice_at
+     * keeps when it did, so a quiet correction does not make the bell row look new. A date saved through the order
+     * clears all four columns (PanacheSourcingRepositories.save).
      */
     static void noteArrivalMove(PurchaseOrderEntity order, LocalDate arrival, Instant now) {
         if (order.expectedArrival == null || arrival == null) return;
         LocalDate was = order.arrivalMovedFrom != null ? order.arrivalMovedFrom : order.expectedArrival;
         if (arrival.equals(was)) {
-            order.arrivalMovedFrom = null; order.arrivalMovedAt = null; order.arrivalNoticeDate = null;
+            order.arrivalMovedFrom = null; order.arrivalMovedAt = null; order.arrivalNoticeDate = null; order.arrivalNoticeAt = null;
             return;
         }
         order.arrivalMovedFrom = was;
         order.arrivalMovedAt = now;
         LocalDate named = order.arrivalNoticeDate != null ? order.arrivalNoticeDate : was;
-        if (Math.abs(ChronoUnit.DAYS.between(named, arrival)) >= ArrivalMoveStore.NOTICE_DAYS) order.arrivalNoticeDate = arrival;
+        if (Math.abs(ChronoUnit.DAYS.between(named, arrival)) >= ArrivalMoveStore.NOTICE_DAYS) {
+            order.arrivalNoticeDate = arrival;
+            order.arrivalNoticeAt = now;
+        }
     }
 
     public static Plan shipmentPlan(PurchaseOrder order, Observation data, Instant now) {

@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Reads the arrival tracking moved (purchase_order.arrival_moved_from, arrival_moved_at, arrival_notice_date).
- * TrackingDateSync.noteArrivalMove is the only writer; a date saved through the order clears the three columns.
+ * Reads the arrival tracking moved (purchase_order.arrival_moved_from, arrival_moved_at, arrival_notice_date,
+ * arrival_notice_at). TrackingDateSync.noteArrivalMove is the only writer; a date saved through the order clears them.
  * The purchase domain record does not carry them, so no order save or order answer changes.
  */
 @ApplicationScoped
@@ -31,24 +31,27 @@ public class ArrivalMoveStore {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     @Inject EntityManager entities;
 
-    /** from: the planning that stood before tracking; at: the last move; noticed: the date the bell names, or null. */
-    public record Move(LocalDate from, Instant at, LocalDate noticed) {}
+    /**
+     * from: the planning that stood before tracking; at: the last move; noticed: the date the bell last named (two
+     * days or more from the one before), or null; noticedAt: when it named it.
+     */
+    public record Move(LocalDate from, Instant at, LocalDate noticed, Instant noticedAt) {}
 
     @Transactional
     public Map<Long, Move> all() {
         Map<Long, Move> moves = new HashMap<>();
-        List<Object[]> rows = entities.createQuery("select o.id, o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate from "
+        List<Object[]> rows = entities.createQuery("select o.id, o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt from "
                 + ORDER + " o where o.arrivalMovedFrom is not null", Object[].class).getResultList();
-        for (Object[] row : rows) moves.put((Long) row[0], new Move((LocalDate) row[1], (Instant) row[2], (LocalDate) row[3]));
+        for (Object[] row : rows) moves.put((Long) row[0], new Move((LocalDate) row[1], (Instant) row[2], (LocalDate) row[3], (Instant) row[4]));
         return moves;
     }
 
     @Transactional
     public Move find(long orderId) {
-        return entities.createQuery("select o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate from " + ORDER
+        return entities.createQuery("select o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt from " + ORDER
                         + " o where o.id = :id and o.arrivalMovedFrom is not null", Object[].class)
                 .setParameter("id", orderId).getResultStream().findFirst()
-                .map(row -> new Move((LocalDate) row[0], (Instant) row[1], (LocalDate) row[2])).orElse(null);
+                .map(row -> new Move((LocalDate) row[0], (Instant) row[1], (LocalDate) row[2], (Instant) row[3])).orElse(null);
     }
 
     /** Signed days from the date that stood to the date now; null without a move, without a date or when equal. */
@@ -64,20 +67,26 @@ public class ArrivalMoveStore {
     }
 
     /**
-     * The bell's one row for a moved arrival, or null. It names the date of arrival_notice_date, not every later
-     * one-day correction: its identity and text only change when tracking names a new date (two days or more
-     * from the last one), so a dismissed row stays dismissed until there is news.
+     * The bell's one row for a moved arrival, or null. Its text is the arrival the order has now, against the planning
+     * that stood ("Aankomst 15/11/2026 · 3 dagen later", "was 12/11/2026"), and it stands only while that lies two
+     * days or more away, as the tint on the panel. Its identity and time belong to the date the bell last named
+     * (arrival_notice_date, arrival_notice_at): a carrier's one-day correction changes the date in the title, not
+     * the row, so a dismissed row stays dismissed (the frontend's key holds id and detail, not the title) and an old
+     * row does not come back to the top with a new time. A move two days or more from the named date is a new row.
      */
     static NotificationService.Notification notice(PurchaseOrder order, Move move, Instant now) {
-        if (order == null || order.id() == null || move == null || move.from() == null || move.at() == null || move.noticed() == null
+        Instant noticedAt = move == null ? null : move.noticedAt() != null ? move.noticedAt() : move.at();
+        if (order == null || order.id() == null || move == null || move.from() == null || noticedAt == null || move.noticed() == null
                 || move.noticed().equals(move.from()) || order.archivedAt() != null || order.receivedOn() != null
                 || (order.status() != PurchaseOrderStatus.BESTELD && order.status() != PurchaseOrderStatus.ONDERWEG)
                 || order.trackingReference() == null || order.trackingReference().isBlank() || order.expectedArrival() == null
-                || move.at().isBefore(now.minus(NOTICE_LIFE))) return null;
+                || noticedAt.isBefore(now.minus(NOTICE_LIFE))) return null;
+        Integer days = days(move, order.expectedArrival());
+        if (days == null || Math.abs(days) < NOTICE_DAYS) return null;
         String name = order.alias() == null || order.alias().isBlank() ? order.number() : order.alias();
         return new NotificationService.Notification(NotificationService.Kind.CONTAINER_AANKOMST, order.id(), order.number(), name,
-                "Aankomst " + words(ChronoUnit.DAYS.between(move.from(), move.noticed())),
-                move.from().format(DAY) + " → " + move.noticed().format(DAY), false, move.at(),
+                "Aankomst " + order.expectedArrival().format(DAY) + " · " + words(days),
+                "was " + move.from().format(DAY), false, noticedAt,
                 "/purchasing/" + order.id() + "?tracking=1",
                 ContainerTracking.hash("ARRIVAL_MOVED:" + order.id() + ":" + move.from() + ":" + move.noticed()));
     }

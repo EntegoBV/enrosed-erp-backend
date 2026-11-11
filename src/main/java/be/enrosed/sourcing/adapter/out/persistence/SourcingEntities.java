@@ -133,6 +133,8 @@ public final class SourcingEntities {
         @Column(name = "arrival_moved_at") public Instant arrivalMovedAt;
         /** The arrival date the bell's "aankomst verschoven" notice names; null = no notice. */
         @Column(name = "arrival_notice_date") public LocalDate arrivalNoticeDate;
+        /** When the bell named that date: the row's time and the start of its 14 days; null together with it. */
+        @Column(name = "arrival_notice_at") public Instant arrivalNoticeAt;
 
         /** Immutable server-side creator snapshot; null only on historical rows. */
         @Column(name = "created_by", length = 64)
