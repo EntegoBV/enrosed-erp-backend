@@ -2029,10 +2029,12 @@ public class SalesOrderService {
             throw new BusinessRuleException("Wijzig de partnerkoppeling via de partnergegevens van het document");
         boolean settlementFrozen = hasSettlementSnapshot(beforeEdit);
         if (settlementFrozen || isReportBacked(beforeEdit)) {
-            if (!beforeEdit.lines().equals(changes.lines()) || !beforeEdit.extraLines().equals(changes.extraLines())
+            /* By value: a browser sends 9.8100 back as 9.81, which is the same frozen line. */
+            if (!sameFrozenLines(beforeEdit.lines(), changes.lines())
+                    || !sameFrozenExtras(beforeEdit.extraLines(), changes.extraLines())
                     || !Objects.equals(beforeEdit.customerId(), changes.customerId())
                     || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())
-                    || !Objects.equals(beforeEdit.extraDiscountPct(), changes.extraDiscountPct())
+                    || !samePercentage(beforeEdit.extraDiscountPct(), changes.extraDiscountPct())
                     || (!settlementFrozen && changes.markupMode() != null && changes.markupMode() != beforeEdit.markupMode())
                     || (changes.manualFreightEur() != null && changes.manualFreightEur().signum() != 0)
                     || (changes.freightCarrierExtraEur() != null && changes.freightCarrierExtraEur().signum() != 0)
@@ -2156,6 +2158,39 @@ public class SalesOrderService {
                     || (b.unitCostEur() != null && !samePercentage(a.unitCostEur(), b.unitCostEur()))) return false;
         }
         return true;
+    }
+
+    /**
+     * The lines of a frozen document (settlement snapshot, made from meldingen) against a save: every field as the
+     * record compares it, the amounts by value, so 9.8100 and 9.81 are the same line.
+     */
+    private static boolean sameFrozenLines(List<SalesOrderLine> before, List<SalesOrderLine> after) {
+        if (after == null || before.size() != after.size()) return false;
+        for (int i = 0; i < before.size(); i++) {
+            if (after.get(i) == null || !byValue(before.get(i)).equals(byValue(after.get(i)))) return false;
+        }
+        return true;
+    }
+
+    private static boolean sameFrozenExtras(List<SalesExtraLine> before, List<SalesExtraLine> after) {
+        if (after == null || before.size() != after.size()) return false;
+        for (int i = 0; i < before.size(); i++) {
+            var a = before.get(i); var b = after.get(i);
+            if (b == null || !Objects.equals(a.description(), b.description())
+                    || !samePercentage(a.quantity(), b.quantity()) || !samePercentage(a.unitPriceEur(), b.unitPriceEur())) return false;
+        }
+        return true;
+    }
+
+    private static SalesOrderLine byValue(SalesOrderLine line) {
+        return new SalesOrderLine(line.id(), line.productId(), line.quantity(), plainAmount(line.unitPriceEur()),
+                plainAmount(line.manualDiscountPct()), line.deliveryWeek(), plainAmount(line.unitCostEur()),
+                line.unavailable(), line.requestedQuantity(), line.unitsPerOrderStep(), plainAmount(line.stockCostEur()),
+                line.priceSource());
+    }
+
+    private static BigDecimal plainAmount(BigDecimal value) {
+        return value == null ? null : value.stripTrailingZeros();
     }
 
     private static boolean sameQuotedExtras(List<SalesExtraLine> before, List<SalesExtraLine> after) {
