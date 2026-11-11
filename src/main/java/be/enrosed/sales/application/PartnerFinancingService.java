@@ -43,7 +43,9 @@ public class PartnerFinancingService {
                           BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate,
                           BigDecimal financingBasisEur, PartnerAdvanceBasis.Kind financingBasis,
                           /** Issued live credit notes on this container's documents, incl. VAT, as a positive figure. */
-                          BigDecimal creditNotesEur) {}
+                          BigDecimal creditNotesEur,
+                          /** Of remainingQuantity, what open partner meldingen (Veilingverkopen) still claim. */
+                          int openReportedQuantity) {}
 
     /**
      * What a partner is owed back when the container arrived short of what the advance financed.
@@ -201,7 +203,7 @@ public class PartnerFinancingService {
                 unbilled, pending.size(), overdue, nextDue,
                 agreement == null ? PartnerAdvanceBasis.total(purchases.calculate(purchase)) : agreement.financingBasisEur(),
                 agreement == null ? PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS : agreement.financingBasis(),
-                creditNotesEur);
+                creditNotesEur, sales.openReported(id).values().stream().mapToInt(open -> Math.max(0, open.quantity())).sum());
     }
 
     /**

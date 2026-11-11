@@ -101,7 +101,14 @@ public class SalesOrderResource {
                              * lacks for an invoice, and the delivery address staff may take over; null when nothing is
                              * missing or the document can no longer lead to an invoice.
                              */
-                            be.enrosed.sales.application.CustomerInvoiceData.Notice invoiceCustomer) {
+                            be.enrosed.sales.application.CustomerInvoiceData.Notice invoiceCustomer,
+                            /**
+                             * Made from partner meldingen (Veilingverkopen): per product on its lines, what the
+                             * meldingen already booked out of stock; null when the document is not report-backed.
+                             */
+                            java.util.Map<Long, Integer> reportBookedQuantities,
+                            /** Made from partner meldingen: never shipped by hand, its lines are frozen. */
+                            boolean reportBacked) {
         /** The view as it stood before website orders of logged-in customers were added. */
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -122,7 +129,17 @@ public class SalesOrderResource {
                     paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
-                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions, null, null, null);
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions, null, null, null,
+                    null, false);
+        }
+        /** The same view with what partner meldingen booked of it; null leaves it a regular document. */
+        OrderView withReportBacking(java.util.Map<Long, Integer> booked) {
+            return new OrderView(order, priced, awaitingResend, invoicedAs, invoicedAsId, invoiceStatus, sourceQuoteNumber,
+                    paymentSummary, accounting, settlement, advanceAgreement, advanceContents, fulfillment,
+                    customerRequestMessageReadonly, customerRequestMessage,
+                    creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
+                    partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
+                    webOrder, delivery, invoiceCustomer, booked == null ? null : java.util.Map.copyOf(booked), booked != null);
         }
         /** The same view with the website order state and its delivery filled in. */
         OrderView withWebOrder(WebOrderView webOrder, DeliveryView delivery) {
@@ -131,7 +148,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
-                    webOrder, delivery, invoiceCustomer);
+                    webOrder, delivery, invoiceCustomer, reportBookedQuantities, reportBacked);
         }
         /** The same view with what the customer record lacks for an invoice. */
         OrderView withInvoiceCustomer(be.enrosed.sales.application.CustomerInvoiceData.Notice invoiceCustomer) {
@@ -140,7 +157,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
-                    webOrder, delivery, invoiceCustomer);
+                    webOrder, delivery, invoiceCustomer, reportBookedQuantities, reportBacked);
         }
         /** The view as it stood before the advance billing of regular quotes was added. */
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
@@ -208,7 +225,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber, advanceBilling, advanceInvoices, advanceDeductions,
-                    webOrder, delivery, invoiceCustomer);
+                    webOrder, delivery, invoiceCustomer, reportBookedQuantities, reportBacked);
         }
         /** The same view naming the container the document comes from; null leaves it unnamed. */
         OrderView withContainer(be.enrosed.sourcing.domain.PurchaseOrderName container) {
@@ -217,7 +234,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     container == null ? null : container.displayName(), container == null ? null : container.number(),
-                    advanceBilling, advanceInvoices, advanceDeductions, webOrder, delivery, invoiceCustomer);
+                    advanceBilling, advanceInvoices, advanceDeductions, webOrder, delivery, invoiceCustomer, reportBookedQuantities, reportBacked);
         }
         /** The same view with the advance billing of regular quotes filled in. */
         OrderView withAdvanceBilling(be.enrosed.sales.application.SalesAdvanceBillingService.Views views) {
@@ -227,7 +244,7 @@ public class SalesOrderResource {
                     customerRequestMessageReadonly, customerRequestMessage,
                     creditedInvoiceId, creditedInvoiceNumber, creditedInvoiceStatus, creditNotes, creditedEur,
                     partnerContainerName, partnerContainerNumber,
-                    views.billing(order), views.advanceInvoices(order), views.deductions(order), webOrder, delivery, invoiceCustomer);
+                    views.billing(order), views.advanceInvoices(order), views.deductions(order), webOrder, delivery, invoiceCustomer, reportBookedQuantities, reportBacked);
         }
         public OrderView(SalesOrder order, PricedOrder priced, boolean awaitingResend, String invoicedAs, Long invoicedAsId,
                          be.enrosed.sales.domain.QuoteStatus invoiceStatus, String sourceQuoteNumber,
@@ -361,11 +378,14 @@ public class SalesOrderResource {
         if (enrosedCost != null) enrosedCost.preloadForRequest();
         java.util.Set<Long> invoicedQuoteIds = invoicedQuoteIds(all);
         java.util.Map<Long, be.enrosed.sales.domain.Customer> customerRecords = new java.util.HashMap<>();
+        /* One read says which documents came from partner meldingen and what those booked. */
+        java.util.Map<Long, java.util.Map<Long, Integer>> reportBooked = salesOrders.reportBookedQuantities(all);
         return all.stream()
                 .map(order -> webOrderBlocks(links.withCreditLinks(enrich(links.view(order, salesOrders.price(order), awaiting.contains(order.id()))), salesOrders::price)
                         .withContainer(order.linkedPurchaseOrderId() == null ? null : containers.get(order.linkedPurchaseOrderId()))
                         .withAdvanceBilling(advances),
-                        order.id() == null ? null : webOrderRows.get(order.id()), false, invoicedQuoteIds, customerRecords))
+                        order.id() == null ? null : webOrderRows.get(order.id()), false, invoicedQuoteIds, customerRecords)
+                        .withReportBacking(order.id() == null ? null : reportBooked.get(order.id())))
                 .toList();
     }
 
@@ -381,6 +401,7 @@ public class SalesOrderResource {
                 .withAdvanceBilling(advanceBilling == null || order.id() == null ? null : advanceBilling.views(all));
         OrderView blocks = webOrderBlocks(view, webOrders == null || order.id() == null ? null : webOrders.find(order.id()).orElse(null),
                 true, invoicedQuoteIds(all), new java.util.HashMap<>());
+        blocks = blocks.withReportBacking(salesOrders.reportBookedQuantities(order));
         /* Read live on one document; the list stays at its own number of reads. */
         return addressTakeover == null ? blocks : blocks.withInvoiceCustomer(addressTakeover.notice(order));
     }

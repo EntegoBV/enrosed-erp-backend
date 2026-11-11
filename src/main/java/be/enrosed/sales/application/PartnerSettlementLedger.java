@@ -11,14 +11,39 @@ import java.util.function.Function;
 /** Remaining capacity includes draft reservations; issued snapshots never change with later costs. */
 public final class PartnerSettlementLedger {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
+    /**
+     * openReportedQuantity / openReportedNetEur (only on the availability endpoint, null elsewhere):
+     * what open partner meldingen (Veilingverkopen) still claim of the remaining quantity, sale minus
+     * buyback, and their net; a manual settlement may take only remaining minus that quantity.
+     */
     public record Line(Long productId, String productName, int totalQuantity, int settledQuantity, int remainingQuantity,
-                       BigDecimal totalCostEur, BigDecimal settledCostEur, BigDecimal remainingCostEur) {}
+                       BigDecimal totalCostEur, BigDecimal settledCostEur, BigDecimal remainingCostEur,
+                       Integer openReportedQuantity, BigDecimal openReportedNetEur) {
+        public Line(Long productId, String productName, int totalQuantity, int settledQuantity, int remainingQuantity,
+                    BigDecimal totalCostEur, BigDecimal settledCostEur, BigDecimal remainingCostEur) {
+            this(productId, productName, totalQuantity, settledQuantity, remainingQuantity, totalCostEur, settledCostEur,
+                    remainingCostEur, null, null);
+        }
+    }
     public record Document(Long invoiceId, String number, QuoteStatus status, boolean finalSettlement,
                            int quantity, BigDecimal revenueEur, BigDecimal costEur, BigDecimal advanceEur,
                            BigDecimal invoiceTotalEur) {}
     public record Availability(long purchaseOrderId, Long partnerCustomerId, BigDecimal externalCostEur,
                                BigDecimal issuedAdvanceEur, BigDecimal creditedAdvanceEur, BigDecimal remainingAdvanceEur,
-                               List<Line> lines, List<Document> settlements) {}
+                               List<Line> lines, List<Document> settlements) {
+        /** The same availability with what open meldingen claim per line (0 where nothing is open). */
+        public Availability withOpenReported(Map<Long, PartnerReportBacking.OpenReported> open) {
+            List<Line> enriched = lines.stream().map(line -> {
+                PartnerReportBacking.OpenReported reported = line.productId() == null ? null : open.get(line.productId());
+                return new Line(line.productId(), line.productName(), line.totalQuantity(), line.settledQuantity(),
+                        line.remainingQuantity(), line.totalCostEur(), line.settledCostEur(), line.remainingCostEur(),
+                        reported == null ? 0 : Math.max(0, reported.quantity()),
+                        reported == null ? ZERO : Money.money(reported.netEur()));
+            }).toList();
+            return new Availability(purchaseOrderId, partnerCustomerId, externalCostEur, issuedAdvanceEur,
+                    creditedAdvanceEur, remainingAdvanceEur, enriched, settlements);
+        }
+    }
 
     public static Availability calculate(long purchaseId, Long partnerId, PurchaseReconciliation reconciliation,
                                          List<SalesOrder> orders, Function<SalesOrder, PricedOrder> pricing,

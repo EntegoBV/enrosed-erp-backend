@@ -408,6 +408,7 @@ public class SalesSplits {
         if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");
+        if (sales.isReportBacked(source)) throw new BusinessRuleException("Een factuur uit Veilingverkopen splits je niet");
         if (advanceBilling != null && advanceBilling.isResolvable()
                 && (advanceBilling.get().hasBilling(source) || advanceBilling.get().hasLiveAdvances(source)))
             throw new BusinessRuleException("Een offerte met voorschotfacturen, een voorschotfactuur of een slotfactuur splits je niet");

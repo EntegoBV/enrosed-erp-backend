@@ -53,11 +53,19 @@ public class SalesPricingCalculator {
             /** How the automatic pallets are counted: the rule the document was stored with. */
             PalletCountRule palletRule,
             /** The staff figures on where each line's price comes from; null prices without them. */
-            PriceHints priceHints
+            PriceHints priceHints,
+            /** No country minimum order value: a document made from partner meldingen bills what was sold. */
+            boolean minimumExempt
     ) {
         /** A context without a rule prices a document that is not stored yet: a new one counts mixed. */
         public Context {
             palletRule = palletRule == null ? PalletCountRule.MIXED : palletRule;
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing, PalletCountRule palletRule, PriceHints priceHints) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, palletRule, priceHints, false);
         }
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
@@ -431,9 +439,10 @@ public class SalesPricingCalculator {
         // Internal margin reconciles the same rounded goods and cost amounts shown to the operator.
         BigDecimal margin = Money.money(goodsTotal).subtract(Money.money(costTotal));
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
-        if (order.isPartnerDeal() || order.isCreditNote()) minOrderValue = BigDecimal.ZERO;
+        if (order.isPartnerDeal() || order.isCreditNote() || context.minimumExempt()) minOrderValue = BigDecimal.ZERO;
         if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
-        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote();
+        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote()
+                || context.minimumExempt();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
