@@ -73,7 +73,7 @@ Every result carries `evergreenBl`: the bill `BexyClient.query` itself reads fro
 
 `ContainerTracking.reference(raw)` asks the parser of 2026-10-26 first (`strictReference`, unchanged): a text it accepts keeps its key, so no snapshot, ShipsGo registration, ship link or reminder identity moves. Only texts it rejects are read by the wider rule. Newly followed: a bare Evergreen bill, `B/L:` forms, a number followed by other text behind `BL:`, the split check digit. `TrackingDateSync.sameShipment` accepts everything it accepted before, first of all the Evergreen bill the lookup read from the text (a bare `EGLV…` got lookups but its dates were refused before).
 
-A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in the order save) unless both texts are recognised and have no number in common.
+A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in the order save) unless both texts are recognised and have no number in common. The order's stored port calls move with the link (their key, `ContainerTrackingService.vesselKey`, holds the reference hash), so the row keeps its last check.
 
 ### Row fields added (null when they do not apply)
 
@@ -88,6 +88,8 @@ A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in
 ### A manual check says what it did
 
 `refreshOutcome`: `CHECKED` a source was asked; `COOLDOWN` the last attempt is too recent (60 s ShipsGo, 900 s Voydar and the date lookup) and `manualCheckAt` says from when a check does something again; `BUSY` the scheduled run holds the lease; `OFF` tracking is switched off; `NO_SOURCE` nothing is linked that could be asked.
+
+The answer shows the dates the check just wrote. The service re-reads the order in its own transaction (`TrackingDateSync.reread`), also between the ship check and the date lookup, in the manual check and in the scheduled run. Outside a transaction a request keeps the order as it first read it; before 2026-11-10 the answer therefore named the old date with "de opgeslagen datum is nog niet aangepast" right after the new one was written, and a date lookup that followed a ship check which had just set the departure date was refused as "tijdens de controle gewijzigd".
 
 ### The arrival tracking moved
 

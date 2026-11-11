@@ -2421,6 +2421,9 @@ works without ShipsGo and keeps working with it. Details: `docs/integrations/con
   writes it with the same instant as its success: keep that) and `BexyClient.NO_DATA_YET`.
 - **Manual check**: `refreshOutcome` CHECKED / COOLDOWN / BUSY / OFF / NO_SOURCE; `manualCheckAt` is
   when a check does something again (`MANUAL_SECONDS_PAID` 60, `MANUAL_SECONDS_FREE` 900).
+  The service re-reads the order through `TrackingDateSync.reread` (its own transaction) after a
+  check: a plain `orders.findById` in the same request answers the order as first read, so the
+  answer named the old date right after a new one was written. Keep that re-read.
 - **Moved arrival**: `purchase_order.arrival_moved_from / arrival_moved_at / arrival_notice_date`
   (entity-only columns, the `PurchaseOrder` record and the order JSON do not carry them; migration
   `docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql` with its Dockerfile COPY
@@ -2431,9 +2434,14 @@ works without ShipsGo and keeps working with it. Details: `docs/integrations/con
   named one).
 - **Ship link**: `VesselLinkStore.rebind` (called in `PurchaseOrderService.update`) keeps the link
   when the reference text is rewritten, unless both texts are recognised with no number in common.
+  The order's port-call snapshot moves with it (`ContainerTrackingService.vesselKey` holds the
+  reference hash).
 - **Time**: "today" in `shipmentPlan` is the Brussels day; the Voydar window starts the day before
   `shippedOn`.
-- **Not provable locally**: the harness runs with tracking and container notices off, so the write
-  side of the move, the outcomes CHECKED / COOLDOWN / BUSY and the bell row were checked by reading
-  and by calling `noteArrivalMove` on the compiled class; recognition, the row fields, `?orderId=`,
-  the rebind, the hand-edit clearing and the read side of move and failure went through the API.
+- **How it was checked** (no test files; scripts live outside the repo): recognition, the row
+  fields, `?orderId=`, the rebind and the hand-edit clearing went through the API with tracking
+  off. The outcomes BUSY / COOLDOWN / CHECKED / NO_SOURCE, a failed check and the bell row went
+  through the API with tracking on and every outward call refused locally (a JVM proxy on a closed
+  port). The write side (a check that moves the arrival: 5 → 8 → 9 → 10 → 5 december, the bell row
+  following by the two-day rule) ran against a local stand-in for the date source that only the
+  test JVM trusted. Never run against the real Bexy, Voydar or ShipsGo, nor on PostgreSQL.
