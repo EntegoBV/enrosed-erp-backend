@@ -2396,3 +2396,44 @@ did for them (mailed, called, spoken to, catalogue or sample sent).
 - **Migration**: `docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql`
   (rerunnable `add column if not exists` + `create table if not exists`, no rows written), with its
   Dockerfile COPY and script line after the 2026-11-06 files. Not yet run against a live database.
+
+## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
+
+Emre: "Bekijk ook of de track trace beter kan." Production has no ShipsGo token: automatic data comes
+from the Evergreen date lookup (Bexy) and from Voydar after a ship is linked by hand. Everything here
+works without ShipsGo and keeps working with it. Details: `docs/integrations/container-tracking.md`
+(section 2026-11-10).
+
+- **One rule reads the reference**: `ContainerTracking.recognise(raw)` → `Recognised(kind, number,
+  checkDigitOk, container, evergreenBl)`, kind EMPTY / CONTAINER / BL / BOOKING / MULTIPLE / LINK /
+  UNKNOWN. The frontend runs the same rule (`features/purchasing/tracking-reference.ts`): change both
+  or neither. `reference(raw)` asks `strictReference` (the parser of 2026-10-26, untouched) first, so
+  every key that existed stays; reminder identities use `strictReference` only. A bare Evergreen bill
+  (`EGLV` + 12 digits) now counts and its dates are accepted (`TrackingDateSync.sameShipment`, a
+  superset of the old acceptance). No other bare number is guessed.
+- **Rows** (`ContainerTracking.Row`) end with `recognised, failure, failureAt, arrivalMovedFrom,
+  arrivalMovedAt, arrivalMovedDays, manualCheckAt, refreshOutcome`. Everything the native iOS app
+  and older screens read (`status`, `statusLabel`, `error`, `source`, `automatic`, `checkedAt`,
+  `updatedAt`, `nextCheckAt`, `orderExpectedArrival`, …) is computed as before.
+  `GET /api/container-tracking?orderId=` answers one order's row.
+- **Failure** = last attempt failed (`TrackingStore.Snapshot.checkFailed`: error and `checkedAt` ≠
+  `updatedAt`), also without a source. Not a failure: a date that could not be applied (`checkDates`
+  writes it with the same instant as its success: keep that) and `BexyClient.NO_DATA_YET`.
+- **Manual check**: `refreshOutcome` CHECKED / COOLDOWN / BUSY / OFF / NO_SOURCE; `manualCheckAt` is
+  when a check does something again (`MANUAL_SECONDS_PAID` 60, `MANUAL_SECONDS_FREE` 900).
+- **Moved arrival**: `purchase_order.arrival_moved_from / arrival_moved_at / arrival_notice_date`
+  (entity-only columns, the `PurchaseOrder` record and the order JSON do not carry them; migration
+  `docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql` with its Dockerfile COPY
+  and runner line). Written only by `TrackingDateSync.noteArrivalMove`; `PanacheSourcingRepositories
+  .save` clears them when the saved date differs (a date typed by hand is the planning from then
+  on). `ArrivalMoveStore` reads them and builds the bell row ("Aankomst 3 dagen later", kind
+  `CONTAINER_AANKOMST`, no push, a new row only when the date lies two days or more from the last
+  named one).
+- **Ship link**: `VesselLinkStore.rebind` (called in `PurchaseOrderService.update`) keeps the link
+  when the reference text is rewritten, unless both texts are recognised with no number in common.
+- **Time**: "today" in `shipmentPlan` is the Brussels day; the Voydar window starts the day before
+  `shippedOn`.
+- **Not provable locally**: the harness runs with tracking and container notices off, so the write
+  side of the move, the outcomes CHECKED / COOLDOWN / BUSY and the bell row were checked by reading
+  and by calling `noteArrivalMove` on the compiled class; recognition, the row fields, `?orderId=`,
+  the rebind, the hand-edit clearing and the read side of move and failure went through the API.
