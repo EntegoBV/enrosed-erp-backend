@@ -1,6 +1,8 @@
 package be.enrosed.partnerportal.adapter.in.security;
 
 import be.enrosed.partnerportal.application.PartnerAuthenticator;
+import be.enrosed.partnerportal.application.PartnerSignInUnavailableException;
+import be.enrosed.publicform.ClientIdentityResolver;
 import be.enrosed.shared.security.ActorRef;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import io.quarkus.security.AuthenticationFailedException;
@@ -8,7 +10,9 @@ import io.quarkus.security.identity.AuthenticationRequestContext;
 import io.quarkus.security.identity.IdentityProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.identity.request.UsernamePasswordAuthenticationRequest;
+import io.quarkus.vertx.http.runtime.security.HttpSecurityUtils;
 import io.smallrye.mutiny.Uni;
+import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.Arrays;
@@ -26,7 +30,8 @@ import java.util.Arrays;
  *   <li>Anything else goes to a worker thread; no partner_login row returns null (the staff
  *       provider then fails as it always did for an unknown name).</li>
  *   <li>An existing partner login either signs in as role partner only, or fails with
- *       AuthenticationFailedException (a 401), whatever went wrong.</li>
+ *       AuthenticationFailedException (a 401), whatever went wrong; only a password that was not
+ *       checked at all (rate limit, bcrypt busy) answers 429 / 503 instead.</li>
  * </ol>
  */
 @ApplicationScoped
@@ -36,10 +41,23 @@ public class PartnerIdentityProvider implements IdentityProvider<UsernamePasswor
 
     private final AdminIdentityProvider staff;
     private final PartnerAuthenticator authenticator;
+    private final ClientIdentityResolver clients;
 
-    public PartnerIdentityProvider(AdminIdentityProvider staff, PartnerAuthenticator authenticator) {
+    public PartnerIdentityProvider(AdminIdentityProvider staff, PartnerAuthenticator authenticator,
+                                   ClientIdentityResolver clients) {
         this.staff = staff;
         this.authenticator = authenticator;
+        this.clients = clients;
+    }
+
+    /** The caller's coarse network, as the website forms resolve it ("unavailable" without a request). */
+    private String client(UsernamePasswordAuthenticationRequest request) {
+        try {
+            RoutingContext routing = HttpSecurityUtils.getRoutingContextAttribute(request);
+            return clients.resolve(routing == null ? null : routing.request());
+        } catch (RuntimeException unavailable) {
+            return "unavailable";
+        }
     }
 
     @Override
@@ -67,10 +85,11 @@ public class PartnerIdentityProvider implements IdentityProvider<UsernamePasswor
         char[] supplied = request.getPassword() == null ? new char[0] : request.getPassword().getPassword();
         String credential = new String(supplied);
         Arrays.fill(supplied, '\0');
+        String client = client(request);
         return context.runBlocking(() -> {
             try {
-                return authenticator.authenticate(username, credential);
-            } catch (AuthenticationFailedException failure) {
+                return authenticator.authenticate(username, credential, client);
+            } catch (AuthenticationFailedException | PartnerSignInUnavailableException failure) {
                 throw failure;
             } catch (RuntimeException unexpected) {
                 throw new AuthenticationFailedException("Onjuiste aanmeldgegevens");

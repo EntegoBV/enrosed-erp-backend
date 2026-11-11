@@ -2429,15 +2429,21 @@ This section grows per build stage; it holds what is built so far.
      `PartnerAuthenticator`, each step in `QuarkusTransaction.requiringNew()`: no `partner_login`
      row returns null, so the staff provider fails as it always did for an unknown name.
   3. An existing login: inactive, customer gone or no longer `partner`, wrong password or key,
-     the rate limit, a database error: every problem becomes `AuthenticationFailedException`
-     (401), never a 500. A credential starting with `epp1_` is looked up by SHA-256 in
+     a database error: every problem becomes `AuthenticationFailedException` (401), never a 500.
+     A credential starting with `epp1_` is looked up by SHA-256 in
      `partner_session` of that login (not expired; `last_seen_at` written at most every 15
      minutes) and gives `partnerAuth=SESSION`. Otherwise it is a password: first
-     `PublicFormRateLimiter.checkKey(PARTNER_LOGIN, "USERNAME", username, 20)` (20 per 15
-     minutes, only on this path and only for an existing partner name), then bcrypt outside any
+     `PublicFormRateLimiter.checkKey(PARTNER_LOGIN, "USERNAME_IP", username|network, 20)` (20 per
+     15 minutes per network, `ClientIdentityResolver` on the request's RoutingContext, the
+     website forms' rule) and `checkKey(PARTNER_LOGIN, "USERNAME", username, 100)` over all
+     networks, only on this path and only for an existing partner name, then bcrypt outside any
      transaction; `last_login_at` is written; `partnerAuth=PASSWORD`. Every password attempt
-     counts, right or wrong: 20 in one 15-minute window lock the password path for the rest of
-     it (accepted: anyone who knows the name can do that; the sessions keep working).
+     counts, right or wrong, so a stranger who knows the name only exhausts the bucket of their
+     own network (or needs many networks for the shared 100). A password that was not checked
+     (limit reached, no bcrypt slot within 2 s) is `PartnerSignInUnavailableException`: 429 or
+     503 with Retry-After and a Dutch message through `PartnerSignInUnavailableMapper` (Quarkus
+     hands a non-AuthenticationException failure of an identity provider to the REST exception
+     mappers), never a 401 that would tell Frans his password is wrong.
 - **Identity**: principal = the stored username, role `partner` only, attributes
   `displayName` (the login's name, "Frans"), `partnerCustomerId`, `partnerLoginId`,
   `partnerAuth`, `partnerSessionId` (session path only). Names in `shared.security.PartnerIdentity`.

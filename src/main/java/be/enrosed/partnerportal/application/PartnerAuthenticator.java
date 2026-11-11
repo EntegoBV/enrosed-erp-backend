@@ -3,6 +3,7 @@ package be.enrosed.partnerportal.application;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerLoginEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.publicform.PublicFormAction;
+import be.enrosed.publicform.PublicFormRateLimitException;
 import be.enrosed.publicform.PublicFormRateLimiter;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
@@ -14,6 +15,7 @@ import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.runtime.QuarkusPrincipal;
 import io.quarkus.security.runtime.QuarkusSecurityIdentity;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.ws.rs.ServiceUnavailableException;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
@@ -23,16 +25,21 @@ import java.time.Instant;
  *
  * Returns null when no partner login has this username, so the staff provider answers as before.
  * For an existing login every problem - wrong password or key, inactive login, customer gone or no
- * longer a partner, the rate limit, a database error - ends in AuthenticationFailedException (a
- * 401), never in another exception that would turn into a server error. The password path counts
- * against PARTNER_LOGIN per username (20 per 15 minutes); the session path is not counted. bcrypt
- * runs outside any transaction.
+ * longer a partner, a database error - ends in AuthenticationFailedException (a 401), never in
+ * another exception that would turn into a server error. A password that was not checked at all
+ * (rate limit, no bcrypt slot) is PartnerSignInUnavailableException (429 / 503 with Retry-After),
+ * so the page does not blame the password. The password path counts against PARTNER_LOGIN per
+ * username and network (20 per 15 minutes) and per username over all networks (100); the session
+ * path is not counted. bcrypt runs outside any transaction.
  */
 @ApplicationScoped
 public class PartnerAuthenticator {
 
     private static final Logger LOG = Logger.getLogger(PartnerAuthenticator.class);
+    /** Password attempts per username from one network per 15 minutes. */
     static final int PASSWORD_ATTEMPTS_PER_WINDOW = 20;
+    /** Password attempts per username from all networks together per 15 minutes (spread guessing). */
+    static final int PASSWORD_ATTEMPTS_ALL_NETWORKS = 100;
 
     /** What the sign-in needs of the login row, read in one short transaction. */
     private record Snapshot(long id, long customerId, String username, String displayName,
@@ -59,8 +66,11 @@ public class PartnerAuthenticator {
         this.customers = customers;
     }
 
-    /** @param username canonical (trimmed, lower case) and not a staff name */
-    public SecurityIdentity authenticate(String username, String credential) {
+    /**
+     * @param username canonical (trimmed, lower case) and not a staff name
+     * @param client   the caller's coarse network (ClientIdentityResolver), for the rate limit
+     */
+    public SecurityIdentity authenticate(String username, String credential, String client) {
         try {
             Snapshot login = QuarkusTransaction.requiringNew().call(() -> snapshot(username));
             if (login == null) return null;
@@ -70,13 +80,23 @@ public class PartnerAuthenticator {
                 if (sessionId == null) throw failed();
                 return identity(login, PartnerIdentity.AUTH_SESSION, sessionId);
             }
-            rateLimiter.checkKey(PublicFormAction.PARTNER_LOGIN, "USERNAME", login.username(),
+            /* Per network first, so a stranger elsewhere cannot use up the partner's own attempts; the looser
+               bucket over all networks still stops guessing spread over many addresses. */
+            rateLimiter.checkKey(PublicFormAction.PARTNER_LOGIN, "USERNAME_IP",
+                    login.username() + "|" + (client == null || client.isBlank() ? "unavailable" : client),
                     PASSWORD_ATTEMPTS_PER_WINDOW);
+            rateLimiter.checkKey(PublicFormAction.PARTNER_LOGIN, "USERNAME", login.username(),
+                    PASSWORD_ATTEMPTS_ALL_NETWORKS);
             if (!passwords.matches(credential, login.passwordHash())) throw failed();
             QuarkusTransaction.requiringNew().run(() -> touchLogin(login.id()));
             return identity(login, PartnerIdentity.AUTH_PASSWORD, null);
         } catch (AuthenticationFailedException failure) {
             throw failure;
+        } catch (PublicFormRateLimitException limited) {
+            LOG.infof("Partneraanmelding %s: te veel pogingen", username);
+            throw PartnerSignInUnavailableException.limited(limited.retryAfterSeconds());
+        } catch (ServiceUnavailableException busy) {
+            throw PartnerSignInUnavailableException.busy();
         } catch (RuntimeException problem) {
             /* Never the credential: only what kind of problem stopped this sign-in. */
             LOG.warnf("Partneraanmelding geweigerd door %s", problem.getClass().getSimpleName());
