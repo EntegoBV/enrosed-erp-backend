@@ -1,6 +1,7 @@
 package be.enrosed.partnerportal.application;
 
 import be.enrosed.catalog.application.StockService;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleInvoicePartEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
@@ -74,6 +75,7 @@ public class PartnerSaleInvoicing {
     static final String BUYBACK_ABOVE_SALE = "Terugkoop groter dan verkoop: wacht op een volgende verkoop";
     static final String BUYBACK_ABOVE_NET = "Terugkoopkost groter dan de netto opbrengst";
     static final String ROUNDING = "Afronding veilingverkopen";
+    static final String NOT_PARTNERS = "Deze container hoort niet (meer) bij deze partner; koppel hem opnieuw of trek de meldingen in";
 
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO = new BigDecimal("0.00");
@@ -90,12 +92,13 @@ public class PartnerSaleInvoicing {
     private final SalesOrderService sales;
     private final SalesRepositories.Customers customers;
     private final PurchaseOrderService purchaseOrders;
+    private final PartnerPortalQueries queries;
 
     public PartnerSaleInvoicing(PartnerPortalRepositories.Settings settingsRows, PartnerPortalRepositories.Reports reports,
                                 PartnerPortalRepositories.Lines lines, PartnerPortalRepositories.InvoiceParts invoiceParts,
                                 PartnerOpenParts openParts, PartnerContainerCapacity capacity, PartnerProductTiles tiles,
                                 StockService stock, SalesOrderService sales, SalesRepositories.Customers customers,
-                                PurchaseOrderService purchaseOrders) {
+                                PurchaseOrderService purchaseOrders, PartnerPortalQueries queries) {
         this.settingsRows = settingsRows;
         this.reports = reports;
         this.lines = lines;
@@ -107,6 +110,7 @@ public class PartnerSaleInvoicing {
         this.sales = sales;
         this.customers = customers;
         this.purchaseOrders = purchaseOrders;
+        this.queries = queries;
     }
 
     /* =============================================================== preview */
@@ -127,6 +131,7 @@ public class PartnerSaleInvoicing {
         List<PartnerPortalViews.InvoicePreviewGroup> groups = new ArrayList<>();
         List<PartnerPortalViews.InvoiceSkipped> skipped = new ArrayList<>();
         BigDecimal share = partner.partnerSharePctOrDefault();
+        Set<Long> partnerContainers = Set.copyOf(queries.partnerContainerIds(partner.id()));
         for (Map.Entry<Long, Map<Long, ProductSum>> source : bySource.entrySet()) {
             Long containerId = source.getKey();
             if (containerId != null) {
@@ -134,7 +139,7 @@ public class PartnerSaleInvoicing {
                 skipped.addAll(skippedRows(plan.skipped(), SOURCE_CONTAINER, containerId, catalog));
                 if (plan.lines().isEmpty()) continue;
                 groups.add(previewContainer(partner.id(), containerId, containerName(containers, containerId), plan,
-                        notes(plan.included()), catalog));
+                        notes(plan.included()), catalog, partnerContainers));
             } else {
                 OwnPlan plan = planOwn(source.getValue(), share, catalog);
                 skipped.addAll(skippedRows(plan.skipped(), SOURCE_OWN, null, catalog));
@@ -148,11 +153,13 @@ public class PartnerSaleInvoicing {
 
     private PartnerPortalViews.InvoicePreviewGroup previewContainer(long customerId, long containerId, String containerName,
                                                                    ContainerPlan plan, String note,
-                                                                   PartnerProductTiles.Catalog catalog) {
+                                                                   PartnerProductTiles.Catalog catalog,
+                                                                   Set<Long> partnerContainers) {
         SalesOrderService.AuctionSettlementRequest request = settlementRequest(customerId, containerId, plan, note);
         SalesOrderService.AuctionSettlementPlan settlement = null;
         String blocked = null;
-        try {
+        if (!partnerContainers.contains(containerId)) blocked = NOT_PARTNERS;
+        else try {
             settlement = QuarkusTransaction.requiringNew().call(() -> sales.previewAuctionSettlementFromReports(request));
         } catch (BusinessRuleException | NotFoundException refusal) {
             blocked = refusal.getMessage();
@@ -237,7 +244,10 @@ public class PartnerSaleInvoicing {
     /** One source, in the caller's new transaction: locks, a fresh read, the document, the links. */
     private GroupOutcome runGroup(long customerId, List<Long> reportIds, Long containerId) {
         settingsRows.lockOrCreate(customerId);
-        capacity.lockContainers(customerId);
+        List<be.enrosed.sourcing.domain.PurchaseOrder> containers = capacity.lockContainers(customerId);
+        if (containerId != null && containers.stream().noneMatch(order -> containerId.equals(order.id()))) {
+            throw new BusinessRuleException(NOT_PARTNERS);
+        }
         TreeSet<Long> products = new TreeSet<>();
         for (OpenPart part : selectOpen(customerId, reportIds, null)) {
             if (Objects.equals(part.line().purchaseOrderId, containerId)) products.add(part.line().productId);

@@ -100,6 +100,9 @@ public class PurchaseOrderService {
     Instance<be.enrosed.sales.application.CustomerService> partnerCustomers;
     @Inject
     Instance<be.enrosed.sales.application.PartnerAdvanceSchedules> partnerAdvanceSchedules;
+    /* Open partner meldingen (Veilingverkopen) on a container; absent without the portal. */
+    @Inject
+    Instance<be.enrosed.sales.application.PartnerReportBacking> partnerReports;
     @Inject
     be.enrosed.shared.trash.DeletedItemsService deletedItems;
     @Inject
@@ -3075,6 +3078,8 @@ public class PurchaseOrderService {
      * Makes the container a partner container, changes the deal, or ends it.
      * Ending it is refused while sales documents still hang on the container:
      * unlink those first, so nothing is left pointing at a deal that is gone.
+     * Another partner or none is also refused while open partner meldingen sit on
+     * it: Factureren invoices them to the container's partner at its share.
      */
     @Transactional
     public PurchaseOrder setPartner(long id, PartnerRequest request) {
@@ -3094,6 +3099,10 @@ public class PurchaseOrderService {
         if (partnerChanged && partnerAdvanceSchedules != null && partnerAdvanceSchedules.isResolvable()
                 && !partnerAdvanceSchedules.get().rows(id).isEmpty()) {
             throw new BusinessRuleException("Er staat een termijnplanning voor deze partner. Verwijder eerst de ongefactureerde termijnen voordat je de partner wijzigt");
+        }
+        if (partnerChanged && partnerReports != null && partnerReports.isResolvable()
+                && !partnerReports.get().openReported(id).isEmpty()) {
+            throw new BusinessRuleException("Er staan nog veilingverkopen op deze container; factureer of trek die eerst in");
         }
         if (!Objects.equals(current.partnerCustomerId(), customerId)
                 && linked.stream().anyMatch(document -> !Objects.equals(document.customerId(), customerId))) {

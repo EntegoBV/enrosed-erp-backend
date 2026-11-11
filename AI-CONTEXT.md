@@ -2680,6 +2680,12 @@ named constraints identical in `@Table` and the migration:
   (eigen voorraad) aangemaakt") is the activity per invoice.
 - **Open again**: trashing a concept from Factureren (or a GEANNULEERD / AFGEWEZEN / VERLOPEN
   document) reopens its parts by the open-part rule; the next run links them to a new document.
+- **The container's partner is fixed while meldingen are open**: `PurchaseOrderService.setPartner`
+  (and so `adoptPartner`) refuses another partner or none while any open part sits on the
+  container (`PartnerReportBacking.openReported`): "Er staan nog veilingverkopen op deze
+  container; factureer of trek die eerst in". Factureren and its preview refuse a container source
+  that is no longer the partner's before anything else (lock, adoption, default share): "Deze
+  container hoort niet (meer) bij deze partner; koppel hem opnieuw of trek de meldingen in".
 
 ### Report-backed documents (stage 3)
 - A document with rows in `partner_sale_invoice_part` is **report-backed**: its pieces left stock
