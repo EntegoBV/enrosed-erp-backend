@@ -125,8 +125,9 @@ public class CustomerQuoteMapper {
                 ? packaging.piecesPerUnit() : null;
         int perCarton = product == null || product.carton() == null
                 ? 1 : Math.max(1, product.carton().piecesPerCarton());
+        /* A line staff set to per piece reads as one sold per piece, and a proposal for it is not rounded. */
         int step = proposing && product != null
-                ? exact ? 1 : be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product)
+                ? exact || Boolean.TRUE.equals(line.perPiece()) ? 1 : be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product)
                 : line.unitsPerOrderStep();
         return new CustomerQuoteView.CustomerLine(
                 line.productId(), line.sku(), line.customerDescription(), line.photoUrl(),
@@ -140,7 +141,7 @@ public class CustomerQuoteMapper {
                 line.deliveryDate(), line.deliveryWeek(), line.unavailable(), line.requestedQuantity(),
                 basis, perDisplay,
                 be.enrosed.catalog.adapter.in.rest.UnitDto.of(packaging == null ? null : packaging.unitKey(), language),
-                line.orderStep().name(), step);
+                line.customerOrderStep().name(), step);
     }
 
     private static String customerFacingStatus(SalesOrder order, QuoteRevision revision) {
