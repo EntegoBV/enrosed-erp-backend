@@ -209,12 +209,17 @@ public class StockBatchService {
      * before the batch start has no takes: the start wrote what meldingen took out of a container as that
      * container's BACKFILL take, so a container part ({@code purchaseOrderId}) re-opens that take next. Whatever
      * is left goes the way of a credit return ({@link #restore}); for an own part only into own batches. Never a
-     * Telling batch through {@link #onAdd}.
+     * Telling batch through {@link #onAdd}. {@code takeOverFrom}: pieces of that settled-through container that
+     * Enrosed takes over (an own buyback part): own stock at that container's batch cost.
      */
     void onPartnerReturn(long productId, Long movementId, int pieces, Collection<Long> sourceMovementIds,
-                         Long purchaseOrderId, String reference, Instant at) {
+                         Long purchaseOrderId, Long takeOverFrom, String reference, Instant at) {
         if (pieces <= 0 || !active()) return;
         Ids ids = new Ids(movementId, null, null, null, reference, at, actorName());
+        if (takeOverFrom != null && purchaseOrderId == null) {
+            takeOver(productId, pieces, takeOverFrom, ids);
+            return;
+        }
         int remaining = pieces;
         List<Long> sources = sourceMovementIds == null ? List.of()
                 : sourceMovementIds.stream().filter(Objects::nonNull).distinct().toList();
@@ -240,6 +245,54 @@ public class StockBatchService {
             }
         }
         if (remaining > 0) restore(productId, remaining, PARTNER_BUYBACK, null, null, ids, purchaseOrderId != null);
+    }
+
+    /**
+     * Pieces a partner bought back from a container that has nothing of them left to settle: Enrosed takes them over
+     * as own stock at what they cost in that container. They first cover open unassigned takes (as found pieces
+     * do), the rest goes into an own batch with the container batch's cost ("Teruggekocht na afrekening PO-...");
+     * without such a batch (or with another pieces-per-unit) they are found pieces at the card.
+     */
+    private void takeOver(long productId, int pieces, long purchaseOrderId, Ids ids) {
+        int remaining = resolve(openUnassigned(productId), pieces, PARTNER_BUYBACK, ids);
+        if (remaining <= 0) return;
+        int factor = unitPieces(productId);
+        StockBatchEntity costOf = batches.list("productId = ?1 and purchaseOrderId = ?2 order by id", productId,
+                purchaseOrderId).stream().filter(batch -> batch.unitCostEur != null && unitPieces(batch) == factor)
+                .findFirst().orElse(null);
+        String note = "Teruggekocht na afrekening" + (costOf == null || costOf.orderNumber == null ? "" : " " + costOf.orderNumber);
+        if (costOf == null) {
+            found(productId, remaining, note, PARTNER_BUYBACK, ids);
+            return;
+        }
+        StockBatchEntity batch = new StockBatchEntity();
+        batch.productId = productId;
+        batch.kind = StockBatch.Kind.COUNT.name();
+        batch.owner = StockBatch.Owner.OWN.name();
+        batch.receivedOn = LocalDate.now(BRUSSELS);
+        batch.bookedAt = ids.at();
+        batch.unitPieces = factor;
+        batch.piecesIn = remaining;
+        batch.piecesLeft = remaining;
+        batch.costState = costOf.costState;
+        batch.unitCostEur = costOf.unitCostEur;
+        batch.unitCostExclEnrosedEur = costOf.unitCostExclEnrosedEur;
+        batch.goodsEur = costOf.goodsEur;
+        batch.originEur = costOf.originEur;
+        batch.freightEur = costOf.freightEur;
+        batch.dutyEur = costOf.dutyEur;
+        batch.destinationEur = costOf.destinationEur;
+        batch.enrosedEur = costOf.enrosedEur;
+        batch.separateEur = costOf.separateEur;
+        batch.costAppliedAt = costOf.costAppliedAt;
+        batch.costAppliedBy = costOf.costAppliedBy;
+        batch.note = cut(note, NOTE_LENGTH);
+        batch.createdAt = ids.at();
+        batch.createdBy = cut(ids.actor(), ACTOR_LENGTH);
+        batches.persist(batch);
+        writeMove(batch.id, productId, null, COUNT_IN, remaining, batch, false,
+                new Ids(ids.stockMovementId(), null, null, null, ids.reference() != null ? ids.reference() : note,
+                        ids.at(), ids.actor()));
     }
 
     /** A count set at a location: fewer pieces leave FIFO, more pieces are found. */

@@ -229,16 +229,15 @@ public class PartnerSaleReportService {
             PartnerSaleReportLineEntity mirrored = part.mirrorsExisting != null ? part.mirrorsExisting
                     : part.mirrorsPlanned.written;
             /* Back into the takes that hold the mirrored sale's pieces: its own, and those of withdrawn
-               buybacks of it (they took the pieces out again), so a container's pieces stay the container's. */
+               buybacks of it (they took the pieces out again), so a container's pieces stay the container's.
+               Taken over from a settled-through container: own stock at that container's cost instead. */
             List<Long> sources = new ArrayList<>();
-            /* Taken over from a settled-through container: own pieces, so not back into the container's takes. */
-            if (part.takeoverCostEur == null) {
-                sources.add(mirrored.stockMovementId);
-                sources.addAll(earlierReversals.getOrDefault(mirrored.id, List.of()));
-            }
+            sources.add(mirrored.stockMovementId);
+            sources.addAll(earlierReversals.getOrDefault(mirrored.id, List.of()));
             Long movementId = stock.partnerMove(part.productId, location.id(), part.quantity,
                     StockMovement.Kind.PARTNER_BUYBACK, "Terugkoop " + number, part.purchaseOrderId, report.soldOn,
-                    StockBatchContext.partnerReturn(sources));
+                    part.takeoverCostEur != null ? StockBatchContext.partnerTakeOver(mirrored.purchaseOrderId)
+                            : StockBatchContext.partnerReturn(sources));
             BigDecimal unitCost = part.purchaseOrderId != null ? null
                     : part.takeoverCostEur != null ? part.takeoverCostEur : mirrored.unitCostEur;
             part.written = write(report, part, movementId, unitCost, mirrored.id);

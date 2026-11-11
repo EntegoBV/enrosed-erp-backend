@@ -2580,9 +2580,12 @@ named constraints identical in `@Table` and the migration:
   historicShipped <= 0, e.g. after its slotfactuur): no settlement line can come there any more,
   so the buyback goes on own stock (purchaseOrderId null, still mirroring the container part) at
   what the container's settlements charged per sales unit (settled cost / settled quantity), and
-  its pieces go into own batches, not the container's takes. The own invoice credits it like any
-  own buyback (v = -c + (c - k) x share, c the taken-over cost, k the terugkoopkost), the same
-  money as netting it on the container.
+  its pieces come in as own stock at the container's cost (`StockBatchContext.partnerTakeOver`:
+  an own COUNT batch "Teruggekocht na afrekening PO-..." with the container batch's cost fields,
+  never into the container's batch). The own invoice credits it like any own buyback (v = -c +
+  (c - k) x share, c the taken-over cost, k the terugkoopkost); a resale of that piece from own
+  stock costs the same c, so together they come to (resale net - k) x share, the same money as
+  netting both on the container.
   Nothing to mirror: "Meld
   eerst de verkoop op de veiling; een terugkoop hoort bij een gemelde verkoop.". Only on AUCTION.
 - **Stock lines**: `StockMovement.Kind.PARTNER_SALE` ("Verkocht via partner", negative) and

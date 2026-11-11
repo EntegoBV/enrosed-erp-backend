@@ -434,7 +434,7 @@ public class StockService {
                     StockBatchContext.pinned(context.pinPurchaseOrderId()), reference, now);
         } else {
             batches.onPartnerReturn(productId, movementId, pieces, context.returnOfMovementIds(), purchaseOrderId,
-                    reference, now);
+                    context.takeOverFromPurchaseOrderId(), reference, now);
         }
         recompute(productId);
         return movementId;
