@@ -1753,9 +1753,13 @@ public class SalesOrderService {
                 order.lines(), order.pallets()).carrying(order);
     }
 
+    /**
+     * A staff save from the editor. {@code heightPicked}: the screen says the pallet height it sends
+     * was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder update(long id, SalesOrder changes) {
-        return update(id, changes, false, true);
+    public SalesOrder update(long id, SalesOrder changes, boolean heightPicked) {
+        return update(id, changes, false, true, heightPicked);
     }
 
     /**
@@ -1765,7 +1769,7 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder updateWebsiteRequest(long id, SalesOrder changes) {
-        return update(id, changes, false, false);
+        return update(id, changes, false, false, true);
     }
 
     /**
@@ -1776,17 +1780,19 @@ public class SalesOrderService {
      */
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder updateByCustomer(long id, SalesOrder changes) {
-        return update(id, changes, true, false);
+        return update(id, changes, true, false, true);
     }
 
-    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices) {
+    /** {@code heightPicked}: the height in the changes is a choice; the website's paths pass the stored one themselves. */
+    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices, boolean heightPicked) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
-        /* No height from the client (a website change, an older screen) keeps the document's own:
-           the height a document was made with only changes when someone picks another. */
-        if (changes.maxPalletHeightCm() == null) changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+        /* No height from the client (a website change, a screen that did not change it) keeps the document's
+           own: the height a document was made with only changes when someone picks another. */
+        if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
+            changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
@@ -1963,9 +1969,12 @@ public class SalesOrderService {
                                  Long freightCarrierId, BigDecimal freightCarrierExtraEur,
                                  FreightState freight, List<OrderPallet> pallets) {}
 
-    /** Changes transport only, including for an open sent quote, without reopening its commercial fields. */
+    /**
+     * Changes transport only, including for an open sent quote, without reopening its commercial fields.
+     * {@code heightPicked}: the screen says the pallet height it sends was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder updateShipping(long id, ShippingUpdate request) {
+    public SalesOrder updateShipping(long id, ShippingUpdate request, boolean heightPicked) {
         lockDocumentForMutation(id);
         SalesOrder current = get(id);
         requireFreightEditable(current);
@@ -1980,6 +1989,7 @@ public class SalesOrderService {
         FreightState state = current.freight() == FreightState.TE_BEPALEN
                 && request.freight() != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD : request.freight();
+        BigDecimal askedHeight = heightAsked(request.maxPalletHeightCm(), current.maxPalletHeightCm(), heightPicked);
         SalesOrder updated = new SalesOrder(current.id(), current.number(), current.customerId(), current.countryCode(),
                 current.orderDate(), current.validUntil(), current.status(), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.markupMode(), current.orderMarkupPct(),
@@ -1988,7 +1998,7 @@ public class SalesOrderService {
                 current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
                 state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
                 request.loadMode(), request.palletProfile(),
-                request.maxPalletHeightCm() == null ? current.maxPalletHeightCm() : request.maxPalletHeightCm(),
+                askedHeight == null ? current.maxPalletHeightCm() : askedHeight,
                 request.freightPricingStrategy(),
                 request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
@@ -2468,6 +2478,25 @@ public class SalesOrderService {
     private boolean palletHeightPickedByHand(SalesOrder order) {
         return order.id() != null && heightPicks != null && heightPicks.isResolvable()
                 && heightPicks.get().of(order.id()).byHand();
+    }
+
+    /**
+     * The pallet height a staff save asks for; null when it asks for none and the document keeps its own.
+     *
+     * Since 2026-11-10 the editor sends a height only when it was changed on that screen, and says so
+     * ({@code ?heightPicked=true}). A height without that mark comes from a window still on the bundle
+     * of before: it sends the height it holds with every save, and its "Standaard" (or an emptied
+     * field) means 220 cm, the standard of 7-10 November. Its 220 on a document that stores something
+     * else is therefore no choice: left alone it would put a concept quote the one-time return moved to
+     * 260 back on 220 and log that as a height set by hand, and it would set 220 on a new document where
+     * the seller asked for the standard. Any other height from such a window is a pick, as before; to
+     * set exactly 220 the window has to be loaded again.
+     */
+    static BigDecimal heightAsked(BigDecimal sent, BigDecimal stored, boolean picked) {
+        if (sent == null || picked) return sent;
+        boolean formerStandard = sent.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0;
+        boolean asStored = stored != null && stored.compareTo(sent) == 0;
+        return formerStandard && !asStored ? null : sent;
     }
 
     /**
