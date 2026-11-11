@@ -205,11 +205,14 @@ public class StockBatchService {
     /**
      * Pieces a partner bought back on the clock, or the undo of a partner sale: they go back into the open takes of
      * the given stock movements first (the sale part's own takes, so a container's pieces return to its PARTNER
-     * batch), most recently consumed first, then resolve those movements' open unassigned takes; whatever is left
-     * goes the way of a credit return ({@link #restore}). Never a Telling batch through {@link #onAdd}.
+     * batch), most recently consumed first, then resolve those movements' open unassigned takes. A part booked
+     * before the batch start has no takes: the start wrote what meldingen took out of a container as that
+     * container's BACKFILL take, so a container part ({@code purchaseOrderId}) re-opens that take next. Whatever
+     * is left goes the way of a credit return ({@link #restore}); for an own part only into own batches. Never a
+     * Telling batch through {@link #onAdd}.
      */
     void onPartnerReturn(long productId, Long movementId, int pieces, Collection<Long> sourceMovementIds,
-                         String reference, Instant at) {
+                         Long purchaseOrderId, String reference, Instant at) {
         if (pieces <= 0 || !active()) return;
         Ids ids = new Ids(movementId, null, null, null, reference, at, actorName());
         int remaining = pieces;
@@ -228,7 +231,15 @@ public class StockBatchService {
             unassignedTakes.sort(Comparator.comparing((StockBatchMoveEntity m) -> m.id).reversed());
             remaining = resolve(open(unassignedTakes), remaining, PARTNER_BUYBACK, ids);
         }
-        if (remaining > 0) restore(productId, remaining, PARTNER_BUYBACK, null, null, ids);
+        if (remaining > 0 && purchaseOrderId != null) {
+            List<Long> containerBatches = batches.list("productId = ?1 and purchaseOrderId = ?2", productId, purchaseOrderId)
+                    .stream().map(batch -> batch.id).toList();
+            if (!containerBatches.isEmpty()) {
+                remaining = restoreInto(moves.list("batchId in ?1 and kind = ?2 and pieces < 0 and linkMoveId is null",
+                        containerBatches, BACKFILL), remaining, PARTNER_BUYBACK, ids);
+            }
+        }
+        if (remaining > 0) restore(productId, remaining, PARTNER_BUYBACK, null, null, ids, purchaseOrderId != null);
     }
 
     /** A count set at a location: fewer pieces leave FIFO, more pieces are found. */
@@ -711,6 +722,12 @@ public class StockBatchService {
      */
     private void restore(long productId, int pieces, String kind, Long preferSalesOrderId, Long preferTicaSaleId,
                          Ids ids) {
+        restore(productId, pieces, kind, preferSalesOrderId, preferTicaSaleId, ids, true);
+    }
+
+    /** The same; {@code intoPartner} false leaves partner batches out of step (2) (an own part coming back). */
+    private void restore(long productId, int pieces, String kind, Long preferSalesOrderId, Long preferTicaSaleId,
+                         Ids ids, boolean intoPartner) {
         int remaining = pieces;
         if (preferSalesOrderId != null || preferTicaSaleId != null) {
             List<StockBatchMoveEntity> preferred = preferSalesOrderId != null
@@ -741,7 +758,7 @@ public class StockBatchService {
                 else if (SALE.equals(take.kind)) partner.add(take);
             }
             remaining = restoreInto(own, remaining, kind, ids);
-            remaining = restoreInto(partner, remaining, kind, ids);
+            if (intoPartner) remaining = restoreInto(partner, remaining, kind, ids);
         }
         if (remaining > 0) remaining = resolve(openUnassigned(productId), remaining, kind, ids);
         if (remaining > 0) found(productId, remaining, "Retour zonder herkomst", kind, ids);

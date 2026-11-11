@@ -433,7 +433,8 @@ public class StockService {
             batches.onTake(productId, movementId, kind, pieces,
                     StockBatchContext.pinned(context.pinPurchaseOrderId()), reference, now);
         } else {
-            batches.onPartnerReturn(productId, movementId, pieces, context.returnOfMovementIds(), reference, now);
+            batches.onPartnerReturn(productId, movementId, pieces, context.returnOfMovementIds(), purchaseOrderId,
+                    reference, now);
         }
         recompute(productId);
         return movementId;

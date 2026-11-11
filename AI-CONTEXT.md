@@ -2573,7 +2573,11 @@ named constraints identical in `@Table` and the migration:
   (a buyback, or the withdrawal of a sale) go through `StockBatchService.onPartnerReturn`: into
   the open takes of the mirrored sale part's movement and of the withdrawals of earlier buybacks
   of it (their REVERSAL rows), most recently consumed first, then those movements' unassigned
-  takes, then the credit-return restore; never `onAdd` (that would make an own Telling batch). The
+  takes. A part booked before the batch start has no takes: the start wrote what meldingen took
+  out of a container into that container's BACKFILL take, so a container part (the movement's
+  purchaseOrderId) re-opens its container's BACKFILL take next and its pieces stay the
+  container's. Then the credit-return restore, for an own part only into own batches; never
+  `onAdd` (that would make an own Telling batch). The
   batch view counts PARTNER_SALE as sold. `/api/stock-batches/check` stays empty after every
   operation. With batches off every hook is a no-op. The batch start (backfill) counts what
   meldingen took out of a partner container (`StockService.partnerReportedOut`, net of buybacks
