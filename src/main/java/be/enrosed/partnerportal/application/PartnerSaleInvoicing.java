@@ -376,6 +376,8 @@ public class PartnerSaleInvoicing {
         BigDecimal buyback = BigDecimal.ZERO;
         BigDecimal ownCost = BigDecimal.ZERO;
         boolean costUnknown;
+        /** Some own pieces had no known cost and count at the average of the known ones. */
+        boolean costEstimated;
         final List<OpenPart> parts = new ArrayList<>();
         final Set<Long> reportIds = new TreeSet<>();
         LocalDate firstSoldOn;
@@ -399,6 +401,7 @@ public class PartnerSaleInvoicing {
                 buyback = buyback.add(line.grossEur == null ? BigDecimal.ZERO : line.grossEur);
                 ownCost = ownCost.subtract(unitCost.multiply(BigDecimal.valueOf(quantity)));
             }
+            if (line.purchaseOrderId == null && Boolean.TRUE.equals(line.unitCostEstimated)) costEstimated = true;
             parts.add(part);
             reportIds.add(part.report().id);
             LocalDate soldOn = part.report().soldOn;
@@ -561,6 +564,8 @@ public class PartnerSaleInvoicing {
         for (OwnProduct product : products) {
             ProductSum sum = product.sum();
             if (sum.costUnknown) warnings.add("Geen kostprijs bekend voor " + label(catalog, sum.productId));
+            else if (sum.costEstimated) warnings.add("Kostprijs deels geschat voor " + label(catalog, sum.productId)
+                    + ": niet elk stuk had een kostprijs");
             value = value.add(product.valueEur());
             int quantity = sum.quantity();
             BigDecimal unitPrice = quantity > 0 ? product.valueEur().divide(BigDecimal.valueOf(quantity), 4, RoundingMode.HALF_UP) : null;

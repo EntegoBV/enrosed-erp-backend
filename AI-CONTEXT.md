@@ -2556,7 +2556,10 @@ named constraints identical in `@Table` and the migration:
   Enrosed kost: with batches the value of its takes (`unitCostExclEnrosedEur`; a take from a batch
   that only knows its full cost loses the Enrosed kost `ProductCostHistoryService.enrosedParts`
   explains in it; pieces without a batch cost at the card), without batches the card's
-  landedCostEur minus that Enrosed part. Unknown -> 0. Container parts have no unit cost.
+  landedCostEur minus that Enrosed part. Unknown -> 0. Pieces with no known cost beside known ones
+  (no batch cost and no card) count at the average of the known ones and the part gets
+  `unit_cost_estimated` = true, so the Factureren preview warns "Kostprijs deels geschat voor X";
+  an own buyback copies the flag of the part it mirrors. Container parts have no unit cost.
 - **Allocation of a buyback**: mirrors sale parts of the product: this melding's (the last-filled
   part first, so 100 sold with 1 back reads as 99 sold), then the partner's other open sale parts
   newest first (sold_on, melding, part), then invoiced ones; each at most its quantity minus what

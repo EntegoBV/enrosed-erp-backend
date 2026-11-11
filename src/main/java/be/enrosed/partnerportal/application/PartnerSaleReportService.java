@@ -218,9 +218,10 @@ public class PartnerSaleReportService {
             Long movementId = stock.partnerMove(part.productId, location.id(), -part.quantity,
                     StockMovement.Kind.PARTNER_SALE, "Veilingverkoop " + number, part.purchaseOrderId, report.soldOn,
                     StockBatchContext.pinned(part.purchaseOrderId));
-            BigDecimal unitCost = part.purchaseOrderId == null
+            OwnCost cost = part.purchaseOrderId == null
                     ? ownUnitCost(catalog.get(part.productId), movementId, part.quantity, batchesOn) : null;
-            part.written = write(report, part, movementId, unitCost, null);
+            part.written = write(report, part, movementId, cost == null ? null : cost.unitCostEur(), null);
+            if (cost != null && cost.estimated()) part.written.unitCostEstimated = true;
         }
         Map<Long, List<Long>> earlierReversals = lines.reversedBuybackMovements(buybacks.stream()
                 .filter(part -> part.mirrorsExisting != null).map(part -> part.mirrorsExisting.id).toList());
@@ -241,6 +242,8 @@ public class PartnerSaleReportService {
             BigDecimal unitCost = part.purchaseOrderId != null ? null
                     : part.takeoverCostEur != null ? part.takeoverCostEur : mirrored.unitCostEur;
             part.written = write(report, part, movementId, unitCost, mirrored.id);
+            if (part.purchaseOrderId == null && part.takeoverCostEur == null
+                    && Boolean.TRUE.equals(mirrored.unitCostEstimated)) part.written.unitCostEstimated = true;
         }
         lines.flush();
 
@@ -408,14 +411,20 @@ public class PartnerSaleReportService {
         return line;
     }
 
+    /** An own part's cost per sales unit; estimated = some pieces had no known cost and count at the known average. */
+    private record OwnCost(BigDecimal unitCostEur, boolean estimated) {}
+
     /**
      * External cost per sales unit of an own part (without the Enrosed kost, the basis the
      * settlement ledger uses for containers). With batches: what its takes were worth excl. the
      * Enrosed kost; a take from a batch that only knows its full cost (a Telling or opening batch
      * at the card cost) loses the Enrosed kost the cost history explains for that cost, and pieces
-     * without a batch or a cost count at the card. Without batches: the card. 0 when nothing is known.
+     * without a batch or a cost count at the card. Pieces with no known cost at all (no batch cost
+     * and no card) count at the average of the known pieces, and the part is marked estimated so
+     * Factureren warns; never as 0 inside a plausible-looking average. Without batches: the card.
+     * 0 when nothing is known (Factureren then warns "Geen kostprijs bekend").
      */
-    private BigDecimal ownUnitCost(Product product, Long movementId, int quantity, boolean batchesOn) {
+    private OwnCost ownUnitCost(Product product, Long movementId, int quantity, boolean batchesOn) {
         ProductCostHistoryService.EnrosedParts enrosed = costHistory.enrosedParts(List.of(product.id()));
         BigDecimal card = externalCost(product.id(), product.landedCostEur(), enrosed);
         if (batchesOn && movementId != null) {
@@ -423,6 +432,8 @@ public class PartnerSaleReportService {
             if (!takes.isEmpty()) {
                 int factor = Math.max(1, PartnerProductNames.of(product).piecesPerUnit());
                 BigDecimal value = BigDecimal.ZERO;
+                BigDecimal knownUnits = BigDecimal.ZERO;
+                boolean unknown = false;
                 for (StockBatchMove take : takes) {
                     int pieces = Math.abs(take.pieces());
                     BigDecimal perUnit;
@@ -435,14 +446,20 @@ public class PartnerSaleReportService {
                                 : externalCost(product.id(), take.unitCostEur(), enrosed);
                         unitPieces = Math.max(1, take.unitPieces());
                     }
-                    if (perUnit == null) continue;
-                    value = value.add(perUnit.multiply(BigDecimal.valueOf(pieces))
-                            .divide(BigDecimal.valueOf(unitPieces), 10, RoundingMode.HALF_UP));
+                    if (perUnit == null) {
+                        unknown = true;
+                        continue;
+                    }
+                    BigDecimal units = BigDecimal.valueOf(pieces).divide(BigDecimal.valueOf(unitPieces), 10, RoundingMode.HALF_UP);
+                    value = value.add(perUnit.multiply(units));
+                    knownUnits = knownUnits.add(units);
                 }
-                return value.divide(BigDecimal.valueOf(quantity), 4, RoundingMode.HALF_UP);
+                if (!unknown) return new OwnCost(value.divide(BigDecimal.valueOf(quantity), 4, RoundingMode.HALF_UP), false);
+                if (knownUnits.signum() <= 0) return new OwnCost(BigDecimal.ZERO.setScale(4), false);
+                return new OwnCost(value.divide(knownUnits, 4, RoundingMode.HALF_UP), true);
             }
         }
-        return card == null ? BigDecimal.ZERO.setScale(4) : card.setScale(4, RoundingMode.HALF_UP);
+        return new OwnCost(card == null ? BigDecimal.ZERO.setScale(4) : card.setScale(4, RoundingMode.HALF_UP), false);
     }
 
     /** A full cost per sales unit minus the Enrosed kost the cost history explains in it; null when there is none. */

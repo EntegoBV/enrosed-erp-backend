@@ -98,11 +98,14 @@ create table if not exists partner_sale_report_line (
     extra_cost_eur numeric(19,2),
     net_eur numeric(19,2),
     unit_cost_eur numeric(19,4),
+    unit_cost_estimated boolean,
     mirrors_line_id bigint,
     stock_movement_id bigint,
     invoice_id bigint,
     invoiced_at timestamptz
 );
+-- unit_cost_estimated: some pieces of an own part had no known cost and count at the average of the known ones
+alter table partner_sale_report_line add column if not exists unit_cost_estimated boolean;
 create index if not exists idx_partner_sale_line_report on partner_sale_report_line (report_id);
 create index if not exists idx_partner_sale_line_customer_invoice on partner_sale_report_line (customer_id, invoice_id);
 create index if not exists idx_partner_sale_line_container on partner_sale_report_line (purchase_order_id, product_id);

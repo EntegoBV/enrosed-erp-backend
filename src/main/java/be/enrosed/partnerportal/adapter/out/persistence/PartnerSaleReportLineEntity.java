@@ -86,6 +86,10 @@ public class PartnerSaleReportLineEntity extends PanacheEntityBase {
     @Column(name = "unit_cost_eur", precision = 19, scale = 4)
     public BigDecimal unitCostEur;
 
+    /** True when some pieces of this own part had no known cost and count at the average of the known ones. */
+    @Column(name = "unit_cost_estimated")
+    public Boolean unitCostEstimated;
+
     @Column(name = "mirrors_line_id")
     public Long mirrorsLineId;
 
