@@ -78,7 +78,7 @@ public class ContainerTrackingService {
                             ran = true;
                         }
                     }
-                    PurchaseOrder forDates = orders.findById(orderId).orElse(null);
+                    PurchaseOrder forDates = dateSync.reread(orderId).orElse(null);
                     dates = forDates == null ? null : dateReference(forDates);
                     if (dates != null) {
                         TrackingStore.Snapshot priorDates = store.find(dates.key());
@@ -91,7 +91,8 @@ public class ContainerTrackingService {
                 outcome = ran ? "CHECKED" : "COOLDOWN";
             }
         }
-        PurchaseOrder current = orders.findById(orderId).orElseThrow(() -> new NotFoundException("Container met tracking niet gevonden."));
+        // Read again in its own transaction: the answer must show the dates this check just wrote.
+        PurchaseOrder current = dateSync.reread(orderId).orElseThrow(() -> new NotFoundException("Container met tracking niet gevonden."));
         if (!tracked(current)) throw new NotFoundException("Container met tracking niet gevonden.");
         return stored(current, outcome);
     }
@@ -123,7 +124,7 @@ public class ContainerTrackingService {
                         touched = true;
                     }
                 }
-                PurchaseOrder forDates = orders.findById(order.id()).orElse(null);
+                PurchaseOrder forDates = dateSync.reread(order.id()).orElse(null);
                 Reference dates = forDates == null || forDates.archivedAt() != null || forDates.status() == PurchaseOrderStatus.ONTVANGEN
                         || forDates.receivedOn() != null ? null : dateReference(forDates);
                 if (dates != null && due(store.find(dates.key()), Instant.now())) {
@@ -274,7 +275,11 @@ public class ContainerTrackingService {
     }
 
     static Reference trackingReference(PurchaseOrder order, VesselLinkStore.Link link) {
-        return link == null ? referenceFor(order) : new Reference(hash("VOYDAR:ORDER:" + order.id() + ":" + link.referenceHash() + ":" + link.imo() + ":" + link.linkedAt()), "IMO:" + link.imo(), false);
+        return link == null ? referenceFor(order) : new Reference(vesselKey(order.id(), link.referenceHash(), link.imo(), link.linkedAt()), "IMO:" + link.imo(), false);
+    }
+    /** The key of an order's own port-call snapshot. It holds the link's reference hash: VesselLinkStore.rebind moves the snapshot with it. */
+    static String vesselKey(long orderId, String referenceHash, String imo, Instant linkedAt) {
+        return hash("VOYDAR:ORDER:" + orderId + ":" + referenceHash + ":" + imo + ":" + linkedAt);
     }
     static Reference vesselFeedReference(String imo) { return new Reference(hash("VOYDAR:FEED:" + imo), "IMO:" + imo, false); }
     /**

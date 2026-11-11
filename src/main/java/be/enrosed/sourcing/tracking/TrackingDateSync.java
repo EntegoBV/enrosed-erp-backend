@@ -3,6 +3,7 @@ package be.enrosed.sourcing.tracking;
 import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
+import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -22,7 +23,17 @@ import static be.enrosed.sourcing.tracking.ContainerTracking.*;
 public class TrackingDateSync {
     @Inject EntityManager entities;
     @Inject ActivityLogService activity;
+    @Inject SourcingRepositories.PurchaseOrders orders;
     public record Plan(LocalDate shippedOn, LocalDate expectedArrival, String error) {}
+
+    /**
+     * The order as it is stored now, read in its own transaction. Outside a transaction a request (and a job
+     * pass) keeps the order as it first read it, so a check that just wrote new dates was answered with the old
+     * ones ("de opgeslagen datum is nog niet aangepast" right after it was) and the date lookup that follows a
+     * ship check got a baseline from before that check.
+     */
+    @Transactional
+    public Optional<PurchaseOrder> reread(long orderId) { return orders.findById(orderId); }
 
     @Transactional
     public String shipment(PurchaseOrder baseline, Observation observation, Instant fetchedAt, String source) {
