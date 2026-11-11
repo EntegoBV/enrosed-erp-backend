@@ -154,4 +154,44 @@ public final class PartnerPortalViews {
                                    BigDecimal grossEur, BigDecimal netEur) {}
 
     public record Analytics(List<AnalyticsReport> reports, List<AnalyticsProduct> products) {}
+
+    /* ------------------------------------------------------------------ Factureren */
+
+    /** POST /api/partner-sales/invoice-preview; reportIds null = every open melding of the partner, until by sold_on. */
+    public record InvoicePreviewRequest(Long customerId, List<Long> reportIds, LocalDate until) {}
+
+    /** POST /api/partner-sales/invoice: the preview's reportIds; parts of other meldingen are never taken. */
+    public record InvoiceRequest(Long customerId, List<Long> reportIds) {}
+
+    /**
+     * One product of a group: what its open parts sold and bought back, the invoice quantity
+     * (sold - bought back) and the net proceeds the invoice uses (proceedsEur: saleNet - buyback, plus
+     * what it absorbs of other products of the source, see the group warnings), with the cost and our
+     * value as the invoice computes them.
+     */
+    public record InvoicePreviewLine(long productId, String name, String variant, int soldQuantity, int buybackQuantity,
+                                     int quantity, BigDecimal saleNetEur, BigDecimal buybackEur, BigDecimal proceedsEur,
+                                     BigDecimal costEur, BigDecimal valueEur) {}
+
+    /**
+     * One invoice to be: source CONTAINER (a partner settlement on purchaseOrderId, createAuctionSettlement's
+     * own arithmetic) or OWN (one invoice for Enrosed's own stock). balanceEur = valueEur - advanceEur;
+     * blocked = the refusal the creation would give (nothing is made for it).
+     */
+    public record InvoicePreviewGroup(String source, Long purchaseOrderId, String containerName,
+                                      List<InvoicePreviewLine> lines, BigDecimal valueEur, BigDecimal advanceEur,
+                                      BigDecimal balanceEur, boolean finalSettlement, String blocked,
+                                      List<String> warnings) {}
+
+    /** A product whose open parts stay open in this run, and why. */
+    public record InvoiceSkipped(long productId, String name, String source, Long purchaseOrderId, String reason) {}
+
+    public record InvoicePreview(List<InvoicePreviewGroup> groups, List<InvoiceSkipped> skipped, List<Long> reportIds,
+                                 BigDecimal profitSharePct) {}
+
+    public record CreatedInvoice(long id, String number, String source, Long purchaseOrderId) {}
+
+    public record BlockedGroup(Long purchaseOrderId, String message) {}
+
+    public record InvoiceResult(List<CreatedInvoice> invoices, List<BlockedGroup> blocked, List<InvoiceSkipped> skipped) {}
 }

@@ -300,10 +300,81 @@ public final class PartnerPortalRepositories {
             if (released) query.setParameter("released", releasedInvoiceIds);
             return query.getResultList();
         }
+        /**
+         * SALE and BUYBACK parts of non-voided meldingen on this container (any partner, open or not:
+         * the caller applies the open-part rule).
+         */
+        public List<PartnerSaleReportLineEntity> partsOnContainer(long purchaseOrderId) {
+            return getEntityManager().createQuery("""
+                            select l from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
+                            where r.id = l.reportId and r.voidedAt is null and l.lineType in :types
+                              and l.purchaseOrderId = :order""", PartnerSaleReportLineEntity.class)
+                    .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
+                    .setParameter("order", purchaseOrderId)
+                    .getResultList();
+        }
+
+        /** Invoice ids that SALE/BUYBACK parts of this partner's non-voided meldingen point at. */
+        public List<Long> liveInvoiceIdsOf(long customerId) {
+            return getEntityManager().createQuery("""
+                            select distinct l.invoiceId from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
+                            where r.id = l.reportId and r.voidedAt is null and r.customerId = :customer
+                              and l.invoiceId is not null and l.lineType in :types""", Long.class)
+                    .setParameter("customer", customerId)
+                    .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
+                    .getResultList();
+        }
+
+        /**
+         * The ids of this partner's non-voided meldingen with a part that is not invoiced or whose
+         * invoice is one of {@code releasedInvoiceIds} (gone, trashed or cancelled), sold on or before
+         * {@code until} (null = any day): the meldingen Factureren takes by default.
+         */
+        public List<Long> reportsWithOpenParts(long customerId, Collection<Long> releasedInvoiceIds, LocalDate until) {
+            boolean released = releasedInvoiceIds != null && !releasedInvoiceIds.isEmpty();
+            var query = getEntityManager().createQuery("""
+                            select distinct r.id from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
+                            where r.id = l.reportId and r.voidedAt is null and r.customerId = :customer
+                              and l.lineType in :types""" + (until == null ? "" : " and r.soldOn <= :until")
+                            + " and (l.invoiceId is null" + (released ? " or l.invoiceId in :released" : "") + ")",
+                            Long.class)
+                    .setParameter("customer", customerId)
+                    .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK));
+            if (until != null) query.setParameter("until", until);
+            if (released) query.setParameter("released", releasedInvoiceIds);
+            return query.getResultList().stream().sorted().toList();
+        }
     }
 
     @ApplicationScoped
     public static class InvoiceParts implements PanacheRepositoryBase<PartnerSaleInvoicePartEntity, Long> {
+        /**
+         * Per document, product and part type: the quantity its rows link, as {salesOrderId, productId,
+         * lineType, quantity}. {@code salesOrderIds} null reads every report-backed document (one query
+         * for a whole list); otherwise only these.
+         */
+        public List<Object[]> linkedQuantities(Collection<Long> salesOrderIds) {
+            boolean some = salesOrderIds != null;
+            if (some && salesOrderIds.isEmpty()) return List.of();
+            var query = getEntityManager().createQuery("""
+                            select p.salesOrderId, l.productId, l.lineType, sum(p.quantity)
+                            from PartnerSaleInvoicePartEntity p, PartnerSaleReportLineEntity l
+                            where l.id = p.lineId""" + (some ? " and p.salesOrderId in :ids" : "")
+                            + " group by p.salesOrderId, l.productId, l.lineType", Object[].class);
+            if (some) query.setParameter("ids", salesOrderIds);
+            return query.getResultList();
+        }
+
+        /** The newest stock line of the parts linked to this document; null when none. */
+        public Instant lastMovementAt(long salesOrderId) {
+            return getEntityManager().createQuery("""
+                            select max(m.at) from StockMovementEntity m where m.id in (
+                              select l.stockMovementId from PartnerSaleInvoicePartEntity p, PartnerSaleReportLineEntity l
+                              where l.id = p.lineId and p.salesOrderId = :id)""", Instant.class)
+                    .setParameter("id", salesOrderId)
+                    .getSingleResult();
+        }
+
         /** The ids among these documents that are report-backed. */
         public List<Long> reportBacked(Collection<Long> salesOrderIds) {
             if (salesOrderIds == null || salesOrderIds.isEmpty()) return List.of();

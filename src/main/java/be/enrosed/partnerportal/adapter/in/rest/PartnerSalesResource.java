@@ -1,6 +1,7 @@
 package be.enrosed.partnerportal.adapter.in.rest;
 
 import be.enrosed.partnerportal.application.PartnerPortalViews;
+import be.enrosed.partnerportal.application.PartnerSaleInvoicing;
 import be.enrosed.partnerportal.application.PartnerSaleReportService;
 import be.enrosed.partnerportal.application.PartnerSaleRequests;
 import be.enrosed.partnerportal.application.PartnerSalesStaffService;
@@ -34,10 +35,29 @@ public class PartnerSalesResource {
 
     private final PartnerSalesStaffService staff;
     private final PartnerSaleReportService meldingen;
+    private final PartnerSaleInvoicing invoicing;
 
-    public PartnerSalesResource(PartnerSalesStaffService staff, PartnerSaleReportService meldingen) {
+    public PartnerSalesResource(PartnerSalesStaffService staff, PartnerSaleReportService meldingen,
+                                PartnerSaleInvoicing invoicing) {
         this.staff = staff;
         this.meldingen = meldingen;
+        this.invoicing = invoicing;
+    }
+
+    /** Factureren, step 1: what would be made now (reportIds null = every open melding; until by sold_on). Writes nothing. */
+    @POST
+    @Path("/invoice-preview")
+    public PartnerPortalViews.InvoicePreview invoicePreview(PartnerPortalViews.InvoicePreviewRequest request) {
+        if (request == null) throw new BusinessRuleException("Kies de partner");
+        return invoicing.preview(request.customerId(), request.reportIds(), request.until());
+    }
+
+    /** Factureren, step 2: one invoice per source for the preview's meldingen; a refused source blocks only itself. */
+    @POST
+    @Path("/invoice")
+    public PartnerPortalViews.InvoiceResult invoice(PartnerPortalViews.InvoiceRequest request) {
+        if (request == null) throw new BusinessRuleException("Kies de partner");
+        return invoicing.invoice(request.customerId(), request.reportIds());
     }
 
     @GET
