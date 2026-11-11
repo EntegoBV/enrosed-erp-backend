@@ -2561,7 +2561,15 @@ named constraints identical in `@Table` and the migration:
   part first, so 100 sold with 1 back reads as 99 sold), then the partner's other open sale parts
   newest first (sold_on, melding, part), then invoiced ones; each at most its quantity minus what
   live buybacks already mirror. Each piece becomes a BUYBACK part on the mirrored part's source
-  with `mirrors_line_id`; an own buyback keeps the mirrored unit cost. Nothing to mirror: "Meld
+  with `mirrors_line_id`; an own buyback keeps the mirrored unit cost. Except on a container
+  settled through for that product (`PartnerContainerCapacity.settled`: ledger remaining -
+  historicShipped <= 0, e.g. after its slotfactuur): no settlement line can come there any more,
+  so the buyback goes on own stock (purchaseOrderId null, still mirroring the container part) at
+  what the container's settlements charged per sales unit (settled cost / settled quantity), and
+  its pieces go into own batches, not the container's takes. The own invoice credits it like any
+  own buyback (v = -c + (c - k) x share, c the taken-over cost, k the terugkoopkost), the same
+  money as netting it on the container.
+  Nothing to mirror: "Meld
   eerst de verkoop op de veiling; een terugkoop hoort bij een gemelde verkoop.". Only on AUCTION.
 - **Stock lines**: `StockMovement.Kind.PARTNER_SALE` ("Verkocht via partner", negative) and
   `PARTNER_BUYBACK` ("Teruggekocht door partner", positive), one per part, written by
@@ -2704,7 +2712,12 @@ named constraints identical in `@Table` and the migration:
   while any is open ("Er staan nog n stuks open in Veilingverkopen; maak een deelafrekening en
   factureer de rest via Veilingverkopen (dat wordt de slotfactuur)"): the final test stays "takes
   everything the ledger has left", so the Veilingverkopen invoice of the last pieces becomes the
-  slotfactuur by itself and a container never gets two. `GET
+  slotfactuur by itself and a container never gets two. A manual slotfactuur (asked or derived) is
+  also refused while any open part sits on the container, a buyback waiting for a resale included
+  ("Er staat nog een terugkoop van deze container open ..."). Factureren likewise never makes a
+  slotfactuur that leaves an open part of its container behind (a skipped buyback, or a melding
+  outside the chosen ones): that group is blocked "Dit wordt de slotfactuur van deze container,
+  maar VV-n heeft er nog een open deel; factureer dat mee of wacht op een volgende verkoop". `GET
   /api/purchase-orders/{id}/partner-settlement-availability` carries per line
   `openReportedQuantity` (sale - buyback, at least 0) and `openReportedNetEur`
   (`partnerSettlementAvailabilityWithReports`); `PartnerFinancingService.Summary` carries

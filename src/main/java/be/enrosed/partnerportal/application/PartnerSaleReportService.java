@@ -230,12 +230,16 @@ public class PartnerSaleReportService {
             /* Back into the takes that hold the mirrored sale's pieces: its own, and those of withdrawn
                buybacks of it (they took the pieces out again), so a container's pieces stay the container's. */
             List<Long> sources = new ArrayList<>();
-            sources.add(mirrored.stockMovementId);
-            sources.addAll(earlierReversals.getOrDefault(mirrored.id, List.of()));
+            /* Taken over from a settled-through container: own pieces, so not back into the container's takes. */
+            if (part.takeoverCostEur == null) {
+                sources.add(mirrored.stockMovementId);
+                sources.addAll(earlierReversals.getOrDefault(mirrored.id, List.of()));
+            }
             Long movementId = stock.partnerMove(part.productId, location.id(), part.quantity,
                     StockMovement.Kind.PARTNER_BUYBACK, "Terugkoop " + number, part.purchaseOrderId, report.soldOn,
                     StockBatchContext.partnerReturn(sources));
-            BigDecimal unitCost = part.purchaseOrderId == null ? mirrored.unitCostEur : null;
+            BigDecimal unitCost = part.purchaseOrderId != null ? null
+                    : part.takeoverCostEur != null ? part.takeoverCostEur : mirrored.unitCostEur;
             part.written = write(report, part, movementId, unitCost, mirrored.id);
         }
         lines.flush();
@@ -357,14 +361,25 @@ public class PartnerSaleReportService {
         }
         List<BigDecimal> gross = PartnerSaleMoney.splitGross(priced.grossEur(), quantities);
         List<Planned> parts = new ArrayList<>();
+        Map<Long, PartnerContainerCapacity.Settled> settled = new HashMap<>();
         for (int index = 0; index < mirrors.size(); index++) {
             Object mirror = mirrors.get(index);
-            parts.add(mirror instanceof Planned planned
-                    ? Planned.buyback(entry.entryNo(), product.id(), planned.purchaseOrderId, quantities.get(index),
-                    priced.unitPriceEur(), gross.get(index), null, planned)
-                    : Planned.buyback(entry.entryNo(), product.id(), ((PartnerSaleReportLineEntity) mirror).purchaseOrderId,
-                    quantities.get(index), priced.unitPriceEur(), gross.get(index), (PartnerSaleReportLineEntity) mirror,
-                    null));
+            if (mirror instanceof Planned planned) {
+                parts.add(Planned.buyback(entry.entryNo(), product.id(), planned.purchaseOrderId, quantities.get(index),
+                        priced.unitPriceEur(), gross.get(index), null, planned));
+                continue;
+            }
+            PartnerSaleReportLineEntity line = (PartnerSaleReportLineEntity) mirror;
+            /* A container with nothing of this product left to settle can never invoice a buyback: Enrosed takes
+               the pieces over as own stock at what the container's settlements charged for them. */
+            PartnerContainerCapacity.Settled closed = line.purchaseOrderId == null ? null
+                    : settled.computeIfAbsent(line.purchaseOrderId, id -> capacity.settled(id, product.id()));
+            boolean takeOver = closed != null && closed.closed();
+            Planned part = Planned.buyback(entry.entryNo(), product.id(), takeOver ? null : line.purchaseOrderId,
+                    quantities.get(index), priced.unitPriceEur(), gross.get(index), line, null);
+            if (takeOver) part.takeoverCostEur = closed.unitCostEur() == null
+                    ? BigDecimal.ZERO.setScale(4) : closed.unitCostEur();
+            parts.add(part);
         }
         return parts;
     }
@@ -719,6 +734,8 @@ public class PartnerSaleReportService {
         final BigDecimal net;
         final PartnerSaleReportLineEntity mirrorsExisting;
         final Planned mirrorsPlanned;
+        /** A buyback of a part on a settled-through container: booked on own stock at this cost (else null). */
+        BigDecimal takeoverCostEur;
         PartnerSaleReportLineEntity written;
 
         private Planned(int entryNo, long productId, String type, Long purchaseOrderId, int quantity,

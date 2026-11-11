@@ -16,6 +16,8 @@ import be.enrosed.sourcing.domain.PurchaseOrder;
 import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -174,6 +176,26 @@ public class PartnerContainerCapacity {
             if (!left.isEmpty()) result.put(containerId, left);
         });
         return result;
+    }
+
+    /**
+     * Whether a container has nothing of a product left to settle, and what its settlements charged per sales unit.
+     * closed = ledger remaining - historicShipped <= 0: no settlement line of that product can come on the container
+     * any more, so a buyback booked there could never be invoiced. unitCostEur = the external cost per sales unit of
+     * what was settled (settled cost / settled quantity; before any settlement total cost / total quantity), 4 dp.
+     */
+    public record Settled(boolean closed, BigDecimal unitCostEur) {}
+
+    public Settled settled(long containerId, long productId) {
+        PartnerSettlementLedger.Line line = sales.partnerSettlementAvailability(containerId).lines().stream()
+                .filter(row -> Objects.equals(row.productId(), productId)).findFirst().orElse(null);
+        if (line == null) return new Settled(true, null);
+        int historic = historicShipped(List.of(containerId)).getOrDefault(containerId, Map.of()).getOrDefault(productId, 0);
+        BigDecimal unitCost = line.settledQuantity() > 0 && line.settledCostEur() != null
+                ? line.settledCostEur().divide(BigDecimal.valueOf(line.settledQuantity()), 4, RoundingMode.HALF_UP)
+                : line.totalQuantity() > 0 && line.totalCostEur() != null
+                ? line.totalCostEur().divide(BigDecimal.valueOf(line.totalQuantity()), 4, RoundingMode.HALF_UP) : null;
+        return new Settled(line.remainingQuantity() - historic <= 0, unitCost);
     }
 
     /** Open sale minus open buyback quantity per (container, product) of this partner's parts. */

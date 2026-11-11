@@ -1353,10 +1353,15 @@ public class SalesOrderService {
             throw new BusinessRuleException("Gebruik dezelfde winstdeling als de eerdere deelafrekeningen van deze container");
         /* What open meldingen still claim per product: theirs, never a manual settlement's. */
         Map<Long, Integer> reported = new HashMap<>();
-        if (!fromReports && reportBacking() != null)
-            reportBacking().openReported(purchaseId).forEach((productId, open) -> {
-                if (open.quantity() > 0) reported.put(productId, open.quantity());
+        /* Any open melding part on the container, a buyback waiting for a resale included (net 0 or below). */
+        boolean anyReportedOpen = false;
+        if (!fromReports && reportBacking() != null) {
+            Map<Long, PartnerReportBacking.OpenReported> open = reportBacking().openReported(purchaseId);
+            anyReportedOpen = !open.isEmpty();
+            open.forEach((productId, part) -> {
+                if (part.quantity() > 0) reported.put(productId, part.quantity());
             });
+        }
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         List<PartnerSettlements.Line> snapshotLines = new java.util.ArrayList<>();
         BigDecimal costTotal = BigDecimal.ZERO;
@@ -1400,6 +1405,10 @@ public class SalesOrderService {
         if (Boolean.TRUE.equals(request.finalSettlement()) && openTotal > 0)
             throw new BusinessRuleException("Er " + (openTotal == 1 ? "staat nog 1 stuk" : "staan nog " + openTotal + " stuks")
                     + " open in Veilingverkopen; maak een deelafrekening en factureer de rest via Veilingverkopen (dat wordt de slotfactuur)");
+        /* After a slotfactuur nothing on the container can be invoiced, so a buyback still open there would stay open. */
+        if (anyReportedOpen && (finalSettlement || Boolean.TRUE.equals(request.finalSettlement())))
+            throw new BusinessRuleException("Er staat nog een terugkoop van deze container open in Veilingverkopen; "
+                    + "maak een deelafrekening en factureer de rest via Veilingverkopen (dat wordt de slotfactuur)");
         if (Boolean.TRUE.equals(request.finalSettlement()) && !finalSettlement)
             throw new BusinessRuleException("Een slotfactuur rekent alle resterende bruikbare stukken af; kies een deelafrekening voor een kleiner aantal");
         BigDecimal remainingCost = availability.lines().stream().map(PartnerSettlementLedger.Line::remainingCostEur)

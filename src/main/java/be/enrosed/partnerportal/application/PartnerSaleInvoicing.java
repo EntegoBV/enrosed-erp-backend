@@ -6,6 +6,7 @@ import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleInvoicePartEn
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportLineEntity;
 import be.enrosed.partnerportal.domain.PartnerNumbers;
+import be.enrosed.partnerportal.domain.PartnerPortalRules;
 import be.enrosed.partnerportal.domain.PartnerSaleTexts;
 import be.enrosed.sales.application.PartnerSettlements;
 import be.enrosed.sales.application.SalesOrderService;
@@ -156,6 +157,10 @@ public class PartnerSaleInvoicing {
         } catch (BusinessRuleException | NotFoundException refusal) {
             blocked = refusal.getMessage();
         }
+        if (settlement != null && settlement.finalSettlement()) {
+            blocked = leftBehind(containerId, plan);
+            if (blocked != null) settlement = null;
+        }
         Map<Long, PartnerSettlements.Line> figures = new HashMap<>();
         if (settlement != null) for (PartnerSettlements.Line line : settlement.snapshotLines()) figures.put(line.productId(), line);
         List<PartnerPortalViews.InvoicePreviewLine> rows = new ArrayList<>();
@@ -247,8 +252,13 @@ public class PartnerSaleInvoicing {
             ContainerPlan plan = planContainer(sums, catalog);
             List<PartnerPortalViews.InvoiceSkipped> skipped = skippedRows(plan.skipped(), SOURCE_CONTAINER, containerId, catalog);
             if (plan.lines().isEmpty()) return new GroupOutcome(null, skipped);
-            SalesOrder created = sales.createAuctionSettlementFromReports(
-                    settlementRequest(customerId, containerId, plan, notes(plan.included())));
+            SalesOrderService.AuctionSettlementRequest request = settlementRequest(customerId, containerId, plan,
+                    notes(plan.included()));
+            String behind = leftBehind(containerId, plan);
+            if (behind != null && sales.previewAuctionSettlementFromReports(request).finalSettlement()) {
+                throw new BusinessRuleException(behind);
+            }
+            SalesOrder created = sales.createAuctionSettlementFromReports(request);
             link(created, plan.included());
             return new GroupOutcome(new PartnerPortalViews.CreatedInvoice(created.id(), created.number(), SOURCE_CONTAINER,
                     containerId), skipped);
@@ -281,6 +291,26 @@ public class PartnerSaleInvoicing {
             }
         }
         lines.flush();
+    }
+
+    /**
+     * A slotfactuur must take every open part of its container: after it no settlement line can come on the
+     * container, so a part it leaves open (a buyback waiting for a resale, or a melding outside this run) could
+     * never be invoiced. The refusal text when such parts exist, else null.
+     */
+    private String leftBehind(long containerId, ContainerPlan plan) {
+        Set<Long> included = new java.util.HashSet<>();
+        for (ProductSum sum : plan.included()) for (OpenPart part : sum.parts) included.add(part.line().id);
+        List<PartnerSaleReportLineEntity> onContainer = lines.partsOnContainer(containerId);
+        PartnerOpenParts.Rule rule = openParts.forLines(onContainer);
+        TreeSet<Long> waiting = new TreeSet<>();
+        for (PartnerSaleReportLineEntity line : onContainer) {
+            if (rule.isOpen(line, false) && !included.contains(line.id)) waiting.add(line.reportId);
+        }
+        if (waiting.isEmpty()) return null;
+        String numbers = String.join(", ", waiting.stream().map(PartnerPortalRules::reportNumber).toList());
+        return "Dit wordt de slotfactuur van deze container, maar " + numbers + (waiting.size() == 1 ? " heeft" : " hebben")
+                + " er nog een open deel; factureer dat mee of wacht op een volgende verkoop";
     }
 
     private static SalesOrderService.AuctionSettlementRequest settlementRequest(long customerId, long containerId,
