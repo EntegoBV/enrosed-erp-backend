@@ -478,11 +478,15 @@ public class SalesSplits {
         return all.signum() == 0 ? Money.money(null) : amount.multiply(first).divide(all, 2, RoundingMode.HALF_UP);
     }
     private static BigDecimal subtotal(SalesSplitPricing terms) { return terms.lines().stream().map(SalesSplitPricing.Line::net).reduce(BigDecimal.ZERO, BigDecimal::add); }
-    /** A part's line freezes the priced unit price; a customer's agreed price stays named as such, nothing else. */
+    /**
+     * A part's line freezes the priced unit price; a customer's agreed price stays named as such, and a
+     * line that counts per piece says so on both parts (their documents read it in pieces), nothing else.
+     */
     private static SalesOrderLine line(SalesOrderLine source, int quantity, String week, boolean fresh, PricedOrder.Line priced) {
         return new SalesOrderLine(fresh ? null : source.id(), source.productId(), quantity, priced.unitPrice(), source.manualDiscountPct(), week, priced.landedUnitCost(), source.unavailable(), source.requestedQuantity(),
                 source.unitsPerOrderStep(), null,
-                SalesOrderLine.PRICE_CUSTOMER.equals(source.priceSource()) ? SalesOrderLine.PRICE_CUSTOMER : null);
+                SalesOrderLine.PRICE_CUSTOMER.equals(source.priceSource()) ? SalesOrderLine.PRICE_CUSTOMER : null,
+                source.perPiece());
     }
     static SalesOrder copy(SalesOrder s, Long id, String number, List<SalesOrderLine> lines, List<SalesExtraLine> extras,
                            BigDecimal freight, BigDecimal extraPct, Long sourceQuoteId) {

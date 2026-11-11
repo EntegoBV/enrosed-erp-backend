@@ -984,7 +984,7 @@ public class QuoteService {
             } else if (proposal.quantity() > 0) {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
                         line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                        line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource()));
+                        line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource(), line.perPiece()));
             }
             /* quantity 0 means: drop this line */
         }
