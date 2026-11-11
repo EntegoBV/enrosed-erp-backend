@@ -2610,3 +2610,104 @@ named constraints identical in `@Table` and the migration:
   "partner-sale", "Veilingverkoop gemeld", "n stuks · Veiling|Direct|Terugkoop", the url above;
   a staff entry skips that staff member's own phones. Activity `PARTNER_SALE_REPORT` CREATED /
   VOIDED.
+
+### Factureren (stage 3)
+- **Endpoints** (`PartnerSalesResource`, admin): `POST /api/partner-sales/invoice-preview
+  {customerId, reportIds|null, until|null}` (null reportIds = every melding of the partner with an
+  open part, sold on or before `until`) and `POST /api/partner-sales/invoice {customerId,
+  reportIds}` (the preview's reportIds; parts of other meldingen are never taken). Preview:
+  `groups` [{source CONTAINER|OWN, purchaseOrderId, containerName, lines [{productId, name,
+  variant, soldQuantity, buybackQuantity, quantity, saleNetEur, buybackEur, proceedsEur, costEur,
+  valueEur}], valueEur, advanceEur, balanceEur, finalSettlement, blocked, warnings}], `skipped`
+  [{productId, name, source, purchaseOrderId, reason}], `reportIds`, `profitSharePct` (the
+  customer's). Invoice: `{invoices [{id, number, source, purchaseOrderId}], blocked
+  [{purchaseOrderId, message}], skipped}`. Code: `PartnerSaleInvoicing`.
+- **Per source and product** over the open parts: S sold, N sale net, B bought back, K buyback
+  gross; quantity q = S - B, proceeds p = N - K. q > 0: a line at max(p, 0). q = 0 (a buyback and a
+  resale cancel out in pieces): its p moves onto the source's largest line (largest proceeds, then
+  quantity, then lowest product id; the value is linear in the proceeds); a line with p < 0 lacks
+  -p, taken from the largest lines down to 0 each. When the source's total stays below 0 the
+  products that pull it down are skipped ("Terugkoopkost groter dan de netto opbrengst"); q < 0 is
+  skipped ("Terugkoop groter dan verkoop: wacht op een volgende verkoop"); q = 0 without any line
+  in the source is skipped ("Wacht op een volgende verkoop van dit product"). Skipped parts stay
+  open. Every part of an included product (lines and absorbed ones) is linked.
+- **Container source** = `SalesOrderService.createAuctionSettlementFromReports` (customer = the
+  partner, the container, share / cost share / final null so the server derives them, one
+  `AuctionLine(productId, q, proceeds)` per line, internal note "Veilingverkopen dd/mm/jjjj -
+  dd/mm/jjjj · n meldingen"). The arithmetic of createAuctionSettlement (cost share of what
+  remains, our value, advance credit, final, true-up, snapshot, extra lines) is one method,
+  `planAuctionSettlement`, which returns an `AuctionSettlementPlan`; the preview reads the same
+  plan through `previewAuctionSettlementFromReports` (no lock, nothing written, in a transaction
+  of its own so its refusal becomes `blocked` and touches nothing else). The Factureren entry
+  point uses the plain ledger remaining (its own parts are the open ones).
+- **Own source** = `SalesOrderService.createPartnerSalesInvoice`: one CONCEPT FACTUUR to the
+  partner, purpose STANDARD, channel PARTNER, the normal invoice series, CONTAINER_COST at markup 0
+  (exact quantities, no tiers, no customer prices, no stock cost stamp), freight AANGEVULD + FIXED
+  0, PALLETS without pallets, the customer's VAT. Per product c = round2(sum of sale unit_cost x
+  qty - buyback unit_cost x qty), v = c + round2((p - c) x share / 100) with share =
+  `Customer.partnerSharePctOrDefault()`. q > 0 and v / q > 0 at 4 dp: a line at v / q (unit cost
+  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, ons deel € v" (container-cost
+  pricing would replace a price of 0 by the card cost). "Afronding veilingverkopen" closes the cent
+  gap: the invoice excl. VAT is exactly the sum of v. A sale part with unit cost 0 warns "Geen
+  kostprijs bekend voor <product>". Notes in the settlement style (per product n stuks, netto,
+  kost, resultaat, ons deel).
+- **Transactions**: the invoice run is not transactional. Every source runs in
+  `QuarkusTransaction.requiringNew()` with the section 3 locks (partner row, the partner's
+  containers ascending, the products ascending), reads its parts again after them (still open,
+  not withdrawn, of the chosen meldingen), makes the document and links the parts: `invoice_id`,
+  `invoiced_at` and one append-only `partner_sale_invoice_part` row each. A refusal (e.g.
+  `requireReadyForSettlement`) blocks that source only; an unexpected error too ("Dit deel kon
+  niet gefactureerd worden; probeer opnieuw", logged). The created document's own activity line
+  ("Deelfactuur partnercontainer X uit veilingverkopen aangemaakt" / "Factuur uit veilingverkopen
+  (eigen voorraad) aangemaakt") is the activity per invoice.
+- **Open again**: trashing a concept from Factureren (or a GEANNULEERD / AFGEWEZEN / VERLOPEN
+  document) reopens its parts by the open-part rule; the next run links them to a new document.
+
+### Report-backed documents (stage 3)
+- A document with rows in `partner_sale_invoice_part` is **report-backed**: its pieces left stock
+  through the meldingen' own stock lines. Sales reads this through the port
+  `sales.application.PartnerReportBacking` (implemented by `PartnerReportBackingService`, injected
+  as `Instance`; absent = nothing is report-backed): `reportBacked(ids)`, `bookedQuantities(docs)`
+  (per product on the lines: sale minus buyback parts, between 0 and the line quantity; one query
+  for a whole list, by id up to 200 documents, else the whole aggregated table), `lastMovementAt`,
+  `openReported(container)`.
+- **No double stock-out, no nagging**: `issueInvoice` and `markInvoiceSent` stamp `goodsShippedAt`
+  in the same transaction when every product line is covered by what its meldingen booked (time =
+  the newest stock line of its parts; event and activity "Voorraad al afgeboekt via
+  veilingverkopen"); no stock is booked, no stock cost stamped. `shipGoods` refuses such a document
+  ("De voorraad van deze factuur is al afgeboekt via veilingverkopen"); a partly covered one (not
+  possible while frozen) books only the rest. `shipGoods`' `settledShipments` (the historical
+  advance rule) leaves report-backed settlements out.
+- **Frozen**: a report-backed concept cannot change its lines, extras, customer, country, extra
+  discount, markup mode or freight (`update`, `requireFreightEditable`), cannot become a partner
+  document (`setPartnerDeal`), be copied (`duplicate`), split (`SalesSplits`), have goods returned
+  on a credit note of it (`returnGoods`), or come back from the trash (`DeletedItemsService`:
+  "Dit concept kwam uit Veilingverkopen. Factureer opnieuw via Veilingverkopen."; the rows survive
+  the trash, so this holds even after its parts went on a new document). Settlements keep their
+  own snapshot freeze and messages.
+- **Minimum order value**: never for a report-backed document, in `validateInvoiceForSend` and in
+  the calculator (`SalesPricingCalculator.Context.minimumExempt`, filled for an own-stock
+  Veilingverkopen invoice only: an invoice, CONTAINER_COST, channel PARTNER, no partner deal, then
+  the lookup), so `priced.validation.meetsMinimum` is true and `minOrderValue` 0.
+- **OrderView** (single and list `GET /api/sales-orders`): additive `reportBookedQuantities`
+  ({productId: qty}, null when not report-backed) and `reportBacked`.
+- **Manual settlements cannot double-sell**: `createAuctionSettlement` (the sheet, not Factureren)
+  limits each line to remaining - what open meldingen of the container claim ("<product>: n stuks
+  staan nog open in Veilingverkopen; factureer die via Veilingverkopen") and refuses a slotfactuur
+  while any is open ("Er staan nog n stuks open in Veilingverkopen; maak een deelafrekening en
+  factureer de rest via Veilingverkopen (dat wordt de slotfactuur)"): the final test stays "takes
+  everything the ledger has left", so the Veilingverkopen invoice of the last pieces becomes the
+  slotfactuur by itself and a container never gets two. `GET
+  /api/purchase-orders/{id}/partner-settlement-availability` carries per line
+  `openReportedQuantity` (sale - buyback, at least 0) and `openReportedNetEur`
+  (`partnerSettlementAvailabilityWithReports`); `PartnerFinancingService.Summary` carries
+  `openReportedQuantity` (the sum).
+- **Year-end and the batch start**: report-backed documents are left out of
+  `ClosingSeparations.invoices` (candidates and older) and of `StockCountService.documents`.
+  `ClosingSeparations.partnerShipped(container, sales, cutoff, reportBacked, reportedOut)` =
+  max(shipped advances, shipped non-report-backed settlements) + the net sales units the
+  meldingen' stock lines of the container took out, never below 0. The closing
+  (`StockClosingService.partnerLot`) counts such a line by the roll's answer for it
+  (`ClosingSeparations.happenedBefore`, the same reading as `alreadyOut`) and a line the roll does
+  not list by booking time before the cut-off (`ClosingSeparations.partnerReportedOut`); the batch
+  start counts them by booking time before the run (`StockService.partnerReportedOut`).
