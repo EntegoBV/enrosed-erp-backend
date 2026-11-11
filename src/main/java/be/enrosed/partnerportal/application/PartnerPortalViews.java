@@ -144,14 +144,22 @@ public final class PartnerPortalViews {
                           int recentReports14d, List<PartnerSummary> partners) {}
 
     /** One non-voided melding by sold_on; open = it still has a part to invoice. costsEur = commission + transport + extra. */
+    /**
+     * One live melding. open = not fully invoiced; openSaleQuantity / openNetEur (additive) = only its parts that
+     * are still open by the open-part rule, so "nog te factureren" here equals the summary's for the same melding.
+     */
     public record AnalyticsReport(long id, String number, long customerId, String channel, LocalDate soldOn,
                                   boolean open, int saleQuantity, int buybackQuantity, BigDecimal grossEur,
-                                  BigDecimal costsEur, BigDecimal buybackEur, BigDecimal netEur) {}
+                                  BigDecimal costsEur, BigDecimal buybackEur, BigDecimal netEur,
+                                  int openSaleQuantity, BigDecimal openNetEur) {}
 
-    /** One melding x product (reportId additive); netEur = sale net - buyback. Averages are derived, never summed. */
+    /**
+     * One melding x product (reportId additive); netEur = sale net - buyback. Averages are derived, never summed.
+     * openSaleQuantity / openNetEur (additive): the still-open parts of this product in this melding.
+     */
     public record AnalyticsProduct(long reportId, long productId, String name, String variant, LocalDate soldOn,
                                    String channel, boolean open, int saleQuantity, int buybackQuantity,
-                                   BigDecimal grossEur, BigDecimal netEur) {}
+                                   BigDecimal grossEur, BigDecimal netEur, int openSaleQuantity, BigDecimal openNetEur) {}
 
     public record Analytics(List<AnalyticsReport> reports, List<AnalyticsProduct> products) {}
 

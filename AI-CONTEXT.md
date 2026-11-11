@@ -2623,7 +2623,10 @@ named constraints identical in `@Table` and the migration:
   INVOICED = INVOICED + PARTLY_INVOICED) with `totals` {openReports, openSaleQuantity, openNetEur};
   `GET /summary` (no ledger work: the open parts in one query, `PartnerOpenParts.releasing` for the
   invoices they point at); `GET /analytics?from=&to=` (by sold_on, no cap, one row per live
-  melding and one per melding x product, `open` = not fully invoiced); `GET /reports/{id}`;
+  melding and one per melding x product, `open` = not fully invoiced; additive `openSaleQuantity` /
+  `openNetEur` per row = only the parts still open by the open-part rule, the same figure the
+  summary, home card and bell count, so a partly invoiced melding is "nog te factureren" for its
+  open parts only); `GET /reports/{id}`;
   `POST /reports {customerId, ...}` (a melding staff enter for the partner: login_id null, the
   actor is the staff member); `DELETE /reports/{id}?reason=`. StaffReport = PartnerReport +
   customer, createdBy, voidedAt/By/Reason and `parts` per source (containerName null = Eigen

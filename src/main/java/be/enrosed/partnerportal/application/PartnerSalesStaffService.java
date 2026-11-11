@@ -231,11 +231,22 @@ public class PartnerSalesStaffService {
                 PartnerSaleReportEntity report = loaded.report();
                 boolean open = !PartnerPortalRules.STATUS_INVOICED.equals(loaded.status());
                 PartnerPortalViews.Totals totals = view.totals();
+                /* What is still open, part by part (the open-part rule, as the summary counts it). */
+                Map<Long, Integer> openSaleByProduct = new HashMap<>();
+                Map<Long, BigDecimal> openNetByProduct = new HashMap<>();
+                for (PartnerSaleReportLineEntity line : loaded.lines()) {
+                    if (!(line.isSale() || line.isBuyback()) || line.productId == null
+                            || !loaded.rule().isOpen(line, report.isVoided())) continue;
+                    if (line.isSale()) openSaleByProduct.merge(line.productId, line.quantityOrZero(), Integer::sum);
+                    openNetByProduct.merge(line.productId, line.netEur == null ? BigDecimal.ZERO : line.netEur, BigDecimal::add);
+                }
                 rows.add(new PartnerPortalViews.AnalyticsReport(report.id, view.number(),
                         report.customerId == null ? 0 : report.customerId, report.channel, report.soldOn, open,
                         totals.saleQuantity(), totals.buybackQuantity(), totals.grossEur(),
                         PartnerNumbers.money(totals.commissionEur().add(totals.transportEur()).add(totals.extraCostEur())),
-                        totals.buybackEur(), totals.netEur()));
+                        totals.buybackEur(), totals.netEur(),
+                        openSaleByProduct.values().stream().mapToInt(Integer::intValue).sum(),
+                        PartnerNumbers.moneyOrZero(openNetByProduct.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add))));
                 for (PartnerPortalViews.Entry entry : view.entries()) {
                     BigDecimal gross = entry.sale() == null ? PartnerNumbers.moneyOrZero(null) : entry.sale().grossEur();
                     BigDecimal saleNet = entry.sale() == null ? BigDecimal.ZERO : entry.sale().netEur();
@@ -244,7 +255,9 @@ public class PartnerSalesStaffService {
                             entry.variant(), report.soldOn, report.channel, open,
                             entry.sale() == null ? 0 : entry.sale().quantity(),
                             entry.buyback() == null ? 0 : entry.buyback().quantity(),
-                            gross, PartnerNumbers.money(saleNet.subtract(buyback))));
+                            gross, PartnerNumbers.money(saleNet.subtract(buyback)),
+                            openSaleByProduct.getOrDefault(entry.productId(), 0),
+                            PartnerNumbers.moneyOrZero(openNetByProduct.get(entry.productId()))));
                 }
             }
         }
