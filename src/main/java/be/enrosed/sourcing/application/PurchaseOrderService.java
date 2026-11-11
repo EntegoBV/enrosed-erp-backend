@@ -82,6 +82,9 @@ public class PurchaseOrderService {
     Instance<ActivityLogService> activity;
     @Inject
     Event<PurchasePushNotifier.Ready> purchasePush;
+    /* The ship linked for track & trace follows a rewritten reference; pure unit tests run without. */
+    @Inject
+    Instance<be.enrosed.sourcing.tracking.VesselLinkStore> vesselLinks;
     @Inject
     Instance<be.enrosed.catalog.application.StockService> locationNames;
     @Inject
@@ -526,6 +529,10 @@ public class PurchaseOrderService {
                 /* Server-owned: set by its own endpoint or by a payment that says so, never by a form save. */
                 .withInspectionViaSupplier(current.inspectionViaSupplier()));
 
+        if (!java.util.Objects.equals(current.trackingReference(), saved.trackingReference())
+                && vesselLinks != null && vesselLinks.isResolvable()) {
+            vesselLinks.get().rebind(saved.id(), current.trackingReference(), saved.trackingReference());
+        }
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);
             if (stepBack) {
