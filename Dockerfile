@@ -146,6 +146,7 @@ COPY docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql ./m
 COPY docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql ./migrations/
+COPY docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

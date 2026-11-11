@@ -73,10 +73,31 @@ public class TrackingDateSync {
                 .add("shippedOn", "Vertrekdatum", current.shippedOn, departure)
                 .add("expectedArrival", "Verwachte aankomst", current.expectedArrival, arrival).build();
         if (changes.isEmpty()) return;
+        if (!Objects.equals(current.expectedArrival, arrival)) noteArrivalMove(current, arrival, Instant.now());
         current.shippedOn = departure;
         current.expectedArrival = arrival;
         activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
                 Long.toString(current.id), current.number, "Transportdatums bijgewerkt uit " + source, changes);
+    }
+
+    /**
+     * The arrival tracking moved, kept with the order. The first date tracking replaces stays "was" through later
+     * moves, so the difference is always against the planning that stood; back on that date means not moved, and
+     * a first date is not a move. The bell names a date only when it lies two days or more from the date it named
+     * last (from the planning date the first time), so a carrier's one-day corrections stay quiet. A date saved
+     * through the order clears all three columns (PanacheSourcingRepositories.save).
+     */
+    static void noteArrivalMove(PurchaseOrderEntity order, LocalDate arrival, Instant now) {
+        if (order.expectedArrival == null || arrival == null) return;
+        LocalDate was = order.arrivalMovedFrom != null ? order.arrivalMovedFrom : order.expectedArrival;
+        if (arrival.equals(was)) {
+            order.arrivalMovedFrom = null; order.arrivalMovedAt = null; order.arrivalNoticeDate = null;
+            return;
+        }
+        order.arrivalMovedFrom = was;
+        order.arrivalMovedAt = now;
+        LocalDate named = order.arrivalNoticeDate != null ? order.arrivalNoticeDate : was;
+        if (Math.abs(ChronoUnit.DAYS.between(named, arrival)) >= ArrivalMoveStore.NOTICE_DAYS) order.arrivalNoticeDate = arrival;
     }
 
     public static Plan shipmentPlan(PurchaseOrder order, Observation data, Instant now) {
@@ -91,12 +112,13 @@ public class TrackingDateSync {
         LocalDate departure = departedAt == null ? null : departedAt.toLocalDate();
         LocalDate start = date(dates.voyageStartedOn());
         if (start == null) start = departure;
-        if (!voyageDate(order, start, now.atZone(ZoneOffset.UTC).toLocalDate()))
+        // "Today" is the Brussels day everywhere in tracking (as the arrival reminders count it), not the UTC day.
+        LocalDate today = now.atZone(ContainerArrivalReminders.ZONE).toLocalDate();
+        if (!voyageDate(order, start, today))
             return rejected("De datumbron kan niet aan de huidige reis worden gekoppeld. De opgeslagen planning blijft behouden.");
         if (departedAt != null && (departedAt.toInstant().isAfter(now.plusSeconds(300))
                 || Math.abs(ChronoUnit.DAYS.between(start, departure)) > 3)) departure = null;
         LocalDate arrival = date(dates.expectedArrivalDate());
-        LocalDate today = now.atZone(ZoneOffset.UTC).toLocalDate();
         if (arrival != null && (arrival.isBefore(today.minusDays(1)) || arrival.isBefore(start) || arrival.isAfter(start.plusDays(180))))
             arrival = null;
         return new Plan(departure, arrival, arrival == null
@@ -129,11 +151,26 @@ public class TrackingDateSync {
     static boolean fresh(Instant checkedAt, Instant now) {
         return checkedAt != null && !checkedAt.isBefore(now.minus(Duration.ofHours(24))) && !checkedAt.isAfter(now.plusSeconds(300));
     }
-    private static boolean sameShipment(PurchaseOrder order, DateEvidence dates) {
-        Reference parsed = reference(order.trackingReference());
-        if (parsed != null) return parsed.number().equalsIgnoreCase(parsed.container() ? Objects.toString(dates.containerNumber(), "") : Objects.toString(dates.bookingNumber(), ""));
+    /**
+     * The source's shipment is the one in the reference. Everything the rule of 2026-10-26 accepted is still
+     * accepted: first the Evergreen bill the date lookup itself read from the text, then that rule unchanged,
+     * and only last the wider reading of 2026-11-10.
+     */
+    static boolean sameShipment(PurchaseOrder order, DateEvidence dates) {
+        Recognised seen = recognise(order.trackingReference());
+        if (seen.evergreenBl() != null && seen.evergreenBl().equalsIgnoreCase(Objects.toString(dates.bookingNumber(), ""))) {
+            String box = "CONTAINER".equals(seen.kind()) ? seen.number() : seen.container();
+            if (box == null || dates.containerNumber() == null || box.equalsIgnoreCase(dates.containerNumber())) return true;
+        }
+        Reference parsed = strictReference(order.trackingReference());
+        if (parsed != null) return sameNumber(parsed, dates);
         String declared = Objects.toString(order.trackingReference(), "") + " " + Objects.toString(order.notes(), "");
-        return containsIdentifier(declared, dates.bookingNumber()) && (dates.containerNumber() == null || containsIdentifier(declared, dates.containerNumber()));
+        if (containsIdentifier(declared, dates.bookingNumber()) && (dates.containerNumber() == null || containsIdentifier(declared, dates.containerNumber()))) return true;
+        Reference wider = reference(order.trackingReference());
+        return wider != null && sameNumber(wider, dates);
+    }
+    private static boolean sameNumber(Reference parsed, DateEvidence dates) {
+        return parsed.number().equalsIgnoreCase(parsed.container() ? Objects.toString(dates.containerNumber(), "") : Objects.toString(dates.bookingNumber(), ""));
     }
     private static boolean containsIdentifier(String declared, String identifier) {
         return identifier != null && !identifier.isBlank() && Pattern.compile("(?i)(?<![A-Z0-9])" + Pattern.quote(identifier) + "(?![A-Z0-9])").matcher(declared).find();

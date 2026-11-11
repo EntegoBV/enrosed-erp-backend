@@ -127,6 +127,12 @@ public final class SourcingEntities {
         @Column(name = "inspection_via_supplier") public Boolean inspectionViaSupplier;
         public LocalDate shippedOn;
         @Column(length = 500) public String trackingReference;
+        /** The expected arrival that stood before tracking first replaced it; null = tracking did not move it. */
+        @Column(name = "arrival_moved_from") public LocalDate arrivalMovedFrom;
+        /** When tracking last moved the arrival; null together with arrival_moved_from. */
+        @Column(name = "arrival_moved_at") public Instant arrivalMovedAt;
+        /** The arrival date the bell's "aankomst verschoven" notice names; null = no notice. */
+        @Column(name = "arrival_notice_date") public LocalDate arrivalNoticeDate;
 
         /** Immutable server-side creator snapshot; null only on historical rows. */
         @Column(name = "created_by", length = 64)
