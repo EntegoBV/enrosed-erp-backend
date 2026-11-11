@@ -104,8 +104,12 @@ public class PortalResource {
         Language language = preferredLanguage != null && !preferredLanguage.isBlank()
                 ? Language.of(preferredLanguage)
                 : customer == null ? Language.NL : customer.language();
-        /* The same multiple the proposal will round to: none on a quote that keeps exact pieces. */
+        /* The same multiple the proposal will round to: none on a quote that keeps exact pieces, and
+           none for a product whose line on this quote staff set to per piece. */
         boolean exact = salesOrders.keepsExactQuantities(order);
+        java.util.Set<Long> perPiece = exact ? java.util.Set.of() : order.lines().stream()
+                .filter(line -> line.productId() != null && line.countsPerPiece())
+                .map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
         List<Product> offered = products.list().stream().filter(Product::active).toList();
         /* The customer's own agreed price where the quote takes it: what an adopted line will cost. */
         java.util.Map<Long, BigDecimal> agreed = salesOrders.customerPricesFor(order, offered);
@@ -125,8 +129,9 @@ public class PortalResource {
                                 && product.packaging().piecesPerUnit() != null && product.packaging().piecesPerUnit() > 1
                                 ? product.packaging().piecesPerUnit() : null,
                         UnitDto.of(product.packaging() == null ? null : product.packaging().unitKey(), language),
-                        product.packaging().orderStep().name(),
-                        exact ? 1 : OrderSteps.unitsPerStep(product)))
+                        (perPiece.contains(product.id()) ? be.enrosed.catalog.domain.OrderStep.UNIT
+                                : product.packaging().orderStep()).name(),
+                        exact || perPiece.contains(product.id()) ? 1 : OrderSteps.unitsPerStep(product)))
                 .toList());
     }
 

@@ -69,6 +69,8 @@ public class SalesOrderService {
     @Inject Instance<CustomerPriceService> customerPrices;
     /** Documents made from partner meldingen (Veilingverkopen); absent means none is report-backed. */
     @Inject Instance<PartnerReportBacking> reportBacking;
+    /** Whether a document's pallet height was set by hand or is the standard of its day. */
+    @Inject Instance<PalletHeightPicks> heightPicks;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -159,11 +161,12 @@ public class SalesOrderService {
             proposed = proposed.withMaxPalletHeightCm(stored.maxPalletHeightCm());
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
-        /* Priced with the step a save would remember: today's for a document that rounds, the stored one
-           otherwise; whatever step the client sent is never used. Nothing is saved here. */
-        List<SalesOrderLine> lines = keepsExactQuantities(stored, proposed)
-                ? withStoredOrderSteps(normalized.lines(), stored.lines())
-                : stampOrderSteps(normalized.lines());
+        /* Priced with the step a save would remember: today's for a document that rounds (1 on a line
+           staff set to per piece), the stored one otherwise; whatever step the client sent is never
+           used. Nothing is saved here. */
+        boolean exact = keepsExactQuantities(stored, proposed);
+        List<SalesOrderLine> chosen = withPerPieceChoices(normalized.lines(), stored.lines(), !exact);
+        List<SalesOrderLine> lines = exact ? withStoredOrderSteps(chosen, stored.lines()) : stampOrderSteps(chosen);
         /* Under the stored document's id, whatever id the client sent: the draft counts its pallets
            by that document's rule and shows its links. Its lines get the prices a save would pin. */
         return withPriceSources(stored, normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id()));
@@ -580,7 +583,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), null, line.priceSource()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -1978,9 +1981,13 @@ public class SalesOrderService {
                 order.lines(), order.pallets()).carrying(order);
     }
 
+    /**
+     * A staff save from the editor. {@code heightPicked}: the screen says the pallet height it sends
+     * was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder update(long id, SalesOrder changes) {
-        return update(id, changes, false, true);
+    public SalesOrder update(long id, SalesOrder changes, boolean heightPicked) {
+        return update(id, changes, false, true, heightPicked);
     }
 
     /**
@@ -1990,7 +1997,7 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder updateWebsiteRequest(long id, SalesOrder changes) {
-        return update(id, changes, false, false);
+        return update(id, changes, false, false, true);
     }
 
     /**
@@ -2001,17 +2008,23 @@ public class SalesOrderService {
      */
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder updateByCustomer(long id, SalesOrder changes) {
-        return update(id, changes, true, false);
+        return update(id, changes, true, false, true);
     }
 
-    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices) {
+    /** {@code heightPicked}: the height in the changes is a choice; the website's paths pass the stored one themselves. */
+    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices, boolean heightPicked) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
-        /* No height from the client (a website change, an older screen) keeps the document's own:
-           the height a document was made with only changes when someone picks another. */
-        if (changes.maxPalletHeightCm() == null) changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+        /* No height from the client (a website change, a screen that did not change it) keeps the document's
+           own: the height a document was made with only changes when someone picks another. */
+        if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
+            changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+        /* Per piece is settled before anything compares or rounds the lines: the request decides on a
+           document that rounds, the stored choice stays everywhere else and where the request is silent. */
+        changes = changes.withLinesAndPallets(withPerPieceChoices(changes.lines(), beforeEdit.lines(),
+                !keepsExactQuantities(beforeEdit, changes)), changes.pallets());
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
@@ -2135,6 +2148,7 @@ public class SalesOrderService {
                     current.freightPricingStrategy(), current.freightRatePerCbmEur(), updated.lines());
         }
         updated = withPalletsFollowingLines(updated);
+        requireEuroHeightWithinLimit(current, updated);
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -2151,7 +2165,9 @@ public class SalesOrderService {
         if (after == null || before.size() != after.size()) return false;
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
+            /* Per piece is part of the quantity: clearing it would round the fixed pieces up on this save. */
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !Objects.equals(clean(a.deliveryWeek()), clean(b.deliveryWeek()))) return false;
         }
         return true;
@@ -2162,6 +2178,7 @@ public class SalesOrderService {
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !samePercentage(a.unitPriceEur(), b.unitPriceEur())
                     || !samePercentage(a.manualDiscountPct(), b.manualDiscountPct())
                     || (b.unitCostEur() != null && !samePercentage(a.unitCostEur(), b.unitCostEur()))) return false;
@@ -2195,7 +2212,7 @@ public class SalesOrderService {
         return new SalesOrderLine(line.id(), line.productId(), line.quantity(), plainAmount(line.unitPriceEur()),
                 plainAmount(line.manualDiscountPct()), line.deliveryWeek(), plainAmount(line.unitCostEur()),
                 line.unavailable(), line.requestedQuantity(), line.unitsPerOrderStep(), plainAmount(line.stockCostEur()),
-                line.priceSource());
+                line.priceSource(), Boolean.TRUE.equals(line.perPiece()) ? Boolean.TRUE : null);
     }
 
     private static BigDecimal plainAmount(BigDecimal value) {
@@ -2226,9 +2243,12 @@ public class SalesOrderService {
                                  Long freightCarrierId, BigDecimal freightCarrierExtraEur,
                                  FreightState freight, List<OrderPallet> pallets) {}
 
-    /** Changes transport only, including for an open sent quote, without reopening its commercial fields. */
+    /**
+     * Changes transport only, including for an open sent quote, without reopening its commercial fields.
+     * {@code heightPicked}: the screen says the pallet height it sends was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder updateShipping(long id, ShippingUpdate request) {
+    public SalesOrder updateShipping(long id, ShippingUpdate request, boolean heightPicked) {
         lockDocumentForMutation(id);
         SalesOrder current = get(id);
         requireFreightEditable(current);
@@ -2243,6 +2263,7 @@ public class SalesOrderService {
         FreightState state = current.freight() == FreightState.TE_BEPALEN
                 && request.freight() != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD : request.freight();
+        BigDecimal askedHeight = heightAsked(request.maxPalletHeightCm(), current.maxPalletHeightCm(), heightPicked);
         SalesOrder updated = new SalesOrder(current.id(), current.number(), current.customerId(), current.countryCode(),
                 current.orderDate(), current.validUntil(), current.status(), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.markupMode(), current.orderMarkupPct(),
@@ -2251,7 +2272,7 @@ public class SalesOrderService {
                 current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
                 state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
                 request.loadMode(), request.palletProfile(),
-                request.maxPalletHeightCm() == null ? current.maxPalletHeightCm() : request.maxPalletHeightCm(),
+                askedHeight == null ? current.maxPalletHeightCm() : askedHeight,
                 request.freightPricingStrategy(),
                 request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
@@ -2261,6 +2282,7 @@ public class SalesOrderService {
         requireNonNegative(request.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(request.freightRatePerCbmEur(), "CBM-vrachttarief");
         requireNonNegative(request.freightCarrierExtraEur(), "Extra vervoerderskost");
+        requireEuroHeightWithinLimit(current, updated);
         PalletSpec palletSpec = validatePalletHeight(updated);
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -2345,7 +2367,7 @@ public class SalesOrderService {
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource())
+                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource(), line.perPiece())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -2661,18 +2683,15 @@ public class SalesOrderService {
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
                 /* A copy is a new document and gets today's standard height, unless the source has a height of
-                   its own or hand-built pallets (stacked under the 260 cm of their time: kept, written down, so
-                   the copy keeps it once its pallets go). */
-                source.loadMode(), source.palletProfile(),
-                source.maxPalletHeightCm() != null ? source.maxPalletHeightCm()
-                        : source.pallets().isEmpty() ? settings.standardMaxHeightCm() : SalesSettings.LEGACY_MAX_HEIGHT_CM,
+                   its own (copyHeight). */
+                source.loadMode(), source.palletProfile(), copyHeight(source),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep(), null, line.priceSource()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -2690,18 +2709,88 @@ public class SalesOrderService {
         SalesOrder created = orders.create(duplicate, PalletCountRule.MIXED);
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
+        /* PalletHeightPicks reads the source's number back from this step: keep its wording. */
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), actor.displayName(), false,
                 (created.isInvoice() ? "Factuur" : "Offerte")
-                        + " gekopieerd vanuit " + source.number(), null));
+                        + PalletHeightPicks.COPIED_FROM + source.number(), null));
+        /* A copy that keeps a height other than today's standard says so in its own log: the pick then
+           travels with every further copy, and nothing later takes it for the standard of its day. */
         recordActivity(ActivityLogService.ACTION_DUPLICATED, created,
-                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd");
+                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd",
+                ActivityChangeSet.create().add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
+                        settings.standardMaxHeightCm(), created.maxPalletHeightCm()).build());
         fireCreationPush(created.isInvoice()
                 ? SalesCreationPushNotifier.Ready.invoiceDuplicated(
                         created.id(), created.number(), source.number(), actor)
                 : SalesCreationPushNotifier.Ready.quoteDuplicated(
                         created.id(), created.number(), source.number(), actor));
         return created;
+    }
+
+    /**
+     * The height a Nieuwe kopie starts with. A copy is a new document and gets today's standard,
+     * unless its source has a height of its own.
+     */
+    private BigDecimal copyHeight(SalesOrder source) {
+        BigDecimal own = source.maxPalletHeightCm();
+        BigDecimal standard = settings.standardMaxHeightCm();
+        boolean handPallets = !source.pallets().isEmpty();
+        /* No stored height: made before 2026-11-07 on 260 cm. Hand-built pallets were stacked under that, so
+           the copy gets it written down and keeps it once its pallets go. */
+        if (own == null) return handPallets ? SalesSettings.LEGACY_MAX_HEIGHT_CM : standard;
+        /* The 220 cm of 7-10 November 2026 was the standard of those days, not a height of its own, unless
+           someone set it by hand (on the source or on what the source came from). Pallets measured under
+           220 also stand under a higher standard. */
+        if (own.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0 && standard.compareTo(own) > 0
+                && !palletHeightPickedByHand(source)) return standard;
+        /* A picked height stays, but a copy is a new pick: on a europallet at most the limit, unless its
+           measured pallets need the room. */
+        if (!handPallets && source.palletProfile() == PalletProfile.EURO_120X80
+                && own.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) > 0) return SalesSettings.EURO_HEIGHT_LIMIT_CM;
+        return own;
+    }
+
+    /** Someone set this document's pallet height by hand, on it or on what it was made or copied from. */
+    private boolean palletHeightPickedByHand(SalesOrder order) {
+        return order.id() != null && heightPicks != null && heightPicks.isResolvable()
+                && heightPicks.get().of(order.id()).byHand();
+    }
+
+    /**
+     * The pallet height a staff save asks for; null when it asks for none and the document keeps its own.
+     *
+     * Since 2026-11-10 the editor sends a height only when it was changed on that screen, and says so
+     * ({@code ?heightPicked=true}). A height without that mark comes from a window still on the bundle
+     * of before: it sends the height it holds with every save, and its "Standaard" (or an emptied
+     * field) means 220 cm, the standard of 7-10 November. Its 220 on a document that stores something
+     * else is therefore no choice: left alone it would put a concept quote the one-time return moved to
+     * 260 back on 220 and log that as a height set by hand, and it would set 220 on a new document where
+     * the seller asked for the standard. Any other height from such a window is a pick, as before; to
+     * set exactly 220 the window has to be loaded again.
+     */
+    static BigDecimal heightAsked(BigDecimal sent, BigDecimal stored, boolean picked) {
+        if (sent == null || picked) return sent;
+        boolean formerStandard = sent.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0;
+        boolean asStored = stored != null && stored.compareTo(sent) == 0;
+        return formerStandard && !asStored ? null : sent;
+    }
+
+    /**
+     * Emre, 2026-11-10: a europallet is loaded at most 260 cm high, the pallet included. Asked where a
+     * height can be picked (a save, a transport update): a higher value the document already stores on
+     * a europallet was picked before the limit and stays as it is; any other height above it is
+     * refused. Other pallet types keep the general 300 cm of validatePalletHeight. Not asked where a
+     * document is made from another (invoice, credit note, split, advance): those copy what is stored.
+     */
+    private static void requireEuroHeightWithinLimit(SalesOrder before, SalesOrder after) {
+        BigDecimal height = after.maxPalletHeightCm();
+        if (height == null || after.palletProfile() != PalletProfile.EURO_120X80
+                || height.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) <= 0) return;
+        if (before.palletProfile() == PalletProfile.EURO_120X80 && before.maxPalletHeightCm() != null
+                && before.maxPalletHeightCm().compareTo(height) == 0) return;
+        throw new BusinessRuleException("Maximale pallethoogte van een europallet kan niet hoger zijn dan "
+                + SalesSettings.EURO_HEIGHT_LIMIT_CM.stripTrailingZeros().toPlainString() + " cm");
     }
 
 
@@ -2857,8 +2946,10 @@ public class SalesOrderService {
             BigDecimal unitCost = reason == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source != null && source.stockCostEur() != null ? source.stockCostEur()
                     : source != null && source.unitCostEur() != null ? source.unitCostEur() : Money.unit(invoicedLine.landedUnitCost());
+            /* Credited from a line that counts per piece, the credit line says so too: its documents
+               then read it in pieces, never as a carton it does not fill. */
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unitPrice, BigDecimal.ZERO, null,
-                    unitCost, false, null));
+                    unitCost, false, null).withPerPiece(source == null ? null : source.perPiece()));
         }
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
         for (CreditAmount amount : requestedAmounts) {
@@ -3034,7 +3125,7 @@ public class SalesOrderService {
     private static SalesOrder asStoredCreditNote(SalesOrder updated, SalesOrder stored) {
         List<SalesOrderLine> lines = updated.lines().stream().map(line -> new SalesOrderLine(line.id(), line.productId(),
                 line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null,
-                line.unitsPerOrderStep())).toList();
+                line.unitsPerOrderStep()).withPerPiece(line.perPiece())).toList();
         return new SalesOrder(updated.id(), updated.number(), stored.customerId(), stored.countryCode(),
                 updated.orderDate(), updated.validUntil(), updated.status(), stored.incoterm(),
                 stored.paymentTerms(), updated.notes(), MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
@@ -3068,7 +3159,10 @@ public class SalesOrderService {
         }).toList();
     }
 
-    /** A line added to a concept credit note takes the cost the invoice wrote, zero on a price correction. */
+    /**
+     * A line added to a concept credit note takes the cost the invoice wrote, zero on a price
+     * correction, and the invoice line's per-piece choice (as a line credited at creation does).
+     */
     private SalesOrder withCreditCosts(SalesOrder creditNote) {
         if (creditNote.lines().stream().allMatch(line -> line == null || line.unitCostEur() != null)) return creditNote;
         Map<Long, SalesOrderLine> original = creditedOriginal(creditNote).lines().stream().filter(line -> line.productId() != null)
@@ -3078,7 +3172,8 @@ public class SalesOrderService {
             SalesOrderLine source = original.get(line.productId());
             BigDecimal cost = creditNote.creditReason() == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source == null ? null : source.stockCostEur() != null ? source.stockCostEur() : source.unitCostEur();
-            return cost == null ? line : line.withUnitCost(cost);
+            SalesOrderLine added = source == null || line.id() != null ? line : line.withPerPiece(source.perPiece());
+            return cost == null ? added : added.withUnitCost(cost);
         }).toList();
         return creditNote.withLinesAndPallets(lines, List.of());
     }
@@ -3564,7 +3659,8 @@ public class SalesOrderService {
                 .add("freightCarrierId", "Vervoerder", before.freightCarrierId(), after.freightCarrierId())
                 .add("loadMode", "Laadwijze", before.loadMode(), after.loadMode())
                 .add("palletProfile", "Pallettype", before.palletProfile(), after.palletProfile())
-                .add("maxPalletHeightCm", "Maximale pallethoogte",
+                /* PalletHeightPicks reads this field's name back: a logged change of it is a height set by hand. */
+                .add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
                         before.maxPalletHeightCm(), after.maxPalletHeightCm())
                 .add("freightCarrierExtraEur", "Extra vervoerderskost",
                         before.freightCarrierExtraEur(), after.freightCarrierExtraEur())
@@ -3624,6 +3720,9 @@ public class SalesOrderService {
                 changes.add("line." + productId + ".priceSource", "Prijsbron" + suffix,
                         oldLine == null ? null : SalesLinePrices.dutch(oldLine.priceSource()),
                         newLine == null ? null : SalesLinePrices.dutch(newLine.priceSource()));
+                changes.add("line." + productId + ".perPiece", "Aantal per stuk" + suffix,
+                        oldLine != null && oldLine.countsPerPiece() ? "ja" : null,
+                        newLine != null && newLine.countsPerPiece() ? "ja" : null);
             }
             changes.add("line." + productId + ".deliveryWeek", "Levertermijn" + suffix,
                     oldLine == null ? null : oldLine.deliveryWeek(),
@@ -3683,8 +3782,9 @@ public class SalesOrderService {
      * A product sells per its order step (a full carton unless the product says
      * otherwise): every quantity rounds up to that step on save, and the line
      * remembers the step, so a later change on the product never re-prices this
-     * document. The screen announces the correction; this makes it true no
-     * matter which client wrote the order.
+     * document. A line staff set to per piece keeps its quantity and remembers 1.
+     * The screen announces the correction; this makes it true no matter which
+     * client wrote the order.
      */
     private List<SalesOrderLine> roundLinesToOrderSteps(List<SalesOrderLine> lines) {
         return withOrderSteps(lines, true);
@@ -3702,7 +3802,10 @@ public class SalesOrderService {
         return withOrderSteps(lines, byId::get, round);
     }
 
-    /** Each line at its product's step of today; a line whose product is gone keeps its quantity and no step. */
+    /**
+     * Each line at its product's step of today, or at 1 where staff chose per piece for the line;
+     * a line whose product is gone keeps its quantity and no step.
+     */
     static List<SalesOrderLine> withOrderSteps(List<SalesOrderLine> lines, Function<Long, Product> products,
                                                boolean round) {
         if (lines == null || lines.isEmpty()) return lines;
@@ -3710,7 +3813,7 @@ public class SalesOrderService {
             if (line == null) return null;
             Product product = line.productId() == null ? null : products.apply(line.productId());
             if (product == null) return line.withOrderStep(line.quantity(), null);
-            int step = OrderSteps.unitsPerStep(product);
+            int step = line.countsPerPiece() ? 1 : OrderSteps.unitsPerStep(product);
             return line.withOrderStep(round ? OrderSteps.roundUp(line.quantity(), step) : line.quantity(), step);
         }).toList();
     }
@@ -3729,6 +3832,31 @@ public class SalesOrderService {
             SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
             Integer step = known == null ? null : known.unitsPerOrderStep();
             return Objects.equals(step, line.unitsPerOrderStep()) ? line : line.withOrderStep(line.quantity(), step);
+        }).toList();
+    }
+
+    /**
+     * The per-piece choice each line carries into a save or a preview. Where the document rounds
+     * ({@code takesRequest}) the request decides: true or false sets it, a line that says nothing
+     * keeps what is stored on the same line (an older screen, the website), and a new line that
+     * says nothing is not per piece. A document that keeps exact pieces offers no choice: the
+     * stored one stays whatever the request says, a new line has none. Never false on the result.
+     */
+    static List<SalesOrderLine> withPerPieceChoices(List<SalesOrderLine> lines, List<SalesOrderLine> stored,
+                                                    boolean takesRequest) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line != null && line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        return lines.stream().map(line -> {
+            if (line == null) return null;
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            /* A line id that now names another product is another line: it starts without a choice. */
+            if (known != null && !Objects.equals(known.productId(), line.productId())) known = null;
+            Boolean wanted = takesRequest && line.perPiece() != null ? line.perPiece()
+                    : known == null ? null : known.perPiece();
+            Boolean choice = Boolean.TRUE.equals(wanted) ? Boolean.TRUE : null;
+            return Objects.equals(choice, line.perPiece()) ? line : line.withPerPiece(choice);
         }).toList();
     }
 

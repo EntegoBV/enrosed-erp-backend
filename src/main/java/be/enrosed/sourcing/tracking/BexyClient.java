@@ -20,6 +20,8 @@ public class BexyClient {
     private static final URI ENDPOINT = URI.create("https://bexy.io/mcp/public");
     private static final String PROTOCOL = "2025-03-26";
     private static final int MAX_BYTES = 1_000_000;
+    /** Bexy has no record of this bill yet: the usual answer for a fresh B/L, not a failed check. */
+    static final String NO_DATA_YET = "Bexy heeft nog geen actuele opgeslagen gegevens voor deze Evergreen-zending.";
     private static final Pattern BL = Pattern.compile("(?<![A-Z0-9])EGLV\\s*(\\d{12})(?![A-Z0-9])");
     private static final Pattern BOX = Pattern.compile("(?<![A-Z0-9])([A-Z]{4})[ -]?(\\d{7})(?![A-Z0-9])");
     @Inject ObjectMapper json;
@@ -110,7 +112,7 @@ public class BexyClient {
     private JsonNode payload(JsonNode envelope) {
         JsonNode result = envelope.path("result");
         if (envelope.hasNonNull("error") || result.path("isError").asBoolean(false))
-            throw failure("Bexy heeft nog geen actuele opgeslagen gegevens voor deze Evergreen-zending.");
+            throw failure(NO_DATA_YET);
         if (result.path("structuredContent").isObject()) return result.path("structuredContent");
         JsonNode content = result.path("content");
         if (content.isArray()) for (JsonNode item : content) {

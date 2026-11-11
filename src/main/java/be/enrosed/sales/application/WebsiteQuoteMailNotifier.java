@@ -223,7 +223,7 @@ public class WebsiteQuoteMailNotifier {
                     description = product.name() + (product.colour() == null || product.colour().isBlank()
                             ? "" : " - " + product.colour());
                     note = product.sku();
-                    boolean perCarton = product.packaging().orderStep() == OrderStep.CARTON;
+                    boolean perCarton = product.packaging().orderStep() == OrderStep.CARTON && !line.countsPerPiece();
                     if (!perCarton) quantity = SalesUnitText.quantity(product.packaging(), line.quantity(), Language.NL);
                     if (product.carton() != null && product.carton().piecesPerCarton() > 0) {
                         int cartons = product.carton().cartonsFor(line.quantity());

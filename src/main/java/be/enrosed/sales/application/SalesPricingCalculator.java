@@ -106,10 +106,12 @@ public class SalesPricingCalculator {
     }
 
     /**
-     * The step a line rounds to when its document does not keep exact pieces: the one the
-     * line remembers from its last save, else the product's current step.
+     * The step a line rounds to when its document does not keep exact pieces: 1 on a line staff
+     * set to per piece (the choice wins over whatever step is stamped), else the one the line
+     * remembers from its last save, else the product's current step.
      */
     public static int unitsPerOrderStep(SalesOrderLine line, Product product) {
+        if (line != null && line.countsPerPiece()) return 1;
         Integer remembered = line == null ? null : line.unitsPerOrderStep();
         return remembered != null && remembered >= 1 ? remembered : OrderSteps.unitsPerStep(product);
     }
@@ -278,7 +280,11 @@ public class SalesPricingCalculator {
                     line.priceSource(),
                     standardPrice != null && standardPrice.signum() > 0 ? Money.unit(standardPrice) : null,
                     hinted && hints.customerPrices().containsKey(product.id())
-                            ? Money.unit(hints.customerPrices().get(product.id())) : null));
+                            ? Money.unit(hints.customerPrices().get(product.id())) : null,
+                    /* The line's own choice, and whether a staff screen may offer it here: the document
+                       rounds and the product's step of today is more than one unit. */
+                    line.countsPerPiece() ? Boolean.TRUE : null,
+                    !exact && OrderSteps.unitsPerStep(product) > 1 ? Boolean.TRUE : null));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);

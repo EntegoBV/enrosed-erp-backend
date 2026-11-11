@@ -826,11 +826,15 @@ public class SourcingResource {
         return Response.noContent().build();
     }
 
-    /** Pieces on the water, per product: what the catalogue may promise soon. */
+    /**
+     * Pieces on the water, per product: what the catalogue may promise soon, with every order behind the figure.
+     * {@code ?arrived=true} adds received containers that still wait for their stock booking; without it the
+     * entries are the ones every caller always got.
+     */
     @GET
     @Path("/purchase-orders/expected-stock")
-    public List<PurchaseOrderService.ExpectedStock> expectedStock() {
-        return purchaseOrders.expectedStock();
+    public List<PurchaseOrderService.ExpectedStock> expectedStock(@QueryParam("arrived") boolean arrived) {
+        return purchaseOrders.expectedStock(arrived);
     }
 
     @POST

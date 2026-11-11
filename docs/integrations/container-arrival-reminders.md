@@ -12,6 +12,8 @@ Dates come from the canonical purchase header. Reliable tracking-date synchroniz
 
 `GET /api/container-arrival-reminders/preview` is an authenticated, read-only dry run returning current candidates. It never queues or sends. The bell's existing `/api/notifications` feed includes `CONTAINER_AANKOMST` with a `url` pointing to `/purchasing/{id}?tracking=1` and a stable `notificationId` for that voyage and threshold. Dismissing the 10-day notice does not dismiss the later 3-day notice. Daily countdown wording stays dismissed; a changed ETA in the detail can make the corrected planning visible again, without sending a second push for that threshold.
 
+Since 2026-11-10 the same feed also carries one row per container whose arrival tracking moved ("Aankomst 15/11/2026 · 3 dagen later", detail "was 12/11/2026"; see container-tracking.md). It is in-app only, never queued for push, has `actionNeeded: false`, and follows both switches below. Like the reminders it describes the current saved date; it stands while that lies two days or more from the planning, gets a new identity only when tracking moves two days or more from the date it named last, keeps the time it named that date, and it can stand beside a 10/3-day reminder of the same container. Reminder identities keep the reference parser of 2026-10-26 (`ContainerTracking.strictReference`), so a reference that is only recognised since 2026-11-10 repeats no reminder.
+
 Configuration:
 
 - `CONTAINER_ARRIVAL_REMINDERS_ENABLED=true` by default controls stored reminders and in-app feed. `CONTAINER_TRACKING_ENABLED=false` also pauses them.

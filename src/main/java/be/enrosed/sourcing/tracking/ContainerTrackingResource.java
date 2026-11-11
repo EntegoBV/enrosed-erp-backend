@@ -11,7 +11,10 @@ import jakarta.ws.rs.core.MediaType;
 @RolesAllowed(AdminIdentityProvider.ADMIN_ROLE)
 public class ContainerTrackingResource {
     @Inject ContainerTrackingService service;
-    @GET public ContainerTracking.Feed feed() { return service.feed(); }
+    /** Every tracked container, or with ?orderId= only that order's row (none when it is not tracked). */
+    @GET public ContainerTracking.Feed feed(@QueryParam("orderId") Long orderId) {
+        return orderId == null ? service.feed() : service.feed(orderId);
+    }
     @POST @Path("/{orderId}/refresh")
     public ContainerTracking.Row refresh(@PathParam("orderId") long orderId) { return service.refresh(orderId); }
     public record VesselRequest(String imo, String trackingReference) {}

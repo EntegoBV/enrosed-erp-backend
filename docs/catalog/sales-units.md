@@ -58,3 +58,11 @@ leveringen ronden nooit af. Elke verkoopregel onthoudt het veelvoud waarop hij
 laatst afgerond werd, zodat een latere wijziging van het product een verstuurde
 of betaalde offerte of factuur niet verandert. In het Excel- en CSV-bestand is
 het de laatste kolom `verkocht_per`: `omdoos`, `verpakking` of `stuk`.
+
+Per regel op een verkoopdocument kan Enrosed bovendien **per stuk** kiezen
+(sinds 2026-11-10), zonder het product te wijzigen. Het aantal van die regel
+rondt dan niet af en blijft zoals het ingetikt is; de prijs per stuk blijft
+dezelfde. Een aangebroken omdoos telt ook hier als één volle omdoos voor volume,
+gewicht, pallets en vracht. De keuze blijft op de regel staan bij een kopie, een
+factuur, een splitsing en een creditnota; de klant ziet zo'n regel als een regel
+per stuk. Op de website kan een klant dit niet zelf kiezen.
