@@ -2467,7 +2467,7 @@ public class SalesOrderService {
     /** Someone set this document's pallet height by hand, on it or on what it was made or copied from. */
     private boolean palletHeightPickedByHand(SalesOrder order) {
         return order.id() != null && heightPicks != null && heightPicks.isResolvable()
-                && heightPicks.get().of(order.id()) == PalletHeightPicks.Pick.PICKED;
+                && heightPicks.get().of(order.id()).byHand();
     }
 
     /**

@@ -27,8 +27,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * the website on 220 keeps 220, and so does every invoice. Only an untouched concept quote
  * (PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE) that stores 220 without anyone having picked it
  * moves: the 220 it was made with, or was moved to on 2026-11-07, was the standard of those days. A
- * height set by hand stays, also on a Nieuwe kopie that inherited it (PalletHeightPicks). Hand-built
- * pallets do not hold a quote back: they are billed as they stand and were measured under 220.
+ * height set by hand stays, also on a Nieuwe kopie that inherited it: PalletHeightPicks reads that
+ * from each quote's history, after the lock, so every untouched concept quote on 220 is locked and
+ * asked. Hand-built pallets do not hold a quote back: they are billed as they stand and were
+ * measured under 220.
  *
  * Both releases read a stored height the same way, so the move is safe while the old release still
  * serves; it waits anyway, so it also finds the concepts the old release made at 220 during the
@@ -46,9 +48,8 @@ public class PalletHeightReturn {
 
     private static final String AT_FORMER = "o.maxpalletheightcm = :former";
 
-    /** A concept quote nothing has come from, on 220 cm, whose own log names no pick. */
-    private static final String CANDIDATE = AT_FORMER + " and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE
-            + " and not " + PalletHeightPicks.OWN_PICK;
+    /** A concept quote nothing has come from, on 220 cm. Whether someone set that 220 is asked per quote. */
+    private static final String CANDIDATE = AT_FORMER + " and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE;
 
     private final AtomicBoolean done = new AtomicBoolean();
 
@@ -92,17 +93,26 @@ public class PalletHeightReturn {
                     entities.createNativeQuery("set local lock_timeout = '15s'").executeUpdate();
                 /* First lock the candidates: a quote a seller is saving right now is waited for. The second
                    select is a new statement and so reads what that save committed: a quote that was just
-                   sent, got an advance or an invoice, or whose height was just picked no longer passes and
-                   keeps its 220. A save that comes later waits for this one and reads 260. */
+                   sent, got an advance or an invoice, or was given another height no longer passes and keeps
+                   what it has. A save that comes later waits for this one and reads 260. */
                 List<Long> locked = ids(candidate("select o.id from sales_order o where " + CANDIDATE + " for update"));
                 List<Long> still = locked.isEmpty() ? List.<Long>of()
                         : ids(candidate("select o.id from sales_order o where o.id in (:ids) and " + CANDIDATE + " order by o.id")
                                 .setParameter("ids", locked));
-                /* A Nieuwe kopie may carry a pick its own log does not show: only a quote whose whole
-                   chain shows none moves. One whose source is gone keeps 220 too. */
+                /* Only a 220 nobody set moves. The history is read here, after the lock, so a height a
+                   seller just saved counts. A 220 set on the quote itself stays, and so does one a Nieuwe
+                   kopie inherited; a quote whose trail cannot be followed (a source that is gone, a log row
+                   that cannot be read) keeps 220 too, since nobody watches this move. */
                 List<Long> moved = new ArrayList<>();
+                List<Long> picked = new ArrayList<>();
                 List<Long> inherited = new ArrayList<>();
-                for (Long id : still) (picks.of(id) == PalletHeightPicks.Pick.NOT_PICKED ? moved : inherited).add(id);
+                for (Long id : still) {
+                    switch (picks.of(id)) {
+                        case NOT_PICKED: moved.add(id); break;
+                        case SET_HERE: picked.add(id); break;
+                        default: inherited.add(id);
+                    }
+                }
                 if (!moved.isEmpty()) {
                     entities.createNativeQuery("update sales_order set maxpalletheightcm = :height where id in (:ids)")
                             .setParameter("height", standard).setParameter("ids", moved).executeUpdate();
@@ -115,15 +125,12 @@ public class PalletHeightReturn {
                 }
                 entities.createNativeQuery("insert into country_policy_version (version, appliedat) values (:version, current_timestamp)")
                         .setParameter("version", ROLLOUT).executeUpdate();
-                List<String> picked = named(entities.createNativeQuery("select o.id, o.number from sales_order o where " + AT_FORMER
-                                + " and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE + " and " + PalletHeightPicks.OWN_PICK + " order by o.id")
-                        .setParameter("former", former).setParameter("picked", PalletHeightPicks.PICKED_PATTERN));
                 /* Everything else that stays on 220: sent, invoiced, advanced, split, ordered, and every invoice. */
                 List<String> others = named(entities.createNativeQuery("select o.id, o.number, coalesce(o.doctype, 'OFFERTE'), o.status"
                                 + " from sales_order o where " + AT_FORMER + " and o.deleted_at is null and not ("
                                 + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE + ") order by o.id")
                         .setParameter("former", former));
-                return new Outcome(named(byId(moved)), picked, named(byId(inherited)), others);
+                return new Outcome(named(byId(moved)), named(byId(picked)), named(byId(inherited)), others);
             });
             done.set(true);
             if (outcome == null) return;
@@ -131,7 +138,7 @@ public class PalletHeightReturn {
             if (!outcome.picked().isEmpty())
                 LOG.infof("Pallet height: %d concept quote(s) keep 220 cm, set by hand: %s", outcome.picked().size(), outcome.picked());
             if (!outcome.inherited().isEmpty())
-                LOG.infof("Pallet height: %d concept quote(s) keep 220 cm, copied from a quote with a height set by hand or from one that is gone: %s",
+                LOG.infof("Pallet height: %d concept quote(s) keep 220 cm, copied from a quote with 220 set by hand, or with a history that cannot be followed: %s",
                         outcome.inherited().size(), outcome.inherited());
             if (!outcome.others().isEmpty())
                 LOG.infof("Pallet height: %d other document(s) keep the 220 cm they were made with: %s", outcome.others().size(), outcome.others());
@@ -142,9 +149,7 @@ public class PalletHeightReturn {
     }
 
     private Query candidate(String sql) {
-        return entities.createNativeQuery(sql)
-                .setParameter("former", SalesSettings.FORMER_STANDARD_HEIGHT_CM)
-                .setParameter("picked", PalletHeightPicks.PICKED_PATTERN);
+        return entities.createNativeQuery(sql).setParameter("former", SalesSettings.FORMER_STANDARD_HEIGHT_CM);
     }
 
     private Query byId(List<Long> ids) {
