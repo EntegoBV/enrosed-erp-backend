@@ -581,8 +581,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   figures (displays, named units). Catalog reaches it through the out-port
   `CataloguePallet`, implemented in sales by `CataloguePalletFit` (catalog
   never imports sales). One basis line per document ("Per pallet: europallet
-  120 × 80 cm, max. 220 cm hoog incl. pallet, max. 700 kg.", 260 before
-  2026-11-07, key
+  120 × 80 cm, max. 260 cm hoog incl. pallet, max. 700 kg.", 220 from
+  2026-11-07 to 2026-11-10, key
   `catalog.common.palletbasis`) closes the overview footnote and the compact
   footer. A carton without a weight is counted by height only, and there is
   no hand count per product for the pallet.
@@ -1972,7 +1972,7 @@ concept keeps the count and freight it was sent with.
   a full one, and the cartons a weight split leaves join the next layer instead of making a short one, so one product
   alone gets exactly its cartonsPerPallet per pallet; (3) a plan longer than the separate count gives way to the
   separate layout (`separatePallets`), so `palletsAutomatic` never exceeds `palletsStrict`. Cases (worked out at the
-  260 cm standard of that day; at 220 cm the 60×40 mix below takes 2 pallets, the others are unchanged): 238 × 40×40×50 cm
+  260 cm standard; at the 220 cm of 7-10 November 2026 the 60×40 mix below takes 2 pallets, the others are unchanged): 238 × 40×40×50 cm
   at 30.7 kg on Euro 260 cm 11 (= strict), 33 × 58.5×20×50 at 100 kg on a half pallet 5, 23 × 20×40×200 at 100 kg on
   a block pallet at 300 cm 4, 60×40×50 8 kg ×16 + 60×40×40 6 kg ×4 one pallet, the four products 1 at 204.4 cm and
   159 kg (strict 4), four 100 cm singles 2. Checked against those steps written apart on 60,604 orders (no difference,
@@ -2021,41 +2021,78 @@ concept keeps the count and freight it was sent with.
   of een hogere maximale pallethoogte". It is raised only on a concept that was never sent (status CONCEPT, `sentAt`
   null); a document that left concept keeps the validation it had, its freight shown and its transport saves accepted.
 
-## Pallethoogte per document: standaard 220 cm (2026-11-07)
+## Pallethoogte per document: standaard 260 cm (2026-11-10; 220 van 7 tot 10 november)
 
-Emre, after comparing the catalogue with Palletberekening: "gebruik 220 dan aub". The standard pallet is a europallet
-120 × 80 cm, max. 220 cm high with the 14.4 cm wood, 700 kg (`enrosed.pallet.max-height-cm`, default 220; it was 260
-from 2026-08-20, 180 before; no Railway variable sets it). Every sales figure is priced live on every read (PDFs,
-portal, website account, payments and the paid state, Facturen, bank matching, credit caps, advances, Odoo, website
-order fingerprints), so a document keeps the height it was made with instead of following the setting:
+Emre, 2026-11-10: "260 cm standaard": a europallet is loaded at most 2,60 m high, the pallet itself included. (On
+2026-11-07 he had asked for 220 after comparing the catalogue with Palletberekening; three days later he chose 260
+again.) The standard pallet is a europallet 120 × 80 cm, max. 260 cm high with the 14.4 cm wood, 700 kg
+(`enrosed.pallet.max-height-cm`, default 260; 220 from 2026-11-07 to 2026-11-10, 260 from 2026-08-20, 180 before; no
+Railway variable sets it). The wood is inside the total on every path: `PalletCalculator.fit` and `mixedPallets`
+subtract `baseHeightCm` before counting layers, the reported heights add it back, a hand pallet's measured height is
+validated against the same total. Every sales figure is priced live on every read (PDFs, portal, website account,
+payments and the paid state, Facturen, bank matching, credit caps, advances, Odoo, website order fingerprints), so a
+document keeps the height it was made with instead of following the setting:
 
 - `SalesSettings.pallet()` (catalogue per-pallet figure and basis line, every website estimate of a request or a new
   order) is the standard. `pallet(profile, height)` gives a document its own stored height; a null height reads
-  `LEGACY_MAX_HEIGHT_CM` = 260, never today's standard: only rows made before 2026-11-07 have none, and they were sent,
-  invoiced and paid on 260 (the old release reads them the same way, so a deploy window changes nothing).
+  `LEGACY_MAX_HEIGHT_CM` = 260: only rows made before 2026-11-07 have none. `FORMER_STANDARD_HEIGHT_CM` = 220 is what
+  documents made from 2026-11-07 to 2026-11-10 store without anyone having picked it. `EURO_HEIGHT_LIMIT_CM` = 260.
 - New documents store the standard: `create` (staff quote and invoice, website request and order),
   `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`. Documents made from another
-  copy its raw height, null included: `createInvoiceFrom` (slotfactuur too), `createCreditNote`, the split parts,
-  `createAdvanceInvoice` (no lines; carries its quote's). `duplicate` ("Nieuwe kopie") is a new concept: the standard,
-  unless the source has a height of its own (copied) or hand-built pallets (260 written down, so a measured pallet stays
-  under its height and the copy keeps 260 once its pallets go).
+  copy its raw height, null and above 260 included: `createInvoiceFrom` (slotfactuur too), `createCreditNote`, the
+  split parts, `createAdvanceInvoice` (no lines; carries its quote's).
+- `duplicate` ("Nieuwe kopie") is a new concept (`copyHeight`): the standard, unless the source has a height of its
+  own. No height with hand-built pallets: 260 written down. A stored 220 is the standard of its day and gives a copy
+  on today's standard, unless it was set by hand (`PalletHeightPicks`). Any other height stays; on a europallet
+  without hand pallets at most 260. A copy that keeps a height other than the standard writes it in its own
+  DUPLICATED activity row (field `maxPalletHeightCm`, standard → kept), so the pick travels with every further copy.
+- `PalletHeightPicks.of(orderId)` (SET_HERE / INHERITED / NOT_PICKED / UNKNOWN; `byHand()` = the first two) tells a
+  height set by hand from one a document merely carries. It reads the document's newest `activity_log` row that names
+  the field `maxPalletHeightCm` (every save that changes the height writes one, `salesChanges`, with display values
+  such as "220"): SET_HERE when that change ends at the stored height, NOT_PICKED when it ends elsewhere (before
+  2026-11-07 "Standaard" stored null, and the 220 job then wrote 220 without a row). With no such row the question
+  goes up the chain: an invoice asks its quote (`sourcequoteid`), a Nieuwe kopie its source, found by number from its
+  history step "Offerte|Factuur gekopieerd vanuit <nummer>" (`COPIED_FROM`: keep that wording); of the source only the
+  rows up to the moment the copy was made (that step's `at`, an invoice's first OPGEMAAKT step) count, with the same
+  test (INHERITED / NOT_PICKED). An original without a row is NOT_PICKED; a source that is gone or renumbered, or a row
+  that cannot be parsed, is UNKNOWN (a copy then takes the standard, the one-time move leaves the quote alone). A
+  "Standaard" tap of 7-10 November after another pick is logged as "x → 220" and so counts as picked.
 - Saves: a null height keeps the document's own (`update`, so also the website intake and a customer's change,
-  `updateShipping`, `preview`); before, null meant "back to the default". The planner's "Standaard" sends the standard's
-  number. Validation is unchanged (above the base, at most 300 cm).
+  `updateShipping`, `preview`). The planner's "Standaard" sends the standard's number; the editor sends a height only
+  when it was changed on that screen, with `?heightPicked=true` on `PUT /api/sales-orders/{id}` and `/shipping`.
+  `heightAsked`: a staff save without the mark that carries 220 on a document storing another height is the echo of a
+  bundle from before 2026-11-10 (it sends the height it holds with every save, and its "Standaard" meant 220), so the
+  stored height stays; any other unmarked height is taken as before (such a window cannot set exactly 220 until
+  reloaded). The website paths (`updateWebsiteRequest`, `updateByCustomer`) are unaffected. Validation: above the base, at most 300 cm (`validatePalletHeight`, every
+  path), and `requireEuroHeightWithinLimit` in `update` and `updateShipping`: a new height above 260 cm on a
+  europallet is refused with "Maximale pallethoogte van een europallet kan niet hoger zijn dan 260 cm" (409); the
+  value the document already stores on a europallet passes unchanged, blok and half pallets keep 300. Not asked in
+  `preview` (saves nothing) nor where a document is made from another.
 - `PublicQuoteService`: a change of a stored website order is estimated on that order's height (`OrderPricing.pallet`),
   as it is stored and its ordered terms are recorded; `orderDocument` and `store` write the stored height back.
-- `PalletHeightBackfill` (scheduled `pallet-height-standard`: once, 10 minutes after the start, retried every 10 minutes
-  only after a failure; `enrosed.pallet-height.move-after` / `move-every`; nothing after `move-until`, 2026-11-14) gives
-  an untouched concept quote (`UNTOUCHED_CONCEPT_QUOTE`) with a null height and no `sales_pallet` rows the standard:
-  work in progress follows "gebruik 220", nothing that left the house moves, and the concepts the old release made
-  during the deploy are found too. One with hand-built pallets gets 260 written down (second release, review: a later
-  start would otherwise move it once its pallets are gone, behind a seller's back), so after a run no untouched
-  concept is left without a height. First run on production 2026-11-07 ~15:55: ENR-2026-0016 (website request) went
-  from 1 to 2 pallets; sent quotes, the website order and every invoice kept their figures. It locks the candidates (`select … for update`), then re-reads the test in a new
-  statement before the update, so a quote a seller saved hand pallets, an advance or an invoice on in that second
-  keeps 260 (review finding: one update statement reads its sub-selects from before the lock wait). The date bound
-  keeps a concept that kept 260 then (hand pallets) from being re-priced later behind a seller's back; the job can go
-  in a later clean-up.
+- `PalletHeightBackfill` (the 220 round's one-time move of null-height concepts) is deleted: with the standard at 260
+  it had nothing left to do. An old release that still runs its copy only ever touches rows without a height.
+- `PalletHeightReturn` (scheduled `pallet-height-260`: 10 minutes after the start, retried every 10 minutes only
+  after a failure; `enrosed.pallet-height.return-after` / `return-every`) puts concept quotes back from 220 on the
+  standard, once per database: the row `2026-11-10-pallet-height-260` in `country_policy_version` says it ran, and no
+  later start moves anything (a new name for `ROLLOUT` would run it again). A quote moves only when it stores 220, is
+  an untouched concept quote (`PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE`: type null or OFFERTE, CONCEPT, not
+  deleted, never sent, no web order, advance, invoice, split or partner snapshot) and `PalletHeightPicks.of`, asked
+  per locked quote after the re-read, says NOT_PICKED. Quotes with
+  hand-built pallets move too (going up cannot make a measured pallet too tall; freight follows the hand pallets).
+  Everything else keeps its 220: whatever was sent, invoiced, advanced, split or ordered, every invoice (a concept
+  invoice made directly on those days too), picked heights and copies of them, deleted documents. It locks the
+  candidates (`select … for update`), re-reads the test in a new statement, then updates; on PostgreSQL with
+  `lock_timeout` 15 s (a held row: nothing moves, no marker, next run). Each moved quote gets one history step
+  ("Max. pallethoogte 220 → 260 cm", actor Systeem, type VRACHT_INGEVULD because no rule reads that type; never
+  OPGEMAAKT, whose date is a website request's age). The log lines start with "Pallet height:" and name, as
+  "id number": the moved quotes, the concepts that keep a 220 set by hand, the ones that inherited it, and every
+  other document still on 220 with its type and status. Checked on H2 (local state of 51 documents: 18 moved, 33
+  identical to the cent) and its statements on PostgreSQL 17 with a concurrent save and a held lock.
+  Read-only pre-check for production: `select id, number, doctype, status, sentat from sales_order where
+  maxpalletheightcm = 220 and deleted_at is null order by id`.
+- History: the 220 round's `PalletHeightBackfill` ran on production 2026-11-07 ~15:55 (ENR-2026-0016, a website
+  request, went from 1 to 2 pallets) and wrote 260 down for untouched concepts with hand-built pallets.
 
 ## Batches (2026-10-25)
 

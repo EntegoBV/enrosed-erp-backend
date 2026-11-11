@@ -665,10 +665,14 @@ public class SalesOrderResource {
         return view(paid);
     }
 
+    /**
+     * {@code heightPicked}: the pallet height in the body was changed on that screen. A screen from
+     * before 2026-11-10 does not say it (SalesOrderService.heightAsked).
+     */
     @PUT
     @Path("/{id}")
-    public OrderView update(@PathParam("id") long id, SalesOrder order) {
-        SalesOrder saved = salesOrders.update(id, order);
+    public OrderView update(@PathParam("id") long id, @QueryParam("heightPicked") boolean heightPicked, SalesOrder order) {
+        SalesOrder saved = salesOrders.update(id, order, heightPicked);
         return view(saved);
     }
 
@@ -707,8 +711,9 @@ public class SalesOrderResource {
     /** Complete transport-only update; commercial fields on a sent quote remain frozen. */
     @PUT
     @Path("/{id}/shipping")
-    public OrderView updateShipping(@PathParam("id") long id, SalesOrderService.ShippingUpdate request) {
-        return view(salesOrders.updateShipping(id, request));
+    public OrderView updateShipping(@PathParam("id") long id, @QueryParam("heightPicked") boolean heightPicked,
+                                    SalesOrderService.ShippingUpdate request) {
+        return view(salesOrders.updateShipping(id, request, heightPicked));
     }
 
     @POST

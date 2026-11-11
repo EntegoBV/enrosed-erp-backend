@@ -106,7 +106,11 @@ public final class SalesEntities {
         public boolean euMember = true;
     }
 
-    /** One-time country-policy rollouts; later dashboard edits must survive restarts. */
+    /**
+     * One-time rollouts of the sales side: a row says a rollout ran on this database. The country
+     * policy (later dashboard edits must survive restarts) and the return of the pallet standard to
+     * 260 cm (PalletHeightReturn) each keep their own version.
+     */
     @Entity
     @Table(name = "country_policy_version")
     public static class CountryPolicyVersionEntity {
