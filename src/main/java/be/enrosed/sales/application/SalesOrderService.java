@@ -67,6 +67,8 @@ public class SalesOrderService {
     @Inject Instance<StaffWebOrderRevision> staffRevision;
     /** The customers' agreed prices (klantprijzen); absent in the hand-built tests. */
     @Inject Instance<CustomerPriceService> customerPrices;
+    /** Whether a document's pallet height was set by hand or is the standard of its day. */
+    @Inject Instance<PalletHeightPicks> heightPicks;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -1902,6 +1904,7 @@ public class SalesOrderService {
                     current.freightPricingStrategy(), current.freightRatePerCbmEur(), updated.lines());
         }
         updated = withPalletsFollowingLines(updated);
+        requireEuroHeightWithinLimit(current, updated);
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -1995,6 +1998,7 @@ public class SalesOrderService {
         requireNonNegative(request.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(request.freightRatePerCbmEur(), "CBM-vrachttarief");
         requireNonNegative(request.freightCarrierExtraEur(), "Extra vervoerderskost");
+        requireEuroHeightWithinLimit(current, updated);
         PalletSpec palletSpec = validatePalletHeight(updated);
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -2392,11 +2396,8 @@ public class SalesOrderService {
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
                 /* A copy is a new document and gets today's standard height, unless the source has a height of
-                   its own or hand-built pallets (stacked under the 260 cm of their time: kept, written down, so
-                   the copy keeps it once its pallets go). */
-                source.loadMode(), source.palletProfile(),
-                source.maxPalletHeightCm() != null ? source.maxPalletHeightCm()
-                        : source.pallets().isEmpty() ? settings.standardMaxHeightCm() : SalesSettings.LEGACY_MAX_HEIGHT_CM,
+                   its own (copyHeight). */
+                source.loadMode(), source.palletProfile(), copyHeight(source),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
@@ -2421,18 +2422,69 @@ public class SalesOrderService {
         SalesOrder created = orders.create(duplicate, PalletCountRule.MIXED);
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
+        /* PalletHeightPicks reads the source's number back from this step: keep its wording. */
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), actor.displayName(), false,
                 (created.isInvoice() ? "Factuur" : "Offerte")
-                        + " gekopieerd vanuit " + source.number(), null));
+                        + PalletHeightPicks.COPIED_FROM + source.number(), null));
+        /* A copy that keeps a height other than today's standard says so in its own log: the pick then
+           travels with every further copy, and nothing later takes it for the standard of its day. */
         recordActivity(ActivityLogService.ACTION_DUPLICATED, created,
-                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd");
+                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd",
+                ActivityChangeSet.create().add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
+                        settings.standardMaxHeightCm(), created.maxPalletHeightCm()).build());
         fireCreationPush(created.isInvoice()
                 ? SalesCreationPushNotifier.Ready.invoiceDuplicated(
                         created.id(), created.number(), source.number(), actor)
                 : SalesCreationPushNotifier.Ready.quoteDuplicated(
                         created.id(), created.number(), source.number(), actor));
         return created;
+    }
+
+    /**
+     * The height a Nieuwe kopie starts with. A copy is a new document and gets today's standard,
+     * unless its source has a height of its own.
+     */
+    private BigDecimal copyHeight(SalesOrder source) {
+        BigDecimal own = source.maxPalletHeightCm();
+        BigDecimal standard = settings.standardMaxHeightCm();
+        boolean handPallets = !source.pallets().isEmpty();
+        /* No stored height: made before 2026-11-07 on 260 cm. Hand-built pallets were stacked under that, so
+           the copy gets it written down and keeps it once its pallets go. */
+        if (own == null) return handPallets ? SalesSettings.LEGACY_MAX_HEIGHT_CM : standard;
+        /* The 220 cm of 7-10 November 2026 was the standard of those days, not a height of its own, unless
+           someone set it by hand (on the source or on what the source came from). Pallets measured under
+           220 also stand under a higher standard. */
+        if (own.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0 && standard.compareTo(own) > 0
+                && !palletHeightPickedByHand(source)) return standard;
+        /* A picked height stays, but a copy is a new pick: on a europallet at most the limit, unless its
+           measured pallets need the room. */
+        if (!handPallets && source.palletProfile() == PalletProfile.EURO_120X80
+                && own.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) > 0) return SalesSettings.EURO_HEIGHT_LIMIT_CM;
+        return own;
+    }
+
+    /** Someone set this document's pallet height by hand, on it or on what it was made or copied from. */
+    private boolean palletHeightPickedByHand(SalesOrder order) {
+        return order.id() != null && heightPicks != null && heightPicks.isResolvable()
+                && heightPicks.get().of(order.id()) == PalletHeightPicks.Pick.PICKED;
+    }
+
+    /**
+     * Emre, 2026-11-10: a europallet is loaded at most 260 cm high, the pallet included. Asked where a
+     * height can be picked (a save, a transport update): a higher value the document already stores on
+     * a europallet was picked before the limit and stays as it is; any other height above it is
+     * refused. Other pallet types keep the general 300 cm of validatePalletHeight. Not asked where a
+     * document is made from another (invoice, credit note, split, advance): those copy what is stored.
+     */
+    private static void requireEuroHeightWithinLimit(SalesOrder before, SalesOrder after) {
+        BigDecimal height = after.maxPalletHeightCm();
+        if (height == null || after.palletProfile() != PalletProfile.EURO_120X80
+                || height.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) <= 0) return;
+        if (before.palletProfile() == PalletProfile.EURO_120X80 && before.maxPalletHeightCm() != null
+                && before.maxPalletHeightCm().compareTo(height) == 0) return;
+        throw new BusinessRuleException("Maximale pallethoogte van een europallet kan niet hoger zijn dan "
+                + SalesSettings.EURO_HEIGHT_LIMIT_CM.stripTrailingZeros().toPlainString() + " cm");
     }
 
 
@@ -3292,7 +3344,8 @@ public class SalesOrderService {
                 .add("freightCarrierId", "Vervoerder", before.freightCarrierId(), after.freightCarrierId())
                 .add("loadMode", "Laadwijze", before.loadMode(), after.loadMode())
                 .add("palletProfile", "Pallettype", before.palletProfile(), after.palletProfile())
-                .add("maxPalletHeightCm", "Maximale pallethoogte",
+                /* PalletHeightPicks reads this field's name back: a logged change of it is a height set by hand. */
+                .add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
                         before.maxPalletHeightCm(), after.maxPalletHeightCm())
                 .add("freightCarrierExtraEur", "Extra vervoerderskost",
                         before.freightCarrierExtraEur(), after.freightCarrierExtraEur())
