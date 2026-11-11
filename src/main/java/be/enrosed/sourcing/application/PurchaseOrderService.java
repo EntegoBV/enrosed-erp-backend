@@ -2173,23 +2173,36 @@ public class PurchaseOrderService {
     }
 
     /**
+     * How long a received container whose stock was never booked still reads as "arrived, still to book" in the
+     * expected stock. The gap between a receipt and its booking is days; an order left unbooked for longer had its
+     * pieces put into stock some other way, and showing it as arrived on every product and in every quote would be
+     * false. The purchase order itself keeps its "nog bij te boeken" for as long as it is not archived.
+     */
+    static final int ARRIVED_DAYS = 30;
+
+    /**
      * Pieces still on the water: per product the sum over ordered (BESTELD) and departed (ONDERWEG) containers, with
      * every order behind the figure in {@code orders}. The first five fields mean what they always meant.
      *
      * {@code withArrived} also lists received containers whose stock is not booked yet (ONTVANGEN, stockBooked false,
-     * not archived): their usable pieces go into {@code arrivedQuantity} and an ONTVANGEN row, never into
-     * {@code quantity}; a product with nothing else coming then gets an entry with quantity 0. Without it the set of
-     * entries is the one every caller always got. A line without a product or with nothing to come is skipped and an
-     * order without a number is named like everywhere else, so old data never fails the whole answer.
+     * not archived, received at most {@link #ARRIVED_DAYS} days ago): their usable pieces go into
+     * {@code arrivedQuantity} and an ONTVANGEN row, never into {@code quantity}; a product with nothing else coming
+     * then gets an entry with quantity 0. Without it the set of entries is the one every caller always got. A line
+     * without a product or with nothing to come is skipped and an order without a number is named like everywhere
+     * else, so old data never fails the whole answer.
      */
     public List<ExpectedStock> expectedStock(boolean withArrived) {
         Map<Long, ExpectedStock> byProduct = new java.util.LinkedHashMap<>();
+        LocalDate arrivedSince = LocalDate.now(BRUSSELS).minusDays(ARRIVED_DAYS);
         for (PurchaseOrder order : orders.findAll()) {
             if (order == null || order.id() == null) continue;
             boolean open = order.status() == PurchaseOrderStatus.BESTELD || order.status() == PurchaseOrderStatus.ONDERWEG;
-            /* An archived received order is put away: it never comes back as "still to book". */
+            /* An archived received order is put away, and one received long ago is no arrival any more (its pieces
+               reached the stock by a count, or it waits on the purchase list, which keeps saying "nog bij te
+               boeken"): neither comes back here as "still to book". */
             boolean arrived = withArrived && order.status() == PurchaseOrderStatus.ONTVANGEN
-                    && !order.isStockBooked() && !order.isArchived();
+                    && !order.isStockBooked() && !order.isArchived()
+                    && order.receivedOn() != null && !order.receivedOn().isBefore(arrivedSince);
             if ((!open && !arrived) || order.lines() == null) continue;
             String number = PurchaseOrderName.display(order.id(), order.number(), null);
             for (PurchaseOrderLine line : order.lines()) {

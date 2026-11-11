@@ -421,7 +421,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `quantity`, `expectedArrival`, `shippedOn`, `receivedOn`, `partner`)
   and `arrivedQuantity`. Only with `?arrived=true` (the ERP's product
   screens and sales picker) a received container whose stock is not
-  booked (ONTVANGEN, `stockBooked` false, **not archived**) counts: its
+  booked (ONTVANGEN, `stockBooked` false, **not archived**, received at
+  most `ARRIVED_DAYS` = 30 days ago: an older one had its pieces counted
+  into stock some other way and only keeps its "nog bij te boeken" on
+  the purchase order) counts: its
   usable pieces go into `arrivedQuantity` and an ONTVANGEN row, never
   into `quantity`; a product with nothing else coming then gets an entry
   with quantity 0. Without the parameter the entries are exactly the old
