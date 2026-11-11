@@ -129,8 +129,22 @@ public final class ContainerTracking {
         return EDGE_SPACES.matcher(spaced).replaceAll("");
     }
 
-    /** What the field holds, by one written rule. It never guesses: a bare number is only read as an Evergreen bill. */
+    /**
+     * What the field holds, by one written rule. It never guesses: a bare number is only read as an Evergreen bill.
+     * A text the parser of 2026-10-26 accepts reads as what that parser follows ({@link #reference(String)} asks it
+     * first), so the line on the screen names the number the tracker follows.
+     */
     public static Recognised recognise(String raw) {
+        Recognised wide = wider(raw);
+        Reference strict = strictReference(raw);
+        if (strict == null) return wide;
+        String kind = strict.container() ? "CONTAINER" : raw.strip().toUpperCase(Locale.ROOT).startsWith("BOOKING:") ? "BOOKING" : "BL";
+        if (kind.equals(wide.kind()) && strict.number().equals(wide.number())) return wide;
+        return new Recognised(kind, strict.number(), strict.container() ? BexyClient.validBox(strict.number()) : null, null, wide.evergreenBl());
+    }
+
+    /** The rule of 2026-11-10 on its own, for texts the parser of 2026-10-26 does not take. */
+    private static Recognised wider(String raw) {
         String value = normalise(raw);
         if (value.isEmpty()) return new Recognised("EMPTY", null, null, null, null);
         if (raw.length() > 500) return new Recognised("UNKNOWN", null, null, null, null);
