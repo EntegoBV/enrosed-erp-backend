@@ -71,19 +71,23 @@ Nothing here needs ShipsGo; everything keeps working with it.
 
 Every result carries `evergreenBl`: the bill `BexyClient.query` itself reads from the text as typed, so the screen says "datums via Evergreen" exactly when the date lookup runs.
 
+The line names what is followed: when the parser of 2026-10-26 (`strictReference`) takes the text, the result is what it follows (its container, or the number behind `BL:` / `BOOKING:`), even where the rules above read the text otherwise. Two such texts: `TCNU1234565 EGHU 912345 7` (a second number with its check digit apart: `CONTAINER TCNU1234565`, not `MULTIPLE`) and a pasted non-breaking space before `BL: 814434288923 TCNU-1234565` (`CONTAINER TCNU1234565`, not the B/L). The frontend mirrors the strict parser for this (review round 1, 2026-11-10).
+
 `ContainerTracking.reference(raw)` asks the parser of 2026-10-26 first (`strictReference`, unchanged): a text it accepts keeps its key, so no snapshot, ShipsGo registration, ship link or reminder identity moves. Only texts it rejects are read by the wider rule. Newly followed: a bare Evergreen bill, `B/L:` forms, a number followed by other text behind `BL:`, the split check digit. `TrackingDateSync.sameShipment` accepts everything it accepted before, first of all the Evergreen bill the lookup read from the text (a bare `EGLV…` got lookups but its dates were refused before).
 
 A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in the order save) unless both texts are recognised and have no number in common. The order's stored port calls move with the link (their key, `ContainerTrackingService.vesselKey`, holds the reference hash), so the row keeps its last check.
 
 ### Row fields added (null when they do not apply)
 
-`recognised {kind, number, checkDigitOk, container, evergreenBl}`; `failure`, `failureAt`; `arrivalMovedFrom`, `arrivalMovedAt`, `arrivalMovedDays`; `manualCheckAt`; `refreshOutcome` (only on the answer of refresh and vessel). `status`, `statusLabel`, `error`, `source`, `automatic`, `checkedAt`, `updatedAt`, `nextCheckAt` and `dateError` are computed as before; the native iOS app reads those.
+`recognised {kind, number, checkDigitOk, container, evergreenBl}`; `failure`, `failureAt`, `failureDataAt`; `arrivalMovedFrom`, `arrivalMovedAt`, `arrivalMovedDays`; `manualCheckAt`; `refreshOutcome` (only on the answer of refresh and vessel). `status`, `statusLabel`, `error`, `source`, `automatic`, `checkedAt`, `updatedAt`, `nextCheckAt` and `dateError` are computed as before; the native iOS app reads those.
 
 `GET /api/container-tracking?orderId=20` answers the same feed object with that order's row, or no row when the order is unknown, archived or has no reference. A purchase order page reads this every minute instead of the whole feed.
 
 ### A failed check
 
-`failure` is set when the last attempt failed: the snapshot has an error and `checkedAt` differs from `updatedAt` (`Snapshot.checkFailed`). It is also set when no source answered yet, where `error` holds guidance text. Two things are not failures and stay the `dateError` line: a date that could not be applied (written right after a success with the same instant in `checkDates`; keep that) and the date lookup's "nog geen actuele opgeslagen gegevens" (`BexyClient.NO_DATA_YET`), the usual answer for a fresh bill.
+`failure` is set when the last attempt failed: the snapshot has an error and `checkedAt` differs from `updatedAt` (`Snapshot.checkFailed`). It is also set when no source answered yet, where `error` holds guidance text. `failureAt` is that attempt; `failureDataAt` is the failing snapshot's own last success (`updatedAt`), so "Gegevens bewaard van" names the time of the data that is kept, also when the date source fails beside a ship feed that answers; null when that source never answered.
+
+Not failures: a date that could not be applied (written right after a success with the same instant in `checkDates`; keep that) stays the `dateError` line, and so does the date lookup's "nog geen actuele opgeslagen gegevens" (`BexyClient.NO_DATA_YET`) **while that bill never gave data** (a fresh bill). Once it gave data, the same answer is a failed check: `failure` "De datumbron gaf bij de laatste controle geen gegevens." (also in `dateError`, so the panel says it once), and the list, the summary and the panel show it. A received order sends no `failure`: it is never checked again.
 
 ### A manual check says what it did
 
@@ -93,12 +97,12 @@ The answer shows the dates the check just wrote. The service re-reads the order 
 
 ### The arrival tracking moved
 
-`purchase_order.arrival_moved_from`, `arrival_moved_at`, `arrival_notice_date` (nullable; migration `docs/migrations/2026-11-10`). `TrackingDateSync.noteArrivalMove` is the only writer:
+`purchase_order.arrival_moved_from`, `arrival_moved_at`, `arrival_notice_date`, `arrival_notice_at` (nullable; migration `docs/migrations/2026-11-10`). `TrackingDateSync.noteArrivalMove` is the only writer:
 
 - The date that stood before tracking first replaced it stays "was" through later moves, so "3 dagen later" is always against the planning that stood. Back on that date clears the move. A first date (the order had none) is not a move.
-- **A date saved through the order is the planning from then on**: `PanacheSourcingRepositories.save` clears the three columns when the saved date differs from the stored one. Tracking may still replace a hand-typed date at its next valid check, as before; that then shows as a move from the typed date. A hand date that wins until the source changes is a possible later decision, not built.
+- **A date saved through the order is the planning from then on**: `PanacheSourcingRepositories.save` clears the four columns when the saved date differs from the stored one. Tracking may still replace a hand-typed date at its next valid check, as before; that then shows as a move from the typed date. A hand date that wins until the source changes is a possible later decision, not built.
 - A received order shows no move.
-- The bell (`ArrivalMoveStore.notice`, through `ContainerArrivalReminders.feed`): one `CONTAINER_AANKOMST` row "Aankomst 3 dagen later" / "12/11/2026 → 15/11/2026", no push. `arrival_notice_date` is the date the row names; tracking names a new date only when it lies two days or more from the last named one (from the planning date the first time). The row leaves the feed 14 days after the last move, at receipt, when archived, or when the date is saved by hand. It can stand beside the 10/3-day reminder of the same container.
+- The bell (`ArrivalMoveStore.notice`, through `ContainerArrivalReminders.feed`): one `CONTAINER_AANKOMST` row, no push. Title "Aankomst 15/11/2026 · 3 dagen later" and detail "was 12/11/2026": the date the order has now against the planning that stood, so the bell never names a date the order has left. It stands only while that difference is two days or more (as the tint). Its identity is the planning date plus `arrival_notice_date`, the date named last; a new identity only when tracking moves two days or more from that one (from the planning date the first time). A one-day correction changes the date in the title but not the identity or the detail, so a dismissed row stays dismissed (the frontend's dismiss key is kind, id and detail). The row's time is `arrival_notice_at`, set only when a new date is named, so a quiet correction does not bring an old row back to the top; its 14 days count from there. It also leaves at receipt, when archived, or when the date is saved by hand. It can stand beside the 10/3-day reminder of the same container.
 
 ### Time
 
