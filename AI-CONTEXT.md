@@ -2544,8 +2544,11 @@ named constraints identical in `@Table` and the migration:
   bij."). Candidates: this partner's containers with `isStockBooked()`, received at the location
   (receivingLocationId = it, or null when it is MAIN), oldest `receivedOn` first. Capacity(C,P) =
   max(0, min(ledger remaining - historicShipped - openNet, PARTNER batch pieces of C / unit
-  pieces)); historicShipped = shipped historical advance pieces no shipped (non report-backed)
-  settlement absorbed (the shipGoods rule); openNet = open sale - open buyback quantity of parts on
+  pieces)); historicShipped = max(0, shipped historical advance pieces - the quantity of every
+  live or shipped non report-backed settlement, concepts and unshipped ones included): the ledger
+  remaining already holds those settlements back and they reuse the historical pieces when they
+  ship (the shipGoods rule), so counting only shipped ones took the pieces off twice until the
+  settlement shipped; openNet = open sale - open buyback quantity of parts on
   (C,P); the batch term only while batches run. The rest is an own part; with batches its size is
   capped at the own batch pieces (plus pieces no batch covers), beyond that "n stuks van X zijn al
   afgerekend maar nog niet afgeboekt; Enrosed boekt die eerst af.".

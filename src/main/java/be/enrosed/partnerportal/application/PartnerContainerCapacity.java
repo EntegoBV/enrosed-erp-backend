@@ -5,6 +5,7 @@ import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportLineEntity;
+import be.enrosed.sales.application.PartnerFinancingService;
 import be.enrosed.sales.application.PartnerSettlementLedger;
 import be.enrosed.sales.application.SalesOrderService;
 import be.enrosed.sales.domain.SalesOrder;
@@ -130,17 +131,25 @@ public class PartnerContainerCapacity {
     }
 
     /**
-     * Per container and product: pieces shipped on historical advances that no shipped
-     * settlement absorbed, max(0, shipped advances - shipped settlements), as shipGoods counts
-     * them. Report-backed settlements never absorbed historical pieces and are left out.
+     * Per container and product: pieces shipped on historical advances that the ledger does not
+     * already hold back, max(0, shipped advances - manual settlements). The settlements are every
+     * live (or already shipped) one that is not report-backed, concepts and unshipped ones
+     * included: the ledger's remaining already leaves their quantity out, and when they ship they
+     * reuse these historical pieces first (the shipGoods rule) instead of booking stock. Counting
+     * only shipped settlements here took those pieces off twice until the settlement shipped.
+     * Report-backed settlements never absorbed historical pieces and are left out.
      */
     public Map<Long, Map<Long, Integer>> historicShipped(Collection<Long> containerIds) {
         Map<Long, Map<Long, Integer>> result = new HashMap<>();
         if (containerIds.isEmpty()) return result;
         Set<Long> wanted = new HashSet<>(containerIds);
         List<SalesOrder> linked = sales.list().stream()
-                .filter(order -> order.goodsShippedAt() != null && wanted.contains(order.linkedPurchaseOrderId()))
+                .filter(order -> wanted.contains(order.linkedPurchaseOrderId()))
+                .filter(order -> order.isPartnerAdvance() ? order.goodsShippedAt() != null
+                        : order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && order.isInvoice()
+                        && (order.goodsShippedAt() != null || PartnerFinancingService.live(order)))
                 .toList();
+        if (linked.stream().noneMatch(SalesOrder::isPartnerAdvance)) return result;
         Set<Long> reportBacked = new HashSet<>(invoiceParts.reportBacked(linked.stream()
                 .map(SalesOrder::id).filter(Objects::nonNull).toList()));
         Map<Long, Map<Long, Integer>> advances = new HashMap<>();
@@ -148,7 +157,7 @@ public class PartnerContainerCapacity {
         for (SalesOrder order : linked) {
             Map<Long, Map<Long, Integer>> target;
             if (order.isPartnerAdvance()) target = advances;
-            else if (order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && !reportBacked.contains(order.id())) target = settlements;
+            else if (!reportBacked.contains(order.id())) target = settlements;
             else continue;
             Map<Long, Integer> perProduct = target.computeIfAbsent(order.linkedPurchaseOrderId(), key -> new HashMap<>());
             for (SalesOrderLine line : order.lines()) {
