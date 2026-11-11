@@ -2179,36 +2179,103 @@ public class PurchaseOrderService {
         return booked;
     }
 
-    /** Pieces still on the water: per product the sum over ordered and shipped containers. */
-    public List<ExpectedStock> expectedStock() {
+    /**
+     * How long a received container whose stock was never booked still reads as "arrived, still to book" in the
+     * expected stock. The gap between a receipt and its booking is days; an order left unbooked for longer had its
+     * pieces put into stock some other way, and showing it as arrived on every product and in every quote would be
+     * false. The purchase order itself keeps its "nog bij te boeken" for as long as it is not archived.
+     */
+    static final int ARRIVED_DAYS = 30;
+
+    /**
+     * Pieces still on the water: per product the sum over ordered (BESTELD) and departed (ONDERWEG) containers, with
+     * every order behind the figure in {@code orders}. The first five fields mean what they always meant.
+     *
+     * {@code withArrived} also lists received containers whose stock is not booked yet (ONTVANGEN, stockBooked false,
+     * not archived, received at most {@link #ARRIVED_DAYS} days ago): their usable pieces go into
+     * {@code arrivedQuantity} and an ONTVANGEN row, never into {@code quantity}; a product with nothing else coming
+     * then gets an entry with quantity 0. Without it the set of entries is the one every caller always got. A line
+     * without a product or with nothing to come is skipped and an order without a number is named like everywhere
+     * else, so old data never fails the whole answer.
+     */
+    public List<ExpectedStock> expectedStock(boolean withArrived) {
         Map<Long, ExpectedStock> byProduct = new java.util.LinkedHashMap<>();
+        LocalDate arrivedSince = LocalDate.now(BRUSSELS).minusDays(ARRIVED_DAYS);
         for (PurchaseOrder order : orders.findAll()) {
-            if (order.status() != PurchaseOrderStatus.BESTELD && order.status() != PurchaseOrderStatus.ONDERWEG) continue;
+            if (order == null || order.id() == null) continue;
+            boolean open = order.status() == PurchaseOrderStatus.BESTELD || order.status() == PurchaseOrderStatus.ONDERWEG;
+            /* An archived received order is put away, and one received long ago is no arrival any more (its pieces
+               reached the stock by a count, or it waits on the purchase list, which keeps saying "nog bij te
+               boeken"): neither comes back here as "still to book". */
+            boolean arrived = withArrived && order.status() == PurchaseOrderStatus.ONTVANGEN
+                    && !order.isStockBooked() && !order.isArchived()
+                    && order.receivedOn() != null && !order.receivedOn().isBefore(arrivedSince);
+            if ((!open && !arrived) || order.lines() == null) continue;
+            String number = PurchaseOrderName.display(order.id(), order.number(), null);
             for (PurchaseOrderLine line : order.lines()) {
-                if (line.quantity() <= 0) continue;
+                if (line == null || line.productId() == null) continue;
+                int pieces = open ? line.quantity() : line.usable();
+                if (pieces <= 0) continue;
                 ExpectedStock current = byProduct.get(line.productId());
-                LocalDate arrival = order.expectedArrival();
                 if (current == null) {
-                    byProduct.put(line.productId(), new ExpectedStock(line.productId(), line.quantity(), arrival,
-                            new ArrayList<>(List.of(order.number())), new ArrayList<>(List.of(order.id()))));
-                } else {
-                    LocalDate earliest = current.expectedArrival() == null ? arrival
-                            : arrival == null ? current.expectedArrival()
-                            : arrival.isBefore(current.expectedArrival()) ? arrival : current.expectedArrival();
-                    List<String> numbers = new ArrayList<>(current.orderNumbers());
-                    numbers.add(order.number());
-                    List<Long> ids = new ArrayList<>(current.orderIds());
-                    ids.add(order.id());
-                    byProduct.put(line.productId(), new ExpectedStock(line.productId(),
-                            current.quantity() + line.quantity(), earliest, numbers, ids));
+                    current = new ExpectedStock(line.productId(), 0, null, List.of(), List.of(), 0, List.of());
                 }
+                byProduct.put(line.productId(), current.plus(order, number, pieces, open));
             }
         }
         return List.copyOf(byProduct.values());
     }
 
+    /**
+     * What is coming for one product. {@code quantity}, {@code expectedArrival}, {@code orderNumbers} and
+     * {@code orderIds} count ordered and departed containers only (one number and id per counted line), as always;
+     * {@code arrivedQuantity} and the ONTVANGEN rows of {@code orders} are filled on request only.
+     */
     public record ExpectedStock(long productId, int quantity, LocalDate expectedArrival, List<String> orderNumbers,
-                                List<Long> orderIds) {}
+                                List<Long> orderIds, int arrivedQuantity, List<ExpectedOrder> orders) {
+
+        /** The same product with one more line counted: into the old fields when the order is open, else into arrivedQuantity. */
+        ExpectedStock plus(PurchaseOrder order, String number, int pieces, boolean open) {
+            List<ExpectedOrder> rows = new ArrayList<>(orders);
+            int at = -1;
+            for (int i = 0; i < rows.size(); i++) if (rows.get(i).orderId() == order.id()) at = i;
+            if (at < 0) rows.add(ExpectedOrder.of(order, number, pieces));
+            else rows.set(at, rows.get(at).plus(pieces));
+            if (!open) {
+                return new ExpectedStock(productId, quantity, expectedArrival, orderNumbers, orderIds,
+                        arrivedQuantity + pieces, List.copyOf(rows));
+            }
+            LocalDate arrival = order.expectedArrival();
+            LocalDate earliest = expectedArrival == null ? arrival
+                    : arrival == null ? expectedArrival : arrival.isBefore(expectedArrival) ? arrival : expectedArrival;
+            List<String> numbers = new ArrayList<>(orderNumbers);
+            numbers.add(number);
+            List<Long> ids = new ArrayList<>(orderIds);
+            ids.add(order.id());
+            return new ExpectedStock(productId, quantity + pieces, earliest, List.copyOf(numbers), List.copyOf(ids),
+                    arrivedQuantity, List.copyOf(rows));
+        }
+    }
+
+    /**
+     * One order behind a product's figure. {@code status} is the order's own (ONTVANGEN = received, stock not booked
+     * yet); {@code name} is the container as sales names it (Herkenbare naam, else the number); {@code partner} says
+     * the pieces belong to a partner container - they are booked into the same stock all the same.
+     */
+    public record ExpectedOrder(long orderId, String orderNumber, String name, PurchaseOrderStatus status, int quantity,
+                                LocalDate expectedArrival, LocalDate shippedOn, LocalDate receivedOn, boolean partner) {
+
+        static ExpectedOrder of(PurchaseOrder order, String number, int pieces) {
+            return new ExpectedOrder(order.id(), number, PurchaseOrderName.display(order.id(), order.number(), order.alias()),
+                    order.status(), pieces, order.expectedArrival(), order.shippedOn(), order.receivedOn(),
+                    order.isPartnerContainer());
+        }
+
+        ExpectedOrder plus(int pieces) {
+            return new ExpectedOrder(orderId, orderNumber, name, status, quantity + pieces, expectedArrival, shippedOn,
+                    receivedOn, partner);
+        }
+    }
 
     /** Aggregate counters for the affected receipt lines in the selected scope. */
     public record ReceiptVarianceTotals(

@@ -412,6 +412,31 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   departure); no push. `requireForwardTransition` stays forward-only and
   `receive()` keeps using it, so the receipt never steps back and a
   CONCEPT container cannot be received directly.
+- What is coming per product (2026-11-10): `GET /purchase-orders/
+  expected-stock` (`PurchaseOrderService.expectedStock(boolean)`). The
+  five old fields (`productId`, `quantity`, `expectedArrival`,
+  `orderNumbers`, `orderIds`) keep their meaning: BESTELD + ONDERWEG
+  only. Additive: `orders` (one row per purchase order: `orderId`,
+  `orderNumber`, `name` = Herkenbare naam else number, `status`,
+  `quantity`, `expectedArrival`, `shippedOn`, `receivedOn`, `partner`)
+  and `arrivedQuantity`. Only with `?arrived=true` (the ERP's product
+  screens and sales picker) a received container whose stock is not
+  booked (ONTVANGEN, `stockBooked` false, **not archived**, received at
+  most `ARRIVED_DAYS` = 30 days ago: an older one had its pieces counted
+  into stock some other way and only keeps its "nog bij te boeken" on
+  the purchase order) counts: its
+  usable pieces go into `arrivedQuantity` and an ONTVANGEN row, never
+  into `quantity`; a product with nothing else coming then gets an entry
+  with quantity 0. Without the parameter the entries are exactly the old
+  ones (Analyses and an older frontend). A line without a product or
+  with nothing to come is skipped and an order without a number reads
+  "Inkoop #id": old data never fails the whole answer (it used to 500).
+  Concept and trashed orders never count; archived Besteld/Vertrokken
+  orders still do. Partner containers count: `bookStock` books every
+  line into the same stock levels (the batch is only marked
+  `Owner.PARTNER`). Nothing is stored; the state words (Besteld,
+  Onderweg, Binnenkort, Aangekomen) are the frontend's
+  (`shared/product-incoming.ts`), because "Binnenkort" depends on today.
 - Purchasing **warns and never rounds** quantities (a sample of 3 pieces
   is legitimate; silently inflating an order costs real money).
 - "Kostprijzen toepassen" writes landed cost per piece onto the products
