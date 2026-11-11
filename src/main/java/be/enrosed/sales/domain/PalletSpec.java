@@ -19,6 +19,6 @@ public record PalletSpec(
 ) {
     public static PalletSpec euro() {
         return new PalletSpec("Euro-pallet", BigDecimal.valueOf(120), BigDecimal.valueOf(80),
-                new BigDecimal("14.4"), BigDecimal.valueOf(220), BigDecimal.valueOf(700));
+                new BigDecimal("14.4"), BigDecimal.valueOf(260), BigDecimal.valueOf(700));
     }
 }
