@@ -100,9 +100,14 @@ public class PartnerPortalReadService {
         return reports.view(reports.load(List.of(report)).getFirst(), tiles.load(customerId));
     }
 
+    /** Round 2: the containers' half of the photo guard (the same predicate as the container list). */
+    @jakarta.inject.Inject
+    PartnerContainerReader containerReader;
+
     /**
-     * The sales photo of a product in this partner's current stock or in its meldingen; 404 for
-     * any other product and for a product without a photo.
+     * The sales photo of a product in this partner's current stock, in its meldingen or on a
+     * container the partner may see (round 2); 404 for any other product and for a product
+     * without a photo.
      */
     @Transactional
     public PhotoAnswer photo(long customerId, long productId, String size) {
@@ -110,7 +115,8 @@ public class PartnerPortalReadService {
         if (!"small".equals(profile) && !"medium".equals(profile)) throw new BadRequestException("Onbekende fotoversie");
         /* One product, one level and one count: a grid of tiles asks this once per tile. */
         Product product = productRepository.findById(productId).orElseThrow(() -> new NotFoundException("Foto", productId));
-        if (!inStock(customerId, product) && !lines.productReported(customerId, productId)) {
+        if (!inStock(customerId, product) && !lines.productReported(customerId, productId)
+                && !containerReader.productInVisibleContainer(productId)) {
             throw new NotFoundException("Foto", productId);
         }
         SalesPhotoService.Choice choice = SalesPhotoService.choose(product)
