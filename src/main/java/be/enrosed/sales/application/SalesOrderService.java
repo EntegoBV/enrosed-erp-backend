@@ -1218,16 +1218,37 @@ public class SalesOrderService {
      * and arithmetic (cost share of what remains, our value, advance credit, final true-up, snapshot
      * allocation, extra lines), computed once and shared with the Veilingverkopen preview. Nothing is
      * written. {@code balanceEur} = what the invoice still claims after the advance credit.
+     * {@code correctionEur} = a slotfactuur's true-up of the earlier deelfacturen (the adjusted total
+     * minus the sum of this document's own line values; it sits on the last snapshot line), else 0.
      */
     public record AuctionSettlementPlan(PurchaseOrder container, long customerId, BigDecimal profitSharePct,
                                         boolean finalSettlement, List<SalesOrderLine> lines,
                                         List<PartnerSettlements.Line> snapshotLines, List<SalesExtraLine> extras,
                                         BigDecimal costTotalEur, BigDecimal proceedsTotalEur, BigDecimal valueEur,
-                                        BigDecimal advanceEur, String detail, SalesOrder source) {
+                                        BigDecimal advanceEur, String detail, SalesOrder source,
+                                        BigDecimal correctionEur) {
         public BigDecimal balanceEur() {
             return valueEur.subtract(advanceEur);
         }
     }
+
+    /**
+     * The document texts of a settlement made by Veilingverkopen (an internal parameter, never a
+     * REST body): the Documentnotitie and the internal note, written from the plan the document is
+     * made with. The manual Veilingafrekening keeps the texts of {@link #createAuctionSettlement}.
+     */
+    public interface ReportTexts {
+        String notes(AuctionSettlementPlan plan);
+
+        String internalNotes(AuctionSettlementPlan plan);
+    }
+
+    /** What {@link #createAuctionSettlementFromReports(AuctionSettlementRequest, ReportTexts)} made, with the plan it used. */
+    public record SettlementFromReports(SalesOrder order, AuctionSettlementPlan plan) {}
+
+    /** A settlement's legal sentences, kept word for word in every settlement note. */
+    public static final String SETTLEMENT_NEGATIVE_BALANCE = "Negatief saldo: tegoed voor de partner, geen inkomende betaling.";
+    public static final String SETTLEMENT_OPEN_ADVANCES = "Open voorschotfacturen blijven afzonderlijk te betalen; ontvangen bedragen staan in het betaalregister.";
 
     /**
      * Settles every usable piece once at external container cost plus our agreed
@@ -1250,7 +1271,17 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder createAuctionSettlementFromReports(AuctionSettlementRequest request) {
-        return createAuctionSettlement(request, true);
+        return createAuctionSettlement(request, true, null).order();
+    }
+
+    /**
+     * As {@link #createAuctionSettlementFromReports(AuctionSettlementRequest)}, with the document texts
+     * written by Veilingverkopen from the plan this document is made with (the compact note); answers
+     * the document and that plan, so the caller's figures are the document's own.
+     */
+    @Transactional
+    public SettlementFromReports createAuctionSettlementFromReports(AuctionSettlementRequest request, ReportTexts texts) {
+        return createAuctionSettlement(request, true, texts);
     }
 
     /** What {@link #createAuctionSettlementFromReports} would make, without the lock and without writing. */
@@ -1259,6 +1290,11 @@ public class SalesOrderService {
     }
 
     private SalesOrder createAuctionSettlement(AuctionSettlementRequest request, boolean fromReports) {
+        return createAuctionSettlement(request, fromReports, null).order();
+    }
+
+    private SettlementFromReports createAuctionSettlement(AuctionSettlementRequest request, boolean fromReports,
+                                                          ReportTexts texts) {
         AuctionSettlementPlan plan = planAuctionSettlement(request, fromReports, true);
         PurchaseOrder container = plan.container();
         long purchaseId = container.id();
@@ -1273,19 +1309,22 @@ public class SalesOrderService {
         String reference = container.number();
         String audited = containerReference(container);
         String documentName = finalSettlement ? "Slotfactuur" : "Deelfactuur";
-        String notes = documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
+        /* Veilingverkopen writes its own compact texts from this plan; the manual sheet keeps these. */
+        String notes = texts != null ? texts.notes(plan)
+                : documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
                 + " % van netto veilingresultaat (ook verlies).\n" + plan.detail()
                 + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
                 + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
                 + "; saldo € " + money(fullTotal.subtract(advance)) + "."
-                + (fullTotal.compareTo(advance) < 0 ? " Negatief saldo: tegoed voor de partner, geen inkomende betaling." : "")
-                + " Open voorschotfacturen blijven afzonderlijk te betalen; ontvangen bedragen staan in het betaalregister.";
+                + (fullTotal.compareTo(advance) < 0 ? " " + SETTLEMENT_NEGATIVE_BALANCE : "")
+                + " " + SETTLEMENT_OPEN_ADVANCES;
+        String internalNotes = texts != null ? texts.internalNotes(plan) : request.note();
         LocalDate today = LocalDate.now();
         SalesOrder invoice = new SalesOrder(null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
                 isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
-                null, null, null, 0, null, null, null, request.note(),
+                null, null, null, 0, null, null, null, internalNotes,
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
                 LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 FreightPricingStrategy.FIXED, null, null, null,
@@ -1307,7 +1346,7 @@ public class SalesOrderService {
                 currentActor().displayName(), false, documentName + " " + created.number() + " aangemaakt", null));
         recordActivity(created, made + " aangemaakt");
         recordPurchaseActivity(purchaseId, reference, documentName + " " + created.number() + ": € " + money(fullTotal.subtract(advance)));
-        return created;
+        return new SettlementFromReports(created, plan);
     }
 
     /**
@@ -1381,7 +1420,7 @@ public class SalesOrderService {
             int open = reported.getOrDefault(input.productId(), 0);
             if (open > 0 && input.quantity() > basis.remainingQuantity() - open)
                 throw new BusinessRuleException(basis.productName() + ": " + open + (open == 1 ? " stuk staat" : " stuks staan")
-                        + " nog open in Veilingverkopen; factureer die via Veilingverkopen");
+                        + " nog open in Veilingverkopen; bevestig en factureer die via Veilingverkopen");
             if (input.proceedsEur() == null) throw new BusinessRuleException("Vul voor elk product een netto veilingopbrengst in, ook bij nul");
             BigDecimal proceeds = input.proceedsEur();
             if (proceeds.signum() < 0) throw new BusinessRuleException("Netto veilingopbrengst kan niet negatief zijn");
@@ -1416,6 +1455,7 @@ public class SalesOrderService {
             throw new BusinessRuleException("Een slotfactuur rekent alle resterende bruikbare stukken af; kies een deelafrekening voor een kleiner aantal");
         BigDecimal remainingCost = availability.lines().stream().map(PartnerSettlementLedger.Line::remainingCostEur)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal correction = BigDecimal.ZERO.setScale(2);
         BigDecimal advance;
         if (finalSettlement) advance = availability.remainingAdvanceEur();
         else if (remainingCost.signum() > 0) advance = availability.remainingAdvanceEur().multiply(costTotal)
@@ -1437,6 +1477,7 @@ public class SalesOrderService {
             var last = snapshotLines.removeLast();
             snapshotLines.add(new PartnerSettlements.Line(last.productId(), last.quantity(), last.proceedsEur(), last.costEur(),
                     last.revenueEur().add(adjusted.subtract(fullTotal)), BigDecimal.ZERO));
+            correction = adjusted.subtract(fullTotal);
             fullTotal = adjusted;
         }
         List<BigDecimal> advanceParts = PartnerSettlementLedger.allocate(advance,
@@ -1452,7 +1493,7 @@ public class SalesOrderService {
         if (advance.signum() > 0) extras.add(new SalesExtraLine("Voorschot verrekend · uitgereikte voorschotfacturen", BigDecimal.ONE, advance.negate()));
         return new AuctionSettlementPlan(container, customerId, profitShare, finalSettlement, List.copyOf(lines),
                 List.copyOf(snapshotLines), List.copyOf(extras), costTotal, proceedsTotal, fullTotal, advance,
-                detail.toString(), source);
+                detail.toString(), source, correction);
     }
 
     /**

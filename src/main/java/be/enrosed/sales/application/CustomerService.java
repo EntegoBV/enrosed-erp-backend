@@ -49,6 +49,9 @@ public class CustomerService {
     /** Features that hang off the partner flag (the partner portal's sessions) hear when it goes off. */
     @Inject
     Instance<CustomerPartnerListener> partnerListeners;
+    /** Customers a partner added in the partner portal (be.enrosed.partnerportal); absent in pure unit tests. */
+    @Inject
+    Instance<CustomerPartnerOrigins> partnerOrigins;
 
     public CustomerService(SalesRepositories.Customers customers, SalesRepositories.Orders orders) {
         this.customers = customers;
@@ -61,6 +64,47 @@ public class CustomerService {
 
     public Customer get(long id) {
         return named(customers.findById(id).orElseThrow(() -> new NotFoundException("Klant", id)));
+    }
+
+    /** The list as /api/customers answers it: each customer with its partner origin when a partner added it. */
+    public List<CustomerView> listViews() {
+        List<Customer> all = list();
+        Map<Long, CustomerPartnerOrigins.Origin> origins = origins(null);
+        return all.stream().map(customer -> new CustomerView(customer,
+                customer.id() == null ? null : origins.get(customer.id()))).toList();
+    }
+
+    /** One customer as /api/customers answers it (also the answer of a create and an update). */
+    public CustomerView view(Customer customer) {
+        if (customer == null || customer.id() == null) return new CustomerView(customer, null);
+        return new CustomerView(customer, origins(List.of(customer.id())).get(customer.id()));
+    }
+
+    private Map<Long, CustomerPartnerOrigins.Origin> origins(java.util.Collection<Long> ids) {
+        if (partnerOrigins == null || !partnerOrigins.isResolvable()) return Map.of();
+        try {
+            return partnerOrigins.get().origins(ids);
+        } catch (RuntimeException unavailable) {
+            /* The partner portal's marker is never a reason to lose the customer list. */
+            return Map.of();
+        }
+    }
+
+    /**
+     * A customer a partner adds in the partner portal (the buyer of a direct sale): only what the partner
+     * typed, without the VAT rule of the staff form (staff complete the record later), status NIEUW, language
+     * NL. The caller validated the fields; summary is the activity line ("Klant aangemaakt via Partnerportaal
+     * (Frans)"), logged under whoever is signed in.
+     */
+    @Transactional
+    public Customer createMinimal(String company, String countryCode, String city, String email, String phone,
+                                  String notes, String summary) {
+        if (company == null || company.isBlank()) throw new BusinessRuleException("Bedrijfsnaam is verplicht");
+        Customer saved = customers.save(new Customer(null, company.strip(), null, email, phone, null, countryCode,
+                be.enrosed.shared.Language.NL, null, null, city, null, null, notes, LocalDate.now(), false,
+                null, null, false, null, CustomerCrmStatus.NIEUW, List.of()));
+        recordActivity(ActivityLogService.ACTION_CREATED, saved, summary == null ? "Klant aangemaakt" : summary);
+        return named(saved);
     }
 
     @Transactional
@@ -82,7 +126,10 @@ public class CustomerService {
     @Transactional
     public Customer update(long id, Customer changes) {
         Customer current = get(id);
-        requireCompany(changes);
+        /* A customer a partner added and staff have not reviewed yet may be saved without a VAT number while
+           it has none: staff fix its city or status first and add the number when they know it. */
+        boolean vatOptional = blank(current.vatNumber()) && awaitsPartnerReview(id);
+        requireCompany(changes, !vatOptional);
         Customer saved = customers.save(new Customer(current.id(), changes.company(), changes.contact(), changes.email(),
                 changes.phone(), changes.vatNumber(), changes.countryCode(),
                 changes.language(), changes.address(),
@@ -220,14 +267,31 @@ public class CustomerService {
     }
 
     private void requireCompany(Customer customer) {
+        requireCompany(customer, true);
+    }
+
+    private void requireCompany(Customer customer, boolean vatRequired) {
         if (customer.company() == null || customer.company().isBlank()) {
             throw new BusinessRuleException("Bedrijfsnaam is verplicht");
         }
         /* The number itself is required; whether it fits the country is not
            judged here - a mismatch is checked by hand afterwards. */
-        if (customer.vatNumber() == null || customer.vatNumber().isBlank()) {
+        if (vatRequired && (customer.vatNumber() == null || customer.vatNumber().isBlank())) {
             throw new BusinessRuleException("BTW-nummer is verplicht");
         }
+    }
+
+    private boolean awaitsPartnerReview(long id) {
+        if (partnerOrigins == null || !partnerOrigins.isResolvable()) return false;
+        try {
+            return partnerOrigins.get().awaitsReview(id);
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     /** The authenticated actor is resolved inside ActivityLogService, never from the request. */

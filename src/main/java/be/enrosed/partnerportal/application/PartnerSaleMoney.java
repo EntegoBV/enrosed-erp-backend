@@ -9,27 +9,36 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The money of a melding (contract section 1), the one place it is computed. The frontend's live
- * totals and the invoice preview follow the same arithmetic:
+ * The money of a melding (contract sections 1 and 2 of both rounds), the one place it is
+ * computed. The frontend's live totals ({@code partner-money.ts}) and the invoice preview follow
+ * the same arithmetic to the cent:
  *
  * <ul>
  * <li>a priced quantity: gross = the typed total, else round2(quantity x unit price); the stored
- *     unit price is total / quantity at 4 decimals when a total was typed;</li>
+ *     unit price is total / quantity at 4 decimals when a total was typed. Round 2 types a price
+ *     per piece: it is scaled to 4 dp first, unit price = piece price x pieces per sales unit, then
+ *     gross = round2(quantity x unit price) (= round2(pieces x piece price));</li>
  * <li>commission and transport = round2(gross x percent / 100) per sale entry, with the percents
  *     the melding snapshotted (0 on a direct sale);</li>
- * <li>extra cost PCT = round2(gross x pct / 100) per sale entry; AMOUNT = the whole amount split
- *     over the sale entries by gross with {@link PartnerSettlementLedger#allocate} (each share
- *     HALF_UP of what remains, the last entry takes the rest);</li>
+ * <li>extra cost lines: per sale entry e, extra_e = the sum over PCT lines of round2(gross_e x pct /
+ *     100) plus e's share of the sum of the AMOUNT lines, that sum allocated once over the sale
+ *     entries by gross with {@link PartnerSettlementLedger#allocate} (each share HALF_UP of what
+ *     remains, the last entry takes the rest). A round-1 single extra cost is one such line;</li>
  * <li>net = gross - commission - transport - extra; a sale entry with net below 0 is refused;</li>
- * <li>a buyback has only its gross (the terugkoopkost), net = -gross;</li>
- * <li>an entry split over sources: the quantity is split, then gross and each cost are allocated
- *     by quantity (residual on the last part); a part's net is its gross minus its costs.</li>
+ * <li>a buyback (auction only) carries the melding's commission and transport too:
+ *     commission_b = round2(gross_b x pct / 100), transport_b likewise, net_b = -(gross_b +
+ *     commission_b + transport_b), the terugkoopkost is -net_b; no extra kost on a buyback;</li>
+ * <li>an entry split over sources: the quantity is split, then gross and each cost are allocated by
+ *     quantity (residual on the last part); a sale part's net is its gross minus its costs, a
+ *     buyback part's net is -(its gross + its costs).</li>
  * </ul>
  */
 public final class PartnerSaleMoney {
 
     static final BigDecimal HUNDRED = new BigDecimal("100");
     static final BigDecimal ZERO = new BigDecimal("0.00");
+    public static final String AMOUNT = "AMOUNT";
+    public static final String PCT = "PCT";
 
     /** What one sale or buyback entry comes to before it is split over its sources. */
     public record Priced(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur) {}
@@ -37,6 +46,18 @@ public final class PartnerSaleMoney {
     /** A sale entry with its costs, or one part of it. */
     public record Sale(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur, BigDecimal commissionEur,
                        BigDecimal transportEur, BigDecimal extraCostEur, BigDecimal netEur) {}
+
+    /** A buyback entry with its costs, or one part of it; netEur = -(gross + commission + transport). */
+    public record Buyback(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur, BigDecimal commissionEur,
+                          BigDecimal transportEur, BigDecimal netEur) {
+        /** The terugkoopkost: -net. */
+        public BigDecimal costEur() {
+            return netEur.negate();
+        }
+    }
+
+    /** One extra cost line: mode AMOUNT (2 dp) or PCT (4 dp), as validated. */
+    public record CostLine(String mode, BigDecimal value) {}
 
     private PartnerSaleMoney() {}
 
@@ -54,6 +75,17 @@ public final class PartnerSaleMoney {
         return new Priced(quantity, unit, round2(unit.multiply(BigDecimal.valueOf(quantity))));
     }
 
+    /** The price per piece as stored (4 dp). */
+    public static BigDecimal piecePrice(BigDecimal typed) {
+        return typed.setScale(4, RoundingMode.HALF_UP);
+    }
+
+    /** The unit price per sales unit of a price per piece: piece price (4 dp) x pieces per sales unit. */
+    public static BigDecimal unitPriceOfPiece(BigDecimal piecePriceEur, int piecesPerSalesUnit) {
+        return piecePrice(piecePriceEur).multiply(BigDecimal.valueOf(Math.max(1, piecesPerSalesUnit)))
+                .setScale(4, RoundingMode.HALF_UP);
+    }
+
     /** round2(gross x pct / 100). */
     public static BigDecimal pctOf(BigDecimal gross, BigDecimal pct) {
         if (pct == null || pct.signum() == 0) return ZERO;
@@ -61,21 +93,38 @@ public final class PartnerSaleMoney {
     }
 
     /**
-     * The sale entries of one melding with their costs, in the given order. extraMode is null,
-     * "PCT" or "AMOUNT". Refuses an entry whose costs exceed its gross.
+     * Per sale entry the extra cost of these lines (in the order of the entries): PCT lines per entry,
+     * the AMOUNT lines' sum allocated once by gross.
      */
-    public static List<Sale> sales(List<Priced> entries, BigDecimal commissionPct, BigDecimal transportPct,
-                                   String extraMode, BigDecimal extraValue) {
-        List<BigDecimal> extras;
-        if ("AMOUNT".equals(extraMode) && extraValue != null && !entries.isEmpty()) {
-            extras = PartnerSettlementLedger.allocate(round2(extraValue),
-                    entries.stream().map(Priced::grossEur).toList());
-        } else {
-            extras = new ArrayList<>();
-            for (Priced entry : entries) {
-                extras.add("PCT".equals(extraMode) ? pctOf(entry.grossEur(), extraValue) : ZERO);
+    public static List<BigDecimal> extras(List<BigDecimal> grossPerEntry, List<CostLine> costs) {
+        List<BigDecimal> result = new ArrayList<>();
+        BigDecimal amount = BigDecimal.ZERO;
+        boolean anyAmount = false;
+        for (CostLine line : costs == null ? List.<CostLine>of() : costs) {
+            if (AMOUNT.equals(line.mode()) && line.value() != null) {
+                amount = amount.add(round2(line.value()));
+                anyAmount = true;
             }
         }
+        List<BigDecimal> allocated = anyAmount && !grossPerEntry.isEmpty()
+                ? PartnerSettlementLedger.allocate(amount, grossPerEntry) : null;
+        for (int index = 0; index < grossPerEntry.size(); index++) {
+            BigDecimal extra = allocated == null ? ZERO : allocated.get(index);
+            for (CostLine line : costs == null ? List.<CostLine>of() : costs) {
+                if (PCT.equals(line.mode())) extra = extra.add(pctOf(grossPerEntry.get(index), line.value()));
+            }
+            result.add(round2(extra));
+        }
+        return result;
+    }
+
+    /**
+     * The sale entries of one melding with their costs, in the given order. Refuses an entry whose
+     * costs exceed its gross.
+     */
+    public static List<Sale> sales(List<Priced> entries, BigDecimal commissionPct, BigDecimal transportPct,
+                                   List<CostLine> costs) {
+        List<BigDecimal> extras = extras(entries.stream().map(Priced::grossEur).toList(), costs);
         List<Sale> result = new ArrayList<>();
         for (int index = 0; index < entries.size(); index++) {
             Priced entry = entries.get(index);
@@ -88,6 +137,14 @@ public final class PartnerSaleMoney {
                     extra, net));
         }
         return result;
+    }
+
+    /** A buyback entry with the melding's commission and transport (0 on a direct sale, where it cannot occur). */
+    public static Buyback buyback(Priced entry, BigDecimal commissionPct, BigDecimal transportPct) {
+        BigDecimal commission = pctOf(entry.grossEur(), commissionPct);
+        BigDecimal transport = pctOf(entry.grossEur(), transportPct);
+        return new Buyback(entry.quantity(), entry.unitPriceEur(), entry.grossEur(), commission, transport,
+                entry.grossEur().add(commission).add(transport).negate());
     }
 
     /** One sale entry split over parts of these quantities (sum = the entry's quantity). */
@@ -107,8 +164,27 @@ public final class PartnerSaleMoney {
         return parts;
     }
 
-    /** A buyback's gross split over parts of these quantities. */
-    public static List<BigDecimal> splitGross(BigDecimal gross, List<Integer> quantities) {
-        return PartnerSettlementLedger.allocate(gross, quantities.stream().map(BigDecimal::valueOf).toList());
+    /**
+     * One buyback entry split over parts of these quantities: gross, commission and transport each
+     * allocated by quantity, net_p = -(gross_p + commission_p + transport_p).
+     */
+    public static List<Buyback> splitBuyback(Buyback entry, List<Integer> quantities) {
+        List<BigDecimal> weights = quantities.stream().map(BigDecimal::valueOf).toList();
+        List<BigDecimal> gross = PartnerSettlementLedger.allocate(entry.grossEur(), weights);
+        List<BigDecimal> commission = PartnerSettlementLedger.allocate(entry.commissionEur(), weights);
+        List<BigDecimal> transport = PartnerSettlementLedger.allocate(entry.transportEur(), weights);
+        List<Buyback> parts = new ArrayList<>();
+        for (int index = 0; index < quantities.size(); index++) {
+            BigDecimal net = gross.get(index).add(commission.get(index)).add(transport.get(index)).negate();
+            parts.add(new Buyback(quantities.get(index), entry.unitPriceEur(), gross.get(index), commission.get(index),
+                    transport.get(index), net));
+        }
+        return parts;
+    }
+
+    /** What a buyback part costs: -net, or its gross for a row without a net. */
+    public static BigDecimal buybackCost(BigDecimal grossEur, BigDecimal netEur) {
+        if (netEur != null) return netEur.negate();
+        return grossEur == null ? BigDecimal.ZERO : grossEur;
     }
 }

@@ -89,6 +89,19 @@ public class PartnerPortalQueries {
                 .getResultList();
     }
 
+    /**
+     * Every category id to its name, in Enrosed's own category order (position, then name: CategoryService.list),
+     * for the tiles' grouping; the iteration order is that order.
+     */
+    public java.util.LinkedHashMap<Long, String> categoryNamesInOrder() {
+        java.util.LinkedHashMap<Long, String> result = new java.util.LinkedHashMap<>();
+        List<Object[]> rows = entityManager.createQuery("""
+                        select c.id, c.name from CategoryEntity c order by c.position, c.name, c.id""", Object[].class)
+                .getResultList();
+        for (Object[] row : rows) result.put(((Number) row[0]).longValue(), (String) row[1]);
+        return result;
+    }
+
     /** Family id to its name, for the tiles' grouping. */
     public Map<Long, String> familyNames(Collection<Long> familyIds) {
         Map<Long, String> result = new HashMap<>();

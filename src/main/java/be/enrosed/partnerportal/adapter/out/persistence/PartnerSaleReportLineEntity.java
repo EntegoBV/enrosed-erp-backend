@@ -18,6 +18,12 @@ import java.time.Instant;
  * part carries the money of its share of the entry (net = gross - costs, never allocated on its
  * own); a BUYBACK part carries the clock price total as gross and -gross as net, and points with
  * mirrors_line_id at the sale part whose stock takes it puts back. Quantities are sales units.
+ *
+ * <p>Round 2: a BUYBACK part also carries its share of the commission and transport, and its net is
+ * -(gross + commission + transport) (round-1 buybacks have 0 costs, so -net = gross). entered_* hold
+ * what was typed for this side of the entry (the same values on every sale part of one entry, and
+ * their own on its buyback parts): the count unit, the count, the price per piece (4 dp) and the
+ * pieces one count unit held then. Null on round-1 rows: readers fall back to sales units.
  */
 @Entity
 @Table(name = "partner_sale_report_line", indexes = {
@@ -101,6 +107,22 @@ public class PartnerSaleReportLineEntity extends PanacheEntityBase {
 
     @Column(name = "invoiced_at")
     public Instant invoicedAt;
+
+    /** STUK, VERPAKKING or OMDOOS (PartnerCountUnits); null on round-1 rows. */
+    @Column(name = "entered_unit", length = 12)
+    public String enteredUnit;
+
+    /** The count typed in entered_unit for this side of the entry (not this part's share). */
+    @Column(name = "entered_count")
+    public Integer enteredCount;
+
+    /** The price per piece as typed, 4 dp; unit_price_eur = this x pieces per sales unit. */
+    @Column(name = "piece_price_eur", precision = 19, scale = 4)
+    public BigDecimal piecePriceEur;
+
+    /** Pieces in one entered_unit when it was typed (the factor snapshot). */
+    @Column(name = "entered_pieces_per_unit")
+    public Integer enteredPiecesPerUnit;
 
     public boolean isSale() {
         return SALE.equals(lineType);

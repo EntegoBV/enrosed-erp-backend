@@ -18,6 +18,12 @@ import java.time.LocalDate;
  * One melding (VV-&lt;id&gt;) of a partner: what sold on one day through one channel, and what was
  * bought back on the clock. The cost percents are copied from the settings when it is made and
  * never re-read. login_id is null when staff entered it.
+ *
+ * <p>Round 2: confirmed_* is set when staff confirm it (Factureren takes only confirmed meldingen),
+ * updated_* by an edit, buyer_customer_id names the buyer of a direct sale. An <b>archive row</b>
+ * (revision_of = the edited melding, voided "Gewijzigd") holds the old lines of an edit that rebooked;
+ * it is never listed, only read by id for the audit trail. extra_cost_mode / extra_cost_value are
+ * round-1 only: newer meldingen keep their extra cost lines in partner_sale_report_cost.
  */
 @Entity
 @Table(name = "partner_sale_report",
@@ -25,7 +31,9 @@ import java.time.LocalDate;
                 columnNames = {"customer_id", "client_ref"}),
         indexes = {
                 @Index(name = "idx_partner_sale_report_customer", columnList = "customer_id, id"),
-                @Index(name = "idx_partner_sale_report_sold_on", columnList = "sold_on")
+                @Index(name = "idx_partner_sale_report_sold_on", columnList = "sold_on"),
+                @Index(name = "idx_partner_sale_report_revision_of", columnList = "revision_of"),
+                @Index(name = "idx_partner_sale_report_buyer", columnList = "buyer_customer_id")
         })
 public class PartnerSaleReportEntity extends PanacheEntityBase {
     @Id
@@ -86,7 +94,44 @@ public class PartnerSaleReportEntity extends PanacheEntityBase {
     @Column(name = "void_reason", length = 200)
     public String voidReason;
 
+    @Column(name = "confirmed_at")
+    public Instant confirmedAt;
+
+    @Column(name = "confirmed_by", length = 64)
+    public String confirmedBy;
+
+    @Column(name = "confirmed_by_name", length = 100)
+    public String confirmedByName;
+
+    @Column(name = "updated_at")
+    public Instant updatedAt;
+
+    @Column(name = "updated_by", length = 64)
+    public String updatedBy;
+
+    @Column(name = "updated_by_name", length = 100)
+    public String updatedByName;
+
+    /** Set on an archive row only: the melding whose old lines it holds. */
+    @Column(name = "revision_of")
+    public Long revisionOf;
+
+    /** The buyer of a direct sale (an ERP customer, never a partner); null otherwise. */
+    @Column(name = "buyer_customer_id")
+    public Long buyerCustomerId;
+
     public boolean isVoided() {
         return voidedAt != null;
+    }
+
+    /** An archive row of an edit (never listed, never editable). */
+    public boolean isArchive() {
+        return revisionOf != null;
+    }
+
+    /** The optimistic edit token: the last edit, else the creation, as an ISO instant. */
+    public String editToken() {
+        Instant at = updatedAt != null ? updatedAt : createdAt;
+        return at == null ? null : at.toString();
     }
 }

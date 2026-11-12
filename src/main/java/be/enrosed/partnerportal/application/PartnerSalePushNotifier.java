@@ -14,6 +14,9 @@ import jakarta.transaction.Transactional;
 public class PartnerSalePushNotifier {
 
     static final String KIND = "partner-sale";
+    static final String TITLE_REPORTED = "Veilingverkoop gemeld";
+    /** An edit of a melding (round 2): the same lock-screen line under another title. */
+    static final String TITLE_CHANGED = "Veilingverkoop gewijzigd";
 
     private final WebPushNotifier phones;
 
@@ -24,7 +27,8 @@ public class PartnerSalePushNotifier {
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     void afterCommit(@Observes(during = TransactionPhase.AFTER_SUCCESS) Ready ready) {
         try {
-            phones.notifyAll(KIND, "Veilingverkoop gemeld", ready.quantity() + " stuks · " + ready.kind(),
+            phones.notifyAll(KIND, ready.title() == null ? TITLE_REPORTED : ready.title(),
+                    ready.quantity() + (ready.quantity() == 1 ? " stuk · " : " stuks · ") + ready.kind(),
                     "/veilingverkopen?melding=" + ready.reportId(), ready.exceptUsername());
         } catch (RuntimeException ignored) {
             /* A push subscription or VAPID problem may never affect the saved melding. */
@@ -33,7 +37,12 @@ public class PartnerSalePushNotifier {
 
     /**
      * Fired inside the melding's transaction. kind is Veiling, Direct or Terugkoop; exceptUsername
-     * is the staff member who entered it (they saw it happen), null when the partner did.
+     * is the staff member who entered or changed it (they saw it happen), null when the partner did;
+     * title "Veilingverkoop gemeld" (null) or "Veilingverkoop gewijzigd".
      */
-    public record Ready(long reportId, int quantity, String kind, String exceptUsername) {}
+    public record Ready(long reportId, int quantity, String kind, String exceptUsername, String title) {
+        public Ready(long reportId, int quantity, String kind, String exceptUsername) {
+            this(reportId, quantity, kind, exceptUsername, TITLE_REPORTED);
+        }
+    }
 }

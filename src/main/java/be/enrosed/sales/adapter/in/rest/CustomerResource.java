@@ -1,6 +1,7 @@
 package be.enrosed.sales.adapter.in.rest;
 
 import be.enrosed.sales.application.CustomerService;
+import be.enrosed.sales.application.CustomerView;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
@@ -23,26 +24,27 @@ public class CustomerResource {
         this.customers = customers;
     }
 
+    /** Every customer; a customer a partner added in the partner portal carries partnerOrigin (additive). */
     @GET
-    public List<Customer> list() {
-        return customers.list();
+    public List<CustomerView> list() {
+        return customers.listViews();
     }
 
     @GET
     @Path("/{id}")
-    public Customer get(@PathParam("id") long id) {
-        return customers.get(id);
+    public CustomerView get(@PathParam("id") long id) {
+        return customers.view(customers.get(id));
     }
 
     @POST
     public Response create(Customer customer) {
-        return Response.status(Response.Status.CREATED).entity(customers.create(customer)).build();
+        return Response.status(Response.Status.CREATED).entity(customers.view(customers.create(customer))).build();
     }
 
     @PUT
     @Path("/{id}")
-    public Customer update(@PathParam("id") long id, Customer customer) {
-        return customers.update(id, customer);
+    public CustomerView update(@PathParam("id") long id, Customer customer) {
+        return customers.view(customers.update(id, customer));
     }
 
     @DELETE

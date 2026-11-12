@@ -72,7 +72,7 @@ public class PartnerPortalReadService {
         Customer customer = customers.findById(customerId).orElseThrow(() -> new NotFoundException("Klant", customerId));
         PartnerLoginEntity login = logins.findById(loginId);
         PartnerPortalSettings.Effective applied = settings.of(customerId);
-        PartnerProductTiles.Catalog catalog = tiles.load();
+        PartnerProductTiles.Catalog catalog = tiles.load(customerId);
         return new PartnerPortalViews.Overview(
                 new PartnerPortalViews.PartnerInfo(customerId, customer.company(),
                         login == null ? null : login.displayName),
@@ -82,27 +82,32 @@ public class PartnerPortalReadService {
                 stockTiles(applied, catalog),
                 reports.recentSales(customerId, catalog),
                 reports.newest(customerId, OVERVIEW_REPORTS, catalog),
-                PartnerPortalRules.today());
+                PartnerPortalRules.today(), PartnerPortalViews.API_VERSION);
     }
 
     @Transactional
     public PartnerPortalViews.ReportPage reports(long customerId, Long before, Integer limit) {
-        return reports.page(customerId, before, limit, tiles.load());
+        return reports.page(customerId, before, limit, tiles.load(customerId));
     }
 
-    /** One melding of this partner (404 for another partner's). */
+    /** One melding of this partner (404 for another partner's, and for an archive row of an edit). */
     @Transactional
     public PartnerPortalViews.PartnerReport report(long customerId, long reportId) {
         PartnerSaleReportEntity report = reportRows.findById(reportId);
-        if (report == null || report.customerId == null || report.customerId != customerId) {
+        if (report == null || report.customerId == null || report.customerId != customerId || report.isArchive()) {
             throw new NotFoundException("Melding", reportId);
         }
-        return reports.view(reports.load(List.of(report)).getFirst(), tiles.load());
+        return reports.view(reports.load(List.of(report)).getFirst(), tiles.load(customerId));
     }
 
+    /** Round 2: the containers' half of the photo guard (the same predicate as the container list). */
+    @jakarta.inject.Inject
+    PartnerContainerReader containerReader;
+
     /**
-     * The sales photo of a product in this partner's current stock or in its meldingen; 404 for
-     * any other product and for a product without a photo.
+     * The sales photo of a product in this partner's current stock, in its meldingen or on a
+     * container the partner may see (round 2); 404 for any other product and for a product
+     * without a photo.
      */
     @Transactional
     public PhotoAnswer photo(long customerId, long productId, String size) {
@@ -110,7 +115,8 @@ public class PartnerPortalReadService {
         if (!"small".equals(profile) && !"medium".equals(profile)) throw new BadRequestException("Onbekende fotoversie");
         /* One product, one level and one count: a grid of tiles asks this once per tile. */
         Product product = productRepository.findById(productId).orElseThrow(() -> new NotFoundException("Foto", productId));
-        if (!inStock(customerId, product) && !lines.productReported(customerId, productId)) {
+        if (!inStock(customerId, product) && !lines.productReported(customerId, productId)
+                && !containerReader.productInVisibleContainer(productId)) {
             throw new NotFoundException("Foto", productId);
         }
         SalesPhotoService.Choice choice = SalesPhotoService.choose(product)

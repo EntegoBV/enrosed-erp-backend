@@ -87,12 +87,16 @@ public final class PartnerPortalRepositories {
 
     @ApplicationScoped
     public static class Reports implements PanacheRepositoryBase<PartnerSaleReportEntity, Long> {
-        /** Newest first; {@code before} is an exclusive id cursor. One extra row tells whether more exist. */
+        /**
+         * Newest first; {@code before} is an exclusive id cursor. One extra row tells whether more exist.
+         * Archive rows (revision_of set) are never listed, here or in any other list below.
+         */
         public List<PartnerSaleReportEntity> page(long customerId, Long before, int limit) {
             if (before == null) {
-                return find("customerId", Sort.descending("id"), customerId).page(0, limit).list();
+                return find("customerId = ?1 and revisionOf is null", Sort.descending("id"), customerId)
+                        .page(0, limit).list();
             }
-            return find("customerId = ?1 and id < ?2", Sort.descending("id"), customerId, before)
+            return find("customerId = ?1 and id < ?2 and revisionOf is null", Sort.descending("id"), customerId, before)
                     .page(0, limit).list();
         }
 
@@ -105,9 +109,18 @@ public final class PartnerPortalRepositories {
             return count("customerId", customerId) > 0;
         }
 
+        /** Meldingen (voided included, archive rows not) that name this customer as the buyer, oldest first. */
+        public List<Long> idsWithBuyer(long buyerCustomerId) {
+            return getEntityManager().createQuery("""
+                            select r.id from PartnerSaleReportEntity r
+                            where r.buyerCustomerId = :buyer and r.revisionOf is null order by r.id""", Long.class)
+                    .setParameter("buyer", buyerCustomerId)
+                    .getResultList();
+        }
+
         /** Every partner's meldingen (or one partner's), newest first, {@code before} an exclusive id cursor. */
         public List<PartnerSaleReportEntity> pageAll(Long customerId, Long before, int limit) {
-            StringBuilder where = new StringBuilder("1 = 1");
+            StringBuilder where = new StringBuilder("revisionOf is null");
             java.util.Map<String, Object> parameters = new java.util.HashMap<>();
             if (customerId != null) {
                 where.append(" and customerId = :customer");
@@ -120,14 +133,67 @@ public final class PartnerPortalRepositories {
             return find(where.toString(), Sort.descending("id"), parameters).page(0, limit).list();
         }
 
+        /**
+         * The staff list's filter (round 2): every melding (withdrawn ones included, archive rows never) of
+         * this partner, channel, sold-on period (both ends inclusive) and buyer, each criterion optional;
+         * newest sold-on day first, then the higher id.
+         */
+        public List<PartnerSaleReportEntity> filtered(Long customerId, String channel, LocalDate from, LocalDate to,
+                                                      Long buyerCustomerId) {
+            StringBuilder where = new StringBuilder("revisionOf is null");
+            java.util.Map<String, Object> parameters = new java.util.HashMap<>();
+            if (customerId != null) {
+                where.append(" and customerId = :customer");
+                parameters.put("customer", customerId);
+            }
+            if (channel != null) {
+                where.append(" and channel = :channel");
+                parameters.put("channel", channel);
+            }
+            if (from != null) {
+                where.append(" and soldOn >= :from");
+                parameters.put("from", from);
+            }
+            if (to != null) {
+                where.append(" and soldOn <= :to");
+                parameters.put("to", to);
+            }
+            if (buyerCustomerId != null) {
+                where.append(" and buyerCustomerId = :buyer");
+                parameters.put("buyer", buyerCustomerId);
+            }
+            return find(where.toString(), Sort.descending("soldOn", "id"), parameters).list();
+        }
+
         /** Non-voided meldingen made at or after {@code since}, newest first. */
         public List<PartnerSaleReportEntity> liveCreatedSince(Instant since) {
-            return list("voidedAt is null and createdAt >= ?1", Sort.descending("createdAt", "id"), since);
+            return list("voidedAt is null and revisionOf is null and createdAt >= ?1", Sort.descending("createdAt", "id"), since);
+        }
+
+        /**
+         * Non-voided meldingen made or edited at or after {@code since} (greatest(created_at, updated_at)), newest
+         * first by creation: the bell's window.
+         */
+        public List<PartnerSaleReportEntity> liveTouchedSince(Instant since) {
+            return list("voidedAt is null and revisionOf is null and (createdAt >= ?1 or updatedAt >= ?1)",
+                    Sort.descending("createdAt", "id"), since);
+        }
+
+        /** The buyers of this partner's live meldingen, the most recent melding first (at most {@code limit}). */
+        public List<Long> recentBuyers(long customerId, int limit) {
+            return getEntityManager().createQuery("""
+                            select r.buyerCustomerId from PartnerSaleReportEntity r
+                            where r.customerId = :customer and r.revisionOf is null and r.voidedAt is null
+                              and r.buyerCustomerId is not null
+                            group by r.buyerCustomerId order by max(r.id) desc""", Long.class)
+                    .setParameter("customer", customerId)
+                    .setMaxResults(limit)
+                    .getResultList();
         }
 
         /** Non-voided meldingen sold in [from, to] (either end may be null), oldest first. */
         public List<PartnerSaleReportEntity> liveSoldBetween(LocalDate from, LocalDate to) {
-            StringBuilder where = new StringBuilder("voidedAt is null");
+            StringBuilder where = new StringBuilder("voidedAt is null and revisionOf is null");
             java.util.Map<String, Object> parameters = new java.util.HashMap<>();
             if (from != null) {
                 where.append(" and soldOn >= :from");
@@ -145,7 +211,8 @@ public final class PartnerPortalRepositories {
             java.util.Map<Long, Instant> result = new java.util.HashMap<>();
             for (Object[] row : getEntityManager().createQuery("""
                             select r.customerId, max(r.createdAt) from PartnerSaleReportEntity r
-                            where r.voidedAt is null group by r.customerId""", Object[].class).getResultList()) {
+                            where r.voidedAt is null and r.revisionOf is null group by r.customerId""", Object[].class)
+                    .getResultList()) {
                 if (row[0] != null) result.put(((Number) row[0]).longValue(), (Instant) row[1]);
             }
             return result;
@@ -167,8 +234,20 @@ public final class PartnerPortalRepositories {
             if (saleLineIds == null || saleLineIds.isEmpty()) return List.of();
             return getEntityManager().createQuery("""
                             select l.mirrorsLineId, l.reportId from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.lineType = :buyback
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType = :buyback
                               and l.mirrorsLineId in :ids""", Object[].class)
+                    .setParameter("buyback", PartnerSaleReportLineEntity.BUYBACK)
+                    .setParameter("ids", saleLineIds)
+                    .getResultList();
+        }
+
+        /** The same buyback parts themselves (non-voided, non-archive meldingen), by id. */
+        public List<PartnerSaleReportLineEntity> liveBuybackPartsMirroring(Collection<Long> saleLineIds) {
+            if (saleLineIds == null || saleLineIds.isEmpty()) return List.of();
+            return getEntityManager().createQuery("""
+                            select l from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType = :buyback
+                              and l.mirrorsLineId in :ids order by l.id""", PartnerSaleReportLineEntity.class)
                     .setParameter("buyback", PartnerSaleReportLineEntity.BUYBACK)
                     .setParameter("ids", saleLineIds)
                     .getResultList();
@@ -181,7 +260,7 @@ public final class PartnerPortalRepositories {
         public List<Object[]> saleParts(long customerId, LocalDate from) {
             return getEntityManager().createQuery("""
                             select l, r.soldOn from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.customerId = :customer and r.voidedAt is null
+                            where r.id = l.reportId and r.customerId = :customer and r.voidedAt is null and r.revisionOf is null
                               and l.lineType = :sale and r.soldOn >= :from
                             order by r.soldOn desc, r.id desc, l.entryNo, l.id""", Object[].class)
                     .setParameter("customer", customerId)
@@ -209,7 +288,7 @@ public final class PartnerPortalRepositories {
             }
             return getEntityManager().createQuery("""
                             select l from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.customerId = :customer
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.customerId = :customer
                               and l.lineType in :types and l.purchaseOrderId in :orders and l.productId in :products""",
                             PartnerSaleReportLineEntity.class)
                     .setParameter("customer", customerId)
@@ -226,7 +305,7 @@ public final class PartnerPortalRepositories {
         public List<Object[]> salePartsOfProduct(long customerId, long productId) {
             return getEntityManager().createQuery("""
                             select l, r.soldOn from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.customerId = :customer and r.voidedAt is null
+                            where r.id = l.reportId and r.customerId = :customer and r.voidedAt is null and r.revisionOf is null
                               and l.lineType = :sale and l.productId = :product
                             order by r.soldOn desc, r.id desc, l.id desc""", Object[].class)
                     .setParameter("customer", customerId)
@@ -241,7 +320,7 @@ public final class PartnerPortalRepositories {
             if (saleLineIds == null || saleLineIds.isEmpty()) return result;
             for (Object[] row : getEntityManager().createQuery("""
                             select l.mirrorsLineId, sum(l.quantity) from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.lineType = :buyback
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType = :buyback
                               and l.mirrorsLineId in :ids group by l.mirrorsLineId""", Object[].class)
                     .setParameter("buyback", PartnerSaleReportLineEntity.BUYBACK)
                     .setParameter("ids", saleLineIds)
@@ -279,7 +358,7 @@ public final class PartnerPortalRepositories {
         public List<Long> liveInvoiceIds() {
             return getEntityManager().createQuery("""
                             select distinct l.invoiceId from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.invoiceId is not null
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.invoiceId is not null
                               and l.lineType in :types""", Long.class)
                     .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
                     .getResultList();
@@ -293,7 +372,7 @@ public final class PartnerPortalRepositories {
             boolean released = releasedInvoiceIds != null && !releasedInvoiceIds.isEmpty();
             var query = getEntityManager().createQuery("""
                             select l, r from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.lineType in :types
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType in :types
                               and (l.invoiceId is null""" + (released ? " or l.invoiceId in :released" : "") + ")",
                             Object[].class)
                     .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK));
@@ -307,18 +386,34 @@ public final class PartnerPortalRepositories {
         public List<PartnerSaleReportLineEntity> partsOnContainer(long purchaseOrderId) {
             return getEntityManager().createQuery("""
                             select l from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and l.lineType in :types
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType in :types
                               and l.purchaseOrderId = :order""", PartnerSaleReportLineEntity.class)
                     .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
                     .setParameter("order", purchaseOrderId)
                     .getResultList();
         }
 
+        /**
+         * Among these meldingen, those with a SALE/BUYBACK part on a document that still holds it (invoiced,
+         * and the invoice is not one of {@code releasedInvoiceIds}): such a melding counts as confirmed.
+         */
+        public List<Long> reportsWithHeldParts(Collection<Long> reportIds, Collection<Long> releasedInvoiceIds) {
+            if (reportIds == null || reportIds.isEmpty()) return List.of();
+            boolean released = releasedInvoiceIds != null && !releasedInvoiceIds.isEmpty();
+            var query = getEntityManager().createQuery("select distinct l.reportId from PartnerSaleReportLineEntity l"
+                            + " where l.reportId in :ids and l.lineType in :types and l.invoiceId is not null"
+                            + (released ? " and l.invoiceId not in :released" : ""), Long.class)
+                    .setParameter("ids", reportIds)
+                    .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK));
+            if (released) query.setParameter("released", releasedInvoiceIds);
+            return query.getResultList();
+        }
+
         /** Invoice ids that SALE/BUYBACK parts of this partner's non-voided meldingen point at. */
         public List<Long> liveInvoiceIdsOf(long customerId) {
             return getEntityManager().createQuery("""
                             select distinct l.invoiceId from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and r.customerId = :customer
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and r.customerId = :customer
                               and l.invoiceId is not null and l.lineType in :types""", Long.class)
                     .setParameter("customer", customerId)
                     .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
@@ -334,7 +429,7 @@ public final class PartnerPortalRepositories {
             boolean released = releasedInvoiceIds != null && !releasedInvoiceIds.isEmpty();
             var query = getEntityManager().createQuery("""
                             select distinct r.id from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
-                            where r.id = l.reportId and r.voidedAt is null and r.customerId = :customer
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and r.customerId = :customer
                               and l.lineType in :types""" + (until == null ? "" : " and r.soldOn <= :until")
                             + " and (l.invoiceId is null" + (released ? " or l.invoiceId in :released" : "") + ")",
                             Long.class)
@@ -348,6 +443,11 @@ public final class PartnerPortalRepositories {
 
     @ApplicationScoped
     public static class InvoiceParts implements PanacheRepositoryBase<PartnerSaleInvoicePartEntity, Long> {
+        /** The rows of one document, in the order they were written. */
+        public List<PartnerSaleInvoicePartEntity> byOrder(long salesOrderId) {
+            return list("salesOrderId", Sort.ascending("id"), salesOrderId);
+        }
+
         /**
          * Per document, product and part type: the quantity its rows link, as {salesOrderId, productId,
          * lineType, quantity}. {@code salesOrderIds} null reads every report-backed document (one query
@@ -383,6 +483,102 @@ public final class PartnerPortalRepositories {
                             where p.salesOrderId in :ids""", Long.class)
                     .setParameter("ids", salesOrderIds)
                     .getResultList();
+        }
+    }
+
+    /* ------------------------------------------------------------------ round 2 */
+
+    @ApplicationScoped
+    public static class Costs implements PanacheRepositoryBase<PartnerSaleReportCostEntity, Long> {
+        /** The cost lines of these meldingen, per melding in line order. */
+        public List<PartnerSaleReportCostEntity> byReports(Collection<Long> reportIds) {
+            if (reportIds == null || reportIds.isEmpty()) return List.of();
+            return list("reportId in ?1", Sort.ascending("reportId", "lineNo", "id"), reportIds);
+        }
+
+        public List<PartnerSaleReportCostEntity> byReport(long reportId) {
+            return list("reportId", Sort.ascending("lineNo", "id"), reportId);
+        }
+
+        /** Re-points the cost lines of one melding to another (an edit moves the old ones to its archive row). */
+        public int moveToReport(long fromReportId, long toReportId) {
+            return update("reportId = ?1 where reportId = ?2", toReportId, fromReportId);
+        }
+    }
+
+    @ApplicationScoped
+    public static class ProductUnits implements PanacheRepositoryBase<PartnerProductUnitEntity, Long> {
+        /** The stored default units of one partner, by product id. */
+        public java.util.Map<Long, String> unitsOf(long customerId) {
+            java.util.Map<Long, String> result = new java.util.HashMap<>();
+            for (PartnerProductUnitEntity row : list("customerId", customerId)) {
+                if (row.productId != null && row.unit != null) result.put(row.productId, row.unit);
+            }
+            return result;
+        }
+
+        /** The stored rows of one partner, product id ascending. */
+        public List<PartnerProductUnitEntity> rowsOf(long customerId) {
+            return list("customerId", Sort.ascending("productId", "id"), customerId);
+        }
+
+        public Optional<PartnerProductUnitEntity> find(long customerId, long productId) {
+            return find("customerId = ?1 and productId = ?2", customerId, productId).firstResultOptional();
+        }
+
+        public long deleteByCustomer(long customerId) {
+            return delete("customerId", customerId);
+        }
+    }
+
+    @ApplicationScoped
+    public static class CustomerLinks implements PanacheRepositoryBase<PartnerCustomerLinkEntity, Long> {
+        public Optional<PartnerCustomerLinkEntity> find(long partnerCustomerId, long customerId) {
+            return find("partnerCustomerId = ?1 and customerId = ?2", partnerCustomerId, customerId).firstResultOptional();
+        }
+
+        /** The links that name this customer as the buyer (one per partner that sold to it). */
+        public List<PartnerCustomerLinkEntity> byCustomer(long customerId) {
+            return list("customerId", Sort.ascending("id"), customerId);
+        }
+
+        public List<PartnerCustomerLinkEntity> byPartner(long partnerCustomerId) {
+            return list("partnerCustomerId", Sort.ascending("id"), partnerCustomerId);
+        }
+
+        /** The customers this partner added itself, newest first. */
+        public List<PartnerCustomerLinkEntity> addedBy(long partnerCustomerId) {
+            return list("partnerCustomerId = ?1 and addedByPartner = true", Sort.descending("createdAt", "id"),
+                    partnerCustomerId);
+        }
+
+        /** How many customers this partner added at or after {@code since}. */
+        public long addedSince(long partnerCustomerId, Instant since) {
+            return count("partnerCustomerId = ?1 and addedByPartner = true and createdAt >= ?2", partnerCustomerId, since);
+        }
+
+        /** Every customer a partner added that staff have not marked reviewed yet, oldest first (the bell). */
+        public List<PartnerCustomerLinkEntity> awaitingReview() {
+            return list("addedByPartner = true and reviewedAt is null", Sort.ascending("createdAt", "id"));
+        }
+
+        /** The partner-made links of these customers (null = of every customer), oldest first. */
+        public List<PartnerCustomerLinkEntity> addedFor(Collection<Long> customerIds) {
+            if (customerIds == null) return list("addedByPartner = true", Sort.ascending("createdAt", "id"));
+            if (customerIds.isEmpty()) return List.of();
+            return list("addedByPartner = true and customerId in ?1", Sort.ascending("createdAt", "id"), customerIds);
+        }
+
+        /** On a customer delete: every link where it is the partner or the buyer. */
+        public long deleteByEither(long customerId) {
+            return delete("partnerCustomerId = ?1 or customerId = ?1", customerId);
+        }
+    }
+
+    @ApplicationScoped
+    public static class InvoiceFigures implements PanacheRepositoryBase<PartnerSaleInvoiceFigureEntity, Long> {
+        public List<PartnerSaleInvoiceFigureEntity> byOrder(long salesOrderId) {
+            return list("salesOrderId", Sort.ascending("id"), salesOrderId);
         }
     }
 }
