@@ -132,7 +132,8 @@ public class PartnerSaleInvoicing {
     @Transactional
     public PartnerPortalViews.InvoicePreview preview(Long customerId, List<Long> reportIds, LocalDate until) {
         Customer partner = requirePartner(customerId);
-        List<OpenPart> parts = selectOpen(partner.id(), reportIds, until);
+        Selection selection = select(partner.id(), reportIds, until);
+        List<OpenPart> parts = selection.parts();
         PartnerProductTiles.Catalog catalog = tiles.load();
         Map<Long, Map<Long, ProductSum>> bySource = group(parts);
         Map<Long, PurchaseOrderName> containers = purchaseOrders.names(bySource.keySet().stream().filter(Objects::nonNull).toList());
@@ -156,8 +157,9 @@ public class PartnerSaleInvoicing {
             }
         }
         List<Long> chosen = parts.stream().map(part -> part.report().id).distinct().sorted().toList();
-        return new PartnerPortalViews.InvoicePreview(groups, skipped, chosen, PartnerNumbers.pct(share),
-                mirrorWarnings(parts));
+        List<String> warnings = new ArrayList<>(selection.joined().values());
+        warnings.addAll(mirrorWarnings(parts));
+        return new PartnerPortalViews.InvoicePreview(groups, skipped, chosen, PartnerNumbers.pct(share), warnings);
     }
 
     private PartnerPortalViews.InvoicePreviewGroup previewContainer(long customerId, long containerId, String containerName,
@@ -286,25 +288,38 @@ public class PartnerSaleInvoicing {
     }
 
     /**
-     * A buyback of another melding that mirrors a chosen sale but is not confirmed stays out of this run;
-     * the preview says so, so the sale is not invoiced without knowing it.
+     * A buyback of another melding that mirrors a chosen sale, or the sale a chosen buyback mirrors, stays out of
+     * this run while that melding is not confirmed (a confirmed one comes along, see {@link #select}); the preview
+     * says so, so the one is not invoiced without knowing about the other.
      */
     private List<String> mirrorWarnings(List<OpenPart> parts) {
         Set<Long> chosen = new java.util.HashSet<>();
         List<Long> saleIds = new ArrayList<>();
+        Set<Long> mirroredIds = new TreeSet<>();
         for (OpenPart part : parts) {
             chosen.add(part.report().id);
             if (part.line().isSale()) saleIds.add(part.line().id);
+            else if (part.line().mirrorsLineId != null) mirroredIds.add(part.line().mirrorsLineId);
         }
-        Set<Long> others = new TreeSet<>();
+        Set<Long> buybacks = new TreeSet<>();
         for (Object[] row : lines.liveBuybacksMirroring(saleIds)) {
             long reportId = ((Number) row[1]).longValue();
-            if (!chosen.contains(reportId)) others.add(reportId);
+            if (!chosen.contains(reportId)) buybacks.add(reportId);
+        }
+        Set<Long> sales = new TreeSet<>();
+        if (!mirroredIds.isEmpty()) {
+            for (PartnerSaleReportLineEntity sale : lines.list("id in ?1", mirroredIds)) {
+                if (sale.isSale() && !chosen.contains(sale.reportId)) sales.add(sale.reportId);
+            }
         }
         List<String> warnings = new ArrayList<>();
-        for (Long reportId : unconfirmed(others)) {
+        for (Long reportId : unconfirmed(buybacks)) {
             warnings.add("Terugkoop " + PartnerPortalRules.reportNumber(reportId)
                     + " hoort bij deze verkopen maar is nog niet bevestigd; ze gaat niet mee");
+        }
+        for (Long reportId : unconfirmed(sales)) {
+            warnings.add("Verkoop " + PartnerPortalRules.reportNumber(reportId)
+                    + " hoort bij deze terugkopen maar is nog niet bevestigd; ze gaat niet mee");
         }
         return warnings;
     }
@@ -541,27 +556,54 @@ public class PartnerSaleInvoicing {
      * are left out; the open-part rule decides the rest. Confirmed meldingen only (his answer 3): with
      * reportIds null an unconfirmed melding is left out, among explicit reportIds it is refused ("VV-n
      * is nog niet bevestigd: bevestig of trek in"). Confirmed = staff confirmed it, or a document holds
-     * one of its parts (the reader's rule). runGroup calls this again after the partner lock.
+     * one of its parts (the reader's rule). A confirmed melding tied to a chosen one by a buyback comes
+     * along ({@link #select}). runGroup calls this again after the partner lock.
      */
     private List<OpenPart> selectOpen(long customerId, Collection<Long> reportIds, LocalDate until) {
+        return select(customerId, reportIds, until).parts();
+    }
+
+    /**
+     * The open parts {@link #selectOpen} takes, and the meldingen that came along with the chosen ones: a sale and
+     * a confirmed buyback of another melding that mirrors it are invoiced together (either way round, also
+     * transitively), so a subset never invoices a sale without the pieces that came back from it, or a buyback
+     * without its sale. joined: melding id -> the warning that says why it came along.
+     */
+    record Selection(List<OpenPart> parts, Map<Long, String> joined) {}
+
+    private Selection select(long customerId, Collection<Long> reportIds, LocalDate until) {
         List<Long> ids = reportIds == null
                 ? lines.reportsWithOpenParts(customerId, openParts.releasing(lines.liveInvoiceIdsOf(customerId)), until)
                 : reportIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
-        if (ids.isEmpty()) return List.of();
+        if (ids.isEmpty()) return new Selection(List.of(), Map.of());
         Map<Long, PartnerSaleReportEntity> chosen = new HashMap<>();
         for (PartnerSaleReportEntity report : reports.list("id in ?1 and revisionOf is null", ids)) {
             if (!Objects.equals(report.customerId, customerId) || report.isVoided()) continue;
             if (until != null && report.soldOn != null && report.soldOn.isAfter(until)) continue;
             chosen.put(report.id, report);
         }
-        if (chosen.isEmpty()) return List.of();
+        if (chosen.isEmpty()) return new Selection(List.of(), Map.of());
+        Set<Long> unconfirmed = new TreeSet<>();
+        List<OpenPart> open = openOf(chosen, unconfirmed);
+        if (reportIds != null && !unconfirmed.isEmpty()) throw new BusinessRuleException(notConfirmed(unconfirmed));
+        Map<Long, String> joined = new LinkedHashMap<>();
+        for (Map<Long, String> more = linked(customerId, open, chosen.keySet()); !more.isEmpty();
+             more = linked(customerId, open, chosen.keySet())) {
+            for (PartnerSaleReportEntity report : reports.list("id in ?1", more.keySet())) chosen.put(report.id, report);
+            joined.putAll(more);
+            open = openOf(chosen, new TreeSet<>());
+        }
+        return new Selection(open, joined);
+    }
+
+    /** The open parts of these meldingen that are confirmed; the open ones of unconfirmed meldingen go to unconfirmed. */
+    private List<OpenPart> openOf(Map<Long, PartnerSaleReportEntity> chosen, Set<Long> unconfirmed) {
         List<PartnerSaleReportLineEntity> found = lines.byReports(chosen.keySet()).stream()
                 .filter(line -> line.isSale() || line.isBuyback()).toList();
         PartnerOpenParts.Rule rule = openParts.forLines(found);
         Set<Long> held = new java.util.HashSet<>();
         for (PartnerSaleReportLineEntity line : found) if (rule.holder(line) != null) held.add(line.reportId);
         List<OpenPart> open = new ArrayList<>();
-        Set<Long> unconfirmed = new TreeSet<>();
         for (PartnerSaleReportLineEntity line : found) {
             PartnerSaleReportEntity report = chosen.get(line.reportId);
             if (report == null || line.productId == null || !rule.isOpen(line, report.isVoided())) continue;
@@ -571,8 +613,57 @@ public class PartnerSaleInvoicing {
             }
             open.add(new OpenPart(line, report));
         }
-        if (reportIds != null && !unconfirmed.isEmpty()) throw new BusinessRuleException(notConfirmed(unconfirmed));
         return open;
+    }
+
+    /**
+     * The confirmed, live meldingen of this partner outside {@code chosen} whose open part is tied to one of these
+     * open parts by a buyback: a buyback that mirrors a chosen sale, or the sale a chosen buyback mirrors. Each
+     * with its warning ("VV-2 gaat mee: die terugkoop hoort bij de verkoop van VV-1").
+     */
+    private Map<Long, String> linked(long customerId, List<OpenPart> open, Set<Long> chosen) {
+        Map<Long, PartnerSaleReportLineEntity> sales = new HashMap<>();
+        Map<Long, Long> mirroredBy = new HashMap<>();
+        for (OpenPart part : open) {
+            if (part.line().isSale()) sales.put(part.line().id, part.line());
+            else if (part.line().mirrorsLineId != null) mirroredBy.put(part.line().mirrorsLineId, part.line().reportId);
+        }
+        /* candidate line -> the chosen melding it ties to; a buyback is "terugkoop", a sale "verkoop". */
+        Map<PartnerSaleReportLineEntity, Long> candidates = new LinkedHashMap<>();
+        for (PartnerSaleReportLineEntity buyback : lines.liveBuybackPartsMirroring(sales.keySet())) {
+            if (!chosen.contains(buyback.reportId)) candidates.put(buyback, sales.get(buyback.mirrorsLineId).reportId);
+        }
+        if (!mirroredBy.isEmpty()) {
+            for (PartnerSaleReportLineEntity sale : lines.list("id in ?1", mirroredBy.keySet())) {
+                if (sale.isSale() && !chosen.contains(sale.reportId)) candidates.put(sale, mirroredBy.get(sale.id));
+            }
+        }
+        if (candidates.isEmpty()) return Map.of();
+        Set<Long> reportIds = new TreeSet<>();
+        for (PartnerSaleReportLineEntity line : candidates.keySet()) reportIds.add(line.reportId);
+        Map<Long, PartnerSaleReportEntity> live = new HashMap<>();
+        for (PartnerSaleReportEntity report : reports.list("id in ?1 and revisionOf is null", reportIds)) {
+            if (Objects.equals(report.customerId, customerId) && !report.isVoided()) live.put(report.id, report);
+        }
+        List<PartnerSaleReportLineEntity> theirs = lines.byReports(live.keySet()).stream()
+                .filter(line -> line.isSale() || line.isBuyback()).toList();
+        PartnerOpenParts.Rule rule = openParts.forLines(theirs);
+        Set<Long> held = new java.util.HashSet<>();
+        for (PartnerSaleReportLineEntity line : theirs) if (rule.holder(line) != null) held.add(line.reportId);
+        Map<Long, String> result = new TreeMap<>();
+        for (Map.Entry<PartnerSaleReportLineEntity, Long> candidate : candidates.entrySet()) {
+            PartnerSaleReportLineEntity line = candidate.getKey();
+            PartnerSaleReportEntity report = live.get(line.reportId);
+            if (report == null || result.containsKey(report.id)) continue;
+            if (report.confirmedAt == null && !held.contains(report.id)) continue;
+            if (!rule.isOpen(line, false)) continue;
+            String own = PartnerPortalRules.reportNumber(report.id);
+            String other = PartnerPortalRules.reportNumber(candidate.getValue());
+            result.put(report.id, line.isBuyback()
+                    ? own + " gaat mee: die terugkoop hoort bij de verkoop van " + other
+                    : own + " gaat mee: die verkoop hoort bij de terugkoop van " + other);
+        }
+        return result;
     }
 
     /** "VV-3 is nog niet bevestigd: bevestig of trek in" (several: "VV-3, VV-5 zijn ..."). */

@@ -241,6 +241,18 @@ public final class PartnerPortalRepositories {
                     .getResultList();
         }
 
+        /** The same buyback parts themselves (non-voided, non-archive meldingen), by id. */
+        public List<PartnerSaleReportLineEntity> liveBuybackPartsMirroring(Collection<Long> saleLineIds) {
+            if (saleLineIds == null || saleLineIds.isEmpty()) return List.of();
+            return getEntityManager().createQuery("""
+                            select l from PartnerSaleReportLineEntity l, PartnerSaleReportEntity r
+                            where r.id = l.reportId and r.voidedAt is null and r.revisionOf is null and l.lineType = :buyback
+                              and l.mirrorsLineId in :ids order by l.id""", PartnerSaleReportLineEntity.class)
+                    .setParameter("buyback", PartnerSaleReportLineEntity.BUYBACK)
+                    .setParameter("ids", saleLineIds)
+                    .getResultList();
+        }
+
         /**
          * Sale parts of this partner's non-voided meldingen sold on or after {@code from}, as
          * {line, soldOn} pairs, newest melding first.

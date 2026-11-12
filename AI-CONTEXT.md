@@ -3062,9 +3062,15 @@ the Factureren figures and notes come in later stages on top of it.
   and invoice blocks its group with that text. A slotfactuur that would leave an open part behind names
   the unconfirmed melding separately: "Dit wordt de slotfactuur van deze container, maar VV-4 is nog
   niet bevestigd: bevestig of trek in" (a confirmed one keeps "... heeft er nog een open deel; factureer
-  dat mee of wacht op een volgende verkoop"; both in one sentence when both). The preview's top-level
-  `warnings` (additive) name an unconfirmed buyback of another melding that mirrors a chosen sale:
-  "Terugkoop VV-4 hoort bij deze verkopen maar is nog niet bevestigd; ze gaat niet mee". The manual
+  dat mee of wacht op een volgende verkoop"; both in one sentence when both). A sale and a buyback of
+  another melding that mirrors it go together (review round 1): `select` adds every confirmed live
+  melding whose open part is tied to a chosen open part by a mirror link, either way round and
+  transitively (also with `reportIds` null and `until`), for preview, invoice and `runGroup` alike, so a
+  subset ("Alleen deze dag") never invoices a sale without the pieces that came back from it. The
+  preview's `reportIds` then lists them and its top-level `warnings` (additive) say why: "VV-2 gaat mee:
+  die terugkoop hoort bij de verkoop van VV-1" / "VV-1 gaat mee: die verkoop hoort bij de terugkoop van
+  VV-2". An unconfirmed one stays out and is named: "Terugkoop VV-4 hoort bij deze verkopen maar is nog
+  niet bevestigd; ze gaat niet mee" (and "Verkoop VV-n hoort bij deze terugkopen ..."). The manual
   Veilingafrekening's limit text now ends "...; bevestig en factureer die via Veilingverkopen".
 - **One set of figures per document** (`PartnerInvoiceFigures`, never computed another way): per
   product of a source (lines first in plan order, then the absorbed q = 0 products, or own stock's
