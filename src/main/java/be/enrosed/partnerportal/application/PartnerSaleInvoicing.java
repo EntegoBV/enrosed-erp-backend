@@ -3,13 +3,14 @@ package be.enrosed.partnerportal.application;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleInvoiceFigureEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleInvoicePartEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportLineEntity;
 import be.enrosed.partnerportal.domain.PartnerNumbers;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
 import be.enrosed.partnerportal.domain.PartnerSaleTexts;
-import be.enrosed.sales.application.PartnerSettlements;
+import be.enrosed.sales.application.PartnerAdvanceSchedules;
 import be.enrosed.sales.application.SalesOrderService;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
@@ -28,7 +29,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -79,7 +79,8 @@ public class PartnerSaleInvoicing {
 
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final BigDecimal ZERO = new BigDecimal("0.00");
-    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    /** report_ids of a figure row holds at most this many characters. */
+    private static final int REPORT_IDS_LENGTH = 500;
 
     private final PartnerPortalRepositories.Settings settingsRows;
     private final PartnerPortalRepositories.Reports reports;
@@ -93,12 +94,17 @@ public class PartnerSaleInvoicing {
     private final SalesRepositories.Customers customers;
     private final PurchaseOrderService purchaseOrders;
     private final PartnerPortalQueries queries;
+    private final PartnerPortalRepositories.InvoiceFigures figureRows;
+    private final PartnerAdvanceSchedules advanceRows;
 
     public PartnerSaleInvoicing(PartnerPortalRepositories.Settings settingsRows, PartnerPortalRepositories.Reports reports,
                                 PartnerPortalRepositories.Lines lines, PartnerPortalRepositories.InvoiceParts invoiceParts,
                                 PartnerOpenParts openParts, PartnerContainerCapacity capacity, PartnerProductTiles tiles,
                                 StockService stock, SalesOrderService sales, SalesRepositories.Customers customers,
-                                PurchaseOrderService purchaseOrders, PartnerPortalQueries queries) {
+                                PurchaseOrderService purchaseOrders, PartnerPortalQueries queries,
+                                PartnerPortalRepositories.InvoiceFigures figureRows, PartnerAdvanceSchedules advanceRows) {
+        this.figureRows = figureRows;
+        this.advanceRows = advanceRows;
         this.settingsRows = settingsRows;
         this.reports = reports;
         this.lines = lines;
@@ -116,10 +122,12 @@ public class PartnerSaleInvoicing {
     /* =============================================================== preview */
 
     /**
-     * What Factureren would make now. reportIds null = every melding of the partner with an open
-     * part (sold on or before {@code until} when given). Nothing is written or locked; a container
-     * group is planned with createAuctionSettlement's own arithmetic in a transaction of its own, so
-     * its refusal becomes {@code blocked} and touches nothing else.
+     * What Factureren would make now, from confirmed meldingen only (his answer: "eerst bevestigen").
+     * reportIds null = every confirmed melding of the partner with an open part (sold on or before
+     * {@code until} when given); an unconfirmed melding among explicit reportIds is refused ("VV-n is nog
+     * niet bevestigd: bevestig of trek in"). Nothing is written or locked; a container group is planned
+     * with createAuctionSettlement's own arithmetic in a transaction of its own, so its refusal becomes
+     * {@code blocked} and touches nothing else. Every figure comes from {@link PartnerInvoiceFigures}.
      */
     @Transactional
     public PartnerPortalViews.InvoicePreview preview(Long customerId, List<Long> reportIds, LocalDate until) {
@@ -139,16 +147,17 @@ public class PartnerSaleInvoicing {
                 skipped.addAll(skippedRows(plan.skipped(), SOURCE_CONTAINER, containerId, catalog));
                 if (plan.lines().isEmpty()) continue;
                 groups.add(previewContainer(partner.id(), containerId, containerName(containers, containerId), plan,
-                        notes(plan.included()), catalog, partnerContainers));
+                        internalHead(plan.included()), catalog, partnerContainers));
             } else {
                 OwnPlan plan = planOwn(source.getValue(), share, catalog);
                 skipped.addAll(skippedRows(plan.skipped(), SOURCE_OWN, null, catalog));
                 if (plan.included().isEmpty()) continue;
-                groups.add(previewOwn(plan, catalog));
+                groups.add(previewOwn(plan, share, catalog));
             }
         }
         List<Long> chosen = parts.stream().map(part -> part.report().id).distinct().sorted().toList();
-        return new PartnerPortalViews.InvoicePreview(groups, skipped, chosen, PartnerNumbers.pct(share));
+        return new PartnerPortalViews.InvoicePreview(groups, skipped, chosen, PartnerNumbers.pct(share),
+                mirrorWarnings(parts));
     }
 
     private PartnerPortalViews.InvoicePreviewGroup previewContainer(long customerId, long containerId, String containerName,
@@ -168,45 +177,155 @@ public class PartnerSaleInvoicing {
             blocked = leftBehind(containerId, plan);
             if (blocked != null) settlement = null;
         }
-        Map<Long, PartnerSettlements.Line> figures = new HashMap<>();
-        if (settlement != null) for (PartnerSettlements.Line line : settlement.snapshotLines()) figures.put(line.productId(), line);
+        PartnerInvoiceFigures.Group figures = settlement == null ? null
+                : PartnerInvoiceFigures.container(containerId, plan, settlement, costSharePct(settlement), factor(catalog));
+        Map<Long, BigDecimal> absorbed = absorbed(plan);
         List<PartnerPortalViews.InvoicePreviewLine> rows = new ArrayList<>();
         for (Line line : plan.lines()) {
-            PartnerSettlements.Line figure = figures.get(line.sum().productId);
-            rows.add(previewLine(line.sum(), line.proceeds(), figure == null ? null : figure.costEur(),
-                    figure == null ? null : figure.revenueEur(), catalog));
+            rows.add(previewLine(line.sum(), line.proceeds(), absorbed, figures, catalog));
         }
-        return new PartnerPortalViews.InvoicePreviewGroup(SOURCE_CONTAINER, containerId, containerName, rows,
-                settlement == null ? null : PartnerNumbers.money(settlement.valueEur()),
-                settlement == null ? null : PartnerNumbers.money(settlement.advanceEur()),
-                settlement == null ? null : PartnerNumbers.money(settlement.balanceEur()),
-                settlement != null && settlement.finalSettlement(), blocked, plan.warnings());
+        BigDecimal proceeds = figures != null ? figures.sum(PartnerInvoiceFigures.Row::proceedsEur)
+                : plan.lines().stream().map(Line::proceeds).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return previewGroup(SOURCE_CONTAINER, containerId, containerName, rows, figures, plan.included(), proceeds,
+                settlement != null && settlement.finalSettlement(), blocked, plan.warnings(), catalog);
     }
 
-    private PartnerPortalViews.InvoicePreviewGroup previewOwn(OwnPlan plan, PartnerProductTiles.Catalog catalog) {
+    private PartnerPortalViews.InvoicePreviewGroup previewOwn(OwnPlan plan, BigDecimal share, PartnerProductTiles.Catalog catalog) {
+        PartnerInvoiceFigures.Group figures = PartnerInvoiceFigures.own(plan, share, factor(catalog));
         List<PartnerPortalViews.InvoicePreviewLine> rows = new ArrayList<>();
         for (OwnProduct product : plan.products()) {
-            rows.add(previewLine(product.sum(), product.sum().proceeds(), product.costEur(), product.valueEur(), catalog));
+            rows.add(previewLine(product.sum(), product.sum().proceeds(), Map.of(), figures, catalog));
         }
-        BigDecimal value = PartnerNumbers.money(plan.valueEur());
-        return new PartnerPortalViews.InvoicePreviewGroup(SOURCE_OWN, null, null, rows, value, ZERO, value, false, null,
-                plan.warnings());
+        return previewGroup(SOURCE_OWN, null, null, rows, figures, plan.included(),
+                figures.sum(PartnerInvoiceFigures.Row::proceedsEur), false, null, plan.warnings(), catalog);
     }
 
-    private static PartnerPortalViews.InvoicePreviewLine previewLine(ProductSum sum, BigDecimal proceeds, BigDecimal cost,
-                                                                     BigDecimal value, PartnerProductTiles.Catalog catalog) {
+    /**
+     * One preview line: the open parts' sums, and (unless the group is blocked) the document's own figures
+     * of this product. absorbedEur = what the q = 0 netting moved onto (or off) this line.
+     */
+    private static PartnerPortalViews.InvoicePreviewLine previewLine(ProductSum sum, BigDecimal proceeds,
+                                                                     Map<Long, BigDecimal> absorbed,
+                                                                     PartnerInvoiceFigures.Group figures,
+                                                                     PartnerProductTiles.Catalog catalog) {
         PartnerPortalViews.ProductTile tile = catalog.tile(sum.productId);
+        PartnerInvoiceFigures.Row row = figures == null ? null : figures.row(sum.productId);
+        BigDecimal moved = row != null ? row.absorbedEur() : absorbed.getOrDefault(sum.productId, BigDecimal.ZERO);
+        BigDecimal lineProceeds = row != null ? row.proceedsEur() : proceeds;
         return new PartnerPortalViews.InvoicePreviewLine(sum.productId, tile.name(), tile.variant(), sum.sold,
                 sum.boughtBack, sum.quantity(), PartnerNumbers.money(sum.saleNet), PartnerNumbers.money(sum.buyback),
-                PartnerNumbers.money(proceeds), PartnerNumbers.money(cost), PartnerNumbers.money(value),
-                PartnerNumbers.money(sum.buybackGross), sum.sold * Math.max(1, tile.piecesPerSalesUnit()));
+                PartnerNumbers.money(lineProceeds), row == null ? null : row.costEur(), row == null ? null : row.valueEur(),
+                PartnerNumbers.money(sum.buybackGross), sum.sold * Math.max(1, tile.piecesPerSalesUnit()),
+                PartnerNumbers.money(sum.saleGross), PartnerNumbers.money(sum.saleCommission),
+                PartnerNumbers.money(sum.saleTransport), PartnerNumbers.money(sum.saleExtra), PartnerNumbers.money(sum.buyback),
+                PartnerNumbers.money(moved), absorbedFrom(sum.productId, moved, absorbedOf(figures, absorbed), catalog),
+                row == null ? null : PartnerNumbers.money(row.profitEur()),
+                row == null ? null : PartnerNumbers.money(row.enrosedProfitEur()),
+                row == null ? null : PartnerNumbers.money(row.partnerProfitEur()),
+                row == null ? null : row.advanceEur(), row == null ? null : row.correctionEur(),
+                figures == null ? null : figures.costSharePct(), figures == null ? null : figures.profitSharePct());
+    }
+
+    /** A group with the document's totals (null while blocked) and the sums of every included product. */
+    private static PartnerPortalViews.InvoicePreviewGroup previewGroup(String source, Long containerId, String containerName,
+                                                                       List<PartnerPortalViews.InvoicePreviewLine> rows,
+                                                                       PartnerInvoiceFigures.Group figures,
+                                                                       List<ProductSum> included, BigDecimal proceeds,
+                                                                       boolean finalSettlement, String blocked,
+                                                                       List<String> warnings, PartnerProductTiles.Catalog catalog) {
+        BigDecimal value = figures == null ? null : figures.sum(PartnerInvoiceFigures.Row::valueEur);
+        BigDecimal advance = figures == null ? null : figures.sum(PartnerInvoiceFigures.Row::advanceEur);
+        BigDecimal cost = figures == null ? null : figures.sum(PartnerInvoiceFigures.Row::costEur);
+        BigDecimal money = PartnerNumbers.money(proceeds);
+        int pieces = 0;
+        for (ProductSum sum : included) pieces += sum.sold * Math.max(1, catalog.tile(sum.productId).piecesPerSalesUnit());
+        return new PartnerPortalViews.InvoicePreviewGroup(source, containerId, containerName, rows, value, advance,
+                value == null ? null : value.subtract(advance), finalSettlement, blocked, warnings,
+                figures == null ? null : figures.profitSharePct(), figures == null ? null : figures.costSharePct(),
+                money, cost, cost == null ? null : money.subtract(cost), value == null ? null : value.subtract(cost),
+                value == null ? null : money.subtract(value),
+                figures == null ? null : figures.sum(PartnerInvoiceFigures.Row::correctionEur),
+                total(included, sum -> sum.saleGross), total(included, sum -> sum.saleCommission),
+                total(included, sum -> sum.saleTransport), total(included, sum -> sum.saleExtra),
+                total(included, sum -> sum.buyback), pieces);
+    }
+
+    private static BigDecimal total(List<ProductSum> sums, java.util.function.Function<ProductSum, BigDecimal> field) {
+        return PartnerNumbers.money(sums.stream().map(field).reduce(BigDecimal.ZERO, BigDecimal::add));
+    }
+
+    /** Per product of a container plan: line proceeds minus its own (q = 0 products: minus their own). */
+    private static Map<Long, BigDecimal> absorbed(ContainerPlan plan) {
+        Map<Long, BigDecimal> result = new HashMap<>();
+        Set<Long> onLines = new java.util.HashSet<>();
+        for (Line line : plan.lines()) {
+            result.put(line.sum().productId, line.proceeds().subtract(line.sum().proceeds()));
+            onLines.add(line.sum().productId);
+        }
+        for (ProductSum sum : plan.included()) if (!onLines.contains(sum.productId)) result.put(sum.productId, sum.proceeds().negate());
+        return result;
+    }
+
+    private static Map<Long, BigDecimal> absorbedOf(PartnerInvoiceFigures.Group figures, Map<Long, BigDecimal> fallback) {
+        if (figures == null) return fallback;
+        Map<Long, BigDecimal> result = new HashMap<>();
+        for (PartnerInvoiceFigures.Row row : figures.rows()) result.put(row.productId(), row.absorbedEur());
+        return result;
+    }
+
+    /** The products the netting moved proceeds between with this one: those with the opposite sign. */
+    static List<String> absorbedFrom(long productId, BigDecimal moved, Map<Long, BigDecimal> absorbed,
+                                     PartnerProductTiles.Catalog catalog) {
+        if (moved == null || moved.signum() == 0) return List.of();
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<Long, BigDecimal> other : new TreeMap<>(absorbed).entrySet()) {
+            if (other.getKey() == productId || other.getValue() == null) continue;
+            if (other.getValue().signum() == -moved.signum()) names.add(label(catalog, other.getKey()));
+        }
+        return names;
+    }
+
+    /**
+     * A buyback of another melding that mirrors a chosen sale but is not confirmed stays out of this run;
+     * the preview says so, so the sale is not invoiced without knowing it.
+     */
+    private List<String> mirrorWarnings(List<OpenPart> parts) {
+        Set<Long> chosen = new java.util.HashSet<>();
+        List<Long> saleIds = new ArrayList<>();
+        for (OpenPart part : parts) {
+            chosen.add(part.report().id);
+            if (part.line().isSale()) saleIds.add(part.line().id);
+        }
+        Set<Long> others = new TreeSet<>();
+        for (Object[] row : lines.liveBuybacksMirroring(saleIds)) {
+            long reportId = ((Number) row[1]).longValue();
+            if (!chosen.contains(reportId)) others.add(reportId);
+        }
+        List<String> warnings = new ArrayList<>();
+        for (Long reportId : unconfirmed(others)) {
+            warnings.add("Terugkoop " + PartnerPortalRules.reportNumber(reportId)
+                    + " hoort bij deze verkopen maar is nog niet bevestigd; ze gaat niet mee");
+        }
+        return warnings;
+    }
+
+    /** The partner's financed part of the cost: the advance agreement's percent, else the container's. */
+    private BigDecimal costSharePct(SalesOrderService.AuctionSettlementPlan settlement) {
+        PartnerAdvanceSchedules.Agreement agreement = advanceRows.find(settlement.container().id());
+        return agreement != null && agreement.financingPct() != null ? agreement.financingPct()
+                : settlement.container().partnerCostPctOrDefault();
+    }
+
+    private static java.util.function.LongToIntFunction factor(PartnerProductTiles.Catalog catalog) {
+        return productId -> catalog.tile(productId).piecesPerSalesUnit();
     }
 
     /* =============================================================== invoice */
 
     /**
      * Makes the invoices for the open parts of these meldingen (the preview's reportIds), one
-     * transaction per source: the partner's containers ascending, then own stock.
+     * transaction per source: the partner's containers ascending, then own stock. Only confirmed
+     * meldingen: an unconfirmed one among the ids refuses the whole run before anything is made.
      */
     public PartnerPortalViews.InvoiceResult invoice(Long customerId, List<Long> reportIds) {
         long partnerId = QuarkusTransaction.requiringNew().call(() -> requirePartner(customerId).id());
@@ -242,7 +361,12 @@ public class PartnerSaleInvoicing {
         return new PartnerPortalViews.InvoiceResult(invoices, blocked, skipped);
     }
 
-    /** One source, in the caller's new transaction: locks, a fresh read, the document, the links. */
+    /**
+     * One source, in the caller's new transaction: locks, a fresh read (confirmed meldingen only, checked
+     * again after the partner lock, which confirm / unconfirm take too), the document with its compact
+     * note, the figure snapshot (partner_sale_invoice_figure, the same figures the preview showed) and
+     * the links.
+     */
     private GroupOutcome runGroup(long customerId, List<Long> reportIds, Long containerId) {
         settingsRows.lockOrCreate(customerId);
         List<be.enrosed.sourcing.domain.PurchaseOrder> containers = capacity.lockContainers(customerId);
@@ -254,35 +378,100 @@ public class PartnerSaleInvoicing {
             if (Objects.equals(part.line().purchaseOrderId, containerId)) products.add(part.line().productId);
         }
         for (Long productId : products) stock.lockProduct(productId);
-        /* After the locks: still open, not withdrawn, of this source. */
+        /* After the locks: still open, not withdrawn, confirmed, of this source. */
         List<OpenPart> parts = selectOpen(customerId, reportIds, null).stream()
                 .filter(part -> Objects.equals(part.line().purchaseOrderId, containerId)).toList();
         PartnerProductTiles.Catalog catalog = tiles.load();
         Map<Long, ProductSum> sums = group(parts).getOrDefault(containerId, Map.of());
+        Customer partner = requirePartner(customerId);
         if (containerId != null) {
             ContainerPlan plan = planContainer(sums, catalog);
             List<PartnerPortalViews.InvoiceSkipped> skipped = skippedRows(plan.skipped(), SOURCE_CONTAINER, containerId, catalog);
             if (plan.lines().isEmpty()) return new GroupOutcome(null, skipped);
-            SalesOrderService.AuctionSettlementRequest request = settlementRequest(customerId, containerId, plan,
-                    notes(plan.included()));
+            String head = internalHead(plan.included());
+            SalesOrderService.AuctionSettlementRequest request = settlementRequest(customerId, containerId, plan, head);
             String behind = leftBehind(containerId, plan);
             if (behind != null && sales.previewAuctionSettlementFromReports(request).finalSettlement()) {
                 throw new BusinessRuleException(behind);
             }
-            SalesOrder created = sales.createAuctionSettlementFromReports(request);
+            String partnerName = PartnerSaleTexts.shortName(partner.company(), "partner");
+            SalesOrderService.SettlementFromReports made = sales.createAuctionSettlementFromReports(request,
+                    new SalesOrderService.ReportTexts() {
+                        @Override
+                        public String notes(SalesOrderService.AuctionSettlementPlan settlement) {
+                            return PartnerInvoiceNotes.container(figuresOf(containerId, plan, settlement, catalog),
+                                    settlement.container().displayName(), partnerName, catalog);
+                        }
+
+                        @Override
+                        public String internalNotes(SalesOrderService.AuctionSettlementPlan settlement) {
+                            return head + "\n" + settlement.detail().strip();
+                        }
+                    });
+            SalesOrder created = made.order();
+            writeFigures(created.id(), figuresOf(containerId, plan, made.plan(), catalog));
             link(created, plan.included());
             return new GroupOutcome(new PartnerPortalViews.CreatedInvoice(created.id(), created.number(), SOURCE_CONTAINER,
                     containerId), skipped);
         }
-        Customer partner = requirePartner(customerId);
-        OwnPlan plan = planOwn(sums, partner.partnerSharePctOrDefault(), catalog);
+        BigDecimal share = partner.partnerSharePctOrDefault();
+        OwnPlan plan = planOwn(sums, share, catalog);
         List<PartnerPortalViews.InvoiceSkipped> skipped = skippedRows(plan.skipped(), SOURCE_OWN, null, catalog);
         if (plan.included().isEmpty()) return new GroupOutcome(null, skipped);
+        PartnerInvoiceFigures.Group figures = PartnerInvoiceFigures.own(plan, share, factor(catalog));
         SalesOrder created = sales.createPartnerSalesInvoice(new SalesOrderService.PartnerSalesInvoiceRequest(customerId,
-                plan.invoiceLines(), plan.extras(), ownNotes(plan, partner.partnerSharePctOrDefault(), catalog),
-                notes(plan.included())));
+                plan.invoiceLines(), plan.extras(), PartnerInvoiceNotes.own(figures, catalog),
+                internalHead(plan.included()) + "\n" + ownDetail(figures, catalog)));
+        writeFigures(created.id(), figures);
         link(created, plan.included());
         return new GroupOutcome(new PartnerPortalViews.CreatedInvoice(created.id(), created.number(), SOURCE_OWN, null), skipped);
+    }
+
+    private PartnerInvoiceFigures.Group figuresOf(long containerId, ContainerPlan plan,
+                                                  SalesOrderService.AuctionSettlementPlan settlement,
+                                                  PartnerProductTiles.Catalog catalog) {
+        return PartnerInvoiceFigures.container(containerId, plan, settlement, costSharePct(settlement), factor(catalog));
+    }
+
+    /** The figure snapshot of a document: one row per product it holds (lines, absorbed and extra-line ones). */
+    private void writeFigures(long salesOrderId, PartnerInvoiceFigures.Group figures) {
+        Instant now = Instant.now();
+        for (PartnerInvoiceFigures.Row row : figures.rows()) {
+            PartnerSaleInvoiceFigureEntity entity = new PartnerSaleInvoiceFigureEntity();
+            entity.salesOrderId = salesOrderId;
+            entity.productId = row.productId();
+            entity.soldQuantity = row.soldQuantity();
+            entity.boughtBackQuantity = row.boughtBackQuantity();
+            entity.quantity = row.quantity();
+            entity.salePieces = row.salePieces();
+            entity.grossEur = row.grossEur();
+            entity.commissionEur = row.commissionEur();
+            entity.transportEur = row.transportEur();
+            entity.extraEur = row.extraEur();
+            entity.buybackCostEur = row.buybackCostEur();
+            entity.proceedsEur = row.proceedsEur();
+            entity.absorbedEur = row.absorbedEur();
+            entity.costEur = row.costEur();
+            entity.valueEur = row.valueEur();
+            entity.advanceEur = row.advanceEur();
+            entity.correctionEur = row.correctionEur();
+            entity.profitSharePct = figures.profitSharePct();
+            entity.costSharePct = figures.costSharePct();
+            entity.reportIds = reportIdsText(row.reportIds());
+            entity.createdAt = now;
+            figureRows.persist(entity);
+        }
+    }
+
+    /** "12,14,17": the melding ids of a row, as many as fit the column (the breakdown reads the links, not this). */
+    private static String reportIdsText(Set<Long> ids) {
+        StringBuilder text = new StringBuilder();
+        for (Long id : new TreeSet<>(ids)) {
+            String next = (text.isEmpty() ? "" : ",") + id;
+            if (text.length() + next.length() > REPORT_IDS_LENGTH) break;
+            text.append(next);
+        }
+        return text.toString();
     }
 
     /** Every part of these products goes on the document: invoice_id, invoiced_at and an append-only row. */
@@ -306,8 +495,8 @@ public class PartnerSaleInvoicing {
 
     /**
      * A slotfactuur must take every open part of its container: after it no settlement line can come on the
-     * container, so a part it leaves open (a buyback waiting for a resale, or a melding outside this run) could
-     * never be invoiced. The refusal text when such parts exist, else null.
+     * container, so a part it leaves open (a buyback waiting for a resale, a melding outside this run, or one
+     * not confirmed yet) could never be invoiced. The refusal text when such parts exist, else null.
      */
     private String leftBehind(long containerId, ContainerPlan plan) {
         Set<Long> included = new java.util.HashSet<>();
@@ -319,9 +508,17 @@ public class PartnerSaleInvoicing {
             if (rule.isOpen(line, false) && !included.contains(line.id)) waiting.add(line.reportId);
         }
         if (waiting.isEmpty()) return null;
-        String numbers = String.join(", ", waiting.stream().map(PartnerPortalRules::reportNumber).toList());
-        return "Dit wordt de slotfactuur van deze container, maar " + numbers + (waiting.size() == 1 ? " heeft" : " hebben")
-                + " er nog een open deel; factureer dat mee of wacht op een volgende verkoop";
+        Set<Long> unconfirmed = unconfirmed(waiting);
+        List<Long> open = waiting.stream().filter(id -> !unconfirmed.contains(id)).toList();
+        String start = "Dit wordt de slotfactuur van deze container, maar ";
+        String notConfirmed = PartnerSaleTexts.numbers(unconfirmed) + (unconfirmed.size() == 1 ? " is" : " zijn")
+                + " nog niet bevestigd";
+        String stillOpen = String.join(", ", open.stream().map(PartnerPortalRules::reportNumber).toList())
+                + (open.size() == 1 ? " heeft" : " hebben") + " er nog een open deel";
+        if (open.isEmpty()) return start + notConfirmed + ": bevestig of trek in";
+        if (unconfirmed.isEmpty()) return start + stillOpen + "; factureer dat mee of wacht op een volgende verkoop";
+        return start + notConfirmed + " (bevestig of trek in) en " + stillOpen
+                + " (factureer dat mee of wacht op een volgende verkoop)";
     }
 
     private static SalesOrderService.AuctionSettlementRequest settlementRequest(long customerId, long containerId,
@@ -341,7 +538,10 @@ public class PartnerSaleInvoicing {
     /**
      * The open SALE/BUYBACK parts of these meldingen of this partner (reportIds null = every melding
      * with an open part, sold on or before {@code until}). Withdrawn meldingen and other partners'
-     * are left out; the open-part rule decides the rest.
+     * are left out; the open-part rule decides the rest. Confirmed meldingen only (his answer 3): with
+     * reportIds null an unconfirmed melding is left out, among explicit reportIds it is refused ("VV-n
+     * is nog niet bevestigd: bevestig of trek in"). Confirmed = staff confirmed it, or a document holds
+     * one of its parts (the reader's rule). runGroup calls this again after the partner lock.
      */
     private List<OpenPart> selectOpen(long customerId, Collection<Long> reportIds, LocalDate until) {
         List<Long> ids = reportIds == null
@@ -358,12 +558,43 @@ public class PartnerSaleInvoicing {
         List<PartnerSaleReportLineEntity> found = lines.byReports(chosen.keySet()).stream()
                 .filter(line -> line.isSale() || line.isBuyback()).toList();
         PartnerOpenParts.Rule rule = openParts.forLines(found);
+        Set<Long> held = new java.util.HashSet<>();
+        for (PartnerSaleReportLineEntity line : found) if (rule.holder(line) != null) held.add(line.reportId);
         List<OpenPart> open = new ArrayList<>();
+        Set<Long> unconfirmed = new TreeSet<>();
         for (PartnerSaleReportLineEntity line : found) {
             PartnerSaleReportEntity report = chosen.get(line.reportId);
-            if (report != null && line.productId != null && rule.isOpen(line, report.isVoided())) open.add(new OpenPart(line, report));
+            if (report == null || line.productId == null || !rule.isOpen(line, report.isVoided())) continue;
+            if (report.confirmedAt == null && !held.contains(report.id)) {
+                unconfirmed.add(report.id);
+                continue;
+            }
+            open.add(new OpenPart(line, report));
         }
+        if (reportIds != null && !unconfirmed.isEmpty()) throw new BusinessRuleException(notConfirmed(unconfirmed));
         return open;
+    }
+
+    /** "VV-3 is nog niet bevestigd: bevestig of trek in" (several: "VV-3, VV-5 zijn ..."). */
+    static String notConfirmed(Collection<Long> reportIds) {
+        return PartnerSaleTexts.numbers(reportIds) + (reportIds.size() == 1 ? " is" : " zijn")
+                + " nog niet bevestigd: bevestig of trek in";
+    }
+
+    /** Among these meldingen, the live ones nobody confirmed and no document holds a part of. */
+    private Set<Long> unconfirmed(Collection<Long> reportIds) {
+        if (reportIds.isEmpty()) return Set.of();
+        List<Long> ids = reportIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        List<PartnerSaleReportLineEntity> found = lines.byReports(ids).stream()
+                .filter(line -> line.isSale() || line.isBuyback()).toList();
+        PartnerOpenParts.Rule rule = openParts.forLines(found);
+        Set<Long> held = new java.util.HashSet<>();
+        for (PartnerSaleReportLineEntity line : found) if (rule.holder(line) != null) held.add(line.reportId);
+        Set<Long> result = new TreeSet<>();
+        for (PartnerSaleReportEntity report : reports.list("id in ?1 and revisionOf is null", ids)) {
+            if (!report.isVoided() && report.confirmedAt == null && !held.contains(report.id)) result.add(report.id);
+        }
+        return result;
     }
 
     /** Per source (container id, null = own stock last) and product: the sums of the open parts. */
@@ -384,6 +615,11 @@ public class PartnerSaleInvoicing {
         int sold;
         int boughtBack;
         BigDecimal saleNet = BigDecimal.ZERO;
+        /** The sale parts' gross and costs (saleNet = gross - commission - transport - extra). */
+        BigDecimal saleGross = BigDecimal.ZERO;
+        BigDecimal saleCommission = BigDecimal.ZERO;
+        BigDecimal saleTransport = BigDecimal.ZERO;
+        BigDecimal saleExtra = BigDecimal.ZERO;
         /** What the buybacks cost (-net); buybackGross the clock price totals alone. */
         BigDecimal buyback = BigDecimal.ZERO;
         BigDecimal buybackGross = BigDecimal.ZERO;
@@ -407,6 +643,10 @@ public class PartnerSaleInvoicing {
             if (line.isSale()) {
                 sold += quantity;
                 saleNet = saleNet.add(line.netEur == null ? BigDecimal.ZERO : line.netEur);
+                saleGross = saleGross.add(line.grossEur == null ? BigDecimal.ZERO : line.grossEur);
+                saleCommission = saleCommission.add(line.commissionEur == null ? BigDecimal.ZERO : line.commissionEur);
+                saleTransport = saleTransport.add(line.transportEur == null ? BigDecimal.ZERO : line.transportEur);
+                saleExtra = saleExtra.add(line.extraCostEur == null ? BigDecimal.ZERO : line.extraCostEur);
                 ownCost = ownCost.add(unitCost.multiply(BigDecimal.valueOf(quantity)));
                 if (line.purchaseOrderId == null && unitCost.signum() <= 0) costUnknown = true;
             } else {
@@ -613,32 +853,33 @@ public class PartnerSaleInvoicing {
         return new OwnProduct(sum, cost, value, false);
     }
 
-    /** The invoice's own text, in the style of a settlement's: one line per product, then the totals. */
-    private static String ownNotes(OwnPlan plan, BigDecimal share, PartnerProductTiles.Catalog catalog) {
-        StringBuilder notes = new StringBuilder("Veilingverkopen uit eigen voorraad · ")
-                .append(PartnerNumbers.pct(share).toPlainString().replace('.', ','))
-                .append(" % van het netto resultaat (ook verlies).\n");
-        BigDecimal proceeds = BigDecimal.ZERO;
-        BigDecimal cost = BigDecimal.ZERO;
-        for (OwnProduct product : plan.products()) {
-            ProductSum sum = product.sum();
-            BigDecimal net = sum.proceeds().setScale(2, RoundingMode.HALF_UP);
-            proceeds = proceeds.add(net);
-            cost = cost.add(product.costEur());
-            notes.append(label(catalog, sum.productId)).append(": ").append(sum.quantity()).append(" stuks; netto ")
-                    .append(PartnerSaleTexts.euro(net)).append("; kost ").append(PartnerSaleTexts.euro(product.costEur()))
-                    .append("; resultaat ").append(PartnerSaleTexts.euro(net.subtract(product.costEur())))
-                    .append("; ons deel ").append(PartnerSaleTexts.euro(product.valueEur())).append('\n');
+    /**
+     * The own-stock invoice's per-product detail for the internal note (off the PDF): per product the
+     * pieces, netto, kost, resultaat and ons deel, from the document's figures.
+     */
+    private static String ownDetail(PartnerInvoiceFigures.Group figures, PartnerProductTiles.Catalog catalog) {
+        StringBuilder detail = new StringBuilder();
+        for (PartnerInvoiceFigures.Row row : figures.rows()) {
+            PartnerPortalViews.ProductTile tile = catalog.tile(row.productId());
+            int pieces = row.quantity() * Math.max(1, tile.piecesPerSalesUnit());
+            if (!detail.isEmpty()) detail.append('\n');
+            detail.append(label(catalog, row.productId())).append(": ")
+                    .append(PartnerSaleTexts.quantity(pieces, tile.pieceOne(), tile.pieceOther()))
+                    .append("; netto ").append(PartnerSaleTexts.euro(row.proceedsEur()))
+                    .append("; kost ").append(PartnerSaleTexts.euro(row.costEur()))
+                    .append("; resultaat ").append(PartnerSaleTexts.euro(row.profitEur()))
+                    .append("; ons deel ").append(PartnerSaleTexts.euro(row.valueEur()));
         }
-        return notes.append("Netto opbrengst ").append(PartnerSaleTexts.euro(proceeds)).append("; kost ")
-                .append(PartnerSaleTexts.euro(cost)).append("; ons deel ").append(PartnerSaleTexts.euro(plan.valueEur()))
-                .append('.').toString();
+        return detail.toString();
     }
 
     /* ================================================================ helpers */
 
-    /** "Veilingverkopen 01/11/2026 - 10/11/2026 · 3 meldingen": which meldingen a document holds. */
-    private static String notes(List<ProductSum> included) {
+    /**
+     * "Veilingverkopen VV-12, VV-14 (01/11–10/11/2026) · 2 meldingen": which meldingen a document holds,
+     * the first line of its internal note (numbers collapsed only when consecutive).
+     */
+    static String internalHead(List<ProductSum> included) {
         LocalDate first = null;
         LocalDate last = null;
         Set<Long> meldingen = new TreeSet<>();
@@ -647,12 +888,10 @@ public class PartnerSaleInvoicing {
             if (sum.firstSoldOn != null && (first == null || sum.firstSoldOn.isBefore(first))) first = sum.firstSoldOn;
             if (sum.lastSoldOn != null && (last == null || sum.lastSoldOn.isAfter(last))) last = sum.lastSoldOn;
         }
-        String period = first == null ? "" : first.equals(last) ? " " + DAY.format(first)
-                : " " + DAY.format(first) + " - " + DAY.format(last);
-        return "Veilingverkopen" + period + " · " + meldingen.size() + (meldingen.size() == 1 ? " melding" : " meldingen");
+        return PartnerInvoiceNotes.head(meldingen, first, last, null);
     }
 
-    private static String label(PartnerProductTiles.Catalog catalog, long productId) {
+    static String label(PartnerProductTiles.Catalog catalog, long productId) {
         PartnerPortalViews.ProductTile tile = catalog.tile(productId);
         return tile.variant() == null ? tile.name() : tile.name() + " " + tile.variant();
     }

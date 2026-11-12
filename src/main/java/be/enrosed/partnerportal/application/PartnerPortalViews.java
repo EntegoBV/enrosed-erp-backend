@@ -272,23 +272,42 @@ public final class PartnerPortalViews {
      */
     public record InvoicePreviewLine(long productId, String name, String variant, int soldQuantity, int buybackQuantity,
                                      int quantity, BigDecimal saleNetEur, BigDecimal buybackEur, BigDecimal proceedsEur,
-                                     BigDecimal costEur, BigDecimal valueEur, BigDecimal buybackGrossEur, int salePieces) {}
+                                     BigDecimal costEur, BigDecimal valueEur, BigDecimal buybackGrossEur, int salePieces,
+                                     BigDecimal grossEur, BigDecimal commissionEur, BigDecimal transportEur,
+                                     BigDecimal extraEur, BigDecimal buybackCostEur, BigDecimal absorbedEur,
+                                     List<String> absorbedFrom, BigDecimal profitEur, BigDecimal enrosedProfitEur,
+                                     BigDecimal partnerProfitEur, BigDecimal advanceEur, BigDecimal correctionEur,
+                                     BigDecimal costSharePct, BigDecimal profitSharePct) {}
 
     /**
      * One invoice to be: source CONTAINER (a partner settlement on purchaseOrderId, createAuctionSettlement's
      * own arithmetic) or OWN (one invoice for Enrosed's own stock). balanceEur = valueEur - advanceEur;
      * blocked = the refusal the creation would give (nothing is made for it).
+     *
+     * <p>Round 2 (ERP only, never in a partner response; the document's own figures, the same the note and
+     * the breakdown show): profitSharePct (ours), costSharePct (the partner's financed part: the advance
+     * agreement's percent, else the container's; own stock 0), proceedsEur (netto opbrengst) - costEur
+     * (inkoopkost, external, without Enrosed kost) = profitEur; enrosedProfitEur = valueEur - costEur;
+     * partnerProfitEur = proceedsEur - valueEur; correctionEur = a slotfactuur's true-up of earlier
+     * deelfacturen (inside valueEur). The money figures are null on a blocked group. gross / commission /
+     * transport / extra / buybackCost / salePieces sum every product the group holds (absorbed q = 0 ones
+     * too), so grossEur - commissionEur - transportEur - extraEur - buybackCostEur = proceedsEur.
      */
     public record InvoicePreviewGroup(String source, Long purchaseOrderId, String containerName,
                                       List<InvoicePreviewLine> lines, BigDecimal valueEur, BigDecimal advanceEur,
                                       BigDecimal balanceEur, boolean finalSettlement, String blocked,
-                                      List<String> warnings) {}
+                                      List<String> warnings, BigDecimal profitSharePct, BigDecimal costSharePct,
+                                      BigDecimal proceedsEur, BigDecimal costEur, BigDecimal profitEur,
+                                      BigDecimal enrosedProfitEur, BigDecimal partnerProfitEur, BigDecimal correctionEur,
+                                      BigDecimal grossEur, BigDecimal commissionEur, BigDecimal transportEur,
+                                      BigDecimal extraEur, BigDecimal buybackCostEur, int salePieces) {}
 
     /** A product whose open parts stay open in this run, and why. */
     public record InvoiceSkipped(long productId, String name, String source, Long purchaseOrderId, String reason) {}
 
+    /** warnings (round 2): e.g. an unconfirmed buyback that mirrors a chosen sale and stays out of this run. */
     public record InvoicePreview(List<InvoicePreviewGroup> groups, List<InvoiceSkipped> skipped, List<Long> reportIds,
-                                 BigDecimal profitSharePct) {}
+                                 BigDecimal profitSharePct, List<String> warnings) {}
 
     public record CreatedInvoice(long id, String number, String source, Long purchaseOrderId) {}
 
