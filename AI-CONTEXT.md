@@ -2851,6 +2851,85 @@ named constraints identical in `@Table` and the migration:
   not list by booking time before the cut-off (`ClosingSeparations.partnerReportedOut`); the batch
   start counts them by booking time before the run (`StockService.partnerReportedOut`).
 
+### Round 2, stage 1 (2026-11-12): schema, count units, money, shapes, flags
+Emre's round 2 (`design/BRIEF-R2.md`; contract `CONTRACT-R2.md`, its v2 part binding). This stage
+built the backend base; edit/confirm endpoints, the buyer search and creation, the containers view,
+the Factureren figures and notes come in later stages on top of it.
+- **One migration** `docs/migrations/2026-11-12/partner-portal-r2-postgresql.sql` (registered after
+  the round-1 file in the Dockerfile and `scripts/run-postgresql-schema-migrations.sh`), additive
+  and nullable, no backfill: `partner_sale_report` + `confirmed_at/by/by_name`, `updated_at/by/
+  by_name`, `revision_of` (index `idx_partner_sale_report_revision_of`), `buyer_customer_id` (index
+  `idx_partner_sale_report_buyer`); `partner_sale_report_line` + `entered_unit`, `entered_count`,
+  `piece_price_eur` (19,4), `entered_pieces_per_unit`; new tables `partner_sale_report_cost`
+  (`cost_mode` / `cost_value`: H2 reserves VALUE), `partner_product_unit` (unique
+  `uq_partner_product_unit` (customer_id, product_id)), `partner_customer_link` (unique
+  `uq_partner_customer_link` (partner_customer_id, customer_id), index on customer_id),
+  `partner_sale_invoice_figure` (index on sales_order_id). Entities and repositories exist for all
+  (`PartnerPortalRepositories.Costs / ProductUnits / CustomerLinks / InvoiceFigures`). Checked on
+  PostgreSQL 17: the prod jar with `DB_SCHEMA_STRATEGY=validate` boots on the migrated schema.
+- **Archive rows** (`revision_of` set; an edit that rebooks moves the old lines and cost rows there,
+  voided "Gewijzigd"): every list query filters `revisionOf is null` in SQL (partner page,
+  overview, staff list, summary, analytics, bell, Factureren selection, line queries joined to the
+  report). Staff read one by id (`StaffReport.revisionOf`); the partner gets 404; withdrawing one
+  answers "Dit is een oude versie".
+- **Count units** (`partnerportal/domain/PartnerCountUnits`, pure; the frontend mirrors it):
+  STUK (the piece noun from `UnitNames` via `packaging.unitKey()`, 1 piece), VERPAKKING ("display",
+  `unitPieces()`, only for a DISPLAY packaging with >= 2 pieces, either basis), OMDOOS
+  (`knownPiecesPerCarton x piecesPerSalesUnit`, only when the carton content is known and > 1);
+  smallest first. piecesPerSalesUnit = `unitPieces()` on a DISPLAY basis, else 1. Sales units =
+  count x pieces / piecesPerSalesUnit, refused when not whole ("Een display telt 12 rozen: meld 12,
+  24, 36 … rozen of tel per display."). Stock, parts, movements and settlements stay in sales units.
+  Tiles (`ProductTile`, `StockTile`, `RecentSaleTile`, and every melding `Entry`) carry `salesUnit`,
+  `piecesPerSalesUnit`, `pieceOne/pieceOther`, `countUnits [{unit, one, other, pieces}]` and
+  `defaultUnit` (the partner's `partner_product_unit` row when the product still offers it, else
+  STUK; `PartnerProductTiles.load(customerId)` / `Catalog.tile(productId, customerId)`). Staff:
+  `GET /api/partner-portal-admin/{customerId}/units` -> the stored rows `[{productId, unit}]`;
+  `PUT` `{changes: [{productId, unit|null}]}` partial (null or STUK removes the row; a unit the
+  product does not offer is refused, the whole request then changes nothing), under the partner lock.
+- **Requests**: a part is round 1 (`quantity` + `unitPriceEur` | `totalEur`) or round 2
+  (`enteredUnit`, `enteredCount`, `piecePriceEur`); mixing both in one part is 400. The server
+  converts once the product is locked: unit price per sales unit = round4(piece price) x
+  piecesPerSalesUnit, gross = round2(quantity x unit price); entered_* are stored per side (sale
+  rows and buyback rows each their own) with the unit's pieces as snapshot. The melding takes
+  `extraCosts [{description (<= 80, control characters out), mode AMOUNT|PCT, value}]` (0..5;
+  `extraCost` beside it is 400; a round-1 `extraCost` is one line without description) and
+  `buyerCustomerId` (DIRECT only; after the partner lock: an existing customer, no partner, not
+  this partner, else "Onbekende klant"; required only on an `apiVersion` 2 partner request: "Kies de
+  klant of voeg er een toe"). `apiVersion` and `expectedToken` (for the edit stage) are read.
+  New meldingen no longer write `extra_cost_mode/value` (round-1 rows keep theirs).
+- **Money** (`PartnerSaleMoney`, identical to the frontend's to the cent): per sale entry extra =
+  the PCT lines each round2(gross x pct / 100) + the entry's share of the AMOUNT lines' sum, that sum
+  allocated once by gross (`PartnerSettlementLedger.allocate`). A buyback carries the melding's
+  commission and transport: round2(gross x pct / 100) each, net = -(gross + commission +
+  transport); `splitBuyback` allocates gross, commission and transport by quantity and derives
+  each part's net the same way. **Every reader of a buyback reads its cost as -net**
+  (`PartnerSaleMoney.buybackCost`): the report totals, `PartnerSaleInvoicing.ProductSum`, the
+  bell, analytics, the activity summary. Round-1 buybacks have no costs, so -net = gross.
+- **Views**: `Overview`, `StaffPage` and `Summary` answer `apiVersion: 2`. PartnerReport and
+  StaffReport add `editToken` (= coalesce(updated_at, created_at) as ISO instant; new rows are
+  written at micro precision so the token reads back equal), `updatedAt`, `updatedByName`,
+  `extraCosts [{description, mode, value, amountEur}]`, `buyer {customerId, company, city}` ("Klant
+  verwijderd" when gone), `confirmed` (confirmed_at set or a live document holds a part),
+  `confirmedAt`, `confirmedByName`, `canEdit`. Per side of an entry `enteredUnit, enteredCount,
+  piecePriceEur, enteredPiecesPerUnit, pieces` (round-1 rows, or a count that no longer matches the
+  booked pieces, read in sales units: VERPAKKING on a display basis, else STUK); the buyback part
+  adds `commissionEur, transportEur, costEur`. Totals: `buybackEur` = the terugkoopkost (-net), new
+  `buybackGrossEur`, `salePieces`, `buybackPieces`; `netEur` = saleNet - buybackEur. The legacy
+  `extraCost` is the one line, or AMOUNT of the whole extra when there are several.
+  AnalyticsReport adds `buybackGrossEur`, `salePieces`, `buyer` (buybackEur = cost);
+  AnalyticsProduct `salePieces` (netEur = sale net - cost); InvoicePreviewLine `buybackGrossEur`,
+  `salePieces` (buybackEur = cost); StaffPart `commissionEur, transportEur, extraCostEur, pieces`.
+  `GET /api/partner-portal/reports/{id}`: an own melding, 404 otherwise and for archive rows.
+- **Flags per audience** (`PartnerReportReader.Loaded`): partner `canEdit = canUndo` = OPEN, no
+  buyback of another live melding mirrors it, not confirmed, not an archive row; staff (StaffReport)
+  the same without "not confirmed". `Loaded.state()` = VOIDED > INVOICED > CONFIRMED > UNCONFIRMED
+  for the list filters. The partner's withdrawal re-checks `confirmed_at` after the partner lock:
+  "Enrosed heeft deze melding al bevestigd; vraag Enrosed om een wijziging.".
+- **Customer delete**: refused while the customer is the buyer of a melding (voided included,
+  archive rows not): "Deze klant staat op een directe verkoop (VV-n)"; otherwise its
+  `partner_product_unit` rows and every `partner_customer_link` naming it go too.
+- Push and bell texts count pieces ("120 rozen · gem. € 1,20 · netto ..."), averages per piece.
+
 ## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
 
 Emre: "Bekijk ook of de track trace beter kan." Production has no ShipsGo token: automatic data comes
